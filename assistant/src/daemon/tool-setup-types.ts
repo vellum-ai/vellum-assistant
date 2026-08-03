@@ -25,6 +25,25 @@ import type { TrustContext } from "./trust-context-types.js";
 export type SubagentToolGateMode = "wire" | "execution";
 
 /**
+ * Live tool-call counters for a subagent child, recorded by the tool executor
+ * and harvested by the SubagentManager when the run ends.
+ *
+ * This is the machine half of a subagent's result: the parent reads the child's
+ * own prose narrative, and these counts say what the child actually ran, so a
+ * claim of executed work that never touched a tool is visible rather than
+ * taken on trust. Ephemeral (in-memory only, never persisted) and only ever
+ * written for subagent conversations.
+ */
+export interface SubagentToolStats {
+  /** Tool calls dispatched, including ones that returned an error. */
+  calls: number;
+  /** Of those, the calls whose result was not an error. */
+  succeeded: number;
+  /** Distinct paths successfully passed to `file_write` / `file_edit`. */
+  filesWritten: Set<string>;
+}
+
+/**
  * Client-context inputs frozen for tool-DEFINITION resolution during a wake
  * that runs with `subagentToolGateMode: "execution"`.
  *
@@ -92,6 +111,18 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * executor records into this Set (shared by reference with the Conversation).
    */
   subagentDeniedToolNames?: Set<string>;
+  /**
+   * True when this conversation runs as a subagent child (mirrors
+   * {@link Conversation.isSubagent}). Gates the tool-call accounting into
+   * {@link subagentToolStats}, so parent conversations are never counted.
+   */
+  readonly isSubagent?: boolean;
+  /**
+   * Collects the subagent's tool-call counts for parent-visible reporting (see
+   * {@link SubagentToolStats}). The executor records into this object (shared
+   * by reference with the Conversation) only when {@link isSubagent} is true.
+   */
+  subagentToolStats?: SubagentToolStats;
   /**
    * How {@link subagentAllowedTools} is enforced. Absent or `"wire"` keeps
    * the historical behavior (definitions filtered before the provider

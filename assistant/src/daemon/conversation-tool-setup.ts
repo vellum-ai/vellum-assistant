@@ -83,9 +83,13 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import type { ToolSetupContext } from "./tool-setup-types.js";
+import type {
+  SubagentToolStats,
+  ToolSetupContext,
+} from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
+  SubagentToolStats,
   ToolSetupContext,
   WakeToolContextPin,
 } from "./tool-setup-types.js";
@@ -311,6 +315,41 @@ export function createToolExecutor(
     };
   };
 
+  // Machine tool-call accounting for the subagent truth envelope. Recorded
+  // here because this closure is the single dispatch choke point every tool
+  // call passes through, including the `skill_execute` indirection (counted
+  // under the resolved inner tool name, not the wrapper). Non-subagent
+  // conversations never reach the counters.
+  const subagentStats = (): SubagentToolStats | undefined =>
+    ctx.isSubagent === true ? ctx.subagentToolStats : undefined;
+
+  const recordToolDispatch = (): void => {
+    const stats = subagentStats();
+    if (stats) {
+      stats.calls++;
+    }
+  };
+
+  const recordToolResult = (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    result: ToolExecutionResult,
+  ): void => {
+    const stats = subagentStats();
+    if (!stats || result.isError) {
+      return;
+    }
+    stats.succeeded++;
+    // Both file tools name their target `path`. A Set dedupes repeated edits
+    // of the same file, so the count reads as "files touched", not "writes".
+    if (toolName === "file_write" || toolName === "file_edit") {
+      const target = toolInput.path;
+      if (typeof target === "string" && target.length > 0) {
+        stats.filesWritten.add(target);
+      }
+    }
+  };
+
   return async (
     name: string,
     input: Record<string, unknown>,
@@ -505,12 +544,14 @@ export function createToolExecutor(
         return pluginRejection;
       }
 
+      recordToolDispatch();
       const rawResult = await executor.execute(
         toolName,
         toolInput,
         toolContext,
       );
       const result = augmentSkillExecuteError(toolName, toolInput, rawResult);
+      recordToolResult(toolName, toolInput, result);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -520,11 +561,13 @@ export function createToolExecutor(
       return result;
     }
 
+    recordToolDispatch();
     const result = await executor.execute(
       executionName,
       executionInput,
       toolContext,
     );
+    recordToolResult(executionName, executionInput, result);
     if (toolContext.approvedViaPrompt) {
       ctx.approvedViaPromptThisTurn = true;
     }

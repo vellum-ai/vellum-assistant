@@ -164,6 +164,21 @@ describe("buildSubagentSystemPrompt — blocked-signal constraint", () => {
       SUBAGENT_ROLE_REGISTRY.researcher.systemPromptPreamble,
     ).not.toContain("do NOT fabricate");
   });
+
+  test("every role is also told not to invent output for a tool that failed or was missing", () => {
+    // The blocked-signal line above only covers a capability the ROLE lacks.
+    // This one covers the runtime cases: the call failed, or the tool was not
+    // there at all.
+    for (const role of ALL_ROLES) {
+      const prompt = buildSubagentSystemPrompt(cfg("run the build"), role);
+      expect(prompt).toContain(
+        "If a tool call fails, or a tool you expected is unavailable, report the failure verbatim and stop that line of work.",
+      );
+      expect(prompt).toContain(
+        "Never simulate, reconstruct, or invent tool output you did not actually receive.",
+      );
+    }
+  });
 });
 
 describe("mergeSkillIds", () => {

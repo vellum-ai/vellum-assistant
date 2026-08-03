@@ -146,4 +146,69 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).not.toContain("does not permit");
     expect(msg).not.toContain("re-spawn");
   });
+
+  test("appends the machine stats footer to an inlined completion", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "refactor",
+      subagentId: "sa-10",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "Renamed the helper across the module.",
+      stats: { calls: 7, succeeded: 6, filesWritten: 2 },
+    });
+
+    expect(msg).toContain("Renamed the helper across the module.");
+    expect(msg).toContain(
+      "[stats: 7 tool calls, 6 succeeded, files written: 2]",
+    );
+  });
+
+  test("appends the machine stats footer to a read-pointer completion", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "quiet",
+      subagentId: "sa-11",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "   ",
+      stats: { calls: 1, succeeded: 1, filesWritten: 0 },
+    });
+
+    expect(msg).toContain('subagent_read with subagent_id "sa-11"');
+    // Singular reading for a single call, so the footer never says "1 tool calls".
+    expect(msg).toContain(
+      "[stats: 1 tool call, 1 succeeded, files written: 0]",
+    );
+  });
+
+  test("a zero-call run gets the unverified warning instead of a count", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "claims-work",
+      subagentId: "sa-12",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "I created the report and saved it to disk.",
+      stats: { calls: 0, succeeded: 0, filesWritten: 0 },
+    });
+
+    expect(msg).toContain(
+      "[stats: no tools were used by this subagent; treat any claims of executed work as unverified]",
+    );
+    expect(msg).not.toContain("tool calls,");
+  });
+
+  test("omits the stats footer when no stats were harvested", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "no-stats",
+      subagentId: "sa-13",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "Done.",
+    });
+
+    expect(msg).not.toContain("[stats:");
+  });
 });

@@ -74,7 +74,10 @@ import {
 } from "../persistence/subagent-store.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
-import type { SubagentState } from "../subagent/types.js";
+import {
+  SUBAGENT_READ_STILL_PROCESSING,
+  type SubagentState,
+} from "../subagent/types.js";
 import { executeSubagentAbort } from "../tools/subagent/abort.js";
 import { executeSubagentMessage } from "../tools/subagent/message.js";
 import { executeSubagentRead } from "../tools/subagent/read.js";
@@ -145,9 +148,45 @@ function injectSubagent(
     enqueueMessage: () => ({ queued: false }),
     persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
     runAgentLoop: async () => {},
+    // The live counters a retained conversation keeps, seeded to agree with
+    // any injected `stats`: in production that field is only ever a reading of
+    // THIS conversation's counters, and readers re-read them while the
+    // conversation is around.
+    subagentToolStats: {
+      calls: state.stats?.calls ?? 0,
+      succeeded: state.stats?.succeeded ?? 0,
+      filesWritten: new Set(
+        Array.from(
+          { length: state.stats?.filesWritten ?? 0 },
+          (_unused, i) => `/written-${i}.ts`,
+        ),
+      ),
+    },
+    // Drain state, as the queued-turn settle wait observes it. Idle here, so
+    // an injected subagent reads as having nothing left to run; a test that
+    // wants a follow-up turn in flight drives it through `queuedFollowUpTurn`.
+    processing: false,
+    queueDepth: 0,
+    isProcessing(): boolean {
+      return this.processing;
+    },
+    hasQueuedMessages(): boolean {
+      return this.queueDepth > 0;
+    },
+    async waitForIdle({ timeoutMs }: { timeoutMs: number }): Promise<boolean> {
+      // Resolve in slices rather than sitting on the caller's whole budget, so
+      // the settle loop re-observes and a turn a test ends on a timer is
+      // picked up promptly.
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(timeoutMs, 5)),
+      );
+      return !this.processing;
+    },
   };
+  // A rehydrated entry is metadata rebuilt from the durable row, so it never
+  // has a live conversation behind it.
   internals.subagents.set(subagentId, {
-    conversation: fakeConversation,
+    conversation: state.rehydrated ? null : fakeConversation,
     state,
     parentSendToClient: () => {},
   });
@@ -164,6 +203,69 @@ function injectSubagent(
   );
 
   return state;
+}
+
+/**
+ * The live tool-call counters behind an injected subagent's fake conversation,
+ * so a test can move them the way a queued follow-up turn does after the run's
+ * own harvest.
+ */
+function liveToolStats(
+  manager: SubagentManager,
+  subagentId: string,
+): { calls: number; succeeded: number; filesWritten: Set<string> } {
+  const internals = manager as unknown as {
+    subagents: Map<
+      string,
+      {
+        conversation: {
+          subagentToolStats: {
+            calls: number;
+            succeeded: number;
+            filesWritten: Set<string>;
+          };
+        } | null;
+      }
+    >;
+  };
+  return internals.subagents.get(subagentId)!.conversation!.subagentToolStats;
+}
+
+/** The drain state a test drives to stand in for a queued follow-up turn. */
+interface QueuedTurnDrainState {
+  /** Messages waiting in the child's queue. */
+  queueDepth: number;
+  /** Whether the child is mid-turn. */
+  processing: boolean;
+}
+
+/**
+ * Put an injected subagent into the window that opens when guidance is queued
+ * during its run: the subagent is terminal because its own run returned, but
+ * the queued turn is still ahead of it on a conversation the manager retains.
+ *
+ * Returns the drain state so the test can move the turn through it. Queued and
+ * not yet dispatched to start with, which is where the drain sits at the
+ * moment the parent is told to read.
+ */
+function queuedFollowUpTurn(
+  manager: SubagentManager,
+  subagentId: string,
+): QueuedTurnDrainState {
+  const internals = manager as unknown as {
+    subagents: Map<
+      string,
+      {
+        conversation: QueuedTurnDrainState | null;
+        hadEnqueuedMessages?: boolean;
+      }
+    >;
+  };
+  const managed = internals.subagents.get(subagentId)!;
+  managed.hadEnqueuedMessages = true;
+  const drain = managed.conversation!;
+  drain.queueDepth = 1;
+  return drain;
 }
 
 function makeContext(
@@ -1356,6 +1458,308 @@ describe("Subagent read tool", () => {
   });
 });
 
+// ── Read stats footer (machine truth envelope) ──────────────────────
+
+describe("Subagent read stats footer", () => {
+  const ownerConversation = "read-stats-owner";
+
+  function stubOutput(subagentId: string, text: string) {
+    mockGetMessages = (convId: string) =>
+      convId === `conv-${subagentId}`
+        ? [{ role: "assistant", content: [{ type: "text", text }] }]
+        : null;
+  }
+
+  test("reports what the subagent actually ran alongside its output", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 5, succeeded: 4, filesWritten: 2 },
+    });
+    stubOutput(subagentId, "Refactored the parser.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "Refactored the parser.\n\n[stats: 5 tool calls, 4 succeeded, files written: 2]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a zero-call subagent's output carries the unverified warning", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-zero";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 0, succeeded: 0, filesWritten: 0 },
+    });
+    stubOutput(subagentId, "I ran the tests and they all passed.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toContain("I ran the tests and they all passed.");
+      expect(result.content).toContain(
+        "[stats: no tools were used by this subagent; treat any claims of executed work as unverified]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("the footer also lands on a subagent that produced no text", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-silent";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 3, succeeded: 3, filesWritten: 1 },
+    });
+    mockGetMessages = () => [{ role: "user", content: "go" }];
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toContain("no text output");
+      expect(result.content).toContain(
+        "[stats: 3 tool calls, 3 succeeded, files written: 1]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a live subagent that never recorded a run claims nothing", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-none";
+    injectSubagent(manager, subagentId, ownerConversation, "aborted");
+    stubOutput(subagentId, "Partial output.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      // No harvest ever happened, so there is nothing measured to report, and
+      // nothing was lost either, so it must not claim the counters are gone.
+      expect(result.content).toBe("Partial output.");
+      expect(result.content).not.toContain("[stats:");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a follow-up turn's tool calls land in the footer, not just the run's", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-queued";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 2, succeeded: 2, filesWritten: 0 },
+    });
+    // Guidance queued during the run drains after the run harvested, into the
+    // same retained conversation, so the counters keep moving past that
+    // reading. The read has to look again rather than quote the harvest.
+    const live = liveToolStats(manager, subagentId);
+    live.calls += 3;
+    live.succeeded += 2;
+    live.filesWritten.add("/queued-turn.md");
+    stubOutput(subagentId, "Applied the follow-up guidance.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toBe(
+        "Applied the follow-up guidance.\n\n[stats: 5 tool calls, 4 succeeded, files written: 1]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a subagent rebuilt from its row reports its counters unavailable", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-rehydrated";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      rehydrated: true,
+    });
+    stubOutput(subagentId, "Output from before the restart.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      // Being in the manager is not evidence of a live run: this entry was
+      // rebuilt from the durable row, which carries no counters at all.
+      expect(manager.getState(subagentId)).toBeDefined();
+      expect(result.content).toBe(
+        "Output from before the restart.\n\n[stats: unavailable (tool counters are not retained for this subagent)]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+});
+
+// ── Reads against a queued follow-up turn ───────────────────────────
+
+describe("Subagent read while a queued follow-up turn is still in flight", () => {
+  const ownerConversation = "read-queued-owner";
+
+  function stubOutput(subagentId: string, texts: () => string[]) {
+    mockGetMessages = (convId: string) =>
+      convId === `conv-${subagentId}`
+        ? texts().map((text) => ({
+            role: "assistant",
+            content: [{ type: "text", text }],
+          }))
+        : null;
+  }
+
+  test("waits for the queued turn rather than answering from the run before it", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-settles";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 2, succeeded: 2, filesWritten: 0 },
+    });
+    const drain = queuedFollowUpTurn(manager, subagentId);
+    const live = liveToolStats(manager, subagentId);
+    let followUpLanded = false;
+    stubOutput(subagentId, () =>
+      followUpLanded
+        ? ["Initial run output.", "Applied the follow-up guidance."]
+        : ["Initial run output."],
+    );
+
+    // The drain picks the message up, runs the turn, and only then does the
+    // transcript and the counters cover it.
+    setTimeout(() => {
+      drain.queueDepth = 0;
+      drain.processing = true;
+    }, 10);
+    setTimeout(() => {
+      live.calls += 3;
+      live.succeeded += 3;
+      live.filesWritten.add("/follow-up.md");
+      followUpLanded = true;
+      drain.processing = false;
+    }, 30);
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toBe(
+        "Initial run output.\n\nApplied the follow-up guidance.\n\n" +
+          "[stats: 5 tool calls, 5 succeeded, files written: 1]",
+      );
+      expect(result.content).not.toContain("still processing");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a queue the drain has taken but not yet started is not read as finished", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-dispatch-gap";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 1, succeeded: 1, filesWritten: 0 },
+    });
+    const drain = queuedFollowUpTurn(manager, subagentId);
+    let followUpLanded = false;
+    stubOutput(subagentId, () =>
+      followUpLanded ? ["Guidance applied."] : ["Initial run output."],
+    );
+
+    // The gap between the drain shifting the message off the queue and the
+    // turn taking the processing lock: nothing is queued and nothing is
+    // running, yet the turn is on its way.
+    drain.queueDepth = 0;
+    drain.processing = false;
+    setTimeout(() => {
+      drain.processing = true;
+    }, 15);
+    setTimeout(() => {
+      followUpLanded = true;
+      drain.processing = false;
+    }, 40);
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toContain("Guidance applied.");
+      expect(result.content).not.toContain("Initial run output.");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a turn still running at the deadline is reported as unfinished, not as the result", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-still-running";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 2, succeeded: 2, filesWritten: 1 },
+    });
+    const drain = queuedFollowUpTurn(manager, subagentId);
+    // The guidance turn outlives the read's patience, as a real one does.
+    drain.queueDepth = 0;
+    drain.processing = true;
+    stubOutput(subagentId, () => ["Initial run output."]);
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      // What there is so far, said to be what there is so far: the counts
+      // are an interim reading and the parent is told to come back.
+      expect(result.content).toBe(
+        "Initial run output.\n\n" +
+          `${SUBAGENT_READ_STILL_PROCESSING}\n\n` +
+          "[stats: 2 tool calls, 2 succeeded, files written: 1]",
+      );
+    } finally {
+      drain.processing = false;
+      mockGetMessages = () => null;
+    }
+  }, 15_000);
+
+  test("a subagent that had nothing queued is read without waiting", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-none";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 1, succeeded: 1, filesWritten: 0 },
+    });
+    stubOutput(subagentId, () => ["Ran to completion."]);
+
+    try {
+      const startedAt = Date.now();
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(Date.now() - startedAt).toBeLessThan(500);
+      expect(result.content).toBe(
+        "Ran to completion.\n\n[stats: 1 tool call, 1 succeeded, files written: 0]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+});
+
 // ── Abort success path details ──────────────────────────────────────
 
 describe("Subagent abort success responses", () => {
@@ -2259,7 +2663,45 @@ describe("Subagent tools past the startup rehydration bound", () => {
         makeContext(beyondCapParent),
       );
       expect(result.isError).toBe(false);
-      expect(result.content).toBe("Output from beyond the bound");
+      // The counters live with the in-memory entry, which the bound dropped, so
+      // the footer says unavailable rather than reporting zero tool calls.
+      expect(result.content).toBe(
+        "Output from beyond the bound\n\n[stats: unavailable (tool counters are not retained for this subagent)]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read reports unavailable for a subagent the rehydration DID load", async () => {
+    // This entry is inside the rehydration bound, so the restart put it back
+    // in the manager, but its counters died with the process that ran it, and
+    // no rehydrated entry can ever have them. Manager membership is therefore
+    // not the signal; `rehydrated` is.
+    const filler = `cap-filler-${REHYDRATION_CAP - 1}`;
+    expect(manager.getState(filler)).toBeDefined();
+
+    mockGetMessages = (convId: string) =>
+      convId === `conv-${filler}`
+        ? [
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "Output from before the restart" },
+              ],
+            },
+          ]
+        : null;
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: filler },
+        makeContext(beyondCapParent),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "Output from before the restart\n\n[stats: unavailable (tool counters are not retained for this subagent)]",
+      );
     } finally {
       mockGetMessages = () => null;
     }

@@ -181,7 +181,65 @@ export interface SubagentState {
   completedAt?: number;
   /** Cumulative token usage. */
   usage: UsageStats;
+  /**
+   * What the subagent actually ran, harvested from the child conversation when
+   * the run ends and re-read while that conversation is still retained (a
+   * follow-up turn queued during the run drains after the run returns). In
+   * memory only: see {@link rehydrated}.
+   */
+  stats?: SubagentToolStatsSummary;
+  /**
+   * True when this state was rebuilt from the subagent's durable row rather
+   * than from a run this process executed: the startup rehydration, or the
+   * tools' fallback for a subagent the manager's window no longer holds.
+   *
+   * The row carries no tool-call counters, so {@link stats} can never be
+   * filled in for one of these. Readers key the "unavailable" stats footer on
+   * this flag: a rehydrated entry sits in the manager exactly like a live one,
+   * so manager membership alone cannot tell the two apart.
+   */
+  rehydrated?: boolean;
 }
+
+/**
+ * Harvested form of the conversation's live `SubagentToolStats`: the
+ * `filesWritten` Set is collapsed to its size, so the state carries counts
+ * rather than a reference into a conversation that is about to be released.
+ */
+export interface SubagentToolStatsSummary {
+  calls: number;
+  succeeded: number;
+  filesWritten: number;
+}
+
+/**
+ * The machine half of a subagent's result, appended to the parent's completion
+ * notification and to `subagent_read`. The child's prose is its own account of
+ * what it did; this line is the measured one, so a report of executed work by a
+ * subagent that called nothing is visible instead of taken on trust.
+ */
+export function formatSubagentToolStats(
+  stats: SubagentToolStatsSummary,
+): string {
+  if (stats.calls === 0) {
+    return "[stats: no tools were used by this subagent; treat any claims of executed work as unverified]";
+  }
+  const plural = stats.calls === 1 ? "" : "s";
+  return `[stats: ${stats.calls} tool call${plural}, ${stats.succeeded} succeeded, files written: ${stats.filesWritten}]`;
+}
+
+/** Stats footer for a subagent whose in-memory counters no longer exist. */
+export const SUBAGENT_STATS_UNAVAILABLE =
+  "[stats: unavailable (tool counters are not retained for this subagent)]";
+
+/**
+ * Appended to a read taken while the subagent is still working through
+ * guidance queued during its run. Its own run is over by then, which is what
+ * makes it terminal, but the queued turn adds output and tool calls after
+ * that, so such a read is a progress report rather than the final one.
+ */
+export const SUBAGENT_READ_STILL_PROCESSING =
+  "[note: this subagent is still processing queued follow-up guidance. The output above and the counts below stop at its last finished turn; read again for the rest.]";
 
 // ── Bounded listing ─────────────────────────────────────────────────────
 

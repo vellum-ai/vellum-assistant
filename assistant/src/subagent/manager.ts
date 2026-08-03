@@ -38,8 +38,10 @@ import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
+import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
+  formatSubagentToolStats,
   normalizeSubagentLabel,
   settleUnsupervisedStatus,
   SUBAGENT_LIMITS,
@@ -49,6 +51,7 @@ import {
   type SubagentSpawnMode,
   type SubagentState,
   type SubagentStatus,
+  type SubagentToolStatsSummary,
   TERMINAL_STATUSES,
 } from "./types.js";
 
@@ -69,6 +72,21 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
  */
 const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
 
+/**
+ * How long {@link SubagentManager.settleQueuedTurns} waits for a queued
+ * follow-up turn before reporting the subagent as still moving.
+ *
+ * Sized for the drain handoff, not for the turn itself: the queue is taken
+ * some milliseconds before the processing lock, and a wait shorter than that
+ * gap would mistake a turn that is starting for one that already finished. A
+ * guidance turn that is genuinely mid-flight outlives any budget worth
+ * blocking the parent's tool call for, so it is reported as unfinished instead
+ * of waited out.
+ */
+const QUEUED_TURN_SETTLE_TIMEOUT_MS = 2_000;
+/** Gap between queue observations while a queued turn is waiting to start. */
+const QUEUED_TURN_POLL_MS = 25;
+
 // ── Durable record → state mapping ─────────────────────────────────────
 
 /**
@@ -82,9 +100,14 @@ const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
  * `SubagentConfig` fields that are not persisted (context, prompts, trust,
  * profile overrides) are absent, so this shape answers lifecycle questions
  * only.
+ *
+ * The result is marked `rehydrated`, which is what tells a reader that its
+ * missing tool-call counters are unrecoverable rather than merely unrecorded:
+ * a rehydrated entry lives in the manager alongside live ones.
  */
 export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
   return {
+    rehydrated: true,
     config: {
       id: rec.id,
       parentConversationId: rec.parentConversationId,
@@ -171,6 +194,18 @@ function extractFinalAssistantText(messages: Message[]): string {
 }
 
 /**
+ * Snapshot the child conversation's live tool-call counters before the
+ * conversation is released. The `filesWritten` Set collapses to its size so
+ * nothing keeps a reference into the released conversation.
+ */
+function snapshotToolStats(
+  conversation: Conversation,
+): SubagentToolStatsSummary {
+  const { calls, succeeded, filesWritten } = conversation.subagentToolStats;
+  return { calls, succeeded, filesWritten: filesWritten.size };
+}
+
+/**
  * Pull the user-visible text out of a streaming delta event, or null for any
  * other event type. Used by the synchronous `onText` tap to forward
  * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
@@ -208,6 +243,7 @@ export function buildSubagentSystemPrompt(
     "- You cannot spawn nested subagents.",
     "- Use notify_parent to report important findings, or if you are blocked.",
     '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
+    "- If a tool call fails, or a tool you expected is unavailable, report the failure verbatim and stop that line of work. Never simulate, reconstruct, or invent tool output you did not actually receive.",
   );
   return sections.join("\n");
 }
@@ -235,6 +271,8 @@ export function buildSubagentTerminalMessage(opts: {
   deferred?: boolean;
   /** Tools the subagent attempted but that its role allowlist denied. */
   deniedTools?: string[];
+  /** What the subagent actually ran, harvested when the run ended. */
+  stats?: SubagentToolStatsSummary;
 }): string {
   const {
     label,
@@ -246,6 +284,7 @@ export function buildSubagentTerminalMessage(opts: {
     error,
     deferred,
     deniedTools,
+    stats,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
 
@@ -257,6 +296,11 @@ export function buildSubagentTerminalMessage(opts: {
     deniedTools && deniedTools.length > 0
       ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
       : "";
+
+  // Machine truth envelope: the counts the parent can check the synthesis
+  // above against. Absent when the run never reached the harvest, and on the
+  // deferred path, where the counters are still moving (see the caller).
+  const statsNote = stats ? `\n\n${formatSubagentToolStats(stats)}` : "";
 
   if (outcome === "failed") {
     return (
@@ -274,7 +318,8 @@ export function buildSubagentTerminalMessage(opts: {
       (silent
         ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
         : `(Incorporate this into your reply to the user as appropriate.)`) +
-      deniedNote
+      deniedNote +
+      statsNote
     );
   }
 
@@ -289,7 +334,8 @@ export function buildSubagentTerminalMessage(opts: {
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
     (silent ? ` Keep the result internal.` : ``) +
-    deniedNote
+    deniedNote +
+    statsNote
   );
 }
 
@@ -914,6 +960,12 @@ export class SubagentManager {
       const deniedTools = [...conversation.subagentDeniedToolNames];
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
+      // Same window for the tool-call counts: the terminal notification below
+      // reads them off the state. This is the first reading, not necessarily
+      // the last, since a follow-up turn queued during the run drains after
+      // this returns and keeps counting into the same conversation. Later
+      // readers go through `currentToolStats` for the settled numbers.
+      managed.state.stats = snapshotToolStats(conversation);
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -941,6 +993,7 @@ export class SubagentManager {
       // Copy usage from the captured conversation reference — managed.conversation
       // may have been nulled by an external dispose() before catch runs.
       managed.state.usage = { ...conversation.usageStats };
+      managed.state.stats = snapshotToolStats(conversation);
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -1238,6 +1291,105 @@ export class SubagentManager {
     return this.subagents.get(subagentId)?.state;
   }
 
+  /**
+   * The subagent's tool-call counters, brought up to date first.
+   *
+   * `runSubagent` harvests when its awaited agent loop returns, but that is not
+   * the end of the child's work: guidance queued during the run drains
+   * afterwards, on the same conversation, and those calls land in the same
+   * counters. So any read taken later re-reads them while the conversation is
+   * still retained (see {@link refreshToolStats}), and the release freezes the
+   * settled numbers. Readers that need the queued turn's calls included wait
+   * for it first, via {@link settleQueuedTurns}.
+   */
+  currentToolStats(subagentId: string): SubagentToolStatsSummary | undefined {
+    const managed = this.subagents.get(subagentId);
+    if (!managed) {
+      return undefined;
+    }
+    this.refreshToolStats(managed);
+    return managed.state.stats;
+  }
+
+  /**
+   * Wait for a follow-up turn queued during the subagent's run to finish.
+   *
+   * `runSubagent` marks the subagent terminal as soon as its own agent loop
+   * returns, and the parent is told to read from there. Guidance queued during
+   * that run drains afterwards though, on the same retained conversation, so a
+   * read taken in that window sees the transcript and the counters from before
+   * the guidance landed and never comes back for the rest. Waiting here closes
+   * the window.
+   *
+   * Resolves `true` once the retained conversation is idle with an empty
+   * queue, and `false` when `timeoutMs` elapses first, so the reader always
+   * gets an answer within a bound and can say the subagent is still moving
+   * rather than pass a partial result off as final.
+   *
+   * `true` comes back immediately when nothing can still be running: no
+   * manager entry, no retained conversation (a released one has its transcript
+   * and counters frozen), or a run that never had anything queued.
+   *
+   * Idle is confirmed across two observations a poll apart. The drain takes
+   * the queue before it takes the processing lock (`drainQueue` shifts the
+   * message, then `drainSingleMessage` awaits slash resolution and the
+   * user-message persist before `runAgentLoop` sets processing), so a single
+   * look into that gap finds an empty queue and an unlocked conversation while
+   * the turn is in fact starting.
+   */
+  async settleQueuedTurns(
+    subagentId: string,
+    timeoutMs: number = QUEUED_TURN_SETTLE_TIMEOUT_MS,
+  ): Promise<boolean> {
+    const managed = this.subagents.get(subagentId);
+    const conversation = managed?.conversation;
+    if (!managed || !conversation || managed.hadEnqueuedMessages !== true) {
+      return true;
+    }
+    const deadline = Date.now() + timeoutMs;
+    let idleObservations = 0;
+    for (;;) {
+      // A release during the wait (the TTL sweep, or a dispose) freezes
+      // everything a reader can see, so there is nothing left to wait for.
+      if (managed.conversation !== conversation) {
+        return true;
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return false;
+      }
+      if (conversation.isProcessing()) {
+        idleObservations = 0;
+        await conversation.waitForIdle({ timeoutMs: remainingMs });
+        continue;
+      }
+      if (conversation.hasQueuedMessages()) {
+        idleObservations = 0;
+        await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+        continue;
+      }
+      idleObservations += 1;
+      if (idleObservations >= 2) {
+        return true;
+      }
+      await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+    }
+  }
+
+  /**
+   * Re-read the child conversation's live counters into its state.
+   *
+   * Only ever updates a harvest that already happened: a run that never
+   * reached its harvest (aborted before the first turn, or still going) has
+   * nothing measured to report, and a zero taken mid-flight would read as
+   * "this subagent used no tools" rather than "not measured yet".
+   */
+  private refreshToolStats(managed: ManagedSubagent): void {
+    if (managed.conversation && managed.state.stats) {
+      managed.state.stats = snapshotToolStats(managed.conversation);
+    }
+  }
+
   getByLabel(
     label: string,
     parentConversationId: string,
@@ -1312,6 +1464,10 @@ export class SubagentManager {
     if (!managed.conversation) {
       return;
     }
+    // Last chance at the counters: on the deferred path this release happens
+    // after the queued follow-up turn drained, so this is the reading that
+    // includes it. Everything read after this point is this snapshot.
+    this.refreshToolStats(managed);
     const conversation = managed.conversation;
     removeSubagentConversation(conversation.conversationId, conversation);
     conversation.dispose();
@@ -1625,6 +1781,10 @@ export class SubagentManager {
       ? config.sendResultToUser !== true
       : config.sendResultToUser === false;
 
+    // A queued follow-up turn means the snapshot we hold is stale; defer to a
+    // read pointer so the parent picks up the queued turn's output instead.
+    const deferred = managed.hadEnqueuedMessages === true;
+
     const message = buildSubagentTerminalMessage({
       label: config.label,
       subagentId: config.id,
@@ -1633,10 +1793,14 @@ export class SubagentManager {
       silent,
       finalText,
       error: managed.state.error,
-      // A queued follow-up turn means the snapshot we hold is stale; defer to a
-      // read pointer so the parent picks up the queued turn's output instead.
-      deferred: managed.hadEnqueuedMessages === true,
+      deferred,
       deniedTools,
+      // Same staleness applies to the counters, and worse: the queued turn has
+      // not run yet at this point, so any number quoted here would under-report
+      // it, permanently, in a message that is never rewritten. The deferred
+      // message sends the parent to `subagent_read`, whose footer re-reads the
+      // counters once the queued turn has actually landed.
+      ...(deferred ? {} : { stats: managed.state.stats }),
     });
 
     const notification: SubagentNotificationInfo = {
