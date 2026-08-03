@@ -189,13 +189,16 @@ export function useLiveActivityMirror(): void {
     let pushToken: string | null = null;
     /**
      * What was last registered with the platform, as `token:assistant:
-     * conversation`.
+     * conversation:accent:muted`.
      *
-     * All three matter and none of them is stable: the token rotates, and a
-     * session started from a draft has no conversation id until the server's
-     * `ready` assigns one — registering against `null` and never revisiting it
-     * would leave the activity addressable by nothing. Comparing the triple
-     * re-registers when any part moves and stays quiet when none does.
+     * Every part matters and none is stable: the token rotates; a session
+     * started from a draft has no conversation id until the server's `ready`
+     * assigns one; registering against `null` and never revisiting it would
+     * leave the activity addressable by nothing; and the accent and mute state
+     * are content the platform composes its pushes from, so a stale
+     * registration would push the island back to whatever they were at start.
+     * Comparing the whole tuple re-registers when any part moves and stays
+     * quiet when none does.
      */
     let registeredKey: string | null = null;
 
@@ -206,7 +209,10 @@ export function useLiveActivityMirror(): void {
      * This is what lets the island keep updating after iOS suspends this web
      * view — see `live-activity-push-registration.ts`.
      */
-    const syncPushRegistration = (session: LiveVoiceState): void => {
+    const syncPushRegistration = (
+      session: LiveVoiceState,
+      content: VoiceLiveActivityContent,
+    ): void => {
       const { assistantId, conversationId } = session;
       if (
         pushToken === null ||
@@ -215,16 +221,19 @@ export function useLiveActivityMirror(): void {
       ) {
         return;
       }
-      const key = `${pushToken}:${assistantId}:${conversationId}`;
+      const { accentHex, muted } = content;
+      const key = `${pushToken}:${assistantId}:${conversationId}:${accentHex}:${String(muted)}`;
       if (key === registeredKey) {
         return;
       }
       registeredKey = key;
-      void registerLiveActivityPushToken(
-        pushToken,
+      void registerLiveActivityPushToken({
+        token: pushToken,
         assistantId,
         conversationId,
-      );
+        accentHex,
+        muted,
+      });
     };
 
     const sync = (session: LiveVoiceState): void => {
@@ -246,7 +255,7 @@ export function useLiveActivityMirror(): void {
         return;
       }
 
-      syncPushRegistration(session);
+      syncPushRegistration(session, content);
 
       if (pushed === null) {
         pushed = content;
@@ -292,7 +301,14 @@ export function useLiveActivityMirror(): void {
     const unsubscribeToken = subscribeVoiceLiveActivityPushToken(
       ({ token }) => {
         pushToken = token;
-        syncPushRegistration(useLiveVoiceStore.getState());
+        const session = useLiveVoiceStore.getState();
+        const content = toActivityContent(session);
+        // A token for a session that has already ended registers nothing: the
+        // activity it addresses is on its way out, and the `end` path has
+        // already dropped the registration.
+        if (content !== null) {
+          syncPushRegistration(session, content);
+        }
       },
     );
 

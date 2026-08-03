@@ -5,9 +5,10 @@ import WidgetKit
 /// The live-voice session, rendered on the Lock Screen and in the Dynamic
 /// Island.
 ///
-/// All four presentations are the same three facts at four sizes, composed
+/// All four presentations are the same handful of facts at four sizes, composed
 /// from the primitives in `VoiceSessionIslandViews.swift`; see that file for
-/// the two rules they share (no native phase copy, accent as decoration only).
+/// the two rules they share (no native phase copy, accent as decoration only)
+/// and for which facts survive into the tightest slots.
 ///
 /// **There are no interactive controls, by design.** An in-island end button
 /// would need a `LiveActivityIntent` plus a signalling path into the running
@@ -30,27 +31,37 @@ struct VoiceSessionLiveActivity: Widget {
             VoiceSessionLockScreenView(
                 assistantName: context.attributes.assistantName,
                 state: context.state,
+                startedAt: context.attributes.startedAt,
                 isStale: context.isStale,
                 avatarImageData: context.attributes.avatarImageData
             )
             .widgetURL(VoiceModeDeepLink.resume.url())
         } dynamicIsland: { context in
             let state = context.state
-            let label = state.displayLabel(isStale: context.isStale)
+            let isStale = context.isStale
+            let label = state.displayLabel(isStale: isStale)
             let avatar = context.attributes.avatarImageData
+            let startedAt = context.attributes.startedAt
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VoiceAccentBadge(accent: state.accentColor, avatarImageData: avatar)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // Nothing to say when unmuted: an always-present mic glyph
-                    // would read as a control, and there are none here.
-                    if state.muted {
-                        VoiceMuteGlyph()
+                    // Elapsed time, plus the mute glyph while muted. There is
+                    // still no always-present mic glyph, which would read as a
+                    // control, and there are none here.
+                    HStack(spacing: 6) {
+                        VoiceSessionTimer(startedAt: startedAt, isStale: isStale)
+                        if state.muted {
+                            VoiceMuteGlyph()
+                        }
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    VoiceSessionText(text: label, font: .headline)
+                    HStack(spacing: 6) {
+                        VoicePhaseGlyph(state: state, isStale: isStale)
+                        VoiceSessionText(text: label, font: .headline)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VoiceSessionText(
@@ -61,10 +72,14 @@ struct VoiceSessionLiveActivity: Widget {
             } compactLeading: {
                 VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
             } compactTrailing: {
-                // The tightest slot there is. It still shows the passed label,
-                // truncated — substituting a shorter native string here is
-                // precisely the fossilization this design avoids.
-                VoiceSessionText(text: label, font: .caption2, color: .secondary)
+                // The tightest slot there is, and the presentation the user
+                // spends the most time looking at. It used to show the passed
+                // label truncated, which at this width is two or three
+                // characters, identical for "Listening…" and "Thinking…". The
+                // glyph says the same thing legibly, and says it without
+                // substituting a native *string*, which is the fossilization
+                // this design actually guards against.
+                VoicePhaseGlyph(state: state, isStale: isStale, scale: .small)
             } minimal: {
                 VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
             }

@@ -122,11 +122,44 @@ of importance:
    natively means shipping more state across the bridge and duplicating the rule.
 3. **Localization.** The web layer already owns user-facing copy.
 
-The compact trailing slot is very tight. It *truncates* the passed label
-(`.lineLimit(1)` + `.truncationMode(.tail)` in `VoiceSessionText`); it does not
-substitute a shorter native string. Every phase that reaches an activity has a
-non-empty label, so there is no empty-string case for `VoiceSessionText` to
-handle.
+Wherever the label *is* rendered it is only ever truncated (`.lineLimit(1)` +
+`.truncationMode(.tail)` in `VoiceSessionText`), never swapped for a shorter
+native string. Every phase that reaches an activity has a non-empty label, so
+there is no empty-string case for `VoiceSessionText` to handle.
+
+### What the native side may derive: the phase glyph
+
+The rule above is about *wording*, and `ContentState.phaseSymbol` is the one
+place that switches on `phase` without breaking it. An SF Symbol has no
+second source deploying on a different cadence to drift from, and the phase
+vocabulary it switches over is already a contract both sides must change
+together, so a new case is a Swift compile error rather than silent drift.
+
+It exists because the compact trailing slot is roughly three characters wide.
+Truncated to that, "Listening…" and "Thinking…" are the same string, which made
+the presentation the user sees most of the time say nothing at all. That slot
+now renders the glyph, and the roomier presentations render glyph *and* label.
+
+### What moves without an update: the elapsed timer
+
+`VoiceSessionAttributes.startedAt` is stamped natively at `Activity.request`,
+and `VoiceSessionTimer` renders it with `Text(timerInterval:)`, a
+system-driven timer. It therefore keeps counting with no `ContentState` update
+at all: through a suspended web layer, through a dropped push, and through
+ActivityKit's update rate limit. For a session whose phase can legitimately sit
+unchanged for minutes, it is what distinguishes an island that looks frozen
+from one that visibly is not.
+
+It is an attribute rather than content for two reasons: it is fixed for the
+activity's lifetime, and being an attribute is what keeps a server-driven push
+(which replaces the content state wholesale) from touching it. Stamping it
+natively also puts it on the same clock as the device rendering it, which a
+timestamp composed on the platform would not be.
+
+Everything phase-derived (label, glyph, and the timer) drops when
+`context.isStale` goes true. Identity (avatar, name, accent) stays: that a
+session with this assistant exists is still true, and tapping through still
+reaches it.
 
 ## The deep-link contract
 
@@ -422,6 +455,16 @@ Three rules fall out of this:
   continuously — applies to the platform too, one layer further out. The client
   registers a phase→label map and dispatch only ever looks a phase up in it,
   skipping a phase it has no label for.
+- **Nor does it invent the rest of the content state.** A push replaces
+  `ContentState` wholesale, and two of its fields (`accentHex` and `muted`)
+  are things only the client can see: the accent is the avatar color this web
+  layer renders, and mute is a local control the daemon's session never hears
+  about. They are therefore stored on the token row at registration and
+  composed from there, and the client re-registers whenever either moves. When
+  the dispatch payload carried them instead, the daemon (which has neither) sent
+  nothing and every field defaulted, so the first server-driven update grayed
+  the island's accent out and dropped its mute glyph, which is to say it did so
+  the moment the app was backgrounded.
 - **`aps.timestamp` is a counter, not wall time.** iOS discards a push whose
   timestamp is not newer than the state it holds, and `transcribing` →
   `thinking` is routinely sub-second.
@@ -432,27 +475,38 @@ Three rules fall out of this:
 
 Even with both drivers, a push can be missed — so every update still carries a
 `staleDate` (`VoiceLiveActivityPlugin.contentStaleAfter`), and the views drop
-the phase label once `context.isStale` goes true. An island frozen on
+everything phase-derived once `context.isStale` goes true. An island frozen on
 "Listening…" is a claim about a live socket and a live mic that nothing is
 checking; the horizon does not make it correct, only honest about not knowing.
 
+**Both drivers must use the same horizon**, since either can deliver the state
+whose staleness is being judged. They are two constants in two repos
+(`VoiceLiveActivityPlugin.contentStaleAfter` and the platform's
+`STALE_AFTER_SECONDS`), and they had already drifted (120 against 45) once.
+The client's 120 is the correct one: a quiet call emits no frames, so nothing
+dispatches, and a 45-second horizon would strip the phase off a perfectly
+healthy session that nobody happens to be talking to.
+
 ### 2. No App Group
 
-`ContentState` carries only primitives: `phase`, `label`, `accentHex`, `muted`,
-plus `assistantName` on the attributes. The extension ships **no entitlements
-file at all**.
+`ContentState` carries only primitives (`phase`, `label`, `accentHex`,
+`muted`), and the attributes carry `assistantName`, `startedAt`, and the
+avatar as `Data`. The extension ships **no entitlements file at all**.
 
-*Why:* an App Group is only needed to share *files* — the obvious candidate being
-a user's custom avatar image in the island. A hex accent gets most of the visual
-identity for none of the plumbing, and no entitlement means one less Apple
-Developer portal capability to keep in sync (an entitlement enabled in the portal
-but not satisfiable by the build is a provisioning failure waiting to happen).
+*Why:* an App Group is only needed to share *files*, and nothing here needs
+one. The obvious candidate was the avatar, but `ActivityAttributes` is
+`Codable`, so the bytes travel in the attributes and render via
+`Image(uiImage:)`: no entitlement, and one less Apple Developer portal
+capability to keep in sync across six App IDs (an entitlement enabled in the
+portal but not satisfiable by the build is a provisioning failure waiting to
+happen).
 
-*To revisit:* enable an App Group capability on all six App IDs (three apps,
-three extensions), add entitlements files, regenerate all six profiles, write the
-avatar into the shared container on the app side, and read it in
-`VoiceSessionIslandViews`. Note that the container write has to happen before the
-activity starts, so it also needs an avatar-caching path.
+What is genuinely impossible is fetching anything at render time: a Live
+Activity draws from a snapshot, so a URL would only ever render `AsyncImage`'s
+placeholder. That is also why the avatar is sized to a measured byte ceiling
+before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
+`clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
+activity rather than degrading the image.
 
 ### 3. The island is tap-to-return only — no interactive End button
 
