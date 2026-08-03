@@ -13,8 +13,6 @@ interface MessageAttachmentsProps {
   /** Forwarded to {@link AttachmentPreviewModal} so it can lazily fetch
    *  attachment content when `previewUrl` is missing. */
   assistantId?: string | null;
-  /** Transcript message identity, forwarded to the files panel payload. */
-  messageId?: string;
 }
 
 /**

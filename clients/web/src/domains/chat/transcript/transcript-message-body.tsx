@@ -1103,7 +1103,6 @@ export function TranscriptMessageBody({
           <MessageAttachments
             attachments={message.attachments ?? []}
             assistantId={assistantId}
-            messageId={message.id}
           />
         )}
         {trailer}
