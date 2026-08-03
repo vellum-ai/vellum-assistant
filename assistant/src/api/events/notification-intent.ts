@@ -31,6 +31,8 @@ export const NotificationIntentEventSchema = z.object({
    * this delivery, so native clients can avoid double-bannering.
    */
   remotePushDispatched: z.boolean().optional(),
+  /** Native platforms that accepted this remote push. */
+  remotePushPlatforms: z.array(z.enum(["ios", "android"])).optional(),
 });
 
 export type NotificationIntentEvent = z.infer<

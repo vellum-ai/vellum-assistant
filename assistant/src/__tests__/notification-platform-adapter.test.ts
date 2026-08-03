@@ -260,6 +260,42 @@ describe("PlatformPushAdapter", () => {
     expect(result.remotePushAccepted).toBe(true);
   });
 
+  test("reports accepted native platforms from a successful dispatch", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 200,
+      body: '{"tokens_sent":1,"accepted_platforms":["ios","android"]}',
+    });
+
+    const result = await new PlatformPushAdapter().send(
+      makePayload(),
+      makeDestination(),
+    );
+
+    expect(result.remotePushPlatforms).toEqual(["ios", "android"]);
+  });
+
+  test("preserves a successful provider from the final partial 503", async () => {
+    fetchResponses.push(
+      { ok: false, status: 503, body: "{}" },
+      { ok: false, status: 503, body: "{}" },
+      { ok: false, status: 503, body: "{}" },
+      {
+        ok: false,
+        status: 503,
+        body: '{"accepted_platforms":["ios"]}',
+      },
+    );
+
+    const result = await new PlatformPushAdapter().send(
+      makePayload(),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushPlatforms).toEqual(["ios"]);
+  });
+
   test("reports remotePushAccepted: false on 202 skipped (flag off)", async () => {
     fetchResponses.push({
       ok: true,

@@ -366,6 +366,25 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
     expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
   });
 
+  test("vellum payload carries platforms accepted before a partial failure", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: false,
+      error: "FCM failed",
+      remotePushPlatforms: ["ios"],
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(vellum.sends[0]?.payload.remotePushPlatforms).toEqual(["ios"]);
+  });
+
   test("vellum payload carries false when the platform reports no accepted push (skipped or zero tokens)", async () => {
     bothChannelsCopy();
 

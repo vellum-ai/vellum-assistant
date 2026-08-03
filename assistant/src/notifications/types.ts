@@ -61,6 +61,7 @@ export const DeliveryResultSchema = z.object({
   /** Set only by the platform push adapter: true when the platform accepted
    *  at least one device push for delivery (not proof of device receipt). */
   remotePushAccepted: z.boolean().optional(),
+  remotePushPlatforms: z.array(z.enum(["ios", "android"])).optional(),
 });
 export type DeliveryResult = z.infer<typeof DeliveryResultSchema>;
 
@@ -113,6 +114,7 @@ export const ChannelDeliveryPayloadSchema = z.object({
    *  delivery. Set only on the vellum channel's payload so clients can avoid
    *  double-bannering. */
   remotePushDispatched: z.boolean().optional(),
+  remotePushPlatforms: z.array(z.enum(["ios", "android"])).optional(),
 });
 export type ChannelDeliveryPayload = z.infer<
   typeof ChannelDeliveryPayloadSchema

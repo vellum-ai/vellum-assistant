@@ -13,6 +13,7 @@ import { Navigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { NativeNotificationSettingsCard } from "@/domains/settings/components/native-notification-settings-card";
 import {
   SNOOZE_OPTIONS,
   formatRelativeDate,
@@ -691,6 +692,8 @@ export function NotificationsPage() {
             </Popover.Root>
           ))}
       </div>
+
+      <NativeNotificationSettingsCard />
 
       <div className="flex items-center gap-2">
         <div className="flex gap-1 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-1">

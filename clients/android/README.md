@@ -147,6 +147,16 @@ Physical-device validation is still required for Android 16 promotion,
 notification permission changes, launcher shortcut ingestion, Quick Settings
 tile addition, lock-screen notification taps, and warm/cold voice launches.
 
+## Native Notifications
+
+Authenticated Android installs register an FCM token after creating the stable
+`vellum-alerts` channel. Foreground pushes are rendered once through Capacitor
+local notifications, while Android renders background and terminated pushes.
+Taps use the same conversation deep-link path. After denial, the Notifications
+page opens Android's app notification settings. FCM requires a matching
+untracked `google-services.json` and Google Play services; otherwise the app
+continues and retries registration on a later resume.
+
 ## Structure
 
 ```

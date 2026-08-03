@@ -1,17 +1,14 @@
 /**
- * Platform push adapter — delivers notifications to iOS/web clients via
- * the platform's APNs dispatch endpoint.
+ * Platform push adapter for native mobile notification delivery.
  *
  * POSTs a `notification_intent` payload to
  * `/v1/assistants/{id}/push/dispatch/`. The platform endpoint fans the
- * notification out to all registered device tokens for the bound user and
- * gates on the `ios-remote-push-enabled` feature flag server-side (returning 202
- * with `{ skipped: "flag_off" }` when the flag is OFF — no action needed
- * from the daemon).
+ * notification out to registered device tokens for the bound user. Provider
+ * feature gates return 202 with `{ skipped: "flag_off" }` when no provider runs.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so the platform can
- * scope APNs fan-out to guardian-bound devices, mirroring the macOS adapter.
+ * scope native fan-out to guardian-bound devices, mirroring the macOS adapter.
  */
 
 import { VellumPlatformClient } from "../../platform/client.js";
@@ -54,6 +51,22 @@ interface DispatchBody {
   deep_link_metadata?: Record<string, unknown>;
   context_payload?: Record<string, unknown>;
   target_guardian_principal_id?: string;
+}
+
+type RemotePushPlatform = "ios" | "android";
+
+function acceptedPlatforms(body: unknown): RemotePushPlatform[] | undefined {
+  if (typeof body !== "object" || body === null) {
+    return undefined;
+  }
+  const value = (body as { accepted_platforms?: unknown }).accepted_platforms;
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter(
+    (platform): platform is RemotePushPlatform =>
+      platform === "ios" || platform === "android",
+  );
 }
 
 export class PlatformPushAdapter implements ChannelAdapter {
@@ -144,6 +157,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
         // counts as not accepted (a duplicate client banner beats a lost
         // notification).
         const responseBody = (await response.json().catch(() => null)) as {
+          accepted_platforms?: unknown;
           skipped?: unknown;
           tokens_sent?: unknown;
         } | null;
@@ -162,7 +176,11 @@ export class PlatformPushAdapter implements ChannelAdapter {
           },
           "Platform push dispatched",
         );
-        return { success: true, remotePushAccepted };
+        return {
+          success: true,
+          remotePushAccepted,
+          remotePushPlatforms: acceptedPlatforms(responseBody),
+        };
       }
 
       if (
@@ -182,6 +200,12 @@ export class PlatformPushAdapter implements ChannelAdapter {
       }
 
       const errorText = await response.text().catch(() => "");
+      let errorBody: unknown = null;
+      try {
+        errorBody = JSON.parse(errorText) as unknown;
+      } catch {
+        errorBody = null;
+      }
       log.error(
         {
           status: response.status,
@@ -193,6 +217,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
       return {
         success: false,
         error: `HTTP ${response.status}: ${errorText.slice(0, 128)}`,
+        remotePushPlatforms: acceptedPlatforms(errorBody),
       };
     }
 

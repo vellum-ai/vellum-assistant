@@ -367,6 +367,7 @@ export class NotificationBroadcaster {
     // PLATFORM_OUTCOME_DEADLINE_MS.
     let deferredVellumSend: PendingChannelDispatch | null = null;
     let platformRemotePushAccepted = false;
+    let platformRemotePushPlatforms: ("ios" | "android")[] | undefined;
     const flushDeferredVellumSend = async (): Promise<void> => {
       if (!deferredVellumSend) {
         return;
@@ -374,6 +375,7 @@ export class NotificationBroadcaster {
       const pending = deferredVellumSend;
       deferredVellumSend = null;
       pending.payload.remotePushDispatched = platformRemotePushAccepted;
+      pending.payload.remotePushPlatforms = platformRemotePushPlatforms;
       await this.sendAndRecord(pending, signal, results);
     };
 
@@ -738,6 +740,7 @@ export class NotificationBroadcaster {
           ).then((adapterResult) => {
             platformRemotePushAccepted =
               adapterResult?.remotePushAccepted === true;
+            platformRemotePushPlatforms = adapterResult?.remotePushPlatforms;
           });
           let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
           const deadline = new Promise<"deadline">((resolve) => {

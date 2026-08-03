@@ -5903,6 +5903,28 @@ components:
       - id
       - is_read
       - read_at
+    AndroidDevicePushTokenUpsertPlatformEnum:
+      enum:
+      - android
+      type: string
+      description: '* `android` - android'
+    AndroidDevicePushTokenUpsertRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+        platform:
+          $ref: '#/components/schemas/AndroidDevicePushTokenUpsertPlatformEnum'
+        bundle_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+      required:
+      - bundle_id
+      - platform
+      - token
     ApnsEnvironmentEnum:
       enum:
       - production
@@ -6834,37 +6856,37 @@ components:
           type: string
           maxLength: 512
         platform:
-          $ref: '#/components/schemas/PlatformEnum'
+          $ref: '#/components/schemas/DevicePushTokenUpsertPlatformEnum'
         bundle_id:
           type: string
           maxLength: 128
         apns_environment:
-          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ApnsEnvironmentEnum'
+          - $ref: '#/components/schemas/NullEnum'
       required:
       - apns_environment
       - bundle_id
       - platform
       - token
+    DevicePushTokenUpsertPlatformEnum:
+      enum:
+      - ios
+      - android
+      type: string
+      description: |-
+        * `ios` - ios
+        * `android` - android
     DevicePushTokenUpsertRequest:
-      type: object
-      properties:
-        token:
-          type: string
-          minLength: 1
-          maxLength: 512
-        platform:
-          $ref: '#/components/schemas/PlatformEnum'
-        bundle_id:
-          type: string
-          minLength: 1
-          maxLength: 128
-        apns_environment:
-          $ref: '#/components/schemas/ApnsEnvironmentEnum'
-      required:
-      - apns_environment
-      - bundle_id
-      - platform
-      - token
+      oneOf:
+      - $ref: '#/components/schemas/IosDevicePushTokenUpsertRequest'
+      - $ref: '#/components/schemas/AndroidDevicePushTokenUpsertRequest'
+      discriminator:
+        propertyName: platform
+        mapping:
+          ios: '#/components/schemas/IosDevicePushTokenUpsertRequest'
+          android: '#/components/schemas/AndroidDevicePushTokenUpsertRequest'
     DoctorMessage:
       type: object
       description: Serializer for a single persisted Doctor message ledger entry.
@@ -7519,6 +7541,31 @@ components:
       required:
       - has_more
       - invoices
+    IosDevicePushTokenUpsertPlatformEnum:
+      enum:
+      - ios
+      type: string
+      description: '* `ios` - ios'
+    IosDevicePushTokenUpsertRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+        platform:
+          $ref: '#/components/schemas/IosDevicePushTokenUpsertPlatformEnum'
+        bundle_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        apns_environment:
+          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+      required:
+      - apns_environment
+      - bundle_id
+      - platform
+      - token
     LiveActivityTokenUpsert:
       type: object
       description: |-
@@ -8834,11 +8881,6 @@ components:
             ProPlan, discriminated by ``id``.
       required:
       - plans
-    PlatformEnum:
-      enum:
-      - ios
-      type: string
-      description: '* `ios` - ios'
     PreviewChannelOptInResult:
       type: object
       properties:

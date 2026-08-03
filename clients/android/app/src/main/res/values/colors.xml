@@ -4,5 +4,6 @@
     <color name="colorPrimaryDark">#174B26</color>
     <color name="colorAccent">#F6C744</color>
     <color name="launcher_foreground">#FFFFFF</color>
+    <color name="notification_icon_color">#F6C744</color>
     <color name="system_bar_scrim">#00000000</color>
 </resources>

@@ -108,6 +108,7 @@ export class VellumAdapter implements ChannelAdapter {
         targetGuardianPrincipalId,
         silent,
         remotePushDispatched: payload.remotePushDispatched,
+        remotePushPlatforms: payload.remotePushPlatforms,
       } as AssistantEvent);
 
       log.info(
