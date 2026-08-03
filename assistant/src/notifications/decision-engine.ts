@@ -26,6 +26,7 @@ import {
 } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { normalizeTitle } from "../util/short-title.js";
 import { truncate } from "../util/truncate.js";
 import {
   buildAccessRequestContractText,
@@ -416,6 +417,19 @@ function buildFallbackDecision(
 
 const VALID_CHANNELS = new Set<string>(getDeliverableChannels());
 
+/**
+ * Clean a title authored elsewhere (the decision model, or a producer payload),
+ * falling back to one derived from the body when `normalizeTitle` returns its
+ * empty-string rejection signal.
+ *
+ * `normalizeTitle` is the last clamp a title passes through, so its 40-char
+ * budget is the effective one. `NOTIFICATION_TITLE_MAX_LENGTH` (60) still bounds
+ * `deriveTitle` and the control-character stripping in `notification-utils.ts`.
+ */
+function resolveTitle(raw: string | undefined, body: string): string {
+  return normalizeTitle(raw ?? "") || deriveTitle(body);
+}
+
 function validateDecisionOutput(
   input: Record<string, unknown>,
   availableChannels: NotificationChannel[],
@@ -465,7 +479,7 @@ function validateDecisionOutput(
             );
           }
           renderedCopy[ch] = {
-            title: c.title,
+            title: resolveTitle(c.title, c.body),
             body: c.body,
             deliveryText:
               typeof c.deliveryText === "string" ? c.deliveryText : undefined,
@@ -894,7 +908,8 @@ function ensureInviteFlowDirectiveInCopy(
 /**
  * Build, guard, and persist a decision whose copy came verbatim from the
  * producer, bypassing the LLM classifier. The title falls back to one derived
- * from the body when the producer supplies none.
+ * from the body when the producer supplies none or supplies one that fails
+ * normalization.
  *
  * `renderedCopy` and `conversationActions` are populated for every available
  * channel, not just `selectedChannels`: downstream guards (routing-intent
@@ -911,9 +926,10 @@ function buildPassThroughDecision(params: {
   reasoningSummary: string;
 }): NotificationDecision {
   const { availableChannels, body, signal } = params;
-  const title =
-    nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-    deriveTitle(body);
+  const title = resolveTitle(
+    readPayloadString(signal.contextPayload, "requestedTitle"),
+    body,
+  );
   const deepLinkTarget = readPayloadObject(
     signal.contextPayload,
     "deepLinkMetadata",
