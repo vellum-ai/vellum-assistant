@@ -4,9 +4,18 @@ import { Minimize2 } from "lucide-react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { useAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { cn } from "@/utils/misc";
 import { injectBridge } from "@/utils/sandbox-bridge";
 import { Button } from "@vellumai/design-library";
+
+/**
+ * Sandbox tokens the app frame runs under. No `allow-same-origin`, so the
+ * app document is opaque-origin and reaches the host only through the
+ * bridge in `@/utils/sandbox-bridge`.
+ */
+const APP_IFRAME_SANDBOX =
+  "allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
 export interface AppViewerContainerProps {
   appId: string;
@@ -80,13 +89,19 @@ export function AppViewerContainer({
     [html, appId, route],
   );
 
+  const sandboxDisabled = useAppIframeSandboxDisabled();
+
+  // The sandbox flag is part of the key: a frame keeps the security
+  // context it was created with, so flipping the attribute on a live
+  // iframe changes nothing. Re-keying remounts it, which reloads the
+  // document under the attribute in effect.
   const iframeKey = useMemo(() => {
     let hash = 0;
     for (let i = 0; i < html.length; i++) {
       hash = ((hash << 5) - hash + html.charCodeAt(i)) | 0;
     }
-    return `app-${appId}-${hash}`;
-  }, [html, appId]);
+    return `app-${appId}-${hash}${sandboxDisabled ? "-nosandbox" : ""}`;
+  }, [html, appId, sandboxDisabled]);
 
   useSandboxFetchProxy(iframeRef, {
     frameId: appId,
@@ -139,7 +154,7 @@ export function AppViewerContainer({
           ref={iframeRef}
           key={iframeKey}
           srcDoc={srcdoc}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          sandbox={sandboxDisabled ? undefined : APP_IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
           title={appName}
           className="h-full w-full border-none"

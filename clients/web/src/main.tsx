@@ -10,6 +10,7 @@ import { RouterProvider } from "react-router";
 
 import { AppProviders } from "@/components/providers";
 import { WindowDragRegion } from "@/components/window-drag-region";
+import { installAppSandboxDebugFlag } from "@/lib/app-sandbox-debug-flag";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
@@ -50,6 +51,9 @@ async function boot() {
   }
   initSessionReplay();
   installConsentRefreshListeners();
+  // Namespace only. The flag it exposes stays off until a developer sets
+  // it from the console.
+  installAppSandboxDebugFlag();
 
   setupOrganizationStore();
   // Register before initSession so no identity transition is missed: client

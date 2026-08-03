@@ -13,7 +13,7 @@
  * while open.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -36,8 +36,33 @@ mock.module("@/utils/sandbox-bridge", () => ({
 }));
 
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { installAppSandboxDebugFlag } from "@/lib/app-sandbox-debug-flag";
+
+type DebugWindow = Omit<Window, "_vellumDebug"> & {
+  _vellumDebug?: { apps?: { disableIframeSandbox?: unknown } };
+};
+
+// The flag namespace is installed at boot in the real app; `main.tsx`
+// never runs under the test harness.
+installAppSandboxDebugFlag();
+spyOn(console, "warn").mockImplementation(() => {});
+spyOn(console, "info").mockImplementation(() => {});
+
+function setSandboxFlag(value: unknown): void {
+  const apps = (window as DebugWindow)._vellumDebug?.apps;
+  act(() => {
+    if (apps) {
+      apps.disableIframeSandbox = value;
+    }
+  });
+}
+
+function getIframe(): HTMLIFrameElement {
+  return document.querySelector("iframe") as HTMLIFrameElement;
+}
 
 afterEach(() => {
+  setSandboxFlag(false);
   cleanup();
   capturedOptions = undefined;
 });
@@ -152,5 +177,47 @@ describe("AppViewerContainer app actions", () => {
     renderViewer();
 
     expect(capturedOptions?.onAction).toBeUndefined();
+  });
+});
+
+describe("AppViewerContainer sandbox debug flag", () => {
+  test("sandboxes the app frame by default", () => {
+    renderViewer();
+
+    expect(getIframe().getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+  });
+
+  test("drops the sandbox and reloads the frame once the flag is set", () => {
+    renderViewer();
+    const sandboxed = getIframe();
+
+    setSandboxFlag(true);
+
+    const unsandboxed = getIframe();
+    expect(unsandboxed.hasAttribute("sandbox")).toBe(false);
+    // A new element, so the document reloads into the real origin instead
+    // of keeping the opaque one it was created with.
+    expect(unsandboxed).not.toBe(sandboxed);
+  });
+
+  test("restores the sandbox when the flag goes back to false", () => {
+    renderViewer();
+
+    setSandboxFlag(true);
+    setSandboxFlag(false);
+
+    expect(getIframe().getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+  });
+
+  test("ignores truthy values that are not the literal true", () => {
+    renderViewer();
+
+    setSandboxFlag("true");
+
+    expect(getIframe().hasAttribute("sandbox")).toBe(true);
   });
 });
