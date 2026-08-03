@@ -170,10 +170,14 @@ function deriveFallbackTitle(summary: string): string {
   // fence into a stray backtick). Ordered markers matter most: the seed prompt
   // asks the model for numbered lists, and a leading `1.` also reads as a
   // sentence terminator, which would truncate the title to the first digit.
+  // The leading-space allowance and rule set mirror `flattenToPlainText` in
+  // workspace migration 138, which must stay self-contained and so cannot share
+  // this code. A backfilled title and a freshly written one have to match.
   const deblocked = summary
-    .replace(/^[ \t]*```.*$/gm, "")
-    .replace(/^[ \t]*>[ \t]?/gm, "")
-    .replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/gm, "");
+    .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "");
   const plain = flattenWhitespace(stripMarkdown(deblocked));
   return deriveTitle(plain || flattenWhitespace(summary));
 }

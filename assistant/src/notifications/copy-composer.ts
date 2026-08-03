@@ -68,8 +68,14 @@ export function deriveTitle(body: string): string {
  * The decision engine's pass-through path applies the same clamp, so a signal
  * carrying `requestedTitle` renders the same headline whether or not the LLM
  * classifier was reachable.
+ *
+ * The two branches carry different budgets. An accepted authored title is
+ * bounded by `normalizeTitle` at 40 characters. A rejected one falls through to
+ * `deriveTitle`, which never sees the normalizer and applies
+ * `NOTIFICATION_TITLE_MAX_LENGTH` (60) plus a trailing ellipsis, so a derived
+ * title can reach 61 characters.
  */
-function resolveTitle(raw: string | undefined, body: string): string {
+export function resolveTitle(raw: string | undefined, body: string): string {
   return normalizeTitle(raw ?? "") || deriveTitle(body);
 }
 

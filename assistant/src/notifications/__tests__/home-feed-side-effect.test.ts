@@ -480,6 +480,29 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(item?.summary).toBe(seed);
   });
 
+  test("strips tilde fences and indented headings, matching migration 138", async () => {
+    // Workspace migration 138 backfills titles with its own self-contained copy
+    // of these rules. A backfilled title and a freshly written one must match
+    // for the same summary, so both accept CommonMark's 3-space indent and both
+    // fence styles.
+    conversationRow = { conversationType: "background" };
+    const seed = "   ## Indented heading\n\n~~~\ntilde fence\n~~~\nBody text.";
+    const signal = makeSignal({ sourceEventName: "example.event" });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "",
+          body: "Body text.",
+          conversationSeedMessage: seed,
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Indented heading tilde fence Body text.");
+  });
+
   test("derives a single-line plain title from a markdown-list conversation seed", async () => {
     conversationRow = { conversationType: "background" };
     const seed = "- Ran 12 checks\n- 3 failed\n\nSee the log for details.";
