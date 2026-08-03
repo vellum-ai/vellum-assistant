@@ -33,17 +33,10 @@ export const checkForUpdates = (): void => {
   autoUpdater
     .checkForUpdates()
     .then((result) => {
-      // With `autoDownload`, the download starts *inside* `checkForUpdates`,
-      // and electron-updater hands the in-flight download back on the
-      // resolved result rather than folding it into the returned promise
-      // (`AppUpdater.doCheckForUpdates` → `downloadPromise`). Its
-      // `downloadUpdate` re-throws every download failure after emitting
-      // `error`, so unless something attaches a handler here the rejection
-      // escapes as an unhandled promise rejection in the main process: the
-      // shape Sentry records for the "read-only volume" refusal an app
-      // launched from ~/Downloads or a mounted DMG hits on every check.
-      // The `error` listener below already owns the user-facing state and the
-      // logging, so this only has to keep the rejection from escaping.
+      // With `autoDownload`, electron-updater returns the in-flight download
+      // on the resolved result and rethrows download failures on it after
+      // emitting `error`. The `error` listener owns state and logging, so this
+      // only keeps the rejection from escaping.
       result?.downloadPromise?.catch(() => undefined);
     })
     .catch((err: unknown) => {
