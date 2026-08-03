@@ -32,7 +32,6 @@ import type {
 } from "../../provider-types.js";
 import { resolveSlackAuth } from "./auth.js";
 import * as slack from "./client.js";
-import { SlackApiError } from "./client.js";
 import {
   classifyConversationType,
   isPrivateConversation,
@@ -44,6 +43,7 @@ import type {
   SlackSearchMatch,
   SlackUser,
 } from "./types.js";
+import { SlackApiError } from "./web-api-transport.js";
 
 interface NormalizedSlackUserInfo {
   displayName: string;

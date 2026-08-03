@@ -2,8 +2,19 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
 const BOT_TOKEN = "xoxb-test";
 
+// `api.ts` resolves identity through `resolveSlackAuth`, whose import graph
+// (oauth/manual-token-connection.ts and siblings) reads several secure-keys
+// exports beyond the two this test overrides. Spread the real module so the
+// mock keeps every export those imports expect; the key accessors are the
+// only behavior under the test's control.
+const realSecureKeys = await import("../../../security/secure-keys.js");
 mock.module("../../../security/secure-keys.js", () => ({
+  ...realSecureKeys,
   getSecureKeyAsync: async () => BOT_TOKEN,
+  getSecureKeyResultAsync: async () => ({
+    value: BOT_TOKEN,
+    unreachable: false,
+  }),
 }));
 
 const { appendSlackStream, getSlackConversationInfo, startSlackStream } =
