@@ -16,7 +16,6 @@ type PermissionState = Awaited<ReturnType<typeof getNotificationPermission>>;
 export function NativeNotificationSettingsCard() {
   const isAndroid = useIsNativeAndroid();
   const [permission, setPermission] = useState<PermissionState | null>(null);
-  const [error, setError] = useState(false);
 
   useEffect(() => {
     if (isAndroid) {
@@ -34,10 +33,6 @@ export function NativeNotificationSettingsCard() {
     return null;
   }
 
-  const handleAction = async () => {
-    setError(!(await openAndroidNotificationSettings()));
-  };
-
   return (
     <Card className="flex items-center gap-3">
       <div className="min-w-0 flex-1">
@@ -49,18 +44,13 @@ export function NativeNotificationSettingsCard() {
             ? "Enabled for this device."
             : "Receive alerts when the app is closed."}
         </p>
-        {error && (
-          <p className="text-body-small-default text-[var(--system-negative-strong)]">
-            Could not open Android notification settings.
-          </p>
-        )}
       </div>
       {permission !== "unsupported" && (
         <Button
           variant="outlined"
           size="regular"
           leftIcon={<Settings />}
-          onClick={() => void handleAction()}
+          onClick={() => void openAndroidNotificationSettings()}
           disabled={permission === null}
         >
           System settings

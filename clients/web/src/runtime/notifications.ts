@@ -314,6 +314,7 @@ export interface PostLocalNotificationArgs {
   body: string;
   sourceEventName: string;
   deliveryId?: string;
+  correlationId?: string;
   deepLinkMetadata?: Record<string, unknown>;
   /**
    * When set alongside `deliveryId`, `postLocalNotification` sends a
@@ -478,7 +479,9 @@ export async function postLocalNotification(
     }
 
     const seed =
-      args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
+      args.correlationId ??
+      args.deliveryId ??
+      `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {
       id: toNotificationId(seed),
       title: args.title,
@@ -487,8 +490,9 @@ export async function postLocalNotification(
       ...(isNativeAndroid() ? { channelId: ANDROID_ALERTS_CHANNEL_ID } : {}),
     };
     try {
-      if (args.deliveryId) {
-        await scheduleNativeDelivery(args.deliveryId, notification);
+      const correlationId = args.correlationId ?? args.deliveryId;
+      if (correlationId && isNativeAndroid()) {
+        await scheduleNativeDelivery(correlationId, notification);
       } else {
         await ensureAndroidAlertsChannel();
         await LocalNotifications.schedule({ notifications: [notification] });
@@ -561,6 +565,7 @@ export function postForegroundRemotePush(
     body: notification.body ?? "",
     sourceEventName,
     deliveryId,
+    correlationId: deliveryId,
     deepLinkMetadata: conversationId ? { conversationId } : undefined,
   });
 }

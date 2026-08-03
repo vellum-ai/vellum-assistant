@@ -101,6 +101,7 @@ export class VellumAdapter implements ChannelAdapter {
       this.broadcast({
         type: "notification_intent",
         deliveryId: payload.deliveryId,
+        correlationId: payload.correlationId,
         sourceEventName: payload.sourceEventName,
         title: payload.copy.title,
         body: payload.copy.body,

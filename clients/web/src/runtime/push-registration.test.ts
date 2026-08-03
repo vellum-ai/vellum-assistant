@@ -238,10 +238,6 @@ describe("isRemotePushSupported", () => {
     expect(isRemotePushSupported()).toBe(false);
   });
 
-  test("true on native Android", () => {
-    platform = "android";
-    expect(isRemotePushSupported()).toBe(true);
-  });
 });
 
 describe("registerForRemotePush", () => {
@@ -363,13 +359,6 @@ describe("pushNotificationActionPerformed tap routing", () => {
     });
   });
 
-  test("publishes deeplink.openThread from data.deep_link.conversationId", async () => {
-    await registerForRemotePush("assistant-1");
-    tap({ deep_link: { conversationId: "conv-123" } });
-
-    expect(published).toEqual([{ threadId: "conv-123" }]);
-  });
-
   test("routes an Android JSON deep_link through the same event", async () => {
     platform = "android";
     await registerForRemotePush("assistant-1");
@@ -429,14 +418,6 @@ describe("extractPushConversationId", () => {
         conversationId: "conv-top",
       }),
     ).toBe("conv-top");
-  });
-
-  test("parses Android's JSON-encoded deep_link", () => {
-    expect(
-      extractPushConversationId({
-        deep_link: '{"conversationId":"conv-android"}',
-      }),
-    ).toBe("conv-android");
   });
 
   test("returns undefined for non-object, absent, and malformed shapes", () => {

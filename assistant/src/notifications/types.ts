@@ -99,6 +99,7 @@ export type RenderedChannelCopy = z.infer<typeof RenderedChannelCopySchema>;
 
 export const ChannelDeliveryPayloadSchema = z.object({
   deliveryId: z.string().optional(),
+  correlationId: z.string().optional(),
   sourceEventName: z.string(),
   copy: RenderedChannelCopySchema,
   deepLinkTarget: z.record(z.string(), z.unknown()).optional(),

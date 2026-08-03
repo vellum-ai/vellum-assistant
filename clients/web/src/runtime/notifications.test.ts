@@ -248,7 +248,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(scheduleMock).not.toHaveBeenCalled();
   });
 
-  test("foreground Android push schedules once by delivery ID", async () => {
+  test("foreground Android push and SSE schedule once by correlation ID", async () => {
     nativeAndroid = true;
     const push = {
       id: "message-1",
@@ -262,8 +262,11 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     };
 
     postForegroundRemotePush(push);
-    postForegroundRemotePush(push);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await postLocalNotification({
+      ...baseArgs,
+      deliveryId: "delivery-sse",
+      correlationId: "delivery-fcm",
+    });
 
     expect(scheduleMock).toHaveBeenCalledTimes(1);
     expect(scheduleMock.mock.calls[0]?.[0].notifications[0]?.channelId).toBe(

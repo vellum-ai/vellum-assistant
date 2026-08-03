@@ -344,6 +344,9 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
     expect(vellum.sends.length).toBe(1);
     expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(true);
     expect(platform.sends.length).toBe(1);
+    expect(platform.sends[0]?.payload.correlationId).toBe(
+      vellum.sends[0]?.payload.correlationId,
+    );
     expect(platform.sends[0]?.payload.remotePushDispatched).toBeUndefined();
   });
 

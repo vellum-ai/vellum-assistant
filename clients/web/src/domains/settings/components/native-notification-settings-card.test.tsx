@@ -1,14 +1,9 @@
 import { expect, mock, test } from "bun:test";
+import { fireEvent, render } from "@testing-library/react";
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
-
-const openSettingsMock = mock(async () => true);
-
+const openSettingsMock = mock(async () => {});
 mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => true,
-}));
-mock.module("@/hooks/use-bus-subscription", () => ({
-  useBusSubscription: () => {},
 }));
 mock.module("@/runtime/notifications", () => ({
   getNotificationPermission: async () => "denied",
@@ -21,11 +16,9 @@ mock.module("@/runtime/android-notification-settings", () => ({
 const { NativeNotificationSettingsCard } =
   await import("@/domains/settings/components/native-notification-settings-card");
 
-test("opens Android notification settings", async () => {
+test("denied Android notifications link to system settings", async () => {
   const view = render(<NativeNotificationSettingsCard />);
-  await waitFor(() => view.getByText("System settings"));
-
-  fireEvent.click(view.getByText("System settings"));
-
-  await waitFor(() => expect(openSettingsMock).toHaveBeenCalledTimes(1));
+  await view.findByText("Receive alerts when the app is closed.");
+  fireEvent.click(await view.findByText("System settings"));
+  expect(openSettingsMock).toHaveBeenCalledTimes(1);
 });

@@ -104,7 +104,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
         : undefined;
 
     const body: DispatchBody = {
-      delivery_id: payload.deliveryId,
+      delivery_id: payload.correlationId ?? payload.deliveryId,
       source_event_name: payload.sourceEventName,
       title: payload.copy.title,
       body: payload.copy.body,
@@ -114,6 +114,9 @@ export class PlatformPushAdapter implements ChannelAdapter {
     };
 
     const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/push/dispatch/`;
+    const accumulatedPlatforms = new Set<RemotePushPlatform>();
+    const remotePushPlatforms = () =>
+      accumulatedPlatforms.size > 0 ? [...accumulatedPlatforms] : undefined;
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       let response: Response;
@@ -145,7 +148,22 @@ export class PlatformPushAdapter implements ChannelAdapter {
           { attempt, sourceEventName: payload.sourceEventName, err },
           "Failed to dispatch platform push notification",
         );
-        return { success: false, error: message };
+        return {
+          success: false,
+          error: message,
+          remotePushPlatforms: remotePushPlatforms(),
+        };
+      }
+
+      const responseText = await response.text().catch(() => "");
+      let responseBody: unknown = null;
+      try {
+        responseBody = JSON.parse(responseText) as unknown;
+      } catch {
+        responseBody = null;
+      }
+      for (const platform of acceptedPlatforms(responseBody) ?? []) {
+        accumulatedPlatforms.add(platform);
       }
 
       if (response.ok) {
@@ -156,16 +174,16 @@ export class PlatformPushAdapter implements ChannelAdapter {
         // one device push was dispatched; an unparseable or ambiguous body
         // counts as not accepted (a duplicate client banner beats a lost
         // notification).
-        const responseBody = (await response.json().catch(() => null)) as {
+        const parsedBody = responseBody as {
           accepted_platforms?: unknown;
           skipped?: unknown;
           tokens_sent?: unknown;
         } | null;
         const remotePushAccepted =
-          responseBody != null &&
-          !responseBody.skipped &&
-          typeof responseBody.tokens_sent === "number" &&
-          responseBody.tokens_sent > 0;
+          parsedBody != null &&
+          !parsedBody.skipped &&
+          typeof parsedBody.tokens_sent === "number" &&
+          parsedBody.tokens_sent > 0;
         log.info(
           {
             sourceEventName: payload.sourceEventName,
@@ -179,7 +197,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
         return {
           success: true,
           remotePushAccepted,
-          remotePushPlatforms: acceptedPlatforms(responseBody),
+          remotePushPlatforms: remotePushPlatforms(),
         };
       }
 
@@ -199,25 +217,18 @@ export class PlatformPushAdapter implements ChannelAdapter {
         continue;
       }
 
-      const errorText = await response.text().catch(() => "");
-      let errorBody: unknown = null;
-      try {
-        errorBody = JSON.parse(errorText) as unknown;
-      } catch {
-        errorBody = null;
-      }
       log.error(
         {
           status: response.status,
           sourceEventName: payload.sourceEventName,
-          body: errorText.slice(0, 256),
+          body: responseText.slice(0, 256),
         },
         "Non-retryable error from push dispatch endpoint",
       );
       return {
         success: false,
-        error: `HTTP ${response.status}: ${errorText.slice(0, 128)}`,
-        remotePushPlatforms: acceptedPlatforms(errorBody),
+        error: `HTTP ${response.status}: ${responseText.slice(0, 128)}`,
+        remotePushPlatforms: remotePushPlatforms(),
       };
     }
 

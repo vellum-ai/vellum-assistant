@@ -653,6 +653,7 @@ export class NotificationBroadcaster {
 
         const payload: ChannelDeliveryPayload = {
           deliveryId,
+          correlationId: signal.signalId,
           sourceEventName: signal.sourceEventName,
           copy,
           deepLinkTarget,

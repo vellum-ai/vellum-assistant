@@ -48,6 +48,7 @@ function publishNotificationIntent(overrides: {
         title: "Reminder",
         body: "Stand up",
         deliveryId: "delivery-1",
+        correlationId: "signal-1",
         ...overrides,
       },
     });
@@ -82,6 +83,7 @@ describe("useNotificationIntentSync", () => {
         body: "Stand up",
         sourceEventName: "reminder.fired",
         deliveryId: "delivery-1",
+        correlationId: "signal-1",
         deepLinkMetadata: undefined,
         assistantId: "assistant-1",
         remotePushDispatched: true,

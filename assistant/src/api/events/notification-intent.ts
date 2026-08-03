@@ -23,6 +23,7 @@ export const NotificationIntentEventSchema = z.object({
   title: z.string(),
   body: z.string(),
   deliveryId: z.string().optional(),
+  correlationId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
   targetGuardianPrincipalId: z.string().optional(),
   silent: z.boolean().optional(),
