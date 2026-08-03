@@ -60,6 +60,13 @@ export interface VoiceLiveActivityContent {
   /** Avatar accent as `#RRGGBB`. Unparseable values fall back to a neutral gray natively. */
   accentHex: string;
   muted: boolean;
+  /**
+   * One short line describing what the current turn is doing ("Reading a
+   * file"), or `""` for none. Pass the live-voice store's `activityLabel`
+   * verbatim: the daemon words it so that this local push and the APNs push it
+   * dispatches carry identical content.
+   */
+  detail: string;
 }
 
 /** {@link VoiceLiveActivityContent} plus the fields fixed for the activity's lifetime. */

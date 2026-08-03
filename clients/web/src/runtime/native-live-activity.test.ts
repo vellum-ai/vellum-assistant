@@ -47,6 +47,7 @@ const content: VoiceLiveActivityContent = {
   label: "Listening…",
   accentHex: "#7C3AED",
   muted: false,
+  detail: "",
 };
 const startOptions: VoiceLiveActivityStart = {
   ...content,

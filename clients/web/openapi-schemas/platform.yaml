@@ -4599,6 +4599,7 @@ paths:
       - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
@@ -4652,6 +4653,7 @@ paths:
       security:
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
@@ -7576,6 +7578,11 @@ components:
         deliberately not allowed to invent wording of its own (see the model).
         Validating it here makes that a 400 at registration rather than a silently
         dropped push mid-session.
+
+        ``accent_hex`` and ``muted`` ride along for a related reason: they are
+        ``ContentState`` fields only the client can observe, and every push replaces
+        that state wholesale. The client re-registers when either changes, so the
+        newest registration is always what a dispatch composes from.
       properties:
         token:
           type: string
@@ -7589,6 +7596,11 @@ components:
           type: string
           maxLength: 64
         labels: {}
+        accent_hex:
+          type: string
+          maxLength: 9
+        muted:
+          type: boolean
       required:
       - apns_environment
       - bundle_id
@@ -7604,6 +7616,11 @@ components:
         deliberately not allowed to invent wording of its own (see the model).
         Validating it here makes that a 400 at registration rather than a silently
         dropped push mid-session.
+
+        ``accent_hex`` and ``muted`` ride along for a related reason: they are
+        ``ContentState`` fields only the client can observe, and every push replaces
+        that state wholesale. The client re-registers when either changes, so the
+        newest registration is always what a dispatch composes from.
       properties:
         token:
           type: string
@@ -7620,6 +7637,11 @@ components:
           minLength: 1
           maxLength: 64
         labels: {}
+        accent_hex:
+          type: string
+          maxLength: 9
+        muted:
+          type: boolean
       required:
       - apns_environment
       - bundle_id

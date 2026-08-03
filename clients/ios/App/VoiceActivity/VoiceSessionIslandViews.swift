@@ -4,9 +4,16 @@ import UIKit
 // Shared building blocks for the live-voice Live Activity.
 //
 // The Lock Screen, expanded, compact and minimal presentations are four
-// separately-sized renderings of the *same* three facts — accent, phase
-// label, assistant name — so they compose from these primitives rather than
-// each growing its own copy that drifts.
+// separately-sized renderings of the *same* facts: identity (the avatar and
+// the assistant's name), the current phase (as a glyph and as passed-through
+// wording), how long the call has been running, and whether the mic is muted.
+// They compose from these primitives rather than each growing its own copy
+// that drifts.
+//
+// Which of those a slot can show is a function of its size, and the order they
+// drop in is by how much they tell the user: the compact and minimal
+// presentations keep identity and the phase glyph, because a glyph survives
+// being 20 points wide and a sentence does not.
 //
 // Two rules run through all of them:
 //
@@ -50,6 +57,101 @@ extension VoiceSessionAttributes.ContentState {
     /// assistant does exist, and tapping through still returns to it.
     func displayLabel(isStale: Bool) -> String {
         isStale ? "" : label
+    }
+
+    /// The activity line to render, or nothing when there is none and once the
+    /// content has gone stale.
+    ///
+    /// Stale drops it for the same reason it drops the phase label, only more
+    /// so: "Reading a file" is a claim about work happening *right now*, which
+    /// makes it the sentence on the island most likely to be a lie once
+    /// nothing is driving updates any more.
+    func displayDetail(isStale: Bool) -> String {
+        isStale ? "" : detail
+    }
+
+    /// The SF Symbol standing for this phase.
+    ///
+    /// **A glyph is not copy, which is why this may switch on `phase` when
+    /// nothing else here may.** The rule the rest of this file follows exists
+    /// because wording deploys continuously while this shell ships on App Store
+    /// review; a symbol has no such second source to drift from. The phase
+    /// vocabulary itself is the contract, and it already cannot change without
+    /// changing ``Phase``, where a new case makes this switch a compile error.
+    ///
+    /// It earns its place by being the one part of the island that is legible
+    /// at every size. Before this, all six phases rendered the same waveform
+    /// and the compact trailing slot's job was done by a caption truncated to
+    /// two or three characters, so in the presentation the user actually sees
+    /// most of the time, "Listening…" and "Thinking…" were indistinguishable.
+    var phaseSymbol: String {
+        switch phase {
+        case .connecting: return "antenna.radiowaves.left.and.right"
+        case .listening: return "waveform"
+        case .transcribing: return "text.bubble"
+        case .thinking: return "ellipsis"
+        case .speaking: return "speaker.wave.2.fill"
+        case .ending: return "phone.down.fill"
+        }
+    }
+}
+
+/// The phase glyph: an accent-tinted symbol standing for the current phase.
+///
+/// Drops to nothing once ActivityKit marks the content stale, for the same
+/// reason the label does: it is a claim about a session nothing has confirmed
+/// is still running. See ``VoiceSessionAttributes/ContentState/displayLabel``.
+struct VoicePhaseGlyph: View {
+    let state: VoiceSessionAttributes.ContentState
+    let isStale: Bool
+    var scale: Image.Scale = .medium
+
+    var body: some View {
+        if !isStale {
+            Image(systemName: state.phaseSymbol)
+                .imageScale(scale)
+                .foregroundStyle(state.accentColor)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Elapsed call time.
+///
+/// **The only moving part on the island that costs no update.**
+/// `Text(timerInterval:)` is driven by the system from a start date carried in
+/// the attributes, so it keeps counting through a suspended web layer, through
+/// a missed push, and through the ActivityKit rate limit that makes every
+/// content update expensive. That makes it the honest answer to "is this thing
+/// still going". For a session whose phase can sit unchanged for minutes,
+/// it is the difference between an island that looks frozen and one that
+/// visibly is not.
+///
+/// Hidden once the content is stale: at that point how long the *activity* has
+/// been up is no longer evidence of how long a session has, and the whole point
+/// of staleness is to stop the island making claims it cannot support.
+struct VoiceSessionTimer: View {
+    let startedAt: Date
+    let isStale: Bool
+    var font: Font = .caption
+
+    var body: some View {
+        if !isStale {
+            Text(
+                timerInterval: startedAt...Date.distantFuture,
+                countsDown: false,
+                showsHours: false
+            )
+            .font(font)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            // Fixed so a digit rolling over cannot shove the layout around;
+            // the timer sits next to truncating text in every slot it appears
+            // in, and that text would reflow on every tick.
+            .frame(minWidth: 40, alignment: .trailing)
+            .accessibilityLabel("Call duration")
+        }
     }
 }
 
@@ -131,12 +233,11 @@ struct VoiceAccentBadge: View {
     }
 }
 
-/// The identity mark for the two tightest slots, the compact leading and the
-/// minimal presentation: the avatar if there is one, the accent waveform if
-/// not.
+/// The identity mark for the compact leading slot: the avatar if there is one,
+/// the accent waveform if not.
 ///
-/// Sized rather than left to the slot because these are the only presentations
-/// iOS renders inline with the status bar, where an unconstrained image would
+/// Sized rather than left to the slot because the inline presentations are the
+/// ones iOS renders against the status bar, where an unconstrained image would
 /// be laid out against the whole island rather than its own corner.
 struct VoiceCompactIdentity: View {
     let accent: Color
@@ -147,6 +248,33 @@ struct VoiceCompactIdentity: View {
             VoiceAvatarImage(image: image, diameter: 20)
         } else {
             VoiceAccentGlyph(accent: accent, scale: .small)
+        }
+    }
+}
+
+/// The minimal presentation: the phase glyph, falling back to the identity
+/// mark once the content is stale.
+///
+/// The fallback is what keeps this slot from rendering nothing at all.
+/// ``VoicePhaseGlyph`` draws no view when stale, which is correct wherever
+/// something else remains on screen, and wrong here: this circle *is* the whole
+/// island in the shared presentation, so an empty one reads as a broken app
+/// rather than as an activity with nothing to claim. Identity is the right
+/// thing to fall back to, for the same reason the Lock Screen keeps the avatar
+/// and drops the phase: the session's existence is not the part in doubt.
+struct VoiceMinimalPresentation: View {
+    let state: VoiceSessionAttributes.ContentState
+    let isStale: Bool
+    var avatarImageData: Data?
+
+    var body: some View {
+        if isStale {
+            VoiceCompactIdentity(
+                accent: state.accentColor,
+                avatarImageData: avatarImageData
+            )
+        } else {
+            VoicePhaseGlyph(state: state, isStale: false, scale: .small)
         }
     }
 }
@@ -186,8 +314,12 @@ struct VoiceSessionText: View {
     }
 }
 
-/// Lock Screen and notification-banner presentation: badge, assistant name,
-/// phase label, and a mute glyph while muted.
+/// Lock Screen and notification-banner presentation: the avatar, the assistant
+/// name, the phase (glyph and label), elapsed call time, and a mute glyph while
+/// muted.
+///
+/// The roomiest of the four presentations, so it is the one that shows
+/// everything; the island slots below are this, minus whatever does not fit.
 ///
 /// No `activityBackgroundTint` — the system background already adapts to the
 /// Lock Screen's appearance, and tinting it with an arbitrary avatar color is
@@ -195,21 +327,53 @@ struct VoiceSessionText: View {
 struct VoiceSessionLockScreenView: View {
     let assistantName: String
     let state: VoiceSessionAttributes.ContentState
-    /// Whether ActivityKit considers this content out of date; drops the phase
-    /// label. See `ContentState.displayLabel(isStale:)`.
+    /// When the activity started, for the elapsed timer. See
+    /// ``VoiceSessionAttributes/startedAt``.
+    let startedAt: Date
+    /// Whether ActivityKit considers this content out of date; drops
+    /// everything that asserts something about a live session (the phase
+    /// label, the phase glyph, and the timer). See
+    /// `ContentState.displayLabel(isStale:)`.
     let isStale: Bool
     var avatarImageData: Data?
 
     var body: some View {
-        HStack(spacing: 12) {
+        let detail = state.displayDetail(isStale: isStale)
+        return HStack(spacing: 12) {
             VoiceAccentBadge(accent: state.accentColor, avatarImageData: avatarImageData)
             VStack(alignment: .leading, spacing: 2) {
                 VoiceSessionText(text: assistantName, font: .headline)
-                VoiceSessionText(text: state.displayLabel(isStale: isStale), color: .secondary)
+                HStack(spacing: 5) {
+                    VoicePhaseGlyph(state: state, isStale: isStale, scale: .small)
+                    VoiceSessionText(
+                        text: state.displayLabel(isStale: isStale),
+                        color: .secondary
+                    )
+                }
+                // The activity line, when there is one. Below the phase rather
+                // than replacing it: the two answer different questions ("is
+                // it my turn to talk" and "what is it doing"), and a turn that
+                // is thinking *and* reading a file is both.
+                //
+                // Absent rather than blank when empty, so an idle session's
+                // card is two lines tall instead of two lines and a gap.
+                if !detail.isEmpty {
+                    VoiceSessionText(
+                        text: detail,
+                        font: .caption,
+                        color: .tertiary
+                    )
+                }
             }
             Spacer(minLength: 0)
-            if state.muted {
-                VoiceMuteGlyph()
+            // Trailing column, top-aligned with the name: the two status facts
+            // that are not the phase. Stacked rather than inline so the mute
+            // glyph keeps its place when the timer's width changes.
+            VStack(alignment: .trailing, spacing: 4) {
+                VoiceSessionTimer(startedAt: startedAt, isStale: isStale)
+                if state.muted {
+                    VoiceMuteGlyph()
+                }
             }
         }
         .padding(.horizontal, 16)
