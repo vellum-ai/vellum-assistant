@@ -3,6 +3,9 @@
  * (`BubbleAttachments`, `MessageAttachments`, `MessageFilesPanel`) and the
  * viewer store's message-files actions.
  *
+ * Fixtures live in `attachment-fixtures.ts`, which imports no test runner so
+ * stories can share them; this module adds the `bun:test` stubs on top.
+ *
  * The preview-modal stub is exported as a function rather than run on import,
  * because `mock.module` must be applied BEFORE the module under test is
  * imported and a bare side-effecting import gives the test no control over
@@ -11,62 +14,15 @@
 
 import { mock } from "bun:test";
 
-import type { DisplayAttachment } from "@/domains/chat/types/types";
-
-/**
- * A display attachment with sensible PNG defaults. Pass `overrides` for the
- * fields a test actually cares about.
- */
-export function makeDisplayAttachment(
-  overrides: Partial<DisplayAttachment> = {},
-): DisplayAttachment {
-  const id = overrides.id ?? "att-1";
-  return {
-    id,
-    filename: `${id}.png`,
-    mimeType: "image/png",
-    sizeBytes: 1_024,
-    previewUrl: null,
-    ...overrides,
-  };
-}
-
-/** `count` distinct image attachments, named `photo-<i>.png`. */
-export function makeImageAttachments(count: number): DisplayAttachment[] {
-  return Array.from({ length: count }, (_, index) =>
-    makeDisplayAttachment({
-      id: `img-${index}`,
-      filename: `photo-${index}.png`,
-      previewUrl: `https://example.com/photo-${index}.png`,
-    }),
-  );
-}
-
-/** A mixed media / non-media set covering each icon fallback kind. */
-export function makeMixedAttachments(): DisplayAttachment[] {
-  return [
-    makeImageAttachments(1)[0]!,
-    makeDisplayAttachment({
-      id: "deck-1",
-      filename: "deck.pptx",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      sizeBytes: 4_096,
-    }),
-    makeDisplayAttachment({
-      id: "report-1",
-      filename: "report.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 2_048,
-    }),
-    makeDisplayAttachment({
-      id: "bundle-1",
-      filename: "bundle.zip",
-      mimeType: "application/zip",
-      sizeBytes: 8_192,
-    }),
-  ];
-}
+// Re-exported so existing test imports keep resolving from one place; the
+// factories themselves live in a test-runner-free module the stories share.
+export {
+  makeDisplayAttachment,
+  makeImageAttachments,
+  makeMixedAttachments,
+  makePreviewableImages,
+  SAMPLE_PREVIEWS,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 
 /**
  * Replace the preview modal with a probe exposing the opened attachment, its

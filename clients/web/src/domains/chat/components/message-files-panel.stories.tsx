@@ -2,6 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
+import {
+  makeDisplayAttachment,
+  makePreviewableImages,
+  SAMPLE_PREVIEWS,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { AttachmentOverflowSquare } from "@/domains/chat/components/chat-attachments/attachment-overflow-square";
 import { MessageFilesPanel } from "./message-files-panel";
 
@@ -12,63 +17,53 @@ import { MessageFilesPanel } from "./message-files-panel";
  * attachment strip.
  */
 
-function makeAttachment(
-  overrides: Partial<DisplayAttachment> & { id: string },
-): DisplayAttachment {
-  return {
-    filename: `${overrides.id}.png`,
-    mimeType: "image/png",
-    sizeBytes: 1_024,
-    previewUrl: null,
-    ...overrides,
-  };
-}
-
 const MIXED: DisplayAttachment[] = [
-  makeAttachment({
+  makeDisplayAttachment({
     id: "img-0",
     filename: "quarterly-revenue.png",
     sizeBytes: 184_320,
+    previewUrl: SAMPLE_PREVIEWS[0]!,
   }),
-  makeAttachment({
+  makeDisplayAttachment({
     id: "deck-1",
     filename: "board-deck.pptx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     sizeBytes: 4_194_304,
   }),
-  makeAttachment({
+  makeDisplayAttachment({
     id: "report-1",
     filename: "annual-report.pdf",
     mimeType: "application/pdf",
     sizeBytes: 2_097_152,
   }),
-  makeAttachment({
+  makeDisplayAttachment({
+    id: "img-1",
+    filename: "hazard-gallery.png",
+    sizeBytes: 188_416,
+    previewUrl: SAMPLE_PREVIEWS[1]!,
+  }),
+  makeDisplayAttachment({
     id: "sheet-1",
     filename: "forecast.xlsx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     sizeBytes: 65_536,
   }),
-  makeAttachment({
+  makeDisplayAttachment({
     id: "bundle-1",
     filename: "source-bundle.zip",
     mimeType: "application/zip",
     sizeBytes: 8_388_608,
   }),
-  makeAttachment({
+  makeDisplayAttachment({
     id: "clip-1",
     filename: "walkthrough.mp4",
     mimeType: "video/mp4",
     sizeBytes: 12_582_912,
+    thumbnailUrl: SAMPLE_PREVIEWS[2]!,
   }),
-  makeAttachment({
-    id: "notes-1",
-    filename: "meeting-notes.md",
-    mimeType: "text/markdown",
-    sizeBytes: 3_072,
-  }),
-  makeAttachment({
+  makeDisplayAttachment({
     id: "script-1",
     filename: "migrate.ts",
     mimeType: "text/plain",
@@ -145,4 +140,19 @@ export const OverflowTileStates: StoryObj = {
       </div>
     </div>
   ),
+};
+
+/**
+ * A photo-heavy message: the grid wraps to the panel's width rather than a
+ * fixed column count, so it fills a widened drawer and the full-width mobile
+ * overlay alike.
+ */
+export const Photos: Story = {
+  args: {
+    payload: {
+      messageId: "story-photos",
+      attachments: makePreviewableImages(12),
+    },
+    onClose: () => {},
+  },
 };
