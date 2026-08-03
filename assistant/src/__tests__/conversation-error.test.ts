@@ -190,6 +190,29 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).toContain("AI provider");
       expect(result.errorCategory).toBe("rate_limit");
     });
+
+    it("does not apply a managed LLM route to a plain rate-limit error", () => {
+      const result = classifyConversationError(
+        new Error("429 Too Many Requests from a tool API"),
+        {
+          ...baseCtx,
+          isManagedRoute: true,
+        },
+      );
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("still recognizes a rewrapped Vellum quota body", () => {
+      const result = classifyConversationError(
+        new Error('429 {"code":"daily_quota_exceeded"}'),
+        baseCtx,
+      );
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
   });
 
   describe("provider overloaded errors", () => {

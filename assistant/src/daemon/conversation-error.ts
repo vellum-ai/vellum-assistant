@@ -365,8 +365,8 @@ function classifyCore(
   attribution: ConversationErrorAttribution = {},
 ): Omit<ClassifiedConversationError, "debugDetails"> {
   const isManagedRoute =
-    attribution.isManagedRoute ??
-    (error instanceof ProviderError &&
+    error instanceof ProviderError &&
+    (attribution.isManagedRoute ??
       getProviderRoutingSource(error.provider) === "managed-proxy");
 
   // Prefer the semantic reason stamped by the provider layer, regardless of
