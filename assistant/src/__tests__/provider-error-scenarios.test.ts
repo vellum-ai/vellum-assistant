@@ -232,6 +232,28 @@ describe("RetryProvider — rate limit backoff", () => {
     }
   });
 
+  test("attributes the credential selected for the failed request", async () => {
+    const inner = makeFailing(
+      new ProviderError("invalid key", "anthropic", 401),
+    );
+    const provider = new RetryProvider(inner, {
+      credentialSource: "byok",
+      connectionName: "anthropic-personal",
+    });
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      const providerError = err as ProviderError;
+      expect(providerError.routeAttribution).toMatchObject({
+        credentialSource: "byok",
+        connectionName: "anthropic-personal",
+      });
+    }
+  });
+
   test("tags final error with retriesExhausted=true after retry loop gives up (JARVIS-513)", async () => {
     // Transient socket flap from Bun's native fetch: wrapped in a
     // ProviderError but still network-retryable via message pattern match.
@@ -330,6 +352,124 @@ describe("RetryProvider — rate limit backoff", () => {
     const sleepCalls = sleepSpy.mock.calls;
     const lastDelay = sleepCalls[sleepCalls.length - 1][0];
     expect(lastDelay).toBe(60_000);
+  });
+});
+
+describe("RetryProvider managed credential refresh", () => {
+  test("reloads managed credentials once and keeps the refreshed provider", async () => {
+    sleepSpy.mockClear();
+    const initial = makeFailing(
+      new ProviderError("assistant key expired", "anthropic", 403, {
+        reason: "invalid_credentials",
+      }),
+      "anthropic",
+    );
+    const refreshed = makeFlaky(
+      0,
+      new ProviderError("unused", "anthropic"),
+      "anthropic",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "vellum-managed",
+      connectionName: "vellum",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return refreshed;
+      },
+    });
+
+    await expect(provider.sendMessage(MESSAGES)).resolves.toMatchObject({
+      model: "test-model",
+    });
+    await expect(provider.sendMessage(MESSAGES)).resolves.toMatchObject({
+      model: "test-model",
+    });
+
+    expect(initial.calls).toBe(1);
+    expect(refreshed.calls).toBe(2);
+    expect(refreshCalls).toBe(1);
+    expect(sleepSpy).not.toHaveBeenCalled();
+  });
+
+  test("surfaces a managed auth failure when refreshed credentials are also rejected", async () => {
+    const initial = makeFailing(
+      new ProviderError("old key rejected", "gemini", 401),
+      "gemini",
+    );
+    const refreshed = makeFailing(
+      new ProviderError("new key rejected", "gemini", 403),
+      "gemini",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "vellum-managed",
+      connectionName: "vellum",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return refreshed;
+      },
+    });
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const providerError = error as ProviderError;
+      expect(providerError.message).toBe("new key rejected");
+      expect(providerError.routeAttribution).toMatchObject({
+        credentialSource: "vellum-managed",
+        connectionName: "vellum",
+      });
+    }
+    expect(initial.calls).toBe(1);
+    expect(refreshed.calls).toBe(1);
+    expect(refreshCalls).toBe(1);
+  });
+
+  test("does not reload credentials for a personal provider key rejection", async () => {
+    const initial = makeFailing(
+      new ProviderError("personal key rejected", "anthropic", 401),
+      "anthropic",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "byok",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return null;
+      },
+    });
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "personal key rejected",
+    );
+    expect(initial.calls).toBe(1);
+    expect(refreshCalls).toBe(0);
+  });
+
+  test("does not reload managed credentials for a model restriction", async () => {
+    const initial = makeFailing(
+      new ProviderError("model unavailable", "anthropic", 403, {
+        reason: "model_restricted",
+      }),
+      "anthropic",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "vellum-managed",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return null;
+      },
+    });
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "model unavailable",
+    );
+    expect(initial.calls).toBe(1);
+    expect(refreshCalls).toBe(0);
   });
 });
 
