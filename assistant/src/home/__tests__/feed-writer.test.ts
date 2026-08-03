@@ -199,6 +199,23 @@ describe("feed-writer", () => {
       const feed = readHomeFeed();
       expect(feed.items).toEqual([]);
     });
+
+    test("keeps the valid items when a single row is malformed", () => {
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      const file = {
+        version: 2,
+        updatedAt: "2026-04-14T12:00:00.000Z",
+        items: [
+          makeItem({ id: "good" }),
+          { ...makeItem({ id: "bad" }), priority: 999 },
+        ],
+      };
+      writeFileSync(getHomeFeedPath(), JSON.stringify(file, null, 2), "utf-8");
+
+      const feed = readHomeFeed();
+      expect(feed.items).toHaveLength(1);
+      expect(feed.items[0]!.id).toBe("good");
+    });
   });
 
   describe("appendFeedItem", () => {
