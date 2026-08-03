@@ -73,8 +73,11 @@ export function MessageFilesPanel({
           No files on this message
         </Typography>
       ) : (
-        // Three across fits the drawer's 400px default width.
-        <div className="grid grid-cols-3 gap-3">
+        // Wraps rather than sitting on a fixed column count: the drawer is
+        // drag-resizable and the mobile overlay renders this same panel at
+        // full viewport width. `items-start` keeps squares with taller
+        // captions from stretching their neighbours.
+        <div className="flex flex-wrap items-start gap-3">
           {displayAttachments.map((att, index) => renderSquare(att, index))}
         </div>
       )}

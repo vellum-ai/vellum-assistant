@@ -76,6 +76,11 @@ export function MessageAttachmentSquare({
   // a poster fails, so an <img> would surface the browser's broken glyph.
   const backgroundImageUrl =
     kind === "video" && thumbnailUrl != null ? thumbnailUrl : null;
+  // With nothing filling the tile, its `--surface-lift` fill disappears on a
+  // container painted the same colour (the files panel's `DetailShell` body),
+  // leaving a bare glyph. A `--border-element` hairline is the one outline that
+  // reads against both `--surface-base` and `--surface-lift` in every theme.
+  const showsIcon = !hasImagePreview && backgroundImageUrl === null;
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
@@ -110,7 +115,7 @@ export function MessageAttachmentSquare({
     >
       <div className="relative w-fit">
         <div
-          className={`${ATTACHMENT_TILE_BOX_CLASS} flex items-center justify-center overflow-hidden bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]`}
+          className={`${ATTACHMENT_TILE_BOX_CLASS} flex items-center justify-center overflow-hidden bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]${showsIcon ? " border border-[var(--border-element)]" : ""}`}
           style={
             backgroundImageUrl
               ? {
