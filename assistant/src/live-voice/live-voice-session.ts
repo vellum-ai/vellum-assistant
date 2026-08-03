@@ -58,7 +58,11 @@ import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
-import { activityLabelForTool, revealsUiSurface } from "./activity-label.js";
+import {
+  activityLabelForTool,
+  dismissesUiSurface,
+  revealsUiSurface,
+} from "./activity-label.js";
 import {
   createVoiceFrontDecider,
   type VoiceFrontDecider,
@@ -3876,16 +3880,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             });
             current.progress.opsSinceNarration += 1;
             current.progress.stateEpoch += 1;
-            // Showing a surface implies revealing it. The room is a
-            // full-screen overlay, so a surface rendered behind it is a
-            // surface nobody sees, and asking the model to also remember the
-            // minimize marker makes that the model's problem instead of the
-            // system's. Latching here reuses the marker's own machinery, so
-            // the reveal still happens where it always has: after the reply's
-            // speech drains, never mid-sentence, at most once per turn.
-            if (revealsUiSurface(toolName)) {
-              current.minimizeRequested = true;
-            }
             this.publishActivity(current, this.currentActivityLabel(current));
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
             // Definitive tool use means the turn is guaranteed slow: speak
@@ -3940,6 +3934,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               }
             }
             current.progress.stateEpoch += 1;
+            // Showing a surface implies revealing it: the room is a
+            // full-screen overlay, so a surface rendered behind it is a
+            // surface nobody sees.
+            //
+            // **Latched on the result, not the tool start.** A ui call can be
+            // rejected (no `surface_type`, an empty card, a client that never
+            // acks), and a reveal driven by the attempt would minimize the room
+            // to show nothing at all. Only a call that came back without an
+            // error actually put something on screen.
+            //
+            // A dismissal clears it again, so a turn that shows a surface and
+            // then takes it away does not reveal an empty screen. Last write
+            // wins, which is the right reading of "what did this turn leave up"
+            // without tracking surfaces individually.
+            if (event.isError !== true) {
+              if (revealsUiSurface(event.toolName)) {
+                current.minimizeRequested = true;
+              } else if (dismissesUiSurface(event.toolName)) {
+                current.minimizeRequested = false;
+              }
+            }
             this.publishActivity(current, this.currentActivityLabel(current));
             this.maybeNarrateProgress(current, trigger);
           },

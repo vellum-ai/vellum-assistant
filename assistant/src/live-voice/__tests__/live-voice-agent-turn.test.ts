@@ -672,13 +672,27 @@ describe("LiveVoiceSession room reveal", () => {
     };
   }
 
+  /** Run a ui tool to completion, as the agent loop would. */
+  function runUiTool(
+    getCallbacks: () => VoiceTurnCallbacks | undefined,
+    toolName: string,
+    opts?: { isError?: boolean },
+  ): void {
+    getCallbacks()?.tool_use_start?.(toolName);
+    getCallbacks()?.tool_result?.({
+      toolName,
+      resultPreview: "",
+      ...(opts?.isError === true ? { isError: true } : {}),
+    });
+  }
+
   // Showing a surface is what reveals the screen. Nothing the model says does,
   // so the user never loses the reveal to a forgotten token.
   test("a ui tool emits minimize_room after tts_done", async () => {
     const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
-    getCallbacks()?.tool_use_start?.("ui_show");
+    runUiTool(getCallbacks, "ui_show");
     emitTextDelta(getCallbacks, "Here is the summary.");
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
@@ -700,11 +714,53 @@ describe("LiveVoiceSession room reveal", () => {
     ).toHaveLength(1);
   });
 
+  // The reveal follows the surface, not the attempt: a rejected call (no
+  // surface_type, an empty card, a client that never acks) rendered nothing,
+  // and minimizing to show nothing is worse than staying put.
+  test("a failed ui call reveals nothing", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "ui_show", { isError: true });
+    emitTextDelta(getCallbacks, "I could not show that.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("a surface taken away before the reply ends reveals nothing", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "ui_show");
+    runUiTool(getCallbacks, "ui_dismiss");
+    emitTextDelta(getCallbacks, "Never mind, sorted it.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  // Opening an app puts something on screen just as a card does; a list keyed
+  // on "ui_" would have missed it.
+  test("opening an app reveals the screen", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "app_open");
+    emitTextDelta(getCallbacks, "Opened it up.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(true);
+  });
+
   test("dismissing a surface does not reveal the screen", async () => {
     const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
-    getCallbacks()?.tool_use_start?.("ui_dismiss");
+    runUiTool(getCallbacks, "ui_dismiss");
     emitTextDelta(getCallbacks, "Cleared that away.");
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
@@ -768,7 +824,7 @@ describe("LiveVoiceSession room reveal", () => {
     const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
-    getCallbacks()?.tool_use_start?.("ui_show");
+    runUiTool(getCallbacks, "ui_show");
     emitTextDelta(getCallbacks, "Showing you now.");
     await flushAsyncCallbacks();
 

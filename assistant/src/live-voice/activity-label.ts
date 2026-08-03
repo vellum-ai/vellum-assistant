@@ -29,11 +29,22 @@
 /**
  * The tools that put something on screen worth looking at.
  *
- * `ui_dismiss` is deliberately absent: it retires a surface, and revealing the
- * screen to show the user something that is no longer there is the opposite of
- * the point. A turn that only dismisses leaves the room where it is.
+ * `app_open` belongs here with the ui-surface tools: it proxies to a connected
+ * client to bring an app up, which is the same thing from the user's side, and
+ * a list keyed on "ui_" would have missed it.
+ *
+ * `ui_dismiss` is deliberately absent, and is handled as its own case: it
+ * retires a surface, and revealing the screen to show the user something that
+ * is no longer there is the opposite of the point.
  */
-const UI_REVEAL_TOOLS: ReadonlySet<string> = new Set(["ui_show", "ui_update"]);
+const UI_REVEAL_TOOLS: ReadonlySet<string> = new Set([
+  "ui_show",
+  "ui_update",
+  "app_open",
+]);
+
+/** The tool that takes a surface away again. */
+const UI_DISMISS_TOOL = "ui_dismiss";
 
 /**
  * Whether running `toolName` leaves something on screen the user should be
@@ -42,6 +53,11 @@ const UI_REVEAL_TOOLS: ReadonlySet<string> = new Set(["ui_show", "ui_update"]);
  */
 export function revealsUiSurface(toolName: string): boolean {
   return UI_REVEAL_TOOLS.has(toolName);
+}
+
+/** Whether `toolName` takes a surface off the screen. */
+export function dismissesUiSurface(toolName: string): boolean {
+  return toolName === UI_DISMISS_TOOL;
 }
 
 /**
@@ -72,6 +88,7 @@ const TOOL_ACTIVITY_LABELS: Readonly<Record<string, string>> = {
   schedule: "Checking the schedule",
   ui_show: "Putting something on screen",
   ui_update: "Putting something on screen",
+  app_open: "Opening an app",
 };
 
 /**
