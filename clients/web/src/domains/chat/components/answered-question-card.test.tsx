@@ -59,13 +59,17 @@ describe("AnsweredQuestionCard", () => {
       <AnsweredQuestionCard
         answered={makeAnswered({
           responses: [
-            { questionId: "q1", decision: "free_text", text: "Alice Zhang" },
+            {
+              questionId: "q1",
+              decision: "free_text",
+              text: "The one at Acme",
+            },
           ],
         })}
       />,
     );
 
-    expect(screen.getByText("Alice Zhang")).toBeDefined();
+    expect(screen.getByText("The one at Acme")).toBeDefined();
   });
 
   test("renders a skipped question as skipped", () => {

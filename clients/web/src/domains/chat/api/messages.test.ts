@@ -720,7 +720,7 @@ describe("mapRuntimeToolCalls — confirmationDecision", () => {
   });
 });
 
-describe("mapRuntimeToolCalls — answeredQuestion", () => {
+describe("mapRuntimeToolCalls: answeredQuestion", () => {
   test("rehydrates a persisted answered ask_question record", () => {
     // GIVEN a reopened conversation whose ask_question row carries the answer
     const wire: ConversationMessageToolCall = {
