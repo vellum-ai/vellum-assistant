@@ -1,18 +1,16 @@
 /**
- * JS ↔ native bridge for the `VoiceLiveActivity` Capacitor plugin registered by
- * `clients/ios/App/App/MyViewController.swift` +
- * `clients/ios/App/App/VoiceLiveActivityPlugin.swift`.
+ * JS ↔ native bridge for the `VoiceLiveActivity` Capacitor plugin implemented
+ * by both mobile shells.
  *
- * The plugin mirrors a running live-voice session into an ActivityKit Live
- * Activity — the Dynamic Island and Lock Screen presence for a session that
- * otherwise lives entirely in the web layer. It holds at most one activity, so
- * calling {@link startVoiceLiveActivity} twice updates the running one instead
- * of stacking a second island.
+ * The plugin mirrors a running live-voice session into the platform status
+ * surface: an ActivityKit Live Activity on iOS or an ongoing notification on
+ * Android. It holds at most one surface, so calling
+ * {@link startVoiceLiveActivity} twice updates the running one.
  *
  * **Skew contract.** An installed mobile shell may not include this plugin.
- * Every call therefore returns its fallback off iOS and goes through
- * {@link callNativeVoice} on iOS. The status surface is optional and must never
- * block or end a voice session.
+ * Every call therefore returns its fallback outside a native mobile shell and
+ * goes through {@link callNativeVoice} on mobile. The status surface is
+ * optional and must never block or end a voice session.
  *
  * That fallback also covers the case where the user has turned Live Activities
  * off for the app in iOS Settings — the plugin reports that as
@@ -31,7 +29,10 @@ import {
   callNativeVoice,
   subscribeNativeVoiceListener,
 } from "@/runtime/native-voice";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import {
+  isNativeIOS,
+  isNativeMobile,
+} from "@/runtime/platform-detection";
 
 /** The mutable half of the activity — everything that can change mid-session. */
 export interface VoiceLiveActivityContent {
@@ -100,7 +101,7 @@ async function callVoiceLiveActivity<T>(
   invoke: () => Promise<T>,
   fallback: T,
 ): Promise<T> {
-  if (!isNativeIOS()) {
+  if (!isNativeMobile()) {
     return fallback;
   }
   return callNativeVoice(invoke, fallback);
@@ -108,7 +109,7 @@ async function callVoiceLiveActivity<T>(
 
 /**
  * Show a Live Activity for a session that just became active. Resolves whether
- * one is now running. Returns `false` off iOS, on a shell without
+ * one is now running. Returns `false` off native mobile, on a shell without
  * the plugin, and when the user has disabled the platform status surface.
  *
  * Safe to call when one is already running: the plugin updates it rather than
@@ -133,7 +134,7 @@ export async function startVoiceLiveActivity(
 
 /**
  * Push new content to the running activity. A no-op when none is running,
- * off iOS, and on an older shell. Never throws.
+ * off native mobile, and on an older shell. Never throws.
  *
  * ActivityKit rate-limits updates, so callers must push only on an actual
  * {@link VoiceLiveActivityContent} change — never on high-frequency store
@@ -148,8 +149,8 @@ export async function updateVoiceLiveActivity(
 }
 
 /**
- * Dismiss the Live Activity at the end of a session. A no-op when none is
- * running, off iOS, and on an older shell. Never throws.
+ * Dismiss the platform status surface at the end of a session. A no-op when
+ * none is running, off native mobile, and on an older shell. Never throws.
  */
 export async function endVoiceLiveActivity(): Promise<void> {
   return callVoiceLiveActivity(async () => {

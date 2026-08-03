@@ -24,9 +24,21 @@ public class MainActivity extends BridgeActivity {
     private AlertDialog unreachableDialog;
     private URI effectiveServer;
     private ConnectDeepLink pendingConnect;
+    private boolean pendingNewChat;
+    private Intent pendingVoiceLaunch;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        boolean recoveredProcess = VoiceLiveActivityPlugin.clearRecoveredStatus(this);
+        if (
+            VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
+                recoveredProcess,
+                VoiceDeepLink.isStatusNotificationIntent(getIntent())
+            )
+        ) {
+            setIntent(VoiceDeepLink.clearedCommandIntent(getIntent()));
+        }
+        prepareVoiceLaunch(getIntent());
         pendingConnect = takeRecreationConnect();
         if (pendingConnect == null) {
             pendingConnect = consumeConnectIntent(getIntent());
@@ -35,15 +47,41 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
+        registerPlugin(VoiceLiveActivityPlugin.class);
         super.onCreate(savedInstanceState);
+        deliverPendingVoiceLaunch();
         if (bridge != null) {
             bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
         }
         deliverPendingConnect();
+        deliverPendingNewChat();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
+        VoiceDeepLink.Command voiceCommand = VoiceDeepLink.parse(
+            intent,
+            getString(R.string.vellum_auth_scheme)
+        );
+        if (voiceCommand == VoiceDeepLink.Command.NEW_CHAT) {
+            super.onNewIntent(VoiceDeepLink.clearedCommandIntent(intent));
+            pendingNewChat = true;
+            deliverPendingNewChat();
+            return;
+        }
+        if (VoiceDeepLink.isVoiceCommand(voiceCommand)) {
+            Intent delivered = VoiceDeepLink.needsNormalization(intent)
+                ? VoiceDeepLink.normalizedVoiceIntent(
+                    intent,
+                    getString(R.string.vellum_auth_scheme),
+                    voiceCommand
+                )
+                : intent;
+            super.onNewIntent(delivered);
+            setIntent(VoiceDeepLink.clearedCommandIntent(delivered));
+            return;
+        }
+
         boolean handlesConnect = isConnectIntent(intent);
         ConnectDeepLink connect = handlesConnect ? consumeConnectIntent(intent) : null;
         if (connect == null) {
@@ -158,12 +196,51 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void useVellumCloud() {
+        VoiceLiveActivityPlugin.clearStatus(this);
         SelfHostedServer.clear(this);
         pendingConnect = null;
+        pendingNewChat = false;
         setRecreationConnect(null);
         effectiveServer = null;
         setIntent(withoutData(getIntent()));
         recreate();
+    }
+
+    private void prepareVoiceLaunch(Intent intent) {
+        VoiceDeepLink.Command command = VoiceDeepLink.parse(intent, getString(R.string.vellum_auth_scheme));
+        if (command == VoiceDeepLink.Command.NEW_CHAT) {
+            pendingNewChat = true;
+            setIntent(VoiceDeepLink.clearedCommandIntent(intent));
+            return;
+        }
+        if (!VoiceDeepLink.isVoiceCommand(command)) {
+            return;
+        }
+        pendingVoiceLaunch = VoiceDeepLink.needsNormalization(intent)
+            ? VoiceDeepLink.normalizedVoiceIntent(
+                intent,
+                getString(R.string.vellum_auth_scheme),
+                command
+            )
+            : new Intent(intent);
+        setIntent(VoiceDeepLink.clearedCommandIntent(intent));
+    }
+
+    private void deliverPendingVoiceLaunch() {
+        if (pendingVoiceLaunch == null) {
+            return;
+        }
+        Intent launch = pendingVoiceLaunch;
+        pendingVoiceLaunch = null;
+        super.onNewIntent(launch);
+    }
+
+    private void deliverPendingNewChat() {
+        if (!pendingNewChat || bridge == null || bridge.getServerUrl() == null) {
+            return;
+        }
+        pendingNewChat = false;
+        bridge.getWebView().loadUrl(bridge.getServerUrl());
     }
 
     private static synchronized ConnectDeepLink takeRecreationConnect() {
