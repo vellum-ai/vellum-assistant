@@ -30,12 +30,18 @@ USE THIS SKILL WHEN:
 
 ## "Do you integrate with X?"
 
-Assume the answer is yes. Vellum reaches almost any service, so never answer this from memory and never lead with "no". Tell the user you can very likely integrate and that you are checking the best route, then work this ladder in order and stop at the first rung that hits:
+Assume the answer is yes. Vellum reaches almost any service, so never answer this from memory and never lead with "no".
 
-1. **Native OAuth provider.** Check the provider list and connect natively, per "Prefer Native OAuth Integration" below.
-2. **MCP server.** Check the recipe table in Step 2, then the service's own documentation for an MCP endpoint. Add it per Step 3.
-3. **Public API.** If the service documents a REST or GraphQL API, integrate through that. Load the `vellum-oauth-integrations` skill for OAuth 2.0 APIs. For key-based APIs, collect the key with `assistant credentials prompt`, never in chat.
-4. **Browser or computer use.** If the service has none of the above but has a web UI or a desktop app, you can still drive it for the user. Load `vellum-browser-use` for the web or `computer-use` for the macOS desktop, and walk the user through the setup.
+This is an informational question, so identify the route and report it. **Do not set anything up yet.** The lookups below are read-only: do not run `assistant oauth connect`, `assistant mcp add`, or `assistant credentials prompt` until the user asks you to connect.
+
+Work the ladder in order and stop at the first rung that hits:
+
+1. **Native OAuth provider.** Look for the service in the provider list, per "Prefer Native OAuth Integration" below.
+2. **MCP server.** Check the recipe table in Step 2, then the service's own documentation for an MCP endpoint.
+3. **Public API.** Check whether the service documents a REST or GraphQL API.
+4. **Browser or computer use.** If the service has none of the above but has a web UI or a desktop app, you can still drive it for the user.
+
+Then tell the user which route works and offer to set it up. Once they say yes, follow Step 1 onward for MCP, the OAuth section below for a native provider, the `vellum-oauth-integrations` skill for an API (collect any key with `assistant credentials prompt`, never in chat), or `vellum-browser-use` / `computer-use` for the browser and desktop routes.
 
 Only tell the user you cannot integrate once all four rungs come up empty, and name the routes you checked.
 
