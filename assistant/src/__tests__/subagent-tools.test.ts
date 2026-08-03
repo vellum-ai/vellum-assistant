@@ -309,6 +309,9 @@ describe("Subagent tool definitions", () => {
     expect(def).toBeDefined();
     expect(def.input_schema.required).toEqual([]);
     expect(def.input_schema.properties.label).toBeDefined();
+    expect(def.input_schema.properties.last_n.type).toBe("integer");
+    expect(def.description).toContain("NOT a file reader");
+    expect(def.description).toContain("file_read");
   });
 
   test("status tool has correct definition", () => {
@@ -927,7 +930,13 @@ describe("Subagent read tool", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("still running");
-    expect(result.content).toContain("Wait");
+    expect(result.content).toContain("Do not poll");
+    expect(result.content).toContain(
+      "you will be notified automatically when it completes",
+    );
+    // A deferred run is announced with a read pointer rather than an inlined
+    // result, so the wait message must not promise the result itself.
+    expect(result.content).not.toContain("including its result");
   });
 
   test("read returns wait message for pending subagent", async () => {
@@ -2091,6 +2100,10 @@ describe("Subagent advisor-role consult", () => {
       expect(captured.current).toBeDefined();
       expect(captured.current!.config.fork).toBe(true);
       expect(captured.current!.config.role).toBe("advisor");
+      // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
+      // lands under `subagentSpawn` like any other subagent. The declared
+      // spawn mode is what separates it from a plain fork in cost telemetry.
+      expect(captured.current!.config.spawnMode).toBe("advisor_consult");
       // Framing embeds the executor prompt as advisor system prompt context.
       expect(captured.current!.config.systemPromptOverride).toContain(
         "PARENT SYSTEM PROMPT",
@@ -2476,6 +2489,58 @@ describe("subagent tools — model-input schema validation", () => {
     );
     expect(passthrough.isError).toBe(true);
     expect(passthrough.content).toContain("required");
+  });
+});
+
+// ── Read tool misuse redirects ──────────────────────────────────────
+
+describe("Subagent read tool misuse", () => {
+  for (const key of ["path", "file", "filename"]) {
+    test(`read redirects a "${key}" param to file_read`, async () => {
+      const result = await executeSubagentRead(
+        { [key]: "/tmp/notes.md" },
+        makeContext("misuse-sess"),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("it does not read files");
+      expect(result.content).toContain("Use file_read for files");
+      expect(result.content).toContain("Pass subagent_id or label here");
+    });
+  }
+
+  for (const key of ["subagentId", "agent_id"]) {
+    test(`read names "${key}" as an unknown parameter`, async () => {
+      const result = await executeSubagentRead(
+        { [key]: "some-id" },
+        makeContext("misuse-sess"),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toBe(
+        "Unknown parameter. Use subagent_id (snake_case) or label.",
+      );
+    });
+  }
+
+  test("a file-reader key wins over the misnamed-id message", async () => {
+    const result = await executeSubagentRead(
+      { path: "/tmp/notes.md", subagentId: "some-id" },
+      makeContext("misuse-sess"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("it does not read files");
+  });
+
+  test("a correctly named read is untouched by the misuse checks", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "misuse-untouched-1";
+    injectSubagent(manager, subagentId, "misuse-sess", "running");
+
+    const result = await executeSubagentRead(
+      { subagent_id: subagentId },
+      makeContext("misuse-sess"),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("still running");
   });
 });
 

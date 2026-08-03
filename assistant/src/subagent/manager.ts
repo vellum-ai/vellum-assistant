@@ -48,6 +48,7 @@ import {
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
   type SubagentRole,
+  type SubagentSpawnMode,
   type SubagentState,
   type SubagentStatus,
   type SubagentToolStatsSummary,
@@ -497,14 +498,29 @@ export class SubagentManager {
     }
     const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
 
+    // ── Resolve spawn mode ───────────────────────────────────────────
+    // The spawning call site is the only layer that can tell an advisor
+    // consult or a live-voice continuation apart from a plain fork, so it
+    // declares its mode. The fallback is mechanical rather than NULL: a
+    // future call site that forgets still records honest context-inheritance
+    // shape instead of dropping out of the telemetry breakdown entirely.
+    const spawnMode: SubagentSpawnMode =
+      config.spawnMode ?? (isFork ? "fork" : "regular");
+
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
+    // `subagentRole` / `subagentSpawnMode` are stamped on the conversation
+    // row, not just the `subagents` row, because `subagents` rows are deleted
+    // on dispose while usage telemetry flushes on a watermark that can trail
+    // far behind. See migration 360.
     const conversationRecord = await bootstrapConversation({
       conversationType: "background",
       source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
       parentConversationId: config.parentConversationId,
+      subagentRole: role,
+      subagentSpawnMode: spawnMode,
     });
 
     // ── Build conversation dependencies ─────────────────────────────
