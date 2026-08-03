@@ -67,6 +67,17 @@ export interface RunConversationTurnResult {
   queued?: boolean;
 }
 
+/**
+ * Metadata stamped on the row that opens a plugin-driven turn. A plugin drives
+ * the turn on its own schedule, so the row is machine-initiated even when it
+ * lands in an ordinary standard conversation the user also types into: the
+ * `automated` marker is what keeps the reply out of the `chat.assistant_reply`
+ * push (see `isReplyPushIneligibleUserMessage`) and out of the memory
+ * extraction pass, alongside every other machine-authored prompt. It is not an
+ * echo-suppression marker, so the row still renders in the transcript.
+ */
+const PLUGIN_TURN_MESSAGE_METADATA = { automated: true } as const;
+
 // ---------------------------------------------------------------------------
 // Content conversion
 // ---------------------------------------------------------------------------
@@ -210,6 +221,7 @@ export async function runConversationTurn(
       onEvent,
       requestId,
       isInteractive: false,
+      metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
     });
     if (enqueueResult.rejected) {
       throw new Error(
@@ -229,6 +241,7 @@ export async function runConversationTurn(
     attachments,
     onEvent,
     isInteractive: false,
+    metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
     ...(options.callSite ? { callSite: options.callSite } : {}),
   });
 

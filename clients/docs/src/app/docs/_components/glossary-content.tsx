@@ -80,12 +80,12 @@ const GLOSSARY_ENTRIES: GlossaryEntry[] = [
   {
     term: "Home",
     definition:
-      "Where the assistant runs: Vellum’s managed platform, a self-hosted machine, a Docker container, or directly on a desktop. The home determines the assistant’s networking, security boundary, capabilities, and available resources. Distinct from a client, which is how the guardian reaches the assistant.",
+      "Where the assistant runs: Vellum’s managed platform, a self-hosted machine, a Docker container, or a local daemon on a desktop. The home determines the assistant’s networking, security boundary, capabilities, and available resources. Distinct from a client, which is how the guardian reaches the assistant.",
   },
   {
     term: "Memory",
     definition:
-      "Memory is what makes a Vellum Assistant a Vellum Assistant. Memory is the assistant’s persistent, structured knowledge of their guardian – their preferences, their history, the world around them – and it is what allows the relationship to deepen over time. It is not a chat log. It is curated understanding the assistant actively maintains and draws on. Without memory, an assistant is a chatbot.",
+      "The assistant’s persistent, structured knowledge across conversations. memory organizes useful facts, preferences, plans, decisions, and relationships into linked concept articles, then selectively recalls relevant sections when they can help.",
   },
   {
     term: "Open Source",
@@ -138,7 +138,7 @@ const GLOSSARY_ENTRIES: GlossaryEntry[] = [
   {
     term: "Skill",
     definition:
-      "A capability the assistant can learn and use. Skills are modular and can be added, removed, or updated. Importantly, the concept of skills in Vellum also encompasses tools, which may be called by the assistant’s reasoning process. This is broader than the industry-standard distinction between skills and tools.",
+      "A reusable package of instructions, tools, and supporting files. Skills can ship with Vellum, be installed or authored by a guardian, or be learned from a procedure the assistant carried out. Installed and learned skills can be inspected and removed, and their editable text files can be updated.",
   },
   {
     term: "Species",

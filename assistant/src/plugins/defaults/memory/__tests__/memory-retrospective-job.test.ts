@@ -28,7 +28,7 @@ let newMessages: Array<{
   id: string;
   createdAt: number;
   role?: string;
-  content?: string;
+  content?: string | Array<Record<string, unknown>>;
   metadata?: string | null;
 }> = [];
 
@@ -327,6 +327,7 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import {
   memoryRetrospectiveJob,
+  runForkBasedRetrospective,
   SOURCE_PROCESSING_REQUEUE_DELAY_MS,
 } from "../memory-retrospective-job.js";
 
@@ -337,6 +338,7 @@ function makeConfig(
     keepSupersededRuns?: boolean;
     matchConversationProfile?: boolean;
     promptPath?: string;
+    requireUserActivity?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -346,6 +348,10 @@ function makeConfig(
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
+        // Neutral in the stub (the shipped schema default is true): the
+        // default `newMessages` rows carry no roles, so the gate's own tests
+        // opt in explicitly with role-shaped slices.
+        requireUserActivity: overrides.requireUserActivity ?? false,
         sweepIntervalMs: 8 * 60 * 60 * 1000,
         sweepLookbackMs: 7 * 24 * 60 * 60 * 1000,
       },
@@ -501,6 +507,104 @@ describe("memoryRetrospectiveJob", () => {
         detail: { outcome: "no_new_messages" },
       },
     ]);
+  });
+
+  test("assistant-only slice with the user-activity gate on: completed as a no-op, both pointers untouched", async () => {
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "assistant",
+        content: [{ type: "text", text: "proactive recap" }],
+      },
+      {
+        id: "m2",
+        createdAt: Date.parse("2026-05-11T10:05:00Z"),
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ requireUserActivity: true }),
+    );
+
+    expect(outcome.kind).toBe("no_user_activity");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(forkCalls).toHaveLength(0);
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "memory_retrospective_run"),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_run",
+        value: 1,
+        detail: { outcome: "no_user_activity" },
+      },
+    ]);
+  });
+
+  test("a user text row in the slice passes the user-activity gate", async () => {
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "assistant",
+        content: [{ type: "text", text: "proactive recap" }],
+      },
+      {
+        id: "m2",
+        createdAt: Date.parse("2026-05-11T10:05:00Z"),
+        role: "user",
+        content: [{ type: "text", text: "hey" }],
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ requireUserActivity: true }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+  });
+
+  test("requireUserActivity=false: an assistant-only slice still runs", async () => {
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "assistant",
+        content: [{ type: "text", text: "proactive recap" }],
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ requireUserActivity: false }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+  });
+
+  test("manual runs bypass the user-activity gate: no opts means an assistant-only slice runs", async () => {
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "assistant",
+        content: [{ type: "text", text: "proactive recap" }],
+      },
+    ];
+
+    const outcome = await runForkBasedRetrospective(
+      "src-conv-1",
+      makeConfig({ requireUserActivity: true }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
   });
 
   test("a slice whose only row is the retrospective's own skill card is no new work", async () => {

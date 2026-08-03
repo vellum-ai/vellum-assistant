@@ -5,7 +5,7 @@ import { routes } from "@/lib/routes";
 export const metadata = createMetadata({
   title: "Privacy & Data - Vellum Docs",
   description:
-    "Vellum privacy and data: what stays local, what leaves your device, and what Vellum never does.",
+    "Vellum privacy and data — what stays local, what leaves your device, and what Vellum never does.",
   path: routes.docs.legal.privacyAndData,
 });
 

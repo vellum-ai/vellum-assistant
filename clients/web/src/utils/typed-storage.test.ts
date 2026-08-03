@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act, renderHook } from "@testing-library/react";
 
+import { withRejectedWrites } from "./rejected-writes.test-helper";
 import {
+  clearUserScopedOverrides,
   createKeyedStorageAccessor,
   createRecordStorageAccessor,
   createStorageAccessor,
@@ -13,6 +16,9 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+  // Accessors are module singletons, so a value held after a rejected write
+  // outlives the test that set it. Logout clears these for the same reason.
+  clearUserScopedOverrides();
 });
 
 // ---------------------------------------------------------------------------
@@ -162,6 +168,140 @@ describe("createKeyedStorageAccessor", () => {
     expect(keyed.keyFn("asst-1")).toBe("vellum:lastConvo:asst-1");
     expect(keyed.scope).toBe("user");
   });
+
+  describe("useValue", () => {
+    const list = createKeyedStorageAccessor<string[]>({
+      keyFn: (id) => `vellum:list:${id}`,
+      scope: "user",
+      parse: (raw) => JSON.parse(raw) as string[],
+      serialize: JSON.stringify,
+      fallback: [],
+    });
+
+    test("reads stored state on the first render, not after an effect", () => {
+      keyed.save("asst-1", "conv-abc");
+
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+
+      expect(result.current).toBe("conv-abc");
+    });
+
+    test("re-renders on a write from outside the hook", () => {
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+      expect(result.current).toBe("");
+
+      act(() => keyed.save("asst-1", "conv-abc"));
+
+      expect(result.current).toBe("conv-abc");
+    });
+
+    // The reason the snapshot cache exists: useSyncExternalStore bails out of
+    // re-rendering only on reference equality, so a re-parse per render would
+    // spin forever for an object or array value.
+    test("returns a stable reference while the stored text is unchanged", () => {
+      list.save("asst-1", ["a", "b"]);
+
+      const { result, rerender } = renderHook(() => list.useValue("asst-1"));
+      const first = result.current;
+      rerender();
+
+      expect(result.current).toBe(first);
+      expect(result.current).toEqual(["a", "b"]);
+    });
+
+    // Private browsing, a policy that disables storage, and quota exhaustion
+    // all make setItem throw. The value still has to reach the UI, or the
+    // control bound to it reads as broken rather than merely unsaved.
+    test("holds the value and notifies when storage rejects the write", () => {
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+      expect(result.current).toBe("");
+
+      withRejectedWrites(() => {
+        act(() => keyed.save("asst-1", "conv-abc"));
+      });
+
+      // Nothing was persisted, so both reads can only be served in memory.
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBeNull();
+      expect(result.current).toBe("conv-abc");
+      expect(keyed.load("asst-1")).toBe("conv-abc");
+    });
+
+    // The held value has to be gone before the success notification fires.
+    // `setLocalSetting` dispatches synchronously, so a subscriber reading its
+    // snapshot mid-dispatch would still see the held value, match its previous
+    // snapshot, and skip the re-render. Nothing notifies again afterwards.
+    test("a later successful write reaches mounted subscribers", () => {
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+
+      withRejectedWrites(() => {
+        act(() => keyed.save("asst-1", "held"));
+      });
+      expect(result.current).toBe("held");
+
+      act(() => keyed.save("asst-1", "persisted"));
+
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBe("persisted");
+      expect(result.current).toBe("persisted");
+    });
+
+    test("a later successful write drops the in-memory value", () => {
+      withRejectedWrites(() => keyed.save("asst-1", "conv-abc"));
+      expect(keyed.load("asst-1")).toBe("conv-abc");
+
+      keyed.save("asst-1", "conv-xyz");
+
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBe("conv-xyz");
+      // Reading past the override, not through a stale copy of it.
+      localStorage.setItem("vellum:lastConvo:asst-1", "conv-external");
+      expect(keyed.load("asst-1")).toBe("conv-external");
+    });
+
+    // An override is user state living outside localStorage, so the logout
+    // sweep cannot reach it by removing keys: the value never became one.
+    // Without an explicit clear it would be read by whoever logs in next in
+    // the same tab.
+    test("clearUserScopedOverrides drops a value the logout sweep cannot see", () => {
+      withRejectedWrites(() => keyed.save("asst-1", "conv-abc"));
+      expect(keyed.load("asst-1")).toBe("conv-abc");
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBeNull();
+
+      clearUserScopedOverrides();
+
+      expect(keyed.load("asst-1")).toBe("");
+    });
+
+    // `device:` keys survive logout by design. Dropping their in-memory
+    // counterparts would make a rejected write the one case where a device
+    // preference does not, so the logout sweep clears user scope only.
+    test("logout leaves a device-scoped held value alone", () => {
+      const deviceAccessor = createKeyedStorageAccessor<string>({
+        keyFn: (id) => `device:probe:${id}`,
+        scope: "device",
+        parse: (raw) => (raw.length > 0 ? raw : null),
+        serialize: (v) => v,
+        fallback: "",
+      });
+
+      withRejectedWrites(() => {
+        keyed.save("asst-1", "user-value");
+        deviceAccessor.save("asst-1", "device-value");
+      });
+
+      clearUserScopedOverrides();
+
+      expect(keyed.load("asst-1")).toBe("");
+      expect(deviceAccessor.load("asst-1")).toBe("device-value");
+    });
+
+    test("a mutated load() result does not corrupt the snapshot", () => {
+      list.save("asst-1", ["a"]);
+      const { result } = renderHook(() => list.useValue("asst-1"));
+
+      list.load("asst-1").push("mutated");
+
+      expect(result.current).toEqual(["a"]);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -281,6 +421,37 @@ describe("createRecordStorageAccessor", () => {
         unbounded.set("entity-1", `k${i}`, { value: i, label: `item-${i}` });
       }
       expect(Object.keys(unbounded.load("entity-1")).length).toBe(10);
+    });
+  });
+
+  describe("useValue", () => {
+    test("reads the stored record on the first render", () => {
+      record.set("entity-1", "k1", { value: 1, label: "one" });
+
+      const { result } = renderHook(() => record.useValue("entity-1"));
+
+      expect(result.current).toEqual({ k1: { value: 1, label: "one" } });
+    });
+
+    test("re-renders when an entry is written from outside the hook", () => {
+      const { result } = renderHook(() => record.useValue("entity-1"));
+      expect(result.current).toEqual({});
+
+      act(() => record.set("entity-1", "k1", { value: 1, label: "one" }));
+
+      expect(result.current).toEqual({ k1: { value: 1, label: "one" } });
+    });
+
+    test("returns a stable reference while the stored text is unchanged", () => {
+      record.set("entity-1", "k1", { value: 1, label: "one" });
+
+      const { result, rerender } = renderHook(() =>
+        record.useValue("entity-1"),
+      );
+      const first = result.current;
+      rerender();
+
+      expect(result.current).toBe(first);
     });
   });
 });

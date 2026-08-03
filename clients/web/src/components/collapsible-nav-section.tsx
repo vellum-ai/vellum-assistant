@@ -172,6 +172,13 @@ export interface CollapsibleNavSectionSectionProps extends Omit<
   children?: ReactNode;
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
+  /**
+   * Whether the section can collapse. Defaults to `true`. `false` drops the
+   * chevron/icon-swap affordance and the header's toggle behavior entirely,
+   * and renders the content outside the Radix accordion machinery so it's
+   * always visible regardless of the root's open-section state.
+   */
+  collapsible?: boolean;
 }
 
 function CollapsibleNavSectionSection({
@@ -187,13 +194,18 @@ function CollapsibleNavSectionSection({
   className,
   contentClassName,
   ref,
+  collapsible = true,
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
       className={cn(
-        "flex items-center justify-between",
+        // Named group so the trailing "…" can react to hovering anywhere on
+        // the header. The trigger carries its own unnamed `group` for the
+        // icon/chevron swap, and it is a *sibling* of the trailing slot, so
+        // that one can't reach it.
+        "group/header flex items-center justify-between",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}
@@ -203,60 +215,101 @@ function CollapsibleNavSectionSection({
           shares it, so section icons and labels sit on the same axes as
           the New Chat plus and the assistant eyes. Only the vertical
           metrics grow on mobile. */}
-      <Collapsible.Trigger
-        className={cn(
-          "group h-[30px] max-md:h-auto",
-          "rounded-[6px] py-[6px] max-md:py-3",
-          "text-left text-body-medium-default max-md:text-body-large-default",
-          "text-[var(--content-tertiary)]",
-        )}
-        style={{
-          paddingLeft: SIDEBAR_ROW_PADDING_X,
-          paddingRight: SIDEBAR_ROW_PADDING_X,
-          gap: SIDEBAR_CHIP_GAP,
-        }}
-      >
-        <span
-          className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
-          style={{ width: SIDEBAR_CHIP_SIZE }}
+      {collapsible ? (
+        <Collapsible.Trigger
+          className={cn(
+            "group h-[30px] max-md:h-auto",
+            "rounded-[6px] py-[6px] max-md:py-3",
+            "text-left text-body-medium-lighter max-md:text-body-large-lighter",
+            "text-[var(--content-tertiary)]",
+          )}
+          style={{
+            paddingLeft: SIDEBAR_ROW_PADDING_X,
+            paddingRight: SIDEBAR_ROW_PADDING_X,
+            gap: SIDEBAR_CHIP_GAP,
+          }}
         >
-          {Icon ? (
-            <Icon
+          <span
+            className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
+            style={{ width: SIDEBAR_CHIP_SIZE }}
+          >
+            {Icon ? (
+              <Icon
+                size={12}
+                aria-hidden
+                className={cn(
+                  "absolute inset-0 m-auto transition-opacity",
+                  "text-[var(--content-tertiary)]",
+                  "group-hover:opacity-0 group-focus-visible:opacity-0",
+                )}
+              />
+            ) : null}
+            <ChevronRight
               size={12}
               aria-hidden
               className={cn(
-                "absolute inset-0 m-auto transition-opacity",
+                "absolute inset-0 m-auto transition-[opacity,transform]",
                 "text-[var(--content-tertiary)]",
-                "group-hover:opacity-0 group-focus-visible:opacity-0",
+                Icon
+                  ? "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+                  : "opacity-100",
+                "group-data-[state=open]:rotate-90",
               )}
             />
-          ) : null}
-          <ChevronRight
-            size={12}
-            aria-hidden
-            className={cn(
-              "absolute inset-0 m-auto transition-[opacity,transform]",
-              "text-[var(--content-tertiary)]",
-              Icon
-                ? "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-                : "opacity-100",
-              "group-data-[state=open]:rotate-90",
-            )}
-          />
-        </span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {collapsedIndicator ? (
-          <span className="ml-1 flex shrink-0 items-center group-data-[state=open]:hidden">
-            {collapsedIndicator}
           </span>
-        ) : null}
-      </Collapsible.Trigger>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {collapsedIndicator ? (
+            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]:hidden">
+              {collapsedIndicator}
+            </span>
+          ) : null}
+        </Collapsible.Trigger>
+      ) : (
+        // Non-collapsible: no chevron, no toggle affordance, just the icon
+        // slot (if given) and the label, always at rest.
+        <div
+          className={cn(
+            "flex h-[30px] max-md:h-auto",
+            "rounded-[6px] py-[6px] max-md:py-3",
+            "text-left text-body-medium-lighter max-md:text-body-large-lighter",
+            "text-[var(--content-tertiary)]",
+          )}
+          style={{
+            paddingLeft: SIDEBAR_ROW_PADDING_X,
+            paddingRight: SIDEBAR_ROW_PADDING_X,
+            gap: SIDEBAR_CHIP_GAP,
+          }}
+        >
+          {Icon ? (
+            <span
+              className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
+              style={{ width: SIDEBAR_CHIP_SIZE }}
+            >
+              <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </div>
+      )}
       {trailing ? (
         <span
           data-slot="collapsible-nav-section-trailing"
           /* `empty:hidden` so a trailing component that renders nothing (a
-             menu with no wired actions) doesn't leave a padded box behind. */
-          className="flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden"
+             menu with no wired actions) doesn't leave a padded box behind.
+
+             Revealed on hover so a row of resting section headers stays quiet.
+             It also stays up while its own menu is open (`aria-expanded`),
+             or the control would vanish the moment it was clicked, and while
+             anything inside holds focus, so it is reachable by keyboard. Touch
+             has no hover, and the header's long-press sheet is the equivalent
+             affordance there, so below `md` it simply stays visible. */
+          className={cn(
+            "flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden",
+            "opacity-0 transition-opacity",
+            "group-hover/header:opacity-100 focus-within:opacity-100",
+            "has-[[aria-expanded=true]]:opacity-100",
+            "max-md:opacity-100",
+          )}
           onClick={(event) => event.stopPropagation()}
         >
           {trailing}
@@ -308,12 +361,24 @@ function CollapsibleNavSectionSection({
       {header}
       {/* One indent for every section's content, defined here rather than at
           each call site so no section can nest differently from the rest. */}
-      <Collapsible.Content
-        className={contentClassName}
-        style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
-      >
-        {children}
-      </Collapsible.Content>
+      {collapsible ? (
+        <Collapsible.Content
+          className={contentClassName}
+          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+        >
+          {children}
+        </Collapsible.Content>
+      ) : (
+        // Bypasses Radix's open/closed accordion state entirely, so the
+        // content can't be collapsed even if this section's `value` isn't
+        // in the root's open list.
+        <div
+          className={contentClassName}
+          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+        >
+          {children}
+        </div>
+      )}
     </Collapsible.Item>
   );
 }

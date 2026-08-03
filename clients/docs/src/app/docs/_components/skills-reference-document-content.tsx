@@ -22,8 +22,8 @@ export function SkillsReferenceDocumentContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Creates and edits long-form text (blog posts, articles, essays, reports, and
-            guides) in a dedicated rich-text editor with Markdown support.
+            Creates and edits long-form text &mdash; blog posts, articles, essays, reports, and
+            guides &mdash; in a dedicated rich-text editor with Markdown support.
           </p>
         </section>
 
@@ -115,7 +115,7 @@ export function SkillsReferenceDocumentContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Dedicated workspace mode.</strong> The document editor is a separate workspace
-              mode: the chat docks to the side while the document takes center stage.
+              mode &mdash; the chat docks to the side while the document takes center stage.
             </li>
             <li>
               <strong>Long-form vs. chat.</strong> For quick text, just ask in chat; for polished

@@ -86,7 +86,7 @@ export function TheWorkspaceContent() {
     ├── qdrant/            ← Memory embeddings (vector DB)
     ├── apps/              ← User-built apps
     ├── avatar/            ← Avatar image
-    └── logs/              ← Assistant logs`}
+    └── logs/              ← Daemon logs`}
             </pre>
           </div>
           <p className="mb-0 text-zinc-600">
@@ -117,27 +117,27 @@ export function TheWorkspaceContent() {
             </p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>
-                <strong>Name</strong>: what you called it (or what it
+                <strong>Name</strong> &mdash; what you called it (or what it
                 named itself during onboarding)
               </li>
               <li>
-                <strong>Emoji</strong>: its signature emoji, chosen
+                <strong>Emoji</strong> &mdash; its signature emoji, chosen
                 during onboarding
               </li>
               <li>
-                <strong>Nature</strong>: how it thinks of itself
+                <strong>Nature</strong> &mdash; how it thinks of itself
               </li>
               <li>
-                <strong>Personality</strong>: a short description of its
+                <strong>Personality</strong> &mdash; a short description of its
                 vibe and conversational style
               </li>
               <li>
-                <strong>Role</strong>: what it does for you
+                <strong>Role</strong> &mdash; what it does for you
               </li>
             </ul>
             <div className="mb-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-900">
-{`- Name: Bob
+{`- Name: Gigi
 - Emoji: 😏
 - Nature: AI familiar
 - Personality: Witty, sharp, slightly irreverent
@@ -156,26 +156,26 @@ export function TheWorkspaceContent() {
               SOUL.md
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
-              The big one. SOUL.md is your assistant&apos;s constitution:
+              The big one. SOUL.md is your assistant&apos;s constitution &mdash;
               the principles and behavioral rules it follows in every
               conversation.
             </p>
             <p className="mb-3 text-zinc-600">What&apos;s in here:</p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>
-                <strong>Core principles</strong>: the fundamentals (be
+                <strong>Core principles</strong> &mdash; the fundamentals (be
                 helpful, be resourceful, have opinions, earn trust)
               </li>
               <li>
-                <strong>Communication style</strong>: how it talks to you
+                <strong>Communication style</strong> &mdash; how it talks to you
                 (concise vs. detailed, casual vs. formal)
               </li>
               <li>
-                <strong>Task approach</strong>: how it handles work
+                <strong>Task approach</strong> &mdash; how it handles work
                 (action over explanation, when to ask vs. just do)
               </li>
               <li>
-                <strong>Boundaries</strong>: when to ask before acting,
+                <strong>Boundaries</strong> &mdash; when to ask before acting,
                 what lines not to cross
               </li>
             </ul>
@@ -217,13 +217,13 @@ export function TheWorkspaceContent() {
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               A working scratchpad for what&apos;s happening right now. Unlike
-              the identity files, NOW.md is ephemeral: it tracks
+              the identity files, NOW.md is ephemeral &mdash; it tracks
               in-progress tasks, session context, goals, and anything the
               assistant needs to carry between conversations.
             </p>
             <p className="mb-0 text-zinc-600">
               The assistant reads and updates this file naturally as you work
-              together. Think of it as a shared notepad: you can edit it
+              together. Think of it as a shared notepad &mdash; you can edit it
               too if you want to set priorities or leave context for the next
               session.
             </p>
@@ -239,13 +239,13 @@ export function TheWorkspaceContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Character avatar</strong>: the default. An
+              <strong>Character avatar</strong> &mdash; the default. An
               SVG-based character composed from body shapes, eye styles,
               and colors, rendered as a PNG. This is what your assistant
               starts with.
             </li>
             <li>
-              <strong>Custom avatar</strong>: you can set a custom
+              <strong>Custom avatar</strong> &mdash; you can set a custom
               image by uploading one, asking the assistant to generate one
               (it uses Gemini image generation), or dropping an image into
               the conversation. Custom images override the character
@@ -257,7 +257,7 @@ export function TheWorkspaceContent() {
             automatically. The image lives in <code>data/avatar/</code>{" "}
             and the assistant manages it through dedicated tools (
             <code>set_avatar</code>, <code>remove_avatar</code>,{" "}
-            <code>get_avatar</code>). You never need to touch
+            <code>get_avatar</code>) &mdash; you never need to touch
             files manually.
           </p>
         </section>
@@ -273,7 +273,7 @@ export function TheWorkspaceContent() {
             </SectionHeading>
             <p className="mb-0 text-zinc-600">
               This file only exists during onboarding. It&apos;s the script your
-              assistant follows for your first conversation: figuring out
+              assistant follows for your first conversation &mdash; figuring out
               its name, its vibe, who you are, and what you need help with. Once
               onboarding is complete, the assistant deletes it. If you see it in
               your workspace, onboarding hasn&apos;t finished yet.
@@ -300,7 +300,7 @@ export function TheWorkspaceContent() {
           <p className="mb-4 text-zinc-600">
             Every conversation gets its own folder inside{" "}
             <code>conversations/</code>, named with a timestamp and unique ID.
-            Each folder can contain attachments: files you sent to the
+            Each folder can contain attachments &mdash; files you sent to the
             assistant or that it generated during the conversation.
           </p>
           <p className="mb-0 text-zinc-600">
@@ -322,26 +322,31 @@ export function TheWorkspaceContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>SKILL.md</strong>: instructions that teach the
+              <strong>SKILL.md</strong> &mdash; instructions that teach the
               assistant when and how to use the skill
             </li>
           </ul>
           <p className="mb-4 text-zinc-600">
-            More complex skills can also include:
+            Community-installed skills can also include:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>TOOLS.json</strong>: a manifest of what tools the
+              <strong>TOOLS.json</strong> &mdash; a manifest of what tools the
               skill provides
             </li>
             <li>
-              <strong>tools/</strong>: the implementation code behind
+              <strong>tools/</strong> &mdash; the implementation code behind
               those tools
             </li>
           </ul>
+          <p className="mb-4 text-zinc-600">
+            Skills the assistant builds for you stay instruction-only: SKILL.md
+            plus companion files like reference notes and scripts. They cannot
+            register new tools.
+          </p>
           <p className="mb-0 text-zinc-600">
             Built-in skills from the catalog are loaded automatically and
-            don&apos;t appear here. Only custom and community-installed
+            don&apos;t appear here &mdash; only custom and community-installed
             skills show up in this directory. You can inspect, modify, or delete
             any of them.
           </p>
@@ -375,7 +380,7 @@ export function TheWorkspaceContent() {
             area. When the assistant generates images, exports files, writes
             scripts, or creates anything that isn&apos;t a conversation
             attachment, it lands here. Think of it as the assistant&apos;s
-            desktop: a place for working files that don&apos;t belong
+            desktop &mdash; a place for working files that don&apos;t belong
             anywhere specific.
           </p>
         </section>
@@ -429,7 +434,7 @@ export function TheWorkspaceContent() {
                 <tr>
                   <td className="px-4 py-3 font-medium text-zinc-800">logs/</td>
                   <td className="px-4 py-3 text-zinc-600">
-                    Assistant logs (useful for debugging)
+                    Daemon logs (useful for debugging)
                   </td>
                 </tr>
                 <tr>
@@ -504,7 +509,7 @@ export function TheWorkspaceContent() {
                     Workspace tools
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
-                    file_read, file_write, file_edit - restricted
+                    file_read, file_write, file_edit &mdash; restricted
                     to <code>~/.vellum/workspace/</code>
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
@@ -516,7 +521,7 @@ export function TheWorkspaceContent() {
                     Host tools
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
-                    host_file_read, host_file_write, host_file_edit -
+                    host_file_read, host_file_write, host_file_edit &mdash;
                     can access files anywhere on your machine
                   </td>
                   <td className="px-4 py-3 text-zinc-600">

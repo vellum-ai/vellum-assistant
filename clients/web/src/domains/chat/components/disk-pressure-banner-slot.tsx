@@ -22,6 +22,7 @@ import {
   removeLocalSetting,
   setLocalBool,
 } from "@/utils/local-settings";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,7 @@ export function DiskPressureBannerSlot({
   assistantStateKind,
 }: DiskPressureBannerSlotProps) {
   const navigate = useNavigate();
+  const isNativeAndroid = useIsNativeAndroid();
 
   const dismissedKey = assistantId
     ? `vellum:diskPressureDismissed:${assistantId}`
@@ -121,7 +123,7 @@ export function DiskPressureBannerSlot({
         void navigate(`${routes.workspace}?sort=size`)
       }
       onUpgradeStorage={
-        assistantStateKind === "active"
+        assistantStateKind === "active" && !isNativeAndroid
           ? () => void navigate(routes.plans)
           : null
       }

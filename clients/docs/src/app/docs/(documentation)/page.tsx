@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Homepage - Vellum Docs",
   description:
-    "Vellum documentation: guides, tutorials, and references for building your personal AI assistant.",
+    "Vellum documentation — guides, tutorials, and references for building your personal AI assistant.",
   path: "/docs",
 });
 

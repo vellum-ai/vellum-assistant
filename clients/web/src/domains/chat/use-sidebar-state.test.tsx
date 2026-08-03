@@ -18,8 +18,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
 }));
 
-const { SIDEBAR_CONVERSATION_LIMIT, useSidebarState } =
-  await import("@/domains/chat/use-sidebar-state");
+const { useSidebarState } = await import("@/domains/chat/use-sidebar-state");
 
 function makeConversation(
   index: number,
@@ -45,86 +44,45 @@ afterEach(() => {
   });
 });
 
-describe("useSidebarState pagination", () => {
-  test("reveals recents in page-size increments and can reset", () => {
-    const conversations = Array.from({ length: 12 }, (_, index) =>
+/** The rendered section carrying `key`, or a clear failure if it is absent. */
+function sectionFor(
+  sections: { key: string; all: unknown[] }[],
+  key: string,
+): { key: string; all: unknown[] } {
+  const section = sections.find((s) => s.key === key);
+  if (!section) {
+    throw new Error(`expected a "${key}" section`);
+  }
+  return section;
+}
+
+/**
+ * Put the sidebar in the channel-grouped view. Seeding the key is enough: the
+ * hook subscribes to storage during render, so the first render already sees
+ * this - no store priming, and no commit in between.
+ */
+function seedGroupedView(assistantId = "asst-1"): void {
+  localStorage.setItem(`vellum:sidebar-view-mode:${assistantId}`, "grouped");
+}
+
+describe("useSidebarState grouping", () => {
+  // Sections hand over their whole conversation list; bounding and scrolling
+  // it is the row list's job, so there is no page size or reveal state here.
+  test("Chats carries every conversation, uncapped", () => {
+    seedGroupedView();
+    const conversations = Array.from({ length: 40 }, (_, index) =>
       makeConversation(index),
     );
 
     const { result } = renderHook(() =>
-      useSidebarState({
-        assistantId: "asst-1",
-        conversations,
-      }),
+      useSidebarState({ assistantId: "asst-1", conversations }),
     );
 
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT,
-    );
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
-
-    act(() => result.current.recents.onShowMore());
-
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT * 2,
-    );
-    // Mid-expansion offers only "Show more" — "Show less" waits until the
-    // section is fully revealed so the two never render stacked together.
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
-
-    act(() => result.current.recents.onShowMore());
-
-    expect(result.current.recents.items).toHaveLength(conversations.length);
-    expect(result.current.recents.showMore).toBe(false);
-    expect(result.current.recents.showLess).toBe(true);
-
-    act(() => result.current.recents.onShowLess());
-
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT,
-    );
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
+    expect(sectionFor(result.current.sections, "recents").all).toHaveLength(40);
   });
 
-  test("uses the same incremental reveal behavior for channel sections", () => {
-    const conversations = Array.from({ length: 12 }, (_, index) =>
-      makeConversation(index, {
-        originChannel: "slack",
-      }),
-    );
-
-    const { result } = renderHook(() =>
-      useSidebarState({
-        assistantId: "asst-1",
-        conversations,
-      }),
-    );
-
-    const slackSection = () => {
-      const section = result.current.channelSections.find(
-        (s) => s.channelId === "slack",
-      );
-      if (!section) {
-        throw new Error("expected a slack channel section");
-      }
-      return section;
-    };
-
-    expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT);
-    expect(slackSection().showMore).toBe(true);
-    expect(slackSection().showLess).toBe(false);
-
-    act(() => slackSection().onShowMore());
-
-    expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT * 2);
-    expect(slackSection().showMore).toBe(true);
-    expect(slackSection().showLess).toBe(false);
-  });
-
-  test("exposes one paginated section per origin channel", () => {
+  test("exposes one section per origin channel", () => {
+    seedGroupedView();
     const conversations = [
       makeConversation(0, { originChannel: "slack" }),
       makeConversation(1, { originChannel: "telegram" }),
@@ -136,15 +94,15 @@ describe("useSidebarState pagination", () => {
       useSidebarState({ assistantId: "asst-1", conversations }),
     );
 
-    expect(result.current.channelSections.map((s) => s.channelId)).toEqual([
-      "slack",
-      "telegram",
-    ]);
     expect(
-      result.current.channelSections.find((s) => s.channelId === "telegram")
-        ?.totalCount,
-    ).toBe(2);
-    expect(result.current.recents.totalCount).toBe(1);
+      result.current.sections
+        .filter((section) => section.type === "channel")
+        .map((section) => section.key),
+    ).toEqual(["channel:slack", "channel:telegram"]);
+    expect(
+      sectionFor(result.current.sections, "channel:telegram").all,
+    ).toHaveLength(2);
+    expect(sectionFor(result.current.sections, "recents").all).toHaveLength(1);
   });
 });
 
@@ -154,6 +112,7 @@ describe("useSidebarState open-section persistence", () => {
   // forced open. Persisting those would outlive the attention that opened
   // them and leave the section stuck open across reloads.
   test("does not persist a section that only attention forced open", () => {
+    seedGroupedView();
     const conversations = [
       makeConversation(0),
       makeConversation(1, {
@@ -190,6 +149,7 @@ describe("useSidebarState open-section persistence", () => {
   });
 
   test("persists a section the user opened themselves", () => {
+    seedGroupedView();
     const conversations = [
       makeConversation(0),
       makeConversation(1, {
@@ -260,6 +220,86 @@ describe("useSidebarState custom-group open-section persistence", () => {
   });
 });
 
+describe("useSidebarState all view", () => {
+  const conversations = [
+    makeConversation(0, { conversationId: "r1", lastMessageAt: 30 }),
+    makeConversation(1, {
+      conversationId: "s1",
+      originChannel: "slack",
+      lastMessageAt: 40,
+    }),
+    makeConversation(2, {
+      conversationId: "t1",
+      originChannel: "telegram",
+      lastMessageAt: 20,
+    }),
+    makeConversation(3, { conversationId: "p1", isPinned: true }),
+    makeConversation(4, { conversationId: "g1", groupId: "grp-a" }),
+  ];
+  const conversationGroups = [
+    { id: "grp-a", name: "Alpha", sortPosition: 0, isSystemGroup: false },
+  ];
+
+  function renderSidebar() {
+    return renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        conversationGroups,
+      }),
+    );
+  }
+
+  test("is the default view", () => {
+    expect(renderSidebar().result.current.viewMode).toBe("all");
+  });
+
+  test("merges the channel conversations into one recency-sorted list", () => {
+    const { result } = renderSidebar();
+
+    expect(
+      result.current.sections.filter((section) => section.type === "channel"),
+    ).toEqual([]);
+    expect(result.current.flatList.map((c) => c.conversationId)).toEqual([
+      "s1",
+      "r1",
+      "t1",
+    ]);
+  });
+
+  test("leaves pinned and grouped conversations out of the flat list", () => {
+    const { result } = renderSidebar();
+
+    const flatIds = result.current.flatList.map((c) => c.conversationId);
+    expect(flatIds).not.toContain("p1");
+    expect(flatIds).not.toContain("g1");
+  });
+
+  test("renders only the curated sections above the list", () => {
+    const { result } = renderSidebar();
+
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "pinned",
+      "grp-a",
+    ]);
+  });
+
+  test("switching views persists the choice for the assistant", () => {
+    const { result } = renderSidebar();
+
+    act(() => result.current.onViewModeChange("grouped"));
+
+    expect(result.current.viewMode).toBe("grouped");
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "pinned",
+      "grp-a",
+      "recents",
+      "channel:slack",
+      "channel:telegram",
+    ]);
+  });
+});
+
 describe("useSidebarState section order", () => {
   const conversations = [
     makeConversation(0, { conversationId: "r1" }),
@@ -275,6 +315,7 @@ describe("useSidebarState section order", () => {
   ];
 
   function renderSidebar() {
+    seedGroupedView();
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -299,40 +340,84 @@ describe("useSidebarState section order", () => {
 
     act(() =>
       result.current.onReorderSections([
-        "recents",
-        "channel:slack",
         "grp-a",
+        "channel:slack",
+        "recents",
       ]),
     );
 
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
-      "recents",
-      "channel:slack",
       "grp-a",
+      "channel:slack",
+      "recents",
     ]);
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
-      "channel:slack",
       "grp-a",
+      "channel:slack",
+      "recents",
     ]);
   });
 
-  test("onMoveSection nudges one section and is a no-op at the ends", () => {
+  test("a channel section settles back below the custom groups", () => {
     const { result } = renderSidebar();
 
-    act(() => result.current.onMoveSection("recents", -1));
+    act(() =>
+      result.current.onReorderSections([
+        "channel:slack",
+        "grp-a",
+        "recents",
+      ]),
+    );
+
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
       "channel:slack",
+      "recents",
+    ]);
+    // What renders is what persists, so the stored preference never describes
+    // a layout the sidebar refuses to draw.
+    expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
+    ]);
+  });
+
+  test("a nudge that the channel floor would undo is not offered", () => {
+    const { result } = renderSidebar();
+
+    // Slack sits last, below Chats, which it may pass...
+    expect(result.current.canMoveSection("channel:slack", -1)).toBe(true);
+    act(() => result.current.onMoveSection("channel:slack", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
     ]);
 
-    // Already first - nothing to persist, and nothing moves.
-    act(() => result.current.onMoveSection("recents", -1));
+    // ...but not the custom group above it.
+    expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
+  });
+
+  test("onMoveSection nudges within a tier and stops at its boundary", () => {
+    const { result } = renderSidebar();
+
+    // Slack and Chats are both governed by the switch, so they swap freely.
+    act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
       "channel:slack",
+      "recents",
+    ]);
+
+    // The next nudge would cross into the curated tier - refused, and
+    // nothing is persisted.
+    expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
+    act(() => result.current.onMoveSection("channel:slack", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
     ]);
   });
 
@@ -341,9 +426,9 @@ describe("useSidebarState section order", () => {
 
     act(() =>
       result.current.onReorderSections([
+        "grp-a",
         "channel:slack",
         "recents",
-        "grp-a",
       ]),
     );
 
@@ -358,8 +443,8 @@ describe("useSidebarState section order", () => {
       }),
     );
     expect(quiet.result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
+      "recents",
     ]);
 
     // Reordering while it's gone must not forget where it lived.

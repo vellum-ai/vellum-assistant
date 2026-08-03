@@ -30,7 +30,7 @@ export function HostingOptionsAdvancedOptionsContent() {
             instead of on Vellum&apos;s. If you want the managed,
             recommended path, see{" "}
             <Link
-              href={"/docs/hosting-options/cloud-hosting"}
+              href="/docs/hosting-options/cloud-hosting"
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Cloud hosting

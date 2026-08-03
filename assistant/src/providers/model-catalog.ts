@@ -927,17 +927,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
       },
       {
-        id: "accounts/fireworks/models/minimax-m2p5",
-        displayName: "MiniMax M2.5",
-        contextWindowTokens: 196608,
-        maxOutputTokens: 25000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
-      },
-      {
         id: "accounts/fireworks/models/deepseek-v4-pro",
         displayName: "DeepSeek V4 Pro",
         contextWindowTokens: 1040000,

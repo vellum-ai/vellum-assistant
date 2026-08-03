@@ -10,9 +10,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { getWorkspaceConfigPath } from "../util/platform.js";
 import {
   _getConsecutiveFailures,
   _getInitConsecutiveFailures,
@@ -1685,6 +1686,17 @@ describe("WorkspaceGitService", () => {
         .trim()
         .split("\n");
 
+    // Author/committer env for backdated commits when building history
+    // externally.
+    const gitEnvAt = (daysAgo: number) => {
+      const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+      return {
+        ...process.env,
+        GIT_AUTHOR_DATE: date,
+        GIT_COMMITTER_DATE: date,
+      };
+    };
+
     test("commitChanges skips oversized files but commits the rest", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
@@ -1904,14 +1916,6 @@ describe("WorkspaceGitService", () => {
     });
 
     test("history compaction purges oversized blobs from aged history", async () => {
-      const gitEnvAt = (daysAgo: number) => {
-        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
-        return {
-          ...process.env,
-          GIT_AUTHOR_DATE: date,
-          GIT_COMMITTER_DATE: date,
-        };
-      };
       // Build history externally: a big blob committed 30 days ago,
       // untracked 20 days ago, plus a recent commit inside retention.
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
@@ -1987,14 +1991,6 @@ describe("WorkspaceGitService", () => {
     });
 
     test("history compaction reschedules when kept commits still hold blobs", async () => {
-      const gitEnvAt = (daysAgo: number) => {
-        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
-        return {
-          ...process.env,
-          GIT_AUTHOR_DATE: date,
-          GIT_COMMITTER_DATE: date,
-        };
-      };
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
       execFileSync("git", ["config", "user.email", "user@example.com"], {
@@ -2122,14 +2118,6 @@ describe("WorkspaceGitService", () => {
     });
 
     test("loose blobs in a repo with old history are pruned without a rewrite", async () => {
-      const gitEnvAt = (daysAgo: number) => {
-        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
-        return {
-          ...process.env,
-          GIT_AUTHOR_DATE: date,
-          GIT_COMMITTER_DATE: date,
-        };
-      };
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
       execFileSync("git", ["config", "user.email", "user@example.com"], {
@@ -2171,14 +2159,6 @@ describe("WorkspaceGitService", () => {
     });
 
     test("history compaction converges when a legacy branch retains the blob", async () => {
-      const gitEnvAt = (daysAgo: number) => {
-        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
-        return {
-          ...process.env,
-          GIT_AUTHOR_DATE: date,
-          GIT_COMMITTER_DATE: date,
-        };
-      };
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
       execFileSync("git", ["config", "user.email", "user@example.com"], {
@@ -2265,6 +2245,166 @@ describe("WorkspaceGitService", () => {
       await service.commitChanges("Remove legacy");
 
       expect(trackedFiles()).not.toContain("legacy.bin");
+    });
+
+    // Overrides the process workspace config (what getConfig() reads) for
+    // the duration of `fn`, restoring the previous contents afterwards.
+    const withHistoryCompactionDisabled = async (fn: () => Promise<void>) => {
+      const configPath = getWorkspaceConfigPath();
+      mkdirSync(dirname(configPath), { recursive: true });
+      const previous = existsSync(configPath)
+        ? readFileSync(configPath, "utf-8")
+        : null;
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          workspaceGit: { historyCompaction: { enabled: false } },
+        }),
+      );
+      try {
+        await fn();
+      } finally {
+        if (previous === null) {
+          rmSync(configPath, { force: true });
+        } else {
+          writeFileSync(configPath, previous);
+        }
+      }
+    };
+
+    test("background compaction scheduling is disabled by config", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      await withHistoryCompactionDisabled(async () => {
+        const internal = service as unknown as {
+          scheduleHistoryCompaction: (delayMs?: number) => void;
+        };
+        internal.scheduleHistoryCompaction(60_000);
+        expect(_hasPendingHistoryCompaction(service)).toBe(false);
+      });
+    });
+
+    test("a pending compaction timer honors a config flip to disabled", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // A loose oversized blob that a scheduled run would prune.
+      const blobSha = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const internal = service as unknown as {
+        scheduleHistoryCompaction: (delayMs?: number) => void;
+      };
+      // Enabled at schedule time, disabled by the time the timer fires.
+      internal.scheduleHistoryCompaction(150);
+      await withHistoryCompactionDisabled(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(_hasPendingHistoryCompaction(service)).toBe(false);
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+      });
+    });
+
+    test("forced compaction squashes aged history without oversized blobs", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "one.txt"), "v1");
+      execFileSync("git", ["add", "one.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old change one"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      writeFileSync(join(testDir, "two.txt"), "v2");
+      execFileSync("git", ["add", "two.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old change two"], {
+        cwd: testDir,
+        env: gitEnvAt(20),
+      });
+      writeFileSync(join(testDir, "recent.txt"), "recent");
+      execFileSync("git", ["add", "recent.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent change"], {
+        cwd: testDir,
+      });
+      const tipTreeBefore = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow({ force: true });
+
+      expect(result.rewrote).toBe(true);
+      expect(result.squashedCommits).toBe(2);
+      expect(result.keptCommits).toBe(1);
+      expect(result.retryAfterMs).toBeUndefined();
+
+      const subjects = execFileSync("git", ["log", "--format=%s"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(subjects).toContain("Compacted workspace history");
+      expect(subjects).toContain("recent change");
+      expect(subjects).not.toContain("old change one");
+      expect(subjects).not.toContain("old change two");
+
+      // The tip tree is preserved exactly — no scrub without oversized blobs
+      const tipTreeAfter = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(tipTreeAfter).toBe(tipTreeBefore);
+    });
+
+    test("retentionDays override moves the forced squash cutoff", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "aging.txt"), "v1");
+      execFileSync("git", ["add", "aging.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "aging change"], {
+        cwd: testDir,
+        env: gitEnvAt(3),
+      });
+      writeFileSync(join(testDir, "current.txt"), "v2");
+      execFileSync("git", ["add", "current.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "current change"], {
+        cwd: testDir,
+      });
+
+      const service = new WorkspaceGitService(testDir);
+
+      // Default window keeps everything: the forced run has nothing to
+      // squash and nothing to reclaim, so it is a no-op.
+      const withDefault = await service.compactHistoryNow({ force: true });
+      expect(withDefault.rewrote).toBe(false);
+      expect(withDefault.squashedCommits).toBe(0);
+      expect(withDefault.keptCommits).toBe(2);
+      expect(withDefault.retryAfterMs).toBeUndefined();
+
+      // A one-day window squashes the three-day-old commit.
+      const withOverride = await service.compactHistoryNow({
+        force: true,
+        retentionDays: 1,
+      });
+      expect(withOverride.rewrote).toBe(true);
+      expect(withOverride.squashedCommits).toBe(1);
+      expect(withOverride.keptCommits).toBe(1);
+
+      const subjects = execFileSync("git", ["log", "--format=%s"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(subjects).toContain("Compacted workspace history");
+      expect(subjects).toContain("current change");
+      expect(subjects).not.toContain("aging change");
     });
   });
 });

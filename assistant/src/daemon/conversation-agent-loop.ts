@@ -255,6 +255,22 @@ export async function runAgentLoopImpl(
      */
     isHiddenPrompt?: boolean;
     /**
+     * Row the end-of-turn reply notification should treat as the prompt this
+     * turn answers. Defaults to `userMessageId`; a coalesced batch overrides it
+     * with its last push-eligible member (see
+     * `isReplyPushIneligibleUserMessage`), whose reply the user is actually
+     * waiting on, rather than a suppressed row that merely landed last.
+     */
+    notifyUserMessageId?: string;
+    /**
+     * True when this run's reply streams to the app and nowhere else, so the
+     * end-of-turn reply notification ignores the initiating row's
+     * channel/voice delivery markers (see
+     * `isReplyPushIneligibleUserMessage`). Set by the retry route, which
+     * re-runs a stored anchor row without its original delivery orchestration.
+     */
+    replyDeliveredInAppOnly?: boolean;
+    /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
      * call-site id so the resolver picks `llm.callSites.<id>`. When unset,
@@ -620,6 +636,11 @@ export async function runAgentLoopImpl(
   // has been emitted. Guards the catch block: an error thrown afterwards
   // (deferred turn-tail bookkeeping) must not relabel a visibly-replied turn.
   let turnReplied = false;
+  // Narrower than `turnReplied`: true only for a `message_complete` branch that
+  // produced a genuine reply. A handed-off generation continues the run, and a
+  // provider-error turn's only assistant row is the synthetic error text, so
+  // the deferred tail must not treat either as a final reply.
+  let turnCompleted = false;
 
   const publishLoopMessagesChanged = (): void => {
     if (
@@ -1506,6 +1527,7 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       } else {
         turnReplied = true;
+        turnCompleted = !persistedErrorAssistantMessage;
         ctx.emitActivityState("idle", "message_complete", {
           anchor: "global",
           requestId: reqId,
@@ -1541,7 +1563,17 @@ export async function runAgentLoopImpl(
     // drain the deferred bookkeeping — after the SSE, before the `finally`
     // commits and drains the queue for the next turn.
     await settlePendingPartialFlush(state, deps);
-    await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
+    await runDeferredTurnTail({
+      ctx,
+      state,
+      rlog,
+      generationCompletedAt,
+      turnCompleted,
+      userMessageId: options?.notifyUserMessageId ?? userMessageId,
+      ...(options?.replyDeliveredInAppOnly
+        ? { replyDeliveredInAppOnly: true }
+        : {}),
+    });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {

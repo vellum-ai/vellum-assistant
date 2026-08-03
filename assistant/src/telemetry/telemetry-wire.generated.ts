@@ -115,6 +115,7 @@ export const turnTelemetryEventSchema = z
     outcome: z.string().trim().min(1).max(32).nullable().optional(),
     batched_into: z.string().trim().min(1).max(64).nullable().optional(),
     failure_code: z.string().trim().min(1).max(64).nullable().optional(),
+    scripted: z.boolean().nullable().optional(),
     trace: jsonValueSchema.nullable().optional(),
   })
   .superRefine((val, ctx) => {

@@ -332,3 +332,8 @@ export function useIsMacOSWeb(): boolean {
 export function useIsNativeIOS(): boolean {
   return useSyncExternalStore(noop, isNativeIOS, () => false);
 }
+
+/** Hook form of `isNativeAndroid()`, safe to call from a render body. */
+export function useIsNativeAndroid(): boolean {
+  return useSyncExternalStore(noop, isNativeAndroid, () => false);
+}

@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Roadmap - Vellum Docs",
   description:
-    "What's coming to Vellum: shipping soon, up next, on the horizon, and what we're exploring.",
+    "What's coming to Vellum — shipping soon, up next, on the horizon, and what we're exploring.",
   path: "/docs/roadmap",
 });
 

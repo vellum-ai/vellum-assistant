@@ -94,6 +94,12 @@ export default function DocsLayout({ children }: DocsLayoutProps) {
                   >
                     Plugins
                   </a>
+                  <a
+                    href="https://www.vellum.ai/community"
+                    className="docs-header-link text-sm font-medium no-underline"
+                  >
+                    Community
+                  </a>
                 </div>
               </div>
             </div>

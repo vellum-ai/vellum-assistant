@@ -33,13 +33,10 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
-import type {
-  MessagesPostData,
-  PluginsSearchGetResponses,
-} from "@/generated/daemon/types.gen";
+import type { PluginsSearchGetResponses } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { latestAssistantText } from "@/utils/latest-assistant-text";
-import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
   type AvailableCapability,
@@ -593,20 +590,13 @@ export function useResearchRunner(): UseResearchRunner {
           // Post the research prompt onto a conversation. Returns false on a
           // failed POST so the caller can settle "error".
           const postResearchPrompt = async (cid: string): Promise<boolean> => {
-            const body: MessagesPostData["body"] = {
+            const body = buildSideConversationMessageBody({
               conversationId: cid,
               content: buildResearchPrompt(subject, capabilities, {
                 includeSuggestions,
               }),
-              sourceChannel: "vellum",
-              // `interface` is the transport ("web"); the real OS travels in
-              // `clientOs` so the assistant's `client_os` context is correct
-              // for this onboarding side conversation too, without affecting
-              // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
-              interface: "web",
-              clientOs: detectClientOs(),
-              clientMessageId: crypto.randomUUID(),
-            };
+              transport: "web",
+            });
             // Carry the browser timezone so any time-relative reasoning resolves
             // to the user's local clock. Mirrors `checkin-scheduler.ts`.
             try {
@@ -657,7 +647,7 @@ export function useResearchRunner(): UseResearchRunner {
             // Resume the prior session's research conversation rather than
             // running a second search. The turn keeps generating server-side
             // across the reload, so re-attach and poll it; only re-post the
-            // prompt if it never landed before the refresh (no user message).
+            // prompt if it never landed before the refresh.
             const existing = await messagesGet({
               path: { assistant_id: assistantId },
               query: { conversationId: resumeConversationId },
@@ -669,9 +659,12 @@ export function useResearchRunner(): UseResearchRunner {
             if (existing.response?.ok) {
               conversationId = resumeConversationId;
               createdConversationId = resumeConversationId;
-              const turnAlreadyStarted = (existing.data?.messages ?? []).some(
-                (m) => m.role === "user",
-              );
+              // The hidden prompt row is filtered out of `/messages`, so a
+              // started turn shows as the daemon still processing or as a row
+              // it has already produced, never as a user message.
+              const turnAlreadyStarted =
+                existing.data?.processing === true ||
+                (existing.data?.messages ?? []).length > 0;
               if (!turnAlreadyStarted) {
                 if (!(await postResearchPrompt(conversationId))) {
                   setState((s) => ({ ...s, status: "error" }));

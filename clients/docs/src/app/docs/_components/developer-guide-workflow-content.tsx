@@ -43,7 +43,7 @@ export function DeveloperGuideWorkflowContent() {
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/safe-do &lt;description&gt;</code></td>
-                  <td className="py-2">Like <code className="text-xs">/do</code> but pauses for human review, no auto-merge.</td>
+                  <td className="py-2">Like <code className="text-xs">/do</code> but pauses for human review — no auto-merge.</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/mainline</code></td>
@@ -82,11 +82,11 @@ export function DeveloperGuideWorkflowContent() {
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/swarm [workers] [max-tasks]</code></td>
-                  <td className="py-2">Parallel execution: spawns agents (default: 12) working through <code className="text-xs">TODO.md</code> in isolated worktrees.</td>
+                  <td className="py-2">Parallel execution — spawns agents (default: 12) working through <code className="text-xs">TODO.md</code> in isolated worktrees.</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/blitz &lt;feature&gt;</code></td>
-                  <td className="py-2">End-to-end feature delivery: plan → issues → swarm → review sweep → merge to main.</td>
+                  <td className="py-2">End-to-end feature delivery — plan → issues → swarm → review sweep → merge to main.</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/safe-blitz &lt;feature&gt;</code></td>
@@ -94,7 +94,7 @@ export function DeveloperGuideWorkflowContent() {
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/safe-blitz-done [PR|branch]</code></td>
-                  <td className="py-2">Finalize a safe-blitz: squash-merge feature branch to main.</td>
+                  <td className="py-2">Finalize a safe-blitz — squash-merge feature branch to main.</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/execute-plan &lt;file&gt;</code></td>
@@ -159,7 +159,7 @@ export function DeveloperGuideWorkflowContent() {
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/release [version]</code></td>
-                  <td className="py-2">Cut a release: tag, notes, GitHub Release, CI trigger.</td>
+                  <td className="py-2">Cut a release — tag, notes, GitHub Release, CI trigger.</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4 whitespace-nowrap"><code className="text-xs">/triage [user|assistant|device]</code></td>
@@ -215,14 +215,14 @@ export function DeveloperGuideWorkflowContent() {
           </p>
           <ol className="mb-4 list-decimal space-y-3 pl-6 text-zinc-600">
             <li>
-              <strong>macOS App</strong>: build from source, compile Bun binary, code-sign with Developer ID, notarize with Apple,
+              <strong>macOS App</strong> — build from source, compile Bun binary, code-sign with Developer ID, notarize with Apple,
               create DMG, publish to the public updates repo (~15–20 min).
             </li>
             <li>
-              <strong>npm</strong>: publish the <code className="text-sm">velly</code> CLI package with provenance.
+              <strong>npm</strong> — publish the <code className="text-sm">velly</code> CLI package with provenance.
             </li>
             <li>
-              <strong>Slack</strong>: post release summary with threaded changelog.
+              <strong>Slack</strong> — post release summary with threaded changelog.
             </li>
           </ol>
           <p className="mb-4 text-zinc-600">

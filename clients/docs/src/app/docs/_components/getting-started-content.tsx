@@ -10,6 +10,7 @@ import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 const TOC_ITEMS = [
   { id: "what-you-need", label: "What you need", level: 2 },
   { id: "web", label: "Web", level: 2 },
+  { id: "ios-app", label: "iOS app", level: 2 },
   { id: "desktop-app", label: "Desktop app", level: 2 },
   { id: "self-hosting", label: "Self-hosting", level: 2 },
   { id: "two-ways-to-connect", label: "Two ways to connect", level: 2 },
@@ -31,6 +32,10 @@ export function GettingStartedContent() {
             <li>
               <strong>For the web app:</strong> any modern browser. No install, no setup. The
               fastest way in. Connects to a cloud assistant.
+            </li>
+            <li>
+              <strong>For the iOS app:</strong> an iPhone or iPad and your Vellum account.
+              Connects to your cloud assistant.
             </li>
             <li>
               <strong>For the desktop app:</strong> macOS 15 (Sequoia) or later, Apple Silicon
@@ -81,6 +86,34 @@ export function GettingStartedContent() {
             Your assistant lives in Vellum Cloud, encrypted and isolated to your account,
             reachable from any browser. You can also connect the desktop app, mobile app, voice,
             and chat channels (Telegram, Slack, phone) to the same assistant.
+          </p>
+        </section>
+
+        <section id="ios-app" className="mt-12">
+          <SectionHeading id="ios-app" level={2}>
+            iOS app
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            Install Vellum Assistant on your iPhone or iPad to use the same assistant,
+            conversations, memories, tools, and workspace you have on the web and Mac.
+          </p>
+          <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
+            <li>
+              Install Vellum Assistant from the{" "}
+              <a
+                href="https://apps.apple.com/us/app/vellum-assistant/id6759934423"
+                className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+              >
+                App Store
+              </a>
+              .
+            </li>
+            <li>Open the app and sign in with your Vellum account.</li>
+            <li>Your cloud assistant appears automatically. Say hi.</li>
+          </ol>
+          <p className="mb-6 text-zinc-600">
+            Approval requests can arrive as mobile notifications, so you can review
+            sensitive actions from your phone.
           </p>
         </section>
 
@@ -147,12 +180,12 @@ export function GettingStartedContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Sign in with Vellum (default)</strong>: Authenticate with your Vellum
+              <strong>Sign in with Vellum (default)</strong> — Authenticate with your Vellum
               account for the managed experience. Your assistant runs in Vellum Cloud, billing
               is handled through your account, no API keys to manage.
             </li>
             <li>
-              <strong>Bring your own API key</strong>: Self-host the runtime and connect it to
+              <strong>Bring your own API key</strong> — Self-host the runtime and connect it to
               your own Anthropic API key. Useful if you want to run everything on your own
               machine. Your key is stored in your macOS Keychain.
             </li>
@@ -191,7 +224,7 @@ export function GettingStartedContent() {
           </p>
           <p className="mb-6 text-zinc-600">
             Session logs are stored in{" "}
-            <code>~/Library/Application Support/vellum-assistant/logs/</code>. The assistant binary
+            <code>~/Library/Application Support/vellum-assistant/logs/</code>. The daemon binary
             lives inside the <code>.app</code> bundle, not in <code>~/.vellum/</code>.
           </p>
         </section>

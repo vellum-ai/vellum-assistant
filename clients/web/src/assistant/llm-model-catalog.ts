@@ -343,13 +343,6 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 25_000,
     },
     {
-      id: "accounts/fireworks/models/minimax-m2p5",
-      displayName: "MiniMax M2.5",
-      contextWindowTokens: 196_608,
-      defaultContextWindowTokens: 196_608,
-      maxOutputTokens: 25_000,
-    },
-    {
       id: "accounts/fireworks/models/deepseek-v4-pro",
       displayName: "DeepSeek V4 Pro",
       contextWindowTokens: 1_040_000,

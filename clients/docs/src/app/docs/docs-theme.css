@@ -97,7 +97,7 @@ html:has(.docs-shell) {
   background: var(--docs-accent);
 }
 
-/* Header search input: shrinks to fit a comfortable max width in the middle
+/* Header search input — shrinks to fit a comfortable max width in the middle
    of the top row. */
 .docs-shell .docs-header-search .docs-search-trigger {
   width: 100%;
@@ -937,7 +937,7 @@ html:has(.docs-shell) {
   display: none;
 }
 
-/* ── Privacy & Data: Security tier cards ────────────────────────────── */
+/* ── Privacy & Data — Security tier cards ────────────────────────────── */
 
 .docs-shell {
   --privacy-secure: var(--color-forest-700, #516748);

@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.0
+  version: 0.11.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -698,6 +698,52 @@ paths:
                     type: boolean
                 required:
                   - ok
+                additionalProperties: false
+  /v1/admin/workspace-compact-history:
+    post:
+      operationId: admin_workspacecompacthistory_post
+      summary: Compact workspace git history
+      description:
+        Squash workspace git history older than the retention window into a single base commit and prune reclaimed
+        objects. By default acts only when an oversized blob is reclaimable; with force, the squash runs
+        unconditionally.
+      tags:
+        - admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  description: Squash aged history even when no oversized blob is reclaimable
+                  type: boolean
+                retentionDays:
+                  description: Retention window override in days (default 7)
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rewrote:
+                    type: boolean
+                  squashedCommits:
+                    type: number
+                  keptCommits:
+                    type: number
+                  retryAfterMs:
+                    type: number
+                required:
+                  - rewrote
+                  - squashedCommits
+                  - keptCommits
                 additionalProperties: false
   /v1/apps:
     get:

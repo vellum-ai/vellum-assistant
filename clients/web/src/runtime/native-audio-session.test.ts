@@ -1,11 +1,8 @@
 /**
  * Tests for the `VoiceAudioSession` bridge.
  *
- * The contract under test is skew-safety: the iOS shell ships through App Store
- * review while this bundle deploys continuously, so an arbitrarily old shell
- * can host it with no such plugin compiled in. Every exported function must
- * therefore resolve — never reject, never hang — whether the plugin answers,
- * rejects, or does not exist, and must not touch the bridge at all off iOS.
+ * Both mobile shells may lag behind the web bundle. Exports fall back outside
+ * native mobile and whenever the optional plugin is missing.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -13,10 +10,12 @@ import type { PluginListenerHandle } from "@capacitor/core";
 
 import type { VoiceAudioInterruptionEvent } from "@/runtime/native-audio-session";
 
-let onNativeIOS = false;
+let onNativeMobile = false;
 
 mock.module("@/runtime/platform-detection", () => ({
-  isNativeIOS: () => onNativeIOS,
+  isNativeAndroid: () => false,
+  isNativeIOS: () => onNativeMobile,
+  isNativeMobile: () => onNativeMobile,
 }));
 
 type Handler = (event: VoiceAudioInterruptionEvent) => void;
@@ -54,7 +53,7 @@ const {
 } = await import("@/runtime/native-audio-session");
 
 beforeEach(() => {
-  onNativeIOS = true;
+  onNativeMobile = true;
   handlers = [];
   activate.mockClear();
   activate.mockImplementation(async () => ({ activated: true }));
@@ -66,12 +65,12 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Off-native — the browser and Electron paths
+// Outside native mobile: browser and Electron paths
 // ---------------------------------------------------------------------------
 
-describe("off the iOS shell", () => {
+describe("outside a native mobile shell", () => {
   beforeEach(() => {
-    onNativeIOS = false;
+    onNativeMobile = false;
   });
 
   test("activate resolves false without touching the bridge", async () => {
@@ -92,7 +91,7 @@ describe("off the iOS shell", () => {
 });
 
 // ---------------------------------------------------------------------------
-// On the iOS shell, plugin present
+// Native mobile shell with the plugin present
 // ---------------------------------------------------------------------------
 
 describe("with the plugin present", () => {
@@ -117,8 +116,11 @@ describe("with the plugin present", () => {
       expect.any(Function),
     );
 
-    handlers[0]?.({ type: "began" });
-    expect(handler).toHaveBeenCalledWith({ type: "began" });
+    handlers[0]?.({ type: "began", reason: "route-change" });
+    expect(handler).toHaveBeenCalledWith({
+      type: "began",
+      reason: "route-change",
+    });
 
     // Let the registration settle so the handle is held, then release it.
     await Promise.resolve();
@@ -138,7 +140,7 @@ describe("with the plugin present", () => {
 });
 
 // ---------------------------------------------------------------------------
-// On the iOS shell, older shell without the plugin — the skew case
+// Native mobile shell without the plugin
 // ---------------------------------------------------------------------------
 
 describe("with an older shell that has no plugin", () => {

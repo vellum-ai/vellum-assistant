@@ -13,9 +13,11 @@ const TOC_ITEMS = [
   { id: "our-pricing-philosophy", label: "Our pricing philosophy", level: 2 },
   { id: "plans", label: "Plans", level: 2 },
   { id: "base-plan", label: "Base", level: 3 },
-  { id: "pro-plan", label: "Pro", level: 3 },
+  { id: "pro-packages", label: "Pro packages", level: 3 },
+  { id: "custom-plan", label: "Custom", level: 3 },
   { id: "machine-sizes", label: "Machine sizes", level: 3 },
   { id: "storage", label: "Storage", level: 3 },
+  { id: "credit-bundles", label: "Credit bundles", level: 3 },
   { id: "changing-your-plan", label: "Changing your plan", level: 3 },
   { id: "how-pricing-works", label: "How pricing works", level: 2 },
   { id: "vellum-credits", label: "Vellum Credits", level: 2 },
@@ -49,13 +51,9 @@ function CollapsibleSection({
   useEffect(() => {
     const openIfHashMatches = () => {
       const hash = window.location.hash.replace(/^#/, "");
-      if (!hash || !detailsRef.current) {
-        return;
-      }
+      if (!hash || !detailsRef.current) {return;}
       const section = detailsRef.current.parentElement;
-      if (!section) {
-        return;
-      }
+      if (!section) {return;}
       const matchesSelf = section.id === hash;
       const matchesChild =
         section.querySelector(`#${CSS.escape(hash)}`) !== null;
@@ -122,20 +120,63 @@ export function PricingContent() {
 
         <div className="mt-12 border-b border-zinc-200">
           <CollapsibleSection id="plans" label="Plans">
-            {/* Plan comparison table */}
+            {/* Overview */}
+            <p className="mb-6 text-zinc-600">
+              Vellum has two plans: <strong>Base</strong> (free) and{" "}
+              <strong>Pro</strong> (paid). Pro comes in three preset packages
+              (Mighty, Super, Ultra) that bundle machine size, storage, and
+              monthly credits, or you can build a <strong>Custom</strong>{" "}
+              configuration by selecting each component individually.
+            </p>
+
+            {/* Base plan */}
+            <SectionHeading
+              id="base-plan"
+              level={3}
+              className="scroll-mt-24"
+            >
+              Base
+            </SectionHeading>
+            <p className="mb-4 text-zinc-600">
+              Free, forever. Includes everything you need to run an assistant:
+            </p>
+            <ul className="mb-6 list-disc space-y-1 pl-6 text-zinc-600">
+              <li>Small machine size (1 vCPU, 2 GiB RAM)</li>
+              <li>6 GiB of persistent storage</li>
+              <li>Pay-as-you-go credits (no monthly minimum)</li>
+              <li>Managed LLM credentials (Vellum covers the API keys)</li>
+            </ul>
+
+            {/* Pro packages */}
+            <SectionHeading
+              id="pro-packages"
+              level={3}
+              className="scroll-mt-24"
+            >
+              Pro packages
+            </SectionHeading>
+            <p className="mb-4 text-zinc-600">
+              Three preset packages that bundle a machine size, storage tier,
+              and monthly credit allowance into a single monthly price. Each
+              package is a starting point: you can adjust individual tiers
+              afterward, which converts your plan to a Custom configuration.
+            </p>
             <div
-              id="plan-comparison"
-              className="not-prose mb-10 overflow-x-auto"
+              id="package-comparison"
+              className="not-prose mb-6 overflow-x-auto"
             >
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200">
                     <th className="py-3 pr-6 text-left font-semibold text-zinc-900" />
                     <th className="px-6 py-3 text-left font-semibold text-zinc-900">
-                      Base
+                      Mighty
                     </th>
                     <th className="px-6 py-3 text-left font-semibold text-zinc-900">
-                      Pro
+                      Super
+                    </th>
+                    <th className="px-6 py-3 text-left font-semibold text-zinc-900">
+                      Ultra
                     </th>
                   </tr>
                 </thead>
@@ -144,60 +185,115 @@ export function PricingContent() {
                     <td className="py-3 pr-6 font-medium text-zinc-700">
                       Price
                     </td>
-                    <td className="px-6 py-3 text-zinc-600">Free</td>
-                    <td className="px-6 py-3 text-zinc-600">From $50/mo</td>
+                    <td className="px-6 py-3 text-zinc-600">$30/mo</td>
+                    <td className="px-6 py-3 text-zinc-600">$100/mo</td>
+                    <td className="px-6 py-3 text-zinc-600">$200/mo</td>
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
-                      Credits
+                      Machine
                     </td>
                     <td className="px-6 py-3 text-zinc-600">
-                      Pay-as-you-go
+                      Small (1 vCPU, 2 GiB)
                     </td>
                     <td className="px-6 py-3 text-zinc-600">
-                      Pay-as-you-go
+                      Medium (2.5 vCPU, 5 GiB)
                     </td>
-                  </tr>
-                  <tr className="border-b border-zinc-100">
-                    <td className="py-3 pr-6 font-medium text-zinc-700">
-                      Machine size
-                    </td>
-                    <td className="px-6 py-3 text-zinc-600">Small (fixed)</td>
                     <td className="px-6 py-3 text-zinc-600">
-                      Medium, Large, or XL
+                      Large (4 vCPU, 8 GiB)
                     </td>
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
                       Storage
                     </td>
-                    <td className="px-6 py-3 text-zinc-600">4 GiB</td>
-                    <td className="px-6 py-3 text-zinc-600">
-                      10 GiB – 500 GiB
-                    </td>
+                    <td className="px-6 py-3 text-zinc-600">10 GiB</td>
+                    <td className="px-6 py-3 text-zinc-600">30 GiB</td>
+                    <td className="px-6 py-3 text-zinc-600">60 GiB</td>
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
-                      Email &amp; subdomain
+                      Monthly credits
                     </td>
-                    <td className="px-6 py-3 text-zinc-400">-</td>
+                    <td className="px-6 py-3 text-zinc-600">$25</td>
+                    <td className="px-6 py-3 text-zinc-600">$45</td>
+                    <td className="px-6 py-3 text-zinc-600">$115</td>
+                  </tr>
+                  <tr className="border-b border-zinc-100">
+                    <td className="py-3 pr-6 font-medium text-zinc-700">
+                      Platform fee
+                    </td>
+                    <td className="px-6 py-3 text-zinc-400">
+                      Not included
+                    </td>
+                    <td className="px-6 py-3 text-zinc-600">Included</td>
                     <td className="px-6 py-3 text-zinc-600">Included</td>
                   </tr>
                   <tr>
                     <td className="py-3 pr-6 font-medium text-zinc-700">
-                      Monthly platform fee
+                      Email &amp; subdomain
                     </td>
-                    <td className="px-6 py-3 text-zinc-400">-</td>
-                    <td className="px-6 py-3 text-zinc-600">
-                      $10/mo{" "}
-                      <span className="text-zinc-400">
-                        (custom domain, static IP, priority support)
-                      </span>
-                    </td>
+                    <td className="px-6 py-3 text-zinc-400">{"\u2014"}</td>
+                    <td className="px-6 py-3 text-zinc-600">Included</td>
+                    <td className="px-6 py-3 text-zinc-600">Included</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            <p className="mb-2 text-zinc-600">
+              <strong>Mighty</strong> is the entry-level Pro package. You get
+              10 GiB of storage and $25 in monthly credits on the standard
+              Small machine. The $10/mo platform fee is not included, so there
+              is no custom subdomain, static IP, or priority support.
+            </p>
+            <p className="mb-2 text-zinc-600">
+              <strong>Super</strong> steps up to a Medium machine with 30 GiB
+              of storage and $45 in monthly credits. The platform fee is
+              included, so you get a custom subdomain, static IP, and priority
+              support.
+            </p>
+            <p className="mb-6 text-zinc-600">
+              <strong>Ultra</strong> is the most powerful package: a Large
+              machine, 60 GiB of storage, and $115 in monthly credits, with the
+              platform fee included.
+            </p>
+
+            {/* Custom plan */}
+            <SectionHeading
+              id="custom-plan"
+              level={3}
+              className="scroll-mt-24"
+            >
+              Custom
+            </SectionHeading>
+            <p className="mb-4 text-zinc-600">
+              Prefer to pick your own components? The Custom plan lets you
+              select a machine size, storage tier, and optional credit bundle
+              individually. Your monthly total is the sum of:
+            </p>
+            <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
+              <li>
+                <strong>Platform fee</strong> ($10/mo): custom subdomain,
+                static IP, priority support
+              </li>
+              <li>
+                <strong>Machine tier</strong>: $35, $60, or $125/mo (Medium,
+                Large, or XL)
+              </li>
+              <li>
+                <strong>Storage tier</strong>: $5 to $30/mo (10 to 120 GiB)
+              </li>
+              <li>
+                <strong>Credit bundle</strong> (optional): $10 to $200/mo
+              </li>
+            </ul>
+            <p className="mb-6 text-zinc-600">
+              The minimum Custom configuration is $50/mo (Medium machine + 10
+              GiB storage, no credit bundle). Credits are still pay-as-you-go
+              on top of any bundle you choose. If you start on a package and
+              later change any individual tier, your plan automatically becomes
+              Custom.
+            </p>
 
             {/* Machine sizes table */}
             <SectionHeading
@@ -208,8 +304,11 @@ export function PricingContent() {
               Machine sizes
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
-              Sets the maximum compute for assistants in your org. Resizable
-              anytime from the assistant&apos;s settings page.
+              Sets the maximum compute for assistants in your org. The Small
+              machine is included with Base and the Mighty package. Medium,
+              Large, and XL are available on the Custom plan and the Super and
+              Ultra packages. Resizable anytime from the assistant&apos;s
+              settings page.
             </p>
             <div className="not-prose mb-10 overflow-x-auto">
               <table className="w-full border-collapse text-sm">
@@ -230,6 +329,16 @@ export function PricingContent() {
                   </tr>
                 </thead>
                 <tbody>
+                  <tr className="border-b border-zinc-100">
+                    <td className="py-3 pr-6 font-medium text-zinc-700">
+                      Small
+                    </td>
+                    <td className="px-6 py-3 text-zinc-600">1 vCPU</td>
+                    <td className="px-6 py-3 text-zinc-600">2 GiB</td>
+                    <td className="px-6 py-3 text-zinc-600">
+                      Included (Base, Mighty)
+                    </td>
+                  </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
                       Medium
@@ -266,9 +375,11 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
               Persistent disk for files, notes, and conversation history.
-              Storage grows online, no assistant restart needed.
+              Storage grows online, no assistant restart needed. Base includes
+              6 GiB. Pro packages and the Custom plan offer the following
+              tiers:
             </p>
-            <div className="not-prose mb-10 overflow-x-auto">
+            <div className="not-prose mb-6 overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200">
@@ -286,8 +397,6 @@ export function PricingContent() {
                     { size: "30 GiB", price: "+$10/mo" },
                     { size: "60 GiB", price: "+$15/mo" },
                     { size: "120 GiB", price: "+$30/mo" },
-                    { size: "250 GiB", price: "+$60/mo" },
-                    { size: "500 GiB", price: "+$120/mo" },
                   ].map(({ size, price }, i, arr) => (
                     <tr
                       key={size}
@@ -304,6 +413,66 @@ export function PricingContent() {
                 </tbody>
               </table>
             </div>
+            <p className="mb-10 text-sm text-zinc-500">
+              250 GiB and 500 GiB tiers are available only to existing
+              subscribers who already have them. New subscriptions and tier
+              changes are limited to the tiers listed above.
+            </p>
+
+            {/* Credit bundles */}
+            <SectionHeading
+              id="credit-bundles"
+              level={3}
+              className="scroll-mt-24"
+            >
+              Credit bundles
+            </SectionHeading>
+            <p className="mb-3 text-zinc-600">
+              Pro packages include a monthly credit allowance (for example, $25
+              with Mighty, $45 with Super). On the Custom plan, you can add an
+              optional recurring credit bundle to your subscription:
+            </p>
+            <div className="not-prose mb-6 overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200">
+                    <th className="py-3 pr-6 text-left font-semibold text-zinc-900">
+                      Monthly credits
+                    </th>
+                    <th className="px-6 py-3 text-left font-semibold text-zinc-900">
+                      Price
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { credits: "$10", price: "+$10/mo" },
+                    { credits: "$25", price: "+$25/mo" },
+                    { credits: "$50", price: "+$50/mo" },
+                    { credits: "$100", price: "+$100/mo" },
+                    { credits: "$200", price: "+$200/mo" },
+                  ].map(({ credits, price }, i, arr) => (
+                    <tr
+                      key={credits}
+                      className={
+                        i < arr.length - 1 ? "border-b border-zinc-100" : ""
+                      }
+                    >
+                      <td className="py-3 pr-6 font-medium text-zinc-700">
+                        {credits}
+                      </td>
+                      <td className="px-6 py-3 text-zinc-600">{price}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mb-10 text-zinc-600">
+              Credit bundles are charged as a recurring subscription line item.
+              They are separate from pay-as-you-go credit top-ups: bundles give
+              you a set amount each month, while pay-as-you-go credits let you
+              add more anytime. One Vellum Credit equals one US dollar.
+            </p>
 
             {/* Changing your plan */}
             <SectionHeading
@@ -318,12 +487,14 @@ export function PricingContent() {
             </p>
             <ul className="mb-0 list-disc space-y-1 pl-6 text-zinc-600">
               <li>
-                <strong>Upgrade to Pro.</strong> Pick a machine and storage
-                tier, complete Stripe Checkout. Active immediately.
+                <strong>Upgrade to Pro.</strong> Pick a package (Mighty, Super,
+                or Ultra) or start with a Custom configuration. Complete Stripe
+                Checkout. Active immediately.
               </li>
               <li>
-                <strong>Change tiers.</strong> Switch machine or storage tier
-                anytime. Changes are prorated.
+                <strong>Change tiers.</strong> Switch machine, storage, or
+                credit tier anytime. Changes are prorated. Modifying any tier on
+                a package converts your plan to Custom.
               </li>
               <li>
                 <strong>Cancel.</strong> Takes effect at period end. Pro
@@ -624,12 +795,12 @@ export function PricingContent() {
             <strong className="font-semibold text-zinc-900">
               Need help with billing?
             </strong>{" "}
-            Contact support at{" "}
+            Join our{" "}
             <a
-              href="mailto:support@vellum.ai"
+              href="https://www.vellum.ai/community"
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
-              support@vellum.ai
+              Discord
             </a>
             .
           </p>

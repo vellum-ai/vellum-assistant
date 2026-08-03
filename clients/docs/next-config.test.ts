@@ -27,8 +27,15 @@ type RewriteResult =
       fallback?: RewriteRule[];
     };
 
+interface RedirectRule {
+  source: string;
+  destination: string;
+  permanent: boolean;
+}
+
 interface ConfigWithRewrites {
   rewrites?: () => Promise<RewriteResult>;
+  redirects?: () => Promise<RedirectRule[]>;
 }
 
 async function beforeFilesRewrites(): Promise<RewriteRule[]> {
@@ -154,6 +161,7 @@ describe("next config rewrite sources", () => {
   test("every beforeFiles rewrite source is a known pattern", async () => {
     const sources = (await beforeFilesRewrites()).map((rule) => rule.source);
     expect(sources).toEqual([
+      "/docs/_next/:path*",
       "/docs/index.md",
       "/docs/:path*.md",
       "/docs",
@@ -161,10 +169,44 @@ describe("next config rewrite sources", () => {
     ]);
   });
 
+  test("the asset rewrite is first and maps the assetPrefix back to /_next", async () => {
+    const [assetRule] = await beforeFilesRewrites();
+    expect(assetRule.source).toBe("/docs/_next/:path*");
+    expect(assetRule.destination).toBe("/_next/:path*");
+    expect(hasMarkdownAcceptCondition(assetRule)).toBe(false);
+  });
+
   test("docsPathForSource rejects unrecognized sources", () => {
     expect(() => docsPathForSource("/docs/:path*", "/docs/pricing")).toThrow(
       "Unsupported docs markdown rewrite source"
     );
+  });
+});
+
+describe("next config redirects", () => {
+  test("the redirect set is pinned exactly", async () => {
+    const redirects = (nextConfig as ConfigWithRewrites).redirects;
+    if (!redirects) {
+      throw new Error("nextConfig.redirects is missing");
+    }
+
+    await expect(redirects()).resolves.toEqual([
+      {
+        source: "/docs/data-sharing",
+        destination: "/docs/privacy-policy",
+        permanent: true,
+      },
+      {
+        source: "/docs/affiliate-program-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+      {
+        source: "/docs/vellum-survey-giveaway-official-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+    ]);
   });
 });
 

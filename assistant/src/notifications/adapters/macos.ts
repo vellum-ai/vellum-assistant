@@ -107,6 +107,7 @@ export class VellumAdapter implements ChannelAdapter {
         deepLinkMetadata: payload.deepLinkTarget,
         targetGuardianPrincipalId,
         silent,
+        remotePushDispatched: payload.remotePushDispatched,
       } as AssistantEvent);
 
       log.info(

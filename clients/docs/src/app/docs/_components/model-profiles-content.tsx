@@ -34,7 +34,7 @@ export function ModelProfilesContent() {
         title="Model Profiles"
         breadcrumb="Docs / Key Concepts / Model Profiles"
         eyebrow="Key Concepts"
-        subtitle="Control which LLM your assistant uses for each job (conversations, memory work, scheduled tasks) and override it per call-site when you need to."
+        subtitle="Control which LLM your assistant uses for each job — conversations, memory work, scheduled tasks — and override it per call-site when you need to."
       >
         {/* ------------------------------------------------------------------ */}
         {/* Overview                                                             */}
@@ -46,7 +46,7 @@ export function ModelProfilesContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             Model profiles control which AI model your assistant uses and how it behaves.
             You set one profile as the workspace-wide default, and your assistant applies
-            it to everything: conversations, background memory work, scheduled tasks, and
+            it to everything — conversations, background memory work, scheduled tasks, and
             more. You can override it per conversation or per action type when you need
             different behavior.
           </p>
@@ -83,21 +83,21 @@ export function ModelProfilesContent() {
                   <td className="py-3 pr-4">
                     <span className="font-semibold text-stone-900 dark:text-stone-100">Quality</span>
                   </td>
-                  <td className="py-3 pr-4">Claude Opus</td>
+                  <td className="py-3 pr-4">GPT-5.6 Sol</td>
                   <td className="py-3">Deep research, complex reasoning, high-stakes tasks</td>
                 </tr>
                 <tr>
                   <td className="py-3 pr-4">
                     <span className="font-semibold text-stone-900 dark:text-stone-100">Balanced</span>
                   </td>
-                  <td className="py-3 pr-4">MiniMax M3</td>
-                  <td className="py-3">Everyday use: capable across the board at reasonable cost</td>
+                  <td className="py-3 pr-4">GLM 5.2</td>
+                  <td className="py-3">Everyday use — capable across the board at reasonable cost</td>
                 </tr>
                 <tr>
                   <td className="py-3 pr-4">
                     <span className="font-semibold text-stone-900 dark:text-stone-100">Cost Optimized</span>
                   </td>
-                  <td className="py-3 pr-4">Claude Haiku</td>
+                  <td className="py-3 pr-4">DeepSeek V4 Flash</td>
                   <td className="py-3">Simple, short, or structural tasks where speed matters more than depth</td>
                 </tr>
               </tbody>
@@ -105,7 +105,8 @@ export function ModelProfilesContent() {
           </div>
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             <strong className="text-stone-900 dark:text-stone-100">Balanced is active by default.</strong>{" "}
-            Every call your assistant makes (conversation replies, memory filing, title generation) runs with the Balanced profile unless you change it.
+            Every call your assistant makes — conversation replies, memory filing, title
+            generation — runs with the Balanced profile unless you change it.
           </p>
         </section>
 
@@ -122,7 +123,7 @@ export function ModelProfilesContent() {
               Settings → Inference Profiles
             </strong>{" "}
             and select a different active profile from the dropdown. The change applies
-            workspace-wide immediately, no restart needed. You can also create custom
+            workspace-wide immediately — no restart needed. You can also create custom
             profiles from this screen if you want to use a different provider or model
             not covered by the built-ins.
           </p>
@@ -137,7 +138,7 @@ export function ModelProfilesContent() {
           </SectionHeading>
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             Use the profile picker in the chat header to pin a different profile to a
-            single conversation. It only affects that conversation: your workspace default
+            single conversation. It only affects that conversation — your workspace default
             stays untouched. This is the easiest way to run one session on a stronger or
             lighter model without changing anything globally.
           </p>
@@ -152,7 +153,7 @@ export function ModelProfilesContent() {
           </SectionHeading>
           <p className="mb-4 text-stone-600 dark:text-stone-400">
             Keep <strong className="text-stone-900 dark:text-stone-100">Balanced</strong> as
-            your active profile: it covers everyday use well. Then use Action Overrides
+            your active profile — it covers everyday use well. Then use Action Overrides
             to selectively upgrade the actions that benefit most from a stronger model, and
             step down only for tasks where the output is purely structural.
           </p>
@@ -160,7 +161,7 @@ export function ModelProfilesContent() {
             A good rule of thumb: anything that shows up directly in your conversation or
             drives a decision should stay on at least Sonnet. Tasks like generating a
             title, formatting a notification, or suggesting conversation starters are good
-            candidates for a lighter model: they&apos;re short, easy to verify, and
+            candidates for a lighter model — they&apos;re short, easy to verify, and
             quality differences are barely noticeable.
           </p>
           <p className="mb-0 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
@@ -183,8 +184,8 @@ export function ModelProfilesContent() {
             <strong className="text-stone-900 dark:text-stone-100">
               Settings → Inference Profiles → Action Overrides
             </strong>{" "}
-            to assign a specific profile to individual actions. Each action has a toggle:
-            when off it uses your active profile, when on you pick a profile just for
+            to assign a specific profile to individual actions. Each action has a toggle
+            — when off it uses your active profile, when on you pick a profile just for
             that action. You can search by name and reset everything back to defaults at
             any time.
           </p>

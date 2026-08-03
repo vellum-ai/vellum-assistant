@@ -38,6 +38,15 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+// Stub the user-activity gate probe open. Its real logic is covered by
+// memory-retrospective-accounting.test.ts and
+// memory-retrospective-enqueue.test.ts; against this file's empty stub db it
+// would report no activity and close the gate, masking the memory.enabled
+// gate under test.
+mock.module("../memory-retrospective-accounting.js", () => ({
+  hasQualifyingUserMessageAfter: () => true,
+}));
+
 // Stub the qdrant breaker so `enqueueMemoryJob` doesn't trip on it.
 mock.module(
   "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
@@ -94,6 +103,8 @@ const stubDb = makeStubDb();
 mock.module("../../../../persistence/db-connection.js", () => ({
   getDb: () => stubDb,
   getMemoryDb: () => stubDb,
+  // Truthy handle: consulted only as memory-db's availability gate.
+  getMemorySqlite: () => ({}),
 }));
 
 // Now load the real modules under test.

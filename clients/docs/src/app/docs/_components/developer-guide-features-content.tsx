@@ -17,7 +17,7 @@ export function DeveloperGuideFeaturesContent() {
     <>
       <DocsContent title="Features & Capabilities" breadcrumb="Docs / Developer Guide / Features">
         <p className="mb-8 text-zinc-600">
-          A deep dive into the platform&apos;s major feature areas: integrations, skill authoring, browser automation,
+          A deep dive into the platform&apos;s major feature areas — integrations, skill authoring, browser automation,
           file attachments, and media embeds.
         </p>
 
@@ -38,7 +38,7 @@ export function DeveloperGuideFeaturesContent() {
           </p>
           <p className="mb-4 text-zinc-600">
             Connect via the Settings UI or the <code className="text-sm">integration_connect</code> HTTP endpoint.
-            OAuth2 tokens are stored in the credential vault: the LLM never sees raw tokens. Telegram uses a bot token (not OAuth).
+            OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth).
           </p>
         </section>
 
@@ -51,10 +51,10 @@ export function DeveloperGuideFeaturesContent() {
             The assistant can create, test, and persist new skills at runtime when no existing tool covers a user&apos;s need.
           </p>
           <ol className="mb-6 list-decimal space-y-2 pl-6 text-zinc-600">
-            <li><strong>Evaluate</strong>: drafts a TypeScript snippet, tests in a sandbox via <code className="text-sm">evaluate_typescript_code</code>. Iterates until it passes.</li>
-            <li><strong>Persist</strong>: writes the skill to <code className="text-sm">~/.vellum/workspace/skills/&lt;id&gt;/</code> via <code className="text-sm">scaffold_managed_skill</code>.</li>
-            <li><strong>Load</strong>: calls <code className="text-sm">skill_load</code> to activate the new skill.</li>
-            <li><strong>Delete</strong>: removes via <code className="text-sm">delete_managed_skill</code>.</li>
+            <li><strong>Evaluate</strong> — drafts a TypeScript snippet, tests in a sandbox via <code className="text-sm">evaluate_typescript_code</code>. Iterates until it passes.</li>
+            <li><strong>Persist</strong> — writes the skill to <code className="text-sm">~/.vellum/workspace/skills/&lt;id&gt;/</code> via <code className="text-sm">scaffold_managed_skill</code>.</li>
+            <li><strong>Load</strong> — calls <code className="text-sm">skill_load</code> to activate the new skill.</li>
+            <li><strong>Delete</strong> — removes via <code className="text-sm">delete_managed_skill</code>.</li>
           </ol>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -167,9 +167,9 @@ export function DeveloperGuideFeaturesContent() {
             The assistant attaches files and images to replies, delivered across three channels:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Desktop</strong>: inline base64 in SSE events; macOS app renders thumbnails</li>
-            <li><strong>Telegram</strong>: gateway delivers via <code className="text-sm">sendPhoto</code>/<code className="text-sm">sendDocument</code> (20 MB limit)</li>
-            <li><strong>HTTP API</strong>: <code className="text-sm">GET /v1/assistants/:id/messages</code> returns metadata; <code className="text-sm">GET /v1/assistants/:assistantId/attachments/:attachmentId</code> returns full payload</li>
+            <li><strong>Desktop</strong> — inline base64 in SSE events; macOS app renders thumbnails</li>
+            <li><strong>Telegram</strong> — gateway delivers via <code className="text-sm">sendPhoto</code>/<code className="text-sm">sendDocument</code> (20 MB limit)</li>
+            <li><strong>HTTP API</strong> — <code className="text-sm">GET /v1/assistants/:id/messages</code> returns metadata; <code className="text-sm">GET /v1/assistants/:assistantId/attachments/:attachmentId</code> returns full payload</li>
           </ul>
           <p className="mb-4 text-zinc-600">
             Sources: <code className="text-sm">&lt;vellum-attachment&gt;</code> directives in response text, or auto-converted from
@@ -186,7 +186,7 @@ export function DeveloperGuideFeaturesContent() {
             The desktop app renders inline previews for images and video URLs (YouTube, Vimeo, Loom).
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-            <li>Videos use <strong>ephemeral webview storage</strong>: no cookies persist between sessions</li>
+            <li>Videos use <strong>ephemeral webview storage</strong> — no cookies persist between sessions</li>
             <li>Videos require <strong>click to play</strong>; nothing auto-plays</li>
             <li>Images are <strong>lazy-loaded</strong></li>
             <li>Video webviews are <strong>torn down when scrolled offscreen</strong></li>
