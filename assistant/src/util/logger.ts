@@ -337,15 +337,64 @@ export function getLogger(name: string): Logger {
 }
 
 /**
+ * Write failures that mean the destination has no reader left: `EPIPE` when
+ * the read end of a pipe is closed (`assistant … | head`, or a detached
+ * daemon whose spawning parent exited and took the read end of its stdout
+ * pipe with it), and the stream-closed codes when the destination was already
+ * destroyed or ended. There is nowhere left to report a dropped log line, so
+ * dropping it is the only correct handling.
+ *
+ * Deliberately narrow: any other write failure is re-raised so genuine output
+ * faults still surface.
+ */
+const CLOSED_OUTPUT_WRITE_CODES = new Set([
+  "EPIPE",
+  "ERR_STREAM_DESTROYED",
+  "ERR_STREAM_WRITE_AFTER_END",
+]);
+
+function isClosedOutputWriteError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
+  return code !== undefined && CLOSED_OUTPUT_WRITE_CODES.has(code);
+}
+
+/** The only part of an output stream {@link cliWrite} uses. */
+type CliOutputStream = {
+  write(chunk: string, callback: (err?: Error | null) => void): boolean;
+};
+
+/**
  * Extract the message text from a pino-style log call: `(msg)` or
  * `(mergeObject, msg)`. Structured fields are discarded — CLI output is the
  * message text only, matching what the pino-backed implementation printed.
+ *
+ * The completion callback is load-bearing, not decorative. Under Bun a write
+ * to a pipe whose reader is gone does not raise at the call site: the failure
+ * is handed to the callback, and when no callback is passed it escalates to an
+ * `uncaughtException`. Passing the callback is what contains it: a bare
+ * `try`/`catch` around the write would not. The `catch` covers stream
+ * implementations that raise synchronously instead. Both paths re-raise
+ * anything that is not an expected closed-output failure.
+ *
+ * @internal Exported for tests, which model a closed output stream directly.
  */
-function cliWrite(output: NodeJS.WriteStream): (...args: unknown[]) => void {
+export function cliWrite(
+  output: CliOutputStream,
+): (...args: unknown[]) => void {
   return (...args: unknown[]) => {
     const msg =
       typeof args[0] === "string" ? args[0] : (args[1] as string | undefined);
-    output.write((msg ?? "") + "\n");
+    try {
+      output.write((msg ?? "") + "\n", (err) => {
+        if (err && !isClosedOutputWriteError(err)) {
+          throw err;
+        }
+      });
+    } catch (err) {
+      if (!isClosedOutputWriteError(err)) {
+        throw err;
+      }
+    }
   };
 }
 
