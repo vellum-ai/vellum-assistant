@@ -354,7 +354,7 @@ async function runAdvisorConsult(args: {
           sendResultToUser: false,
           role: "advisor",
           fork: true,
-          // The advisor is a ROLE, not an `LLMCallSiteEnum` value — its usage
+          // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
           // lands under `subagentSpawn` like any other subagent. This is what
           // makes advisor consults separable from regular forks in telemetry.
           spawnMode: "advisor_consult",

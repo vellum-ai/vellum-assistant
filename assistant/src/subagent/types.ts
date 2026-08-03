@@ -95,7 +95,7 @@ export interface SubagentConfig {
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
   /**
-   * How this subagent was spawned — the call site and its context/lifecycle
+   * How this subagent was spawned: the call site and its context/lifecycle
    * shape. Stamped onto the child conversation row and emitted as
    * `subagent_spawn_mode` on `llm_usage` telemetry so delegated spend is
    * separable per variety.
@@ -241,11 +241,11 @@ export type SubagentRole =
  * is independent of which role ran, which is why neither field subsumes the
  * other.
  *
- * - `regular` — fire-and-forget `subagent_spawn`, fresh objective-only context.
- * - `fork` — `subagent_spawn` with `fork: true`, inherits the parent transcript.
- * - `advisor_consult` — synchronous, tool-less advisor consult on the advisor
+ * - `regular`: fire-and-forget `subagent_spawn`, fresh objective-only context.
+ * - `fork`: `subagent_spawn` with `fork: true`, inherits the parent transcript.
+ * - `advisor_consult`: synchronous, tool-less advisor consult on the advisor
  *   profile; the parent turn blocks on it and returns its guidance inline.
- * - `voice_continuation` — silent, read-only live-voice background
+ * - `voice_continuation`: silent, read-only live-voice background
  *   continuation of an interrupted turn.
  *
  * Mirrored on the wire as `llm_usage.subagent_spawn_mode`, which is an OPEN

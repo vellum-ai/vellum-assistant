@@ -351,7 +351,7 @@ describe("subagent_spawn fork parameter", () => {
       );
 
       expect(capturedConfig!.spawnMode).toBe("regular");
-      // Role and spawn mode are orthogonal dimensions — both are recorded.
+      // Role and spawn mode are orthogonal dimensions, both are recorded.
       expect(capturedConfig!.role).toBe("researcher");
     } finally {
       manager.spawn = originalSpawn;

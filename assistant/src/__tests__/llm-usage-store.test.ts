@@ -2027,7 +2027,7 @@ describe("queryUnreportedUsageEvents", () => {
   // -------------------------------------------------------------------------
   // Delegated-work decomposition (subagentRole + subagentSpawnMode). Every
   // subagent variety emits under `llm_call_site = "subagentSpawn"`, so these
-  // two orthogonal columns — stamped on the conversation row at spawn — are
+  // two orthogonal columns, stamped on the conversation row at spawn, are
   // what make advisor consults, forks and regular spawns separable.
   // -------------------------------------------------------------------------
 
@@ -2044,7 +2044,7 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].subagentSpawnMode).toBe("advisor_consult");
   });
 
-  test("role and spawn mode are independent — a general subagent can be regular or forked", () => {
+  test("role and spawn mode are independent: a general subagent can be regular or forked", () => {
     const db = getDb();
     db.run(
       `INSERT INTO conversations (id, conversation_type, created_at, updated_at, subagent_role, subagent_spawn_mode) VALUES ('plain-child', 'background', 1000, 1000, 'general', 'regular')`,

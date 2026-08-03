@@ -118,14 +118,14 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    * Role the subagent that owns this event's conversation was spawned with
    * (`general`, `researcher`, `coder`, `planner`, `investigator`, `advisor`).
    * The advisor is a ROLE, not an `LLMCallSiteEnum` value, so this is the only
-   * thing that tells an advisor consult apart from a regular subagent — both
+   * thing that tells an advisor consult apart from a regular subagent, since both
    * emit under `llm_call_site = "subagentSpawn"`. Null when the LLM call did
    * not run inside a subagent conversation.
    */
   subagent_role: string | null;
   /**
    * How that subagent was spawned: `regular`, `fork`, `advisor_consult`, or
-   * `voice_continuation`. Orthogonal to `subagent_role` — the role selects the
+   * `voice_continuation`. Orthogonal to `subagent_role`: the role selects the
    * child's capabilities, the spawn mode selects its context inheritance and
    * lifecycle (a fork's inherited transcript dominates its input tokens
    * regardless of role). Null under the same condition as `subagent_role`.

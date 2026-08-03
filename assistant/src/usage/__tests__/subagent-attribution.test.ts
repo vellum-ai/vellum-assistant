@@ -70,7 +70,7 @@ describe("resolveSubagentAttribution", () => {
 
   test("returns nulls for an unknown conversation and does not cache the miss", () => {
     // The columns are stamped at conversation creation, so a miss means the
-    // row has not landed yet — caching it would pin an empty result.
+    // row has not landed yet, and caching it would pin an empty result.
     expect(resolveSubagentAttribution("conv-not-yet")).toEqual({
       subagentRole: null,
       subagentSpawnMode: null,
@@ -96,7 +96,7 @@ describe("resolveSubagentAttribution", () => {
     expect(resolveSubagentAttribution(id).subagentSpawnMode).toBe("fork");
 
     // The columns are immutable after creation, so a later write must not be
-    // observable — proving the second call did not hit the database.
+    // observable, proving the second call did not hit the database.
     const db = getDb();
     db.run(
       `UPDATE conversations SET subagent_spawn_mode = 'regular' WHERE id = '${id}'`,

@@ -55,13 +55,13 @@ export const conversations = sqliteTable(
      * telemetry-flush time on purpose: `subagents` rows are deleted on
      * dispose (TTL sweep ~30 minutes after the run goes terminal), while
      * usage telemetry flushes on a watermark that can trail arbitrarily far
-     * behind after an ingest outage. Stamping the conversation row — the same
-     * rationale that put `parent_conversation_id` here — makes the
+     * behind after an ingest outage. Stamping the conversation row, the same
+     * rationale that put `parent_conversation_id` here, makes the
      * attribution durable for the life of the usage row.
      */
     subagentRole: text("subagent_role"),
     /**
-     * How the subagent that owns this conversation was spawned — context
+     * How the subagent that owns this conversation was spawned: context
      * inheritance and lifecycle, orthogonal to {@link subagentRole}:
      * `regular` (fire-and-forget `subagent_spawn`, fresh objective-only
      * context), `fork` (`subagent_spawn` with `fork: true`, inherits the

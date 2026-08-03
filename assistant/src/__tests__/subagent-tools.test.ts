@@ -1687,7 +1687,7 @@ describe("Subagent advisor-role consult", () => {
       expect(captured.current).toBeDefined();
       expect(captured.current!.config.fork).toBe(true);
       expect(captured.current!.config.role).toBe("advisor");
-      // The advisor is a ROLE, not an `LLMCallSiteEnum` value — its usage
+      // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
       // lands under `subagentSpawn` like any other subagent. The declared
       // spawn mode is what separates it from a plain fork in cost telemetry.
       expect(captured.current!.config.spawnMode).toBe("advisor_consult");

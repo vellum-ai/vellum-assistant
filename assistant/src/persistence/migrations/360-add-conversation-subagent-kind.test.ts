@@ -146,7 +146,7 @@ describe("migration 360: conversations subagent role / spawn mode", () => {
     });
   });
 
-  test("is idempotent — re-run is a no-op", () => {
+  test("is idempotent: re-run is a no-op", () => {
     const { sqlite, db } = createTestDb();
 
     migrateAddConversationSubagentKind(db);
