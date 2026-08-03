@@ -711,7 +711,15 @@ export class SlackSocketModeClient {
         );
         return;
       }
-      this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
+      // Not `trackThread`: the assistant replying to itself is not human
+      // engagement, so it must not promote one of its own speculative roots
+      // into the catch-up fan-out. See `trackThreadAfterBotReply`.
+      this.store.trackThreadAfterBotReply(
+        threadTs,
+        channel,
+        ACTIVE_THREAD_TTL_MS,
+        OUTBOUND_ROOT_THREAD_TTL_MS,
+      );
       log.info(
         { channel, threadTs },
         "Tracked thread after bot's own thread reply",

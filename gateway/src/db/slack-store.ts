@@ -133,6 +133,50 @@ export class SlackStore {
       .run();
   }
 
+  /**
+   * Track a thread from the assistant's own reply echo into it.
+   *
+   * Differs from `trackThread` in exactly one way: it must not promote a
+   * speculative root. The assistant threading follow-ups under its own
+   * never-answered post is not human engagement, and promoting would move a
+   * row nobody replied to into the reconnect catch-up fan-out
+   * (`listActiveThreadsWithChannel`), which is the cost this split exists to
+   * avoid. A still-speculative root keeps its marker and has its shorter
+   * window refreshed instead, so admission stays alive for as long as the
+   * assistant keeps talking.
+   *
+   * Every other thread is tracked at the full TTL exactly as before: one a
+   * human already promoted, and one the assistant is joining for the first
+   * time (JARVIS-1086), which is a real thread it did not originate.
+   */
+  trackThreadAfterBotReply(
+    threadTs: string,
+    channelId: string,
+    ttlMs: number,
+    speculativeTtlMs: number,
+  ): void {
+    const speculative = this.db
+      .select({ threadTs: slackActiveThreads.threadTs })
+      .from(slackActiveThreads)
+      .where(
+        and(
+          eq(slackActiveThreads.threadTs, threadTs),
+          isNotNull(slackActiveThreads.speculativeRootAt),
+        ),
+      )
+      .get();
+    if (!speculative) {
+      this.trackThread(threadTs, channelId, ttlMs);
+      return;
+    }
+    const now = Date.now();
+    this.db
+      .update(slackActiveThreads)
+      .set({ channelId, trackedAt: now, expiresAt: now + speculativeTtlMs })
+      .where(eq(slackActiveThreads.threadTs, threadTs))
+      .run();
+  }
+
   hasThread(threadTs: string): boolean {
     const now = Date.now();
     const row = this.db

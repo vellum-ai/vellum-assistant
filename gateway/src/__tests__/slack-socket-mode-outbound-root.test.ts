@@ -337,8 +337,10 @@ describe("LUM-2941: arming the assistant's own top-level posts", () => {
       const armed = threadRow(rawDb, BOT_POST_TS);
       expect(armed?.channel_id).toBe(CHANNEL);
       expect(armed?.speculative_root_at).not.toBeNull();
-      // Four hours, not the 24h an inbound thread gets.
-      expect(armed?.expires_at).toBeLessThanOrEqual(armedAt + FOUR_HOURS_MS);
+      // Four hours, not the 24h an inbound thread gets. The ceiling is read
+      // after delivery so the bound holds however long the write took.
+      expect(armed?.expires_at).toBeLessThanOrEqual(Date.now() + FOUR_HOURS_MS);
+      expect(armed?.expires_at).toBeGreaterThan(armedAt);
 
       deliver(client, ws, "Ev-human-reply", humanReply(CHANNEL));
       await flushAsyncEventEmission();
@@ -404,6 +406,52 @@ describe("LUM-2941: arming the assistant's own top-level posts", () => {
       expect(row?.expires_at).toBeGreaterThan(armedAt + FOUR_HOURS_MS);
       expect(store.listActiveThreadsWithChannel()).toEqual([
         { threadTs, channelId: CHANNEL },
+      ]);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("the assistant threading under its own root does not promote it into catch-up", async () => {
+    const { rawDb, store } = createSlackStore();
+    const client = createHarness(store, () => {});
+    const ws = makeOpenSocket();
+
+    try {
+      const armedAt = Date.now();
+      deliver(client, ws, "Ev-bot-post", botTopLevelPost(CHANNEL, "channel"));
+      await flushAsyncEventEmission();
+
+      // The assistant follows up in the thread under its own post (chunked
+      // output, a progress update). Nobody has replied to it yet.
+      deliver(client, ws, "Ev-bot-followup", {
+        type: "message",
+        user: "UBOT",
+        text: "and here is the detail",
+        ts: "1785437330.000100",
+        channel: CHANNEL,
+        channel_type: "channel",
+        thread_ts: BOT_POST_TS,
+      });
+      await flushAsyncEventEmission();
+
+      // Talking to itself is not engagement: the row stays speculative and out
+      // of the fan-out, but its window is refreshed so admission survives for
+      // as long as the assistant keeps posting.
+      const row = threadRow(rawDb, BOT_POST_TS);
+      expect(row?.speculative_root_at).not.toBeNull();
+      expect(row?.expires_at).toBeLessThanOrEqual(Date.now() + FOUR_HOURS_MS);
+      expect(row?.expires_at).toBeGreaterThanOrEqual(armedAt);
+      expect(store.hasThread(BOT_POST_TS)).toBe(true);
+      expect(store.listActiveThreadsWithChannel()).toEqual([]);
+
+      // A human reply still promotes it.
+      deliver(client, ws, "Ev-human-reply", humanReply(CHANNEL));
+      await flushAsyncEventEmission();
+
+      expect(threadRow(rawDb, BOT_POST_TS)?.speculative_root_at).toBeNull();
+      expect(store.listActiveThreadsWithChannel()).toEqual([
+        { threadTs: BOT_POST_TS, channelId: CHANNEL },
       ]);
     } finally {
       rawDb.close();
