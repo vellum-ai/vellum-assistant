@@ -323,9 +323,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    *
    * Streaming stderr stays at `debug` because a healthy worker is chatty. The
    * tail is what the exit path reports at `warn`, so the cause of a death is
-   * available without debug logging enabled.
+   * available without debug logging enabled. Points at the array owned by the
+   * current worker's drain; a previous worker's drain keeps its own.
    */
-  private recentStderr: string[] = [];
+  private stderrTail: string[] = [];
   /** Settles when the current worker's stderr stream closes. */
   private stderrDrained: Promise<void> | null = null;
   /** Overridable so tests can exercise the escalation path without the wait. */
@@ -580,12 +581,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       );
     }
 
-    // The tail belongs to this worker alone. Clearing at spawn, rather than on
-    // a teardown path, is what keeps that true: several teardowns null
-    // `workerProc` themselves, and the previous worker's drain loop is not
-    // cancelled, so a late chunk can still arrive after it was let go.
-    this.recentStderr = [];
-    this.stderrDrained = this.drainStderr(proc.stderr);
+    // Each drain owns its own tail array, so this points at the new worker's
+    // buffer while any still-running drain from a previous worker keeps
+    // appending to its own. The report can only ever read one worker's output.
+    const { drained, tail } = this.drainStderr(proc.stderr);
+    this.stderrDrained = drained;
+    this.stderrTail = tail;
 
     // Write PID file so `vellum ps` can see the embed worker
     this.writePidFile(proc.pid);
@@ -607,14 +608,23 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * {@link WORKER_STDERR_TAIL_LINES} lines rather than that many chunks, which
    * bounds both the entry count and the size of the death report.
    *
-   * Returns a promise that settles when the stream closes. The unexpected-exit
-   * report awaits it briefly: stdout and stderr close independently, so a
-   * worker's final stderr can still be in flight when the stdout reader ends.
+   * The returned `tail` array belongs to this drain alone. A drain is never
+   * cancelled, so one whose worker has already died can still resume and append
+   * after a replacement was spawned; owning its own array means those late
+   * lines land where nothing reads them instead of in the live worker's report.
+   *
+   * `drained` settles when the stream closes. The unexpected-exit report awaits
+   * it briefly: stdout and stderr close independently, so a worker's final
+   * stderr can still be in flight when the stdout reader ends.
    */
-  private drainStderr(stderr: ReadableStream<Uint8Array>): Promise<void> {
+  private drainStderr(stderr: ReadableStream<Uint8Array>): {
+    drained: Promise<void>;
+    tail: string[];
+  } {
     const reader = stderr.getReader();
     const decoder = new TextDecoder();
-    return (async () => {
+    const tail: string[] = [];
+    const drained = (async () => {
       let carry = "";
       const retain = (line: string): void => {
         const text = line.trim();
@@ -622,12 +632,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
           return;
         }
         log.debug({ workerStderr: text }, "Embedding worker stderr");
-        this.recentStderr.push(text);
-        if (this.recentStderr.length > WORKER_STDERR_TAIL_LINES) {
-          this.recentStderr.splice(
-            0,
-            this.recentStderr.length - WORKER_STDERR_TAIL_LINES,
-          );
+        tail.push(text);
+        if (tail.length > WORKER_STDERR_TAIL_LINES) {
+          tail.splice(0, tail.length - WORKER_STDERR_TAIL_LINES);
         }
       };
 
@@ -652,6 +659,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // A worker killed mid-line still emitted that text; keep it.
       retain(carry);
     })();
+    return { drained, tail };
   }
 
   private startStdoutReader(): void {
@@ -717,7 +725,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
           signal: proc.signalCode ?? null,
           confirmedTerminated: confirmed,
           abandonedRequests: this.pendingRequests.size,
-          workerStderrTail: this.recentStderr.slice(-WORKER_STDERR_TAIL_LINES),
+          workerStderrTail: this.stderrTail.slice(-WORKER_STDERR_TAIL_LINES),
         },
         "Embedding worker exited unexpectedly",
       );
