@@ -208,8 +208,6 @@ describe("Subagent tool definitions", () => {
     expect(def.input_schema.required).toEqual([]);
     expect(def.input_schema.properties.label).toBeDefined();
     expect(def.input_schema.properties.last_n.type).toBe("integer");
-    // The description leads with what the tool is not: parents kept passing it
-    // file paths.
     expect(def.description).toContain("NOT a file reader");
     expect(def.description).toContain("file_read");
   });
