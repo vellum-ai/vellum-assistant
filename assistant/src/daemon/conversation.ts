@@ -2022,8 +2022,18 @@ export class Conversation {
     };
   }
 
-  async forceCompact(): Promise<ContextWindowResult> {
-    return this.runUserCompaction(() => this.runCompaction(true));
+  /**
+   * `/compact`. `onEvent` is the sink for the context-window usage push, and
+   * callers pass whatever sink they render the result card through: the queue
+   * drain carries the queued item's own `onEvent`, and `sendToClient` is reset
+   * to a no-op once an interactive turn finishes (`process-message.ts`), so a
+   * `/compact` draining behind that turn would otherwise push into nothing
+   * while its card still reaches the client.
+   */
+  async forceCompact(
+    onEvent?: (msg: AssistantEvent) => void,
+  ): Promise<ContextWindowResult> {
+    return this.runUserCompaction(() => this.runCompaction(true), onEvent);
   }
 
   /**

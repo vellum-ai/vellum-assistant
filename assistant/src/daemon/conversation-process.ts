@@ -923,7 +923,11 @@ async function drainSingleMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId: next.requestId,
       });
-      const result = await conversation.forceCompact();
+      // Push the usage refresh to the queued item's own sink, the one the
+      // result card below streams on. `sendToClient` is reset to a no-op once
+      // an interactive turn finishes, so a `/compact` draining behind one
+      // would otherwise refresh nothing.
+      const result = await conversation.forceCompact(next.onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -2040,7 +2044,8 @@ export async function processMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
       });
-      const result = await conversation.forceCompact();
+      // Same sink the result card below streams on (see the drain branch).
+      const result = await conversation.forceCompact(onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);

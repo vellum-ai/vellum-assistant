@@ -436,6 +436,49 @@ describe("forceCompact context-window usage push", () => {
     expect(usageEvent.maxTokens).toBe(200_000);
   });
 
+  test("pushes to the caller's sink when the conversation's own sender is dead", async () => {
+    // A `/compact` draining behind an interactive turn: `process-message.ts`
+    // resets `sendToClient` to a no-op in its `finally`, while the queued item
+    // still carries the live sink its result card streams on. The push has to
+    // follow the card, not the dead sender.
+    const stranded: AssistantEvent[] = [];
+    const cardSink: AssistantEvent[] = [];
+    mockCompactResult = {
+      messages: [],
+      compacted: true,
+      previousEstimatedInputTokens: 43_000,
+      estimatedInputTokens: 12_000,
+      maxInputTokens: 200_000,
+      thresholdTokens: 160_000,
+      compactedMessages: 10,
+      compactedPersistedMessages: 5,
+      summaryCalls: 1,
+      summaryInputTokens: 500,
+      summaryOutputTokens: 200,
+      summaryModel: "test-model",
+      summaryText: "summary text",
+    };
+
+    const conversation = makeConversation(
+      stranded,
+      "conv-compact-dead-sender",
+      [56_000, 18_000],
+    );
+    conversation.updateClient(() => {}, true);
+
+    const result = await conversation.forceCompact((msg) => cardSink.push(msg));
+
+    const usage = cardSink.filter((m) => m.type === "context_window_usage");
+    expect(usage.length).toBe(1);
+    expect(
+      (usage[0] as Extract<AssistantEvent, { type: "context_window_usage" }>)
+        .tokens,
+    ).toBe(result.estimatedInputTokens);
+    expect(
+      stranded.filter((m) => m.type === "context_window_usage").length,
+    ).toBe(0);
+  });
+
   test("pushes the current count when there was nothing to compact", async () => {
     const collected: AssistantEvent[] = [];
     mockCompactResult = {

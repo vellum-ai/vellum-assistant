@@ -2375,7 +2375,9 @@ export async function handleSendMessage(
         });
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
-        const result = await conversation.forceCompact();
+        // Same sink the result card below goes out on, so the indicator and
+        // the card can never be delivered to different places.
+        const result = await conversation.forceCompact(broadcastMessage);
         const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
