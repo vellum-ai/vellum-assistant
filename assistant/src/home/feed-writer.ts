@@ -68,7 +68,9 @@ export function getHomeFeedPath(): string {
  * Read the on-disk feed file, applying the stateless TTL filter.
  *
  * Returns an empty `HomeFeedFile` when the file is missing, unreadable,
- * or fails Zod validation — callers never see a throw from this path.
+ * or has an invalid envelope. Callers never see a throw from this path.
+ * Individual items that fail validation are dropped and warn-logged
+ * while the rest of the feed survives.
  * Items whose `expiresAt` is in the past are dropped from the returned
  * `items` array but are NOT rewritten to disk; the next append cycle
  * will persist the post-filter view naturally.
@@ -93,7 +95,7 @@ export function readHomeFeed(): HomeFeedFile {
     return empty;
   }
 
-  let parsed: HomeFeedFile;
+  let parsed: ReturnType<typeof parseFeedFile>;
   try {
     parsed = parseFeedFile(raw);
   } catch (err) {
@@ -102,6 +104,13 @@ export function readHomeFeed(): HomeFeedFile {
       "home-feed.json failed schema validation; returning empty",
     );
     return empty;
+  }
+
+  if (parsed.droppedCount > 0) {
+    log.warn(
+      { path, droppedCount: parsed.droppedCount },
+      "Dropped invalid items from home-feed.json",
+    );
   }
 
   const now = Date.now();
