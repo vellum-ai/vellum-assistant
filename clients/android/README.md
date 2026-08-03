@@ -149,10 +149,8 @@ tile addition, lock-screen notification taps, and warm/cold voice launches.
 
 ## Native notifications
 
-Android registers FCM after creating the `vellum-alerts` channel. Capacitor
-renders foreground pushes once; Android handles background pushes and taps.
-FCM requires Google Play services and a matching untracked
-`google-services.json`. Failed registration retries when the app resumes.
+Android registers FCM on `vellum-alerts`, renders foreground pushes once, and handles background pushes and taps.
+FCM needs Play services and untracked `google-services.json`; failures retry on resume.
 
 ## Structure
 

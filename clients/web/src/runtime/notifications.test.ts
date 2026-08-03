@@ -167,11 +167,11 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(scheduleMock).toHaveBeenCalledTimes(1);
   });
 
-  test("field absent (older daemon): schedules even when hidden", async () => {
+  test("explicit empty platforms override legacy APNs acceptance", async () => {
     sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
-    await postLocalNotification({ ...baseArgs });
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true, remotePushPlatforms: [] });
 
     expect(scheduleMock).toHaveBeenCalledTimes(1);
   });
@@ -260,14 +260,12 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
         conversationId: "conv-1",
       },
     };
-
     postForegroundRemotePush(push);
     await postLocalNotification({
       ...baseArgs,
       deliveryId: "delivery-sse",
       correlationId: "delivery-fcm",
     });
-
     expect(scheduleMock).toHaveBeenCalledTimes(1);
     expect(scheduleMock.mock.calls[0]?.[0].notifications[0]?.channelId).toBe(
       "vellum-alerts",
@@ -283,13 +281,11 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
           rejectFirst = reject;
         }),
     );
-
     const first = postLocalNotification(baseArgs);
     const waiter = postLocalNotification(baseArgs);
     await new Promise((resolve) => setTimeout(resolve, 0));
     rejectFirst(new Error("native bridge failed"));
     await Promise.all([first, waiter]);
-
     expect(scheduleMock).toHaveBeenCalledTimes(2);
     expect(ackArgs.map(({ body }) => body.success)).toEqual([true, true]);
   });

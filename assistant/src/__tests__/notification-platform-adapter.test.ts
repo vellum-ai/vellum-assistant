@@ -248,18 +248,18 @@ describe("PlatformPushAdapter", () => {
     expect(fetchCalls).toHaveLength(1);
   });
 
-  test("reports remotePushAccepted: true on 200 with tokens_sent > 0", async () => {
+  test("preserves an explicit empty platform list with legacy acceptance", async () => {
     fetchResponses.push({
       ok: true,
       status: 200,
-      body: '{"tokens_sent":2,"accepted_platforms":["ios","android"]}',
+      body: '{"tokens_sent":2,"accepted_platforms":[]}',
     });
     const adapter = new PlatformPushAdapter();
     const result = await adapter.send(makePayload(), makeDestination());
 
     expect(result.success).toBe(true);
     expect(result.remotePushAccepted).toBe(true);
-    expect(result.remotePushPlatforms).toEqual(["ios", "android"]);
+    expect(result.remotePushPlatforms).toEqual([]);
   });
 
   test("preserves a successful provider from the final partial 503", async () => {

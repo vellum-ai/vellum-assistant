@@ -115,8 +115,9 @@ export class PlatformPushAdapter implements ChannelAdapter {
 
     const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/push/dispatch/`;
     const accumulatedPlatforms = new Set<RemotePushPlatform>();
+    let platformsReported = false;
     const remotePushPlatforms = () =>
-      accumulatedPlatforms.size > 0 ? [...accumulatedPlatforms] : undefined;
+      platformsReported ? [...accumulatedPlatforms] : undefined;
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       let response: Response;
@@ -162,7 +163,9 @@ export class PlatformPushAdapter implements ChannelAdapter {
       } catch {
         responseBody = null;
       }
-      for (const platform of acceptedPlatforms(responseBody) ?? []) {
+      const responsePlatforms = acceptedPlatforms(responseBody);
+      platformsReported ||= responsePlatforms !== undefined;
+      for (const platform of responsePlatforms ?? []) {
         accumulatedPlatforms.add(platform);
       }
 
