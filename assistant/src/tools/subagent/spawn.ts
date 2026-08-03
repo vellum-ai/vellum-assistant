@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import type { AssistantEvent } from "../../api/index.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
+import { profileSupportsTools } from "../../config/profile-tool-support.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   getConversationOverrideProfile,
@@ -191,15 +193,46 @@ export async function executeSubagentSpawn(
   // `forceOverrideProfile` and wins outright; the row read short-circuits
   // to `undefined` for the background subagent conversation and for tool
   // calls outside an agent-loop turn.
+  //
+  // `subagent-profile-isolation` replaces the two inheritance rungs for
+  // non-advisor spawns. A profile pinned on a conversation is a choice about
+  // that conversation, not about delegated work, yet it carries the pinned
+  // model's price and its tool-calling reliability into every child the turn
+  // spawns. Under the flag a spawn that names no `inference_profile` resolves
+  // to the `subagentSpawn` call site's own default instead, and an explicit
+  // profile the catalog states cannot call tools falls back to that same
+  // default with a note on the result.
+  const config = getConfig();
+  const llm = config.llm;
+  const isolateProfile = isAssistantFeatureFlagEnabled(
+    "subagent-profile-isolation",
+  );
+  // `resolveDefaultProfileKey` already prefers an `llm.callSites.subagentSpawn`
+  // pin over the `balanced` catalog intent, and skips a pin that is disabled or
+  // incomplete, so it is the whole answer for "what does this call site run on".
+  const subagentCallSiteProfile = (): string | undefined =>
+    resolveDefaultProfileKey("subagentSpawn", llm);
+
+  let profileNote: string | undefined;
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
-    const llm = getConfig().llm;
-    inheritedOverrideProfile =
-      context.overrideProfile ??
-      getConversationOverrideProfile(context.conversationId) ??
-      (llm.callSites?.subagentSpawn?.profile == null
-        ? resolveDefaultProfileKey(context.invokingCallSite ?? "mainAgent", llm)
-        : undefined);
+    inheritedOverrideProfile = isolateProfile
+      ? subagentCallSiteProfile()
+      : (context.overrideProfile ??
+        getConversationOverrideProfile(context.conversationId) ??
+        (llm.callSites?.subagentSpawn?.profile == null
+          ? resolveDefaultProfileKey(
+              context.invokingCallSite ?? "mainAgent",
+              llm,
+            )
+          : undefined));
+  } else if (
+    isolateProfile &&
+    profileSupportsTools(inheritedOverrideProfile, config) === false
+  ) {
+    profileNote = `requested profile "${inheritedOverrideProfile}" is not verified for tool calling; ran on the default profile instead.`;
+    inheritedOverrideProfile = subagentCallSiteProfile();
+    forceOverrideProfile = inheritedOverrideProfile !== undefined;
   }
 
   try {
@@ -234,6 +267,7 @@ export async function executeSubagentSpawn(
         label,
         status: "pending",
         ...(fork ? { isFork: true } : {}),
+        ...(profileNote ? { note: profileNote } : {}),
         message: fork
           ? `Forked subagent "${label}" spawned with full parent context. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`
           : `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`,

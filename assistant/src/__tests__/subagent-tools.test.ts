@@ -4,15 +4,26 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "./helpers/set-config.js";
 
-// Seed the two non-catalog inference profiles these tests exercise: `disabled`
-// drives the "profile is disabled" spawn error, and `frontier` is the advisor
-// consult's default `advisorProfile`. The catalog profiles (balanced,
+// Seed the non-catalog inference profiles these tests exercise: `disabled`
+// drives the "profile is disabled" spawn error, `frontier` is the advisor
+// consult's default `advisorProfile`, and the two model-pinned profiles stand
+// on either side of the catalog's tool-use verdict (`no-tool-model` is a
+// catalog model declared `supportsToolUse: false`, `byok-unknown-model` is a
+// model the catalog has never heard of). The catalog profiles (balanced,
 // cost-optimized, quality-optimized) always resolve through the code catalog,
 // so they need no seeding.
 setConfig("llm", {
   profiles: {
     disabled: { status: "disabled" },
     frontier: {},
+    "no-tool-model": {
+      provider: "openrouter",
+      model: "minimax/minimax-01",
+    },
+    "byok-unknown-model": {
+      provider: "openrouter",
+      model: "acme/private-llm-9",
+    },
   },
   advisorProfile: "frontier",
 });
@@ -21,6 +32,10 @@ setConfig("llm", {
 let mockGetMessages: (
   conversationId: string,
 ) => Array<{ role: string; content: unknown }> | null = () => null;
+
+// The profile pinned on the parent conversation, as the spawn tool's
+// inheritance rung reads it.
+let mockConversationOverrideProfile: string | undefined = undefined;
 
 // Mock the conversation registry so the advisor consult can resolve a fake
 // parent conversation (snapshot messages + system prompt) without a live
@@ -60,6 +75,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: (conversationId: string) => mockGetMessages(conversationId),
+  getConversationOverrideProfile: () => mockConversationOverrideProfile,
   createConversation: () => ({ id: "mock-conv" }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -83,6 +99,7 @@ import { executeSubagentMessage } from "../tools/subagent/message.js";
 import { executeSubagentRead } from "../tools/subagent/read.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 import { executeSubagentStatus } from "../tools/subagent/status.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // The tools fall back to the durable table for a subagent the manager does not
 // hold, so every executor here reaches it. Idempotent; the table may already
@@ -804,6 +821,125 @@ describe("Subagent spawn success and failure", () => {
     } finally {
       manager.spawn = originalSpawn;
     }
+  });
+});
+
+// ── Profile isolation ───────────────────────────────────────────────
+
+describe("Subagent spawn profile isolation", () => {
+  /**
+   * Capture the config `executeSubagentSpawn` hands the manager, with
+   * `subagent-profile-isolation` seeded on or off for the duration.
+   */
+  async function spawnWithFlag(
+    enabled: boolean,
+    input: Record<string, unknown>,
+    contextExtras: Record<string, unknown> = {},
+  ): Promise<{
+    result: { content: string; isError: boolean };
+    config: Record<string, unknown>;
+  }> {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> = {};
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "isolation-subagent-id";
+    };
+    setOverridesForTesting({ "subagent-profile-isolation": enabled });
+    try {
+      const result = await executeSubagentSpawn(
+        input,
+        makeContext("sess-isolation", {
+          sendToClient: () => {},
+          ...contextExtras,
+        }),
+      );
+      return { result, config: capturedConfig };
+    } finally {
+      setOverridesForTesting({});
+      mockConversationOverrideProfile = undefined;
+      manager.spawn = originalSpawn;
+    }
+  }
+
+  test("flag off keeps inheriting the conversation-pinned profile", async () => {
+    mockConversationOverrideProfile = "quality-optimized";
+    const { config } = await spawnWithFlag(false, {
+      label: "Pinned parent",
+      objective: "Do it",
+    });
+    expect(config.overrideProfile).toBe("quality-optimized");
+    expect(config.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("flag on keeps the conversation-pinned profile away from the child", async () => {
+    mockConversationOverrideProfile = "quality-optimized";
+    const { config } = await spawnWithFlag(true, {
+      label: "Pinned parent",
+      objective: "Do it",
+    });
+    // The subagentSpawn call site's own default, not the parent's pin.
+    expect(config.overrideProfile).toBe("balanced");
+    expect(config.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("flag on keeps the per-turn override profile away from the child", async () => {
+    const { config } = await spawnWithFlag(
+      true,
+      { label: "Override parent", objective: "Do it" },
+      { invokingCallSite: "mainAgent", overrideProfile: "quality-optimized" },
+    );
+    expect(config.overrideProfile).toBe("balanced");
+  });
+
+  test("flag on still honors an explicit inference_profile", async () => {
+    mockConversationOverrideProfile = "cost-optimized";
+    const { result, config } = await spawnWithFlag(true, {
+      label: "Explicit",
+      objective: "Do it",
+      inference_profile: "quality-optimized",
+    });
+    expect(config.overrideProfile).toBe("quality-optimized");
+    expect(config.forceOverrideProfile).toBe(true);
+    expect(JSON.parse(result.content).note).toBeUndefined();
+  });
+
+  test("flag on falls back with a note when the catalog denies tool use", async () => {
+    const { result, config } = await spawnWithFlag(true, {
+      label: "No tools",
+      objective: "Do it",
+      inference_profile: "no-tool-model",
+    });
+    expect(config.overrideProfile).toBe("balanced");
+    expect(config.forceOverrideProfile).toBe(true);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe("isolation-subagent-id");
+    expect(parsed.status).toBe("pending");
+    expect(parsed.note).toBe(
+      'requested profile "no-tool-model" is not verified for tool calling; ran on the default profile instead.',
+    );
+  });
+
+  test("flag on fails open for a model the catalog does not list", async () => {
+    const { result, config } = await spawnWithFlag(true, {
+      label: "BYOK",
+      objective: "Do it",
+      inference_profile: "byok-unknown-model",
+    });
+    expect(config.overrideProfile).toBe("byok-unknown-model");
+    expect(config.forceOverrideProfile).toBe(true);
+    expect(JSON.parse(result.content).note).toBeUndefined();
+  });
+
+  test("flag off leaves an unverified profile alone", async () => {
+    const { result, config } = await spawnWithFlag(false, {
+      label: "No tools",
+      objective: "Do it",
+      inference_profile: "no-tool-model",
+    });
+    expect(config.overrideProfile).toBe("no-tool-model");
+    expect(JSON.parse(result.content).note).toBeUndefined();
   });
 });
 
@@ -2241,6 +2377,29 @@ describe("Subagent advisor-role consult", () => {
       expect(captured.current!.config.forceOverrideProfile).toBe(true);
     } finally {
       restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor still uses llm.advisorProfile under profile isolation", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    mockConversationOverrideProfile = "quality-optimized";
+    setOverridesForTesting({ "subagent-profile-isolation": true });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-isolation", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.config.overrideProfile).toBe("frontier");
+      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+    } finally {
+      restore();
+      setOverridesForTesting({});
+      mockConversationOverrideProfile = undefined;
       mockFindConversation = () => undefined;
     }
   });
