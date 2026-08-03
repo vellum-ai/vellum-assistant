@@ -14679,8 +14679,9 @@ paths:
       summary: Create a provider connection
       description:
         Create a new named provider connection. When auth is omitted it is derived from the provider (keyless
-        providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if
-        a connection with this name already exists.
+        providers get none, vellum gets platform, everything else needs credential for api_key auth). An explicit auth
+        object must agree with the provider; platform auth belongs to vellum and only to vellum. Fails with 409 if a
+        connection with this name already exists.
       tags:
         - inference
       requestBody:
@@ -14789,8 +14790,9 @@ paths:
       summary: Update a provider connection
       description:
         Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth;
-        passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection
-        (vellum) the auth is locked to platform; label remains editable.
+        passing credential alone rotates the key via provider-derived api_key auth. An explicit auth object must agree
+        with the connection's provider; platform auth belongs to vellum and only to vellum. For the Vellum-managed
+        connection (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
       parameters:

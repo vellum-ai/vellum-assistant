@@ -637,9 +637,10 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
     expect((err as BadRequestError).message).toContain("platform");
   });
 
-  // Rows written before the pairing was enforced must stay editable — the
-  // guard only inspects an auth object the caller actually supplied.
-  test("allows editing a legacy mismatched row when auth is untouched", async () => {
+  // Rows written before the pairing was enforced must stay editable. Both the
+  // web editor and the CLI resend the stored auth on every edit, so the guard
+  // has to key on an actual auth change, not on the field being present.
+  test("allows editing a legacy mismatched row when the client resends the stored auth", async () => {
     seedConnection({
       name: "legacy-managed-openai",
       provider: "openai",
@@ -650,11 +651,50 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
       findHandler("inference_provider_connections_update"),
       {
         pathParams: { name: "legacy-managed-openai" },
-        body: { label: "Legacy" },
+        body: { auth: { type: "platform" }, label: "Legacy" },
       },
     )) as { label: string | null; auth: object };
     expect(result.label).toBe("Legacy");
     expect(result.auth).toEqual({ type: "platform" });
+  });
+
+  test("allows editing a legacy mismatched row when auth is omitted", async () => {
+    seedConnection({
+      name: "legacy-managed-gemini",
+      provider: "gemini",
+      auth: { type: "platform" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "legacy-managed-gemini" },
+        body: { label: "Legacy" },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBe("Legacy");
+  });
+
+  // The guard must not trap a legacy row in its mismatched state: an auth
+  // change that repairs the pairing is exactly what should be allowed.
+  test("allows repairing a legacy mismatched row with a valid auth change", async () => {
+    seedConnection({
+      name: "legacy-managed-anthropic",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "legacy-managed-anthropic" },
+        body: { auth: { type: "api_key", credential: "vault/anthropic/key" } },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({
+      type: "api_key",
+      credential: "vault/anthropic/key",
+    });
   });
 
   test("throws 400 when auth schema is invalid", async () => {
