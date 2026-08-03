@@ -103,9 +103,13 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   readonly received: Buffer[] = [];
   stopped = false;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+  private flushed = false;
+  // Claimed on the first audio chunk, so the scripted transcript is spent in
+  // the order cycles hear speech (see takeScriptedFinal).
+  private scriptedFinal: string | null = null;
 
   constructor(
-    private readonly stopEvents: SttStreamServerEvent[],
+    private readonly takeScriptedFinal: () => string,
     private readonly holdStopEvents = false,
   ) {}
 
@@ -114,6 +118,7 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 
   sendAudio(chunk: Buffer): void {
+    this.scriptedFinal ??= this.takeScriptedFinal();
     this.received.push(Buffer.from(chunk));
   }
 
@@ -128,19 +133,20 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 
   flushStopEvents(): void {
-    // A stream that was never sent audio has nothing to transcribe, so a real
-    // provider closes without a final. Scripting one anyway let a cycle that
-    // armed and tore down in the same breath — a client interrupt racing the
-    // post-cancel re-arm — hand the session a transcript it never heard, which
-    // launched a turn nothing would ever finalize and wedged the
-    // one-turn-at-a-time gate for every later utterance.
-    const events =
-      this.received.length > 0
-        ? this.stopEvents
-        : this.stopEvents.filter((event) => event.type !== "final");
-    for (const event of events) {
-      this.onEvent?.(event);
+    if (this.flushed) {
+      return;
     }
+    this.flushed = true;
+    // A stream that was never sent audio has nothing to transcribe, so a real
+    // provider closes without a final. Scripting one anyway lets a cycle that
+    // arms and tears down in the same breath (a client interrupt racing the
+    // post-cancel re-arm) hand the session a transcript it never heard, which
+    // launches a turn nothing will ever finalize and wedges the
+    // one-turn-at-a-time gate for every later utterance.
+    if (this.scriptedFinal !== null) {
+      this.onEvent?.({ type: "final", text: this.scriptedFinal });
+    }
+    this.onEvent?.({ type: "closed" });
   }
 
   // Provider-initiated event (e.g. an idle-timeout close), no stop() needed.
@@ -192,12 +198,23 @@ function createHarness(options: {
   };
 
   const finals = options.finals ?? ["hello world"];
+  // Scripted finals are handed out in the order cycles first receive audio,
+  // not in the order they arm. Server VAD arms and discards audio-free cycles
+  // on wall-clock timers (the trailing-silence timer, the post-cancel re-arm),
+  // so how many cycles have armed by a given point depends on how fast the
+  // event loop is, while the order the test feeds audio in does not. Keying
+  // off audio keeps `finals` reading as "what the user says, in order".
+  let scriptedFinalIndex = 0;
+  const takeScriptedFinal = (): string => {
+    const text =
+      finals[scriptedFinalIndex] ?? `utterance ${scriptedFinalIndex + 1}`;
+    scriptedFinalIndex += 1;
+    return text;
+  };
   const transcribers: MockStreamingTranscriber[] = [];
   const resolveTranscriber = mock(async () => {
-    const text =
-      finals[transcribers.length] ?? `utterance ${transcribers.length + 1}`;
     const transcriber = new MockStreamingTranscriber(
-      [{ type: "final", text }, { type: "closed" }],
+      takeScriptedFinal,
       options.holdStopEventsFor?.includes(transcribers.length) ?? false,
     );
     transcribers.push(transcriber);
@@ -2921,8 +2938,11 @@ describe("LiveVoiceSession server VAD", () => {
 
   test("an idle transcriber close before speech re-arms capture for the next utterance", async () => {
     const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter(["Hi."]);
+    // The first transcriber closes before it is sent any audio, so it never
+    // claims a scripted final: the one entry belongs to the cycle that speech
+    // actually reaches.
     const { frames, session, transcribers } = createHarness({
-      finals: ["never spoken", "hello after close"],
+      finals: ["hello after close"],
       startVoiceTurn,
     });
 
