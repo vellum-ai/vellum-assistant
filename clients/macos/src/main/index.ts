@@ -374,7 +374,9 @@ app
     // its own setup here. Electron's documented single-instance example puts
     // every `whenReady` side effect behind this same branch.
     // https://www.electronjs.org/docs/latest/api/app#apprequestsingleinstancelockadditionaldata
-    if (!gotSingleInstanceLock) return;
+    if (!gotSingleInstanceLock) {
+      return;
+    }
 
     // Install into /Applications before any other setup. On the first packaged
     // launch from a mounted DMG (or ~/Downloads), the app silently moves itself

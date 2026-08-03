@@ -33,7 +33,9 @@ mock.module("electron", () => ({
     moveToApplicationsFolder: (options: MoveOptions) => {
       if (appState.conflict) {
         const proceed = options.conflictHandler(appState.conflict);
-        if (!proceed) return false;
+        if (!proceed) {
+          return false;
+        }
       }
       if (appState.move === "throws") {
         throw new Error("Could not create a temporary directory");
@@ -45,7 +47,9 @@ mock.module("electron", () => ({
   // so the 150ms paint delay is the only wait per case.
   BrowserWindow: class {
     once(event: string, handler: () => void) {
-      if (event === "ready-to-show") handler();
+      if (event === "ready-to-show") {
+        handler();
+      }
       return this;
     }
     show() {}

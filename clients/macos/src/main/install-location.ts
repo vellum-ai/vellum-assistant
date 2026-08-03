@@ -45,7 +45,9 @@ export const isStrandedOutsideApplications = (): boolean =>
  * that skip rather than to a failed move.
  */
 export const markRelocationSkipped = (): void => {
-  if (!app.isPackaged) return;
+  if (!app.isPackaged) {
+    return;
+  }
   installLocation = app.isInApplicationsFolder()
     ? "applications"
     : "skipped-pending-open";
