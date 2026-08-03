@@ -15,6 +15,30 @@ import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 
 /**
+ * Clear a question prompt the daemon has already discarded.
+ *
+ * A question POST comes back 404 ("No pending question interaction found for
+ * this requestId") when the server-side pending interaction is gone: the prompt
+ * timed out, the turn was aborted, a newer user message superseded it, or a
+ * daemon restart dropped it. This is terminal and non-retryable, because the
+ * answer is moot once the server has moved on. The matching
+ * `interaction_resolved` event that would normally retire the card can be
+ * missed entirely (the web / iOS SSE stream tears down on app background and
+ * has no replay), so the stale prompt lingers, leaving the user tapping options
+ * into the same 404.
+ *
+ * Retire the prompt without surfacing a blocking error so the user is never
+ * stranded. Mirrors `clearStaleConfirmation` in `confirmation-actions.ts`,
+ * minus its attention-key release: an attention key is only ever recorded for a
+ * pending secret or confirmation, never a question.
+ */
+function clearStaleQuestion(requestId: string): void {
+  useInteractionStore.getState().dismissQuestionIfMatches(requestId);
+  useInteractionStore.getState().submitQuestionEnd();
+  useChatSessionStore.getState().setError(null);
+}
+
+/**
  * Submit the user's answers to a pending question prompt.
  * Guards against a new SSE-driven `question_request` arriving mid-flight
  * by comparing request IDs before clearing state.
@@ -46,6 +70,10 @@ export async function handleQuestionResponse(
       { kind: "submit", responses },
     );
     if (!result.ok) {
+      if (result.status === 404) {
+        clearStaleQuestion(snapshot.requestId);
+        return;
+      }
       useChatSessionStore.getState().setError({ message: result.error });
       useInteractionStore.getState().submitQuestionEnd();
       return;
@@ -85,7 +113,12 @@ export function handleDismissPendingQuestion(): void {
     kind: "close",
   })
     .then((result) => {
-      if (!result.ok) {
+      // A 404 on close is the expected outcome, not a failure: the card is
+      // being dismissed precisely because the user is done with it, and the
+      // daemon may already have settled the prompt itself (timeout, abort,
+      // supersession). Reporting it produced steady Sentry noise with no
+      // actionable signal. Every other status still reports.
+      if (!result.ok && result.status !== 404) {
         captureError(
           new Error(`question-response close failed: ${result.error}`),
           {
