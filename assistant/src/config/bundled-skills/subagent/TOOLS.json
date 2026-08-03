@@ -44,6 +44,10 @@
           "inference_profile": {
             "type": "string",
             "description": "Optional llm.profiles key this subagent should run under. When omitted, the subagent inherits the parent turn's profile when one is active; otherwise it uses the subagentSpawn call site's default model selection."
+          },
+          "confirm_repeat": {
+            "type": "boolean",
+            "description": "Set true to spawn anyway when the repeat-spawn guard reports that this objective already ran several times in the last day."
           }
         },
         "required": ["label", "objective"]

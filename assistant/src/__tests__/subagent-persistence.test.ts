@@ -5,10 +5,12 @@ import { migrateCreateSubagentsTable } from "../persistence/migrations/311-creat
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
+  countRecentSimilarSpawns,
   deleteSubagentRecordsByParent,
   getSubagentRecordById,
   getSubagentRecordByLabel,
   loadAllSubagentRecords,
+  normalizeSpawnObjective,
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
@@ -131,6 +133,85 @@ describe("subagent-store", () => {
     deleteSubagentRecordsByParent("parent-1");
 
     expect(loadAllSubagentRecords().map((r) => r.id)).toEqual(["s2"]);
+  });
+});
+
+describe("recent similar spawn tallies", () => {
+  const OBJECTIVE = "Audit the billing pipeline for drift";
+
+  /** A row for `OBJECTIVE`, spelled however the caller wants it. */
+  function spawn(
+    id: string,
+    over: Partial<SubagentRecord> = {},
+  ): SubagentRecord {
+    return record({
+      id,
+      conversationId: `conv-${id}`,
+      objective: OBJECTIVE,
+      createdAt: Date.now(),
+      estimatedCost: 0.5,
+      ...over,
+    });
+  }
+
+  function tally(parentConversationId = "parent-1") {
+    return countRecentSimilarSpawns({
+      parentConversationId,
+      normalizedObjective: normalizeSpawnObjective(OBJECTIVE),
+      sinceMs: Date.now() - 24 * 60 * 60 * 1000,
+    });
+  }
+
+  test("normalization folds case and whitespace, capped at the prefix", () => {
+    expect(normalizeSpawnObjective("  Audit   the\nBILLING pipeline ")).toBe(
+      "audit the billing pipeline",
+    );
+    expect(normalizeSpawnObjective("x".repeat(200))).toHaveLength(90);
+  });
+
+  test("counts both scopes and sums their cost", () => {
+    upsertSubagentRecord(spawn("a"));
+    upsertSubagentRecord(
+      spawn("b", { objective: "  AUDIT the Billing\tpipeline for drift  " }),
+    );
+    upsertSubagentRecord(spawn("c", { parentConversationId: "parent-2" }));
+
+    expect(tally()).toEqual({
+      conversation: { count: 2, estimatedCost: 1 },
+      assistant: { count: 3, estimatedCost: 1.5 },
+    });
+  });
+
+  test("a genuinely different objective is not a match", () => {
+    upsertSubagentRecord(spawn("a"));
+    upsertSubagentRecord(
+      spawn("b", { objective: "Audit the payouts pipeline for drift" }),
+    );
+
+    expect(tally().conversation.count).toBe(1);
+  });
+
+  test("objectives that diverge past the prefix still match", () => {
+    upsertSubagentRecord(spawn("a", { objective: `${"e".repeat(90)} first` }));
+    upsertSubagentRecord(spawn("b", { objective: `${"e".repeat(90)} second` }));
+
+    expect(
+      countRecentSimilarSpawns({
+        parentConversationId: "parent-1",
+        normalizedObjective: normalizeSpawnObjective("e".repeat(90)),
+        sinceMs: Date.now() - 24 * 60 * 60 * 1000,
+      }).conversation.count,
+    ).toBe(2);
+  });
+
+  test("spawns older than the cutoff and advisor consults are left out", () => {
+    upsertSubagentRecord(spawn("fresh"));
+    upsertSubagentRecord(
+      spawn("stale", { createdAt: Date.now() - 90_000_000 }),
+    );
+    upsertSubagentRecord(spawn("consult", { role: "advisor" }));
+
+    expect(tally().assistant.count).toBe(1);
   });
 });
 

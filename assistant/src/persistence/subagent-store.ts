@@ -300,6 +300,104 @@ export function getSubagentRecordsByParent(
 }
 
 /**
+ * How much of an objective decides that two spawns are near-identical. Long
+ * objectives share a preamble and diverge in their tail, so a prefix comparison
+ * catches the re-run of an audit whose closing sentence was reworded while
+ * leaving two genuinely different tasks apart.
+ */
+const SIMILAR_OBJECTIVE_PREFIX_CHARS = 90;
+
+/**
+ * Rows the similarity scan reads before it stops. The scan is bounded so a
+ * long-lived assistant cannot turn every spawn into a full-table read; a
+ * truncated window can only under-count, which is the safe direction for a
+ * caller that rate-limits on the count.
+ */
+const RECENT_SPAWN_SCAN_LIMIT = 500;
+
+/**
+ * Fold an objective to the form two spawns are compared in: lowercased,
+ * whitespace-collapsed, and cut to {@link SIMILAR_OBJECTIVE_PREFIX_CHARS}.
+ * Callers normalize the incoming objective with this same function, so both
+ * sides of the comparison are folded by one implementation.
+ */
+export function normalizeSpawnObjective(objective: string): string {
+  return objective
+    .toLowerCase()
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, SIMILAR_OBJECTIVE_PREFIX_CHARS);
+}
+
+/** How many spawns matched one normalized objective, and what they cost. */
+export interface SimilarSpawnTally {
+  count: number;
+  /** Summed `estimated_cost` of the matched rows. */
+  estimatedCost: number;
+}
+
+/** The two scopes a repeat spawn is judged against. */
+export interface RecentSimilarSpawns {
+  /** Matches spawned under the same parent conversation. */
+  conversation: SimilarSpawnTally;
+  /** Matches anywhere in this assistant; the table holds one assistant's rows. */
+  assistant: SimilarSpawnTally;
+}
+
+/**
+ * Tally the spawns since `sinceMs` (an epoch cutoff) whose objective folds to
+ * `normalizedObjective`, both under `parentConversationId` and assistant-wide.
+ * Advisor rows are left out: an advisor consult blocks its caller and is not
+ * rate-limited, so its history must not count against a background spawn.
+ *
+ * Both scopes come from one bounded scan because the assistant-wide set
+ * contains the conversation's, so a second query would read the same rows
+ * twice.
+ *
+ * Rows hold the raw objective, so the fold has to happen on the column too.
+ * It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and has no
+ * whitespace-collapsing function, so a SQL predicate would disagree with
+ * {@link normalizeSpawnObjective} on exactly the objectives (accented, oddly
+ * spaced) a re-run is most likely to differ by.
+ */
+export function countRecentSimilarSpawns(args: {
+  parentConversationId: string;
+  normalizedObjective: string;
+  sinceMs: number;
+}): RecentSimilarSpawns {
+  const rows = rawAll<{
+    parent_conversation_id: string;
+    objective: string;
+    estimated_cost: number;
+  }>(
+    "subagent:countRecentSimilar",
+    `SELECT parent_conversation_id, objective, estimated_cost FROM subagents
+       WHERE created_at >= ? AND role <> 'advisor'
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    args.sinceMs,
+    RECENT_SPAWN_SCAN_LIMIT,
+  );
+
+  const tally: RecentSimilarSpawns = {
+    conversation: { count: 0, estimatedCost: 0 },
+    assistant: { count: 0, estimatedCost: 0 },
+  };
+  for (const row of rows) {
+    if (normalizeSpawnObjective(row.objective) !== args.normalizedObjective) {
+      continue;
+    }
+    tally.assistant.count += 1;
+    tally.assistant.estimatedCost += row.estimated_cost;
+    if (row.parent_conversation_id === args.parentConversationId) {
+      tally.conversation.count += 1;
+      tally.conversation.estimatedCost += row.estimated_cost;
+    }
+  }
+  return tally;
+}
+
+/**
  * Delete every subagent record spawned under `parentConversationId`. A row
  * lives as long as its parent conversation, and the TTL sweep drops a child's
  * in-memory entry while keeping the row, so deleting by id alone strands the

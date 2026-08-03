@@ -11,6 +11,12 @@ import {
   getConversationOverrideProfile,
   getMessages,
 } from "../../persistence/conversation-crud.js";
+import {
+  countRecentSimilarSpawns,
+  normalizeSpawnObjective,
+  type RecentSimilarSpawns,
+  type SimilarSpawnTally,
+} from "../../persistence/subagent-store.js";
 import type { ContentBlock, Message } from "../../providers/types.js";
 import { buildAdvisorContext } from "../../subagent/consult-context.js";
 import {
@@ -51,6 +57,25 @@ const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
  */
 const ADVISOR_MAX_TIMEOUT_MS = 300_000;
 
+/** How far back the repeat-spawn guard looks for near-identical spawns. */
+const LOOP_GUARD_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Near-identical spawns one conversation may run inside the window, the pending
+ * spawn included: the fourth is the one held for confirmation. A couple of
+ * retries is normal work; a fourth run of one objective in a single
+ * conversation is a loop.
+ */
+const LOOP_GUARD_CONVERSATION_LIMIT = 3;
+
+/**
+ * Near-identical spawns the whole assistant may run inside the window, counted
+ * the same way. Higher than the per-conversation limit so the same audit asked
+ * for in a few separate chats still goes through, while a standing re-run of
+ * one objective does not.
+ */
+const LOOP_GUARD_ASSISTANT_LIMIT = 10;
+
 /**
  * Model-input schema, `safeParse`d at the top of {@link executeSubagentSpawn}.
  * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
@@ -67,6 +92,7 @@ export const subagentSpawnInputSchema = z.looseObject({
   objective: nullAsOmitted(z.string()),
   context: nullAsOmitted(z.string()),
   inference_profile: z.string().optional(),
+  confirm_repeat: nullAsOmitted(z.boolean()),
 });
 
 export async function executeSubagentSpawn(
@@ -135,6 +161,24 @@ export async function executeSubagentSpawn(
       sendToClient: sendToClient as (msg: AssistantEvent) => void,
       requestedOverrideProfile,
     });
+  }
+
+  // ── Repeat-spawn guard ───────────────────────────────────────────
+  // Re-running an objective that already ran several times in the last day
+  // buys the same answer twice, so the guard hands the repetition back to the
+  // caller with what it has already cost. It never blocks: `confirm_repeat`
+  // always spawns, and the advisor consult returned above is never guarded.
+  if (
+    isAssistantFeatureFlagEnabled("subagent-loop-guard") &&
+    parsed.confirm_repeat !== true
+  ) {
+    const guardResult = repeatSpawnGuardResult(
+      context.conversationId,
+      objective,
+    );
+    if (guardResult) {
+      return guardResult;
+    }
   }
 
   // ── Fork mode: resolve parent context ────────────────────────────
@@ -278,6 +322,65 @@ export async function executeSubagentSpawn(
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+// ── Repeat-spawn guard ───────────────────────────────────────────────
+
+/**
+ * The result to return instead of spawning when this objective has already run
+ * too often inside {@link LOOP_GUARD_WINDOW_MS}, or `undefined` when the spawn
+ * should proceed.
+ *
+ * Not an error: the caller is being handed what its earlier runs produced and
+ * cost, and can still spawn by passing `confirm_repeat: true`. The spawn
+ * history can only advise, so a failed read lets the spawn through.
+ */
+function repeatSpawnGuardResult(
+  parentConversationId: string,
+  objective: string,
+): ToolExecutionResult | undefined {
+  let recent: RecentSimilarSpawns;
+  try {
+    recent = countRecentSimilarSpawns({
+      parentConversationId,
+      normalizedObjective: normalizeSpawnObjective(objective),
+      sinceMs: Date.now() - LOOP_GUARD_WINDOW_MS,
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId: parentConversationId },
+      "Repeat-spawn guard could not read spawn history",
+    );
+    return undefined;
+  }
+
+  // The spawn being asked for is itself part of the limit, so a window already
+  // holding the full allowance is what trips the guard.
+  let scope: string;
+  let tally: SimilarSpawnTally;
+  if (recent.conversation.count >= LOOP_GUARD_CONVERSATION_LIMIT) {
+    scope = "in this conversation";
+    tally = recent.conversation;
+  } else if (recent.assistant.count >= LOOP_GUARD_ASSISTANT_LIMIT) {
+    scope = "across this assistant";
+    tally = recent.assistant;
+  } else {
+    return undefined;
+  }
+
+  const hours = LOOP_GUARD_WINDOW_MS / 3_600_000;
+  const cost =
+    tally.estimatedCost > 0
+      ? `, at a total cost of about $${tally.estimatedCost.toFixed(2)}`
+      : "";
+  return {
+    content:
+      `${tally.count} near-identical subagents already ran ${scope} in the last ${hours} hours${cost}. ` +
+      "Repeating an objective rarely returns a different answer: read what the earlier run produced with subagent_read, " +
+      "or narrow the objective to what is actually still missing. " +
+      "If the repetition is intentional, call subagent_spawn again with confirm_repeat: true.",
+    isError: false,
+  };
 }
 
 // ── Advisor consult ──────────────────────────────────────────────────

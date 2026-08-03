@@ -305,6 +305,7 @@ describe("Subagent tool definitions", () => {
     expect(def).toBeDefined();
     expect(def.input_schema.required).toEqual(["label", "objective"]);
     expect(def.input_schema.properties.inference_profile).toBeDefined();
+    expect(def.input_schema.properties.confirm_repeat.type).toBe("boolean");
   });
 
   test("abort tool has correct definition", () => {
@@ -940,6 +941,201 @@ describe("Subagent spawn profile isolation", () => {
     });
     expect(config.overrideProfile).toBe("no-tool-model");
     expect(JSON.parse(result.content).note).toBeUndefined();
+  });
+});
+
+// ── Repeat-spawn guard ──────────────────────────────────────────────
+
+describe("Subagent spawn repeat-loop guard", () => {
+  const guardParent = "guard-parent";
+
+  /** Seed a finished spawn of `objective`, the way the manager records one. */
+  function seedSpawn(
+    id: string,
+    objective: string,
+    over: Partial<SubagentRecord> = {},
+  ): void {
+    upsertSubagentRecord({
+      id,
+      parentConversationId: guardParent,
+      conversationId: `conv-${id}`,
+      label: id,
+      objective,
+      role: "general",
+      isFork: false,
+      sendResultToUser: true,
+      parentToolUseId: null,
+      status: "completed",
+      error: null,
+      createdAt: Date.now(),
+      startedAt: null,
+      completedAt: Date.now(),
+      inputTokens: 10,
+      outputTokens: 20,
+      estimatedCost: 1.25,
+      ...over,
+    });
+  }
+
+  /** Seed `count` finished spawns of one objective. */
+  function seedSpawns(
+    idPrefix: string,
+    objective: string,
+    count: number,
+  ): void {
+    for (let i = 0; i < count; i++) {
+      seedSpawn(`${idPrefix}-${i}`, objective);
+    }
+  }
+
+  /**
+   * Run the spawn tool with `subagent-loop-guard` seeded on or off, reporting
+   * whether the manager was actually asked to spawn.
+   */
+  async function spawnWithGuard(
+    enabled: boolean,
+    input: Record<string, unknown>,
+    conversationId = guardParent,
+  ) {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawned = false;
+    manager.spawn = async () => {
+      spawned = true;
+      return "guard-subagent-id";
+    };
+    setOverridesForTesting({ "subagent-loop-guard": enabled });
+    try {
+      const result = await executeSubagentSpawn(
+        input,
+        makeContext(conversationId, { sendToClient: () => {} }),
+      );
+      return { result, spawned };
+    } finally {
+      setOverridesForTesting({});
+      manager.spawn = originalSpawn;
+    }
+  }
+
+  test("flag off spawns however often the objective has already run", async () => {
+    const objective = "Audit the flag-off pipeline for drift";
+    seedSpawns("guard-off", objective, 6);
+
+    const { result, spawned } = await spawnWithGuard(false, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(true);
+    expect(JSON.parse(result.content).subagentId).toBe("guard-subagent-id");
+  });
+
+  test("a conversation under the threshold spawns normally", async () => {
+    const objective = "Audit the under-threshold pipeline for drift";
+    seedSpawns("guard-under", objective, 2);
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
+  test("a fourth repeat in one conversation is held for confirmation", async () => {
+    const objective = "Audit the retention pipeline for drift";
+    seedSpawns("guard-conv", objective, 3);
+
+    const { result, spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(
+      "3 near-identical subagents already ran in this conversation in the last 24 hours",
+    );
+    expect(result.content).toContain("about $3.75");
+    expect(result.content).toContain("confirm_repeat: true");
+  });
+
+  test("the assistant-wide threshold catches a repeat spread across conversations", async () => {
+    const objective = "Audit the fleet-wide pipeline for drift";
+    for (let i = 0; i < 10; i++) {
+      seedSpawn(`guard-wide-${i}`, objective, {
+        parentConversationId: `guard-wide-parent-${i}`,
+      });
+    }
+
+    const { result, spawned } = await spawnWithGuard(
+      true,
+      { label: "Repeat", objective },
+      "guard-fresh-conversation",
+    );
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "10 near-identical subagents already ran across this assistant in the last 24 hours",
+    );
+  });
+
+  test("confirm_repeat spawns past the guard", async () => {
+    const objective = "Audit the confirmed pipeline for drift";
+    seedSpawns("guard-confirm", objective, 5);
+
+    const { result, spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+      confirm_repeat: true,
+    });
+
+    expect(spawned).toBe(true);
+    expect(JSON.parse(result.content).status).toBe("pending");
+  });
+
+  test("advisor consults are never guarded", async () => {
+    const objective = "Audit the advisor pipeline for drift";
+    seedSpawns("guard-advisor", objective, 6);
+
+    const { result } = await spawnWithGuard(true, {
+      label: "Consult",
+      objective,
+      role: "advisor",
+    });
+
+    // The advisor branch runs and reports its own missing-parent notice, so the
+    // guard never saw the repetition.
+    expect(result.content).toContain("advisor unavailable");
+    expect(result.content).not.toContain("confirm_repeat");
+  });
+
+  test("case and spacing differences count as the same objective", async () => {
+    const objective = "Audit the normalized pipeline for drift";
+    seedSpawn("guard-norm-0", objective.toUpperCase());
+    seedSpawn("guard-norm-1", `  ${objective}  `);
+    seedSpawn("guard-norm-2", objective.replace(/ /gu, "\n"));
+    seedSpawn("guard-norm-3", objective.replace(/ /gu, "   "));
+
+    const { result, spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain("4 near-identical subagents");
+  });
+
+  test("a genuinely different objective is not a repeat", async () => {
+    const objective = "Audit the distinct pipeline for drift";
+    seedSpawns("guard-distinct", objective, 5);
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Different",
+      objective: "Audit the payouts ledger for drift",
+    });
+
+    expect(spawned).toBe(true);
   });
 });
 
