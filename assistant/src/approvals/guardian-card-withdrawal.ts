@@ -32,6 +32,7 @@ import {
   markSurfaceCompleted,
 } from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
+import { withdrawTelegramApprovalCard } from "../messaging/providers/telegram-bot/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
 import {
   type ApprovalAction,
@@ -130,9 +131,16 @@ export async function withdrawGuardianRequestCards(
         );
       } else if (delivery.destinationChannel === "slack") {
         await withdrawSlackCard(request, delivery, status, decidedAction);
+      } else if (delivery.destinationChannel === "telegram") {
+        await withdrawTelegramCard(
+          delivery,
+          status,
+          originChannel,
+          decidedAction,
+        );
       }
-      // Telegram/WhatsApp direct delivery can't edit a message in place (it
-      // would post a new one), so their stale clicks are left to the existing
+      // WhatsApp direct delivery can't edit a message in place (it would
+      // post a new one), so its stale clicks are left to the existing
       // "already resolved" reply until in-place edit support lands.
     } catch (err) {
       log.warn(
@@ -212,5 +220,35 @@ async function withdrawSlackCard(
     ...(decidedAction ? { decidedAction } : {}),
     decidedByExternalUserId: request.decidedByExternalUserId ?? undefined,
     decidedAtMs: request.updatedAt,
+  });
+}
+
+/**
+ * Withdraw the Telegram approval card: remove its inline keyboard in place
+ * and post a silent reply quoting the card with the terminal outcome.
+ * Telegram bots cannot re-read a message, so unlike Slack the outcome rides
+ * a quoted reply rather than an in-message edit; the card's own text is left
+ * untouched for the audit trail.
+ *
+ * The status reply is origin-sensitive: a decision made on Telegram already
+ * gets the reply router's outcome message in the same chat, so only the
+ * keyboard removal applies there. No-ops when the channel-native message id
+ * was not captured at delivery time.
+ */
+async function withdrawTelegramCard(
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
+  originChannel: string | undefined,
+  decidedAction: ApprovalAction | undefined,
+): Promise<void> {
+  if (!delivery.destinationChatId || !delivery.destinationMessageId) {
+    return;
+  }
+  await withdrawTelegramApprovalCard({
+    chatId: delivery.destinationChatId,
+    messageId: delivery.destinationMessageId,
+    status,
+    ...(decidedAction ? { decidedAction } : {}),
+    postStatusReply: originChannel !== "telegram",
   });
 }

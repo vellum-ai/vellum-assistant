@@ -30,7 +30,7 @@ mock.module("./api.js", () => ({
 }));
 
 const { TelegramNonRetryableError } = await import("./api.js");
-const { sendTelegramRichReply } = await import("./send.js");
+const { sendTelegramReply, sendTelegramRichReply } = await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
 const approval: ApprovalUIMetadata = {
@@ -145,6 +145,36 @@ describe("sendTelegramRichReply", () => {
 
     expect(callsTo("sendRichMessage")).toHaveLength(1);
     expect(callsTo("sendMessage")).toHaveLength(0);
+  });
+});
+
+describe("sendTelegramReply message id capture", () => {
+  test("returns the sent message id so approval cards can be addressed later", async () => {
+    callTelegramBotApiMock.mockImplementation(
+      async () => ({ message_id: 42 }) as never,
+    );
+
+    const result = await sendTelegramReply("123", "Please approve", approval);
+
+    expect(result.lastMessageId).toBe("42");
+  });
+
+  test("returns the id of the last chunk for a split message", async () => {
+    let nextId = 1;
+    callTelegramBotApiMock.mockImplementation(
+      async () => ({ message_id: nextId++ }) as never,
+    );
+
+    const result = await sendTelegramReply("123", "x".repeat(4500));
+
+    expect(callsTo("sendMessage")).toHaveLength(2);
+    expect(result.lastMessageId).toBe("2");
+  });
+
+  test("omits the message id when the API response lacks one", async () => {
+    const result = await sendTelegramReply("123", "Hello");
+
+    expect(result.lastMessageId).toBeUndefined();
   });
 });
 
