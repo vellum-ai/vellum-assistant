@@ -320,11 +320,9 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(0);
   });
 
-  test("writes a feed item with undefined title when only the body is available", async () => {
-    // Regression: when `notifications send` is called without `--title`, the
-    // notification pipeline must not manufacture a title (the LLM's rendered
-    // copy echoes the body into `renderedCopy.title`). Leave `title`
-    // undefined so renderers fall back to `summary` instead of stuttering.
+  test("derives a title from the summary when only the body is available", async () => {
+    // With no authored candidate at all, the title is derived from the
+    // summary rather than left off: every row carries a headline.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
@@ -335,14 +333,14 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
-    expect(appendCalls[0]!.title).toBeUndefined();
+    expect(appendCalls[0]!.title).toBe("Real body");
     expect(appendCalls[0]!.summary).toBe("Real body");
   });
 
-  test("ignores LLM-rendered title when no payload title was supplied", async () => {
-    // The LLM often echoes the body verbatim into `renderedCopy.title` when
-    // the source didn't pass one. The home-feed writer must NOT promote that
-    // echo into the feed item — only an explicit source title is honored.
+  test("uses the LLM-rendered title when no payload title was supplied", async () => {
+    // The model authors `renderedCopy.title` as a topic headline, and the
+    // decision engine validates it before it gets here, so it is the second
+    // candidate after the payload title.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
@@ -351,7 +349,7 @@ describe("writeHomeFeedItemForSignal", () => {
     const decision = makeDecision({
       renderedCopy: {
         vellum: {
-          title: "Real body",
+          title: "Nightly sync finished",
           body: "Real body",
         },
       },
@@ -361,8 +359,98 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
-    expect(appendCalls[0]!.title).toBeUndefined();
+    expect(appendCalls[0]!.title).toBe("Nightly sync finished");
     expect(appendCalls[0]!.summary).toBe("Real body");
+  });
+
+  test("payload title wins over the rendered title when it is clean", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Payload headline" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Model headline",
+          body: "A description of what the run did.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Payload headline");
+    expect(appendCalls[0]!.title).toBe("Payload headline");
+  });
+
+  test("rejects a payload title that restates the summary in favour of the rendered title", async () => {
+    // Shape seen in real on-disk feed data: a payload title that is just the
+    // opening words of the summary.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Test notifications" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Reminder plumbing check",
+          body: "Test notifications reminder.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Reminder plumbing check");
+    expect(appendCalls[0]!.summary).toBe("Test notifications reminder.");
+  });
+
+  test("derives a title from the summary when every authored candidate restates it", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Test notifications" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Test notifications reminder.",
+          body: "Test notifications reminder. It fired on schedule.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Test notifications reminder.");
+    expect(appendCalls[0]!.summary).toBe(
+      "Test notifications reminder. It fired on schedule.",
+    );
+  });
+
+  test("always writes a non-empty title even when the copy is unusable", async () => {
+    // `normalizeTitle` rejects prose-shaped candidates, so both authored
+    // titles drop out and the derivation carries the row.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "I need to name this notification somehow" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Let me summarize what happened",
+          body: "Disk usage crossed 90 percent. Cleanup ran.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Disk usage crossed 90 percent.");
+    expect(appendCalls[0]!.title).toBeTruthy();
   });
 
   test("treats whitespace-only rendered copy and payload values as missing and returns null", async () => {

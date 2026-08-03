@@ -20,7 +20,9 @@ import { appendFeedItem } from "../home/feed-writer.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
+import { normalizeTitle } from "../util/short-title.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
+import { deriveTitle } from "./copy-composer.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
@@ -66,11 +68,6 @@ export async function writeHomeFeedItemForSignal(
     readPayloadString(signal.contextPayload, "body") ??
     readPayloadString(signal.contextPayload, "requestedMessage");
 
-  // Source the title from the payload only. The LLM's `renderedCopy.title`
-  // often echoes the body when no explicit title was passed, which stutters
-  // against `summary` in the row. Leave undefined when absent; renderers
-  // fall back to `summary`.
-  const resolvedTitle = payloadTitle?.trim() || undefined;
   // Prefer conversationSeedMessage over body for the home feed: the seed
   // message is richer and may contain structured markdown (lists, headers,
   // bold) that the detail panel renders. The popup-oriented `body` is
@@ -90,6 +87,14 @@ export async function writeHomeFeedItemForSignal(
     );
     return null;
   }
+
+  // Title order: payload, then the rendered copy, then a headline derived
+  // from the summary. The derivation always yields something, so every feed
+  // item lands with a title.
+  const resolvedTitle =
+    acceptTitle(payloadTitle, resolvedSummary) ??
+    acceptTitle(renderedCopy?.title, resolvedSummary) ??
+    deriveTitle(resolvedSummary);
 
   const urgency = signal.attentionHints.urgency;
   const now = new Date().toISOString();
@@ -122,7 +127,7 @@ export async function writeHomeFeedItemForSignal(
     id: `notif:${signal.signalId}`,
     type: "notification",
     priority: 50,
-    ...(resolvedTitle ? { title: resolvedTitle } : {}),
+    title: resolvedTitle,
     summary: resolvedSummary,
     timestamp: now,
     createdAt: now,
@@ -148,6 +153,34 @@ export async function writeHomeFeedItemForSignal(
 
   await appendFeedItem(item);
   return item;
+}
+
+/**
+ * Clean an authored title (producer payload or model-rendered copy) and keep
+ * it only when it says something the summary does not.
+ *
+ * `normalizeTitle` returns "" for empty, prose-shaped, and meta-failure
+ * titles. On top of that, a title that is a case-insensitive prefix of the
+ * summary, or that matches the summary's first sentence, stutters against the
+ * row's own body text. Rejection returns undefined so the caller falls
+ * through to the next candidate.
+ */
+function acceptTitle(
+  raw: string | undefined,
+  summary: string,
+): string | undefined {
+  const candidate = normalizeTitle(raw ?? "");
+  if (!candidate) {
+    return undefined;
+  }
+  const lowered = candidate.toLowerCase();
+  if (summary.toLowerCase().startsWith(lowered)) {
+    return undefined;
+  }
+  if (lowered === deriveTitle(summary).toLowerCase()) {
+    return undefined;
+  }
+  return candidate;
 }
 
 // ── Category & detail-panel derivation ────────────────────────────────
