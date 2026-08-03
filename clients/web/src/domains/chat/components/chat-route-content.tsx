@@ -55,6 +55,7 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -153,6 +154,14 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
+
+/**
+ * Self-hosted recovery for a rejected assistant API key. Mirrors the hint the
+ * daemon returns from its own auth route (`runtime/routes/auth-routes.ts`) —
+ * keep the two in step.
+ */
+const REPROVISION_ASSISTANT_KEY_COMMAND =
+  "assistant keys set credential/vellum/assistant_api_key <key>";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -690,15 +699,16 @@ export function ChatMainPanel({
   ) : undefined;
 
   // The assistant API key is provisioned by the platform, so unlike a rejected
-  // personal key there is nothing for the user to fix in Settings — the Doctor
-  // is the only surface that can re-issue it. Hands the request off through the
-  // same one-shot store `/doctor <message>` uses, so the panel auto-starts a
-  // session already on topic instead of opening on a blank prompt.
+  // personal key there is nothing for the user to fix in Settings. Recovery
+  // differs by how the assistant is hosted, so the banner offers one of two
+  // actions rather than a single link:
   //
-  // Shares `showDoctorAction`'s gate: the Doctor is platform-hosted only, so a
-  // self-hosted assistant gets the banner with no action. Its recovery is the
-  // CLI (`assistant keys set credential/vellum/assistant_api_key <key>`), which
-  // no chat affordance can drive.
+  //   platform-hosted → the Doctor, which can re-issue the key. The request is
+  //     parked in the same one-shot store `/doctor <message>` uses, so the
+  //     panel auto-starts a session already on topic, not on a blank prompt.
+  //   self-hosted → the Doctor tab doesn't exist (it is platform-hosted only),
+  //     but `assistant keys set` does. Copying the command is the whole fix, so
+  //     the banner hands it over rather than leaving the user with no action.
   const reprovisionAssistantKeyAction = showDoctorAction ? (
     <Button asChild variant="outlined" size="compact">
       <Link
@@ -711,6 +721,19 @@ export function ChatMainPanel({
       >
         Ask the Doctor
       </Link>
+    </Button>
+  ) : assistantState.kind === "active" ? (
+    <Button
+      variant="outlined"
+      size="compact"
+      onClick={() =>
+        copyToClipboard(REPROVISION_ASSISTANT_KEY_COMMAND, {
+          successMessage: "Command copied. Run it where the assistant runs.",
+          errorMessage: "Couldn't copy the command.",
+        })
+      }
+    >
+      Copy CLI fix
     </Button>
   ) : undefined;
 
