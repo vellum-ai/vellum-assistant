@@ -16,6 +16,19 @@ const appState = {
   conflict: null as ConflictType | null,
 };
 
+/** Queued `showMessageBox` answers, consumed in order. */
+let dialogAnswers: { response: number; checkboxChecked?: boolean }[] = [];
+const dialogCalls: { message?: string }[] = [];
+let revealedInFinder = 0;
+let settingsStore: Record<string, unknown> = {};
+
+mock.module("./settings", () => ({
+  readSetting: (key: string) => settingsStore[key] ?? null,
+  writeSetting: (key: string, value: unknown) => {
+    settingsStore[key] = value;
+  },
+}));
+
 mock.module("electron", () => ({
   app: {
     // `./logger` pulls in electron-log, which probes these on import.
@@ -43,6 +56,21 @@ mock.module("electron", () => ({
       return appState.move === "succeeds";
     },
   },
+  dialog: {
+    showMessageBox: (options: { message?: string }) => {
+      dialogCalls.push({ ...(options.message == null ? {} : { message: options.message }) });
+      const next = dialogAnswers.shift() ?? { response: 1 };
+      return Promise.resolve({
+        response: next.response,
+        checkboxChecked: next.checkboxChecked ?? false,
+      });
+    },
+  },
+  shell: {
+    showItemInFolder: () => {
+      revealedInFinder += 1;
+    },
+  },
   // The install splash resolves through `ready-to-show`; fire it synchronously
   // so the 150ms paint delay is the only wait per case.
   BrowserWindow: class {
@@ -63,9 +91,8 @@ mock.module("electron", () => ({
   },
 }));
 
-const { relocateToApplicationsFolder } = await import(
-  "./move-to-applications"
-);
+const { relocateToApplicationsFolder, promptToRelocateIfStranded } =
+  await import("./move-to-applications");
 const { getInstallLocation, markRelocationSkipped, __resetForTesting } =
   await import("./install-location");
 
@@ -155,5 +182,89 @@ describe("markRelocationSkipped", () => {
     markRelocationSkipped();
 
     expect(getInstallLocation()).toBe("unpackaged");
+  });
+});
+
+describe("promptToRelocateIfStranded", () => {
+  beforeEach(() => {
+    __resetForTesting();
+    appState.isPackaged = true;
+    appState.inApplicationsFolder = false;
+    appState.move = "succeeds";
+    appState.conflict = null;
+    dialogAnswers = [];
+    dialogCalls.length = 0;
+    revealedInFinder = 0;
+    settingsStore = {};
+  });
+
+  test("stays quiet when the app is already in /Applications", async () => {
+    appState.inApplicationsFolder = true;
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(0);
+  });
+
+  test("stays quiet for an unpackaged dev build", async () => {
+    appState.isPackaged = false;
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(0);
+  });
+
+  test("stays quiet once the user has opted out", async () => {
+    settingsStore["suppressRelocationPrompt"] = true;
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(0);
+  });
+
+  test("retries the move when the user accepts", async () => {
+    dialogAnswers = [{ response: 0 }];
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(1);
+    expect(getInstallLocation()).toBe("relocating");
+  });
+
+  test("does not move when the user declines", async () => {
+    dialogAnswers = [{ response: 1 }];
+
+    await promptToRelocateIfStranded();
+
+    expect(getInstallLocation()).toBe("unpackaged");
+    expect(settingsStore["suppressRelocationPrompt"]).toBeUndefined();
+  });
+
+  test("remembers the opt-out when the checkbox is ticked", async () => {
+    dialogAnswers = [{ response: 1, checkboxChecked: true }];
+
+    await promptToRelocateIfStranded();
+
+    expect(settingsStore["suppressRelocationPrompt"]).toBe(true);
+  });
+
+  test("falls back to Finder when the retried move also fails", async () => {
+    appState.move = "throws";
+    dialogAnswers = [{ response: 0 }, { response: 0 }];
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(2);
+    expect(revealedInFinder).toBe(1);
+    expect(getInstallLocation()).toBe("failed");
+  });
+
+  test("leaves Finder alone when the user closes the fallback", async () => {
+    appState.move = "throws";
+    dialogAnswers = [{ response: 0 }, { response: 1 }];
+
+    await promptToRelocateIfStranded();
+
+    expect(revealedInFinder).toBe(0);
   });
 });

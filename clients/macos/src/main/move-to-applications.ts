@@ -1,7 +1,11 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
 
-import { recordInstallLocation } from "./install-location";
+import {
+  isStrandedOutsideApplications,
+  recordInstallLocation,
+} from "./install-location";
 import log from "./logger";
+import { readSetting, writeSetting } from "./settings";
 
 // Build-time define (see electron.vite.config.ts) — the same VELLUM_ENVIRONMENT
 // that electron-builder.config.cjs derives `productName` from.
@@ -179,6 +183,75 @@ export async function relocateToApplicationsFolder(): Promise<boolean> {
     closeSplash();
     return false;
   }
+}
+
+/**
+ * Offer a way out when the app is running as a packaged build from somewhere
+ * other than /Applications.
+ *
+ * Every branch that leaves the app there converges on the same broken state:
+ * `electron-updater` refuses to run from a read-only location, so the install
+ * can never take an update, and nothing tells the user. Under macOS app
+ * translocation it cannot self-correct either, because each launch gets a
+ * fresh randomized read-only path.
+ *
+ * The remedy does not depend on which branch got us here, so this checks the
+ * state rather than the cause: offer the move again with the user present
+ * (which also clears the transient causes, an authorization prompt dismissed
+ * the first time or a copy that has since quit), and fall back to pointing at
+ * Finder when even that fails. Declining is remembered so this asks at most
+ * once per install for a user who wants to run from where they are.
+ */
+export async function promptToRelocateIfStranded(): Promise<void> {
+  if (!isStrandedOutsideApplications()) {
+    return;
+  }
+  if (readSetting("suppressRelocationPrompt") === true) {
+    return;
+  }
+
+  const name = productDisplayName();
+  const { response, checkboxChecked } = await dialog.showMessageBox({
+    type: "warning",
+    buttons: ["Move to Applications", "Not Now"],
+    defaultId: 0,
+    cancelId: 1,
+    message: `${name} can't install updates`,
+    detail:
+      `${name} is running from a read-only location, so it can't update ` +
+      `itself and will stay on this version. Moving it to your Applications ` +
+      `folder fixes that. ${name} will restart.`,
+    checkboxLabel: "Don't remind me again",
+    checkboxChecked: false,
+  });
+
+  if (checkboxChecked) {
+    writeSetting("suppressRelocationPrompt", true);
+  }
+  if (response !== 0) {
+    return;
+  }
+
+  // A second attempt with the user watching: the authorization prompt is
+  // answerable now, and a conflicting copy may have quit since launch.
+  if (await relocateToApplicationsFolder()) {
+    return;
+  }
+
+  await dialog.showMessageBox({
+    type: "error",
+    buttons: ["Show Me", "Close"],
+    defaultId: 0,
+    cancelId: 1,
+    message: `${name} couldn't move itself`,
+    detail:
+      `Drag ${name} into your Applications folder in Finder, then open it ` +
+      `from there.`,
+  }).then(({ response: fallbackResponse }) => {
+    if (fallbackResponse === 0) {
+      shell.showItemInFolder(app.getPath("exe"));
+    }
+  });
 }
 
 // Test seam, exported only for unit-test setup. Production code never

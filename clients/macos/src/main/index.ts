@@ -66,7 +66,10 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
-import { relocateToApplicationsFolder } from "./move-to-applications";
+import {
+  promptToRelocateIfStranded,
+  relocateToApplicationsFolder,
+} from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
@@ -466,6 +469,15 @@ app
     });
     installNativeAuth();
     installMainWindow();
+
+    // Runs after the main window so the recovery dialog has a window to sit in
+    // front of, and so a user who declines lands on a working app rather than
+    // an empty screen. A packaged app outside /Applications cannot update, and
+    // the relocation at the head of this block is the only thing that would
+    // have fixed it.
+    void promptToRelocateIfStranded().catch((err: unknown) => {
+      log.error("[app] relocation prompt failed:", err);
+    });
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
     // back to front, recreating it if it was previously closed. The
