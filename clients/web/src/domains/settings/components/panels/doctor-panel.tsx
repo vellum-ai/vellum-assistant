@@ -537,7 +537,7 @@ export function DoctorPanel() {
   );
 
   // The resolution prompt belongs after the Doctor's closing reply, so it
-  // renders below the transcript and stays hidden until the reply lands.
+  // renders below the transcript and stays hidden until the turn finishes.
   const { transcript, trailingPrompts } = useMemo(
     () => partitionTrailingUserOutcomePrompts(entries),
     [entries],
