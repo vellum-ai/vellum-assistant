@@ -384,39 +384,41 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.title).toBe("Payload headline");
   });
 
-  test("rejects a payload title that restates the summary in favour of the rendered title", async () => {
-    // Shape seen in real on-disk feed data: a payload title that is just the
-    // opening words of the summary.
+  test("keeps a payload title that opens the summary", async () => {
+    // A correct topic headline is usually the opening noun phrase of the body,
+    // so an authored title that overlaps the summary still wins.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
-      contextPayload: { title: "Test notifications" },
+      contextPayload: { title: "Nightly Backup Failure" },
     });
     const decision = makeDecision({
       renderedCopy: {
         vellum: {
           title: "Reminder plumbing check",
-          body: "Test notifications reminder.",
+          body: "Nightly backup failure on db-primary at 02:14. Retry scheduled.",
         },
       },
     });
 
     const item = await writeHomeFeedItemForSignal(signal, decision);
 
-    expect(item?.title).toBe("Reminder plumbing check");
-    expect(appendCalls[0]!.summary).toBe("Test notifications reminder.");
+    expect(item?.title).toBe("Nightly Backup Failure");
+    expect(appendCalls[0]!.summary).toBe(
+      "Nightly backup failure on db-primary at 02:14. Retry scheduled.",
+    );
   });
 
-  test("derives a title from the summary when every authored candidate restates it", async () => {
+  test("keeps a payload title that matches the summary's first sentence", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
-      contextPayload: { title: "Test notifications" },
+      contextPayload: { title: "Test notifications reminder." },
     });
     const decision = makeDecision({
       renderedCopy: {
         vellum: {
-          title: "Test notifications reminder.",
+          title: "Model headline",
           body: "Test notifications reminder. It fired on schedule.",
         },
       },
@@ -451,6 +453,51 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item?.title).toBe("Disk usage crossed 90 percent.");
     expect(appendCalls[0]!.title).toBeTruthy();
+  });
+
+  test("derives a single-line plain title from a markdown-headed conversation seed", async () => {
+    // The summary prefers `conversationSeedMessage`, which carries structured
+    // markdown and hard line breaks. The derived title must not.
+    conversationRow = { conversationType: "background" };
+    const seed =
+      "## Nightly Backup Report\n\nThe backup job on db-primary failed at 02:14.";
+    const signal = makeSignal({ sourceEventName: "example.event" });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "",
+          body: "The backup job failed.",
+          conversationSeedMessage: seed,
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe(
+      "Nightly Backup Report The backup job on db-primary failed at…",
+    );
+    expect(item?.summary).toBe(seed);
+  });
+
+  test("derives a single-line plain title from a markdown-list conversation seed", async () => {
+    conversationRow = { conversationType: "background" };
+    const seed = "- Ran 12 checks\n- 3 failed\n\nSee the log for details.";
+    const signal = makeSignal({ sourceEventName: "example.event" });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "",
+          body: "Check run finished.",
+          conversationSeedMessage: seed,
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Ran 12 checks 3 failed See the log for details.");
+    expect(item?.summary).toBe(seed);
   });
 
   test("treats whitespace-only rendered copy and payload values as missing and returns null", async () => {
