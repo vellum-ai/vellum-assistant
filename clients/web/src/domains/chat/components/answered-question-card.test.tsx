@@ -16,6 +16,7 @@ import type { AnsweredQuestion } from "@vellumai/assistant-api";
 
 import {
   AnsweredQuestionCard,
+  hasRenderableAnswer,
   resolveAnswers,
 } from "@/domains/chat/components/answered-question-card";
 
@@ -116,6 +117,38 @@ describe("AnsweredQuestionCard", () => {
     );
 
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("hasRenderableAnswer", () => {
+  // Callers hide the raw tool chip in favor of this card, so "the field is
+  // set" and "the card draws something" must be the same condition. If they
+  // diverge, a tool call renders neither and drops out of the transcript.
+  test("is false for a record with no questions", () => {
+    expect(
+      hasRenderableAnswer(makeAnswered({ questions: [], responses: [] })),
+    ).toBe(false);
+  });
+
+  test("is false when the field is absent", () => {
+    expect(hasRenderableAnswer(undefined)).toBe(false);
+  });
+
+  test("is true for a record carrying questions", () => {
+    expect(hasRenderableAnswer(makeAnswered({}))).toBe(true);
+  });
+
+  test("agrees with what the card actually renders", () => {
+    for (const answered of [
+      makeAnswered({}),
+      makeAnswered({ questions: [], responses: [] }),
+    ]) {
+      const { container } = render(
+        <AnsweredQuestionCard answered={answered} />,
+      );
+      expect(container.textContent !== "").toBe(hasRenderableAnswer(answered));
+      cleanup();
+    }
   });
 });
 

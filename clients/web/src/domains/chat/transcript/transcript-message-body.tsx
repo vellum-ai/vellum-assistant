@@ -42,7 +42,10 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
-import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
+import {
+  AnsweredQuestionCard,
+  hasRenderableAnswer,
+} from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
@@ -662,7 +665,9 @@ export function TranscriptMessageBody({
   // renders identically on both paths and cannot double up: one card per
   // answered tool call.
   const renderAnsweredQuestionCards = (toolCalls: ChatMessageToolCall[]) => {
-    const answered = toolCalls.filter((tc) => tc.answeredQuestion);
+    const answered = toolCalls.filter((tc) =>
+      hasRenderableAnswer(tc.answeredQuestion),
+    );
     if (answered.length === 0) {
       return null;
     }
@@ -760,7 +765,7 @@ export function TranscriptMessageBody({
         cardBackedWorkflowRunId(tc) === null &&
         cardBackedAcpRunId(tc) === null &&
         cardBackedBackgroundTaskId(tc) === null &&
-        tc.answeredQuestion === undefined,
+        !hasRenderableAnswer(tc.answeredQuestion),
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -797,7 +802,7 @@ export function TranscriptMessageBody({
               cardBackedWorkflowRunId(tc) !== null ||
               cardBackedAcpRunId(tc) !== null ||
               cardBackedBackgroundTaskId(tc) !== null ||
-              tc.answeredQuestion !== undefined,
+              hasRenderableAnswer(tc.answeredQuestion),
           )
           .map((tc) => tc.id),
       );
@@ -1073,7 +1078,7 @@ export function TranscriptMessageBody({
               cardBackedWorkflowRunId(toolCall) !== null ||
               cardBackedAcpRunId(toolCall) !== null ||
               cardBackedBackgroundTaskId(toolCall) !== null ||
-              toolCall.answeredQuestion !== undefined ||
+              hasRenderableAnswer(toolCall.answeredQuestion) ||
               acpConnectToolUseId === toolCall.id ||
               unknownNudgeToolCallIds?.has(toolCall.id) === true,
           );

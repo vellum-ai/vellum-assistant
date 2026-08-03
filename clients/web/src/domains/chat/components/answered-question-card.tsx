@@ -30,6 +30,22 @@ interface ResolvedAnswer {
 }
 
 /**
+ * Whether an answered record has anything to show. A record with no questions
+ * renders nothing, so a caller that hides the raw tool chip in favor of this
+ * card must gate on this rather than on the field's presence: keying off
+ * presence alone would leave a tool call rendering neither the card nor the
+ * chip, dropping the step out of the transcript entirely. The daemon cannot
+ * write an empty record (the prompter rejects an empty batch), but a truncated
+ * or hand-edited persisted row satisfies the wire schema, which validates the
+ * shape and not the arity.
+ */
+export function hasRenderableAnswer(
+  answered: AnsweredQuestion | undefined,
+): answered is AnsweredQuestion {
+  return answered !== undefined && answered.questions.length > 0;
+}
+
+/**
  * Pair each question with its response. Ordering follows `questions`, not
  * `responses`, so a record whose arrays disagree (a truncated or hand-edited
  * row) still renders every question rather than dropping the tail. A question
@@ -77,10 +93,10 @@ export function resolveAnswers(answered: AnsweredQuestion): ResolvedAnswer[] {
 }
 
 export function AnsweredQuestionCard({ answered }: AnsweredQuestionCardProps) {
-  const resolved = resolveAnswers(answered);
-  if (resolved.length === 0) {
+  if (!hasRenderableAnswer(answered)) {
     return null;
   }
+  const resolved = resolveAnswers(answered);
 
   return (
     <Card data-testid="answered-question-card">
