@@ -125,6 +125,58 @@ const ALLOWED_EXTENSIONS = new Set([
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
+/**
+ * Decompressed size budget for the diagnostics archive.
+ *
+ * The platform opens `logs_file` with `tarfile.open(..., mode="r|")` and drops
+ * the diagnostics when the *decompressed* archive exceeds its ceiling. The
+ * feedback report itself still lands, so an oversized bundle fails silently
+ * and costs exactly the evidence the report was filed to carry.
+ *
+ * The ceiling is enforced server-side and is not expressed anywhere in this
+ * repo, so this budget sits well under the documented 50 MiB rather than at
+ * it. Under-filling costs a slice of log history; over-filling costs the whole
+ * bundle.
+ */
+export const MAX_BUNDLE_DECOMPRESSED_BYTES = 40 * 1024 * 1024;
+
+/**
+ * Per-member ceiling for the desktop main-process log.
+ *
+ * The desktop shells rotate `vellum.log` at 10 MB
+ * (`clients/macos/src/main/logger.ts`), so a healthy log passes through whole.
+ * The ceiling bounds the pathological case without letting one member consume
+ * the budget the other diagnostics need.
+ */
+export const MAX_MAIN_LOG_BYTES = 12 * 1024 * 1024;
+
+const TAR_BLOCK_SIZE = 512;
+
+/** Two zero blocks terminate a tar archive. */
+const TAR_TRAILER_BYTES = TAR_BLOCK_SIZE * 2;
+
+/** Budget held back so the manifest always fits. */
+const BUNDLE_MANIFEST_RESERVE_BYTES = 8 * 1024;
+
+/** Upper bound on the marker prefixed to a truncated member. */
+const TRUNCATION_MARKER_MAX_BYTES = 256;
+
+/** Bytes a member occupies: one header block plus its payload padded to a block. */
+function tarEntrySize(byteLength: number): number {
+  return (
+    TAR_BLOCK_SIZE + Math.ceil(byteLength / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE
+  );
+}
+
+type BundleEntryStatus = "included" | "truncated" | "omitted";
+
+interface BundleEntryReport {
+  filename: string;
+  status: BundleEntryStatus;
+  original_bytes: number;
+  included_bytes: number;
+}
+
 const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
   bug_report: "bug_report",
   feature_request: "feature_request",
@@ -178,7 +230,7 @@ function isAllowedFile(file: File): boolean {
 }
 
 function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
-  const blockSize = 512;
+  const blockSize = TAR_BLOCK_SIZE;
   const dataBlocks = Math.ceil(data.length / blockSize);
   const buffer = new Uint8Array(blockSize + dataBlocks * blockSize);
   const encoder = new TextEncoder();
@@ -214,6 +266,149 @@ function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
 
   buffer.set(data, blockSize);
   return buffer;
+}
+
+/**
+ * Tail of `bytes` that fits `maxPayloadBytes`, prefixed with a marker naming
+ * what was dropped. Log files append chronologically, so the tail is the part
+ * worth keeping.
+ *
+ * Returns `null` when the allowance leaves no room for content.
+ */
+function buildTruncatedTail(
+  bytes: Uint8Array,
+  maxPayloadBytes: number,
+): Uint8Array | null {
+  const keepBytes = maxPayloadBytes - TRUNCATION_MARKER_MAX_BYTES;
+  if (keepBytes <= 0) {
+    return null;
+  }
+  const tail = bytes.subarray(bytes.length - keepBytes);
+
+  // Start on a line boundary. A newline byte never appears inside a multi-byte
+  // UTF-8 sequence, so cutting just past one always lands on a code point
+  // boundary. Without a newline, skip continuation bytes to get there.
+  let start = tail.indexOf(0x0a);
+  if (start >= 0) {
+    start += 1;
+  } else {
+    start = 0;
+    while (start < tail.length && (tail[start]! & 0xc0) === 0x80) {
+      start += 1;
+    }
+  }
+  const aligned = tail.subarray(start);
+
+  const marker = new TextEncoder().encode(
+    `[vellum] Truncated to fit the diagnostics upload budget. Kept the most recent ${aligned.length} of ${bytes.length} bytes.\n`,
+  );
+  const payload = new Uint8Array(marker.length + aligned.length);
+  payload.set(marker, 0);
+  payload.set(aligned, marker.length);
+  return payload;
+}
+
+/**
+ * Accumulates tar members under a fixed decompressed-size budget.
+ *
+ * Members are offered in priority order: the small structured payloads that
+ * every report needs go first, the bulk log members last. A member that no
+ * longer fits is truncated when its content is a chronological log, and
+ * dropped otherwise (JSON and nested archives are not meaningfully
+ * truncatable). Either way the outcome is recorded so a reader can tell a
+ * missing member from an empty one.
+ */
+function createBundleWriter(maxBytes: number) {
+  const parts: Uint8Array[] = [];
+  const entries: BundleEntryReport[] = [];
+  const encoder = new TextEncoder();
+  let used = TAR_TRAILER_BYTES + BUNDLE_MANIFEST_RESERVE_BYTES;
+
+  const remaining = () => maxBytes - used;
+
+  const record = (
+    filename: string,
+    status: BundleEntryStatus,
+    originalBytes: number,
+    includedBytes: number,
+  ) => {
+    entries.push({
+      filename,
+      status,
+      original_bytes: originalBytes,
+      included_bytes: includedBytes,
+    });
+  };
+
+  const push = (filename: string, data: Uint8Array) => {
+    parts.push(buildTarEntry(filename, data));
+    used += tarEntrySize(data.length);
+  };
+
+  return {
+    /** Add an opaque member whole, or drop it when it does not fit. */
+    addBytes(filename: string, data: Uint8Array) {
+      if (tarEntrySize(data.length) > remaining()) {
+        record(filename, "omitted", data.length, 0);
+        return;
+      }
+      push(filename, data);
+      record(filename, "included", data.length, data.length);
+    },
+
+    /**
+     * Add a chronological text member, tail-truncating it to fit the smaller
+     * of `maxMemberBytes` and the remaining budget.
+     */
+    addText(filename: string, text: string, maxMemberBytes = Infinity) {
+      const data = encoder.encode(text);
+      const allowance = Math.min(
+        maxMemberBytes,
+        remaining() - TAR_BLOCK_SIZE, // header
+      );
+      if (data.length <= allowance) {
+        push(filename, data);
+        record(filename, "included", data.length, data.length);
+        return;
+      }
+      const truncated = buildTruncatedTail(
+        data,
+        // Payload has to land on a block boundary to stay inside the budget.
+        Math.floor(allowance / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE,
+      );
+      if (!truncated) {
+        record(filename, "omitted", data.length, 0);
+        return;
+      }
+      push(filename, truncated);
+      record(filename, "truncated", data.length, truncated.length);
+    },
+
+    /** Append the manifest plus the trailer and return the assembled tar. */
+    finish(): Uint8Array<ArrayBuffer> {
+      const manifest = {
+        max_decompressed_bytes: maxBytes,
+        entries,
+      };
+      let manifestBytes = encoder.encode(JSON.stringify(manifest, null, 2));
+      if (tarEntrySize(manifestBytes.length) > BUNDLE_MANIFEST_RESERVE_BYTES) {
+        manifestBytes = encoder.encode(
+          JSON.stringify({ ...manifest, entries: [] }, null, 2),
+        );
+      }
+      parts.push(buildTarEntry("web-bundle-budget.json", manifestBytes));
+      parts.push(new Uint8Array(TAR_TRAILER_BYTES));
+
+      const totalLength = parts.reduce((sum, part) => sum + part.length, 0);
+      const buffer = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const part of parts) {
+        buffer.set(part, offset);
+        offset += part.length;
+      }
+      return buffer;
+    },
+  };
 }
 
 async function fetchPlatformLogs(
@@ -279,7 +474,7 @@ async function collectNativeAppInfo(): Promise<Record<string, unknown> | null> {
   }
 }
 
-async function buildClientLogsFile(
+export async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
   activeConversationId: string | null,
@@ -357,10 +552,9 @@ async function buildClientLogsFile(
   const diagnosticsBytes = encoder.encode(
     JSON.stringify(chatDiagnostics, null, 2),
   );
-  const tarParts: Uint8Array[] = [
-    buildTarEntry("web-client-context.json", contextBytes),
-    buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
-  ];
+  const bundle = createBundleWriter(MAX_BUNDLE_DECOMPRESSED_BYTES);
+  bundle.addBytes("web-client-context.json", contextBytes);
+  bundle.addBytes("web-chat-diagnostics.json", diagnosticsBytes);
 
   // Capture client debug-flag state so flag values are unambiguous during
   // analysis. The flags are localStorage-only overrides with no server
@@ -369,12 +563,12 @@ async function buildClientLogsFile(
   const debugFlagBytes = new TextEncoder().encode(
     JSON.stringify(buildDebugFlagSnapshot(), null, 2),
   );
-  tarParts.push(buildTarEntry("web-debug-flags.json", debugFlagBytes));
+  bundle.addBytes("web-debug-flags.json", debugFlagBytes);
 
   for (const file of extraLogFiles) {
     const contents = file.contents.trim();
     if (contents) {
-      tarParts.push(buildTarEntry(file.filename, encoder.encode(contents)));
+      bundle.addText(file.filename, contents);
     }
   }
 
@@ -406,9 +600,7 @@ async function buildClientLogsFile(
       const triageBytes = new TextEncoder().encode(
         JSON.stringify(triagePayload, null, 2),
       );
-      tarParts.push(
-        buildTarEntry("web-chat-debug-api-triage.json", triageBytes),
-      );
+      bundle.addBytes("web-chat-debug-api-triage.json", triageBytes);
     }
   } catch {
     // Debug API is best-effort; if it's missing or throws, don't block the
@@ -454,7 +646,7 @@ async function buildClientLogsFile(
       const triageBytes = new TextEncoder().encode(
         JSON.stringify(triagePayload, null, 2),
       );
-      tarParts.push(buildTarEntry("web-sse-liveness-triage.json", triageBytes));
+      bundle.addBytes("web-sse-liveness-triage.json", triageBytes);
     }
   } catch {
     // Debug API is best-effort; if it's missing or throws, don't block the
@@ -468,7 +660,7 @@ async function buildClientLogsFile(
       const diagBytes = new TextEncoder().encode(
         JSON.stringify(electronDiagnostics, null, 2),
       );
-      tarParts.push(buildTarEntry("electron-diagnostics.json", diagBytes));
+      bundle.addBytes("electron-diagnostics.json", diagBytes);
     } catch {
       /* best-effort */
     }
@@ -476,8 +668,11 @@ async function buildClientLogsFile(
     try {
       const redactedLogs = await window.vellum.feedback.logs();
       if (redactedLogs) {
-        const logBytes = new TextEncoder().encode(redactedLogs);
-        tarParts.push(buildTarEntry("electron-main-logs.txt", logBytes));
+        bundle.addText(
+          "electron-main-logs.txt",
+          redactedLogs,
+          MAX_MAIN_LOG_BYTES,
+        );
       }
     } catch {
       /* best-effort */
@@ -490,19 +685,12 @@ async function buildClientLogsFile(
       activeConversationId,
     });
     if (platformLogsData) {
-      tarParts.push(buildTarEntry("platform-logs.tar.gz", platformLogsData));
+      bundle.addBytes("platform-logs.tar.gz", platformLogsData);
     }
   }
 
-  tarParts.push(new Uint8Array(1024));
-  const totalLength = tarParts.reduce((sum, part) => sum + part.length, 0);
-  const tarBuffer = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const part of tarParts) {
-    tarBuffer.set(part, offset);
-    offset += part.length;
-  }
-  const tarBlob = new Blob([tarBuffer.buffer]);
+  const tarBuffer = bundle.finish();
+  const tarBlob = new Blob([tarBuffer]);
 
   const compressed = await new Response(
     tarBlob.stream().pipeThrough(new CompressionStream("gzip")),
