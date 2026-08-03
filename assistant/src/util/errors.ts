@@ -123,10 +123,22 @@ export type ProviderErrorReason =
   | "network_error"
   | "unknown";
 
+export type ProviderCredentialSource =
+  | "byok"
+  | "no-auth"
+  | "oauth-subscription"
+  | "vellum-managed";
+
 export interface ProviderRouteAttribution {
   connectionName?: string;
   profileName?: string;
   isManagedRoute?: boolean;
+  /**
+   * Credential surface used for this request. Finer than `isManagedRoute`:
+   * it separates personal provider keys, keyless endpoints, and subscription
+   * logins from each other so error copy can name what the user must fix.
+   */
+  credentialSource?: ProviderCredentialSource;
 }
 
 export class ProviderError extends AssistantError {

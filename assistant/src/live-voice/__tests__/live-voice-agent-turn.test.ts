@@ -157,13 +157,24 @@ async function waitFor(
 function createCapturingTurnStarter(): {
   startVoiceTurn: LiveVoiceTurnStarter;
   getCallbacks: () => VoiceTurnCallbacks | undefined;
+  announceApprovalPending: () => void;
+  announceApprovalsResolved: () => void;
 } {
   let callbacks: VoiceTurnCallbacks | undefined;
+  let onApprovalPending: ((requestId: string) => void) | undefined;
+  let onApprovalsResolved: (() => void) | undefined;
   const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
     callbacks = options.callbacks;
+    onApprovalPending = options.onApprovalPending;
+    onApprovalsResolved = options.onApprovalsResolved;
     return { turnId: "bridge-turn-1", abort: mock() };
   });
-  return { startVoiceTurn, getCallbacks: () => callbacks };
+  return {
+    startVoiceTurn,
+    getCallbacks: () => callbacks,
+    announceApprovalPending: () => onApprovalPending?.("req-1"),
+    announceApprovalsResolved: () => onApprovalsResolved?.(),
+  };
 }
 
 function createRecordingTtsStreamer(): {
@@ -618,7 +629,7 @@ describe("LiveVoiceSession tool-use spoken ack", () => {
   });
 });
 
-describe("LiveVoiceSession minimize-room marker", () => {
+describe("LiveVoiceSession room reveal", () => {
   function createMarkerHarness() {
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
     const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
@@ -633,11 +644,10 @@ describe("LiveVoiceSession minimize-room marker", () => {
   }
 
   /**
-   * Marker-command harness for the leg that can actually put something on
-   * screen: routing fronts every turn with the fast leg, so the front-door
-   * call is scripted to escalate ("[1] Working on it.") and the returned
-   * callbacks drive the ESCALATED leg — the only leg whose completion may
-   * latch `minimizeRequested`.
+   * Harness for the leg that can actually put something on screen: routing
+   * fronts every turn with the fast leg, so the front-door call is scripted to
+   * escalate ("[1] Working on it.") and the returned callbacks drive the
+   * ESCALATED leg; the toolless front door can never run a ui tool.
    */
   function createEscalatedMarkerHarness() {
     let escalatedCallbacks: VoiceTurnCallbacks | undefined;
@@ -673,35 +683,175 @@ describe("LiveVoiceSession minimize-room marker", () => {
     };
   }
 
-  test("strips a terminal [-1] from deltas and TTS and emits minimize_room after tts_done", async () => {
+  /** Run a ui tool to completion, as the agent loop would. */
+  function runUiTool(
+    getCallbacks: () => VoiceTurnCallbacks | undefined,
+    toolName: string,
+    opts?: { isError?: boolean },
+  ): void {
+    getCallbacks()?.tool_use_start?.(toolName);
+    getCallbacks()?.tool_result?.({
+      toolName,
+      resultPreview: "",
+      ...(opts?.isError === true ? { isError: true } : {}),
+    });
+  }
+
+  // Showing a surface is what reveals the screen. Nothing the model says does,
+  // so the user never loses the reveal to a forgotten token.
+  test("a ui tool emits minimize_room after tts_done", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "ui_show");
+    emitTextDelta(getCallbacks, "Here is the summary.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    const ttsDoneIndex = frames.findIndex((frame) => frame.type === "tts_done");
+    const minimizeIndex = frames.findIndex(
+      (frame) => frame.type === "minimize_room",
+    );
+    expect(ttsDoneIndex).toBeGreaterThanOrEqual(0);
+    // After the speech drains, never mid-sentence.
+    expect(minimizeIndex).toBeGreaterThan(ttsDoneIndex);
+    expect(frames[minimizeIndex]).toMatchObject({
+      type: "minimize_room",
+      turnId: "live-turn-1",
+    });
+    // At most once, however many surfaces the turn touched.
+    expect(
+      frames.filter((frame) => frame.type === "minimize_room"),
+    ).toHaveLength(1);
+  });
+
+  // The reveal follows the surface, not the attempt: a rejected call (no
+  // surface_type, an empty card, a client that never acks) rendered nothing,
+  // and minimizing to show nothing is worse than staying put.
+  test("a failed ui call reveals nothing", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "ui_show", { isError: true });
+    emitTextDelta(getCallbacks, "I could not show that.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("a surface taken away before the reply ends reveals nothing", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "ui_show");
+    runUiTool(getCallbacks, "ui_dismiss");
+    emitTextDelta(getCallbacks, "Never mind, sorted it.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  // Opening an app puts something on screen just as a card does; a list keyed
+  // on "ui_" would have missed it.
+  test("opening an app reveals the screen", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "app_open");
+    emitTextDelta(getCallbacks, "Opened it up.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(true);
+  });
+
+  // A blocked turn has no speech left to drain, and the card it is blocked on
+  // renders behind the room. Waiting for a drain that is not coming would
+  // leave the call silent in front of a decision the user cannot see.
+  test("a pending approval reveals the screen immediately", async () => {
+    const { startVoiceTurn, announceApprovalPending } =
+      createCapturingTurnStarter();
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    announceApprovalPending();
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    // Before any tts_done, unlike the drain-scoped reveal a shown surface gets.
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  // Every phrase progress narration has describes work in flight ("still on
+  // it", "almost there"). While the turn is blocked on the user, all of them
+  // are false, and the one that matters is the one about who is being waited
+  // on.
+  test("says it is waiting, once, and stops narrating progress", async () => {
+    const {
+      startVoiceTurn,
+      announceApprovalPending,
+      announceApprovalsResolved,
+    } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    announceApprovalPending();
+    await waitFor(() => ttsTexts.join(" ").includes("okay"));
+    // Repeat announcements do not repeat the line.
+    announceApprovalPending();
+    await flushAsyncCallbacks();
+
+    const saidWaiting = ttsTexts.filter((text) => text.includes("okay")).length;
+    expect(saidWaiting).toBe(1);
+
+    announceApprovalsResolved();
+    await flushAsyncCallbacks();
+  });
+
+  test("dismissing a surface does not reveal the screen", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    runUiTool(getCallbacks, "ui_dismiss");
+    emitTextDelta(getCallbacks, "Cleared that away.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // Minimizing to show the user something that is no longer there is the
+    // opposite of the point.
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  // The marker is no longer taught to any leg, so this is about a model that
+  // emits one anyway: it must not be spoken, and it must not move the room.
+  test("a terminal [-1] is stripped from deltas and TTS and reveals nothing", async () => {
     const { frames, session, getCallbacks, ttsTexts } =
       createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
     emitTextDelta(getCallbacks, "hello world. [-1]");
     emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
     const joined = assistantDeltaTexts(frames).join("");
     expect(joined).toContain("hello world. ");
     expect(joined).not.toContain("[-1]");
     expect(ttsTexts.join(" ")).not.toContain("[-1]");
-    const ttsDoneIndex = frames.findIndex((frame) => frame.type === "tts_done");
-    const minimizeIndex = frames.findIndex(
-      (frame) => frame.type === "minimize_room",
-    );
-    expect(ttsDoneIndex).toBeGreaterThanOrEqual(0);
-    expect(minimizeIndex).toBeGreaterThan(ttsDoneIndex);
-    expect(frames[minimizeIndex]).toMatchObject({
-      type: "minimize_room",
-      turnId: "live-turn-1",
-    });
-    expect(
-      frames.filter((frame) => frame.type === "minimize_room"),
-    ).toHaveLength(1);
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
   });
 
-  test("holds a marker split across deltas, never leaks the partial, and still emits", async () => {
+  test("holds a marker split across deltas and never leaks the partial", async () => {
     const { frames, session, getCallbacks, ttsTexts } =
       createEscalatedMarkerHarness();
 
@@ -712,14 +862,14 @@ describe("LiveVoiceSession minimize-room marker", () => {
 
     emitTextDelta(getCallbacks, "1]");
     emitMessageComplete(getCallbacks);
-    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
     const joined = assistantDeltaTexts(frames).join("");
     expect(joined).not.toContain("[-");
     expect(ttsTexts.join(" ")).not.toContain("[-");
   });
 
-  test("a mid-reply [-1] (content, not command) is stripped from speech but never minimizes", async () => {
+  test("a mid-reply [-1] is stripped from speech and never minimizes", async () => {
     const { frames, session, getCallbacks } = createMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
@@ -737,7 +887,8 @@ describe("LiveVoiceSession minimize-room marker", () => {
     const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
-    emitTextDelta(getCallbacks, "Minimizing now. [-1]");
+    runUiTool(getCallbacks, "ui_show");
+    emitTextDelta(getCallbacks, "Showing you now.");
     await flushAsyncCallbacks();
 
     await session.handleClientFrame({ type: "interrupt" });
@@ -747,7 +898,7 @@ describe("LiveVoiceSession minimize-room marker", () => {
     expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
   });
 
-  test("a turn without the marker emits no minimize_room frame", async () => {
+  test("a turn that shows nothing emits no minimize_room frame", async () => {
     const { frames, session, getCallbacks } = createMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);

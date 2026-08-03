@@ -254,13 +254,13 @@ describe("LiveVoiceSession archive and metrics events", () => {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
       // Pins the full production control prompt for the FRONT-DOOR leg (the
-      // first leg of every routed turn): the no-UI rule (voice turns are
-      // non-interactive — everything is conveyed in speech) and the shared
-      // no-setup-flows rule (no OAuth/browser flows mid-call). The [-1]
+      // first leg of every routed turn): the speech-first rule (which now
+      // permits a surface, since the room reveals one by itself) and the
+      // shared no-setup-flows rule (no OAuth/browser flows mid-call). The [-1]
       // room-minimize teaching is deliberately absent — only the escalated
       // leg learns it (see live-voice-triage-escalate.test.ts).
       voiceControlPrompt:
-        "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
+        "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. " +
         VOICE_NO_SETUP_FLOWS_RULE,
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));

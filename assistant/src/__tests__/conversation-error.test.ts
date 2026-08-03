@@ -777,6 +777,9 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("provider_invalid_key");
+      expect(result.userMessage).toBe(
+        "Your personal Anthropic API key was rejected by Anthropic. Update that key in Settings → Models & Services.",
+      );
     });
 
     it("classifies managed-proxy auth failures as managed credential refresh failures", () => {
@@ -791,10 +794,28 @@ describe("classifyConversationError", () => {
 
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.userMessage).toBe(
-        "Couldn't refresh assistant credentials.",
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
       );
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("managed_key_invalid");
+    });
+
+    it("keeps credential-shaped 4xx failures on the request's managed route", () => {
+      providerRoutingSources.anthropic = "user-key";
+      const err = new ProviderError(
+        "Authentication error: invalid API key",
+        "anthropic",
+        400,
+      );
+      err.attachRouteAttribution({ credentialSource: "vellum-managed" });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.errorCategory).toBe("managed_key_invalid");
+      expect(result.userMessage).toBe(
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+      );
     });
 
     it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {
@@ -814,6 +835,8 @@ describe("classifyConversationError", () => {
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.errorCategory).toBe("provider_invalid_key");
+      expect(result.userMessage).toContain("personal OpenAI API key");
+      expect(result.userMessage).toContain("rejected by OpenAI");
     });
 
     it("includes connection/profile attribution in PROVIDER_INVALID_KEY when provided", () => {
@@ -826,7 +849,84 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.connectionName).toBe("my-anthropic");
       expect(result.profileName).toBe("personal");
-      expect(result.userMessage).toContain("personal");
+      expect(result.userMessage).toBe(
+        'Your personal Anthropic API key for profile "personal" (connection "my-anthropic") was rejected by Anthropic. Update that key in Settings → Models & Services.',
+      );
+    });
+
+    it("uses the request's BYOK attribution when the same provider also has a managed route", () => {
+      providerRoutingSources.anthropic = "managed-proxy";
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({
+        credentialSource: "byok",
+        connectionName: "anthropic-personal",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.connectionName).toBe("anthropic-personal");
+      expect(result.userMessage).toBe(
+        'Your personal Anthropic API key for connection "anthropic-personal" was rejected by Anthropic. Update that key in Settings → Models & Services.',
+      );
+    });
+
+    it("uses the request's managed attribution when the same provider also has a BYOK route", () => {
+      providerRoutingSources.anthropic = "user-key";
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({
+        credentialSource: "vellum-managed",
+        connectionName: "vellum",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.userMessage).toBe(
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+      );
+    });
+
+    it("uses subscription-specific recovery when the same provider also has a managed route", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError("Unauthorized", "openai", 401, {
+        reason: "invalid_credentials",
+      });
+      err.attachRouteAttribution({
+        credentialSource: "oauth-subscription",
+        connectionName: "chatgpt-subscription",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_subscription_auth");
+      expect(result.retryable).toBe(false);
+      expect(result.connectionName).toBe("chatgpt-subscription");
+      expect(result.userMessage).toBe(
+        'Your OpenAI subscription login for connection "chatgpt-subscription" was rejected by OpenAI. Reconnect that account in Settings → Models & Services.',
+      );
+    });
+
+    it("explains when a no-auth endpoint rejects an unauthenticated request", () => {
+      providerRoutingSources["openai-compatible"] = "managed-proxy";
+      const err = new ProviderError("Unauthorized", "openai-compatible", 401, {
+        reason: "invalid_credentials",
+      });
+      err.attachRouteAttribution({
+        credentialSource: "no-auth",
+        connectionName: "local-model-server",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_endpoint_auth_required");
+      expect(result.retryable).toBe(false);
+      expect(result.connectionName).toBe("local-model-server");
+      expect(result.userMessage).toBe(
+        'The OpenAI-compatible endpoint for connection "local-model-server" requires authentication, but that connection is configured without credentials. Configure authentication for that endpoint in Settings → Models & Services.',
+      );
     });
 
     it("classifies direct ProviderError with 402 as provider_billing (non-retryable)", () => {

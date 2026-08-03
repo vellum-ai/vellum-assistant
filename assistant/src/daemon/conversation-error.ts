@@ -12,9 +12,11 @@ import {
   isImageUnprocessableError,
 } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
 import {
+  type ProviderCredentialSource,
   ProviderError,
   type ProviderErrorReason,
   ProviderNotConfiguredError,
@@ -65,6 +67,12 @@ export interface ConversationErrorAttribution {
   profileName?: string;
   /** Whether the resolved turn route uses Vellum-managed inference. */
   isManagedRoute?: boolean;
+  /**
+   * Which credential the failed request presented. Splits the non-managed side
+   * of `isManagedRoute` into personal keys, subscription logins, and keyless
+   * endpoints so rejection copy names the right thing to fix.
+   */
+  credentialSource?: ProviderCredentialSource;
 }
 
 // Network-level error patterns (connection refused, timeout, DNS, reset)
@@ -273,6 +281,9 @@ export function classifyConversationError(
     ...(connectionName ? { connectionName } : {}),
     ...(profileName ? { profileName } : {}),
     ...(isManagedRoute !== undefined ? { isManagedRoute } : {}),
+    ...(providerRoute?.credentialSource
+      ? { credentialSource: providerRoute.credentialSource }
+      : {}),
   };
 
   // Dedicated classification for missing provider API key
@@ -375,6 +386,12 @@ function classifyCore(
     error instanceof ProviderError &&
     (attribution.isManagedRoute ??
       getProviderRoutingSource(error.provider) === "managed-proxy");
+  // Which credential the request actually presented. Only rejection copy needs
+  // this finer axis; every other branch keys off `isManagedRoute`. Routes that
+  // predate per-request stamping collapse to the managed/personal split.
+  const credentialSource: ProviderCredentialSource =
+    attribution.credentialSource ??
+    (isManagedRoute ? "vellum-managed" : "byok");
 
   // Prefer the semantic reason stamped by the provider layer, regardless of
   // HTTP status — statusless errors (e.g. SDK streaming failures) still carry a
@@ -383,8 +400,10 @@ function classifyCore(
   if (error instanceof ProviderError && error.reason) {
     const c = reasonToClassification(error.reason, {
       isManagedRoute,
+      credentialSource,
       attribution,
       message,
+      providerName: error.provider,
     });
     if (c) {
       return c;
@@ -398,16 +417,15 @@ function classifyCore(
       return contextTooLargeClassification();
     }
     if (error.statusCode === 401 || error.statusCode === 403) {
-      // Both managed-proxy and user-key 401/403s reach this branch.
-      // Managed-proxy routes through the assistant API key; if that
-      // credential is stale, the user cannot fix it from model settings.
-      // Everything else is a user-set credential that the upstream provider
-      // rejected, so emit `PROVIDER_INVALID_KEY` and let the chat banner point
-      // at Settings.
-      if (isManagedRoute) {
-        return managedKeyInvalidClassification();
-      }
-      return invalidApiKeyClassification(attribution);
+      // Managed routes through the assistant API key; if that credential is
+      // stale, the user cannot fix it from model settings. Everything else is
+      // a credential the user owns, so the copy names which one to update and
+      // the chat banner points at Settings.
+      return rejectedCredentialClassification(
+        error.provider,
+        credentialSource,
+        attribution,
+      );
     }
     if (error.statusCode === 402) {
       if (isManagedRoute) {
@@ -473,7 +491,11 @@ function classifyCore(
         // Mirror the 401/403 branch: a credential-shaped 4xx is an
         // "invalid key" surface (banner: "Invalid API key"), distinct
         // from "no key configured" (banner: "API key required").
-        return invalidApiKeyClassification(attribution);
+        return rejectedCredentialClassification(
+          error.provider,
+          credentialSource,
+          attribution,
+        );
       }
       if (isImageDimensionsTooLargeError(message)) {
         return {
@@ -562,16 +584,20 @@ function reasonToClassification(
   reason: ProviderErrorReason,
   args: {
     isManagedRoute: boolean;
+    credentialSource: ProviderCredentialSource;
     attribution?: ConversationErrorAttribution;
     message: string;
+    providerName: string;
   },
 ): Omit<ClassifiedConversationError, "debugDetails"> | null {
   const managed = args.isManagedRoute;
   switch (reason) {
     case "invalid_credentials":
-      return managed
-        ? managedKeyInvalidClassification()
-        : invalidApiKeyClassification(args.attribution);
+      return rejectedCredentialClassification(
+        args.providerName,
+        args.credentialSource,
+        args.attribution,
+      );
     case "rate_limited":
       // Match managed usage-limit body patterns, as the legacy path does.
       if (
@@ -778,13 +804,21 @@ function managedUsageLimitClassification(): Omit<
   };
 }
 
+/**
+ * Deliberately instruction-free. The assistant API key is provisioned and
+ * pushed by the platform — the assistant only ever reads it — so there is no
+ * Settings affordance to re-provision it and no user action that would help.
+ * The copy's job is to rule out the user's own provider key as the cause;
+ * clients that can offer a real next step attach one (web renders Doctor).
+ */
 function managedKeyInvalidClassification(): Omit<
   ClassifiedConversationError,
   "debugDetails"
 > {
   return {
     code: "MANAGED_KEY_INVALID",
-    userMessage: "Couldn't refresh assistant credentials.",
+    userMessage:
+      "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
     retryable: false,
     errorCategory: "managed_key_invalid",
   };
@@ -867,6 +901,76 @@ function describeAttribution(
   return "";
 }
 
+function providerDisplayName(providerName: string): string {
+  return (
+    PROVIDER_CATALOG.find((provider) => provider.id === providerName)
+      ?.displayName ?? providerName
+  );
+}
+
+function classificationAttribution(
+  attribution: ConversationErrorAttribution | undefined,
+): Pick<ClassifiedConversationError, "connectionName" | "profileName"> {
+  return {
+    ...(attribution?.connectionName
+      ? { connectionName: attribution.connectionName }
+      : {}),
+    ...(attribution?.profileName
+      ? { profileName: attribution.profileName }
+      : {}),
+  };
+}
+
+function rejectedCredentialClassification(
+  providerName: string,
+  credentialSource: ProviderCredentialSource,
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  switch (credentialSource) {
+    case "vellum-managed":
+      return managedKeyInvalidClassification();
+    case "oauth-subscription":
+      return subscriptionLoginRejectedClassification(providerName, attribution);
+    case "no-auth":
+      return endpointAuthenticationRequiredClassification(
+        providerName,
+        attribution,
+      );
+    case "byok":
+      return invalidApiKeyClassification(providerName, attribution);
+  }
+}
+
+function endpointAuthenticationRequiredClassification(
+  providerName: string,
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const provider = providerDisplayName(providerName);
+  const target = describeAttribution(attribution);
+  return {
+    code: "PROVIDER_API",
+    userMessage: `The ${provider} endpoint${target} requires authentication, but that connection is configured without credentials. Configure authentication for that endpoint in Settings → Models & Services.`,
+    retryable: false,
+    errorCategory: "provider_endpoint_auth_required",
+    ...classificationAttribution(attribution),
+  };
+}
+
+function subscriptionLoginRejectedClassification(
+  providerName: string,
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const provider = providerDisplayName(providerName);
+  const target = describeAttribution(attribution);
+  return {
+    code: "PROVIDER_API",
+    userMessage: `Your ${provider} subscription login${target} was rejected by ${provider}. Reconnect that account in Settings → Models & Services.`,
+    retryable: false,
+    errorCategory: "provider_subscription_auth",
+    ...classificationAttribution(attribution),
+  };
+}
+
 /**
  * Classification for an invalid (rejected by the upstream provider, e.g.
  * Anthropic 401/403) API key. Distinct from `PROVIDER_NOT_CONFIGURED`
@@ -875,22 +979,17 @@ function describeAttribution(
  * different recovery actions (update vs. add).
  */
 function invalidApiKeyClassification(
+  providerName: string,
   attribution?: ConversationErrorAttribution,
 ): Omit<ClassifiedConversationError, "debugDetails"> {
+  const provider = providerDisplayName(providerName);
   const target = describeAttribution(attribution);
   return {
     code: "PROVIDER_INVALID_KEY",
-    userMessage: target
-      ? `The API key${target} was rejected by the provider. Update it in Settings → Models & Services.`
-      : "Your API key was rejected by the provider. Update it in Settings → Models & Services.",
+    userMessage: `Your personal ${provider} API key${target} was rejected by ${provider}. Update that key in Settings → Models & Services.`,
     retryable: false,
     errorCategory: "provider_invalid_key",
-    ...(attribution?.connectionName
-      ? { connectionName: attribution.connectionName }
-      : {}),
-    ...(attribution?.profileName
-      ? { profileName: attribution.profileName }
-      : {}),
+    ...classificationAttribution(attribution),
   };
 }
 
