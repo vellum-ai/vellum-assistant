@@ -60,7 +60,10 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
-import { resolveRoutingIdentity } from "../providers/routing-identity.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "../providers/routing-identity.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
@@ -429,22 +432,25 @@ export async function runAgentLoopImpl(
         config.llm,
         resolveOpts,
       );
-      const routingIdentity = resolveRoutingIdentity(
-        resolved.provider,
-        resolved.model,
-      );
-      const connectionName =
-        routingIdentity?.connectionName ?? resolved.provider_connection;
-      const isManagedRoute =
-        connectionName === VELLUM_MANAGED_CONNECTION_NAME
-          ? true
-          : routingIdentity
-            ? false
-            : undefined;
+      let connectionName = resolved.provider_connection;
+      try {
+        connectionName =
+          resolveRoutingIdentity(resolved.provider, resolved.model)
+            ?.connectionName ?? connectionName;
+      } catch (error) {
+        if (!(error instanceof ConnectionResolutionError)) {
+          throw error;
+        }
+        connectionName = error.connectionName;
+      }
       return {
         ...(connectionName ? { connectionName } : {}),
         ...(profileName ? { profileName } : {}),
-        ...(isManagedRoute !== undefined ? { isManagedRoute } : {}),
+        ...(connectionName
+          ? {
+              isManagedRoute: connectionName === VELLUM_MANAGED_CONNECTION_NAME,
+            }
+          : {}),
       };
     } catch {
       return {};
