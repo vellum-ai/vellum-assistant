@@ -62,7 +62,7 @@ async function main(): Promise<void> {
           body: createReadStream(bundlePath),
         },
       },
-      { timeout: 120_000 }
+      { timeout: 600_000 }
     );
     const versionCode = uploadedBundle.data.versionCode;
 
