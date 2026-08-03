@@ -135,10 +135,47 @@ second source deploying on a different cadence to drift from, and the phase
 vocabulary it switches over is already a contract both sides must change
 together, so a new case is a Swift compile error rather than silent drift.
 
-It exists because the compact trailing slot is roughly three characters wide.
-Truncated to that, "Listening…" and "Thinking…" are the same string, which made
-the presentation the user sees most of the time say nothing at all. That slot
-now renders the glyph, and the roomier presentations render glyph *and* label.
+It exists because the inline slots are a few characters wide. The passed label
+truncates to a fragment there, and the fragments of "Listening…" and
+"Thinking…" are not worth telling apart. Those slots render the glyph; the
+roomier presentations render glyph *and* label. If short *wording* is ever
+wanted inline, it belongs to the web layer that owns the wording, as a second
+short label, not to a native `switch`.
+
+### Which presentation a voice session actually gets
+
+Probably the minimal one, which is why the phase glyph is what it renders.
+
+iOS falls back to the minimal presentation when the Dynamic Island is shared,
+and a live-voice session always shares it: the system's microphone privacy
+indicator is on for the entire call. It stays on while muted, too, because
+muting streams silence rather than stopping capture. That indicator cannot be
+suppressed and should not be.
+
+Two consequences worth keeping in mind when changing these views:
+
+- **The minimal slot is the island, for most of a call.** It carries the phase
+  rather than the avatar: identity is the fact that does not change and that
+  the user already knows, and the accent tint keeps it weakly present anyway.
+  It falls back to the identity mark when the content is stale, because a
+  presentation that renders nothing reads as a broken app.
+- **The expanded presentation is reached deliberately**, by touch and hold
+  (a tap opens the app through `widgetURL`; the gesture mapping is the
+  system's). Someone who held is asking for what the inline slots dropped, so
+  it shows everything the activity knows: avatar, name, elapsed time, mute,
+  phase glyph, phase label, and the activity line.
+
+None of this is verifiable in the simulator, which has no island and no real
+microphone. It is a device check.
+
+### Alerting updates are reserved
+
+`AlertConfiguration` forces a brief expanded presentation plus a haptic, a
+sound, a Lock Screen banner, and an Apple Watch forward. No phase change ever
+uses it: at the rate a conversation changes phase it would be intolerable, and
+the phase is not something the user must be interrupted for. It is reserved for
+a state change that genuinely requires attention, the first of which is an
+approval request the turn is blocked on.
 
 ### The activity line: wording from a third layer
 
@@ -537,10 +574,12 @@ before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
 `clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
 activity rather than degrading the image.
 
-### 3. The island is tap-to-return only — no interactive End button
+### 3. The island is tap-to-return only, with no interactive End button
 
 `VoiceSessionLiveActivity` has no buttons. The only affordance is
-`.widgetURL(VoiceModeDeepLink.resume.url())`.
+`.widgetURL(VoiceModeDeepLink.resume.url())`, which a tap follows; a touch and
+hold expands the presentation instead, and that is the system's gesture
+mapping, not a choice made here.
 
 *Why:* two reasons. Mechanically, an in-island control needs a
 `LiveActivityIntent` plus a signalling path into the running app (the appex

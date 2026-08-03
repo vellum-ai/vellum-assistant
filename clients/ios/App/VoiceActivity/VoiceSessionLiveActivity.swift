@@ -59,36 +59,61 @@ struct VoiceSessionLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    HStack(spacing: 6) {
-                        VoicePhaseGlyph(state: state, isStale: isStale)
-                        VoiceSessionText(text: label, font: .headline)
-                    }
+                    VoiceSessionText(
+                        text: context.attributes.assistantName,
+                        font: .headline
+                    )
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    // The activity line takes this row while there is one, and
-                    // the assistant's name takes it otherwise. Not both: the
-                    // expanded island is one line tall here, and of the two,
-                    // what the assistant is *doing* is the one that changes and
-                    // the one the user opened the island to find out. Identity
-                    // is already carried by the avatar in the leading region.
-                    VoiceSessionText(
-                        text: detail.isEmpty ? context.attributes.assistantName : detail,
-                        color: .secondary
-                    )
+                    // Everything the activity knows, because reaching this
+                    // presentation is deliberate: it takes a touch and hold,
+                    // and someone who did that is asking for the detail the
+                    // inline slots had to drop. So the phase and the activity
+                    // line both render here rather than competing for one row.
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            VoicePhaseGlyph(state: state, isStale: isStale)
+                            VoiceSessionText(text: label, color: .secondary)
+                        }
+                        if !detail.isEmpty {
+                            VoiceSessionText(
+                                text: detail,
+                                font: .caption,
+                                color: .tertiary
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } compactLeading: {
                 VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
             } compactTrailing: {
-                // The tightest slot there is, and the presentation the user
-                // spends the most time looking at. It used to show the passed
-                // label truncated, which at this width is two or three
-                // characters, identical for "Listening…" and "Thinking…". The
-                // glyph says the same thing legibly, and says it without
-                // substituting a native *string*, which is the fossilization
-                // this design actually guards against.
+                // A few characters wide. The passed label truncates to a
+                // fragment here, and the fragments for "Listening…" and
+                // "Thinking…" are not worth telling apart, so the phase shows
+                // as a glyph instead. A glyph is not a native *string*, which
+                // is what the copy rule actually guards against; shortening
+                // the wording, if it is ever wanted here, belongs to the web
+                // layer that owns the wording.
                 VoicePhaseGlyph(state: state, isStale: isStale, scale: .small)
             } minimal: {
-                VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
+                // **The presentation a voice session most likely gets.** iOS
+                // shows the minimal slot when the island is shared, and a live
+                // session always shares it: the system's microphone privacy
+                // indicator is on for the whole call, including while muted,
+                // because muting streams silence rather than stopping capture.
+                //
+                // So this one circle is the entire island for most of a call,
+                // and it carries the phase rather than the avatar. Identity is
+                // the fact that does not change and that the user already
+                // knows; whether it is still listening is the one they cannot
+                // get from a locked phone. The accent tint keeps identity
+                // present, weakly, in the glyph's color.
+                VoiceMinimalPresentation(
+                    state: state,
+                    isStale: isStale,
+                    avatarImageData: avatar
+                )
             }
             .widgetURL(VoiceModeDeepLink.resume.url())
             .keylineTint(state.accentColor)
