@@ -14,6 +14,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { parsePluginIcon } from "./plugin-artifact.js";
@@ -27,7 +28,7 @@ import { readValidatedPluginIcon } from "./plugin-icon-file.js";
  * dependencies in test environments).
  */
 const DEFAULT_PLUGINS_DIR = join(
-  dirname(new URL(import.meta.url).pathname),
+  dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
   "plugins",

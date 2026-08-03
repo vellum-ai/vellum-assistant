@@ -133,22 +133,19 @@ describe("InlineProcessCard — open affordance", () => {
     expect(opens).toBe(1);
   });
 
-  test("fires onOpen on Enter", () => {
-    let opens = 0;
+  test("is a native button, so Enter/Space activation is the browser's job", () => {
     render(
       <InlineProcessCard
         summary={summary()}
         leadingIcon={leadingIcon}
         openAriaLabel="Open thing"
-        onOpen={() => {
-          opens += 1;
-        }}
+        onOpen={() => {}}
       />,
     );
-    fireEvent.keyDown(screen.getByRole("button", { name: /open thing/i }), {
-      key: "Enter",
-    });
-    expect(opens).toBe(1);
+    const open = screen.getByRole("button", { name: /open thing/i });
+    expect(open.tagName).toBe("BUTTON");
+    // A native button is keyboard-focusable without an explicit tabindex.
+    expect(open.getAttribute("tabindex")).toBeNull();
   });
 
   test("has no role=button (inert) when onOpen is omitted", () => {

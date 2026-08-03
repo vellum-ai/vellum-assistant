@@ -211,6 +211,11 @@ export function HeaderStepCarousel({
   // primary (emphasised) slot so it doesn't read as de-emphasised subtext.
   const hasTitle = displayed.title.trim() !== "";
 
+  // The sole label grows into the whole row; with info present the info is the
+  // grower and the title takes its natural width. Either way the title is
+  // bounded, so it ellipsizes rather than running past the trailing controls.
+  const titleSizing = hasInfo ? "block min-w-0" : "block min-w-0 flex-1";
+
   return (
     <AnimatePresence initial={false} mode="popLayout">
       <motion.span
@@ -219,11 +224,14 @@ export function HeaderStepCarousel({
         animate={animate}
         exit={exit}
         transition={transition}
-        // Header layout — flex row. With info present the title is a
-        // non-shrinking anchor (shrink-0 + nowrap) and the info truncates in
-        // the remaining space; when the title is the sole label it truncates
-        // itself so a long one (e.g. an ACP command) can't overflow the row
-        // and overlap the trailing controls.
+        // Header layout: a flex row. Both labels are bounded (min-w-0 +
+        // truncate) so neither can overflow the row and overlap the trailing
+        // controls, whether the title is a short activity verb ("Reading") or
+        // a caller-supplied name (a subagent's task label, an ACP command).
+        // The info yields its space first: its `flex-1` basis of 0 gives it a
+        // scaled shrink factor of 0, so a deficit falls entirely on the title,
+        // which therefore ellipsizes only once the info has nothing left to
+        // give.
         className="flex min-w-0 flex-1 items-center gap-1"
       >
         {hasTitle ? (
@@ -235,11 +243,7 @@ export function HeaderStepCarousel({
             // line-height of 1, which clips descenders (the "g" in
             // "Working") behind the shimmer/truncate overflow clipping.
             <span
-              className={
-                hasInfo
-                  ? "shrink-0 whitespace-nowrap text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]"
-                  : "block min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]"
-              }
+              className={`${titleSizing} truncate text-left text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]`}
             >
               {shimmer ? (
                 <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
@@ -250,11 +254,7 @@ export function HeaderStepCarousel({
           ) : (
             <Typography
               variant="body-medium-default"
-              className={
-                hasInfo
-                  ? "ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
-                  : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
-              }
+              className={`ml-1 ${titleSizing} truncate text-left text-[var(--content-emphasised)]`}
             >
               {shimmer ? (
                 <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
