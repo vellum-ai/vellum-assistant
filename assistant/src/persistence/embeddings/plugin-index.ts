@@ -36,6 +36,7 @@ import { embedWithRetry } from "./embed.js";
 import {
   generateSparseEmbedding,
   getMemoryBackendStatus,
+  selectEmbeddingBackend,
 } from "./embedding-backend.js";
 import {
   type EmbeddingInput,
@@ -43,7 +44,12 @@ import {
   type SparseEmbedding,
 } from "./embedding-types.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
-import { getQdrantClient } from "./qdrant-client.js";
+import {
+  getQdrantClient,
+  initQdrantClient,
+  resolveQdrantUrl,
+  type VellumQdrantClient,
+} from "./qdrant-client.js";
 
 const log = getLogger("plugin-index");
 
@@ -124,13 +130,49 @@ export interface IndexedDocument {
 
 // ── Internal helpers ───────────────────────────────────────────────────────
 
-/** The initialized Qdrant client, as a retryable unavailability if it is not up. */
-function requireQdrant(): ReturnType<typeof getQdrantClient> {
+/**
+ * The Qdrant client for the shared collection, lazily initializing it from
+ * `config` when this process has not.
+ *
+ * The eager `initQdrantClient` in `runMemoryStartup`
+ * (`plugins/defaults/memory/startup.ts`) cannot be relied on here: it runs in
+ * the daemon process only, and only while memory v1 is the live tier — on a
+ * default workspace (`memory.v2.enabled`, or `memory.v3.live`) it is skipped
+ * entirely, because no v1 lane reads or writes the collection in that state.
+ * The plugin index is not a memory tier: it is plugin-owned search that must
+ * work on every tier and in any process that runs plugin code, so it resolves
+ * the client itself rather than depending on a memory-tier decision.
+ *
+ * Cheap and idempotent: `initQdrantClient` only constructs a client — the
+ * collection is created lazily inside each operation — and re-initializing from
+ * the same config just repoints the singleton at an equivalent client. Mirrors
+ * `resolveLexicalIndex` in `persistence/job-handlers/message-lexical.ts`.
+ *
+ * The dense embedding identity is passed through so a collection created or
+ * reused from here keeps the same model-sentinel semantics as the v1 path: a
+ * model or dimension change recreates the collection, which is the durability
+ * contract documented at the top of this file.
+ */
+async function resolveQdrant(
+  config: AssistantConfig,
+): Promise<VellumQdrantClient> {
   try {
     return getQdrantClient();
   } catch {
-    throw new BackendUnavailableError("Qdrant client not initialized");
+    // Not initialized in this process — construct it below.
   }
+  const selection = await selectEmbeddingBackend(config);
+  const embeddingModel = selection.backend
+    ? `${selection.backend.provider}:${selection.backend.model}`
+    : undefined;
+  return initQdrantClient({
+    url: resolveQdrantUrl(config),
+    collection: config.memory.qdrant.collection,
+    vectorSize: config.memory.qdrant.vectorSize,
+    onDisk: config.memory.qdrant.onDisk,
+    quantization: config.memory.qdrant.quantization,
+    embeddingModel,
+  });
 }
 
 /** Embed a single input to a dense vector, failing loudly if no backend is up. */
@@ -208,7 +250,7 @@ export async function indexDocument(
   const normalized = normalizeEmbeddingInput(input);
   const documentId = opts?.documentId ?? randomUUID();
   const now = opts?.createdAt ?? Date.now();
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant(config);
 
   await withQdrantBreaker(() =>
     qdrant.upsert(
@@ -249,7 +291,7 @@ export async function queryIndex(
   const embedding = await embedDense(config, query);
   const sparseVector = sparseFor(query);
   const limit = opts?.limit ?? 10;
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant(config);
 
   const filter = {
     must: [
@@ -287,10 +329,11 @@ export async function queryIndex(
 
 /** Fetch a single document from the given plugin's index, or null. */
 export async function getDocument(
+  config: AssistantConfig,
   plugin: string,
   documentId: string,
 ): Promise<IndexedDocument | null> {
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant(config);
   const found = await withQdrantBreaker(() =>
     qdrant.getByTarget(
       PLUGIN_INDEX_TARGET_TYPE,
@@ -312,10 +355,11 @@ export async function getDocument(
 
 /** Remove a single document from the given plugin's index. */
 export async function removeDocument(
+  config: AssistantConfig,
   plugin: string,
   documentId: string,
 ): Promise<void> {
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant(config);
   await withQdrantBreaker(() =>
     qdrant.deleteByTargetAndPlugin(
       PLUGIN_INDEX_TARGET_TYPE,
@@ -331,9 +375,12 @@ export async function removeDocument(
  * exposed on the plugin API, since one plugin must never purge another's data.
  * Best-effort: logs and swallows so a purge failure never blocks teardown.
  */
-export async function purgeEmbeddingsForPlugin(plugin: string): Promise<void> {
+export async function purgeEmbeddingsForPlugin(
+  config: AssistantConfig,
+  plugin: string,
+): Promise<void> {
   try {
-    const qdrant = requireQdrant();
+    const qdrant = await resolveQdrant(config);
     await withQdrantBreaker(() => qdrant.deleteByPlugin(plugin));
   } catch (err) {
     log.warn({ err, plugin }, "Failed to purge plugin embeddings");

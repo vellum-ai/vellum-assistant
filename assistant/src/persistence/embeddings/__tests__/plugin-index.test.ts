@@ -123,8 +123,13 @@ const fakeQdrant = {
   },
 };
 
+// The client is already initialized in this process, so the ops resolve it
+// straight from the singleton. `plugin-index-qdrant-init.test.ts` covers the
+// other side: a process where it is not.
 mock.module("../qdrant-client.js", () => ({
   getQdrantClient: () => fakeQdrant,
+  initQdrantClient: () => fakeQdrant,
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 mock.module("../qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: <T>(fn: () => Promise<T>) => fn(),
@@ -137,6 +142,10 @@ mock.module("../embed.js", () => ({
   }),
 }));
 mock.module("../embedding-backend.js", () => ({
+  selectEmbeddingBackend: async () => ({
+    backend: { provider: "gemini", model: "test-embed-model" },
+    reason: null,
+  }),
   getMemoryBackendStatus: async () => ({
     enabled: true,
     degraded: false,
@@ -246,8 +255,8 @@ describe("plugin-owned index", () => {
     });
     // Distinct namespace-qualified points, not one overwritten point.
     expect(store.size).toBe(2);
-    const ledgerDoc = await getDocument("ledger", "shared");
-    const driveDoc = await getDocument("drive", "shared");
+    const ledgerDoc = await getDocument(CONFIG, "ledger", "shared");
+    const driveDoc = await getDocument(CONFIG, "drive", "shared");
     expect(ledgerDoc?.text).toBe("ledger note");
     expect(driveDoc?.text).toBe("drive note");
   });
@@ -291,10 +300,10 @@ describe("plugin-owned index", () => {
   test("getDocument is scoped: one plugin cannot read another's document", async () => {
     const { documentId } = await indexDocument(CONFIG, "ledger", "secret note");
     // Owner can read it back.
-    const own = await getDocument("ledger", documentId);
+    const own = await getDocument(CONFIG, "ledger", documentId);
     expect(own?.text).toBe("secret note");
     // A different plugin guessing the id gets nothing (plugin-scoped filter).
-    const other = await getDocument("evil", documentId);
+    const other = await getDocument(CONFIG, "evil", documentId);
     expect(other).toBeNull();
     expect(calls.get.at(-1)).toEqual({
       targetId: `evil:${documentId}`,
@@ -304,18 +313,18 @@ describe("plugin-owned index", () => {
 
   test("removeDocument deletes scoped to the calling plugin", async () => {
     const { documentId } = await indexDocument(CONFIG, "ledger", "note");
-    await removeDocument("ledger", documentId);
+    await removeDocument(CONFIG, "ledger", documentId);
     expect(calls.deleteScoped).toEqual([
       { targetId: `ledger:${documentId}`, plugin: "ledger" },
     ]);
-    expect(await getDocument("ledger", documentId)).toBeNull();
+    expect(await getDocument(CONFIG, "ledger", documentId)).toBeNull();
   });
 
   test("purgeEmbeddingsForPlugin drops the whole plugin namespace", async () => {
     await indexDocument(CONFIG, "ledger", "a");
     await indexDocument(CONFIG, "ledger", "b");
     await indexDocument(CONFIG, "other", "c");
-    await purgeEmbeddingsForPlugin("ledger");
+    await purgeEmbeddingsForPlugin(CONFIG, "ledger");
     expect(calls.deletePlugin).toEqual(["ledger"]);
     // The other plugin's document survives.
     expect([...store.values()].map((p) => p.plugin)).toEqual(["other"]);

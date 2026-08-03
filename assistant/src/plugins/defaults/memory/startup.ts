@@ -102,10 +102,16 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     // which skips itself entirely on a v2-disabled install for the same reason).
     //
     // Skip the v1 Qdrant collection lifecycle when concept-page memory is
-    // active — the v1 collection has no writers or readers (graph search is
-    // bypassed) in that state, so ensuring/migrating it just maintains a
+    // active — no v1 lane reads or writes the collection (graph search is
+    // bypassed) in that state, so ensuring/migrating it here just maintains a
     // dead-on-arrival collection. Existing on-disk collections are left
     // intact so disabling concept-page memory restores v1 cleanly.
+    //
+    // The plugin-owned semantic index shares this collection but is not a
+    // memory tier, so it must not depend on this gate: it resolves and
+    // initializes the client itself on first use (`resolveQdrant` in
+    // `persistence/embeddings/plugin-index.ts`), on every tier and in any
+    // process that runs plugin code. Nothing below needs to change for it.
     if (!usesConceptPageMemory(config.memory)) {
       try {
         const embeddingSelection = await selectEmbeddingBackend(config);

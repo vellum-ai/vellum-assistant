@@ -125,12 +125,12 @@ export async function getDocument(
 ): Promise<IndexedDocument | null> {
   const plugin = requirePlugin("getDocument");
   const { getDocument: run } = await import("./plugin-index.js");
-  return run(plugin, documentId);
+  return run(getConfig(), plugin, documentId);
 }
 
 /** Remove one document from the calling plugin's index. */
 export async function removeDocument(documentId: string): Promise<void> {
   const plugin = requirePlugin("removeDocument");
   const { removeDocument: run } = await import("./plugin-index.js");
-  return run(plugin, documentId);
+  return run(getConfig(), plugin, documentId);
 }
