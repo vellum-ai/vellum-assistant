@@ -139,7 +139,7 @@ describe("subagent-store", () => {
 describe("recent similar spawn tallies", () => {
   const OBJECTIVE = "Audit the billing pipeline for drift";
 
-  /** A row for `OBJECTIVE`, spelled however the caller wants it. */
+  /** A completed row for `OBJECTIVE`, spelled however the caller wants it. */
   function spawn(
     id: string,
     over: Partial<SubagentRecord> = {},
@@ -148,7 +148,9 @@ describe("recent similar spawn tallies", () => {
       id,
       conversationId: `conv-${id}`,
       objective: OBJECTIVE,
+      status: "completed",
       createdAt: Date.now(),
+      completedAt: Date.now(),
       estimatedCost: 0.5,
       ...over,
     });
@@ -162,11 +164,11 @@ describe("recent similar spawn tallies", () => {
     });
   }
 
-  test("normalization folds case and whitespace, capped at the prefix", () => {
+  test("normalization folds case and whitespace over the whole objective", () => {
     expect(normalizeSpawnObjective("  Audit   the\nBILLING pipeline ")).toBe(
       "audit the billing pipeline",
     );
-    expect(normalizeSpawnObjective("x".repeat(200))).toHaveLength(90);
+    expect(normalizeSpawnObjective("x".repeat(200))).toHaveLength(200);
   });
 
   test("counts both scopes and sums their cost", () => {
@@ -191,14 +193,36 @@ describe("recent similar spawn tallies", () => {
     expect(tally().conversation.count).toBe(1);
   });
 
-  test("objectives that diverge past the prefix still match", () => {
-    upsertSubagentRecord(spawn("a", { objective: `${"e".repeat(90)} first` }));
-    upsertSubagentRecord(spawn("b", { objective: `${"e".repeat(90)} second` }));
+  test("a shared boilerplate prefix does not fold distinct objectives together", () => {
+    const preamble =
+      "Follow the audit checklist to the letter and report ".repeat(3);
+    upsertSubagentRecord(
+      spawn("a", { objective: `${preamble} on the billing service` }),
+    );
+    upsertSubagentRecord(
+      spawn("b", { objective: `${preamble} on the payouts service` }),
+    );
+
+    const forBilling = countRecentSimilarSpawns({
+      parentConversationId: "parent-1",
+      normalizedObjective: normalizeSpawnObjective(
+        `${preamble} on the billing service`,
+      ),
+      sinceMs: Date.now() - 24 * 60 * 60 * 1000,
+    });
+
+    expect(forBilling.conversation.count).toBe(1);
+  });
+
+  test("the same objective still matches however long its preamble", () => {
+    const objective = `${"e".repeat(200)} tail`;
+    upsertSubagentRecord(spawn("a", { objective }));
+    upsertSubagentRecord(spawn("b", { objective: `  ${objective}  ` }));
 
     expect(
       countRecentSimilarSpawns({
         parentConversationId: "parent-1",
-        normalizedObjective: normalizeSpawnObjective("e".repeat(90)),
+        normalizedObjective: normalizeSpawnObjective(objective),
         sinceMs: Date.now() - 24 * 60 * 60 * 1000,
       }).conversation.count,
     ).toBe(2);
@@ -212,6 +236,22 @@ describe("recent similar spawn tallies", () => {
     upsertSubagentRecord(spawn("consult", { role: "advisor" }));
 
     expect(tally().assistant.count).toBe(1);
+  });
+
+  test("runs that produced no answer are left out of both scopes", () => {
+    upsertSubagentRecord(spawn("done"));
+    for (const status of ["failed", "aborted", "interrupted"]) {
+      upsertSubagentRecord(
+        spawn(`ended-${status}`, { status, completedAt: Date.now() }),
+      );
+    }
+    upsertSubagentRecord(spawn("in-flight", { status: "running" }));
+    upsertSubagentRecord(spawn("queued", { status: "pending" }));
+
+    expect(tally()).toEqual({
+      conversation: { count: 1, estimatedCost: 0.5 },
+      assistant: { count: 1, estimatedCost: 0.5 },
+    });
   });
 });
 

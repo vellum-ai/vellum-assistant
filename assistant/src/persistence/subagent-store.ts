@@ -300,14 +300,6 @@ export function getSubagentRecordsByParent(
 }
 
 /**
- * How much of an objective decides that two spawns are near-identical. Long
- * objectives share a preamble and diverge in their tail, so a prefix comparison
- * catches the re-run of an audit whose closing sentence was reworded while
- * leaving two genuinely different tasks apart.
- */
-const SIMILAR_OBJECTIVE_PREFIX_CHARS = 90;
-
-/**
  * Rows the similarity scan reads before it stops. The scan is bounded so a
  * long-lived assistant cannot turn every spawn into a full-table read; a
  * truncated window can only under-count, which is the safe direction for a
@@ -316,20 +308,36 @@ const SIMILAR_OBJECTIVE_PREFIX_CHARS = 90;
 const RECENT_SPAWN_SCAN_LIMIT = 500;
 
 /**
- * Fold an objective to the form two spawns are compared in: lowercased,
- * whitespace-collapsed, and cut to {@link SIMILAR_OBJECTIVE_PREFIX_CHARS}.
- * Callers normalize the incoming objective with this same function, so both
- * sides of the comparison are folded by one implementation.
+ * The status a run has to hold to count as a repeat of already-done work. A
+ * failed, aborted, or interrupted run left no answer behind, so spawning its
+ * objective again is recovery rather than repetition, and counting those runs
+ * would hold the retry that is exactly the right move.
+ */
+const REUSABLE_SPAWN_STATUS = "completed";
+
+/**
+ * Fold an objective to the form two spawns are compared in: lowercased and
+ * whitespace-collapsed. Callers normalize the incoming objective with this same
+ * function, so both sides of the comparison are folded by one implementation.
+ *
+ * The whole objective is compared, never a prefix. Batch work routinely shares
+ * a long instruction preamble and diverges only in its tail (the file,
+ * component, or ticket each run targets), and comparing prefixes reads that
+ * batch as one objective repeated. Comparing in full costs only the re-run
+ * whose wording changed, which is a missed catch by an advisory guard, while a
+ * batch folded together holds work the caller genuinely meant to run.
+ *
+ * The separate `context` spawn argument is not part of the key: a subagent row
+ * does not carry it (context, prompts, and trust are deliberately left off the
+ * durable record), so two spawns with one objective and different contexts
+ * still fold together. That residue is bounded by the guard being advisory:
+ * the caller is told what already ran and spawns anyway if it meant to.
  */
 export function normalizeSpawnObjective(objective: string): string {
-  return objective
-    .toLowerCase()
-    .replace(/\s+/gu, " ")
-    .trim()
-    .slice(0, SIMILAR_OBJECTIVE_PREFIX_CHARS);
+  return objective.toLowerCase().replace(/\s+/gu, " ").trim();
 }
 
-/** How many spawns matched one normalized objective, and what they cost. */
+/** How many completed runs matched one normalized objective, and their cost. */
 export interface SimilarSpawnTally {
   count: number;
   /** Summed `estimated_cost` of the matched rows. */
@@ -345,10 +353,14 @@ export interface RecentSimilarSpawns {
 }
 
 /**
- * Tally the spawns since `sinceMs` (an epoch cutoff) whose objective folds to
- * `normalizedObjective`, both under `parentConversationId` and assistant-wide.
- * Advisor rows are left out: an advisor consult blocks its caller and is not
- * rate-limited, so its history must not count against a background spawn.
+ * Tally the runs since `sinceMs` (an epoch cutoff) that completed and whose
+ * objective folds to `normalizedObjective`, both under `parentConversationId`
+ * and assistant-wide.
+ *
+ * Only {@link REUSABLE_SPAWN_STATUS} rows are counted, so a run that is still
+ * in flight or that ended without an answer never reads as work already done.
+ * Advisor rows are left out too: an advisor consult blocks its caller and is
+ * not rate-limited, so its history must not count against a background spawn.
  *
  * Both scopes come from one bounded scan because the assistant-wide set
  * contains the conversation's, so a second query would read the same rows
@@ -372,10 +384,11 @@ export function countRecentSimilarSpawns(args: {
   }>(
     "subagent:countRecentSimilar",
     `SELECT parent_conversation_id, objective, estimated_cost FROM subagents
-       WHERE created_at >= ? AND role <> 'advisor'
+       WHERE created_at >= ? AND role <> 'advisor' AND status = ?
        ORDER BY created_at DESC
        LIMIT ?`,
     args.sinceMs,
+    REUSABLE_SPAWN_STATUS,
     RECENT_SPAWN_SCAN_LIMIT,
   );
 

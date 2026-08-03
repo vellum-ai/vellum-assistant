@@ -47,7 +47,7 @@
           },
           "confirm_repeat": {
             "type": "boolean",
-            "description": "Set true to spawn anyway when the repeat-spawn guard reports that this objective already ran several times in the last day."
+            "description": "Set true to spawn anyway when the repeat-spawn guard reports that this objective already completed several times in the last day."
           }
         },
         "required": ["label", "objective"]

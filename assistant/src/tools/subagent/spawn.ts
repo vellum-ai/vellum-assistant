@@ -57,22 +57,23 @@ const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
  */
 const ADVISOR_MAX_TIMEOUT_MS = 300_000;
 
-/** How far back the repeat-spawn guard looks for near-identical spawns. */
+/** How far back the repeat-spawn guard looks for near-identical runs. */
 const LOOP_GUARD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Near-identical spawns one conversation may run inside the window, the pending
- * spawn included: the fourth is the one held for confirmation. A couple of
- * retries is normal work; a fourth run of one objective in a single
- * conversation is a loop.
+ * Near-identical runs one conversation may complete inside the window before
+ * the next spawn is held for confirmation. A couple of repeats is normal work;
+ * a fourth completed run of one objective in a single conversation is a loop.
+ * Runs that failed, were aborted, or were interrupted never count, so a retry
+ * after a bad run is not what trips this.
  */
 const LOOP_GUARD_CONVERSATION_LIMIT = 3;
 
 /**
- * Near-identical spawns the whole assistant may run inside the window, counted
- * the same way. Higher than the per-conversation limit so the same audit asked
- * for in a few separate chats still goes through, while a standing re-run of
- * one objective does not.
+ * Near-identical runs the whole assistant may complete inside the window,
+ * counted the same way. Higher than the per-conversation limit so the same
+ * audit asked for in a few separate chats still goes through, while a standing
+ * re-run of one objective does not.
  */
 const LOOP_GUARD_ASSISTANT_LIMIT = 10;
 
@@ -164,9 +165,9 @@ export async function executeSubagentSpawn(
   }
 
   // ── Repeat-spawn guard ───────────────────────────────────────────
-  // Re-running an objective that already ran several times in the last day
-  // buys the same answer twice, so the guard hands the repetition back to the
-  // caller with what it has already cost. It never blocks: `confirm_repeat`
+  // Re-running an objective that already completed several times in the last
+  // day buys the same answer twice, so the guard hands the repetition back to
+  // the caller with what it has already cost. It never blocks: `confirm_repeat`
   // always spawns, and the advisor consult returned above is never guarded.
   if (
     isAssistantFeatureFlagEnabled("subagent-loop-guard") &&
@@ -327,9 +328,12 @@ export async function executeSubagentSpawn(
 // ── Repeat-spawn guard ───────────────────────────────────────────────
 
 /**
- * The result to return instead of spawning when this objective has already run
- * too often inside {@link LOOP_GUARD_WINDOW_MS}, or `undefined` when the spawn
- * should proceed.
+ * The result to return instead of spawning when this objective has already
+ * completed too often inside {@link LOOP_GUARD_WINDOW_MS}, or `undefined` when
+ * the spawn should proceed.
+ *
+ * Only completed runs are counted, so the message can point the caller at an
+ * answer that exists and a re-spawn after failures is never held.
  *
  * Not an error: the caller is being handed what its earlier runs produced and
  * cost, and can still spawn by passing `confirm_repeat: true`. The spawn
@@ -354,8 +358,8 @@ function repeatSpawnGuardResult(
     return undefined;
   }
 
-  // The spawn being asked for is itself part of the limit, so a window already
-  // holding the full allowance is what trips the guard.
+  // The spawn being asked for is itself part of the limit, so a window whose
+  // completed runs already fill the allowance is what trips the guard.
   let scope: string;
   let tally: SimilarSpawnTally;
   if (recent.conversation.count >= LOOP_GUARD_CONVERSATION_LIMIT) {
@@ -375,7 +379,7 @@ function repeatSpawnGuardResult(
       : "";
   return {
     content:
-      `${tally.count} near-identical subagents already ran ${scope} in the last ${hours} hours${cost}. ` +
+      `${tally.count} near-identical subagents already completed ${scope} in the last ${hours} hours${cost}. ` +
       "Repeating an objective rarely returns a different answer: read what the earlier run produced with subagent_read, " +
       "or narrow the objective to what is actually still missing. " +
       "If the repetition is intentional, call subagent_spawn again with confirm_repeat: true.",

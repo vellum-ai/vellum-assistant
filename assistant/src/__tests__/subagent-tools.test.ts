@@ -1054,7 +1054,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     expect(spawned).toBe(false);
     expect(result.isError).toBe(false);
     expect(result.content).toContain(
-      "3 near-identical subagents already ran in this conversation in the last 24 hours",
+      "3 near-identical subagents already completed in this conversation in the last 24 hours",
     );
     expect(result.content).toContain("about $3.75");
     expect(result.content).toContain("confirm_repeat: true");
@@ -1076,7 +1076,7 @@ describe("Subagent spawn repeat-loop guard", () => {
 
     expect(spawned).toBe(false);
     expect(result.content).toContain(
-      "10 near-identical subagents already ran across this assistant in the last 24 hours",
+      "10 near-identical subagents already completed across this assistant in the last 24 hours",
     );
   });
 
@@ -1136,6 +1136,71 @@ describe("Subagent spawn repeat-loop guard", () => {
     });
 
     expect(spawned).toBe(true);
+  });
+
+  test("a retry after runs that produced no answer spawns normally", async () => {
+    const objective = "Audit the flaky pipeline for drift";
+    const unfinished = ["failed", "aborted", "interrupted"];
+    unfinished.forEach((status, i) => {
+      seedSpawn(`guard-retry-${i}`, objective, { status });
+    });
+    // Well past the assistant-wide limit too, so neither scope may count them.
+    for (let i = 0; i < 12; i++) {
+      seedSpawn(`guard-retry-wide-${i}`, objective, {
+        parentConversationId: `guard-retry-parent-${i}`,
+        status: unfinished[i % unfinished.length],
+      });
+    }
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Retry",
+      objective,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
+  test("runs still in flight do not count as answers already produced", async () => {
+    const objective = "Audit the in-flight pipeline for drift";
+    seedSpawn("guard-inflight-0", objective, { status: "running" });
+    seedSpawn("guard-inflight-1", objective, { status: "pending" });
+    seedSpawn("guard-inflight-2", objective, { status: "awaiting_input" });
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
+  test("objectives sharing a boilerplate prefix are distinct tasks", async () => {
+    const preamble =
+      "Review the module against every item in the team checklist, then write up " +
+      "what you found and what should change, focusing on ";
+    seedSpawns("guard-batch", `${preamble}the billing service`, 5);
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Next in batch",
+      objective: `${preamble}the payouts service`,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
+  test("the same long objective is still caught however long its preamble", async () => {
+    const objective =
+      "Review the module against every item in the team checklist, then write up " +
+      "what you found and what should change, focusing on the ledger service";
+    seedSpawns("guard-long", objective, 3);
+
+    const { result, spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain("3 near-identical subagents");
   });
 });
 
