@@ -1347,6 +1347,102 @@ describe("Subagent read tool", () => {
   });
 });
 
+// ── Read stats footer (machine truth envelope) ──────────────────────
+
+describe("Subagent read stats footer", () => {
+  const ownerConversation = "read-stats-owner";
+
+  function stubOutput(subagentId: string, text: string) {
+    mockGetMessages = (convId: string) =>
+      convId === `conv-${subagentId}`
+        ? [{ role: "assistant", content: [{ type: "text", text }] }]
+        : null;
+  }
+
+  test("reports what the subagent actually ran alongside its output", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-1";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 5, succeeded: 4, filesWritten: 2 },
+    });
+    stubOutput(subagentId, "Refactored the parser.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "Refactored the parser.\n\n[stats: 5 tool calls, 4 succeeded, files written: 2]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a zero-call subagent's output carries the unverified warning", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-zero";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 0, succeeded: 0, filesWritten: 0 },
+    });
+    stubOutput(subagentId, "I ran the tests and they all passed.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toContain("I ran the tests and they all passed.");
+      expect(result.content).toContain(
+        "[stats: no tools were used by this subagent; treat any claims of executed work as unverified]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("the footer also lands on a subagent that produced no text", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-silent";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 3, succeeded: 3, filesWritten: 1 },
+    });
+    mockGetMessages = () => [{ role: "user", content: "go" }];
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toContain("no text output");
+      expect(result.content).toContain(
+        "[stats: 3 tool calls, 3 succeeded, files written: 1]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a live subagent that never recorded a run claims nothing", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-none";
+    injectSubagent(manager, subagentId, ownerConversation, "aborted");
+    stubOutput(subagentId, "Partial output.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toBe("Partial output.");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+});
+
 // ── Abort success path details ──────────────────────────────────────
 
 describe("Subagent abort success responses", () => {
@@ -2194,7 +2290,11 @@ describe("Subagent tools past the startup rehydration bound", () => {
         makeContext(beyondCapParent),
       );
       expect(result.isError).toBe(false);
-      expect(result.content).toBe("Output from beyond the bound");
+      // The counters live with the in-memory entry, which the bound dropped, so
+      // the footer says unavailable rather than reporting zero tool calls.
+      expect(result.content).toBe(
+        "Output from beyond the bound\n\n[stats: unavailable (daemon restarted)]",
+      );
     } finally {
       mockGetMessages = () => null;
     }

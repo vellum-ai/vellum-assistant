@@ -40,6 +40,7 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
+  formatSubagentToolStats,
   normalizeSubagentLabel,
   settleUnsupervisedStatus,
   SUBAGENT_LIMITS,
@@ -48,6 +49,7 @@ import {
   type SubagentRole,
   type SubagentState,
   type SubagentStatus,
+  type SubagentToolStatsSummary,
   TERMINAL_STATUSES,
 } from "./types.js";
 
@@ -170,6 +172,18 @@ function extractFinalAssistantText(messages: Message[]): string {
 }
 
 /**
+ * Snapshot the child conversation's live tool-call counters before the
+ * conversation is released. The `filesWritten` Set collapses to its size so
+ * nothing keeps a reference into the released conversation.
+ */
+function snapshotToolStats(
+  conversation: Conversation,
+): SubagentToolStatsSummary {
+  const { calls, succeeded, filesWritten } = conversation.subagentToolStats;
+  return { calls, succeeded, filesWritten: filesWritten.size };
+}
+
+/**
  * Pull the user-visible text out of a streaming delta event, or null for any
  * other event type. Used by the synchronous `onText` tap to forward
  * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
@@ -207,6 +221,7 @@ export function buildSubagentSystemPrompt(
     "- You cannot spawn nested subagents.",
     "- Use notify_parent to report important findings, or if you are blocked.",
     '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
+    "- If a tool call fails, or a tool you expected is unavailable, report the failure verbatim and stop that line of work. Never simulate, reconstruct, or invent tool output you did not actually receive.",
   );
   return sections.join("\n");
 }
@@ -234,6 +249,8 @@ export function buildSubagentTerminalMessage(opts: {
   deferred?: boolean;
   /** Tools the subagent attempted but that its role allowlist denied. */
   deniedTools?: string[];
+  /** What the subagent actually ran, harvested when the run ended. */
+  stats?: SubagentToolStatsSummary;
 }): string {
   const {
     label,
@@ -245,6 +262,7 @@ export function buildSubagentTerminalMessage(opts: {
     error,
     deferred,
     deniedTools,
+    stats,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
 
@@ -256,6 +274,10 @@ export function buildSubagentTerminalMessage(opts: {
     deniedTools && deniedTools.length > 0
       ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
       : "";
+
+  // Machine truth envelope: the counts the parent can check the synthesis
+  // above against. Absent only when the run never reached the harvest.
+  const statsNote = stats ? `\n\n${formatSubagentToolStats(stats)}` : "";
 
   if (outcome === "failed") {
     return (
@@ -273,7 +295,8 @@ export function buildSubagentTerminalMessage(opts: {
       (silent
         ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
         : `(Incorporate this into your reply to the user as appropriate.)`) +
-      deniedNote
+      deniedNote +
+      statsNote
     );
   }
 
@@ -288,7 +311,8 @@ export function buildSubagentTerminalMessage(opts: {
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
     (silent ? ` Keep the result internal.` : ``) +
-    deniedNote
+    deniedNote +
+    statsNote
   );
 }
 
@@ -898,6 +922,9 @@ export class SubagentManager {
       const deniedTools = [...conversation.subagentDeniedToolNames];
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
+      // Same window for the tool-call counts: the terminal notification below
+      // reads them off the state.
+      managed.state.stats = snapshotToolStats(conversation);
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -925,6 +952,7 @@ export class SubagentManager {
       // Copy usage from the captured conversation reference — managed.conversation
       // may have been nulled by an external dispose() before catch runs.
       managed.state.usage = { ...conversation.usageStats };
+      managed.state.stats = snapshotToolStats(conversation);
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -1621,6 +1649,7 @@ export class SubagentManager {
       // read pointer so the parent picks up the queued turn's output instead.
       deferred: managed.hadEnqueuedMessages === true,
       deniedTools,
+      stats: managed.state.stats,
     });
 
     const notification: SubagentNotificationInfo = {

@@ -154,6 +154,7 @@ import {
 } from "./conversation-surfaces.js";
 import type {
   SubagentToolGateMode,
+  SubagentToolStats,
   ToolSetupContext,
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
@@ -360,6 +361,20 @@ export class Conversation {
    * @internal
    */
   subagentDeniedToolNames = new Set<string>();
+  /**
+   * Machine tool-call counters for this conversation when it runs as a
+   * subagent child. Recorded by the tool executor (gated on {@link isSubagent},
+   * so parent conversations never accumulate anything here) and harvested by
+   * the SubagentManager into the child's state when the run ends, where it
+   * becomes the stats footer on the parent's completion notification and on
+   * `subagent_read`. Ephemeral, never persisted.
+   * @internal
+   */
+  subagentToolStats: SubagentToolStats = {
+    calls: 0,
+    succeeded: 0,
+    filesWritten: new Set<string>(),
+  };
   /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Set and restored alongside the allowlist

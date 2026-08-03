@@ -1,6 +1,11 @@
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
-import { TERMINAL_STATUSES } from "../../subagent/index.js";
+import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
+import {
+  formatSubagentToolStats,
+  SUBAGENT_STATS_UNAVAILABLE,
+  type SubagentState,
+} from "../../subagent/types.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -8,6 +13,26 @@ import {
   resolveSubagentState,
   subagentRefInputSchema,
 } from "./resolve.js";
+
+/**
+ * The machine truth envelope appended to a read: what the subagent actually
+ * ran, so the parent can check the output above against it.
+ *
+ * The counters live in memory next to the manager entry, so a subagent read
+ * back from its durable row (the manager's window dropped it, or the daemon
+ * restarted) says they are unavailable rather than reporting zero calls, which
+ * would read as "this subagent did nothing". A live entry with no stats never
+ * reached the end of a run, so it has nothing measured to report.
+ */
+function statsFooter(subagentId: string, state: SubagentState): string {
+  if (state.stats) {
+    return `\n\n${formatSubagentToolStats(state.stats)}`;
+  }
+  if (getSubagentManager().getState(subagentId)) {
+    return "";
+  }
+  return `\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
+}
 
 // `last_n` is deliberately UNDECLARED (loose passthrough): the executor's
 // typeof-guarded read below ignores it when malformed — including non-integer
@@ -96,8 +121,13 @@ export async function executeSubagentRead(
     }
   }
 
+  const footer = statsFooter(subagentId, state);
+
   if (messageTexts.length === 0) {
-    return { content: "Subagent produced no text output.", isError: false };
+    return {
+      content: `Subagent produced no text output.${footer}`,
+      isError: false,
+    };
   }
 
   const lastN =
@@ -107,7 +137,7 @@ export async function executeSubagentRead(
   const sliced = lastN ? messageTexts.slice(-lastN) : messageTexts;
 
   return {
-    content: sliced.join("\n\n"),
+    content: `${sliced.join("\n\n")}${footer}`,
     isError: false,
   };
 }

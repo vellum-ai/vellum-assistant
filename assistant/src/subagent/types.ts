@@ -168,7 +168,44 @@ export interface SubagentState {
   completedAt?: number;
   /** Cumulative token usage. */
   usage: UsageStats;
+  /**
+   * What the subagent actually ran, harvested from the child conversation when
+   * the run ends. In memory only: a subagent read back from its durable row
+   * after a daemon restart has none, and reports so rather than reporting zero.
+   */
+  stats?: SubagentToolStatsSummary;
 }
+
+/**
+ * Harvested form of the conversation's live `SubagentToolStats`: the
+ * `filesWritten` Set is collapsed to its size, so the state carries counts
+ * rather than a reference into a conversation that is about to be released.
+ */
+export interface SubagentToolStatsSummary {
+  calls: number;
+  succeeded: number;
+  filesWritten: number;
+}
+
+/**
+ * The machine half of a subagent's result, appended to the parent's completion
+ * notification and to `subagent_read`. The child's prose is its own account of
+ * what it did; this line is the measured one, so a report of executed work by a
+ * subagent that called nothing is visible instead of taken on trust.
+ */
+export function formatSubagentToolStats(
+  stats: SubagentToolStatsSummary,
+): string {
+  if (stats.calls === 0) {
+    return "[stats: no tools were used by this subagent; treat any claims of executed work as unverified]";
+  }
+  const plural = stats.calls === 1 ? "" : "s";
+  return `[stats: ${stats.calls} tool call${plural}, ${stats.succeeded} succeeded, files written: ${stats.filesWritten}]`;
+}
+
+/** Stats footer for a subagent whose in-memory counters no longer exist. */
+export const SUBAGENT_STATS_UNAVAILABLE =
+  "[stats: unavailable (daemon restarted)]";
 
 // ── Bounded listing ─────────────────────────────────────────────────────
 
