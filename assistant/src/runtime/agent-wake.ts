@@ -32,8 +32,13 @@
  *       text stay on the ephemeral trio above.
  *   - Invokes the agent loop with all conversation tools available unless
  *     the caller provides an explicit `allowedTools` scope.
- *   - No tool calls AND no assistant text → silent no-op (nothing persisted,
- *     nothing emitted). Returns `{ invoked: true, producedToolCalls: false }`.
+ *   - No tool calls AND no assistant text on a clean model-driven stop →
+ *     silent no-op (nothing persisted, nothing emitted). Returns
+ *     `{ invoked: true, producedToolCalls: false }`. When the no-output run
+ *     instead ended on a non-clean terminal exit (the loop swallowed a
+ *     provider rejection, unhandled throw, or cancellation into a graceful
+ *     no-output stop), returns `{ invoked: false, reason: "run_error" }` so
+ *     state-advancing callers retry instead of recording a phantom pass.
  *   - Tool calls produced → normal tool execution runs (the conversation's
  *     `AgentLoop` has its tool executor already wired). Returns
  *     `{ invoked: true, producedToolCalls: true }`.
@@ -64,6 +69,7 @@
 
 import type {
   AgentEvent,
+  AgentLoopExitReason,
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
@@ -174,6 +180,26 @@ function buildBackgroundEventText(
  */
 const OVER_WINDOW_REJECTION_LOG_MESSAGE =
   "agent-wake: provider rejected the input as over-window with auto-compaction suppressed; failing the wake";
+
+/**
+ * Terminal `agent_loop_exit` reasons under which a no-output run is a
+ * legitimate silent no-op: the loop reached a real model reply (or a
+ * model-driven stop) and the model simply produced nothing worth emitting.
+ * Every other reason on a no-output run (`error`, where the loop's catch
+ * swallowed a provider rejection or an unhandled throw into a graceful
+ * no-output stop; the `aborted_*` family, cancellation before any output;
+ * and the overflow terminals) means the pass never actually ran, so the wake
+ * must report `invoked: false` instead of a phantom success. Membership is
+ * an allowlist deliberately: a future exit reason defaults to the failure
+ * side, which state-advancing callers recover from by retrying, rather than
+ * the data-loss side.
+ */
+const CLEAN_NO_OUTPUT_EXIT_REASONS: ReadonlySet<AgentLoopExitReason> = new Set([
+  "no_tool_calls",
+  "yield_to_user",
+  "checkpoint_handoff",
+  "max_tokens_reached",
+]);
 
 export interface WakeOptions {
   conversationId: string;
@@ -383,13 +409,16 @@ export type WakeSkipReason =
    */
   | "context_overflow"
   /**
-   * The agent loop threw before producing ANY output — no checkpoint fired
-   * and no tail message was emitted or persisted (typically a provider
-   * failure on the run's first LLM call). The wake did no work, so callers
-   * that treat `invoked: true` as "the pass ran" (e.g. the memory
+   * The agent loop terminated abnormally before producing ANY output: either
+   * it threw before a checkpoint fired or a tail message was persisted, or it
+   * swallowed a terminal failure (provider rejection, unhandled throw,
+   * cancellation) into a graceful no-output stop whose `agent_loop_exit`
+   * reason is not a clean model-driven one (typically a provider failure on
+   * the run's first LLM call, e.g. rejected input). The wake did no work, so
+   * callers that treat `invoked: true` as "the pass ran" (e.g. the memory
    * retrospective, which advances its processed-message watermark and
    * finalizes on success) must see a retryable failure rather than a
-   * silent no-op. A throw AFTER output went live keeps `invoked: true` —
+   * silent no-op. A throw AFTER output went live keeps `invoked: true`:
    * side effects have already landed and the run must not read as skipped.
    */
   | "run_error";
@@ -942,6 +971,14 @@ export async function wakeAgentForOpportunity(
     // job. Capture the signal here so the wake can fail deterministically
     // instead (`reason: "context_overflow"`).
     let suppressedContextOverflow = false;
+    // Terminal exit reason captured from the loop's `agent_loop_exit` event.
+    // `agentLoop.run()`'s returned `exitReason` only distinguishes checkpoint
+    // handoffs, so this event is the wake's only view of HOW the loop ended.
+    // Read by the no-output branch below to tell a genuine silent no-op
+    // (model produced nothing) from a swallowed terminal failure (the loop's
+    // catch turns provider rejections and unhandled throws into a graceful
+    // no-output stop instead of rethrowing).
+    let terminalExitReason: AgentLoopExitReason | null = null;
     const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
@@ -1072,6 +1109,7 @@ export async function wakeAgentForOpportunity(
       // reason is stashed and applied in `goLive` after pendingLogs are
       // persisted, preserving the same ordering guarantee.
       if (event.type === "agent_loop_exit") {
+        terminalExitReason = event.reason;
         if (mode === "buffering") {
           pendingExitReason = event.reason;
         } else {
@@ -1264,6 +1302,12 @@ export async function wakeAgentForOpportunity(
     // finally's error log names the reported outcome so the line matches
     // what the caller actually saw.
     let reportedRunErrorAsFailure = false;
+    // Set when a no-output run ended on a non-clean terminal exit reason and
+    // was reported as `invoked: false` (reason "run_error"). The failure site
+    // logs its own dedicated warn line; the finally skips its generic
+    // "silent no-op" line for this path so a failed wake never reads as a
+    // successful empty one.
+    let reportedSwallowedStopAsFailure = false;
     // Shared failure path for an over-window condition on a
     // compaction-suppressed wake (reached from the pre-flight estimate, from
     // the run's catch when the rejection escaped as a throw, or post-run when
@@ -1464,6 +1508,30 @@ export async function wakeAgentForOpportunity(
       const producedOutput = producedToolCalls || hasVisibleText;
 
       if (!producedOutput || tailMessages.length === 0) {
+        // No output. Whether that reads as success depends on WHY the loop
+        // stopped: the loop's catch swallows provider rejections, unhandled
+        // throws, and cancellation into a graceful no-output stop instead of
+        // rethrowing, and reporting that as a successful silent no-op lets
+        // state-advancing callers (the memory retrospective watermark, the
+        // scheduler's success feed) permanently consume their trigger on a
+        // pass that never ran. Gate on the terminal exit reason: a clean
+        // model-driven stop is a real silent no-op; anything else fails the
+        // wake so the caller retries.
+        if (
+          terminalExitReason !== null &&
+          !CLEAN_NO_OUTPUT_EXIT_REASONS.has(terminalExitReason)
+        ) {
+          reportedSwallowedStopAsFailure = true;
+          log.warn(
+            { conversationId, source, exitReason: terminalExitReason },
+            "agent-wake: agent loop ended with no output on a non-clean exit; reported as run_error",
+          );
+          return {
+            invoked: false,
+            producedToolCalls: false,
+            reason: "run_error" as const,
+          };
+        }
         // Silent no-op: drop buffered events, push nothing, persist
         // nothing, emit nothing. (No checkpoint fired during the run
         // since checkpoints only fire after tool turns and there were
@@ -1540,7 +1608,7 @@ export async function wakeAgentForOpportunity(
 
       const durationMs = nowFn() - startedAt;
       const suppressWakeSurface = opts.suppressWakeSurface === true;
-      if (failedContextOverflow) {
+      if (failedContextOverflow || reportedSwallowedStopAsFailure) {
         // Already logged its own dedicated warn line at the failure site;
         // a generic "silent no-op" line here would misclassify a failed
         // wake as a successful empty one.
