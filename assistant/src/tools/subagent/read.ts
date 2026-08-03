@@ -69,7 +69,7 @@ export async function executeSubagentRead(
     // message has to close the loop itself: the completion notification is
     // already coming, and re-reading only burns another turn.
     return {
-      content: `Subagent "${state.config.label}" is still ${state.status}. Do not poll: you will receive a message automatically when it completes, including its result.`,
+      content: `Subagent "${state.config.label}" is still ${state.status}. Do not poll: you will be notified automatically when it completes, and that notification tells you whether the result is inlined or waiting behind a read.`,
       isError: false,
     };
   }

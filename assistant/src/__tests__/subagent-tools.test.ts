@@ -830,8 +830,11 @@ describe("Subagent read tool", () => {
     expect(result.content).toContain("still running");
     expect(result.content).toContain("Do not poll");
     expect(result.content).toContain(
-      "you will receive a message automatically when it completes",
+      "you will be notified automatically when it completes",
     );
+    // A deferred run is announced with a read pointer rather than an inlined
+    // result, so the wait message must not promise the result itself.
+    expect(result.content).not.toContain("including its result");
   });
 
   test("read returns wait message for pending subagent", async () => {
