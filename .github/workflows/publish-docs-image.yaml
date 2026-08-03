@@ -1,8 +1,8 @@
 name: Publish Docs Image
 
 # Builds and publishes the docs-site image to each environment's Artifact
-# Registry, then dispatches the platform repo's Helm deploy so the docs
-# backend rolls to the freshly published SHA. Pushes to main publish to dev,
+# Registry, then dispatches the platform repo's docs-cd workflow so the docs
+# Deployment (and nothing else) rolls to the freshly published SHA. Pushes to main publish to dev,
 # staging, and production so every environment's registry always has the
 # latest main build; `workflow_dispatch` republishes (and redeploys) a single
 # chosen environment. The image lives under the existing `sandbox-images` AR
@@ -94,8 +94,8 @@ jobs:
 
       # The dispatch lives inside the matrix leg so each environment deploys
       # only after its own publish succeeded, and a cancelled (superseded)
-      # publish never triggers a deploy. helm-cd pins the docs Deployment to
-      # this SHA and preserves every other image tag from the live release.
+      # publish never triggers a deploy. docs-cd rolls only the docs
+      # Deployment to this SHA — it does not run a full platform Helm deploy.
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -109,7 +109,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh workflow run helm-cd.yaml \
+          gh workflow run docs-cd.yaml \
             --repo vellum-ai/vellum-assistant-platform \
             --field environment="${{ matrix.environment }}" \
             --field docs_image_tag="${{ github.sha }}"
