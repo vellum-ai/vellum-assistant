@@ -36,12 +36,12 @@ There are three subagent types. Pick one with two questions: **does it need to c
 | Type | Changes things? | You wait? | Tools | When to use |
 |---|---|---|---|---|
 | `researcher` | No | No | `web_search`, `web_fetch`, `file_read`, `file_list`, `code_search`, `recall`, `skill_execute`, `notify_parent` | Web research, codebase exploration, reading documentation, root-cause investigation, reviewing an approach against the code |
-| `builder` | Yes | No | `bash`, `file_read`, `file_write`, `file_edit`, `file_list`, `code_search`, `web_search`, `web_fetch`, `recall`, `skill_execute`, `notify_parent` | Code changes, file output, build/test runs, anything that must run a command |
+| `builder` | Yes | No | Your whole tool surface, unrestricted: shell, file writes and edits, and every connector, MCP, and browser tool you can reach | Code changes, file output, build/test runs, anything that must run a command or act on an outside system |
 | `advisor` | No | Yes | None (tool-less) | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
 
-Both background types include `notify_parent` for mid-run communication with the parent.
+Both background types can call `notify_parent` for mid-run communication with the parent.
 
-A `researcher` cannot write or edit files, run commands, or otherwise persist output. If the task must **produce a file, save results, or run a command**, spawn a `builder`: a researcher finishes without producing anything, and the delegated write silently no-ops.
+A `researcher` is scoped to the fixed read-only list above: it cannot write or edit files, run commands, reach a connector, or otherwise persist output. If the task must **produce a file, save results, run a command, or act on an outside system**, spawn a `builder`: a researcher finishes without producing anything, and the delegated write silently no-ops.
 
 **Model tier is a separate knob.** Use `inference_profile` to run any type on a stronger or cheaper model. **A persona is not a type**: see the fallback below.
 
@@ -51,7 +51,7 @@ The older role names still work: `planner` and `investigator` run as a `research
 
 Any other `role` text is treated as a persona, not a type. The subagent runs as a **`researcher`** (read-only) with that text framing how it approaches the task, and the spawn result says so. That is deliberate least privilege: an invented or misspelled role must never silently hand out write access. If the task genuinely needed to write, the subagent reports that it cannot, and you re-spawn it with `role: "builder"`.
 
-Omitting `role` entirely runs a `builder`.
+Omitting `role` entirely runs a `builder`, so a spawn that names no type keeps your full tool surface.
 
 ## Consulting the Advisor
 
@@ -105,7 +105,7 @@ Set `inference_profile` to an `llm.profiles` key when a subagent should run unde
 
 Forks are sub-agents that inherit the parent's full context -- messages, system prompt, and memory -- sharing the KV cache for near-free context inheritance. Use forks when the task benefits from knowing what you've been discussing; use a regular sub-agent when the task is self-contained.
 
-**Key behaviors:** A fork honors the type you name, so `role: "researcher"` gives a read-only fork. A fork that names no type keeps your full tool surface, because it also inherits the system prompt that describes those tools. `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
+**Key behaviors:** A fork honors the type you name, so `role: "researcher"` gives a read-only fork. A fork that names no type runs as a `builder` and so keeps your full tool surface, which is what the system prompt it inherits describes. A persona reaches a fork through its task framing rather than its prompt, since the prompt is yours verbatim. `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
 
 **When to fork vs regular sub-agent:**
 

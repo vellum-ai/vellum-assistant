@@ -8,7 +8,11 @@
  */
 
 import { truncate } from "../util/truncate.js";
-import { SUBAGENT_ROLE_REGISTRY, type SubagentRole } from "./types.js";
+import {
+  DEFAULT_SUBAGENT_ROLE,
+  SUBAGENT_ROLE_REGISTRY,
+  type SubagentRole,
+} from "./types.js";
 
 export interface ResolvedSubagentRole {
   /** The type the child actually runs as. */
@@ -49,9 +53,10 @@ function toPersonaText(raw: string): string {
 /**
  * Resolve a requested role into the type the child runs as.
  *
- * - Absent (or blank) resolves to `builder`. A spawn that names no role has
- *   always been write-capable, and a task delegated without a stated shape is
- *   as likely to need a file written as read.
+ * - Absent (or blank) resolves to `builder`, which imposes no tool allowlist.
+ *   A spawn that names no role has always run on the parent's full surface,
+ *   and a task delegated without a stated shape is as likely to need a file
+ *   written as read.
  * - The three type names pass through, case-insensitively.
  * - A legacy name resolves to its successor type and is reported in `alias`.
  * - Anything else resolves to `researcher` with the text kept as
@@ -65,7 +70,7 @@ export function resolveSubagentRole(
 ): ResolvedSubagentRole {
   const trimmed = raw?.trim() ?? "";
   if (trimmed.length === 0) {
-    return { role: "builder" };
+    return { role: DEFAULT_SUBAGENT_ROLE };
   }
 
   // `Object.hasOwn` rather than `in`: a role of "constructor" or "toString"

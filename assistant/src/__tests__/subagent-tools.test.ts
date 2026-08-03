@@ -2407,6 +2407,9 @@ describe("Subagent role-based spawn", () => {
       expect(parsed.roleNote).toBeUndefined();
       expect(capturedConfig).toBeDefined();
       expect(capturedConfig!.role).toBe("builder");
+      // And keeps the whole surface: builder imposes no allowlist, so the
+      // manager filters nothing for a spawn that named no role.
+      expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
     } finally {
       manager.spawn = originalSpawn;
     }
@@ -2445,7 +2448,7 @@ describe("Subagent role-based spawn", () => {
     }
   });
 
-  test("the child of a legacy role gets the new type's allowlist", () => {
+  test("the child of a legacy role gets the new type's tool surface", () => {
     // The alias resolves to a type, and the type owns the tools.
     expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
       "code_search",
@@ -2453,8 +2456,10 @@ describe("Subagent role-based spawn", () => {
     expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).not.toContain(
       "bash",
     );
-    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toContain("bash");
-    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toContain("file_write");
+    // `general` resolves to builder, and builder is unrestricted exactly as
+    // `general` was: a fixed list would drop connectors, MCP tools, and
+    // browser and computer use from every spawn that names neither.
+    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
   });
 
   test("an unrecognized role spawns a researcher with the text as persona", async () => {

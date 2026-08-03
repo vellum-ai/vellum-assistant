@@ -24,20 +24,22 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test("every role declares an explicit allowlist (no unrestricted type)", () => {
-    for (const role of ALL_ROLES) {
+  test("the read-only roles declare an explicit allowlist", () => {
+    for (const role of ["researcher", "advisor"] as const) {
       expect(Array.isArray(SUBAGENT_ROLE_REGISTRY[role].allowedTools)).toBe(
         true,
       );
     }
+    expect(
+      SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!.length,
+    ).toBeGreaterThan(0);
   });
 
-  test("the two background roles have non-empty allowlists", () => {
-    for (const role of ["researcher", "builder"] as const) {
-      expect(SUBAGENT_ROLE_REGISTRY[role].allowedTools!.length).toBeGreaterThan(
-        0,
-      );
-    }
+  test("builder declares no allowlist, so it keeps the parent's whole tool surface", () => {
+    // The regression this guards: an explicit list is a ceiling. A builder
+    // scoped to file/shell/web tools silently loses connectors, MCP tools,
+    // browser and computer use, and everything else the parent can reach.
+    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
   });
 
   test("advisor is tool-less with an empty allowedTools array", () => {
@@ -59,23 +61,18 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test('every tool-using role includes "skill_execute" so preactivated skills work', () => {
+  test('the scoped tool-using role includes "skill_execute" so preactivated skills work', () => {
     // Without it, `preactivatedSkillIds` is a silent no-op for the role: the
-    // skill loads and none of its tools can be reached.
-    for (const role of ["researcher", "builder"] as const) {
-      expect(SUBAGENT_ROLE_REGISTRY[role].allowedTools).toContain(
-        "skill_execute",
-      );
-    }
+    // skill loads and none of its tools can be reached. Only an allowlisted
+    // role can lose it.
+    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
+      "skill_execute",
+    );
   });
 
   test('researcher includes "recall" for local information access', () => {
     const tools = SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!;
     expect(tools).toContain("recall");
-  });
-
-  test('builder includes "recall" for local information access', () => {
-    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools!).toContain("recall");
   });
 
   test("researcher is read-only: no shell, no file writes", () => {
@@ -103,11 +100,11 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(preamble).toContain("no shell");
   });
 
-  test("builder can write and run commands", () => {
-    const tools = SUBAGENT_ROLE_REGISTRY.builder.allowedTools!;
-    expect(tools).toContain("bash");
-    expect(tools).toContain("file_write");
-    expect(tools).toContain("file_edit");
+  test("builder preamble states it can write, run commands, and reach the parent's other tools", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.builder.systemPromptPreamble;
+    expect(preamble).toContain("edit files");
+    expect(preamble).toContain("shell commands");
+    expect(preamble).toContain("any other tool the parent conversation can");
   });
 
   test("builder preamble requires self-verification and a change report", () => {
@@ -207,13 +204,13 @@ describe("buildSubagentSystemPrompt: framing and constraints", () => {
     ).not.toContain("- Persona:");
   });
 
-  test("a roleless spawn still builds a usable prompt", () => {
+  test("the prompt names the type that ran", () => {
     const prompt = buildSubagentSystemPrompt(
       cfg("continue the work"),
-      undefined,
+      "builder",
     );
     expect(prompt).toContain("## Your Task");
-    expect(prompt).toContain("- Role: unscoped");
+    expect(prompt).toContain("- Role: builder");
   });
 });
 

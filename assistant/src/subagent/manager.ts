@@ -41,6 +41,7 @@ import { getSandboxWorkingDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
+  DEFAULT_SUBAGENT_ROLE,
   formatSubagentToolStats,
   normalizeSubagentLabel,
   settleUnsupervisedStatus,
@@ -48,13 +49,11 @@ import {
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
   type SubagentRole,
-  subagentRoleConfig,
   type SubagentSpawnMode,
   type SubagentState,
   type SubagentStatus,
   type SubagentToolStatsSummary,
   TERMINAL_STATUSES,
-  UNSCOPED_SUBAGENT_ROLE,
 } from "./types.js";
 
 const log = getLogger("subagent-manager");
@@ -226,9 +225,9 @@ function extractDeltaText(msg: AssistantEvent): string | null {
 
 export function buildSubagentSystemPrompt(
   config: SubagentConfig,
-  role: SubagentRole | undefined,
+  role: SubagentRole,
 ): string {
-  const roleConfig = subagentRoleConfig(role);
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
   const sections: string[] = [roleConfig.systemPromptPreamble];
   if (config.persona) {
     sections.push(`- Persona: act as ${config.persona} for this task.`);
@@ -240,7 +239,7 @@ export function buildSubagentSystemPrompt(
   sections.push(
     "",
     "## Constraints",
-    `- Role: ${role ?? UNSCOPED_SUBAGENT_ROLE}`,
+    `- Role: ${role}`,
     "- You cannot spawn nested subagents.",
     "- Use notify_parent to report important findings, or if you are blocked.",
     '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
@@ -476,18 +475,19 @@ export class SubagentManager {
     }
 
     // ── Resolve role ─────────────────────────────────────────────────
-    // A role is one of the three types or absent. The `subagent_spawn` tool
+    // A role is one of the three types, or absent for an internal caller that
+    // states no shape and runs on the default. The `subagent_spawn` tool
     // resolves whatever the model wrote into a type before it gets here (see
     // subagent/role-resolution.ts), so an unregistered value at this point is
     // an internal caller's bug and is worth throwing over.
     const isFork = config.fork === true;
-    const role = config.role;
-    if (role && !SUBAGENT_ROLE_REGISTRY[role]) {
+    const role: SubagentRole = config.role ?? DEFAULT_SUBAGENT_ROLE;
+    if (!SUBAGENT_ROLE_REGISTRY[role]) {
       throw new Error(
         `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
       );
     }
-    const roleConfig = subagentRoleConfig(role);
+    const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
 
     // ── Resolve spawn mode ───────────────────────────────────────────
     // The spawning call site is the only layer that can tell an advisor
@@ -510,7 +510,7 @@ export class SubagentManager {
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
       parentConversationId: config.parentConversationId,
-      subagentRole: role ?? UNSCOPED_SUBAGENT_ROLE,
+      subagentRole: role,
       subagentSpawnMode: spawnMode,
     });
 
@@ -698,9 +698,9 @@ export class SubagentManager {
       conversation.hasSystemPromptOverride = true;
     }
 
-    // Apply the role's tool allowlist when one is defined. A spawn that named
-    // no role has none, so it keeps the full surface its conversation
-    // projects; every named role, fork or not, is scoped to its own list.
+    // Apply the role's tool allowlist when one is defined. `builder` defines
+    // none, so it keeps the full surface its conversation projects; the scoped
+    // roles are filtered to their own list whether or not this is a fork.
     if (roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
@@ -915,13 +915,20 @@ export class SubagentManager {
       // the generic "complete this task and return your findings" wrapper would
       // fight that framing. The advisor's objective is already the bare advice
       // request (`advisorRequestText()`), so it is sent uncontested.
+      //
+      // A fork's persona rides in this framing rather than the system prompt:
+      // the prompt is the parent's, inherited verbatim to keep the KV cache
+      // aligned, so the task message is the only place a fork-specific
+      // instruction can land.
       const useForkFraming =
         managed.state.isFork && managed.state.config.role !== "advisor";
+      const forkPersona = managed.state.config.persona;
       const message = useForkFraming
         ? [
             "⎯⎯⎯ FORK TASK ⎯⎯⎯",
             "You have been forked from the parent conversation to execute a specific task.",
             "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
+            ...(forkPersona ? [`Act as ${forkPersona} for this task.`] : []),
             "Complete this task directly and return only your findings:",
             "",
             objective,
@@ -1550,7 +1557,7 @@ export class SubagentManager {
         conversationId: state.conversationId,
         label: state.config.label,
         objective: state.config.objective,
-        role: state.config.role ?? UNSCOPED_SUBAGENT_ROLE,
+        role: state.config.role ?? DEFAULT_SUBAGENT_ROLE,
         isFork: state.isFork,
         sendResultToUser: state.config.sendResultToUser ?? null,
         parentToolUseId: state.config.parentToolUseId ?? null,

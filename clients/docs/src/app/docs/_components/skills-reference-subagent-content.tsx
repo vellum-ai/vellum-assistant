@@ -229,15 +229,21 @@ export function SkillsReferenceSubagentContent() {
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
             Every subagent runs with a role that determines which tools it can
-            touch. Your assistant picks the most restrictive role that can still
-            do the job, which keeps each worker&apos;s blast radius small.
+            touch. There are three, and your assistant picks between them with
+            two questions: does the task need to change anything, and does your
+            assistant need the answer before it can carry on? It picks the most
+            restrictive role that can still do the job, which keeps each
+            worker&apos;s blast radius small.
           </p>
-          <div className="mb-0 overflow-x-auto">
+          <div className="mb-4 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-zinc-50">
                   <th className="px-4 py-2 text-left text-sm font-medium text-zinc-500">
                     Role
+                  </th>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-zinc-500">
+                    Tools
                   </th>
                   <th className="px-4 py-2 text-left text-sm font-medium text-zinc-500">
                     Best for
@@ -250,56 +256,58 @@ export function SkillsReferenceSubagentContent() {
                     <strong>Researcher</strong>
                   </td>
                   <td className="px-3 py-2">
-                    Web and document research, reading and gathering information
-                    (read-only)
+                    Read-only: web search, reading and searching files, and
+                    recall
+                  </td>
+                  <td className="px-3 py-2">
+                    Web and document research, codebase exploration, planning,
+                    root-cause analysis and debugging
                   </td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    <strong>Coder</strong>
+                    <strong>Builder</strong>
+                  </td>
+                  <td className="px-3 py-2">
+                    Everything your assistant can reach, including writing
+                    files, running commands, and your connected apps
                   </td>
                   <td className="px-3 py-2">
                     Writing and editing files, running commands, build and test
-                    work
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2">
-                    <strong>Planner</strong>
-                  </td>
-                  <td className="px-3 py-2">
-                    Analysis, planning, and synthesizing information (read-only)
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2">
-                    <strong>Investigator</strong>
-                  </td>
-                  <td className="px-3 py-2">
-                    Root-cause analysis and debugging; returns a compact
-                    findings report (read-only)
+                    work, anything that has to change something
                   </td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     <strong>Advisor</strong>
                   </td>
+                  <td className="px-3 py-2">None</td>
                   <td className="px-3 py-2">
-                    A no-tools, one-shot strategic review
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2">
-                    <strong>General</strong>
-                  </td>
-                  <td className="px-3 py-2">
-                    Unrestricted access, used only when a task genuinely needs
-                    it
+                    A no-tools, one-shot strategic review that your assistant
+                    waits on
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
+          <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
+            <li>
+              <strong>Older names still work.</strong> Planner and investigator
+              run as a researcher; coder and general run as a builder. The
+              result names the role that actually ran.
+            </li>
+            <li>
+              <strong>Anything else becomes a persona.</strong> Ask for a role
+              that isn&apos;t one of the three (&ldquo;a staff security
+              engineer&rdquo;) and the subagent runs read-only as a researcher
+              with that description shaping how it approaches the task. An
+              invented role never quietly gains the ability to change things.
+            </li>
+            <li>
+              <strong>No role named.</strong> A subagent spawned without a role
+              runs as a builder, with the same tools your assistant has.
+            </li>
+          </ul>
         </section>
 
         <section id="working-with-subagents" className="mt-12">

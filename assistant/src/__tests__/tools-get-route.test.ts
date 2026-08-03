@@ -277,8 +277,8 @@ describe("GET /tools", () => {
     expect(names).not.toContain("file_edit");
   });
 
-  test("with agent=builder, returns exactly that role's allowlist", async () => {
-    // GIVEN core tools, one of which the builder allowlist omits
+  test("with agent=builder, returns the whole tool surface, not a fixed list", async () => {
+    // GIVEN core tools plus one no fixed builder list would think to name
     registerTool(makeFakeTool("web_search"));
     registerTool(makeFakeTool("bash"));
     registerTool(makeFakeTool("notify_parent"));
@@ -289,11 +289,13 @@ describe("GET /tools", () => {
       queryParams: { agent: "builder" },
     })) as ToolsGetResponse;
 
-    // THEN the projection is the role's capability envelope, nothing wider
+    // THEN nothing is filtered out: a builder, and so every spawn that names
+    // no role, reaches connectors, MCP tools, and everything else the parent
+    // can reach.
     expect(names).toContain("web_search");
     expect(names).toContain("bash");
     expect(names).toContain("notify_parent");
-    expect(names).not.toContain("send_email");
+    expect(names).toContain("send_email");
   });
 
   test("with agent=role, notify_parent is visible (subagent-only gating works)", async () => {

@@ -47,9 +47,9 @@ export const conversations = sqliteTable(
     parentConversationId: text("parent_conversation_id"),
     /**
      * Role the subagent that owns this conversation was spawned with, from
-     * `SUBAGENT_ROLE_REGISTRY` (`researcher`, `builder`, `advisor`), or
-     * `unscoped` when the spawn named no role. NULL for every conversation
-     * that is not a subagent.
+     * `SUBAGENT_ROLE_REGISTRY` (`researcher`, `builder`, `advisor`); a spawn
+     * that named no role records the default, `builder`. NULL for every
+     * conversation that is not a subagent.
      *
      * Denormalized here rather than read from the `subagents` table at
      * telemetry-flush time on purpose: `subagents` rows are deleted on

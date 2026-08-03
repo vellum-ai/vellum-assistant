@@ -37,6 +37,7 @@ import {
 } from "../daemon/conversation-registry.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { SUBAGENT_ROLE_REGISTRY } from "../subagent/types.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 
 // ── Shared helpers ──────────────────────────────────────────────────
@@ -183,10 +184,11 @@ describe("subagent_spawn fork parameter", () => {
       );
 
       expect(result.isError).toBe(false);
-      // No role means no allowlist: the fork inherits the parent's system
-      // prompt, which describes the parent's tools.
-      expect(capturedConfig!.role).toBeUndefined();
-      expect(JSON.parse(result.content).role).toBeUndefined();
+      // No role resolves to builder, which declares no allowlist, so the fork
+      // keeps the full surface described by the system prompt it inherits.
+      expect(capturedConfig!.role).toBe("builder");
+      expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
+      expect(JSON.parse(result.content).role).toBe("builder");
     } finally {
       manager.spawn = originalSpawn;
       clearConversations();

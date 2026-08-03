@@ -286,13 +286,6 @@ export async function executeSubagentSpawn(
     forceOverrideProfile = inheritedOverrideProfile !== undefined;
   }
 
-  // A fork that names no role runs on the parent's own tool surface: it
-  // inherits the parent transcript and system prompt, both of which describe
-  // those tools, so scoping it to a type would leave the child reading about
-  // tools it cannot call. A fork that names one gets that type's allowlist
-  // like any other spawn. The advisor is special-cased earlier via
-  // runAdvisorConsult, not here.
-  const scopeToRole = !fork || requestedRole !== undefined;
   const roleNote = resolvedRoleNote(resolvedRole);
 
   try {
@@ -303,7 +296,12 @@ export async function executeSubagentSpawn(
         objective,
         context: extraContext,
         sendResultToUser,
-        ...(scopeToRole ? { role: resolvedRole.role } : {}),
+        // The resolved type is passed for every spawn, fork included: a fork
+        // that named no role resolves to `builder`, which imposes no
+        // allowlist, so it keeps the parent's tool surface, which is what the
+        // system prompt it inherits describes. The advisor is special-cased
+        // earlier via runAdvisorConsult, not here.
+        role: resolvedRole.role,
         ...(resolvedRole.personaText
           ? { persona: resolvedRole.personaText }
           : {}),
@@ -327,7 +325,7 @@ export async function executeSubagentSpawn(
         subagentId,
         label,
         status: "pending",
-        ...(scopeToRole ? { role: resolvedRole.role } : {}),
+        role: resolvedRole.role,
         ...(fork ? { isFork: true } : {}),
         ...(profileNote ? { note: profileNote } : {}),
         ...(roleNote ? { roleNote } : {}),
