@@ -170,10 +170,22 @@ export interface SubagentState {
   usage: UsageStats;
   /**
    * What the subagent actually ran, harvested from the child conversation when
-   * the run ends. In memory only: a subagent read back from its durable row
-   * after a daemon restart has none, and reports so rather than reporting zero.
+   * the run ends and re-read while that conversation is still retained (a
+   * follow-up turn queued during the run drains after the run returns). In
+   * memory only: see {@link rehydrated}.
    */
   stats?: SubagentToolStatsSummary;
+  /**
+   * True when this state was rebuilt from the subagent's durable row rather
+   * than from a run this process executed: the startup rehydration, or the
+   * tools' fallback for a subagent the manager's window no longer holds.
+   *
+   * The row carries no tool-call counters, so {@link stats} can never be
+   * filled in for one of these. Readers key the "unavailable" stats footer on
+   * this flag: a rehydrated entry sits in the manager exactly like a live one,
+   * so manager membership alone cannot tell the two apart.
+   */
+  rehydrated?: boolean;
 }
 
 /**

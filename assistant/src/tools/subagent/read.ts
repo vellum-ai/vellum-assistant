@@ -18,20 +18,28 @@ import {
  * The machine truth envelope appended to a read: what the subagent actually
  * ran, so the parent can check the output above against it.
  *
- * The counters live in memory next to the manager entry, so a subagent read
- * back from its durable row (the manager's window dropped it, or the daemon
- * restarted) says they are unavailable rather than reporting zero calls, which
- * would read as "this subagent did nothing". A live entry with no stats never
- * reached the end of a run, so it has nothing measured to report.
+ * The counters are re-read first, because a child that was sent guidance keeps
+ * running after the harvest its own run took.
+ *
+ * They live in memory only, so a subagent rebuilt from its durable row says
+ * they are unavailable rather than reporting zero calls, which would read as
+ * "this subagent did nothing". That covers both a row the manager never held
+ * (its window dropped it) and one the startup rehydration loaded back in: the
+ * rehydrated entry is in the manager like any other, so `state.rehydrated` is
+ * what separates it from a run this process actually executed. A live entry
+ * with no stats never reached the end of a run, so it has nothing measured to
+ * report and claims nothing.
  */
 function statsFooter(subagentId: string, state: SubagentState): string {
-  if (state.stats) {
-    return `\n\n${formatSubagentToolStats(state.stats)}`;
+  const stats =
+    getSubagentManager().currentToolStats(subagentId) ?? state.stats;
+  if (stats) {
+    return `\n\n${formatSubagentToolStats(stats)}`;
   }
-  if (getSubagentManager().getState(subagentId)) {
-    return "";
+  if (state.rehydrated) {
+    return `\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
   }
-  return `\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
+  return "";
 }
 
 // `last_n` is deliberately UNDECLARED (loose passthrough): the executor's

@@ -145,9 +145,25 @@ function injectSubagent(
     enqueueMessage: () => ({ queued: false }),
     persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
     runAgentLoop: async () => {},
+    // The live counters a retained conversation keeps, seeded to agree with
+    // any injected `stats`: in production that field is only ever a reading of
+    // THIS conversation's counters, and readers re-read them while the
+    // conversation is around.
+    subagentToolStats: {
+      calls: state.stats?.calls ?? 0,
+      succeeded: state.stats?.succeeded ?? 0,
+      filesWritten: new Set(
+        Array.from(
+          { length: state.stats?.filesWritten ?? 0 },
+          (_unused, i) => `/written-${i}.ts`,
+        ),
+      ),
+    },
   };
+  // A rehydrated entry is metadata rebuilt from the durable row, so it never
+  // has a live conversation behind it.
   internals.subagents.set(subagentId, {
-    conversation: fakeConversation,
+    conversation: state.rehydrated ? null : fakeConversation,
     state,
     parentSendToClient: () => {},
   });
@@ -164,6 +180,32 @@ function injectSubagent(
   );
 
   return state;
+}
+
+/**
+ * The live tool-call counters behind an injected subagent's fake conversation,
+ * so a test can move them the way a queued follow-up turn does after the run's
+ * own harvest.
+ */
+function liveToolStats(
+  manager: SubagentManager,
+  subagentId: string,
+): { calls: number; succeeded: number; filesWritten: Set<string> } {
+  const internals = manager as unknown as {
+    subagents: Map<
+      string,
+      {
+        conversation: {
+          subagentToolStats: {
+            calls: number;
+            succeeded: number;
+            filesWritten: Set<string>;
+          };
+        } | null;
+      }
+    >;
+  };
+  return internals.subagents.get(subagentId)!.conversation!.subagentToolStats;
 }
 
 function makeContext(
@@ -1436,7 +1478,62 @@ describe("Subagent read stats footer", () => {
         { subagent_id: subagentId },
         makeContext(ownerConversation),
       );
+      // No harvest ever happened, so there is nothing measured to report, and
+      // nothing was lost either, so it must not claim the counters are gone.
       expect(result.content).toBe("Partial output.");
+      expect(result.content).not.toContain("[stats:");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a follow-up turn's tool calls land in the footer, not just the run's", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-queued";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 2, succeeded: 2, filesWritten: 0 },
+    });
+    // Guidance queued during the run drains after the run harvested, into the
+    // same retained conversation, so the counters keep moving past that
+    // reading. The read has to look again rather than quote the harvest.
+    const live = liveToolStats(manager, subagentId);
+    live.calls += 3;
+    live.succeeded += 2;
+    live.filesWritten.add("/queued-turn.md");
+    stubOutput(subagentId, "Applied the follow-up guidance.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toBe(
+        "Applied the follow-up guidance.\n\n[stats: 5 tool calls, 4 succeeded, files written: 1]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a subagent rebuilt from its row reports its counters unavailable", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-stats-rehydrated";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      rehydrated: true,
+    });
+    stubOutput(subagentId, "Output from before the restart.");
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      // Being in the manager is not evidence of a live run: this entry was
+      // rebuilt from the durable row, which carries no counters at all.
+      expect(manager.getState(subagentId)).toBeDefined();
+      expect(result.content).toBe(
+        "Output from before the restart.\n\n[stats: unavailable (daemon restarted)]",
+      );
     } finally {
       mockGetMessages = () => null;
     }
@@ -2294,6 +2391,40 @@ describe("Subagent tools past the startup rehydration bound", () => {
       // the footer says unavailable rather than reporting zero tool calls.
       expect(result.content).toBe(
         "Output from beyond the bound\n\n[stats: unavailable (daemon restarted)]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read reports unavailable for a subagent the rehydration DID load", async () => {
+    // The reviewer's case: this entry is inside the bound, so the restart put
+    // it back in the manager, but its counters died with the process that ran
+    // it, and no rehydrated entry can ever have them. Manager membership is
+    // therefore not the signal; `rehydrated` is.
+    const filler = `cap-filler-${REHYDRATION_CAP - 1}`;
+    expect(manager.getState(filler)).toBeDefined();
+
+    mockGetMessages = (convId: string) =>
+      convId === `conv-${filler}`
+        ? [
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "Output from before the restart" },
+              ],
+            },
+          ]
+        : null;
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: filler },
+        makeContext(beyondCapParent),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe(
+        "Output from before the restart\n\n[stats: unavailable (daemon restarted)]",
       );
     } finally {
       mockGetMessages = () => null;
