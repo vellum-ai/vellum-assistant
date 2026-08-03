@@ -44,14 +44,16 @@ export interface UserOutcomePromptMeta {
   answer?: DoctorUserOutcomeAnswer;
 }
 
+export type UserOutcomePromptChatEntry = ChatEntryBase & {
+  kind: "user_outcome_prompt";
+  meta?: UserOutcomePromptMeta;
+};
+
 export type ChatEntry =
   | (ChatEntryBase & { kind: "user" })
   | (ChatEntryBase & { kind: "assistant" })
   | (ChatEntryBase & { kind: "feedback_prompt"; meta?: FeedbackPromptMeta })
-  | (ChatEntryBase & {
-      kind: "user_outcome_prompt";
-      meta?: UserOutcomePromptMeta;
-    })
+  | UserOutcomePromptChatEntry
   | (ChatEntryBase & { kind: "tool_call"; meta: ToolCallMeta })
   | (ChatEntryBase & { kind: "approval"; meta: ApprovalMeta })
   | (ChatEntryBase & { kind: "backup_prompt"; meta: BackupPromptMeta })
@@ -103,6 +105,36 @@ export function hasDoctorFeedbackPromptSinceLastUser(
   return entries
     .slice(lastUserEntryIndex(entries) + 1)
     .some((entry) => entry.kind === "feedback_prompt");
+}
+
+/**
+ * Splits user-outcome prompts from the latest turn out of the transcript.
+ *
+ * The Doctor requests the prompt through a tool call, so its closing prose
+ * streams in afterwards. Rendering the prompt inline would leave the Yes/No
+ * card sitting above the reply it asks about, so the panel renders prompts
+ * from the turn in progress after the rest of the transcript. Prompts from
+ * earlier turns are already followed by a user message and keep their place.
+ */
+export function partitionTrailingUserOutcomePrompts(
+  entries: readonly ChatEntry[],
+): {
+  transcript: ChatEntry[];
+  trailingPrompts: UserOutcomePromptChatEntry[];
+} {
+  const trailingStart = lastUserEntryIndex(entries) + 1;
+  const transcript: ChatEntry[] = [];
+  const trailingPrompts: UserOutcomePromptChatEntry[] = [];
+
+  entries.forEach((entry, index) => {
+    if (index >= trailingStart && entry.kind === "user_outcome_prompt") {
+      trailingPrompts.push(entry);
+      return;
+    }
+    transcript.push(entry);
+  });
+
+  return { transcript, trailingPrompts };
 }
 
 const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
