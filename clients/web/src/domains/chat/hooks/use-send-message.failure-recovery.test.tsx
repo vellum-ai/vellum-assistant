@@ -30,6 +30,7 @@ const DRAFT_ID = "draft-1";
 const SENT_TEXT = "resume: oil change, tire change, appraisal";
 
 let postCalls = 0;
+const sentNonces: string[] = [];
 const originalPost = daemonClient.post;
 
 const queryClient = new QueryClient();
@@ -62,18 +63,28 @@ function renderSend() {
 
 beforeEach(() => {
   postCalls = 0;
+  sentNonces.length = 0;
   queryClient.clear();
   useConversationStore.getState().reset();
   useTurnStore.setState(INITIAL_TURN_STATE);
   useChatSessionStore.getState().setOptimisticSends([]);
   useChatSessionStore.getState().setError(null);
   useComposerStore.getState().setInput("");
-  useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+  // The restore path only runs for a send the user is still looking at, so
+  // the scope has to read as current here.
+  useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+  useConversationStore.getState().setActiveConversationId(DRAFT_ID);
 
-  daemonClient.post = mock(async () => {
-    postCalls += 1;
-    throw new Error("Load failed");
-  }) as typeof daemonClient.post;
+  daemonClient.post = mock(
+    async (options: { body?: Record<string, unknown> }) => {
+      postCalls += 1;
+      const nonce = options.body?.clientMessageId;
+      if (typeof nonce === "string") {
+        sentNonces.push(nonce);
+      }
+      throw new Error("Load failed");
+    },
+  ) as typeof daemonClient.post;
 });
 
 afterEach(() => {
@@ -81,7 +92,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("useSendMessage — recovery when the POST throws", () => {
+describe("useSendMessage: recovery when the POST throws", () => {
   test("releases the draft-mint gate so a later send is still accepted", async () => {
     const { result } = renderSend();
 
@@ -106,5 +117,46 @@ describe("useSendMessage — recovery when the POST throws", () => {
 
     expect(useComposerStore.getState().input).toBe(SENT_TEXT);
     expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
+  });
+
+  test("retries the restored text under the original nonce", async () => {
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT);
+    });
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT);
+    });
+
+    // A throw leaves delivery unknown, so the retry has to carry the first
+    // send's nonce or the daemon cannot dedup a message that did land.
+    expect(sentNonces).toHaveLength(2);
+    expect(sentNonces[0]).toBe(sentNonces[1]!);
+  });
+
+  test("starts a new nonce when the user edits the text before resending", async () => {
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT);
+    });
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT + " and grease the PTO");
+    });
+
+    expect(sentNonces[0]).not.toBe(sentNonces[1]!);
+  });
+
+  test("does not put a hidden machine send into the composer", async () => {
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sendMessage("<system marker>", [], {
+        hidden: true,
+      });
+    });
+
+    expect(useComposerStore.getState().input).toBe("");
   });
 });

@@ -217,6 +217,16 @@ export function useSendMessage({
   const pendingDraftMintRef = useRef<string | null>(null);
   const surfacingConversationIdsRef = useRef<Set<string>>(new Set());
 
+  // Nonce of a send whose POST threw, held so retrying the restored text
+  // reuses it and the daemon can dedup a delivery whose outcome we never
+  // learned. Matched on conversation and content, so editing the text before
+  // resending correctly starts a new message.
+  const pendingRetryRef = useRef<{
+    conversationId: string;
+    content: string;
+    clientMessageId: string;
+  } | null>(null);
+
   // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
   // -------------------------------------------------------------------------
@@ -734,7 +744,18 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
-      const clientMessageId = crypto.randomUUID();
+      // Reuse the nonce from a send whose POST threw with this same text still
+      // in the composer. A throw leaves delivery unknown: the request may have
+      // reached the daemon and had only its response lost, so a retry under a
+      // fresh nonce would slip past the server's per-nonce dedup and run the
+      // turn, and its tool calls, a second time.
+      const retryNonce =
+        pendingRetryRef.current?.conversationId === activeConversationId &&
+        pendingRetryRef.current.content === content
+          ? pendingRetryRef.current.clientMessageId
+          : null;
+      pendingRetryRef.current = null;
+      const clientMessageId = retryNonce ?? crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
         clientMessageId,
@@ -979,10 +1000,35 @@ export function useSendMessage({
         // same recovery the `failed` branch performs. Without it a throw leaves
         // a bubble for a message the server never received and destroys what
         // the user typed, which reads to them as the app silently eating it.
+        //
+        // Only for a visible send the user is still looking at: restoring a
+        // hidden machine send would put text they never wrote in the composer,
+        // and restoring after a scope change would overwrite whatever they are
+        // typing in the conversation they moved to. Text the user can still
+        // see is not lost in either case, since the send that dropped it was
+        // not theirs or not here.
         setOptimisticSends((prev) =>
           prev.filter((m) => m.id !== userMessage.id),
         );
-        useComposerStore.getState().setInput(content);
+        const stillOnThisSend = isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: assistantId,
+          requestConversationId: activeConversationId,
+          resolvedConversationId: resolvedId,
+        });
+        if (!isHidden && stillOnThisSend) {
+          // Carry the nonce so a retry of this same text dedups server-side
+          // rather than risking a second run of an ambiguous delivery.
+          pendingRetryRef.current = {
+            conversationId: activeConversationId,
+            content,
+            clientMessageId,
+          };
+          useComposerStore.getState().setInput(content);
+        }
         setError({ message: "Something went wrong. Please try again." });
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key
