@@ -12,7 +12,9 @@
  * - **Whether the header carries a "…" button.** The curated sections (Pinned
  *   and the custom groups) get one, so their actions are reachable without
  *   knowing to right-click. It reveals on hover; the derived sections (Chats,
- *   the channel sections) keep their actions behind the header menu.
+ *   the channel sections) keep their actions behind the header menu — Chats
+ *   nests inside the persistent "Conversations" header in Grouped view (see
+ *   `assistant-side-menu.tsx`), which owns the one visible "…" button.
  *
  * Everything else - the icon, the collapse behavior, the header menu, the
  * section drag wiring, and the bounded scrolling row list - is uniform, and
@@ -70,7 +72,7 @@ export function SidebarSectionItem({
   return (
     <ConversationNavSection
       value={section.key}
-      icon={sectionIcon(section)}
+      icon={section.type === "pinned" ? undefined : sectionIcon(section)}
       label={section.label}
       /* The "…" button and the header's right-click menu both render from
          `groupMenu`; only the curated sections carry the button. */
@@ -82,6 +84,9 @@ export function SidebarSectionItem({
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator}
       drag={drag}
+      // Pinned is the user's own curation, always at the top — collapsing
+      // it away would hide the thing the section exists to surface.
+      collapsible={section.type !== "pinned"}
       listRef={listRef}
       listMaxHeight={listMaxHeight}
       {...rowListPropsFor(section)}

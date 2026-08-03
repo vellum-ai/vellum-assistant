@@ -351,7 +351,7 @@ export function ChatBody({
   // `trailingStarters` lets the docked layout render the starters elsewhere
   // (its own bottom dock) instead of directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
-    <div className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0">
+    <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
       {refreshFeedback && (
         <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
           <RefreshFeedbackPill

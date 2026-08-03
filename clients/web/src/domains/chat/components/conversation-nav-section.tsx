@@ -159,6 +159,14 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   collapsedIndicator?: ReactNode;
   /** Section-level drag-to-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
+  /** Forwarded to `CollapsibleNavSection.Section`; defaults to `true`. */
+  collapsible?: boolean;
+  /**
+   * Overrides the default `ConversationRowList` content — e.g. nested
+   * sub-sections instead of a row list. `items`/pagination/drag props are
+   * still required by the type but go unused when this is provided.
+   */
+  children?: ReactNode;
 }
 
 export function ConversationNavSection({
@@ -169,6 +177,8 @@ export function ConversationNavSection({
   groupMenu,
   collapsedIndicator,
   drag,
+  collapsible,
+  children,
   ...listProps
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
@@ -192,8 +202,9 @@ export function ConversationNavSection({
       }
       collapsedIndicator={collapsedIndicator}
       drag={drag}
+      collapsible={collapsible}
     >
-      <ConversationRowList {...listProps} />
+      {children ?? <ConversationRowList {...listProps} />}
     </CollapsibleNavSection.Section>
   );
 }

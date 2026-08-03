@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
-import { SessionCornerAction } from "@/domains/onboarding/components/session-corner-action";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
@@ -115,11 +114,6 @@ export function HostingScreen() {
 
   return (
     <OnboardingLayout>
-      <SessionCornerAction
-        loginLoading={loginLoading}
-        onLogin={() => void login()}
-        onCancelLogin={cancelLogin}
-      />
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
       >

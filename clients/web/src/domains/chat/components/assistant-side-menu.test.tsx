@@ -295,12 +295,35 @@ describe("AssistantSideMenu · All view", () => {
     expect(indexOfText("Alpha")).toBeLessThan(indexOfText("Chats"));
   });
 
-  test("offers the view switch", () => {
-    const html = renderMenu({ conversations });
-
-    expect(html).toContain('aria-label="Conversation list view"');
-    expect(html).toContain(">All<");
-    expect(html).toContain(">Groups<");
+  test("offers the view switch behind the Conversations actions menu", async () => {
+    // This describe block runs in List view (see its own `beforeEach`), so
+    // "Conversations" is what carries the toggle here; Grouped view's
+    // "Chats actions" menu covers the other side of the same control.
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail",
+        conversations,
+        onSelectConversation: () => {},
+      }),
+    );
+    try {
+      const trigger = container.querySelector<HTMLElement>(
+        '[aria-label="Conversations actions"]',
+      );
+      expect(trigger).not.toBeNull();
+      act(() => {
+        trigger?.click();
+      });
+      await waitFor(() => {
+        expect(document.body.textContent).toContain("View As");
+      });
+      expect(document.body.textContent).toContain("List");
+      expect(document.body.textContent).toContain("Groups");
+    } finally {
+      cleanup();
+    }
   });
 
   test("the collapsed rail reaches the flat list through a Chats icon", () => {
@@ -312,13 +335,10 @@ describe("AssistantSideMenu · All view", () => {
 });
 
 describe("AssistantSideMenu · scrollport top inset", () => {
-  // The sticky view switch sticks to the scrollport's *content* box, so the
-  // body carries no top padding: any there would park the switch that far
-  // down and open a strip above it for rows to scroll through. The overlay
-  // still needs the inset though, because its first body child is the
-  // assistant cluster rather than the switch, and without it the cluster
-  // collides with the floating close and search glyphs. So the inset moves
-  // onto the cluster rather than disappearing.
+  // The rail's scrollport carries no top padding of its own; the overlay
+  // needs one though, because its first body child is the assistant cluster
+  // and without it the cluster collides with the floating close and search
+  // glyphs. So the inset lives on the cluster rather than the scrollport.
   test("the rail's scrollport carries no top inset", () => {
     const container = parse(
       renderMenu({ conversations: [makeConversation({ conversationId: "r1" })] }),
@@ -521,7 +541,7 @@ describe("AssistantSideMenu · tipCard slot", () => {
   test("omits the tip wrapper from the overlay when no tip card is provided", () => {
     const html = renderMenu({ conversations, variant: "overlay" });
 
-    expect(html).not.toContain("empty:hidden");
+    expect(html).not.toContain('data-slot="tip-card-wrapper"');
   });
 });
 
@@ -936,18 +956,30 @@ describe("AssistantSideMenu · section spacing", () => {
       }),
     );
 
-    const sections = sectionElements(container);
+    // "Conversations" is the persistent header for everything that isn't
+    // Pinned or a custom group; Chats and each channel section nest inside
+    // it in Grouped view rather than sitting as its top-level siblings.
     expect(sectionLabels(container)).toEqual([
       "Pinned",
       "Alpha",
+      "Conversations",
       "Chats",
       "Slack",
     ]);
 
-    // All four are siblings - one shared parent, so one shared gap.
-    const parents = new Set(sections.map((s) => s.parentElement));
-    expect(parents.size).toBe(1);
-    expect([...parents][0]?.className).toContain("gap-3");
+    // Two tiers, each sharing its own gap: the root holds Pinned, Alpha, and
+    // Conversations; Conversations' own wrapper holds Chats and Slack.
+    const sections = sectionElements(container);
+    const [pinned, alpha, conversations, chats, slack] = sections;
+    const rootParents = new Set(
+      [pinned, alpha, conversations].map((s) => s.parentElement),
+    );
+    expect(rootParents.size).toBe(1);
+    expect([...rootParents][0]?.className).toContain("gap-3");
+
+    const nestedParents = new Set([chats, slack].map((s) => s.parentElement));
+    expect(nestedParents.size).toBe(1);
+    expect([...nestedParents][0]?.className).toContain("gap-3");
   });
 });
 
@@ -1076,24 +1108,41 @@ describe("AssistantSideMenu · equal section treatment", () => {
     expect(rule.hasAttribute("data-resizable")).toBe(false);
   });
 
-  // The switch sits outside the section list, ahead of it: a sticky element
-  // only holds while its own containing block is on screen, and the section
-  // list ends where the flat list begins.
-  test("the view switch leads the whole list and sticks", () => {
+  // The switch isn't statically rendered at all — it lives behind the
+  // persistent "Conversations" header's "…" button, reachable rather than
+  // always on screen (Chats itself, nested inside Conversations in Grouped
+  // view, carries no button of its own — see `sidebar-section-item.tsx`).
+  test("the view switch is behind the Conversations actions menu, not statically rendered", async () => {
     const html = renderMenu({
       conversations: LAYOUT_CONVERSATIONS,
       conversationGroups: LAYOUT_GROUPS,
     });
+    expect(html).not.toContain('data-slot="segment-control"');
 
-    expect(html.indexOf('data-slot="segment-control"')).toBeLessThan(
-      html.indexOf('data-slot="collapsible"'),
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail",
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+      }),
     );
-
-    const container = parse(html);
-    const wrapper = container
-      .querySelector('[data-slot="segment-control"]')
-      ?.closest("div.sticky");
-    expect(wrapper).not.toBeNull();
+    try {
+      const trigger = container.querySelector<HTMLElement>(
+        '[aria-label="Conversations actions"]',
+      );
+      expect(trigger).not.toBeNull();
+      act(() => {
+        trigger?.click();
+      });
+      await waitFor(() => {
+        expect(document.body.textContent).toContain("View As");
+      });
+    } finally {
+      cleanup();
+    }
   });
 
   test("every section renders through the same component with the same affordances", () => {
@@ -1105,9 +1154,19 @@ describe("AssistantSideMenu · equal section treatment", () => {
     );
 
     const sections = sectionElements(container);
-    expect(sections).toHaveLength(4);
+    expect(sections).toHaveLength(5);
 
-    for (const section of sections) {
+    // "Conversations" is the persistent wrapper, not itself a member of
+    // `sidebar.sections` — it doesn't drag and carries no icon (matching
+    // Pinned's icon-less header). Everything else still shares the same
+    // affordances.
+    const labels = sectionLabels(container);
+    const reorderable = sections.filter(
+      (_, index) => labels[index] !== "Conversations",
+    );
+    expect(reorderable).toHaveLength(4);
+
+    for (const section of reorderable) {
       const header = section.querySelector<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
       );
@@ -1127,15 +1186,22 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
+    // "Conversations" is the persistent wrapper (not a member of
+    // `sidebar.sections`), so it never drags — everything else does.
+    const labels = sectionLabels(container);
     const headers = Array.from(
       container.querySelectorAll<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
       ),
     );
-    expect(headers).toHaveLength(4);
-    expect(headers.every((h) => h.getAttribute("draggable") === "true")).toBe(
-      true,
+    expect(headers).toHaveLength(5);
+    const draggable = headers.filter(
+      (_, index) => labels[index] !== "Conversations",
     );
+    expect(draggable).toHaveLength(4);
+    expect(
+      draggable.every((h) => h.getAttribute("draggable") === "true"),
+    ).toBe(true);
   });
 
   test("a lone section isn't draggable - there's nothing to reorder against", () => {
@@ -1145,13 +1211,18 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
+    // "Conversations" (always present) plus the lone nested "Chats" section
+    // — neither drags: Conversations isn't a member of `sidebar.sections` to
+    // begin with, and Chats has nothing to reorder against.
     const headers = Array.from(
       container.querySelectorAll<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
       ),
     );
-    expect(headers).toHaveLength(1);
-    expect(headers[0]?.getAttribute("draggable")).toBeNull();
+    expect(headers).toHaveLength(2);
+    expect(
+      headers.every((h) => h.getAttribute("draggable") !== "true"),
+    ).toBe(true);
   });
 
   // Regression guard. The handlers first sat on the section root, where

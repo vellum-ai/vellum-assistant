@@ -24,7 +24,11 @@ import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-c
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
-import { ConversationRowList } from "@/domains/chat/components/conversation-nav-section";
+import {
+  ConversationNavSection,
+  ConversationRowList,
+} from "@/domains/chat/components/conversation-nav-section";
+import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
 import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
@@ -416,6 +420,22 @@ export function AssistantSideMenu({
     });
   };
 
+  // List/Groups switch, in the persistent "Conversations" header's menu.
+  const viewAsFooter = (
+    <div className="mt-2 px-2 pb-1">
+      <div
+        className="mb-1.5 text-label-small-default text-[var(--content-tertiary)]"
+        style={{ fontSize: 12 }}
+      >
+        View As
+      </div>
+      <SidebarViewModeToggle
+        value={sidebar.viewMode}
+        onChange={sidebar.onViewModeChange}
+      />
+    </div>
+  );
+
   const renderSection = (section: SidebarSection) => (
     <SidebarSectionItem
       key={section.key}
@@ -429,6 +449,14 @@ export function AssistantSideMenu({
       }
     />
   );
+
+  // The persistent "Conversations" header: same bulk-action menu shape as a
+  // section's, minus move-up/down since it isn't a member of
+  // `sidebar.sections`. Scoped to `flatList` regardless of view mode —
+  // that's every conversation neither pinned nor in a custom group, the same
+  // set whether it's currently rendered as one list (List view) or split
+  // into Chats + channel sub-sections (Grouped view).
+  const conversationsMenu = buildGroupMenu("Conversations", sidebar.flatList);
 
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
@@ -642,15 +670,6 @@ export function AssistantSideMenu({
                last section) creates a group, so the affordance covers the
                whole scrollport rather than any one section. */
             <>
-              {/* The switch leads the whole list and stays put: it is the
-                  sidebar's top-level choice, not a header on any one part of
-                  it. It sits outside the list wrapper because a sticky element
-                  only holds while its own containing block is on screen, and
-                  the section list ends where the flat list begins. */}
-              <SidebarViewModeToggle
-                value={sidebar.viewMode}
-                onChange={sidebar.onViewModeChange}
-              />
               <SidebarListContextMenu onCreateGroup={onCreateGroup}>
               {/* Every section - Pinned, Chats, channels, custom groups -
                   shares one accordion root, so its gap is the only thing
@@ -688,18 +707,45 @@ export function AssistantSideMenu({
                     onReset={() => resetPinnedSectionHeight(assistantId)}
                   />
                 ) : null}
-                {sidebar.sections
-                  .slice(sidebar.curatedSectionCount)
-                  .map(renderSection)}
-              </CollapsibleNavSection.Root>
-              {/* The All view's remainder: one headerless list, scrolling
-                  against the sidebar body it already fills. */}
-              {sidebar.viewMode === "all" && bodyElement ? (
-                <ConversationRowList
+                {/* "Conversations" is the persistent header for everything
+                    that isn't Pinned or a custom group — it never swaps out
+                    for "Chats". In List view its content is the flat list;
+                    in Grouped view, Chats and each channel section nest
+                    inside it instead of sitting as its top-level siblings,
+                    keeping their own headers/collapse behavior. Same
+                    bulk-action menu machinery as a section's, minus
+                    move-up/down since it isn't a member of
+                    `sidebar.sections`. */}
+                <ConversationNavSection
+                  value="conversations"
+                  label="Conversations"
+                  collapsible={false}
+                  trailing={
+                    <GroupActionsMenu
+                      label="Conversations"
+                      footer={viewAsFooter}
+                      {...conversationsMenu}
+                    />
+                  }
+                  groupMenu={conversationsMenu}
                   items={sidebar.flatList}
-                  scrollParent={bodyElement}
-                />
-              ) : null}
+                >
+                  {sidebar.viewMode === "all" ? (
+                    bodyElement ? (
+                      <ConversationRowList
+                        items={sidebar.flatList}
+                        scrollParent={bodyElement}
+                      />
+                    ) : null
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {sidebar.sections
+                        .slice(sidebar.curatedSectionCount)
+                        .map(renderSection)}
+                    </div>
+                  )}
+                </ConversationNavSection>
+              </CollapsibleNavSection.Root>
               </SidebarListContextMenu>
               <SidebarBackToTop
                 visible={scrolledPast}
@@ -732,7 +778,12 @@ export function AssistantSideMenu({
             {/* `empty:hidden` collapses the row when the tip card renders
                null, so the column gap adds no phantom spacing. */}
             {tipCard ? (
-              <div className="pointer-events-auto empty:hidden">{tipCard}</div>
+              <div
+                data-slot="tip-card-wrapper"
+                className="pointer-events-auto empty:hidden"
+              >
+                {tipCard}
+              </div>
             ) : null}
             <div className="flex items-center justify-center gap-4">
               {footerAction ? (
