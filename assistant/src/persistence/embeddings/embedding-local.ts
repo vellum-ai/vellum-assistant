@@ -545,6 +545,19 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Type-compatible assignment
     this.workerProc = proc;
 
+    // Drain stderr from the moment the child exists. A worker can signal ready,
+    // print why it is about to die, and exit before any later setup runs, so a
+    // drain started after readiness can find the stream already closed and
+    // report the death with nothing attached. This is also the only reader of
+    // `proc.stderr`: a stream admits one, so the startup-failure path below
+    // reads the tail rather than the stream.
+    //
+    // Each drain owns its tail array, so this points at the new worker's buffer
+    // while a still-running drain from a previous worker appends to its own.
+    const { drained, tail } = this.drainStderr(proc.stderr);
+    this.stderrDrained = drained;
+    this.stderrTail = tail;
+
     // Start reading stdout for responses (needed for waitForReady)
     this.startStdoutReader();
 
@@ -563,11 +576,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       this.stdoutBuffer = "";
       const confirmed = await this.terminateWorker(proc);
       const exitCode = confirmed ? proc.exitCode : undefined;
-      // Bounded for the same reason: a live child never closes stderr.
-      const stderr = await Promise.race([
-        new Response(proc.stderr).text().catch(() => ""),
-        Bun.sleep(this.terminateGraceMs).then(() => ""),
-      ]);
+      // The drain started at spawn owns the stream, so read its tail rather
+      // than the stream itself. Bounded for the same reason the drain is: a
+      // live child never closes stderr.
+      await didSettle(drained, this.terminateGraceMs);
+      const stderr = tail.join("\n");
       if (stderr.trim()) {
         log.warn(
           { stderr: stderr.trim(), exitCode, bunPath },
@@ -580,13 +593,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         }`,
       );
     }
-
-    // Each drain owns its own tail array, so this points at the new worker's
-    // buffer while any still-running drain from a previous worker keeps
-    // appending to its own. The report can only ever read one worker's output.
-    const { drained, tail } = this.drainStderr(proc.stderr);
-    this.stderrDrained = drained;
-    this.stderrTail = tail;
 
     // Write PID file so `vellum ps` can see the embed worker
     this.writePidFile(proc.pid);

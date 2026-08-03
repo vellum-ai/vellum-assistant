@@ -9,12 +9,21 @@
  *   4. Shutdown reaps process-owned workers deterministically.
  */
 
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { getEmbedWorkerPidPath } from "../../../util/platform.js";
+import {
+  getEmbeddingModelsDir,
+  getEmbedWorkerPidPath,
+} from "../../../util/platform.js";
 import {
   classifyWorkerOwnership,
   listWorkerProcesses,
@@ -462,6 +471,10 @@ describe("reclaiming before spawning a replacement", () => {
     spawned.push(proc);
     await Bun.sleep(400);
 
+    // `startWorker` spawns with `cwd: getEmbeddingModelsDir()`; posix_spawn
+    // fails with ENOENT when that directory is absent.
+    mkdirSync(getEmbeddingModelsDir(), { recursive: true });
+
     const backend = new LocalEmbeddingBackend("test-model") as Internals;
     backend.terminateGraceMs = 300;
     await backend.reclaimOwnedWorkers(scriptPath);
@@ -494,6 +507,10 @@ setTimeout(() => {}, 60_000);\n`,
     const workers = listWorkerProcesses(scriptPath);
     expect(workers.length).toBe(1);
     expect(workers[0].ppid).toBe(parent.pid);
+
+    // `startWorker` spawns with `cwd: getEmbeddingModelsDir()`; posix_spawn
+    // fails with ENOENT when that directory is absent.
+    mkdirSync(getEmbeddingModelsDir(), { recursive: true });
 
     const backend = new LocalEmbeddingBackend("test-model") as Internals;
     backend.terminateGraceMs = 300;
@@ -751,5 +768,74 @@ describe("model matching", () => {
     expect(
       listWorkerProcesses(scriptPath, "foo/bar-small-v2").map((w) => w.pid),
     ).toEqual([proc.pid]);
+  });
+});
+
+describe("stderr capture across worker startup", () => {
+  /**
+   * Discriminating test for drain ordering. The worker prints to stderr, waits,
+   * and only then signals ready. While readiness is still pending, the tail
+   * must already hold that line, which is true only if draining began at spawn.
+   * A drain started after readiness sees an empty tail at this point, so this
+   * fails on the pre-fix ordering rather than passing either way.
+   */
+  test("stderr is captured while readiness is still pending", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-drain-order-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(
+      scriptPath,
+      [
+        `process.stderr.write("EARLY: emitted before ready\\n");`,
+        `setTimeout(() => {`,
+        `  process.stdout.write(JSON.stringify({ type: "ready" }) + "\\n");`,
+        `}, 700);`,
+        `setTimeout(() => {}, 60_000);`,
+        ``,
+      ].join("\n"),
+    );
+
+    mkdirSync(getEmbeddingModelsDir(), { recursive: true });
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 300;
+
+    // Not awaited: it cannot resolve until the worker signals ready at 700ms.
+    const starting = backend.startWorker(process.execPath, scriptPath);
+    await Bun.sleep(300);
+
+    const tailDuringStartup = [...(backend.stderrTail ?? [])].join("\n");
+    expect(tailDuringStartup).toContain("EARLY: emitted before ready");
+
+    await starting;
+    backend.terminateNow();
+  });
+
+  /**
+   * The drain owns `proc.stderr`, so the startup-failure path must read the
+   * tail rather than the stream. A worker that never signals ready and dies
+   * with output must still surface that output in the thrown error.
+   */
+  test("a worker that dies before ready surfaces its stderr in the startup error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-prefatal-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(
+      scriptPath,
+      [
+        `process.stderr.write("FATAL: died before ready\\n");`,
+        `process.exit(4);`,
+        ``,
+      ].join("\n"),
+    );
+
+    // `startWorker` spawns with `cwd: getEmbeddingModelsDir()`; posix_spawn
+    // fails with ENOENT when that directory is absent.
+    mkdirSync(getEmbeddingModelsDir(), { recursive: true });
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 300;
+
+    await expect(
+      backend.startWorker(process.execPath, scriptPath),
+    ).rejects.toThrow(/died before ready/);
   });
 });
