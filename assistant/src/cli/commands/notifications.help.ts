@@ -86,7 +86,7 @@ Examples:
         {
           flags: "--title <title>",
           description:
-            "Short headline. Keep it to 5 words and 40 characters; anything longer is trimmed to fit. A title that reads like prose (a reasoning opener, or a full sentence ending in terminal punctuation) is discarded in favor of a headline derived from --message.",
+            "Short headline. Titles over 40 characters are trimmed to fit, and one over 40 characters that also runs past 7 words is cut to its first 5. A title that reads like prose (a reasoning opener, or a full sentence ending in terminal punctuation) is discarded in favor of a headline derived from --message.",
         },
         {
           flags: "--urgency <urgency>",
