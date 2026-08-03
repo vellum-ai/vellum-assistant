@@ -29,6 +29,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -131,8 +132,18 @@ export interface IndexedDocument {
 // ── Internal helpers ───────────────────────────────────────────────────────
 
 /**
- * The Qdrant client for the shared collection, lazily initializing it from
- * `config` when this process has not.
+ * Config fingerprint of the client {@link resolveQdrant} last built, so a live
+ * config change is not served by a stale client. `VellumQdrantClient` captures
+ * its collection, dimension, and model identity at construction, so a client
+ * built before the change would keep writing at the old dimension (rejected by
+ * a resized collection) or quietly mix vectors from two models into one
+ * collection without triggering the sentinel migration.
+ */
+let clientConfigIdentity: string | null = null;
+
+/**
+ * The Qdrant client for the shared collection, initializing it from the live
+ * workspace config when this process has not.
  *
  * The eager `initQdrantClient` in `runMemoryStartup`
  * (`plugins/defaults/memory/startup.ts`) cannot be relied on here: it runs in
@@ -141,38 +152,57 @@ export interface IndexedDocument {
  * entirely, because no v1 lane reads or writes the collection in that state.
  * The plugin index is not a memory tier: it is plugin-owned search that must
  * work on every tier and in any process that runs plugin code, so it resolves
- * the client itself rather than depending on a memory-tier decision.
- *
- * Cheap and idempotent: `initQdrantClient` only constructs a client — the
- * collection is created lazily inside each operation — and re-initializing from
- * the same config just repoints the singleton at an equivalent client. Mirrors
+ * the client itself rather than depending on a memory-tier decision. Mirrors
  * `resolveLexicalIndex` in `persistence/job-handlers/message-lexical.ts`.
+ *
+ * Cheap: `initQdrantClient` only constructs a client — the collection is
+ * created lazily inside each operation — and the steady-state path is a
+ * fingerprint comparison, with the embedding-backend lookup reached only when
+ * the config it derives from has actually changed.
  *
  * The dense embedding identity is passed through so a collection created or
  * reused from here keeps the same model-sentinel semantics as the v1 path: a
  * model or dimension change recreates the collection, which is the durability
  * contract documented at the top of this file.
  */
-async function resolveQdrant(
-  config: AssistantConfig,
-): Promise<VellumQdrantClient> {
-  try {
-    return getQdrantClient();
-  } catch {
-    // Not initialized in this process — construct it below.
+async function resolveQdrant(): Promise<VellumQdrantClient> {
+  const config = getConfig();
+  const url = resolveQdrantUrl(config);
+  const { collection, vectorSize, onDisk, quantization } = config.memory.qdrant;
+  // `memory.embeddings` rather than the resolved backend: it is what the
+  // resolution below reads, and comparing it keeps that lookup off the hot
+  // path. Over-sensitive by a field or two (a `required` flip re-inits), which
+  // costs one redundant construction and never a wrong client.
+  const identity = JSON.stringify([
+    url,
+    collection,
+    vectorSize,
+    onDisk,
+    quantization,
+    config.memory.embeddings,
+  ]);
+
+  if (identity === clientConfigIdentity) {
+    try {
+      return getQdrantClient();
+    } catch {
+      // Fingerprint outlived the singleton (another module reset it) — rebuild.
+    }
   }
+
   const selection = await selectEmbeddingBackend(config);
-  const embeddingModel = selection.backend
-    ? `${selection.backend.provider}:${selection.backend.model}`
-    : undefined;
-  return initQdrantClient({
-    url: resolveQdrantUrl(config),
-    collection: config.memory.qdrant.collection,
-    vectorSize: config.memory.qdrant.vectorSize,
-    onDisk: config.memory.qdrant.onDisk,
-    quantization: config.memory.qdrant.quantization,
-    embeddingModel,
+  const client = initQdrantClient({
+    url,
+    collection,
+    vectorSize,
+    onDisk,
+    quantization,
+    embeddingModel: selection.backend
+      ? `${selection.backend.provider}:${selection.backend.model}`
+      : undefined,
   });
+  clientConfigIdentity = identity;
+  return client;
 }
 
 /** Embed a single input to a dense vector, failing loudly if no backend is up. */
@@ -250,7 +280,7 @@ export async function indexDocument(
   const normalized = normalizeEmbeddingInput(input);
   const documentId = opts?.documentId ?? randomUUID();
   const now = opts?.createdAt ?? Date.now();
-  const qdrant = await resolveQdrant(config);
+  const qdrant = await resolveQdrant();
 
   await withQdrantBreaker(() =>
     qdrant.upsert(
@@ -291,7 +321,7 @@ export async function queryIndex(
   const embedding = await embedDense(config, query);
   const sparseVector = sparseFor(query);
   const limit = opts?.limit ?? 10;
-  const qdrant = await resolveQdrant(config);
+  const qdrant = await resolveQdrant();
 
   const filter = {
     must: [
@@ -329,11 +359,10 @@ export async function queryIndex(
 
 /** Fetch a single document from the given plugin's index, or null. */
 export async function getDocument(
-  config: AssistantConfig,
   plugin: string,
   documentId: string,
 ): Promise<IndexedDocument | null> {
-  const qdrant = await resolveQdrant(config);
+  const qdrant = await resolveQdrant();
   const found = await withQdrantBreaker(() =>
     qdrant.getByTarget(
       PLUGIN_INDEX_TARGET_TYPE,
@@ -355,11 +384,10 @@ export async function getDocument(
 
 /** Remove a single document from the given plugin's index. */
 export async function removeDocument(
-  config: AssistantConfig,
   plugin: string,
   documentId: string,
 ): Promise<void> {
-  const qdrant = await resolveQdrant(config);
+  const qdrant = await resolveQdrant();
   await withQdrantBreaker(() =>
     qdrant.deleteByTargetAndPlugin(
       PLUGIN_INDEX_TARGET_TYPE,
@@ -375,12 +403,9 @@ export async function removeDocument(
  * exposed on the plugin API, since one plugin must never purge another's data.
  * Best-effort: logs and swallows so a purge failure never blocks teardown.
  */
-export async function purgeEmbeddingsForPlugin(
-  config: AssistantConfig,
-  plugin: string,
-): Promise<void> {
+export async function purgeEmbeddingsForPlugin(plugin: string): Promise<void> {
   try {
-    const qdrant = await resolveQdrant(config);
+    const qdrant = await resolveQdrant();
     await withQdrantBreaker(() => qdrant.deleteByPlugin(plugin));
   } catch (err) {
     log.warn({ err, plugin }, "Failed to purge plugin embeddings");

@@ -10,12 +10,14 @@ import type { SparseEmbedding } from "../embedding-types.js";
 // only while memory v1 is the live tier; on a default workspace
 // (`memory.v2.enabled` defaults true, or `memory.v3.live`) it is skipped, so
 // `getQdrantClient()` throws and every plugin Index op used to fail with
-// `BackendUnavailableError: Qdrant client not initialized`. The ops must now
-// initialize the client themselves from the workspace config.
+// `BackendUnavailableError: Qdrant client not initialized`. The ops must
+// initialize the client themselves from the live workspace config, and rebuild
+// it when that config changes rather than serving a stale one.
 //
-// This file mocks `getQdrantClient` to throw — an uninitialized process — where
-// `plugin-index.test.ts` mocks it to succeed. Each test file runs in its own
-// Bun process (see scripts/test.ts), so the two mocks cannot collide.
+// The fake singleton below behaves like the real one — absent until
+// `initQdrantClient` sets it — where `plugin-index.test.ts` mocks a client that
+// is already up. Each test file runs in its own Bun process (see
+// scripts/test.ts), so the two mocks cannot collide.
 // ---------------------------------------------------------------------------
 
 interface InitCall {
@@ -53,13 +55,20 @@ const fakeQdrant = {
   },
 };
 
+/** Stands in for the module singleton in `qdrant-client.ts`: null until set. */
+let instance: typeof fakeQdrant | null = null;
+
 mock.module("../qdrant-client.js", () => ({
   getQdrantClient: () => {
-    throw new Error("Qdrant client not initialized. Call initQdrantClient()");
+    if (!instance) {
+      throw new Error("Qdrant client not initialized. Call initQdrantClient()");
+    }
+    return instance;
   },
   initQdrantClient: (cfg: InitCall) => {
     calls.init.push(cfg);
-    return fakeQdrant;
+    instance = fakeQdrant;
+    return instance;
   },
   resolveQdrantUrl: () => "http://127.0.0.1:7777",
 }));
@@ -75,14 +84,14 @@ mock.module("../embed.js", () => ({
 }));
 mock.module("../embedding-backend.js", () => ({
   selectEmbeddingBackend: async () => ({
-    backend: { provider: "gemini", model: "test-embed-model" },
+    backend: { provider: "gemini", model: liveConfig.memory.embeddings.model },
     reason: null,
   }),
   getMemoryBackendStatus: async () => ({
     enabled: true,
     degraded: false,
     provider: "gemini",
-    model: "test-embed-model",
+    model: liveConfig.memory.embeddings.model,
     reason: null,
   }),
   generateSparseEmbedding: (): SparseEmbedding => ({
@@ -91,11 +100,8 @@ mock.module("../embedding-backend.js", () => ({
   }),
 }));
 
-const { indexDocument, queryIndex, getDocument, removeDocument } =
-  await import("../plugin-index.js");
-
-// Only the `memory.qdrant` slice is read on the lazy-init path.
-const CONFIG = {
+/** The workspace config `getConfig()` returns; mutated to simulate a reload. */
+let liveConfig = {
   memory: {
     qdrant: {
       collection: "vellum_memory",
@@ -103,8 +109,16 @@ const CONFIG = {
       onDisk: true,
       quantization: "scalar",
     },
+    embeddings: { provider: "gemini", model: "test-embed-model" },
   },
-} as never;
+};
+
+mock.module("../../../config/loader.js", () => ({
+  getConfig: () => liveConfig,
+}));
+
+const { indexDocument, queryIndex, getDocument, removeDocument } =
+  await import("../plugin-index.js");
 
 beforeEach(() => {
   calls.init.length = 0;
@@ -119,7 +133,11 @@ afterAll(() => {
 
 describe("plugin index without a pre-initialized Qdrant client", () => {
   test("indexDocument initializes the client from config instead of throwing", async () => {
-    const res = await indexDocument(CONFIG, "ledger", "Morning coffee");
+    const res = await indexDocument(
+      liveConfig as never,
+      "ledger",
+      "Morning coffee",
+    );
 
     expect(res.documentId).toBeTruthy();
     expect(calls.upserts).toEqual([
@@ -140,13 +158,62 @@ describe("plugin index without a pre-initialized Qdrant client", () => {
   });
 
   test("query/get/remove also work without a pre-initialized client", async () => {
-    await expect(queryIndex(CONFIG, "ledger", "coffee")).resolves.toEqual([]);
-    await expect(getDocument(CONFIG, "ledger", "doc-1")).resolves.toBeNull();
     await expect(
-      removeDocument(CONFIG, "ledger", "doc-1"),
-    ).resolves.toBeUndefined();
+      queryIndex(liveConfig as never, "ledger", "coffee"),
+    ).resolves.toEqual([]);
+    await expect(getDocument("ledger", "doc-1")).resolves.toBeNull();
+    await expect(removeDocument("ledger", "doc-1")).resolves.toBeUndefined();
 
     expect(calls.get).toEqual([{ targetId: "ledger:doc-1" }]);
     expect(calls.deleteScoped).toEqual([{ targetId: "ledger:doc-1" }]);
+  });
+
+  test("an unchanged config reuses the client instead of rebuilding it", async () => {
+    await indexDocument(liveConfig as never, "ledger", "one");
+    await indexDocument(liveConfig as never, "ledger", "two");
+    await getDocument("ledger", "doc-1");
+
+    expect(calls.upserts).toHaveLength(2);
+    expect(calls.init).toHaveLength(0); // already built by an earlier test
+  });
+
+  test("a live embedding-config change rebuilds the client", async () => {
+    await indexDocument(liveConfig as never, "ledger", "before");
+    expect(calls.init).toHaveLength(0);
+
+    // A model swap at the same dimension: the client's captured model identity
+    // is now wrong, so reusing it would mix two models' vectors in one
+    // collection without tripping the sentinel migration.
+    liveConfig = {
+      memory: {
+        ...liveConfig.memory,
+        embeddings: { provider: "gemini", model: "swapped-embed-model" },
+      },
+    };
+    await indexDocument(liveConfig as never, "ledger", "after");
+
+    expect(calls.init).toEqual([
+      {
+        url: "http://127.0.0.1:7777",
+        collection: "vellum_memory",
+        vectorSize: 768,
+        onDisk: true,
+        quantization: "scalar",
+        embeddingModel: "gemini:swapped-embed-model",
+      },
+    ]);
+  });
+
+  test("a dimension change rebuilds the client", async () => {
+    liveConfig = {
+      memory: {
+        ...liveConfig.memory,
+        qdrant: { ...liveConfig.memory.qdrant, vectorSize: 1536 },
+      },
+    };
+    await indexDocument(liveConfig as never, "ledger", "resized");
+
+    expect(calls.init).toHaveLength(1);
+    expect(calls.init[0].vectorSize).toBe(1536);
   });
 });

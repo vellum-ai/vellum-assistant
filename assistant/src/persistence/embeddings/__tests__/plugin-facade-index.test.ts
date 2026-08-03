@@ -27,11 +27,11 @@ mock.module("../plugin-index.js", () => ({
     received.plugin = plugin;
     return [];
   },
-  getDocument: async (_cfg: unknown, plugin: string) => {
+  getDocument: async (plugin: string) => {
     received.plugin = plugin;
     return null;
   },
-  removeDocument: async (_cfg: unknown, plugin: string) => {
+  removeDocument: async (plugin: string) => {
     received.plugin = plugin;
   },
 }));
