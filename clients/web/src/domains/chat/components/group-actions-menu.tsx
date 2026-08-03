@@ -280,7 +280,7 @@ export interface GroupActionsMenuProps extends GroupMenuItemsProps {
   /**
    * Extra content appended below the shared items, its own divider before it
    * (only when the shared items are non-empty). Currently used only by the
-   * "Conversations" header, for the List/Groups view-mode toggle — a section
+   * "Conversations" header, for the List/Groups view-mode toggle: a section
    * property rather than a bulk action, so it doesn't belong in
    * {@link GroupMenuItemsProps}.
    */

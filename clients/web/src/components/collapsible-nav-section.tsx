@@ -265,7 +265,7 @@ function CollapsibleNavSectionSection({
           ) : null}
         </Collapsible.Trigger>
       ) : (
-        // Non-collapsible: no chevron, no toggle affordance — just the icon
+        // Non-collapsible: no chevron, no toggle affordance, just the icon
         // slot (if given) and the label, always at rest.
         <div
           className={cn(

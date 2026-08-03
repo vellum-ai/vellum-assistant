@@ -162,7 +162,7 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   /** Forwarded to `CollapsibleNavSection.Section`; defaults to `true`. */
   collapsible?: boolean;
   /**
-   * Overrides the default `ConversationRowList` content — e.g. nested
+   * Overrides the default `ConversationRowList` content, e.g. nested
    * sub-sections instead of a row list. `items`/pagination/drag props are
    * still required by the type but go unused when this is provided.
    */

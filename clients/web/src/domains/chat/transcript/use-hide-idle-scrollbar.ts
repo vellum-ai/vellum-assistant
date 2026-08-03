@@ -4,7 +4,7 @@ import { recordUpdate } from "@/lib/commit-pressure";
 
 /**
  * Whether the transcript scroll container has no *real* overflow to hide
- * its scrollbar for — "real" meaning overflow that would exist even
+ * its scrollbar for: "real" meaning overflow that would exist even
  * without the anchor-pin spacer (see `LatestTurnRow`'s `minHeight:
  * viewportMinHeight` wrapper in `transcript.tsx`).
  *

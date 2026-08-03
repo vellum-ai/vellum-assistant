@@ -247,13 +247,16 @@ export function AssistantSideMenu({
   // The section list's one rule doubles as the Pinned section's resize
   // handle. During a drag the handle drives the bounded row list through
   // this ref (no per-frame React state); the released height persists per
-  // assistant. Radix unmounts closed accordion content, so the ref only
-  // reaches a node while Pinned is expanded.
+  // assistant. Pinned is non-collapsible (its content renders through a
+  // plain div, not `Collapsible.Content`), so the ref always reaches a node
+  // once Pinned exists, so resizability shouldn't depend on
+  // `effectiveOpenSections`, which can still carry a stale "no pinned" key
+  // for a user who collapsed it before that change shipped.
   const pinnedListRef = useRef<HTMLDivElement | null>(null);
   const pinnedListMaxHeight = usePinnedSectionHeight(assistantId);
-  const pinnedResizable =
-    sidebar.sections.some((section) => section.type === "pinned") &&
-    sidebar.effectiveOpenSections.includes("pinned");
+  const pinnedResizable = sidebar.sections.some(
+    (section) => section.type === "pinned",
+  );
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
@@ -452,7 +455,7 @@ export function AssistantSideMenu({
 
   // The persistent "Conversations" header: same bulk-action menu shape as a
   // section's, minus move-up/down since it isn't a member of
-  // `sidebar.sections`. Scoped to `flatList` regardless of view mode —
+  // `sidebar.sections`. Scoped to `flatList` regardless of view mode:
   // that's every conversation neither pinned nor in a custom group, the same
   // set whether it's currently rendered as one list (List view) or split
   // into Chats + channel sub-sections (Grouped view).
@@ -708,7 +711,7 @@ export function AssistantSideMenu({
                   />
                 ) : null}
                 {/* "Conversations" is the persistent header for everything
-                    that isn't Pinned or a custom group — it never swaps out
+                    that isn't Pinned or a custom group: it never swaps out
                     for "Chats". In List view its content is the flat list;
                     in Grouped view, Chats and each channel section nest
                     inside it instead of sitting as its top-level siblings,

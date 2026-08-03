@@ -1108,10 +1108,46 @@ describe("AssistantSideMenu · equal section treatment", () => {
     expect(rule.hasAttribute("data-resizable")).toBe(false);
   });
 
-  // The switch isn't statically rendered at all — it lives behind the
+  // Regression: Pinned is non-collapsible, so it renders (and should stay
+  // resizable) even for a user whose stored `openPrimary` predates that
+  // change and never included "pinned": resizability must key off Pinned
+  // being present, not off the accordion's stale open-key bookkeeping.
+  test("the rule still drags when Pinned is present but not in the stored open keys", () => {
+    // `openPrimary` reloads from localStorage on mount (keyed by assistant
+    // id), so a plain `setState` gets clobbered before render; seed the
+    // actual storage key the way a pre-existing user's browser would have
+    // it: Pinned explicitly collapsed before it became non-collapsible.
+    localStorage.setItem(
+      "vellum:sidebar-open-primary:asst-1",
+      JSON.stringify(["recents"]),
+    );
+
+    const container = parse(
+      renderMenu({
+        conversations: [
+          makeConversation({
+            conversationId: "p1",
+            title: "Pinned one",
+            isPinned: true,
+          }),
+        ],
+      }),
+    );
+
+    const rule = container.querySelector<HTMLElement>(
+      '[data-slot="sidebar-section-resize-handle"]',
+    );
+    if (!rule) {
+      throw new Error("expected the curated block's rule");
+    }
+
+    expect(rule.hasAttribute("data-resizable")).toBe(true);
+  });
+
+  // The switch isn't statically rendered at all: it lives behind the
   // persistent "Conversations" header's "…" button, reachable rather than
   // always on screen (Chats itself, nested inside Conversations in Grouped
-  // view, carries no button of its own — see `sidebar-section-item.tsx`).
+  // view, carries no button of its own, see `sidebar-section-item.tsx`).
   test("the view switch is behind the Conversations actions menu, not statically rendered", async () => {
     const html = renderMenu({
       conversations: LAYOUT_CONVERSATIONS,
@@ -1157,7 +1193,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
     expect(sections).toHaveLength(5);
 
     // "Conversations" is the persistent wrapper, not itself a member of
-    // `sidebar.sections` — it doesn't drag and carries no icon (matching
+    // `sidebar.sections`: it doesn't drag and carries no icon (matching
     // Pinned's icon-less header). Everything else still shares the same
     // affordances.
     const labels = sectionLabels(container);
@@ -1187,7 +1223,7 @@ describe("AssistantSideMenu · section reordering", () => {
     );
 
     // "Conversations" is the persistent wrapper (not a member of
-    // `sidebar.sections`), so it never drags — everything else does.
+    // `sidebar.sections`), so it never drags; everything else does.
     const labels = sectionLabels(container);
     const headers = Array.from(
       container.querySelectorAll<HTMLElement>(
@@ -1211,8 +1247,8 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Conversations" (always present) plus the lone nested "Chats" section
-    // — neither drags: Conversations isn't a member of `sidebar.sections` to
+    // "Conversations" (always present) plus the lone nested "Chats" section:
+    // neither drags. Conversations isn't a member of `sidebar.sections` to
     // begin with, and Chats has nothing to reorder against.
     const headers = Array.from(
       container.querySelectorAll<HTMLElement>(
