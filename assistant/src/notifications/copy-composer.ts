@@ -9,6 +9,7 @@
  * values from the context payload.
  */
 
+import { normalizeTitle } from "../util/short-title.js";
 import {
   accessRequestCardTitle,
   buildAccessRequestContractText,
@@ -58,6 +59,18 @@ export function deriveTitle(body: string): string {
   return candidate.length > NOTIFICATION_TITLE_MAX_LENGTH
     ? candidate.slice(0, NOTIFICATION_TITLE_MAX_LENGTH).trim() + "\u2026"
     : candidate.trim();
+}
+
+/**
+ * Clean a producer-authored title, falling back to one derived from the body
+ * when `normalizeTitle` returns its empty-string rejection signal.
+ *
+ * The decision engine's pass-through path applies the same clamp, so a signal
+ * carrying `requestedTitle` renders the same headline whether or not the LLM
+ * classifier was reachable.
+ */
+function resolveTitle(raw: string | undefined, body: string): string {
+  return normalizeTitle(raw ?? "") || deriveTitle(body);
 }
 
 /**
@@ -291,9 +304,10 @@ export function composeFallbackCopy(
     readPayloadString(signal.contextPayload, "requestedMessage"),
   );
   if (msg) {
-    const title =
-      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-      deriveTitle(msg);
+    const title = resolveTitle(
+      readPayloadString(signal.contextPayload, "requestedTitle"),
+      msg,
+    );
     const baseCopy: RenderedChannelCopy = {
       title,
       body: msg,
