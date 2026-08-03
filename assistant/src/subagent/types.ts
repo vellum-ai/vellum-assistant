@@ -217,7 +217,7 @@ export function formatSubagentToolStats(
 
 /** Stats footer for a subagent whose in-memory counters no longer exist. */
 export const SUBAGENT_STATS_UNAVAILABLE =
-  "[stats: unavailable (the assistant restarted since this subagent ran)]";
+  "[stats: unavailable (tool counters are not retained for this subagent)]";
 
 /**
  * Appended to a read taken while the subagent is still working through

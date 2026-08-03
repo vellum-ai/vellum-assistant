@@ -1592,7 +1592,7 @@ describe("Subagent read stats footer", () => {
       // rebuilt from the durable row, which carries no counters at all.
       expect(manager.getState(subagentId)).toBeDefined();
       expect(result.content).toBe(
-        "Output from before the restart.\n\n[stats: unavailable (the assistant restarted since this subagent ran)]",
+        "Output from before the restart.\n\n[stats: unavailable (tool counters are not retained for this subagent)]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -2601,7 +2601,7 @@ describe("Subagent tools past the startup rehydration bound", () => {
       // The counters live with the in-memory entry, which the bound dropped, so
       // the footer says unavailable rather than reporting zero tool calls.
       expect(result.content).toBe(
-        "Output from beyond the bound\n\n[stats: unavailable (the assistant restarted since this subagent ran)]",
+        "Output from beyond the bound\n\n[stats: unavailable (tool counters are not retained for this subagent)]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -2635,7 +2635,7 @@ describe("Subagent tools past the startup rehydration bound", () => {
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe(
-        "Output from before the restart\n\n[stats: unavailable (the assistant restarted since this subagent ran)]",
+        "Output from before the restart\n\n[stats: unavailable (tool counters are not retained for this subagent)]",
       );
     } finally {
       mockGetMessages = () => null;
