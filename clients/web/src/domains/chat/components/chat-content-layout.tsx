@@ -478,7 +478,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <MessageFilesPanel
             // Re-key per message so the panel resets when a different
             // message's tile is clicked while the panel is already open.
-            key={activeMessageFiles.messageId ?? "snapshot"}
+            key={activeMessageFiles.messageId}
             payload={activeMessageFiles}
             onClose={closeMessageFiles}
           />

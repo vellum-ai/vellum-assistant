@@ -2,38 +2,35 @@
  * Tests for `MessageFilesPanel` - the side drawer listing every attachment on
  * one transcript message.
  *
- *  - Renders one square per attachment, media and non-media alike, from the
- *    payload snapshot when no live message resolves.
+ *  - Renders one square per attachment, media and non-media alike.
+ *  - Re-derives from the live transcript when the payload's `messageId`
+ *    resolves, and falls back to the open-time snapshot when it does not.
+ *  - A resolved message with no attachments renders the empty state rather
+ *    than resurrecting the snapshot.
  *  - The header count matches the attachment total.
  *  - The close button fires `onClose`.
  *  - Clicking a square opens the shared preview modal with the whole set as
  *    gallery siblings.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { DisplayAttachment } from "@/types/attachment-types";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import {
+  makeDisplayAttachment,
+  makeMixedAttachments,
+  mockAttachmentPreviewModal,
+  squareLabels,
+} from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import type {
+  DisplayAttachment,
+  DisplayMessage,
+} from "@/domains/chat/types/types";
 
-mock.module(
-  "@/domains/chat/components/chat-attachments/attachment-preview-modal",
-  () => ({
-    AttachmentPreviewModal: ({
-      attachment,
-      siblingAttachments,
-    }: {
-      attachment: { id: string };
-      siblingAttachments?: Array<{ id: string }>;
-    }) => (
-      <div
-        data-testid="preview-modal"
-        data-attachment-id={attachment.id}
-        data-sibling-count={String((siblingAttachments ?? []).length)}
-      />
-    ),
-  }),
-);
+mockAttachmentPreviewModal();
 
 const { MessageFilesPanel } = await import(
   "@/domains/chat/components/message-files-panel"
@@ -41,54 +38,37 @@ const { MessageFilesPanel } = await import(
 
 afterEach(() => {
   cleanup();
+  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
 });
 
-const ATTACHMENTS: DisplayAttachment[] = [
-  {
-    id: "img-0",
-    filename: "photo-0.png",
-    mimeType: "image/png",
-    sizeBytes: 1_024,
-    previewUrl: "https://example.com/photo-0.png",
-  },
-  {
-    id: "deck-1",
-    filename: "deck.pptx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    sizeBytes: 4_096,
-    previewUrl: null,
-  },
-  {
-    id: "report-1",
-    filename: "report.pdf",
-    mimeType: "application/pdf",
-    sizeBytes: 2_048,
-    previewUrl: null,
-  },
-  {
-    id: "bundle-1",
-    filename: "bundle.zip",
-    mimeType: "application/zip",
-    sizeBytes: 8_192,
-    previewUrl: null,
-  },
-];
+const ATTACHMENTS = makeMixedAttachments();
+
+/** Seed the transcript with one assistant row carrying `attachments`. */
+function seedTranscript(
+  messageId: string,
+  attachments: DisplayAttachment[],
+): void {
+  const message: DisplayMessage = {
+    id: messageId,
+    role: "assistant",
+    attachments,
+  };
+  const snapshot: PaginatedHistoryResult = {
+    messages: [message],
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq: 1,
+  };
+  useChatSessionStore.setState({ snapshot, optimisticSends: [] });
+}
 
 function renderPanel(onClose: () => void = () => {}) {
   return render(
     <MessageFilesPanel
-      payload={{ attachments: ATTACHMENTS }}
+      payload={{ messageId: "msg-1", attachments: ATTACHMENTS }}
       onClose={onClose}
     />,
-  );
-}
-
-/** The squares are divs with `role="button"`; the download affordance is a
- *  real `<button>`, so this selector counts only attachment squares. */
-function squareLabels(container: HTMLElement): Array<string | null> {
-  return Array.from(container.querySelectorAll('div[role="button"]')).map(
-    (el) => el.getAttribute("aria-label"),
   );
 }
 
@@ -105,7 +85,8 @@ describe("MessageFilesPanel", () => {
 
   test("header count matches the attachment total", () => {
     const { getByText } = renderPanel();
-    expect(getByText("Files · 4")).toBeTruthy();
+    expect(getByText("Files")).toBeTruthy();
+    expect(getByText("4")).toBeTruthy();
   });
 
   test("close button fires onClose", () => {
@@ -124,5 +105,42 @@ describe("MessageFilesPanel", () => {
     const modal = getByTestId("preview-modal");
     expect(modal.getAttribute("data-attachment-id")).toBe("report-1");
     expect(modal.getAttribute("data-sibling-count")).toBe("4");
+  });
+
+  test("renders the LIVE attachment list when the message resolves", () => {
+    seedTranscript("msg-1", [
+      ...ATTACHMENTS,
+      makeDisplayAttachment({ id: "late-1", filename: "late.png" }),
+      makeDisplayAttachment({ id: "late-2", filename: "later.png" }),
+    ]);
+
+    const { container, getByText } = renderPanel();
+
+    // Six live attachments beat the four-entry open-time snapshot.
+    expect(squareLabels(container)).toHaveLength(6);
+    expect(getByText("6")).toBeTruthy();
+    expect(squareLabels(container)).toContain("late.png");
+  });
+
+  test("falls back to the snapshot when the message id resolves to nothing", () => {
+    seedTranscript("other-message", [
+      makeDisplayAttachment({ id: "unrelated-1", filename: "unrelated.png" }),
+    ]);
+
+    const { container, getByText } = renderPanel();
+
+    expect(squareLabels(container)).toHaveLength(4);
+    expect(getByText("4")).toBeTruthy();
+    expect(squareLabels(container)).not.toContain("unrelated.png");
+  });
+
+  test("a resolved message with no attachments renders the empty state", () => {
+    seedTranscript("msg-1", []);
+
+    const { container, getByText } = renderPanel();
+
+    expect(squareLabels(container)).toHaveLength(0);
+    expect(getByText("0")).toBeTruthy();
+    expect(getByText("No files on this message")).toBeTruthy();
   });
 });

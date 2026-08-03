@@ -38,7 +38,14 @@ export function MobileMessageFilesOverlay({
   return (
     <div className="fixed inset-x-0 z-30" style={shellStyle}>
       <LazyBoundary>
-        <MessageFilesPanel payload={payload} onClose={onClose} />
+        {/* Re-key per message so switching targets remounts the panel rather
+            than reusing one whose internal preview state belongs to the
+            previous message. */}
+        <MessageFilesPanel
+          key={payload.messageId}
+          payload={payload}
+          onClose={onClose}
+        />
       </LazyBoundary>
     </div>
   );

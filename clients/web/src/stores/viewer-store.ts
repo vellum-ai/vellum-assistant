@@ -285,28 +285,21 @@ export function sameActivityStepsTarget(
  * Payload for the message-files side panel: every attachment on one
  * transcript message. The open panel re-derives live attachments from the
  * transcript by `messageId`; the embedded `attachments` array is the
- * open-time snapshot, used when the message cannot be resolved (paged out,
- * or identity-less callers like stories).
+ * open-time snapshot, used when that message is no longer in the loaded
+ * transcript (paged out by history windowing).
  */
 export interface MessageFilesPayload {
-  messageId?: string;
+  messageId: string;
   attachments: DisplayAttachment[];
   assistantId?: string | null;
 }
 
-/**
- * Whether two message-files payloads address the same transcript message.
- * Keys on `messageId` when present, falling back to the first attachment id
- * for identity-less callers.
- */
+/** Whether two message-files payloads address the same transcript message. */
 export function sameMessageFilesTarget(
   a: MessageFilesPayload,
   b: MessageFilesPayload,
 ): boolean {
-  if (a.messageId != null || b.messageId != null) {
-    return a.messageId === b.messageId;
-  }
-  return a.attachments[0]?.id === b.attachments[0]?.id;
+  return a.messageId === b.messageId;
 }
 
 /** The identity fields a thinking drawer target is matched on. */
@@ -468,6 +461,16 @@ export interface ViewerActions {
    */
   toggleMessageFiles: (payload: MessageFilesPayload) => void;
   closeMessageFiles: () => void;
+
+  /**
+   * Drop the payloads of the panels whose content is scoped to one
+   * conversation's transcript. Called on conversation switch: the panels are
+   * already dismissed by the `setMainView("chat")` that accompanies it, and
+   * holding their payloads keeps the previous conversation's data alive -
+   * `activeMessageFiles` in particular retains decoded attachment blob/data
+   * URLs. Leaves `mainView` alone; this is a memory concern, not navigation.
+   */
+  clearTranscriptPanelPayloads: () => void;
 
   // --- Channel setup ---
   openChannelSetup: (payload: ChannelSetupPayload) => void;
@@ -941,6 +944,14 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeMessageFiles,
       activeMessageFiles: null,
+    });
+  },
+
+  clearTranscriptPanelPayloads: () => {
+    set({
+      activeMessageFiles: null,
+      activeActivitySteps: null,
+      activeToolDetail: null,
     });
   },
 

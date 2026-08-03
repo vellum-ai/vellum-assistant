@@ -430,6 +430,7 @@ export function useConversationLoader({
       }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
+      useViewerStore.getState().clearTranscriptPanelPayloads();
       void navigate(routes.conversation(key));
     },
     [navigate],
@@ -445,6 +446,7 @@ export function useConversationLoader({
       }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
+      useViewerStore.getState().clearTranscriptPanelPayloads();
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
       useConversationStore

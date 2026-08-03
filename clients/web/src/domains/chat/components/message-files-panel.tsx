@@ -7,16 +7,16 @@
  * Streams live: the panel re-derives the message's attachments from the
  * transcript by `messageId` via `useLiveMessageAttachments`, so files that
  * land mid-turn appear while the panel is open. The payload's embedded
- * snapshot is the fallback when the message can't be resolved (paged out, or
- * identity-less callers like stories).
+ * snapshot is the fallback for the one case the live source cannot answer -
+ * the message having been paged out of the loaded transcript.
  */
 
 import { Paperclip } from "lucide-react";
 
+import { Typography } from "@vellumai/design-library";
+
 import { DetailShell } from "@/components/detail-shell";
-import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
-import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
-import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 import { useLiveMessageAttachments } from "@/domains/chat/hooks/use-live-message-attachments";
 import type { MessageFilesPayload } from "@/stores/viewer-store";
 
@@ -31,33 +31,53 @@ export function MessageFilesPanel({
 }: MessageFilesPanelProps) {
   const live = useLiveMessageAttachments(payload.messageId);
   const attachments = live ?? payload.attachments;
-  const { openPreview, previewModal } = useAttachmentPreview(
-    payload.assistantId,
-    attachments,
-  );
+  const { displayAttachments, renderSquare, previewModal } =
+    useAttachmentSquares({
+      attachments,
+      assistantId: payload.assistantId,
+    });
 
   return (
     <DetailShell
       Glyph={Paperclip}
-      title={`Files · ${attachments.length}`}
+      // Matches the activity-steps panel header: title · N inline at the same
+      // size, separated by a 3px midline dot, count in the secondary tone.
+      titleNode={
+        <span className="flex min-w-0 items-center gap-1.5 py-0.5">
+          <Typography
+            variant="title-medium"
+            className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
+          >
+            Files
+          </Typography>
+          <span
+            aria-hidden
+            className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+          />
+          <Typography
+            variant="title-medium"
+            className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
+          >
+            {displayAttachments.length}
+          </Typography>
+        </span>
+      }
       closeLabel="Close files"
       onClose={onClose}
     >
-      {/* Three across fits the drawer's 400px default width. */}
-      <div className="grid grid-cols-3 gap-3">
-        {attachments.map((att) => (
-          <MessageAttachmentSquare
-            key={att.id}
-            filename={att.filename}
-            mimeType={att.mimeType}
-            sizeBytes={att.sizeBytes}
-            previewUrl={att.previewUrl}
-            thumbnailUrl={att.thumbnailUrl}
-            onPreview={() => openPreview(att)}
-            onDownload={() => void downloadAttachment(att, payload.assistantId)}
-          />
-        ))}
-      </div>
+      {displayAttachments.length === 0 ? (
+        <Typography
+          variant="body-small-default"
+          className="py-4 text-center text-[var(--content-tertiary)]"
+        >
+          No files on this message
+        </Typography>
+      ) : (
+        // Three across fits the drawer's 400px default width.
+        <div className="grid grid-cols-3 gap-3">
+          {displayAttachments.map((att, index) => renderSquare(att, index))}
+        </div>
+      )}
       {previewModal}
     </DetailShell>
   );
