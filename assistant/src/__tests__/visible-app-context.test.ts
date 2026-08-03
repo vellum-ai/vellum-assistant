@@ -1,5 +1,5 @@
 /**
- * Tests for `buildActiveAppContext`, the resolver behind the `active_app:`
+ * Tests for `buildVisibleAppContext`, the resolver behind the `visible_app:`
  * turn-context line.
  *
  * The client reports only the id of the app it has on screen; the daemon
@@ -20,7 +20,7 @@ import {
 } from "../daemon/conversation-registry.js";
 import {
   applyRuntimeInjections,
-  buildActiveAppContext,
+  buildVisibleAppContext,
 } from "../daemon/conversation-runtime-assembly.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import type { Message } from "../providers/types.js";
@@ -39,7 +39,7 @@ const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 beforeEach(() => {
   testDataDir = join(
     tmpdir(),
-    `vellum-active-app-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-visible-app-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   process.env.VELLUM_WORKSPACE_DIR = testDataDir;
 });
@@ -55,24 +55,27 @@ afterEach(() => {
   }
 });
 
-describe("buildActiveAppContext", () => {
-  test("resolves the app's name and source directory", () => {
+describe("buildVisibleAppContext", () => {
+  test("resolves the app's name, readable slug, and source directory", () => {
+    // A workspace app id is an opaque UUID; the slug is the handle a human
+    // (or the model) recognizes, so both have to come back.
     const app = createApp({
       name: "Grocery List",
       schemaJson: "{}",
       htmlDefinition: "<h1>Hello</h1>",
     });
 
-    expect(buildActiveAppContext(app.id)).toEqual({
+    expect(buildVisibleAppContext(app.id)).toEqual({
       appId: app.id,
       name: "Grocery List",
+      slug: "grocery-list",
       sourceDir: getAppDirPath(app.id),
     });
   });
 
   test("returns null when no app is in view", () => {
-    expect(buildActiveAppContext(undefined)).toBeNull();
-    expect(buildActiveAppContext("")).toBeNull();
+    expect(buildVisibleAppContext(undefined)).toBeNull();
+    expect(buildVisibleAppContext("")).toBeNull();
   });
 
   test("returns null for an app that no longer exists", () => {
@@ -83,11 +86,11 @@ describe("buildActiveAppContext", () => {
     });
     deleteApp(app.id);
 
-    expect(buildActiveAppContext(app.id)).toBeNull();
+    expect(buildVisibleAppContext(app.id)).toBeNull();
   });
 
   test("returns null for a traversal-shaped id instead of throwing", () => {
-    expect(buildActiveAppContext("../../etc/passwd")).toBeNull();
+    expect(buildVisibleAppContext("../../etc/passwd")).toBeNull();
   });
 
   test("resolves a plugin-bundled app, which the viewer can open too", () => {
@@ -102,16 +105,17 @@ describe("buildActiveAppContext", () => {
       "<h1>Plugin app</h1>",
     );
 
-    expect(buildActiveAppContext("plugins~acme~acme-dashboard")).toEqual({
+    expect(buildVisibleAppContext("plugins~acme~acme-dashboard")).toEqual({
       appId: "plugins~acme~acme-dashboard",
       name: "acme-dashboard",
+      slug: "acme-dashboard",
       sourceDir: join(pluginDir, "apps", "acme-dashboard"),
       pluginName: "acme",
     });
   });
 
   test("returns null for a plugin app whose plugin is not installed", () => {
-    expect(buildActiveAppContext("plugins~not-a-plugin~x")).toBeNull();
+    expect(buildVisibleAppContext("plugins~not-a-plugin~x")).toBeNull();
   });
 });
 
@@ -120,8 +124,8 @@ describe("buildActiveAppContext", () => {
 // conversation at turn start must reach the rendered `<turn_context>` block.
 // ---------------------------------------------------------------------------
 
-describe("active_app injection", () => {
-  const CONVERSATION_ID = "active-app-injection-conv";
+describe("visible_app injection", () => {
+  const CONVERSATION_ID = "visible-app-injection-conv";
 
   const baseMessages: Message[] = [
     {
@@ -130,14 +134,14 @@ describe("active_app injection", () => {
     },
   ];
 
-  function seedConversation(currentTurnActiveAppId: string | undefined): void {
+  function seedConversation(currentTurnVisibleAppId: string | undefined): void {
     setConversation(CONVERSATION_ID, {
       conversationId: CONVERSATION_ID,
       workingDir: "/sandbox",
       workspaceTopLevelContext: "",
       workspaceTopLevelDirty: false,
       surfaceState: new Map(),
-      currentTurnActiveAppId,
+      currentTurnVisibleAppId,
       currentTurnTemporalSnapshot: { clientTimezone: null },
     } as never);
   }
@@ -149,7 +153,7 @@ describe("active_app injection", () => {
   async function injectedText(): Promise<string> {
     const { messages } = await applyRuntimeInjections(baseMessages, {
       conversationId: CONVERSATION_ID,
-      requestId: "active-app-req",
+      requestId: "visible-app-req",
       turnIndex: 0,
       trust: {
         sourceChannel: "vellum" as const,
@@ -162,7 +166,7 @@ describe("active_app injection", () => {
       .join("\n");
   }
 
-  test("renders the frozen active app inside <turn_context>", async () => {
+  test("renders the frozen visible app inside <turn_context>", async () => {
     const app = createApp({
       name: "Grocery List",
       schemaJson: "{}",
@@ -172,14 +176,14 @@ describe("active_app injection", () => {
 
     const text = await injectedText();
     expect(text).toContain("<turn_context>");
-    expect(text).toContain(`active_app: "Grocery List" (app_id: "${app.id}"`);
+    expect(text).toContain(`visible_app: "Grocery List" (app_id: "${app.id}"`);
   });
 
-  test("emits no active_app line when no app was in view", async () => {
+  test("emits no visible_app line when no app was in view", async () => {
     seedConversation(undefined);
 
     const text = await injectedText();
     expect(text).toContain("<turn_context>");
-    expect(text).not.toContain("active_app:");
+    expect(text).not.toContain("visible_app:");
   });
 });

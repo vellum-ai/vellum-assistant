@@ -20,12 +20,15 @@ export interface UnifiedTurnContextOptions {
   interfaceName?: string;
   clientOs?: string;
   /**
-   * App the user currently has open on screen. Rendered as the `active_app:`
+   * App the user currently has open on screen. Rendered as the `visible_app:`
    * line so unqualified references to "the app" resolve without a lookup.
    */
-  activeApp?: {
+  visibleApp?: {
     appId: string;
+    /** Opaque for workspace apps, so the readable handle travels alongside. */
     name: string;
+    /** Directory stem: the handle a human would recognize the app by. */
+    slug: string;
     sourceDir: string;
     /** Set when the app is bundled by an installed plugin rather than built here. */
     pluginName?: string;
@@ -115,8 +118,8 @@ export function buildUnifiedTurnContextBlock(
   if (options.clientOs) {
     lines.push(`client_os: ${options.clientOs}`);
   }
-  if (options.activeApp) {
-    const app = options.activeApp;
+  if (options.visibleApp) {
+    const app = options.visibleApp;
     // Plugin-bundled apps are owned by their plugin: their source is replaced
     // on plugin update, so the model is told where it came from rather than
     // treating it as an ordinary sandbox app to rewrite.
@@ -124,7 +127,7 @@ export function buildUnifiedTurnContextBlock(
       ? ` It is bundled by the "${sanitizeInlineContextValue(app.pluginName)}" plugin, not built in the sandbox.`
       : "";
     lines.push(
-      `active_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", source: "${sanitizeInlineContextValue(app.sourceDir)}"). The user has this app open on screen; unqualified references to "the app" mean this one.${provenance}`,
+      `visible_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", slug: "${sanitizeInlineContextValue(app.slug)}", source: "${sanitizeInlineContextValue(app.sourceDir)}"). The user has this app open on screen; unqualified references to "the app" mean this one. The app tools take the app_id.${provenance}`,
     );
   }
 

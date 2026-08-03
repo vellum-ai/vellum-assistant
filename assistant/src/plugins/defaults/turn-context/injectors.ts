@@ -35,7 +35,7 @@ const unifiedTurnContextInjector: Injector = {
       timestamp,
       interfaceName: ctx.interfaceName,
       clientOs: ctx.clientOs,
-      activeApp: ctx.activeApp,
+      visibleApp: ctx.visibleApp,
       channelName: ctx.channelName,
       actorContext: ctx.actorContext,
       configuredUserTimezone: ctx.configuredUserTimezone,

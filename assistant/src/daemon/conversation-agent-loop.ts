@@ -963,7 +963,7 @@ export async function runAgentLoopImpl(
 
     // Freeze the app the client had in view at turn start, for the same
     // anti-race reason as `client_os` above.
-    ctx.currentTurnActiveAppId = ctx.activeAppId ?? undefined;
+    ctx.currentTurnVisibleAppId = ctx.visibleAppId ?? undefined;
 
     // Resolve the effective profile key for this turn and detect changes.
     // `modelProfileKey` is the actual profile used for this turn. The
@@ -1752,8 +1752,8 @@ export async function runAgentLoopImpl(
     // claim the user is looking at an app they may have closed. Every inbound
     // send re-applies it from transport before its own turn, including the
     // queue drain, so live turns are unaffected.
-    ctx.activeAppId = undefined;
-    ctx.currentTurnActiveAppId = undefined;
+    ctx.visibleAppId = undefined;
+    ctx.currentTurnVisibleAppId = undefined;
     // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
     // before drainQueue so queued/drained turns on a reused conversation can't
     // inherit stale in-task-run scope from the turn that just finished.

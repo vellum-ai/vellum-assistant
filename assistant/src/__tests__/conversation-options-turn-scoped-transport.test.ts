@@ -15,20 +15,20 @@ import { withoutTurnScopedTransport } from "../daemon/conversation-store.js";
 import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
 
 describe("withoutTurnScopedTransport", () => {
-  test("drops the active app while keeping durable transport fields", () => {
+  test("drops the visible app while keeping durable transport fields", () => {
     const options: ConversationCreateOptions = {
       transport: {
         channelId: "vellum",
         interfaceId: "web",
         clientOs: "macos",
         clientTimezone: "America/Denver",
-        activeAppId: "app-on-screen",
+        visibleAppId: "app-on-screen",
       },
     };
 
     const stored = withoutTurnScopedTransport(options);
 
-    expect(stored.transport?.activeAppId).toBeUndefined();
+    expect(stored.transport?.visibleAppId).toBeUndefined();
     expect(stored.transport?.clientOs).toBe("macos");
     expect(stored.transport?.clientTimezone).toBe("America/Denver");
     expect(stored.transport?.interfaceId).toBe("web");
@@ -39,13 +39,13 @@ describe("withoutTurnScopedTransport", () => {
       transport: {
         channelId: "vellum",
         interfaceId: "web",
-        activeAppId: "app-on-screen",
+        visibleAppId: "app-on-screen",
       },
     };
 
     withoutTurnScopedTransport(options);
 
-    expect(options.transport?.activeAppId).toBe("app-on-screen");
+    expect(options.transport?.visibleAppId).toBe("app-on-screen");
   });
 
   test("passes options through untouched when there is no app in view", () => {

@@ -293,8 +293,8 @@ async function buildPassthroughBatch(
     }
     // Same head-wins problem for the app on screen: batching a message sent
     // while a different app was open would run it against the head's
-    // `active_app`, pointing "the app" at the wrong one.
-    if (candidate.transport?.activeAppId !== head.transport?.activeAppId) {
+    // `visible_app`, pointing "the app" at the wrong one.
+    if (candidate.transport?.visibleAppId !== head.transport?.visibleAppId) {
       break;
     }
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
@@ -735,7 +735,7 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
     conversation.applyClientOsFromTransport(next.transport);
-    conversation.applyActiveAppFromTransport(next.transport);
+    conversation.applyVisibleAppFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -1316,7 +1316,7 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
     conversation.applyClientOsFromTransport(head.transport);
-    conversation.applyActiveAppFromTransport(head.transport);
+    conversation.applyVisibleAppFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;

@@ -664,7 +664,7 @@ describe("postChatMessage scripted payload", () => {
   });
 });
 
-describe("postChatMessage activeAppId payload", () => {
+describe("postChatMessage visibleAppId payload", () => {
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
   let capturedRequests: Array<{ url: string; body: string }> = [];
@@ -725,10 +725,10 @@ describe("postChatMessage activeAppId payload", () => {
     viewer.setLoadedApp({ appId, name: "Grocery List", html: "<h1>hi</h1>" });
   }
 
-  test("omits activeAppId when no app is in view", async () => {
+  test("omits visibleAppId when no app is in view", async () => {
     await postChatMessage("asst-1", "K", "hello");
 
-    expect(getMessageBody()).not.toHaveProperty("activeAppId");
+    expect(getMessageBody()).not.toHaveProperty("visibleAppId");
   });
 
   test("sends the app in view from the full-width viewer", async () => {
@@ -736,7 +736,7 @@ describe("postChatMessage activeAppId payload", () => {
 
     await postChatMessage("asst-1", "K", "make the header bigger");
 
-    expect(getMessageBody().activeAppId).toBe("app-abc");
+    expect(getMessageBody().visibleAppId).toBe("app-abc");
   });
 
   test("sends the app in view from the app-editing split", async () => {
@@ -745,18 +745,18 @@ describe("postChatMessage activeAppId payload", () => {
 
     await postChatMessage("asst-1", "K", "add a footer");
 
-    expect(getMessageBody().activeAppId).toBe("app-abc");
+    expect(getMessageBody().visibleAppId).toBe("app-abc");
   });
 
   test("stops sending it once the app is closed (read live at send time)", async () => {
     openApp("app-abc");
     await postChatMessage("asst-1", "K", "first");
-    expect(getMessageBody().activeAppId).toBe("app-abc");
+    expect(getMessageBody().visibleAppId).toBe("app-abc");
 
     capturedRequests = [];
     useViewerStore.getState().closeApp();
 
     await postChatMessage("asst-1", "K", "second");
-    expect(getMessageBody()).not.toHaveProperty("activeAppId");
+    expect(getMessageBody()).not.toHaveProperty("visibleAppId");
   });
 });

@@ -66,12 +66,12 @@ export function withoutTurnScopedTransport(
   options: ConversationCreateOptions,
 ): ConversationCreateOptions {
   const transport = options.transport;
-  if (!transport || transport.activeAppId === undefined) {
+  if (!transport || transport.visibleAppId === undefined) {
     return options;
   }
   return {
     ...options,
-    transport: { ...transport, activeAppId: undefined },
+    transport: { ...transport, visibleAppId: undefined },
   };
 }
 
@@ -110,7 +110,7 @@ function applyTransportMetadata(
   conversation.applyHostEnvFromTransport(transport);
   conversation.applyClientTimezoneFromTransport(transport);
   conversation.applyClientOsFromTransport(transport);
-  conversation.applyActiveAppFromTransport(transport);
+  conversation.applyVisibleAppFromTransport(transport);
 }
 
 /**
@@ -254,7 +254,7 @@ export async function getOrCreateConversation(
       // inbound transport (a scheduled wake, a background follow-up) correctly
       // leaves it unset rather than inheriting whatever was open last time.
       if (options?.transport) {
-        newConversation.applyActiveAppFromTransport(options.transport);
+        newConversation.applyVisibleAppFromTransport(options.transport);
       }
       setConversation(conversationId, newConversation);
       return newConversation;

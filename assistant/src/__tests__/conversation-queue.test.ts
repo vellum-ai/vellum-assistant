@@ -676,8 +676,8 @@ describe("Conversation message queue", () => {
   });
 
   test("[experimental] queued passthrough siblings viewing different apps do NOT batch", async () => {
-    // A batched turn applies only the head's `activeAppId`, which drives the
-    // `active_app:` context line. Coalescing messages sent while different
+    // A batched turn applies only the head's `visibleAppId`, which drives the
+    // `visible_app:` context line. Coalescing messages sent while different
     // apps were on screen would point "the app" at the head's app for both.
     const conversation = makeConversation();
     await conversation.loadFromDb();
@@ -697,7 +697,7 @@ describe("Conversation message queue", () => {
       transport: {
         channelId: "vellum",
         interfaceId: "web",
-        activeAppId: "app-a",
+        visibleAppId: "app-a",
       },
     });
     conversation.enqueueMessage({
@@ -707,7 +707,7 @@ describe("Conversation message queue", () => {
       transport: {
         channelId: "vellum",
         interfaceId: "web",
-        activeAppId: "app-b",
+        visibleAppId: "app-b",
       },
     });
     expect(conversation.getQueueDepth()).toBe(2);

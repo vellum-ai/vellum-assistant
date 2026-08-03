@@ -2,7 +2,7 @@
  * Resolves "which app is the user looking at right now?" for outgoing
  * messages.
  *
- * The daemon renders the reported id as the `active_app:` line of the
+ * The daemon renders the reported id as the `visible_app:` line of the
  * assistant's per-turn context, so a message sent while an app is on screen
  * carries the app with it and the assistant can act on "make the header
  * bigger" without asking which app. It is context only: nothing in the UI
@@ -21,7 +21,7 @@ import { useViewerStore } from "@/stores/viewer-store";
  * chat-plus-app editing split (which on mobile is the minimized app strip
  * above the edit conversation).
  */
-export function getActiveAppIdForSend(): string | undefined {
+export function getVisibleAppIdForSend(): string | undefined {
   const { mainView, openedAppState } = useViewerStore.getState();
   if (mainView !== "app" && mainView !== "app-editing") {
     return undefined;

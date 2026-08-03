@@ -442,7 +442,7 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   });
 });
 
-describe("HTTP POST /v1/messages activeAppId transport metadata", () => {
+describe("HTTP POST /v1/messages visibleAppId transport metadata", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
     addMessageMock.mockClear();
@@ -470,15 +470,15 @@ describe("HTTP POST /v1/messages activeAppId transport metadata", () => {
     return capturedOptions?.transport as Record<string, unknown> | undefined;
   }
 
-  test("carries the reported active app onto the transport", async () => {
-    expect(await captureTransport({ activeAppId: "app-abc" })).toEqual({
+  test("carries the reported visible app onto the transport", async () => {
+    expect(await captureTransport({ visibleAppId: "app-abc" })).toEqual({
       channelId: "vellum",
       interfaceId: "macos",
-      activeAppId: "app-abc",
+      visibleAppId: "app-abc",
     });
   });
 
-  test("omits activeAppId when no app is in view", async () => {
+  test("omits visibleAppId when no app is in view", async () => {
     expect(await captureTransport({})).toEqual({
       channelId: "vellum",
       interfaceId: "macos",
@@ -491,20 +491,20 @@ describe("HTTP POST /v1/messages activeAppId transport metadata", () => {
     // them or the app on screen goes unreported.
     const longPluginAppId = `plugins~${"p".repeat(255)}~${"a".repeat(255)}`;
 
-    expect(await captureTransport({ activeAppId: longPluginAppId })).toEqual({
+    expect(await captureTransport({ visibleAppId: longPluginAppId })).toEqual({
       channelId: "vellum",
       interfaceId: "macos",
-      activeAppId: longPluginAppId,
+      visibleAppId: longPluginAppId,
     });
   });
 
-  test("drops a traversal-shaped activeAppId without rejecting the message", async () => {
-    expect(await captureTransport({ activeAppId: "../../etc/passwd" })).toEqual(
-      {
-        channelId: "vellum",
-        interfaceId: "macos",
-      },
-    );
+  test("drops a traversal-shaped visibleAppId without rejecting the message", async () => {
+    expect(
+      await captureTransport({ visibleAppId: "../../etc/passwd" }),
+    ).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+    });
   });
 });
 

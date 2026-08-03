@@ -228,20 +228,20 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
 // ---------------------------------------------------------------------------
 
 describe("runAgentLoopImpl per-turn view state", () => {
-  test("clears the reported active app at turn end so a later turn cannot inherit it", async () => {
+  test("clears the reported visible app at turn end so a later turn cannot inherit it", async () => {
     const events: AssistantEvent[] = [];
     const ctx = makeCtx({
-      activeAppId: "app-on-screen",
+      visibleAppId: "app-on-screen",
       commitTurnChanges: mock(
         async () => {},
       ) as unknown as Context["commitTurnChanges"],
     });
 
-    await runAgentLoopImpl(ctx, "background task", "msg-active-app", (event) =>
+    await runAgentLoopImpl(ctx, "background task", "msg-visible-app", (event) =>
       events.push(event),
     );
 
-    expect(ctx.activeAppId).toBeUndefined();
-    expect(ctx.currentTurnActiveAppId).toBeUndefined();
+    expect(ctx.visibleAppId).toBeUndefined();
+    expect(ctx.currentTurnVisibleAppId).toBeUndefined();
   });
 });

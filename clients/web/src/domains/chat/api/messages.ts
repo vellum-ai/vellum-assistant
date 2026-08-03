@@ -39,7 +39,7 @@ import {
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
-import { getActiveAppIdForSend } from "@/domains/chat/utils/active-app-context";
+import { getVisibleAppIdForSend } from "@/domains/chat/utils/visible-app-context";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { detectClientOs } from "@/runtime/platform-detection";
 
@@ -532,11 +532,11 @@ export async function postChatMessage(
     body.clientTimezone = clientTimezone;
   }
   // The app the user has on screen, read live at send time. The daemon turns
-  // it into the assistant's `active_app:` per-turn context line so "the app"
+  // it into the assistant's `visible_app:` per-turn context line so "the app"
   // resolves without the user naming it; nothing user-visible depends on it.
-  const activeAppId = getActiveAppIdForSend();
-  if (activeAppId) {
-    body.activeAppId = activeAppId;
+  const visibleAppId = getVisibleAppIdForSend();
+  if (visibleAppId) {
+    body.visibleAppId = visibleAppId;
   }
   const conversationField = pickConversationIdWireField();
   if (conversationId !== null || conversationField !== "conversationId") {
