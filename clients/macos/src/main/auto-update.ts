@@ -30,9 +30,18 @@ const setState = (next: UpdateState): void => {
 };
 
 export const checkForUpdates = (): void => {
-  autoUpdater.checkForUpdates().catch((err: unknown) => {
-    log.error("[auto-update] checkForUpdates failed:", err);
-  });
+  autoUpdater
+    .checkForUpdates()
+    .then((result) => {
+      // With `autoDownload`, electron-updater returns the in-flight download
+      // on the resolved result and rethrows download failures on it after
+      // emitting `error`. The `error` listener owns state and logging, so this
+      // only keeps the rejection from escaping.
+      result?.downloadPromise?.catch(() => undefined);
+    })
+    .catch((err: unknown) => {
+      log.error("[auto-update] checkForUpdates failed:", err);
+    });
 };
 
 export const installAutoUpdate = (): void => {

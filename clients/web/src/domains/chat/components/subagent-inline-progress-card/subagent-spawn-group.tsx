@@ -5,8 +5,6 @@ import { ChevronUp } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 
-import { Typography } from "@vellumai/design-library";
-
 import { SubagentAvatarRow } from "@/domains/chat/components/subagent-inline-progress-card/subagent-avatar-row";
 import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
@@ -87,14 +85,10 @@ export function SubagentSpawnGroup({
             onClick={() => setExpanded(false)}
             aria-label="Collapse subagent details"
             data-testid="subagent-spawn-group-collapse"
-            className="mt-2 flex cursor-pointer items-center gap-1"
+            // Matches the SubagentAvatarRow "Details" twin.
+            className="mt-2 flex cursor-pointer items-center gap-1 text-[13px] font-medium text-[var(--content-secondary)]"
           >
-            <Typography
-              variant="body-medium-default"
-              className="text-[var(--content-tertiary)]"
-            >
-              Collapse
-            </Typography>
+            Collapse
             <ChevronUp className="h-3 w-3 text-[var(--content-tertiary)]" />
           </button>
         </motion.div>

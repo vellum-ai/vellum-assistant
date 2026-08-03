@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("feature-flag-defaults");
@@ -44,7 +45,8 @@ function getRegistryCandidates(): string[] {
     candidates.push(...registryCandidateOverrides);
   }
 
-  const srcDir = import.meta.dirname ?? new URL(".", import.meta.url).pathname;
+  const srcDir =
+    import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
 
   // 1. Bundled gateway-local copy
   candidates.push(join(srcDir, REGISTRY_FILENAME));
