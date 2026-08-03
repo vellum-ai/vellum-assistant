@@ -165,7 +165,8 @@ export async function patchFeedItemStatus(
  *
  * Only fields explicitly present on `patch` are touched. Pass an empty
  * object and the call is a no-op that returns the existing item (or
- * `null` if the id isn't on disk).
+ * `null` if the id isn't on disk). A `title` that trims to empty is
+ * ignored, so no edit path can strip a title off an existing item.
  */
 export interface FeedItemContentPatch {
   title?: string;
@@ -363,9 +364,8 @@ async function runWrite(): Promise<void> {
     const updated: FeedItem = { ...existing };
     if (patch.title !== undefined) {
       const trimmed = patch.title.trim();
-      if (trimmed.length === 0) {
-        delete updated.title;
-      } else {
+      // Blank titles are ignored: an item keeps its title once it has one.
+      if (trimmed.length > 0) {
         updated.title = trimmed;
       }
     }

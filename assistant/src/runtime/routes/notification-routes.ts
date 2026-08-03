@@ -116,7 +116,10 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
 const EditNotificationParams = z
   .object({
     id: z.string().min(1).describe("Feed item id (notif:<uuid>) or bare uuid"),
-    title: z.string().optional(),
+    title: z
+      .string()
+      .optional()
+      .describe("New title. An empty value is ignored, never cleared."),
     body: z.string().optional(),
     urgency: UrgencySchema.optional(),
     status: z.enum(["new", "seen", "acted_on", "dismissed"]).optional(),

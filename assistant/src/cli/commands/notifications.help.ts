@@ -263,7 +263,8 @@ Examples:
         },
         {
           flags: "--title <title>",
-          description: "New short headline (≤ 8 words).",
+          description:
+            "New short headline (≤ 8 words). An empty value is ignored, so the existing title stays put.",
         },
         {
           flags: "--urgency <urgency>",
