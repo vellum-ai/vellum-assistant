@@ -87,13 +87,17 @@ export function countRetrospectiveMessagesAfter(
 
 /**
  * True when any block in a parsed content array is something other than a
- * tool_result. Bare tool-result carriers are transport rows for tool output,
- * not user-authored activity; an empty array carries nothing.
+ * tool result (`tool_result` / `web_search_tool_result`). Both are transport
+ * blocks for tool output riding on user-role rows, not user-authored
+ * activity; an empty array carries nothing.
  */
 function blocksCarryNonToolResult(
   blocks: ReadonlyArray<{ type?: unknown }>,
 ): boolean {
-  return blocks.some((block) => block.type !== "tool_result");
+  return blocks.some(
+    (block) =>
+      block.type !== "tool_result" && block.type !== "web_search_tool_result",
+  );
 }
 
 /**
