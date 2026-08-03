@@ -10,6 +10,12 @@
  * a redirect the caller can act on in a single retry. Declaring these keys in
  * `properties` instead would advertise parameters the tool does not accept.
  *
+ * Rules describe the first-party tools that ship in `bundled-skills/`, and tool
+ * names are not reserved: a managed, workspace, extra, or plugin skill may
+ * define its own `subagent_read` with an entirely different contract. The
+ * `bundled` prefix on the exports below is the reminder that callers must
+ * establish bundled provenance before consulting the table.
+ *
  * Pure data plus a lookup, with no imports from tool executors, so both the
  * skill-tool factory (`createSkillTool`, which validates before it reaches an
  * executor) and the executors themselves can consult it.
@@ -37,11 +43,14 @@ const MISUSE_RULES: Readonly<Record<string, readonly ToolInputMisuseRule[]>> = {
 };
 
 /**
- * Return the redirect for a misused parameter shape, or `undefined` when the
- * tool has no rule for the keys present (the caller then falls back to its own
- * error message).
+ * Return the redirect for a misused parameter shape on a bundled tool, or
+ * `undefined` when the tool has no rule for the keys present (the caller then
+ * falls back to its own error message).
+ *
+ * Only call this for a tool that came from a bundled skill. `toolName` alone
+ * does not establish that.
  */
-export function toolInputMisuseMessage(
+export function bundledToolInputMisuseMessage(
   toolName: string,
   input: Record<string, unknown>,
 ): string | undefined {
@@ -57,7 +66,7 @@ export function toolInputMisuseMessage(
   return undefined;
 }
 
-/** Every key that carries a redirect for `toolName`, for drift guards. */
-export function toolInputMisuseKeys(toolName: string): string[] {
+/** Every key that carries a redirect for bundled `toolName`, for drift guards. */
+export function bundledToolInputMisuseKeys(toolName: string): string[] {
   return (MISUSE_RULES[toolName] ?? []).flatMap((rule) => [...rule.keys]);
 }

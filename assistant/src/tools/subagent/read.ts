@@ -1,7 +1,7 @@
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { TERMINAL_STATUSES } from "../../subagent/index.js";
-import { toolInputMisuseMessage } from "../shared/input-misuse.js";
+import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -23,7 +23,9 @@ export async function executeSubagentRead(
   // wrong-parameter call, so they get the redirect rather than the generic
   // '"subagent_id" or "label" is required'. `createSkillTool` runs the same
   // check for calls the manifest validator rejects before they reach here.
-  const misuse = toolInputMisuseMessage("subagent_read", input);
+  // This executor backs the bundled subagent skill, so the bundled table is
+  // the right one to consult.
+  const misuse = bundledToolInputMisuseMessage("subagent_read", input);
   if (misuse) {
     return { content: misuse, isError: true };
   }

@@ -5,7 +5,7 @@ import {
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
-import { toolInputMisuseMessage } from "../shared/input-misuse.js";
+import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
@@ -57,8 +57,13 @@ export function createSkillTool(
         // A parameter shape with its own redirect (e.g. a file path passed to
         // `subagent_read`) answers with that redirect: the generic "Unknown
         // parameter" list names the accepted keys but not the tool the caller
-        // is actually reaching for.
-        const misuse = toolInputMisuseMessage(entry.name, coercedInput);
+        // is actually reaching for. Redirects describe first-party tools, so
+        // only bundled skills consult them. A managed, workspace, extra, or
+        // plugin skill that reuses a bundled tool name keeps the generic error,
+        // which is the one that matches its own manifest.
+        const misuse = bundled
+          ? bundledToolInputMisuseMessage(entry.name, coercedInput)
+          : undefined;
         return {
           content:
             misuse ??

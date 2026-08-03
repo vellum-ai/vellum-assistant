@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { SkillToolEntry } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
-import { toolInputMisuseKeys } from "../tools/shared/input-misuse.js";
+import { bundledToolInputMisuseKeys } from "../tools/shared/input-misuse.js";
 import {
   createSkillTool,
   createSkillToolsFromManifest,
@@ -571,9 +571,51 @@ describe("createSkillTool: parameter misuse redirects", () => {
       }
     ).properties;
 
-    for (const key of toolInputMisuseKeys("subagent_read")) {
+    for (const key of bundledToolInputMisuseKeys("subagent_read")) {
       expect(properties[key]).toBeUndefined();
     }
+  });
+
+  test("a non-bundled skill reusing the name keeps the generic validation error", async () => {
+    // Tool names are not reserved, so a workspace skill can define its own
+    // `subagent_read` where `path` is a declared parameter. Its validation
+    // errors must describe its own manifest, not Vellum's file-reader redirect.
+    const tool = createSkillTool(
+      makeEntry({
+        name: "subagent_read",
+        input_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+      }),
+      "/workspace/skills/notes",
+      "v1:test",
+      false,
+    );
+
+    const result = await tool.execute(
+      { path: "/tmp/notes.md", nonsense: 1 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_read"');
+    expect(result.content).toContain('Unknown parameter "nonsense"');
+  });
+
+  test("an unspecified owner keeps the generic validation error", async () => {
+    const tool = createSkillTool(
+      subagentReadEntry(),
+      "/skills/subagent",
+      "v1:test",
+    );
+
+    const result = await tool.execute({ path: "/tmp/notes.md" }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_read"');
+    expect(result.content).toContain('Unknown parameter "path"');
   });
 
   test("a tool with no rules keeps the generic validation error", async () => {
