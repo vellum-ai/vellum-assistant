@@ -2720,6 +2720,51 @@ describe("Subagent output contract", () => {
     }
   });
 
+  test("an explicit report is rejected for the advisor too", async () => {
+    const manager = getSubagentManager();
+    const originalAwait = manager.spawnAndAwait.bind(manager);
+    let consulted = false;
+    manager.spawnAndAwait = async () => {
+      consulted = true;
+      return "advice";
+    };
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "Check the plan",
+          role: "advisor",
+          output_contract: "report",
+        },
+        makeContext("sess-contract-advisor-report", {
+          sendToClient: () => {},
+        }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not apply to the advisor");
+      expect(result.content).toContain('"report"');
+      expect(consulted).toBe(false);
+    } finally {
+      manager.spawnAndAwait = originalAwait;
+    }
+  });
+
+  test("a null contract reads as omitted and reaches the advisor branch", async () => {
+    const result = await executeSubagentSpawn(
+      {
+        label: "Consult",
+        objective: "Check the plan",
+        role: "advisor",
+        output_contract: null,
+      },
+      makeContext("sess-contract-advisor-none", { sendToClient: () => {} }),
+    );
+    // The advisor branch runs and reports its own missing-parent notice, so
+    // the contract check waved this spawn through.
+    expect(result.content).toContain("advisor unavailable");
+    expect(result.content).not.toContain("does not apply to the advisor");
+  });
+
   test("verdict defaults the child to the cost-optimized tier", async () => {
     const { result, config } = await spawnCapturing(
       {

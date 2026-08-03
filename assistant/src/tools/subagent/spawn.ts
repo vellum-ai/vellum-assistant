@@ -387,7 +387,10 @@ export async function executeSubagentSpawn(
  * researcher's job, and an artifact has to be written, which only a builder
  * can do. The advisor takes no contract at all: it is a blocking consult that
  * returns guidance in its own framing, and its child never sees a built system
- * prompt or fork framing to render one into.
+ * prompt or fork framing to render one into. That includes an explicit
+ * `report`, which is checked against the advisor before it is waved through as
+ * the default everywhere else: the caller asked for a shape the consult cannot
+ * produce, and only an omitted contract means it never asked.
  *
  * Mismatches are rejected rather than coerced. Silently promoting a verdict
  * spawn to a builder would hand out write access the caller never asked for,
@@ -399,7 +402,7 @@ function outputContractError(
   contract: SubagentOutputContract | undefined,
   role: SubagentRole,
 ): string | undefined {
-  if (contract === undefined || contract === "report") {
+  if (contract === undefined) {
     return undefined;
   }
   if (role === "advisor") {
@@ -407,6 +410,9 @@ function outputContractError(
       `output_contract "${contract}" does not apply to the advisor: it is a blocking consult that returns guidance in its own shape. ` +
       'Drop output_contract, or spawn role "researcher" with output_contract "verdict" to have work checked.'
     );
+  }
+  if (contract === "report") {
+    return undefined;
   }
   if (contract === "verdict" && role !== "researcher") {
     return (
