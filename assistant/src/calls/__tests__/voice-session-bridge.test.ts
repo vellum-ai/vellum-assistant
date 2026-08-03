@@ -338,7 +338,10 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     expect(fake.lastPersistOpts()?.content).toBe(
       ESCALATION_CONTINUATION_CONTENT,
     );
-    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+      hidden: true,
+    });
   });
 
   test("the opener prompt is persisted un-hidden (unchanged)", async () => {
@@ -347,7 +350,9 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
 
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
-    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+    });
   });
 });
 
@@ -390,7 +395,10 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
     );
 
     expect(fake.lastPersistOpts()?.content).toBe(SYNTHETIC_CONTENT);
-    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+      hidden: true,
+    });
     expect(echoes).toHaveLength(0);
   });
 
@@ -405,7 +413,9 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
       }),
     );
 
-    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+    });
     expect(echoes).toEqual([
       expect.objectContaining({ text: SYNTHETIC_CONTENT }),
     ]);

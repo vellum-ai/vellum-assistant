@@ -33,7 +33,11 @@ import {
 import { getEdgeIndex } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
-import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
+import {
+  getSkillCapability,
+  isSkillSlug,
+  listAlwaysCandidateSkillSlugs,
+} from "../substrate/skill-store.js";
 import { spreadActivation } from "../substrate/spread.js";
 import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import {
@@ -316,6 +320,28 @@ export async function injectMemoryV2Block(
  * which this helper overwrites. `nextStateMap` is the activation
  * pipeline's sparse next-state; router-mode callers pass an empty map.
  */
+/**
+ * Telemetry row for a pinned always-candidate skill. Activation never scored
+ * it, so every score field is zero, matching the router-mode rows.
+ */
+function makePinnedSkillRow(slug: string): MemoryV2ConceptRowRecord {
+  return {
+    slug,
+    finalActivation: 0,
+    ownActivation: 0,
+    priorActivation: 0,
+    simUser: 0,
+    simAssistant: 0,
+    simNow: 0,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
+    spreadContribution: 0,
+    source: "always_candidate",
+    status: "not_injected",
+  };
+}
+
 async function finalizeInjection(args: {
   workspaceDir: string;
   conversationId: string;
@@ -342,11 +368,31 @@ async function finalizeInjection(args: {
     currentTurn,
     messageId,
     priorEverInjected,
-    slugsToRender,
+    slugsToRender: selectedSlugs,
     telemetryRows,
     config,
     nextStateMap,
   } = args;
+
+  const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
+
+  // Skills marked `always-candidate` are pinned rather than retrieved: their
+  // relevance is a judgment the model makes each turn, not a similarity the
+  // embedding finds, so activation and the router both leave them out. Attach
+  // them alongside whatever this turn selected, skipping any already carried by
+  // the cached prefix — v2 is append-only, so a card attached once stays
+  // visible until compaction evicts the turn and re-opens the slug.
+  const selectedSet = new Set(selectedSlugs);
+  const pinnedSlugs = (await listAlwaysCandidateSkillSlugs()).filter(
+    (slug) => !selectedSet.has(slug) && !everInjectedSet.has(slug),
+  );
+  const slugsToRender = [...selectedSlugs, ...pinnedSlugs];
+  const telemetrySlugSet = new Set(telemetryRows.map((row) => row.slug));
+  for (const slug of pinnedSlugs) {
+    if (!telemetrySlugSet.has(slug)) {
+      telemetryRows.push(makePinnedSkillRow(slug));
+    }
+  }
 
   // `mode` is `let` because the trailing try/finally promotes it to "errored"
   // when the render/telemetry path throws — we still want a log row written
@@ -377,7 +423,6 @@ async function finalizeInjection(args: {
         (isCliCommandSlug(slug) && !getCliCommandCapability(slug)),
     ),
   );
-  const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
   const newlyInjected = slugsToRender.filter(
     (slug) => !everInjectedSet.has(slug) && !missingSyntheticSlugs.has(slug),
   );

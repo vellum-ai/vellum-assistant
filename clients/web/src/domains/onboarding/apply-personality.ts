@@ -35,8 +35,8 @@ import {
   messagesGet,
   messagesPost,
 } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { latestAssistantText } from "@/utils/latest-assistant-text";
 
 export {
@@ -91,17 +91,11 @@ export async function applyPersonality({
       return;
     }
 
-    const body: MessagesPostData["body"] = {
+    const body = buildSideConversationMessageBody({
       conversationId,
       content: buildPersonalityMessage(values, userName, assistantName),
-      sourceChannel: "vellum",
-      interface: "vellum",
-      clientMessageId: crypto.randomUUID(),
-      // Auto-sent on the user's behalf — they moved sliders, they did not type
-      // this. Keeps the turn out of activation counts for every user, not just
-      // those whose diagnostics consent lets the trace classifier see it.
-      scripted: true,
-    };
+      transport: "vellum",
+    });
     const posted = await messagesPost({
       path: { assistant_id: assistantId },
       body,

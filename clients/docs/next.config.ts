@@ -16,15 +16,50 @@ const MARKDOWN_ACCEPT_HEADER = {
 const nextConfig: NextConfig = {
   output: "standalone",
   typedRoutes: true,
+  // Ingress only routes /docs/* to this app, so the build's static assets
+  // must be referenced under that prefix; the /docs/_next rewrite below maps
+  // them back to Next's real /_next filesystem route.
+  assetPrefix: "/docs",
+  // The /_next/image optimizer endpoint is NOT covered by assetPrefix and
+  // would resolve outside the /docs ingress prefix. Assets are pre-sized
+  // WebP, so serve them as-is.
+  images: { unoptimized: true },
   // Without this, Next's middleware adapter strips the router prefetch
   // headers (Next-Router-Prefetch, Next-Router-Segment-Prefetch, RSC) before
   // src/proxy.ts runs, so isPrefetch() could never suppress segment-cache
   // prefetches and every landing would emit a burst of phantom page_view
   // rows (see FLIGHT_HEADERS in next/dist/server/web/adapter.js).
   skipMiddlewareUrlNormalize: true,
+  async redirects() {
+    return [
+      // Legacy /docs URLs that permanently redirect to their successors.
+      {
+        source: "/docs/data-sharing",
+        destination: "/docs/privacy-policy",
+        permanent: true,
+      },
+      {
+        source: "/docs/affiliate-program-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+      {
+        source: "/docs/vellum-survey-giveaway-official-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [
+        {
+          // Counterpart of assetPrefix: serve the prefixed asset URLs from
+          // Next's real static route. Ordered first so no other rule can
+          // capture an asset path.
+          source: "/docs/_next/:path*",
+          destination: "/_next/:path*",
+        },
         //
         // The `.md` URL-suffix rules are ordered BEFORE the Accept rules
         // because the permissive `/docs/:path` Accept rule would otherwise

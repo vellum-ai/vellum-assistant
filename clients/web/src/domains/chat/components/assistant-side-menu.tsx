@@ -24,26 +24,39 @@ import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-c
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
+import {
+  ConversationNavSection,
+  ConversationRowList,
+} from "@/domains/chat/components/conversation-nav-section";
+import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
+import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
+import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
+import { useScrolledPast } from "@/domains/chat/hooks/use-scrolled-past";
 import {
-  SIDEBAR_CONVERSATION_LIMIT,
   useSidebarState,
   type SidebarSection,
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
+import { SidebarSectionResizeHandle } from "@/domains/chat/components/sidebar-section-resize-handle";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
-import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
+import {
+  resetPinnedSectionHeight,
+  savePinnedSectionHeight,
+  usePinnedSectionHeight,
+} from "@/domains/chat/utils/sidebar-pinned-height";
+import {
+  RECENTS_SECTION_ICON,
+  RECENTS_SECTION_LABEL,
+  sectionIcon,
+} from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { Button, SideMenu } from "@vellumai/design-library";
-
-/** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
-export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
-  SIDEBAR_CONVERSATION_LIMIT;
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -145,14 +158,18 @@ function SearchButton() {
  * Structure (top → bottom):
  *
  *   Header
- *     • Your Assistant → Intelligence view
+ *     • Your Assistant → Intelligence view, with New Chat beneath it
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
+ *     • [ All | Grouped ] - the view switch, first and sticky
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • Chats ▾        - recent conversations, with Show more/less
- *     • Channel ▾      — one collapsible section per origin channel
- *                        (Slack, Telegram, WhatsApp, …)
+ *     • ───────────────  - when anything is curated above it; drags to
+ *       resize Pinned while that section is expanded
+ *     • All view: every remaining conversation as one headerless,
+ *       virtualized list, newest first
+ *     • Grouped view: Chats ▾ then one collapsible section per origin
+ *       channel (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -226,11 +243,35 @@ export function AssistantSideMenu({
 
   const isCollapsedRail = collapsed && variant === "rail";
 
+  // --- Pinned section resize ---
+  // The section list's one rule doubles as the Pinned section's resize
+  // handle. During a drag the handle drives the bounded row list through
+  // this ref (no per-frame React state); the released height persists per
+  // assistant. Pinned is non-collapsible (its content renders through a
+  // plain div, not `Collapsible.Content`), so the ref always reaches a node
+  // once Pinned exists, so resizability shouldn't depend on
+  // `effectiveOpenSections`, which can still carry a stale "no pinned" key
+  // for a user who collapsed it before that change shipped.
+  const pinnedListRef = useRef<HTMLDivElement | null>(null);
+  const pinnedListMaxHeight = usePinnedSectionHeight(assistantId);
+  const pinnedResizable = sidebar.sections.some(
+    (section) => section.type === "pinned",
+  );
+
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
   // scrollable body, so the body reserves matching bottom padding to keep the
   // last conversation rows scrollable clear of it. Measured (not static)
   // because the tip card appears/disappears and its copy length varies.
+  // The scrollport the flat "All" list virtualizes against. State, not a ref,
+  // because the list only mounts once the node exists and has to re-render
+  // when it does.
+  const [bodyElement, setBodyElement] = useState<HTMLElement | null>(null);
+
+  // Far enough down that the pill never flickers in on a nudge, and short
+  // enough that it is there by the time the curated layer is off screen.
+  const scrolledPast = useScrolledPast(bodyElement, 400);
+
   const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
@@ -355,20 +396,17 @@ export function AssistantSideMenu({
   };
 
   // Header actions for one section: the bulk actions every section shares,
-  // the move-up/down pair its position allows (absent at either end, which is
-  // how the menu avoids offering a move that does nothing), and - for custom
-  // groups only - rename/delete/copy-id.
-  const sectionMenu = (
-    section: SidebarSection,
-    index: number,
-  ): GroupMenuItemsProps => {
+  // the move-up/down pair its position allows (absent when the move would do
+  // nothing, which is how the menu avoids offering a dead action), and - for
+  // custom groups only - rename/delete/copy-id.
+  const sectionMenu = (section: SidebarSection): GroupMenuItemsProps => {
     const moveOptions = {
-      onMoveUp:
-        index === 0 ? undefined : () => sidebar.onMoveSection(section.key, -1),
-      onMoveDown:
-        index === sidebar.sections.length - 1
-          ? undefined
-          : () => sidebar.onMoveSection(section.key, 1),
+      onMoveUp: sidebar.canMoveSection(section.key, -1)
+        ? () => sidebar.onMoveSection(section.key, -1)
+        : undefined,
+      onMoveDown: sidebar.canMoveSection(section.key, 1)
+        ? () => sidebar.onMoveSection(section.key, 1)
+        : undefined,
     };
     if (section.type !== "group") {
       return buildGroupMenu(section.label, section.all, moveOptions);
@@ -384,6 +422,44 @@ export function AssistantSideMenu({
       onCopyGroupId: () => copyIdToClipboard(section.group.id, "Group ID"),
     });
   };
+
+  // List/Groups switch, in the persistent "Conversations" header's menu.
+  const viewAsFooter = (
+    <div className="mt-2 px-2 pb-1">
+      <div
+        className="mb-1.5 text-label-small-default text-[var(--content-tertiary)]"
+        style={{ fontSize: 12 }}
+      >
+        View As
+      </div>
+      <SidebarViewModeToggle
+        value={sidebar.viewMode}
+        onChange={sidebar.onViewModeChange}
+      />
+    </div>
+  );
+
+  const renderSection = (section: SidebarSection) => (
+    <SidebarSectionItem
+      key={section.key}
+      section={section}
+      groupMenu={sectionMenu(section)}
+      drag={sectionDragFor(section)}
+      collapsedIndicator={collapsedActivityDot(section.all)}
+      listRef={section.type === "pinned" ? pinnedListRef : undefined}
+      listMaxHeight={
+        section.type === "pinned" ? pinnedListMaxHeight : undefined
+      }
+    />
+  );
+
+  // The persistent "Conversations" header: same bulk-action menu shape as a
+  // section's, minus move-up/down since it isn't a member of
+  // `sidebar.sections`. Scoped to `flatList` regardless of view mode:
+  // that's every conversation neither pinned nor in a custom group, the same
+  // set whether it's currently rendered as one list (List view) or split
+  // into Chats + channel sub-sections (Grouped view).
+  const conversationsMenu = buildGroupMenu("Conversations", sidebar.flatList);
 
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
@@ -416,9 +492,10 @@ export function AssistantSideMenu({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* The assistant cluster: the New Chat row (avatar-tinted, plus +
-          label; icon-only tile on the collapsed rail) with the
-          avatar-colored assistant row beneath it. No divider when
+      {/* The assistant cluster: the avatar-colored assistant row with the
+          New Chat row (avatar-tinted, plus + label; icon-only tile on the
+          collapsed rail) beneath it, so the identity leads and the action
+          hangs off it. No divider when
           expanded; breathing room below instead. On the collapsed rail
           the separator provides the section break, so the margin drops
           and the header's own gap (8px) plus the separator's margin keeps
@@ -491,19 +568,26 @@ export function AssistantSideMenu({
         </SideMenu.Header>
 
         <SideMenu.Body
+          ref={setBodyElement}
           className={
             variant === "overlay"
               ? /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. pt-14 on iOS clears the 40px
                  the floating icon row covers plus a 16px gap, so the first
                  row starts below the glyphs at rest. */
-                `gap-4 pt-3 pb-24 native-ios:pt-14 max-md:pt-4 ${NATIVE_IOS_LIST_TOP_FADE}`
+                `-mx-4 gap-4 px-4 pb-24 native-ios:pt-14 ${NATIVE_IOS_LIST_TOP_FADE}`
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
                 isCollapsedRail
                 ? "gap-4 pt-2"
-                : "gap-4 pt-3 max-md:pt-4"
+                : /* The scrollport spans the full rail so its scrollbar rides
+                     the outer edge instead of cutting through the content, and
+                     takes over the horizontal inset the root would have given
+                     it, so rows sit exactly where they did. No top inset: the
+                     sticky view switch sits flush against the header, and any
+                     padding here would be a gap it has to cancel. */
+                  "-mx-4 gap-4 px-4"
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
@@ -518,7 +602,19 @@ export function AssistantSideMenu({
               : undefined
           }
         >
-          {variant === "overlay" ? builtInNav : null}
+          {/* The overlay puts the assistant cluster at the top of the
+              scrollport rather than in a fixed header, so it owns the inset
+              that keeps it clear of the floating close and search glyphs. It
+              lives here rather than on the scrollport because the sticky view
+              switch sticks to the scrollport's content box: any padding there
+              would park the switch that far down and open a strip above it
+              for rows to scroll through. `gap-4` restates the body's own gap,
+              which wrapping these into one flex item would otherwise drop. */}
+          {variant === "overlay" ? (
+            <div className="flex flex-col gap-4 pt-3 max-md:pt-4">
+              {builtInNav}
+            </div>
+          ) : null}
           {isCollapsedRail ? (
             /* The rail shows the same sections in the same order, as icons.
                Nothing here is type-aware - order and labels come straight
@@ -537,21 +633,47 @@ export function AssistantSideMenu({
                     attentionConversationIds,
                   )}
                 >
-                  {(close) => (
+                  {(close, scrollParent) => (
                     <CollapsedGroupFlyout
                       title={section.label}
                       conversations={section.all}
                       onClosePopover={close}
+                      scrollParent={scrollParent}
                     />
                   )}
                 </CollapsedGroupIcon>
               ))}
+              {/* The flat list has no section of its own to draw, so the rail
+                  gives it one icon - otherwise the All view's conversations
+                  would be unreachable while collapsed. */}
+              {sidebar.viewMode === "all" ? (
+                <CollapsedGroupIcon
+                  icon={RECENTS_SECTION_ICON}
+                  label={RECENTS_SECTION_LABEL}
+                  disabled={sidebar.flatList.length === 0}
+                  indicatorState={getGroupIndicatorState(
+                    sidebar.flatList,
+                    processingConversationIds,
+                    attentionConversationIds,
+                  )}
+                >
+                  {(close, scrollParent) => (
+                    <CollapsedGroupFlyout
+                      title={RECENTS_SECTION_LABEL}
+                      conversations={sidebar.flatList}
+                      onClosePopover={close}
+                      scrollParent={scrollParent}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              ) : null}
             </div>
           ) : (
             /* Right-clicking the list (including the empty space below the
                last section) creates a group, so the affordance covers the
                whole scrollport rather than any one section. */
-            <SidebarListContextMenu onCreateGroup={onCreateGroup}>
+            <>
+              <SidebarListContextMenu onCreateGroup={onCreateGroup}>
               {/* Every section - Pinned, Chats, channels, custom groups -
                   shares one accordion root, so its gap is the only thing
                   between any two of them and the spacing is uniform by
@@ -566,23 +688,75 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
-                {/* No dividers between sections. A custom group is a peer of
-                    Pinned, Chats, and a channel section, not a different class
-                    of thing, so nothing here may hint at a grouping the user
-                    didn't create - they order these however they like. The
-                    header's own indent (SIDEBAR_SECTION_INDENT) is what marks
-                    where a section starts. */}
-                {sidebar.sections.map((section, index) => (
-                  <SidebarSectionItem
-                    key={section.key}
-                    section={section}
-                    groupMenu={sectionMenu(section, index)}
-                    drag={sectionDragFor(section)}
-                    collapsedIndicator={collapsedActivityDot(section.all)}
+                {/* Pinned and the custom groups: the user's own curation,
+                    identical in both views. No dividers *between* them, since
+                    a custom group is a peer of Pinned rather than a different
+                    class of thing. */}
+                {sidebar.sections
+                  .slice(0, sidebar.curatedSectionCount)
+                  .map(renderSection)}
+                {/* The list's one rule, marking where curation ends and the
+                    conversations begin. Absent when nothing is curated yet, so
+                    a fresh sidebar never opens on a stray line. It carries no
+                    margin, sitting on the root's own gap, and doubles as the
+                    Pinned section's resize handle while Pinned is expanded. */}
+                {sidebar.curatedSectionCount > 0 ? (
+                  <SidebarSectionResizeHandle
+                    targetRef={pinnedListRef}
+                    resizable={pinnedResizable}
+                    onCommit={(height) =>
+                      savePinnedSectionHeight(assistantId, height)
+                    }
+                    onReset={() => resetPinnedSectionHeight(assistantId)}
                   />
-                ))}
+                ) : null}
+                {/* "Conversations" is the persistent header for everything
+                    that isn't Pinned or a custom group: it never swaps out
+                    for "Chats". In List view its content is the flat list;
+                    in Grouped view, Chats and each channel section nest
+                    inside it instead of sitting as its top-level siblings,
+                    keeping their own headers/collapse behavior. Same
+                    bulk-action menu machinery as a section's, minus
+                    move-up/down since it isn't a member of
+                    `sidebar.sections`. */}
+                <ConversationNavSection
+                  value="conversations"
+                  label="Conversations"
+                  collapsible={false}
+                  trailing={
+                    <GroupActionsMenu
+                      label="Conversations"
+                      footer={viewAsFooter}
+                      {...conversationsMenu}
+                    />
+                  }
+                  groupMenu={conversationsMenu}
+                  items={sidebar.flatList}
+                >
+                  {sidebar.viewMode === "all" ? (
+                    bodyElement ? (
+                      <ConversationRowList
+                        items={sidebar.flatList}
+                        scrollParent={bodyElement}
+                      />
+                    ) : null
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {sidebar.sections
+                        .slice(sidebar.curatedSectionCount)
+                        .map(renderSection)}
+                    </div>
+                  )}
+                </ConversationNavSection>
               </CollapsibleNavSection.Root>
-            </SidebarListContextMenu>
+              </SidebarListContextMenu>
+              <SidebarBackToTop
+                visible={scrolledPast}
+                onClick={() =>
+                  bodyElement?.scrollTo({ top: 0, behavior: "smooth" })
+                }
+              />
+            </>
           )}
         </SideMenu.Body>
 
@@ -607,7 +781,12 @@ export function AssistantSideMenu({
             {/* `empty:hidden` collapses the row when the tip card renders
                null, so the column gap adds no phantom spacing. */}
             {tipCard ? (
-              <div className="pointer-events-auto empty:hidden">{tipCard}</div>
+              <div
+                data-slot="tip-card-wrapper"
+                className="pointer-events-auto empty:hidden"
+              >
+                {tipCard}
+              </div>
             ) : null}
             <div className="flex items-center justify-center gap-4">
               {footerAction ? (
@@ -629,11 +808,13 @@ export function AssistantSideMenu({
             </div>
           </div>
         ) : footerAction || tipCard ? (
-          <SideMenu.Footer>
+          // `pt-0`, and a flush separator, so the conversation list runs right
+          // up to the rule instead of trailing off into dead space.
+          <SideMenu.Footer className="pt-0">
             {/* Tip card first, divider between it and the footer action. The
                collapsed rail drops both (per design). */}
             {isCollapsedRail ? null : tipCard}
-            {isCollapsedRail ? null : <SideMenu.Separator />}
+            {isCollapsedRail ? null : <SideMenu.Separator className="my-0" />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

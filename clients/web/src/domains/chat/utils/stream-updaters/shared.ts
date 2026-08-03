@@ -84,6 +84,39 @@ export function findAssistantRowIndexByMessageId(
 }
 
 /**
+ * Resolve the assistant row a turn-scoped event belongs to: the row owning
+ * `messageId` when it carries one and that row exists, otherwise the newest
+ * assistant row of the current turn. Returns `-1` when the turn has not opened
+ * an assistant row yet.
+ *
+ * The positional fallback scans back only as far as the newest non-queued user
+ * row: an event belongs to the turn that emitted it, and a turn with no
+ * assistant row of its own (a wake, a background dispatch) must not fold into
+ * the PREVIOUS turn's bubble, which sits above the user's newest message and
+ * is never where the server places the content on replay.
+ */
+export function findTurnAssistantRowIndex(
+  prev: DisplayMessage[],
+  messageId?: string,
+): number {
+  if (messageId) {
+    const byId = findAssistantRowIndexByMessageId(prev, messageId);
+    if (byId !== -1) {
+      return byId;
+    }
+  }
+  const turnStartIdx =
+    prev.findLastIndex((m) => m.role === "user" && m.queueStatus !== "queued") +
+    1;
+  for (let i = prev.length - 1; i >= turnStartIdx; i--) {
+    if (prev[i]?.role === "assistant") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Record `messageId` as a `mergedMessageIds` alias on `row` when it isn't
  * already the row's primary id or a known alias. Mirrors the backend merge
  * so a subsequent reconcile / SSE lookup by that id resolves to this row.

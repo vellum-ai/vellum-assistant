@@ -21,6 +21,7 @@ import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-creat
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
+import { VisualSurface } from "@/domains/chat/components/surfaces/visual-surface";
 import { WorkResultSurface } from "@/domains/chat/components/surfaces/work-result-surface";
 
 export interface SurfaceRouterProps {
@@ -120,6 +121,9 @@ function SurfaceRouterInner({
           onVellumLinkClick={onVellumLinkClick}
         />
       );
+
+    case "visual":
+      return <VisualSurface surface={surface} />;
 
     case "call_summary":
       return <CallSummarySurface surface={surface} onAction={onAction} />;

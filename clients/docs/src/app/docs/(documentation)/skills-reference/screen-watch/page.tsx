@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Screen Watch - Vellum Docs",
   description:
-    "Screen Watch skill for Vellum: observe your screen at regular intervals with OCR for context-aware assistance.",
+    "Screen Watch skill for Vellum — observe your screen at regular intervals with OCR for context-aware assistance.",
   path: "/docs/skills-reference/screen-watch",
 });
 

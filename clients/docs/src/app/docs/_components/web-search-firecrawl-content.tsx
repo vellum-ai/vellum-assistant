@@ -99,7 +99,7 @@ export function WebSearchFirecrawlContent() {
             </li>
           </ol>
           <p className="mb-3 text-zinc-600 dark:text-zinc-400">
-            Prefer the CLI? From any shell where the assistant is running:
+            Prefer the CLI? From any shell where the assistant daemon is running:
           </p>
           <div className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4">
             <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-100">
@@ -140,7 +140,7 @@ assistant config set services.web-fetch.provider firecrawl`}
               Tavily). The chain skips any provider without a key connected; if none are connected,
               the search returns an error. See the{" "}
               <Link
-                href={"/docs/key-concepts/web-search"}
+                href="/docs/key-concepts/web-search"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Web Search
@@ -195,7 +195,7 @@ assistant config set services.web-fetch.provider firecrawl`}
             </li>
             <li>
               <Link
-                href={"/docs/key-concepts/web-search"}
+                href="/docs/key-concepts/web-search"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Vellum Web Search reference

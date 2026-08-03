@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Skill Management - Vellum Docs",
   description:
-    "Skill Management skill for Vellum: creates and deletes custom managed skills to extend your assistant.",
+    "Skill Management skill for Vellum — creates and deletes custom managed skills to extend your assistant.",
   path: "/docs/skills-reference/skill-management",
 });
 

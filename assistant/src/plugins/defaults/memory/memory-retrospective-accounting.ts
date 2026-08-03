@@ -23,7 +23,7 @@
 // accounting; once newer real messages arrive it is copied into the next
 // run's fork as inert prefix context.
 
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, gt, like, or } from "drizzle-orm";
 
 import {
   countMessagesAfter,
@@ -83,6 +83,110 @@ export function countRetrospectiveMessagesAfter(
   }
   const cardCount = countSkillCardMessagesAfter(conversationId, afterMessageId);
   return Math.max(0, total - cardCount);
+}
+
+/**
+ * True when any block in a parsed content array is something other than a
+ * tool result (`tool_result` / `web_search_tool_result`). Both are transport
+ * blocks for tool output riding on user-role rows, not user-authored
+ * activity; an empty array carries nothing.
+ */
+function blocksCarryNonToolResult(
+  blocks: ReadonlyArray<{ type?: unknown }>,
+): boolean {
+  return blocks.some(
+    (block) =>
+      block.type !== "tool_result" && block.type !== "web_search_tool_result",
+  );
+}
+
+/**
+ * True when the slice contains at least one user-authored message: a
+ * user-role row whose resolved content carries a non-tool_result block. Tool
+ * results ride on user-role rows, so a bare role check would count any
+ * tool-using assistant stretch as user activity.
+ */
+export function messagesHaveUserActivity(
+  rows: ReadonlyArray<Pick<MessageRow, "role" | "content">>,
+): boolean {
+  return rows.some(
+    (row) => row.role === "user" && blocksCarryNonToolResult(row.content),
+  );
+}
+
+/**
+ * Existence probe for user-authored activity strictly after the
+ * `(createdAt, id)` cursor: at least one user-role row whose content carries
+ * a non-tool_result block. Powers the `memory.retrospective.requireUserActivity`
+ * enqueue gate, so only user rows are loaded. Cursor semantics mirror
+ * `countMessagesAfter`: a null/`""` reference scans the whole conversation,
+ * and a vanished reference means no new work.
+ *
+ * Operates on the raw `content` column: rows that do not parse to a block
+ * array (file-backed `{ ref }` rows, legacy plain strings) count as
+ * user-authored, so the gate fails toward running the retrospective.
+ */
+export function hasQualifyingUserMessageAfter(
+  conversationId: string,
+  afterMessageId: string | null,
+): boolean {
+  const cursorId =
+    afterMessageId === null || afterMessageId === "" ? null : afterMessageId;
+  const db = getDb();
+
+  let ref: { createdAt: number } | undefined;
+  if (cursorId !== null) {
+    ref = db
+      .select({ createdAt: messages.createdAt })
+      .from(messages)
+      .where(eq(messages.id, cursorId))
+      .get();
+    if (!ref) {
+      return false;
+    }
+  }
+
+  const afterCursor =
+    cursorId !== null && ref
+      ? [
+          or(
+            gt(messages.createdAt, ref.createdAt),
+            and(
+              eq(messages.createdAt, ref.createdAt),
+              gt(messages.id, cursorId),
+            ),
+          ),
+        ]
+      : [];
+  const rows = db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "user"),
+        ...afterCursor,
+      ),
+    )
+    .all();
+
+  return rows.some((row) => rawUserContentCarriesActivity(row.content));
+}
+
+/** Raw-column twin of the block check used by {@link messagesHaveUserActivity}. */
+function rawUserContentCarriesActivity(raw: string | null): boolean {
+  if (raw === null || raw === "") {
+    return false;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return true;
+    }
+    return blocksCarryNonToolResult(parsed as Array<{ type?: unknown }>);
+  } catch {
+    return true;
+  }
 }
 
 /**

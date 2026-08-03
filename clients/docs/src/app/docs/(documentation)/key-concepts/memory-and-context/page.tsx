@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Memory & Context - Vellum Docs",
   description:
-    "How Vellum remembers: workspace files, long-term memory, procedural memory as skills, the injection gate, context assembly, and privacy considerations.",
+    "How Memory v3 captures, organizes, connects, and recalls useful knowledge across conversations, plus the controls for creating and refining memories.",
   path: "/docs/key-concepts/memory-and-context",
 });
 

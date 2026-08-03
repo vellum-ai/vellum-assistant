@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
@@ -54,7 +55,7 @@ export function HelpGettingHelpContent() {
           <p className="mb-4 text-zinc-600">
             <strong>Share feedback</strong> sends your recent logs to the Vellum team along with a
             short note from you. It&apos;s the single most useful thing you can do when something
-            goes wrong. Without logs, we&apos;re guessing.
+            goes wrong — without logs, we&apos;re guessing.
           </p>
           <p className="mb-4 text-zinc-600">
             On the <strong>desktop app</strong>, open the <em>Help</em> menu in the macOS menu bar
@@ -90,7 +91,7 @@ export function HelpGettingHelpContent() {
             />
           </div>
           <p className="mb-0 text-zinc-600">
-            A short modal will appear. Describe what happened in a sentence or two, then submit.
+            A short modal will appear — describe what happened in a sentence or two, then submit.
             The form bundles your last few minutes of logs so the team can see exactly what went
             wrong on your end.
           </p>
@@ -102,9 +103,9 @@ export function HelpGettingHelpContent() {
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             Check out our{" "}
-            <a href="https://www.vellum.ai/community" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+            <Link href="https://www.vellum.ai/community" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
               Community page
-            </a>{" "}
+            </Link>{" "}
             for links to Discord, forums, and other channels.
           </p>
           <p className="mb-0 mt-4 text-zinc-600">

@@ -13,6 +13,7 @@ import {
   type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
+  hasUnseenLatestAssistantMessage,
   type SignalType,
 } from "../../persistence/conversation-attention-store.js";
 import {
@@ -43,10 +44,7 @@ function buildAssistantAttention(attentionState: AttentionState | undefined):
 
   return {
     hasUnseenLatestAssistantMessage:
-      attentionState.latestAssistantMessageAt != null &&
-      (attentionState.lastSeenAssistantMessageAt == null ||
-        attentionState.lastSeenAssistantMessageAt <
-          attentionState.latestAssistantMessageAt),
+      hasUnseenLatestAssistantMessage(attentionState),
     ...(attentionState.latestAssistantMessageAt != null
       ? {
           latestAssistantMessageAt: attentionState.latestAssistantMessageAt,

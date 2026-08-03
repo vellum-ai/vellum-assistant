@@ -14,8 +14,8 @@ import {
 } from "../security/untrusted-content.js";
 import { safeStringSlice } from "../util/unicode.js";
 
-/** Minimum content length (chars) before a tool result is eligible for truncation. ~2000 tokens at 4 chars/token. */
-export const THRESHOLD_CHARS = 8_000;
+/** Minimum content length (chars) before a tool result is eligible for truncation. ~6250 tokens at 4 chars/token. */
+export const THRESHOLD_CHARS = 25_000;
 
 /** Target size (chars) for the truncated stub. ~300 tokens at 4 chars/token. */
 export const TARGET_CHARS = 1_200;

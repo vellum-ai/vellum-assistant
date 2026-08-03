@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "subagent_spawn",
-      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.\n\nTwo modes:\n- **Regular sub-agent** (fork: false or omitted): Gets only the objective + context fields. Use for self-contained tasks with clear objectives. Can use scoped roles (researcher, coder, planner).\n- **Fork** (fork: true): Inherits full parent context (messages, system prompt, memory). Shares KV cache for near-free context inheritance. Use when the task benefits from knowing what you've been discussing. Defaults to general role (the 'advisor' role is the exception — it is honored as a fork). Results are internal by default (send_result_to_user: false). Read with last_n: 1 to get only the final synthesis.\n\nDecision heuristic: Does the task need to know what we've been talking about? Fork. Is it self-contained? Regular sub-agent.\n\nThe 'advisor' role is a synchronous, read-only \"consult a stronger advisor\" mode: it inherits your full context, has no tools, and BLOCKS until it returns focused strategic guidance in a single response.",
+      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.\n\nTwo modes:\n- **Regular sub-agent** (fork: false or omitted): Gets only the objective + context fields. Use for self-contained tasks with clear objectives. Can use scoped roles (researcher, coder, planner).\n- **Fork** (fork: true): Inherits full parent context (messages, system prompt, memory). Shares KV cache for near-free context inheritance. Use when the task benefits from knowing what you've been discussing. Defaults to general role (the 'advisor' role is the exception: it is honored as a fork). Results are internal by default (send_result_to_user: false). Read with last_n: 1 to get only the final synthesis.\n\nDecision heuristic: Does the task need to know what we've been talking about? Fork. Is it self-contained? Regular sub-agent.\n\nThe 'advisor' role is a synchronous, read-only \"consult a stronger advisor\" mode: it inherits your full context plus a snapshot of your environment (available tools, skill catalog, workspace), has no tools of its own, and BLOCKS until it returns focused strategic guidance in a single response.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -19,7 +19,7 @@
           },
           "context": {
             "type": "string",
-            "description": "Optional additional context to pass to the subagent. Ignored when fork is true — forks inherit the parent's full context."
+            "description": "Optional additional context to pass to the subagent. Ignored when fork is true; forks inherit the parent's full context."
           },
           "fork": {
             "type": "boolean",
@@ -39,7 +39,7 @@
               "investigator",
               "advisor"
             ],
-            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis — debugging, log forensics, tracing behavior across many files; uses read-only search/read tools (code_search, file_read, file_list) with no shell access and returns a compact root-cause report. 'advisor': synchronous, read-only \"consult a stronger advisor\" — inherits full context, has no tools, and blocks until it returns focused strategic guidance. 'general': full access (default). The read-only roles (researcher, planner, investigator, advisor) cannot persist output — use 'coder' or 'general' for any objective that must write files or run commands, or a read-only subagent will finish without producing anything. Non-advisor roles are ignored when fork: true (forks default to general); the advisor role is honored even as a fork."
+            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis: debugging, log forensics, tracing behavior across many files; uses read-only search/read tools (code_search, file_read, file_list) with no shell access and returns a compact root-cause report. 'advisor': synchronous, read-only \"consult a stronger advisor\": inherits full context plus a snapshot of your environment (available tools, skill catalog, workspace), has no tools of its own, and blocks until it returns focused strategic guidance. 'general': full access (default). The read-only roles (researcher, planner, investigator, advisor) cannot persist output; use 'coder' or 'general' for any objective that must write files or run commands, or a read-only subagent will finish without producing anything. Non-advisor roles are ignored when fork: true (forks default to general); the advisor role is honored even as a fork."
           },
           "inference_profile": {
             "type": "string",

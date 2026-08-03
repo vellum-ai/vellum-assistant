@@ -97,7 +97,7 @@ export function SkillsReferenceTranscribeContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              Two modes: cloud (OpenAI Whisper, ~$0.006/min, fast) or local (whisper.cpp,
+              Two modes &mdash; cloud (OpenAI Whisper, ~$0.006/min, fast) or local (whisper.cpp,
               free, private, slower)
             </li>
             <li>Automatically extracts audio from video files</li>
@@ -119,8 +119,8 @@ export function SkillsReferenceTranscribeContent() {
               boundary.
             </li>
             <li>
-              <strong>Video support.</strong> Video files have their audio extracted automatically:
-              no need to convert first.
+              <strong>Video support.</strong> Video files have their audio extracted automatically
+              &mdash; no need to convert first.
             </li>
             <li>
               <strong>Combine with Document.</strong> Turn a transcript into a polished report using

@@ -65,7 +65,7 @@ export function HomepageContent() {
           <p className="mb-0 text-zinc-600">
             Curious what we believe, who we&apos;re building for, and what we refuse to
             compromise on?{" "}
-            <Link href={"/docs/constitution"} className="underline">
+            <Link href="/docs/constitution" className="underline">
               Read the Vellum Constitution
             </Link>
             .
@@ -355,11 +355,10 @@ export function HomepageContent() {
           </p>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Sensitive actions ask permission.</strong> Day-to-day work stays inside a
-              sandboxed workspace. Anything that reaches beyond it (host file access, host shell
-              commands, sensitive account scopes) shows an Allow or Deny prompt with a risk badge.
-              You can adjust your risk tolerance or create trust rules for standing permissions.
-              You&apos;re always in control.
+              <strong>Every sensitive action asks permission.</strong> File access, shell commands,
+              anything that touches your system or your accounts shows an Allow or Deny prompt
+              with a risk badge. You can adjust your risk tolerance or create trust rules for
+              standing permissions. You&apos;re always in control.
             </li>
             <li>
               <strong>Your data is yours.</strong> Your workspace, memories, and config live in
@@ -451,13 +450,13 @@ export function HomepageContent() {
               </div>
               <span className="docs-nav-card-arrow" aria-hidden="true">→</span>
             </a>
-            <a href="https://www.vellum.ai/roadmap" className="docs-nav-card">
+            <Link href="https://www.vellum.ai/roadmap" className="docs-nav-card">
               <div className="docs-nav-card-content">
                 <span className="docs-nav-card-title">Roadmap</span>
                 <span className="docs-nav-card-desc">What&apos;s shipping soon, what&apos;s next, and what we&apos;re exploring in the open.</span>
               </div>
               <span className="docs-nav-card-arrow" aria-hidden="true">→</span>
-            </a>
+            </Link>
             <a href="/docs/help" className="docs-nav-card">
               <div className="docs-nav-card-content">
                 <span className="docs-nav-card-title">Help</span>

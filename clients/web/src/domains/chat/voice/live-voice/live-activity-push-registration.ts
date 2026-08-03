@@ -33,7 +33,6 @@ import {
   assistantsLiveActivityTokensDelete,
   assistantsLiveActivityTokensUpsert,
 } from "@/generated/api/sdk.gen";
-import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
 import {
   isLiveVoiceSessionActive,
   LIVE_VOICE_STATE_LABELS,
@@ -41,20 +40,8 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { captureError } from "@/lib/sentry/capture-error";
+import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { createStorageAccessor } from "@/utils/typed-storage";
-
-/**
- * Bundle-id suffix that maps to the development APNs entitlement — the same
- * rule `runtime/push-registration.ts` applies to device tokens, and for the
- * same reason: APNs rejects a token minted under one environment when it is
- * addressed against the other, so the platform stores the environment
- * alongside the token.
- */
-const DEV_BUNDLE_SUFFIX = ".dev";
-
-function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
-  return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
-}
 
 /**
  * Every phase an activity can be pushed into, paired with its wording.
@@ -166,13 +153,15 @@ async function upsertToken(
     // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
+    // See `runtime/apns-environment.ts` for the shared-resolver rationale.
+    const apnsEnvironment = await resolveSignedApnsEnvironment(bundleId);
 
     const result = await assistantsLiveActivityTokensUpsert({
       path: { assistant_id: assistantId },
       body: {
         token,
         bundle_id: bundleId,
-        apns_environment: resolveApnsEnvironment(bundleId),
+        apns_environment: apnsEnvironment,
         conversation_id: conversationId,
         labels: phaseLabels(),
       },

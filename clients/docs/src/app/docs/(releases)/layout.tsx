@@ -95,6 +95,20 @@ export default async function ReleasesLayout({
                   >
                     Skills
                   </a>
+                  <a
+                    href={`https://${WWW_DOMAIN}/plugins`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="docs-header-link text-sm font-medium no-underline"
+                  >
+                    Plugins
+                  </a>
+                  <a
+                    href={`https://${WWW_DOMAIN}/community`}
+                    className="docs-header-link text-sm font-medium no-underline"
+                  >
+                    Community
+                  </a>
                 </div>
               </div>
             </div>

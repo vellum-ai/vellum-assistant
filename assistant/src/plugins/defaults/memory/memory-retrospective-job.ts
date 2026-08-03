@@ -80,7 +80,10 @@ import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
 import { recordWatchdogEvent } from "../../../telemetry/watchdog-events-store.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
 import { getLogger } from "./logging.js";
-import { getRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
+import {
+  getRetrospectiveMessagesAfter,
+  messagesHaveUserActivity,
+} from "./memory-retrospective-accounting.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
@@ -125,6 +128,7 @@ const MEMORY_RETROSPECTIVE_RUN_CHECK_NAME = "memory_retrospective_run";
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
+  | { kind: "no_user_activity" }
   | { kind: "source_dormant" }
   | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
@@ -174,6 +178,7 @@ export async function memoryRetrospectiveJob(
   try {
     outcome = await runForkBasedRetrospective(sourceConversationId, config, {
       enforceSweepLookback: true,
+      enforceUserActivityGate: true,
     });
   } catch (err) {
     emitRunOutcome("error", err instanceof Error ? err.message : String(err));
@@ -209,6 +214,14 @@ export async function runForkBasedRetrospective(
      * window.
      */
     enforceSweepLookback?: boolean;
+    /**
+     * Apply the `memory.retrospective.requireUserActivity` gate to the loaded
+     * slice. The queue handler passes this so rows that predate the enqueue
+     * gate (or that lost their user activity to a cursor race) complete as
+     * no-ops; the CLI's manual command omits it — an operator's explicit
+     * request overrides the gate.
+     */
+    enforceUserActivityGate?: boolean;
   },
 ): Promise<MemoryRetrospectiveOutcome> {
   // Start stamp for the retrospective's end-to-end wall time, surfaced as
@@ -303,6 +316,23 @@ export async function runForkBasedRetrospective(
 
   if (newMessages.length === 0) {
     return { kind: "no_new_messages" };
+  }
+
+  // Execution-time twin of the enqueue funnel's user-activity gate. An
+  // assistant-only slice has no user turn to anchor the review window on and
+  // recaps work captured at its source, so it is deferred, not run: both
+  // state pointers stay untouched and the slice is reviewed by the first
+  // retrospective after real user activity arrives.
+  if (
+    opts?.enforceUserActivityGate === true &&
+    config.memory.retrospective.requireUserActivity &&
+    !messagesHaveUserActivity(newMessages)
+  ) {
+    log.info(
+      { sourceConversationId, newMessageCount: newMessages.length },
+      "memory-retrospective (fork): unprocessed tail has no user activity; skipping",
+    );
+    return { kind: "no_user_activity" };
   }
 
   const cutoffMessage = newMessages[newMessages.length - 1];

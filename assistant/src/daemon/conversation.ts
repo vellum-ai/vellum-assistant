@@ -2471,6 +2471,17 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
+      /**
+       * See {@link runAgentLoopImpl}: the row the end-of-turn reply
+       * notification treats as the prompt this turn answers.
+       */
+      notifyUserMessageId?: string;
+      /**
+       * See {@link runAgentLoopImpl}: this run's reply streams to the app
+       * alone, so the reply notification ignores the initiating row's
+       * channel/voice delivery markers.
+       */
+      replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

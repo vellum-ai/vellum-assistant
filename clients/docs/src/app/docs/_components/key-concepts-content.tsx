@@ -30,7 +30,14 @@ export function KeyConceptsContent() {
         <a href="/docs/key-concepts/memory-and-context" className="docs-nav-card">
           <div className="docs-nav-card-content">
             <span className="docs-nav-card-title">Memory &amp; Context</span>
-            <span className="docs-nav-card-desc">How it remembers you across conversations.</span>
+            <span className="docs-nav-card-desc">How memory organizes and recalls what your assistant knows.</span>
+          </div>
+          <span className="docs-nav-card-arrow" aria-hidden="true">→</span>
+        </a>
+        <a href="/docs/key-concepts/self-improving-skills" className="docs-nav-card">
+          <div className="docs-nav-card-content">
+            <span className="docs-nav-card-title">Self-improving Skills</span>
+            <span className="docs-nav-card-desc">How completed work becomes a reusable procedure.</span>
           </div>
           <span className="docs-nav-card-arrow" aria-hidden="true">→</span>
         </a>

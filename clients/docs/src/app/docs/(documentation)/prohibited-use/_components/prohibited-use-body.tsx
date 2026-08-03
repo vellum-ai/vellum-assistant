@@ -61,7 +61,7 @@ export function ProhibitedUseBody() {
                               Human use defined as what a human could accomplish, including access to
                               widely known, commercially available tools (<em>
                                 Prompting an agent to send emails to a properly procured opt-in
-                                mailing list is ok. Attempting to prompt an agent to perform
+                                mailing list is ok &mdash; attempting to prompt an agent to perform
                                 DDoS or uninvited DM spam, attempting SQL injections is not ok
                               </em>)
                             </li>

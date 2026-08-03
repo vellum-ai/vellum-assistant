@@ -119,6 +119,7 @@ import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
+import { UISurfacePendingEventSchema } from "./events/ui-surface-pending.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUndoResultEventSchema } from "./events/ui-surface-undo-result.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
@@ -608,6 +609,10 @@ export {
   UISurfaceDismissEventSchema,
 } from "./events/ui-surface-dismiss.js";
 export {
+  type UISurfacePendingEvent,
+  UISurfacePendingEventSchema,
+} from "./events/ui-surface-pending.js";
+export {
   type SurfaceAction,
   SurfaceActionSchema,
   type UISurfaceShowEvent,
@@ -836,6 +841,8 @@ export {
   TableRowSchema,
   type TableSurfaceData,
   TableSurfaceDataSchema,
+  type VisualSurfaceData,
+  VisualSurfaceDataSchema,
   type WorkResultDiff,
   WorkResultDiffSchema,
   type WorkResultItem,
@@ -973,6 +980,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolUseStartEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
+  UISurfacePendingEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUndoResultEventSchema,
   UISurfaceUpdateEventSchema,

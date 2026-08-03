@@ -1,14 +1,42 @@
 apply plugin: 'com.android.application'
 
+def buildValue = { String name, String fallback = '' ->
+    providers.gradleProperty(name)
+        .orElse(providers.environmentVariable(name))
+        .getOrElse(fallback)
+}
+def buildText = { String name, String fallback = '' -> buildValue(name, fallback).trim() }
+
+def versionCodeInput = buildText('VELLUM_ANDROID_VERSION_CODE', '1')
+if (!(versionCodeInput ==~ /[1-9][0-9]*/) || versionCodeInput.toBigInteger() > 2100000000) {
+    throw new GradleException('VELLUM_ANDROID_VERSION_CODE must be between 1 and 2100000000')
+}
+def versionNameInput = buildText('VELLUM_ANDROID_VERSION_NAME', '1.0')
+if (versionNameInput.isEmpty()) {
+    throw new GradleException('VELLUM_ANDROID_VERSION_NAME must not be empty')
+}
+
+def signingValues = [
+    storeFile: buildText('VELLUM_ANDROID_KEYSTORE_PATH'),
+    storePassword: buildValue('VELLUM_ANDROID_KEYSTORE_PASSWORD'),
+    keyAlias: buildText('VELLUM_ANDROID_KEY_ALIAS'),
+    keyPassword: buildValue('VELLUM_ANDROID_KEY_PASSWORD'),
+]
+def requireSigning = buildText('VELLUM_ANDROID_REQUIRE_SIGNING', 'false').toBoolean()
+def signingConfigured = signingValues.values().every { !it.isEmpty() }
+if (!signingConfigured && (requireSigning || signingValues.values().any { !it.isEmpty() })) {
+    throw new GradleException('Android signing inputs are incomplete')
+}
+
 android {
-    namespace = "ai.vocify.vellumassistant"
+    namespace = "ai.vellum.assistant"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "ai.vocify.vellumassistant"
+        applicationId "ai.vellum.assistant"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode versionCodeInput.toInteger()
+        versionName versionNameInput
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -21,7 +49,6 @@ android {
         production {
             dimension "environment"
             manifestPlaceholders = [
-                appLabel: "Vellum",
                 vellumAuthScheme: "vellum-assistant"
             ]
             resValue "string", "vellum_auth_host", "www.vellum.ai"
@@ -30,9 +57,7 @@ android {
         staging {
             dimension "environment"
             applicationIdSuffix ".staging"
-            versionNameSuffix "-staging"
             manifestPlaceholders = [
-                appLabel: "Vellum Staging",
                 vellumAuthScheme: "vellum-assistant-staging"
             ]
             resValue "string", "vellum_auth_host", "staging-assistant.vellum.ai"
@@ -41,19 +66,31 @@ android {
         dev {
             dimension "environment"
             applicationIdSuffix ".dev"
-            versionNameSuffix "-dev"
             manifestPlaceholders = [
-                appLabel: "Vellum Dev",
                 vellumAuthScheme: "vellum-assistant-dev"
             ]
             resValue "string", "vellum_auth_host", "dev-assistant.vellum.ai"
             resValue "string", "vellum_auth_scheme", "vellum-assistant-dev"
         }
     }
+    signingConfigs {
+        release {
+            if (signingConfigured) {
+                storeFile file(signingValues.storeFile)
+                storePassword signingValues.storePassword
+                keyAlias signingValues.keyAlias
+                keyPassword signingValues.keyPassword
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (signingConfigured) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
@@ -67,6 +104,7 @@ repositories {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.biometric:biometric:$androidxBiometricVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')

@@ -7,6 +7,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { PairingResult } from "../conversation-pairing.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
   ChannelAdapter,
@@ -36,14 +37,27 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => null,
 }));
 
-mock.module("../conversation-pairing.js", () => ({
-  pairDeliveryWithConversation: async () => ({
-    conversationId: undefined,
-    messageId: undefined,
+function defaultPairing(): PairingResult {
+  return {
+    conversationId: null,
+    messageId: null,
     strategy: "start_new_conversation",
     createdNewConversation: false,
     conversationFallbackUsed: false,
-  }),
+  };
+}
+
+let pairingByChannel: Record<string, PairingResult> = {};
+let pairingErrorByChannel: Record<string, Error> = {};
+
+mock.module("../conversation-pairing.js", () => ({
+  pairDeliveryWithConversation: async (_signal: unknown, channel: string) => {
+    const error = pairingErrorByChannel[channel];
+    if (error) {
+      throw error;
+    }
+    return pairingByChannel[channel] ?? defaultPairing();
+  },
 }));
 
 mock.module("../deliveries-store.js", () => ({
@@ -121,7 +135,10 @@ interface CapturedSend {
   destination: ChannelDestination;
 }
 
-function makeCapturingAdapter(channel: "vellum" | "platform"): {
+function makeCapturingAdapter(
+  channel: "vellum" | "platform",
+  result: DeliveryResult = { success: true },
+): {
   adapter: ChannelAdapter;
   sends: CapturedSend[];
 } {
@@ -133,7 +150,7 @@ function makeCapturingAdapter(channel: "vellum" | "platform"): {
       destination: ChannelDestination,
     ): Promise<DeliveryResult> {
       sends.push({ payload, destination });
-      return { success: true };
+      return result;
     },
   };
   return { adapter, sends };
@@ -142,6 +159,8 @@ function makeCapturingAdapter(channel: "vellum" | "platform"): {
 beforeEach(() => {
   composeFallbackReturn = {};
   knownConversations = new Set();
+  pairingByChannel = {};
+  pairingErrorByChannel = {};
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -290,6 +309,301 @@ describe("NotificationBroadcaster platform deep-link from contextPayload", () =>
 
     expect(sends.length).toBe(1);
     expect(sends[0]?.payload.deepLinkTarget).toBeUndefined();
+  });
+});
+
+describe("NotificationBroadcaster remotePushDispatched flag", () => {
+  const bothChannelsCopy = () => {
+    composeFallbackReturn = {
+      vellum: { title: "Reminder", body: "Hello" },
+      platform: { title: "Reminder", body: "Hello" },
+    };
+  };
+
+  const bothChannelsDecision = () =>
+    makeDecision({
+      selectedChannels: ["vellum", "platform"],
+      renderedCopy: {},
+    });
+
+  test("vellum payload carries true when the platform adapter reports an accepted push; platform payload omits it", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: true,
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(true);
+    expect(platform.sends.length).toBe(1);
+    expect(platform.sends[0]?.payload.remotePushDispatched).toBeUndefined();
+  });
+
+  test("vellum payload carries false when the platform dispatch fails", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: false,
+      error: "HTTP 503",
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("vellum payload carries false when the platform reports no accepted push (skipped or zero tokens)", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: false,
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("vellum payload carries false when the platform result omits remotePushAccepted", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", { success: true });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("vellum payload carries false when the platform adapter throws", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform: ChannelAdapter = {
+      channel: "platform",
+      async send(): Promise<DeliveryResult> {
+        throw new Error("boom");
+      },
+    };
+    const broadcaster = new NotificationBroadcaster([vellum.adapter, platform]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      bothChannelsDecision(),
+    );
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+    expect(results.find((r) => r.channel === "platform")?.status).toBe(
+      "failed",
+    );
+    expect(results.find((r) => r.channel === "vellum")?.status).toBe("sent");
+  });
+
+  test("vellum intent still flushes with false when the platform channel's prep throws", async () => {
+    bothChannelsCopy();
+    pairingErrorByChannel = { platform: new Error("pairing exploded") };
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: true,
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await expect(
+      broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision()),
+    ).rejects.toThrow("pairing exploded");
+
+    // The platform adapter never ran, but the deferred vellum send must not
+    // be lost -- its pending delivery row would block retries forever.
+    expect(platform.sends.length).toBe(0);
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("deadline expiry flushes vellum with false while the platform dispatch finishes in the background", async () => {
+    bothChannelsCopy();
+
+    let resolvePlatform: ((result: DeliveryResult) => void) | undefined;
+    const platformSends: CapturedSend[] = [];
+    const platform: ChannelAdapter = {
+      channel: "platform",
+      send(
+        payload: ChannelDeliveryPayload,
+        destination: ChannelDestination,
+      ): Promise<DeliveryResult> {
+        platformSends.push({ payload, destination });
+        return new Promise<DeliveryResult>((resolve) => {
+          resolvePlatform = resolve;
+        });
+      },
+    };
+    const vellum = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([vellum.adapter, platform]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      bothChannelsDecision(),
+      { platformOutcomeDeadlineMs: 20 },
+    );
+
+    expect(platformSends.length).toBe(1);
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+    expect(results.find((r) => r.channel === "platform")?.status).toBe(
+      "pending",
+    );
+
+    // The dispatch settling after the deadline must not re-send vellum.
+    resolvePlatform?.({ success: true, remotePushAccepted: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("platform completing before the deadline sets the real outcome on the vellum payload", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform: ChannelAdapter = {
+      channel: "platform",
+      async send(): Promise<DeliveryResult> {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { success: true, remotePushAccepted: true };
+      },
+    };
+    const broadcaster = new NotificationBroadcaster([vellum.adapter, platform]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      bothChannelsDecision(),
+      { platformOutcomeDeadlineMs: 1_000 },
+    );
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(true);
+    expect(results.find((r) => r.channel === "platform")?.status).toBe("sent");
+  });
+
+  test("dispatches the platform adapter before the vellum intent when both are selected", async () => {
+    bothChannelsCopy();
+
+    const callOrder: string[] = [];
+    const vellum: ChannelAdapter = {
+      channel: "vellum",
+      async send(): Promise<DeliveryResult> {
+        callOrder.push("vellum");
+        return { success: true };
+      },
+    };
+    const platform: ChannelAdapter = {
+      channel: "platform",
+      async send(): Promise<DeliveryResult> {
+        callOrder.push("platform");
+        return { success: true, remotePushAccepted: true };
+      },
+    };
+    const broadcaster = new NotificationBroadcaster([vellum, platform]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(callOrder).toEqual(["platform", "vellum"]);
+  });
+
+  test("platform deep link still carries the vellum pairing when the vellum send is deferred", async () => {
+    bothChannelsCopy();
+
+    pairingByChannel = {
+      vellum: {
+        conversationId: "conv-vellum-1",
+        messageId: "msg-1",
+        strategy: "start_new_conversation",
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      },
+    };
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: true,
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(platform.sends.length).toBe(1);
+    expect(platform.sends[0]?.payload.deepLinkTarget).toEqual({
+      conversationId: "conv-vellum-1",
+      messageId: "msg-1",
+    });
+  });
+});
+
+describe("NotificationBroadcaster forced-platform copy reuse", () => {
+  test("platform payload reuses the vellum rendered copy instead of template fallback", async () => {
+    // A urgency-forced platform channel has no rendered copy of its own; the
+    // template fallback must lose to the vellum channel's rendered copy.
+    composeFallbackReturn = {
+      platform: { title: "Template title", body: "Template body" },
+    };
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: true,
+      remotePushAccepted: true,
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({
+        selectedChannels: ["vellum", "platform"],
+        renderedCopy: {
+          vellum: { title: "Rendered title", body: "Rendered body" },
+        },
+      }),
+    );
+
+    expect(platform.sends.length).toBe(1);
+    expect(platform.sends[0]?.payload.copy.title).toBe("Rendered title");
+    expect(platform.sends[0]?.payload.copy.body).toBe("Rendered body");
   });
 });
 

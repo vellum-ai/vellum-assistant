@@ -87,12 +87,15 @@ import {
   getMessageById,
 } from "../../persistence/conversation-crud.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
+import {
+  type ConversationKind,
+  resolveConversationKind,
+} from "../../persistence/conversation-types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
@@ -1964,28 +1967,6 @@ function handleGetMessageContent({
     throw new NotFoundError(`Message ${pathParams.id} not found`);
   }
   return result;
-}
-
-type ConversationKind =
-  | "user"
-  | "background"
-  | "background_memory_consolidation"
-  | "scheduled";
-
-function resolveConversationKind(
-  source: string,
-  conversationType: string,
-): ConversationKind {
-  if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
-    return "background_memory_consolidation";
-  }
-  if (conversationType === "background") {
-    return "background";
-  }
-  if (conversationType === "scheduled") {
-    return "scheduled";
-  }
-  return "user";
 }
 
 async function handleGetLlmContext({

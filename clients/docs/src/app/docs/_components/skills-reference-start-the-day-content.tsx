@@ -106,22 +106,22 @@ export function SkillsReferenceStartTheDayContent() {
           </p>
           <ol className="mb-0 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Weather</strong>: Current conditions and today&apos;s forecast for your location
+              <strong>Weather</strong> — Current conditions and today&apos;s forecast for your location
             </li>
             <li>
-              <strong>Calendar</strong>: Today&apos;s events, upcoming meetings, any conflicts
+              <strong>Calendar</strong> — Today&apos;s events, upcoming meetings, any conflicts
             </li>
             <li>
-              <strong>Tasks</strong>: Open items in your task queue, overdue tasks, high-priority items
+              <strong>Tasks</strong> — Open items in your task queue, overdue tasks, high-priority items
             </li>
             <li>
-              <strong>Email</strong>: Unread count, any important messages (if email is set up)
+              <strong>Email</strong> — Unread count, any important messages (if email is set up)
             </li>
             <li>
-              <strong>News</strong>: Top headlines relevant to your interests
+              <strong>News</strong> — Top headlines relevant to your interests
             </li>
             <li>
-              <strong>Insights</strong>: Anything your assistant thinks you should know based on context
+              <strong>Insights</strong> — Anything your assistant thinks you should know based on context
             </li>
           </ol>
         </section>
@@ -137,7 +137,7 @@ export function SkillsReferenceStartTheDayContent() {
             </li>
             <li>Your location is used for weather (set in USER.md)</li>
             <li>
-Briefings get more personalized over time: your assistant learns your
+Briefings get more personalized over time &mdash; your assistant learns your
               interests, schedule patterns, and recurring tasks to weight news and priorities
               accordingly
             </li>

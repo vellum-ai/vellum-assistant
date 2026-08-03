@@ -29,7 +29,7 @@ export function HostingOptionsLocalHostingContent() {
           <p className="mb-4 text-stone-600 dark:text-stone-400">
             Most users should run on{" "}
             <Link
-              href={"/docs/hosting-options"}
+              href="/docs/hosting-options"
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Vellum Cloud
@@ -234,7 +234,7 @@ export function HostingOptionsLocalHostingContent() {
             If you need 24/7 availability or want the assistant sandboxed away
             from your personal machine, check out{" "}
             <Link
-              href={"/docs/hosting-options/advanced-options"}
+              href="/docs/hosting-options/advanced-options"
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Advanced options

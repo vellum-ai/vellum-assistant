@@ -25,10 +25,9 @@
  *   {@link useLiveVoice} itself.
  * - `state`/`error`/transcripts/amplitude — observable session state.
  *
- * It is also where the iOS-native mirrors of the session are bound to its
- * lifecycle — the audio session ({@link useNativeAudioSessionLifecycle}) and
- * the Live Activity ({@link useLiveActivityMirror}). Both are inert off the
- * iOS shell.
+ * It is also where optional native voice accessories are bound to the session:
+ * audio focus ({@link useNativeAudioSessionLifecycle}) and the platform status
+ * surface ({@link useLiveActivityMirror}).
  */
 
 import { useEffect } from "react";
@@ -40,13 +39,17 @@ import {
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
 import {
+  activateVoiceAudioSession,
+  deactivateVoiceAudioSession,
   subscribeVoiceAudioInterruptions,
 } from "@/runtime/native-audio-session";
+import { isNativeAndroid } from "@/runtime/platform-detection";
 
 /** Injectable primitive factories, for tests. */
 export type UseLiveVoiceSessionControllerOptions = Pick<
@@ -55,49 +58,85 @@ export type UseLiveVoiceSessionControllerOptions = Pick<
 >;
 
 /**
- * Report native `AVAudioSession` interruptions into the live-voice session.
+ * Own Android audio focus and report native audio interruptions into voice.
  *
- * **This deliberately no longer activates an audio session of its own.**
- * WebKit owns the shared `AVAudioSession` backing `getUserMedia` in a
- * `WKWebView`, and activating ours alongside it is what `docs/CAPACITOR.md`
- * § "Full-duplex TTS must render through a MediaStream track" warns about. That
- * pattern has now broken live voice on a handset twice: first as #39331, which
- * produced no capture at all and was reverted in #39345, and again when it
- * returned in #39306, where a session died roughly 60ms after its socket
- * opened. The second failure took a while to attribute because #39306's uploads
- * were all rejected by App Store Connect until #39556, so the plugin had never
- * actually run on a device before.
- *
- * Nothing else depended on it. Echo cancellation moved to WebKit's own
- * voice-processing unit in #39347 via a `MediaStreamAudioDestinationNode`, and
- * background/lock-screen audio is claimed by `UIBackgroundModes: audio` in
- * `Info.plist`, which is independent of this call. Whether the plist entry
- * alone actually sustains a backgrounded session is still unmeasured (see the
- * background-audio contract in `docs/CAPACITOR.md`), but a session that dies
- * immediately in the foreground is strictly worse than one that may not survive
- * backgrounding.
- *
- * The interruption subscription stays. It listens to
- * `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri
- * taking the input from WebKit's session, and ending on that is unrelated to
- * owning a session ourselves.
- *
- * Off the iOS shell this is a no-op (see `runtime/native-audio-session`), so it
- * is inert in the browser and on Electron.
- *
- * **The Simulator cannot evaluate any of this.** Its mock audio device has no
- * acoustic path, so it passes whether or not a real handset would go silent.
- * Every Simulator run passed during #39331, and the Simulator sustained a
- * session normally throughout the #39306 failure too.
+ * Android focus follows settled session state and is serialized so a delayed
+ * activation cannot outlive the session that requested it. iOS still never
+ * calls `activate()`: WebKit owns its shared `AVAudioSession`, and activating a
+ * second owner has broken foreground capture on physical handsets.
  */
 function useNativeAudioSessionLifecycle(): void {
   useEffect(() => {
+    let wantsAudioFocus = false;
+    let hasAudioFocus = false;
+    let reconcilingAudioFocus = false;
+    let reconcileRequested = false;
+    let activationAttempts = 0;
+    let lastSettledState = useLiveVoiceStore.getState().state;
+
+    const reconcileAudioFocus = async (): Promise<void> => {
+      if (reconcilingAudioFocus) {
+        reconcileRequested = true;
+        return;
+      }
+      reconcilingAudioFocus = true;
+      reconcileRequested = false;
+      try {
+        while (wantsAudioFocus !== hasAudioFocus) {
+          if (wantsAudioFocus) {
+            if (activationAttempts >= 2) {
+              return;
+            }
+            activationAttempts += 1;
+            hasAudioFocus = await activateVoiceAudioSession();
+            if (!hasAudioFocus) {
+              return;
+            }
+          } else {
+            await deactivateVoiceAudioSession();
+            hasAudioFocus = false;
+          }
+        }
+      } finally {
+        reconcilingAudioFocus = false;
+        if (reconcileRequested && wantsAudioFocus !== hasAudioFocus) {
+          void reconcileAudioFocus();
+        }
+      }
+    };
+
+    const syncAudioFocus = (): void => {
+      const settledState = useLiveVoiceStore.getState().state;
+      const stateChanged = settledState !== lastSettledState;
+      lastSettledState = settledState;
+      const nextWantsAudioFocus = isLiveVoiceSessionActive(
+        settledState,
+      );
+      activationAttempts = nextWantsAudioFocus ? activationAttempts : 0;
+      if (
+        nextWantsAudioFocus === wantsAudioFocus &&
+        (!stateChanged || hasAudioFocus)
+      ) {
+        return;
+      }
+      wantsAudioFocus = nextWantsAudioFocus;
+      void reconcileAudioFocus();
+    };
+
+    const managesAudioFocus = isNativeAndroid();
+    const unsubscribeAudioFocus = managesAudioFocus
+      ? subscribeSettledLiveVoiceState(syncAudioFocus)
+      : () => undefined;
+    if (managesAudioFocus) {
+      syncAudioFocus();
+    }
+
     const unsubscribeInterruptions = subscribeVoiceAudioInterruptions(
       (event) => {
         // A phone call or Siri has taken the mic. End the session rather than
         // leave it "listening" into a dead input. No auto-resume on `ended`:
         // the user restarts explicitly.
-        if (event.type !== "began") {
+        if (event.type !== "began" || event.reason === "route-change") {
           return;
         }
         if (!isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
@@ -107,7 +146,12 @@ function useNativeAudioSessionLifecycle(): void {
       },
     );
 
-    return unsubscribeInterruptions;
+    return () => {
+      unsubscribeAudioFocus();
+      unsubscribeInterruptions();
+      wantsAudioFocus = false;
+      void reconcileAudioFocus();
+    };
   }, []);
 }
 

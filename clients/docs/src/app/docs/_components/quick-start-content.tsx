@@ -28,17 +28,15 @@ function MigrationCallout() {
         Coming from OpenClaw or Hermes?
       </p>
       <p className="mb-2 text-xs leading-relaxed text-emerald-700">
-        There&apos;s a skill to migrate your data, memories, and settings in one pass.
+        There&apos;s a migration tool to bring over your data, memories, and settings in one pass.
       </p>
-      <a
-        href="https://github.com/vellum-ai/vellum-assistant/tree/main/skills/assistant-migration"
-        target="_blank"
-        rel="noopener noreferrer"
+      <Link
+        href="https://www.vellum.ai/import"
         className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 underline hover:text-emerald-800"
       >
-        Migration skill
+        Migration tool
         <ArrowRight className="h-3 w-3" />
-      </a>
+      </Link>
     </div>
   );
 }
@@ -104,9 +102,9 @@ export function QuickStartContent() {
             </li>
             <li>
               <strong>Mac</strong>: install the{" "}
-              <a href="https://www.vellum.ai/download" className={linkClass}>
+              <Link href="https://www.vellum.ai/download" className={linkClass}>
                 desktop app
-              </a>
+              </Link>
               . Same assistant, with the added ability to read your
               local files and control your Mac when you ask it to.
             </li>
@@ -117,7 +115,7 @@ export function QuickStartContent() {
             Telegram, Slack, email, and phone calls so your assistant
             can reach you outside of those first-party surfaces. See{" "}
             <Link
-              href={"/docs/key-concepts/channels"}
+              href="/docs/key-concepts/channels"
               className={linkClass}
             >
               Channels
@@ -218,7 +216,7 @@ export function QuickStartContent() {
             things you&apos;ve already approved. For the full picture,
             see{" "}
             <Link
-              href={"/docs/trust-security/the-permissions-model"}
+              href="/docs/trust-security/the-permissions-model"
               className={linkClass}
             >
               The permissions model
@@ -244,7 +242,7 @@ export function QuickStartContent() {
             &ldquo;Forget what I told you about that project.&rdquo;
             See{" "}
             <Link
-              href={"/docs/key-concepts/memory-and-context"}
+              href="/docs/key-concepts/memory-and-context"
               className={linkClass}
             >
               Memory &amp; Context
@@ -284,7 +282,7 @@ export function QuickStartContent() {
             verification handshake so only you can claim the
             connection. See{" "}
             <Link
-              href={"/docs/key-concepts/channels"}
+              href="/docs/key-concepts/channels"
               className={linkClass}
             >
               Channels
@@ -300,7 +298,7 @@ export function QuickStartContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <Link
-                href={"/docs/key-concepts"}
+                href="/docs/key-concepts"
                 className={linkClass}
               >
                 Key Concepts
@@ -310,7 +308,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <Link
-                href={"/docs/getting-started/your-first-skill"}
+                href="/docs/getting-started/your-first-skill"
                 className={linkClass}
               >
                 Your first skill
@@ -320,7 +318,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <Link
-                href={"/docs/trust-security/security-best-practices"}
+                href="/docs/trust-security/security-best-practices"
                 className={linkClass}
               >
                 Security best practices
@@ -330,7 +328,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <Link
-                href={"/docs/help/faq"}
+                href="/docs/help/faq"
                 className={linkClass}
               >
                 FAQ

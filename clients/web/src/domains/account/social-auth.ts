@@ -79,6 +79,36 @@ export function readAttributionParams(search: string): Record<string, string> {
   return collected;
 }
 
+/**
+ * Append the allowlisted attribution params found in `search` to `href`, so
+ * auth cross-links keep the cookie-free attribution path described above
+ * alive across a pivot.
+ *
+ * Keys already present in `href`'s query string win: an href that carries
+ * attribution was decorated deliberately upstream, so re-applying is safe
+ * (idempotent). Returns `href` unchanged when nothing new is collected.
+ */
+export function withPreservedAttribution(
+  href: string,
+  search: string,
+): string {
+  const queryStart = href.indexOf("?");
+  const existing = new URLSearchParams(
+    queryStart === -1 ? "" : href.slice(queryStart + 1),
+  );
+  const additions = new URLSearchParams();
+  for (const [key, value] of Object.entries(readAttributionParams(search))) {
+    if (!existing.has(key)) {
+      additions.append(key, value);
+    }
+  }
+  const query = additions.toString();
+  if (query === "") {
+    return href;
+  }
+  return `${href}${queryStart === -1 ? "?" : "&"}${query}`;
+}
+
 export interface ProviderRedirectOptions {
   readonly intent?: ProviderIntent;
   /** Pre-fill the WorkOS AuthKit email field (and email-first flows). */

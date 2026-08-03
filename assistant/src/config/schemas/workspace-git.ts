@@ -34,6 +34,21 @@ export const WorkspaceGitConfigSchema = z
       .describe(
         "Files larger than this (bytes) are excluded from workspace auto-commits",
       ),
+    historyCompaction: z
+      .object({
+        enabled: z
+          .boolean({
+            error: "workspaceGit.historyCompaction.enabled must be a boolean",
+          })
+          .default(true)
+          .describe(
+            "Whether background history compaction runs automatically. Manual compaction via the admin route is unaffected.",
+          ),
+      })
+      .default({ enabled: true })
+      .describe(
+        "Background compaction of workspace git history (squashes commits older than the retention window to reclaim oversized blobs from .git)",
+      ),
     interactiveGitTimeoutMs: z
       .number({
         error: "workspaceGit.interactiveGitTimeoutMs must be a number",

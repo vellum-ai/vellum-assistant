@@ -74,6 +74,7 @@ import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete
 import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
+  isHiddenMessageMetadata,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -298,6 +299,12 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
+     * Test with {@link isVoiceSessionUserMessage}, which documents why the
+     * channel/interface fields cannot stand in for it.
+     */
+    voiceSessionTurn: z.boolean().optional(),
+    /**
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
@@ -348,17 +355,17 @@ export const messageMetadataSchema = z
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
- * Shared predicate for the transcript-suppression flag on user-message
- * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
- * definition so the sites that must agree — echo suppression, list-messages
- * filtering, queued-snapshot filtering, indexing exclusion, and downstream
- * consumers of message text — cannot drift.
+ * Pure predicates over the `metadata` record above. They live in the
+ * `conversation-types` leaf so a caller that only classifies a row does not
+ * pull in this module's DB graph, and are re-exported here alongside the
+ * schema they read.
  */
-export function isHiddenMessageMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.hidden === true;
-}
+export {
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
+  isVoiceSessionUserMessage,
+} from "./conversation-types.js";
 
 /**
  * `messageKind` value marking a daemon-authored system card — a pre-composed

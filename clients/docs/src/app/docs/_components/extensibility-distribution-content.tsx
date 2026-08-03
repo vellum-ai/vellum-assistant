@@ -515,7 +515,7 @@ simple-memory  0.1.0    ok`}</code>
 $ assistant plugins install https://github.com/owner/repo
 ⚠ Installing "repo" from an unreviewed GitHub source: owner/repo @ default branch.
  This plugin is NOT in the Vellum marketplace and has not been reviewed.
- Its hooks and tools run inside the assistant with full access - install it only if you trust the source.
+ Its hooks and tools run inside the assistant with full access — install it only if you trust the source.
 Installed untrusted plugin "repo" (8 files) → ~/.vellum/workspace/plugins/repo
 
 # Install from a specific branch and sub-path
@@ -765,7 +765,7 @@ e83c5163316f89bfbde7d9ab23ca2e25604af290  refs/tags/v1.2.0^{}`}</code>
             layout:
           </p>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
-            <code>{`// adapter.js: reshapes a Claude Code skill into Vellum layout
+            <code>{`// adapter.js — reshapes a Claude Code skill into Vellum layout
 export default function adapt({ dir, entry }) {
   // The source repo ships instructions in SKILL.md at the root.
   // Vellum expects them under skills/<name>/SKILL.md.

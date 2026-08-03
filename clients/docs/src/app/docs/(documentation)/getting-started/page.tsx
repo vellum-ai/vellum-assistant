@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Getting Started - Vellum Docs",
   description:
-    "Get started with Vellum: installation, key concepts, quick start guide, and your first skill tutorial.",
+    "Get started with Vellum: installation, key concepts, a quick start guide, and self-improving skills.",
   path: "/docs/getting-started",
 });
 

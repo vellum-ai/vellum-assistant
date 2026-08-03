@@ -29,7 +29,7 @@ export function CopyPageButton({ path }: CopyPageButtonProps) {
         }, 2000);
       })
       .catch(() => {
-        // Clipboard write can fail in restricted contexts. Silent fallback;
+        // Clipboard write can fail in restricted contexts. Silent fallback —
         // the user can still copy the URL from the address bar.
       });
   }, [path]);

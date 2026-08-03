@@ -17,6 +17,15 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
+// The route's hidden-prompt branch is exactly what these pure predicates
+// decide, so the crud mock below hands back the real ones rather than a
+// restatement that can drift. Imported from the `conversation-types` leaf so
+// naming them here pulls in no DB graph.
+import {
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+} from "../persistence/conversation-types.js";
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -24,13 +33,6 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../daemon/conversation-process.js", () => ({
   formatSummarizeUpToResult: () => "",
-  isEchoSuppressedUserMessage: (
-    metadata: Record<string, unknown> | undefined,
-  ) =>
-    metadata?.hidden === true ||
-    typeof metadata?.backgroundEventSource === "string",
-  isBackgroundEventMetadata: (metadata: Record<string, unknown> | undefined) =>
-    typeof metadata?.backgroundEventSource === "string",
 }));
 
 mock.module("../daemon/handlers/conversations.js", () => ({
@@ -77,6 +79,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   extractImageSourcePaths: () => undefined,
   forkConversation: () => ({ id: "forked" }),
   getConversation: getConversationMock,
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
   provenanceFromTrustContext: () => ({ provenanceTrustClass: "unknown" }),
   setConversationSurfaced: () => null,
   unarchiveConversation: () => true,
@@ -315,6 +319,41 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(options).not.toHaveProperty("isHiddenPrompt");
     expect(typeof (options as { onEvent?: unknown }).onEvent).toBe("function");
   });
+
+  // The re-run carries none of the anchor's original delivery orchestration,
+  // so a channel or voice anchor's regenerated reply reaches SSE subscribers
+  // alone and the reply push must not read the anchor's origin markers.
+  const OFF_APP_ANCHOR_CASES: Array<{ name: string; metadata: unknown }> = [
+    { name: "Slack", metadata: { userMessageChannel: "slack" } },
+    {
+      name: "voice-session",
+      metadata: { voiceSessionTurn: true, userMessageChannel: "phone" },
+    },
+    { name: "plain in-app", metadata: { userMessageChannel: "vellum" } },
+  ];
+
+  for (const { name, metadata } of OFF_APP_ANCHOR_CASES) {
+    test(`marks the re-run of a ${name} anchor as app-only delivery`, async () => {
+      discardResult = {
+        anchor: anchorRow({ metadata: JSON.stringify(metadata) }),
+        deletedMessageIds: ["assistant-msg-1"],
+      };
+      const ctx = makeConversation();
+      activeConversation = ctx.conversation;
+
+      const res = await callHandler(
+        retryHandler,
+        makeRequest(),
+        { id: "conv-retry-test" },
+        202,
+      );
+      expect(res.status).toBe(202);
+      await settle();
+
+      const [, , options] = ctx.runAgentLoop.mock.calls[0];
+      expect(options).toMatchObject({ replyDeliveredInAppOnly: true });
+    });
+  }
 
   test("legacy background-event anchor (no recorded mode) re-runs hidden AND non-interactive", async () => {
     // Anchors persisted before `backgroundEventInteractive` existed carry only
