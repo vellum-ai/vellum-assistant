@@ -1,9 +1,10 @@
 /**
- * Drain diagnostics for the conversation-list fetchers.
+ * Drain diagnostics and telemetry for the conversation-list fetchers.
  *
  * The ring holds 200 entries, so a multi-page drain must contribute a bounded
  * handful of them: the first page (the request that gates first paint), one
- * summary, and one entry per failed page. These tests pin that budget.
+ * summary, and one entry per failed page. These tests pin that budget, plus
+ * the one aggregate watchdog event each drain puts on the telemetry rail.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -11,8 +12,23 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { getDiagnosticsEvents, type DiagnosticsEvent } from "@/lib/diagnostics";
 import { ApiError } from "@/utils/api-errors";
-import { listConversations } from "@/utils/conversation-list-fetchers";
 import type { RawConversationSummary } from "@/utils/conversation-transforms";
+
+const emitClientPerfEventMock = mock(
+  (_checkName: string, _value: number, _detail?: Record<string, unknown>) => {},
+);
+
+mock.module("@/lib/telemetry/client-perf", () => ({
+  emitClientPerfEvent: emitClientPerfEventMock,
+}));
+
+const {
+  listArchivedConversations,
+  listBackgroundConversations,
+  listConversations,
+  listOriginChannelConversations,
+  listScheduledConversations,
+} = await import("@/utils/conversation-list-fetchers");
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -84,10 +100,21 @@ async function diagnosticsDuring<T>(
   return { result, events: getDiagnosticsEvents().slice(baseline) };
 }
 
+/** The `client_list.drain` emits recorded since the last reset. */
+function drainEmits(): Array<{
+  value: number;
+  detail: Record<string, unknown>;
+}> {
+  return emitClientPerfEventMock.mock.calls
+    .filter(([checkName]) => checkName === "client_list.drain")
+    .map(([, value, detail]) => ({ value, detail: detail ?? {} }));
+}
+
 const originalGet = daemonClient.get;
 
 afterEach(() => {
   daemonClient.get = originalGet;
+  emitClientPerfEventMock.mockClear();
 });
 
 describe("conversation list drain diagnostics", () => {
@@ -206,5 +233,123 @@ describe("conversation list drain diagnostics", () => {
     }
     expect(typeof events[0]?.details.durationMs).toBe("number");
     expect(typeof events[1]?.details.maxPageMs).toBe("number");
+  });
+});
+
+describe("conversation list drain telemetry", () => {
+  test("a 3-page drain emits one client_list.drain, not one per page", async () => {
+    stubPages([
+      { ids: ["c-0"], hasMore: true, contentLength: "100" },
+      { ids: ["c-1"], hasMore: true, contentLength: "200" },
+      { ids: ["c-2"], hasMore: false, contentLength: "50" },
+    ]);
+
+    await listConversations(ASSISTANT_ID);
+
+    expect(emitClientPerfEventMock.mock.calls).toHaveLength(1);
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(typeof emits[0]?.value).toBe("number");
+    expect(emits[0]?.detail).toEqual({
+      outcome: "ok",
+      pages: "3",
+      rows: "3",
+      max_page_ms: expect.any(String),
+      total_bytes: "350",
+      list_kind: "foreground",
+    });
+  });
+
+  test("a background drain reports its own list_kind", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+
+    await listBackgroundConversations(ASSISTANT_ID);
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.detail).toMatchObject({
+      outcome: "ok",
+      pages: "1",
+      list_kind: "background",
+    });
+  });
+
+  test("a scheduled drain reports its own list_kind", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+
+    await listScheduledConversations(ASSISTANT_ID);
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.detail).toMatchObject({ list_kind: "scheduled" });
+  });
+
+  test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+
+    await listOriginChannelConversations(ASSISTANT_ID, "slack");
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.detail).toMatchObject({
+      outcome: "ok",
+      pages: "1",
+      list_kind: "origin_channel",
+    });
+  });
+
+  test("both archive-page drains are labeled archived, not foreground or background", async () => {
+    // The archive page drains the foreground and background buckets in
+    // parallel, so one call produces two emits.
+    stubPages([
+      { ids: ["c-0"], hasMore: false, contentLength: "10" },
+      { ids: ["c-1"], hasMore: false, contentLength: "20" },
+    ]);
+
+    await listArchivedConversations(ASSISTANT_ID);
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(2);
+    expect(emits.map((emit) => emit.detail.list_kind)).toEqual([
+      "archived",
+      "archived",
+    ]);
+  });
+
+  test("the detail bag carries no assistant id, and unknown bytes when content-length is absent", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false }]);
+
+    await listConversations(ASSISTANT_ID);
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    const detail = emits[0]!.detail;
+    for (const key of Object.keys(detail)) {
+      expect(key.toLowerCase()).not.toContain("assistant");
+    }
+    expect(Object.values(detail)).not.toContain(ASSISTANT_ID);
+    expect(detail.total_bytes).toBe("unknown");
+  });
+
+  test("a failing drain emits outcome error and still rethrows", async () => {
+    stubPages([
+      { ids: ["c-0"], hasMore: true, contentLength: "100" },
+      { ids: [], hasMore: false, status: 500 },
+    ]);
+
+    let thrown: unknown;
+    await listConversations(ASSISTANT_ID).catch((error: unknown) => {
+      thrown = error;
+    });
+
+    expect(thrown).toBeInstanceOf(ApiError);
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.detail).toMatchObject({
+      outcome: "error",
+      pages: "1",
+      rows: "1",
+      list_kind: "foreground",
+    });
   });
 });
