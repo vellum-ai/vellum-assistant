@@ -135,10 +135,14 @@ mock.module("../lib/local", () => ({
 const maybeStartNgrokTunnelMock = mock<typeof ngrok.maybeStartNgrokTunnel>(
   async () => null,
 );
+const hasWebhookIntegrationsConfiguredMock = mock<
+  typeof ngrok.hasWebhookIntegrationsConfigured
+>(() => false);
 
 mock.module("../lib/ngrok", () => ({
   ...realNgrok,
   maybeStartNgrokTunnel: maybeStartNgrokTunnelMock,
+  hasWebhookIntegrationsConfigured: hasWebhookIntegrationsConfiguredMock,
 }));
 
 const realFeatureFlags = { ...featureFlags };
@@ -161,22 +165,13 @@ mock.module("../lib/ingress-config.js", () => ({
   loadRawConfig: loadRawConfigMock,
 }));
 
-const isIngressRunningMock = mock<typeof nginxIngress.isIngressRunning>(
-  () => false,
+const ensureTunnelEdgeMock = mock<typeof nginxIngress.ensureTunnelEdge>(
+  async () => ({ port: 7840, started: true, includesWebApp: true }),
 );
-const startRemoteWebIngressMock = mock<
-  typeof nginxIngress.startRemoteWebIngress
->(async () => ({
-  status: "started",
-  listenPort: 7840,
-  webDistDir: "/tmp/web/dist",
-  version: "nginx/1.25.3",
-}));
 
 mock.module("../lib/nginx-ingress.js", () => ({
   ...realNginxIngress,
-  isIngressRunning: isIngressRunningMock,
-  startRemoteWebIngress: startRemoteWebIngressMock,
+  ensureTunnelEdge: ensureTunnelEdgeMock,
 }));
 
 const { wake, WEB_INGRESS_FLAG_RETRY } = await import("../commands/wake.js");
@@ -256,18 +251,17 @@ beforeEach(() => {
   );
   maybeStartNgrokTunnelMock.mockReset();
   maybeStartNgrokTunnelMock.mockResolvedValue(null);
+  hasWebhookIntegrationsConfiguredMock.mockReset();
+  hasWebhookIntegrationsConfiguredMock.mockReturnValue(false);
   isAssistantFeatureFlagEnabledMock.mockReset();
   isAssistantFeatureFlagEnabledMock.mockResolvedValue(true);
   loadRawConfigMock.mockReset();
   loadRawConfigMock.mockReturnValue({});
-  isIngressRunningMock.mockReset();
-  isIngressRunningMock.mockReturnValue(false);
-  startRemoteWebIngressMock.mockReset();
-  startRemoteWebIngressMock.mockResolvedValue({
-    status: "started",
-    listenPort: 7840,
-    webDistDir: "/tmp/web/dist",
-    version: "nginx/1.25.3",
+  ensureTunnelEdgeMock.mockReset();
+  ensureTunnelEdgeMock.mockResolvedValue({
+    port: 7840,
+    started: true,
+    includesWebApp: true,
   });
 });
 
@@ -403,10 +397,11 @@ describe("vellum wake", () => {
   });
 });
 
-describe("vellum wake — web ingress restore", () => {
+describe("vellum wake — tunnel edge restore", () => {
   const enabledConfig = {
     ingress: { enabled: true, publicBaseUrl: "https://assistant.example.com" },
   };
+  const workspaceDirOf = (dir: string) => join(dir, ".vellum", "workspace");
 
   const originalRetry = { ...WEB_INGRESS_FLAG_RETRY };
 
@@ -422,103 +417,135 @@ describe("vellum wake — web ingress restore", () => {
     WEB_INGRESS_FLAG_RETRY.intervalMs = originalRetry.intervalMs;
   });
 
-  test("restores the edge when ingress is enabled, the flag is on, and it is not already running", async () => {
-    loadRawConfigMock.mockReturnValue(enabledConfig);
+  test("webhook-configured wake ensures the edge and tunnels the edge port", async () => {
+    hasWebhookIntegrationsConfiguredMock.mockReturnValue(true);
 
     await wake();
 
-    expect(isAssistantFeatureFlagEnabledMock).toHaveBeenCalledWith(
-      "local-assistant",
-      "web-remote-ingress",
-      { runtimeUrl: "http://127.0.0.1:7830" },
-    );
-    expect(startRemoteWebIngressMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceDir: join(tempDir, ".vellum", "workspace"),
-        gatewayPort: 7830,
-      }),
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "local-assistant",
+      workspaceDir: workspaceDirOf(tempDir),
+      gatewayPort: 7830,
+    });
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7840,
+      workspaceDirOf(tempDir),
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 
-  test("does not attempt a restore when ingress is disabled", async () => {
+  test("ingress-enabled wake ensures the edge even without webhook integrations", async () => {
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+
+    await wake();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "local-assistant",
+      workspaceDir: workspaceDirOf(tempDir),
+      gatewayPort: 7830,
+    });
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7840,
+      workspaceDirOf(tempDir),
+    );
+    expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+  });
+
+  test("skips the edge and tunnels the gateway port when nothing wants an edge", async () => {
+    await wake();
+
+    expect(isAssistantFeatureFlagEnabledMock).not.toHaveBeenCalled();
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
+      workspaceDirOf(tempDir),
+    );
+  });
+
+  test("skips the edge when ingress is disabled and no webhooks are configured", async () => {
     loadRawConfigMock.mockReturnValue({ ingress: { enabled: false } });
 
     await wake();
 
-    expect(isAssistantFeatureFlagEnabledMock).not.toHaveBeenCalled();
-    expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
+      workspaceDirOf(tempDir),
+    );
   });
 
-  test("does not attempt a restore when ingress config is absent", async () => {
-    loadRawConfigMock.mockReturnValue({});
-
-    await wake();
-
-    expect(isAssistantFeatureFlagEnabledMock).not.toHaveBeenCalled();
-    expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
-  });
-
-  test("does not attempt a restore when enabled but the public URL is missing", async () => {
+  test("skips the edge when ingress is enabled but the public URL is missing", async () => {
     loadRawConfigMock.mockReturnValue({ ingress: { enabled: true } });
 
     await wake();
 
-    expect(isAssistantFeatureFlagEnabledMock).not.toHaveBeenCalled();
-    expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
   });
 
-  test("does not start a second edge when one is already running", async () => {
-    loadRawConfigMock.mockReturnValue(enabledConfig);
-    isIngressRunningMock.mockReturnValue(true);
+  test("nginx-missing falls back to the gateway-port tunnel with a warning", async () => {
+    hasWebhookIntegrationsConfiguredMock.mockReturnValue(true);
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error(
+        "nginx is not installed, so the tunnel edge cannot start. Install it (macOS: `brew install nginx`, Linux: `sudo apt install nginx`) or point NGINX_BIN at an existing binary.",
+      ),
+    );
 
     await wake();
 
-    // Already up — skip the flag probe and the start entirely.
-    expect(isAssistantFeatureFlagEnabledMock).not.toHaveBeenCalled();
-    expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
-  });
-
-  test("skips the restore quietly with a hint when the flag is off", async () => {
-    loadRawConfigMock.mockReturnValue(enabledConfig);
-    isAssistantFeatureFlagEnabledMock.mockResolvedValue(false);
-
-    await wake();
-
-    expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("web-remote-ingress"),
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("brew install nginx"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("vellum nginx-ingress up"),
+    );
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
+      workspaceDirOf(tempDir),
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 
-  test("a thrown restore failure warns but does not fail the wake", async () => {
-    loadRawConfigMock.mockReturnValue(enabledConfig);
-    startRemoteWebIngressMock.mockRejectedValue(new Error("nginx boom"));
-
-    await wake();
-
-    expect(startRemoteWebIngressMock).toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith("Wake complete.");
-  });
-
-  test("an unreachable edge warns but does not fail the wake", async () => {
-    loadRawConfigMock.mockReturnValue(enabledConfig);
-    startRemoteWebIngressMock.mockResolvedValue({
-      status: "unreachable",
-      listenPort: 7840,
-      logPath: "/tmp/nginx-ingress.log",
+  test("flag-off + webhooks-on produces a webhooks-only edge fronting the tunnel", async () => {
+    hasWebhookIntegrationsConfiguredMock.mockReturnValue(true);
+    isAssistantFeatureFlagEnabledMock.mockResolvedValue(false);
+    ensureTunnelEdgeMock.mockResolvedValue({
+      port: 7840,
+      started: true,
+      includesWebApp: false,
     });
 
     await wake();
 
-    expect(warnSpy).toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "local-assistant" }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("webhooks only"),
+    );
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7840,
+      workspaceDirOf(tempDir),
+    );
   });
 
-  test("a failed flag probe warns and leaves the edge down without failing the wake", async () => {
+  test("a reused edge still points the tunnel at its listen port", async () => {
     loadRawConfigMock.mockReturnValue(enabledConfig);
+    ensureTunnelEdgeMock.mockResolvedValue({
+      port: 7841,
+      started: false,
+      includesWebApp: true,
+    });
+
+    await wake();
+
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7841,
+      workspaceDirOf(tempDir),
+    );
+  });
+
+  test("a failed flag probe warns and falls back to the gateway-port tunnel", async () => {
+    hasWebhookIntegrationsConfiguredMock.mockReturnValue(true);
     isAssistantFeatureFlagEnabledMock.mockRejectedValue(
       new Error("gateway unreachable"),
     );
@@ -527,8 +554,12 @@ describe("vellum wake — web ingress restore", () => {
 
     // The probe retries through the startup window before giving up.
     expect(isAssistantFeatureFlagEnabledMock.mock.calls.length).toBe(3);
-    expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalled();
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
+      workspaceDirOf(tempDir),
+    );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 
@@ -551,9 +582,9 @@ describe("vellum wake — web ingress restore", () => {
 
     expect(isAssistantFeatureFlagEnabledMock.mock.calls.length).toBe(3);
     expect(logSpy).toHaveBeenCalledWith(
-      "   Waiting for the gateway before restoring the web ingress edge...",
+      "   Waiting for the gateway before restoring the tunnel edge...",
     );
-    expect(startRemoteWebIngressMock).toHaveBeenCalled();
+    expect(ensureTunnelEdgeMock).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 });

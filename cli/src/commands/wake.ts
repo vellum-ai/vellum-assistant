@@ -29,16 +29,17 @@ import {
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
-import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import {
+  hasWebhookIntegrationsConfigured,
+  maybeStartNgrokTunnel,
+} from "../lib/ngrok";
 import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
 import { loadRawConfig } from "../lib/ingress-config.js";
-import {
-  isIngressRunning,
-  startRemoteWebIngress,
-} from "../lib/nginx-ingress.js";
+import { ensureTunnelEdge } from "../lib/nginx-ingress.js";
+import type { ChildProcess } from "child_process";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -377,9 +378,11 @@ export async function wake(): Promise<void> {
     }
   }
 
-  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
+  // Restore the nginx edge and point the webhook auto-tunnel at it. Non-fatal:
+  // a down edge is a degraded remote-web/webhook path, not a broken assistant.
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
-  const ngrokChild = await maybeStartNgrokTunnel(
+  const ngrokChild = await restoreTunnelEdgeAndAutoTunnel(
+    entry.assistantId,
     resources.gatewayPort,
     workspaceDir,
   );
@@ -387,17 +390,6 @@ export async function wake(): Promise<void> {
     const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));
   }
-
-  // Restore the nginx web ingress edge when the workspace config still wants
-  // it. A TLS-terminating front (tailscale serve / tunnel) persists across
-  // restarts and keeps proxying to the edge's loopback port, but the edge has
-  // a manual lifecycle — so a routine restart otherwise leaves the self-hosted
-  // remote-web path dead (502 / blank page) until someone runs it back up.
-  await restoreWebIngressIfEnabled(
-    entry.assistantId,
-    resources.gatewayPort,
-    workspaceDir,
-  );
 
   if (daemonMigrationsFailed) {
     console.log(
@@ -426,7 +418,7 @@ export async function wake(): Promise<void> {
 }
 
 /**
- * Retry policy for the flag probe that gates the web-ingress restore. The
+ * Retry policy for the flag probe that precedes the tunnel-edge restore. The
  * gateway has typically been up for milliseconds at this point and answers
  * `503 {"status":"starting"}` (or refuses connections) until its startup
  * completes, so a single probe races it. Mutable so tests can shrink the
@@ -438,27 +430,30 @@ export const WEB_INGRESS_FLAG_RETRY = {
 };
 
 /**
- * Probe the `web-remote-ingress` flag, riding out the gateway's startup
- * window: transient failures retry on an interval until the attempt budget is
- * spent, then the last error propagates to the caller's warn path.
+ * Wait for the gateway to answer the `web-remote-ingress` flag probe, riding
+ * out its startup window: transient failures retry on an interval until the
+ * attempt budget is spent, then the last error propagates to the caller's
+ * warn path. `ensureTunnelEdge` reads the flag itself to pick the edge mode;
+ * this probe only proves the gateway is ready to answer it.
  */
-async function verifyWebIngressFlagWithRetry(
+async function waitForFlagRouteReady(
   assistantId: string,
   gatewayPort: number,
-): Promise<boolean> {
+): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= WEB_INGRESS_FLAG_RETRY.attempts; attempt++) {
     try {
-      return await isAssistantFeatureFlagEnabled(
+      await isAssistantFeatureFlagEnabled(
         assistantId,
         WEB_REMOTE_INGRESS_FLAG,
         { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
       );
+      return;
     } catch (err) {
       lastError = err;
       if (attempt === 1) {
         console.log(
-          "   Waiting for the gateway before restoring the web ingress edge...",
+          "   Waiting for the gateway before restoring the tunnel edge...",
         );
       }
       if (attempt < WEB_INGRESS_FLAG_RETRY.attempts) {
@@ -472,95 +467,68 @@ async function verifyWebIngressFlagWithRetry(
 }
 
 /**
- * Bring the nginx web ingress edge back up after a wake when the workspace
- * config still wants it. Only restores when ingress is explicitly enabled with
- * a saved public URL and the `web-remote-ingress` flag is on — the edge is
- * pointless without the flag, so a disabled flag skips quietly with a hint.
- *
- * Reads the same workspace config the edge serves. Any failure to restore
- * warns with the manual `vellum nginx-ingress up` command and never fails the
- * wake — a down edge is a degraded remote-web path, not a broken assistant.
+ * Whether the workspace ingress config wants the remote-web edge: explicitly
+ * enabled with a saved public URL.
  */
-async function restoreWebIngressIfEnabled(
+function wantsWebIngress(workspaceDir: string): boolean {
+  try {
+    const config = loadRawConfig(workspaceDir);
+    const ingress = config.ingress as
+      | { enabled?: unknown; publicBaseUrl?: unknown }
+      | undefined;
+    return (
+      ingress?.enabled === true &&
+      typeof ingress.publicBaseUrl === "string" &&
+      ingress.publicBaseUrl.trim() !== ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Bring the nginx edge back up after a wake or local upgrade and point the
+ * webhook auto-tunnel at it. The edge is wanted when webhook integrations are
+ * configured or the workspace ingress config is enabled with a saved public
+ * URL; `ensureTunnelEdge` picks SPA vs webhooks-only mode off the
+ * `web-remote-ingress` flag. Edge failures warn (with the error's install or
+ * diagnostic text) and fall back to tunneling the gateway port directly, which
+ * `maybeStartNgrokTunnel` only does when webhook integrations are configured —
+ * so webhook channels on nginx-less machines keep working, and the caller
+ * never fails because of edge problems.
+ *
+ * Returns the spawned ngrok child (for PID tracking) or null.
+ */
+export async function restoreTunnelEdgeAndAutoTunnel(
   assistantId: string,
   gatewayPort: number,
   workspaceDir: string,
-): Promise<void> {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = config.ingress as
-    | { enabled?: unknown; publicBaseUrl?: unknown }
-    | undefined;
-  const enabled = ingress?.enabled === true;
-  const publicBaseUrl =
-    typeof ingress?.publicBaseUrl === "string"
-      ? ingress.publicBaseUrl.trim()
-      : "";
-  if (!enabled || !publicBaseUrl) {
-    return;
-  }
-
-  // The edge already survived (or was manually brought back) — nothing to do.
-  if (isIngressRunning(workspaceDir)) {
-    return;
-  }
-
-  let flagEnabled: boolean;
-  try {
-    flagEnabled = await verifyWebIngressFlagWithRetry(assistantId, gatewayPort);
-  } catch (err) {
-    console.warn(
-      `   Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` flag to restore the web ingress edge; leaving it down. Bring it up manually with \`vellum nginx-ingress up\`. ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-    return;
-  }
-  if (!flagEnabled) {
-    console.log(
-      `   Web ingress edge not restored: the \`${WEB_REMOTE_INGRESS_FLAG}\` flag is off. Enable it and run \`vellum nginx-ingress up\` to serve remote web access.`,
-    );
-    return;
-  }
-
-  try {
-    const result = await startRemoteWebIngress({
-      workspaceDir,
-      gatewayPort,
-      onStarting: ({ listenPort }) => {
-        console.log(
-          `Restoring web ingress edge on 127.0.0.1:${listenPort} (ingress.enabled)...`,
-        );
-      },
-    });
-    switch (result.status) {
-      case "started":
-        console.log(
-          `   Web ingress edge running: http://127.0.0.1:${result.listenPort}`,
-        );
-        break;
-      case "already-running":
-        break;
-      case "nginx-missing":
-        console.warn(
-          "   Could not restore the web ingress edge: nginx is not installed. Bring it up manually with `vellum nginx-ingress up`.",
-        );
-        break;
-      case "web-dist-missing":
-        console.warn(
-          "   Could not restore the web ingress edge: built web assets were not found. Bring it up manually with `vellum nginx-ingress up`.",
-        );
-        break;
-      case "unreachable":
-        console.warn(
-          `   Web ingress edge did not become reachable on 127.0.0.1:${result.listenPort}; check ${result.logPath}. Bring it up manually with \`vellum nginx-ingress up\`.`,
-        );
-        break;
+): Promise<ChildProcess | null> {
+  let tunnelTargetPort = gatewayPort;
+  if (
+    hasWebhookIntegrationsConfigured(workspaceDir) ||
+    wantsWebIngress(workspaceDir)
+  ) {
+    try {
+      await waitForFlagRouteReady(assistantId, gatewayPort);
+      const edge = await ensureTunnelEdge({
+        assistantId,
+        workspaceDir,
+        gatewayPort,
+      });
+      tunnelTargetPort = edge.port;
+      console.log(
+        `   Tunnel edge ${edge.started ? "started" : "already running"} on 127.0.0.1:${edge.port} (${
+          edge.includesWebApp ? "remote web + webhooks" : "webhooks only"
+        }).`,
+      );
+    } catch (err) {
+      console.warn(
+        `   Could not restore the tunnel edge: ${
+          err instanceof Error ? err.message : String(err)
+        } Bring it up manually with \`vellum nginx-ingress up\`.`,
+      );
     }
-  } catch (err) {
-    console.warn(
-      `   Failed to restore the web ingress edge: ${
-        err instanceof Error ? err.message : String(err)
-      }. Bring it up manually with \`vellum nginx-ingress up\`.`,
-    );
   }
+  return maybeStartNgrokTunnel(tunnelTargetPort, workspaceDir);
 }

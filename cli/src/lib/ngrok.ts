@@ -186,7 +186,9 @@ export async function waitForNgrokUrl(
  * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
  * configured that require a public ingress URL.
  */
-function hasWebhookIntegrationsConfigured(workspaceDir: string): boolean {
+export function hasWebhookIntegrationsConfigured(
+  workspaceDir: string,
+): boolean {
   try {
     const config = loadRawConfig(workspaceDir);
     const telegram = config.telegram as Record<string, unknown> | undefined;
