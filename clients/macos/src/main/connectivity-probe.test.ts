@@ -124,7 +124,7 @@ describe("connectivity-probe", () => {
   test("sets backend reachable=true when a cloud assistant carries leftover local resources", async () => {
     // Lockfile merges preserve `resources` across cloud transitions, so a
     // platform entry can carry a stale gatewayPort. It must not be
-    // loopback-probed — that port belongs to a stopped local runtime.
+    // loopback-probed: that port belongs to a stopped local runtime.
     mockLockfileData = {
       ok: true,
       data: {
@@ -165,6 +165,50 @@ describe("connectivity-probe", () => {
 
     expect(fetchCalls).toEqual(["http://127.0.0.1:7840/healthz"]);
     expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("recovers the docker probe port from a loopback runtimeUrl", async () => {
+    // Docker hatch records the published gateway as a loopback runtimeUrl
+    // with no `resources` block.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            runtimeUrl: "http://localhost:7841",
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["http://127.0.0.1:7841/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("does not probe a non-loopback runtimeUrl", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            runtimeUrl: "http://192.0.2.10:7841",
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([]);
   });
 
   test("does not change reachability when lockfile cannot be read", async () => {

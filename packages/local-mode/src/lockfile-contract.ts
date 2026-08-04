@@ -77,6 +77,51 @@ export function resolveCloud(raw: {
 }
 
 /**
+ * Clouds whose gateway listens on a loopback port of this machine: the
+ * on-machine daemon ("local") and local Docker instances ("docker"). Excludes
+ * "apple-container" (macOS-app-managed, records no loopback gateway), the
+ * remote self-hosted clouds, and platform ("vellum"). The one definition of
+ * "locally reachable gateway" shared by the web client and the Electron main
+ * process.
+ */
+export const LOOPBACK_GATEWAY_CLOUDS: readonly Cloud[] = ["local", "docker"];
+
+export function isLoopbackGatewayCloud(cloud: Cloud): boolean {
+  return LOOPBACK_GATEWAY_CLOUDS.includes(cloud);
+}
+
+/**
+ * The loopback gateway port recorded for an assistant entry. Plain local
+ * entries record it as `resources.gatewayPort`; Docker entries record the
+ * published gateway address as a loopback `runtimeUrl`
+ * (`http://localhost:<port>`) with no `resources` block, so the port is
+ * recovered from that URL. A non-loopback `runtimeUrl` never yields a port: a
+ * remote address is not a local gateway.
+ */
+export function getLoopbackGatewayPort(entry: {
+  resources?: { gatewayPort?: number };
+  runtimeUrl?: string;
+}): number | undefined {
+  const recorded = entry.resources?.gatewayPort;
+  if (recorded != null) {
+    return recorded;
+  }
+  if (!entry.runtimeUrl) {
+    return undefined;
+  }
+  try {
+    const url = new URL(entry.runtimeUrl);
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      return undefined;
+    }
+    const port = Number(url.port);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Per-instance resources for a local assistant: the renderer-facing subset of
  * ports, the instance directory, and the local runtime install metadata.
  * Richer host-only fields (other ports, the signing key) live on the CLI's

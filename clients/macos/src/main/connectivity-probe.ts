@@ -1,6 +1,10 @@
 import { app, BrowserWindow, net, powerMonitor } from "electron";
 
 import { getLockfileData } from "@vellumai/local-mode";
+import {
+  getLoopbackGatewayPort,
+  isLoopbackGatewayCloud,
+} from "@vellumai/local-mode/contract";
 
 import { setBackendReachable } from "./status";
 
@@ -13,15 +17,15 @@ let probing = false;
 /**
  * The outcome of trying to resolve a probe target from the lockfile.
  *
- * - `"local"` — the active assistant runs its gateway on a loopback port
+ * - `"local"`: the active assistant runs its gateway on a loopback port
  *   of this machine; the caller should fetch the returned URL and set
  *   reachability from the response.
- * - `"non-local"` — the active assistant is cloud-hosted or self-hosted
+ * - `"non-local"`: the active assistant is cloud-hosted or self-hosted
  *   remote; there is no local gateway to probe, and any prior
  *   `backendReachable = false` from a stale local-assistant entry should
  *   be cleared. Non-local assistant health is tracked separately via the
  *   platform's operational-status polling.
- * - `"unknown"` — the lockfile could not be read, there is no active
+ * - `"unknown"`: the lockfile could not be read, there is no active
  *   assistant, or the active entry is a local runtime without a gateway
  *   port. The caller should not change the reachability state, because
  *   it cannot prove either direction.
@@ -30,10 +34,6 @@ type ProbeTarget =
   | { kind: "local"; url: string }
   | { kind: "non-local" }
   | { kind: "unknown" };
-
-// Clouds whose gateway listens on a loopback port of this machine. Everything
-// else is reached remotely and tracked via operational-status polling.
-const LOOPBACK_GATEWAY_CLOUDS = new Set(["local", "docker"]);
 
 function resolveProbeTarget(lockfilePaths: string[]): ProbeTarget {
   const result = getLockfileData(lockfilePaths);
@@ -45,13 +45,14 @@ function resolveProbeTarget(lockfilePaths: string[]): ProbeTarget {
   // Classify by cloud before resources: lockfile merges preserve stale
   // `resources` across cloud transitions, so a non-local entry can carry a
   // leftover gatewayPort that must not be loopback-probed.
-  if (!LOOPBACK_GATEWAY_CLOUDS.has(entry.cloud)) {
+  if (!isLoopbackGatewayCloud(entry.cloud)) {
     return { kind: "non-local" };
   }
-  if (entry.resources?.gatewayPort) {
+  const port = getLoopbackGatewayPort(entry);
+  if (port) {
     return {
       kind: "local",
-      url: `http://127.0.0.1:${entry.resources.gatewayPort}/healthz`,
+      url: `http://127.0.0.1:${port}/healthz`,
     };
   }
   // Local runtime missing its port: can't prove reachability either way.

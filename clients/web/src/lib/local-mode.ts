@@ -1,3 +1,8 @@
+import {
+  getLoopbackGatewayPort,
+  isLoopbackGatewayCloud,
+} from "@vellumai/local-mode/contract";
+
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   clearSelectedAssistantId,
@@ -442,7 +447,7 @@ export function isLocalAssistant(a: LockfileAssistant): boolean {
  * clouds, and platform (`vellum`).
  */
 export function isLocalGatewayAssistant(a: LockfileAssistant): boolean {
-  return a.cloud === "local" || a.cloud === "docker";
+  return isLoopbackGatewayCloud(a.cloud);
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {
@@ -558,35 +563,6 @@ function expectsLocalGateway(
 }
 
 /**
- * The loopback gateway port recorded for an assistant. Plain local entries
- * record it as `resources.gatewayPort`; Docker entries record the published
- * gateway address as a loopback `runtimeUrl` (`http://localhost:<port>`) with
- * no `resources` block, so the port is recovered from that URL. A non-loopback
- * `runtimeUrl` never yields a port — a remote address is not a local gateway.
- */
-function getRecordedGatewayPort(
-  assistant: LockfileAssistant,
-): number | undefined {
-  const recorded = assistant.resources?.gatewayPort;
-  if (recorded != null) {
-    return recorded;
-  }
-  if (!assistant.runtimeUrl) {
-    return undefined;
-  }
-  try {
-    const url = new URL(assistant.runtimeUrl);
-    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-      return undefined;
-    }
-    const port = Number(url.port);
-    return Number.isInteger(port) && port > 0 ? port : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Return the local gateway proxy URL for the given assistant (default: the
  * selected one), or `undefined` when this runtime doesn't reach it over a local
  * gateway or the gateway port hasn't been recorded yet.
@@ -597,7 +573,7 @@ export function getLocalGatewayUrl(
   if (!expectsLocalGateway(assistant)) {
     return undefined;
   }
-  const gatewayPort = getRecordedGatewayPort(assistant);
+  const gatewayPort = getLoopbackGatewayPort(assistant);
   if (gatewayPort == null) {
     return undefined;
   }
