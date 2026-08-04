@@ -5,8 +5,9 @@
  *   - Nothing is emitted without analytics consent.
  *   - `boot_id` appears only once a boot id has been registered.
  *   - A throwing transport never propagates to the caller.
- *   - The page-load key is minted lazily and survives a runtime with no
- *     `crypto.randomUUID` (non-secure contexts).
+ *   - The page-load key is minted lazily, and it, the event id, and the
+ *     transport's client id all survive a runtime with no `crypto.randomUUID`
+ *     (non-secure contexts).
  *   - Surface and os come from a single platform probe per emit.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -29,6 +30,9 @@ mock.module("@/runtime/platform-detection", () => ({
   detectClientOs: detectClientOsMock,
   isNativeIOS: () => nativeIOS,
   isNativeAndroid: () => nativeAndroid,
+  // Unused by the emitter, present so `client-identity` (imported by the
+  // crypto-fallback test) still resolves its imports against this stub.
+  detectBrowserInfo: () => ({}),
 }));
 
 const { __resetClientPerfForTests, emitClientPerfEvent, setClientPerfBootId } =
@@ -46,14 +50,24 @@ function lastDetail(): Record<string, unknown> {
   return lastEvent().detail as Record<string, unknown>;
 }
 
-/** Every member of the exported union, so a dropped name fails to compile. */
-const ALL_CHECK_NAMES: readonly ClientPerfCheckName[] = [
+/**
+ * Every member of the exported union. `satisfies` rejects an entry that is not
+ * a check name, and the `AssertNever` alias below rejects a check name that is
+ * missing from the tuple, so the list stays exhaustive in both directions.
+ */
+const ALL_CHECK_NAMES = [
   "client_switch.transcript_painted",
   "client_switch.stalled",
   "client_switch.abandoned",
   "client_resume.request_count",
   "client_list.drain",
-];
+] as const satisfies readonly ClientPerfCheckName[];
+
+type AssertNever<T extends never> = T;
+
+type _UncoveredCheckNames = AssertNever<
+  Exclude<ClientPerfCheckName, (typeof ALL_CHECK_NAMES)[number]>
+>;
 
 beforeEach(() => {
   consent = true;
@@ -84,7 +98,7 @@ describe("emitClientPerfEvent", () => {
     expect(typeof detail.os).toBe("string");
   });
 
-  test("accepts every check name in the exported union", () => {
+  test("emits every check name in the union verbatim", () => {
     for (const checkName of ALL_CHECK_NAMES) {
       emitClientPerfEvent(checkName, 1);
       expect(lastEvent().check_name).toBe(checkName);
@@ -153,10 +167,14 @@ describe("emitClientPerfEvent", () => {
     expect(lastDetail().surface).toBe("android_native");
   });
 
-  test("still emits when crypto.randomUUID is unavailable", () => {
+  test("still emits when crypto.randomUUID is unavailable", async () => {
     const cryptoObject = globalThis.crypto as unknown as {
       randomUUID?: () => string;
     };
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      cryptoObject,
+      "randomUUID",
+    );
     Object.defineProperty(cryptoObject, "randomUUID", {
       configurable: true,
       value: undefined,
@@ -164,9 +182,25 @@ describe("emitClientPerfEvent", () => {
     });
 
     try {
+      // The real transport stamps the payload's `device_id` from
+      // `getClientId()`, so a throw there lands in the emitter's catch and
+      // drops the sample. Import it fresh so its cache is cold under this
+      // runtime, and read it from the transport stub the way ingest does.
+      const { getClientId } = (await import(
+        `@/lib/telemetry/client-identity?t=${Math.random()}`
+      )) as typeof import("./client-identity");
+      let deviceId: string | null = null;
+      postTelemetryEventsMock.mockImplementation(() => {
+        deviceId = getClientId();
+      });
+
       expect(() => {
         emitClientPerfEvent("client_list.drain", 1);
       }).not.toThrow();
+
+      expect(postTelemetryEventsMock).toHaveBeenCalledTimes(1);
+      expect(typeof deviceId).toBe("string");
+      expect(deviceId).not.toBe("");
 
       const event = lastEvent();
       expect(typeof event.daemon_event_id).toBe("string");
@@ -176,7 +210,11 @@ describe("emitClientPerfEvent", () => {
       emitClientPerfEvent("client_list.drain", 2);
       expect(lastDetail().page_load_id).toBe(pageLoadId);
     } finally {
-      delete cryptoObject.randomUUID;
+      if (originalDescriptor) {
+        Object.defineProperty(cryptoObject, "randomUUID", originalDescriptor);
+      } else {
+        delete cryptoObject.randomUUID;
+      }
     }
   });
 });
