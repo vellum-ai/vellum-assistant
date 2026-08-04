@@ -559,9 +559,10 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     // The persisted remap is visible on the tier row and as ghost provenance
     // on unpinned Speed-tier sites.
     expect(renderedText()).toContain("via Speed default");
-    // The pinned Filing Agent keeps its winner caption without an arrow:
-    // its pin outranks the remap.
-    expect(renderedText()).toContain("Default: My BYOK");
+    // The pinned Filing Agent's caption stays its shipped tier (what it
+    // falls back to when unpinned); it must not echo the pin.
+    expect(renderedText()).toContain("Default: Speed");
+    expect(renderedText()).not.toContain("Default: My BYOK");
 
     pickOption(tierTrigger("My BYOK"), "Speed (default)");
     fireEvent.click(getButton("Save"));
@@ -710,6 +711,30 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     const body = configPatchBodies[0] as { llm: Record<string, unknown> };
     expect("callSites" in body.llm).toBe(false);
     expect("defaultProfileOverrides" in body.llm).toBe(false);
+  });
+
+  test("pinning a row keeps its default caption on the shipped tier", async () => {
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Default: Balanced");
+    });
+    const card = rowCard("Workflow Leaf");
+    const toggle = card.querySelector<HTMLElement>('[role="switch"]');
+    if (!toggle) {
+      throw new Error("expected the Workflow Leaf toggle");
+    }
+    fireEvent.click(toggle);
+    const dropdown = rowCard("Workflow Leaf").querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!dropdown) {
+      throw new Error("expected the pin dropdown");
+    }
+    pickOption(dropdown, "Quality");
+    // The caption names what the action falls back to when unpinned; it
+    // must not follow the pin.
+    expect(renderedText()).toContain("Default: Balanced");
+    expect(renderedText()).not.toContain("Default: Quality");
   });
 
   test("a remap the resolver skipped renders the shipped default, not the raw remap", async () => {
