@@ -53,6 +53,8 @@ let contentWrites: Array<{
  * main-thread cost on large conversations, so the counts are pinned.
  */
 let getMessagesCalls = 0;
+/** When set, every persisted write throws it, standing in for a SQLite lock. */
+let persistError: Error | null = null;
 
 const realCrud = await import("../persistence/conversation-crud.js");
 mock.module("../persistence/conversation-crud.js", () => ({
@@ -66,6 +68,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
       .map((r) => ({ ...r, content: structuredClone(r.content) }));
   },
   updateMessageContent: (id: string, content: string) => {
+    if (persistError) {
+      throw persistError;
+    }
     const blocks = JSON.parse(content) as Array<Record<string, unknown>>;
     callOrder.push("persist");
     contentWrites.push({ id, blocks });
@@ -75,6 +80,16 @@ mock.module("../persistence/conversation-crud.js", () => ({
     }
   },
 }));
+
+function resetSurfaceState(): void {
+  broadcastedMessages = [];
+  contentWrites = [];
+  storedRows = [];
+  callOrder = [];
+  loggedWarnings = [];
+  getMessagesCalls = 0;
+  persistError = null;
+}
 
 // Import must come AFTER mock.module so the surface module picks up the
 // mocked event hub and persistence functions.
@@ -214,14 +229,7 @@ const CHOICE_PAYLOAD = {
 };
 
 describe("history-restored surface completion", () => {
-  beforeEach(() => {
-    broadcastedMessages = [];
-    contentWrites = [];
-    storedRows = [];
-    callOrder = [];
-    loggedWarnings = [];
-    getMessagesCalls = 0;
-  });
+  beforeEach(resetSurfaceState);
 
   test("one-shot choice surface with no in-memory state is completed and persisted", async () => {
     const surfaceId = "surface-choice-history-1";
@@ -433,14 +441,7 @@ describe("history-restored surface completion", () => {
 });
 
 describe("history-restored surface completion: requester provenance", () => {
-  beforeEach(() => {
-    broadcastedMessages = [];
-    contentWrites = [];
-    storedRows = [];
-    callOrder = [];
-    loggedWarnings = [];
-    getMessagesCalls = 0;
-  });
+  beforeEach(resetSurfaceState);
 
   test("an untrusted requester cannot complete a guardian-provenance surface", async () => {
     const surfaceId = "surface-choice-guardian-1";
@@ -481,14 +482,7 @@ describe("history-restored surface completion: requester provenance", () => {
 });
 
 describe("history-restored surface completion: scan cost", () => {
-  beforeEach(() => {
-    broadcastedMessages = [];
-    contentWrites = [];
-    storedRows = [];
-    callOrder = [];
-    loggedWarnings = [];
-    getMessagesCalls = 0;
-  });
+  beforeEach(resetSurfaceState);
 
   test("a one-shot action with no live state costs one full scan", async () => {
     const surfaceId = "surface-scan-1";
@@ -586,14 +580,7 @@ describe("history-restored surface completion: scan cost", () => {
 });
 
 describe("surface action queue rejection", () => {
-  beforeEach(() => {
-    broadcastedMessages = [];
-    contentWrites = [];
-    storedRows = [];
-    callOrder = [];
-    loggedWarnings = [];
-    getMessagesCalls = 0;
-  });
+  beforeEach(resetSurfaceState);
 
   test("a rejected history-restored action is logged with queue depth", async () => {
     const surfaceId = "surface-rejected-1";
@@ -642,14 +629,7 @@ describe("surface action queue rejection", () => {
 });
 
 describe("surfaces completed without ever awaiting an action", () => {
-  beforeEach(() => {
-    broadcastedMessages = [];
-    contentWrites = [];
-    storedRows = [];
-    callOrder = [];
-    loggedWarnings = [];
-    getMessagesCalls = 0;
-  });
+  beforeEach(resetSurfaceState);
 
   test("a one-shot surface shown with await_action false completes on its first action", async () => {
     const ctx = makeContext();
@@ -707,14 +687,7 @@ describe("surfaces completed without ever awaiting an action", () => {
 });
 
 describe("markSurfaceCompleted in-memory patching", () => {
-  beforeEach(() => {
-    broadcastedMessages = [];
-    contentWrites = [];
-    storedRows = [];
-    callOrder = [];
-    loggedWarnings = [];
-    getMessagesCalls = 0;
-  });
+  beforeEach(resetSurfaceState);
 
   test("marks only the newest in-memory copy of a duplicated surfaceId", () => {
     const surfaceId = "surface-duplicated-1";
@@ -733,5 +706,52 @@ describe("markSurfaceCompleted in-memory patching", () => {
     expect(newer.completed).toBe(true);
     expect(newer.completionSummary).toBe("Done");
     expect(older.completed).toBeUndefined();
+  });
+});
+
+describe("surface completion when the persisted write does not land", () => {
+  beforeEach(resetSurfaceState);
+
+  test("a completion whose write throws is not broadcast", async () => {
+    const surfaceId = "surface-persist-throws-1";
+    seedSurfaceRow(surfaceId, "choice");
+    const ctx = makeContext();
+    persistError = new Error("database is locked");
+
+    const result = await handleSurfaceAction(
+      ctx,
+      surfaceId,
+      "inbox",
+      CHOICE_PAYLOAD,
+    );
+
+    // A persistence hiccup must not fail the action or drop the user's turn.
+    expect(result).toBeUndefined();
+    expect(ctx.enqueuedContents).toHaveLength(1);
+
+    // The persisted block is still pending, so a client told the card was
+    // completed would watch the next reseed revert it.
+    expect(readPersistedSurface(surfaceId)?.completed).toBeUndefined();
+    expect(completionBroadcasts(surfaceId)).toHaveLength(0);
+  });
+
+  test("a completion with no persisted block is still broadcast", async () => {
+    const surfaceId = "surface-no-persisted-block-1";
+    // Nothing in history: the write is a no-op because there is nothing to
+    // write, and nothing can revert the client's completed card.
+    const ctx = makeContext();
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "choice",
+      data: {
+        options: [{ id: "inbox", title: "Clean up my inbox" }],
+        selectionMode: "single",
+      },
+    });
+
+    await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
+
+    expect(readPersistedSurface(surfaceId)).toBeUndefined();
+    expect(contentWrites).toHaveLength(0);
+    expect(completionBroadcasts(surfaceId)).toHaveLength(1);
   });
 });

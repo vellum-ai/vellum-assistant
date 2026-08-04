@@ -372,6 +372,30 @@ export function flushPendingSurfaceDataPersists(conversationId?: string): void {
 }
 
 /**
+ * How the persisted half of {@link markSurfaceCompleted} went.
+ *
+ * `"not_found"` and `"failed"` both wrote nothing, and the difference decides
+ * whether a caller may still broadcast `ui_surface_complete`: `"not_found"`
+ * leaves no persisted block that could revert to pending on the next history
+ * reseed, while `"failed"` leaves one that will.
+ */
+export type SurfaceCompletionPersistResult =
+  | "persisted"
+  | "not_found"
+  | "failed";
+
+/**
+ * Whether a completion may be announced to clients given how its persist went.
+ * Every completion broadcast site asks this, so the rule cannot drift between
+ * them.
+ */
+function canBroadcastCompletion(
+  result: SurfaceCompletionPersistResult,
+): boolean {
+  return result !== "failed";
+}
+
+/**
  * Mark a `ui_surface` content block as completed in the database so that
  * history reconstruction preserves the completion state.  Also updates
  * in-memory messages when available.
@@ -379,13 +403,17 @@ export function flushPendingSurfaceDataPersists(conversationId?: string): void {
  * `prelocated` lets a caller that already scanned for the block (the
  * completion path's persisted read) reuse that hit instead of paying a second
  * full-history scan.
+ *
+ * Never throws: a persistence hiccup must not fail the surface action that
+ * triggered it. The outcome comes back in the return value instead, so a
+ * caller about to announce the completion can withhold it.
  */
 export function markSurfaceCompleted(
   ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
   surfaceId: string,
   summary: string,
   prelocated?: PersistedSurfaceHit,
-): void {
+): SurfaceCompletionPersistResult {
   // Force-flush any pending debounced data persist so the completion
   // patch lands on top of the latest data instead of racing with it.
   const flushed = flushSurfaceDataPersist(surfaceId);
@@ -419,17 +447,20 @@ export function markSurfaceCompleted(
       prelocated && !flushed
         ? prelocated
         : findPersistedSurfaceBlock(ctx.conversationId, surfaceId, "write");
-    if (hit) {
-      hit.block.completed = true;
-      hit.block.completionSummary = summary;
-      updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
+    if (!hit) {
+      return "not_found";
     }
+    hit.block.completed = true;
+    hit.block.completionSummary = summary;
+    updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
+    return "persisted";
   } catch (err) {
     // Error, not warn: a silent failure here presents as the user's answer being discarded.
     log.error(
       { err, conversationId: ctx.conversationId, surfaceId },
       "Failed to persist surface completion to DB",
     );
+    return "failed";
   }
 }
 
@@ -509,16 +540,22 @@ export function findPersistedSurfaceInfo(
  * instance, so it can run from flows that don't own one — projecting a
  * terminal guardian-request status onto its in-app approval card when the
  * request was resolved on another surface (or by the expiry sweep). Persists
- * the completion (reload-safe) and broadcasts `ui_surface_complete` so every
- * connected client of this guardian converges. No-ops when the surface block
- * isn't found in the conversation.
+ * the completion (reload-safe) first, then broadcasts `ui_surface_complete` so
+ * every connected client of this guardian converges.
  */
 export function completeSurfaceAndNotify(
   conversationId: string,
   surfaceId: string,
   summary: string,
 ): void {
-  markSurfaceCompleted({ conversationId }, surfaceId, summary);
+  const persisted = markSurfaceCompleted(
+    { conversationId },
+    surfaceId,
+    summary,
+  );
+  if (!canBroadcastCompletion(persisted)) {
+    return;
+  }
   broadcastMessage({
     type: "ui_surface_complete",
     conversationId,
@@ -1895,9 +1932,9 @@ const ONE_SHOT_SURFACE_TYPES = [
  *
  * Called from both `handleSurfaceAction` branches, one holding a pending entry
  * and one with none, always after `enqueueMessage` accepted the turn so a
- * rejected enqueue leaves the surface answerable. Persists first and
- * broadcasts `ui_surface_complete` second: a failed persist must not leave a
- * client rendering a card the next history reseed reverts.
+ * rejected enqueue leaves the surface answerable. Persists first and broadcasts
+ * `ui_surface_complete` only once that write is known not to have failed: a
+ * client must not render a card the next history reseed reverts.
  *
  * "No pending entry" is broader than "restored from history", and with
  * `pendingSurfaceActions` empty the two cannot be told apart: a surface shown
@@ -1947,7 +1984,10 @@ function maybeCompleteSurfaceAfterAction(
   const summary =
     requestedSummary ??
     buildCompletionSummary(surfaceType, actionId, actionData, surfaceData);
-  markSurfaceCompleted(ctx, surfaceId, summary, hit);
+  const persisted = markSurfaceCompleted(ctx, surfaceId, summary, hit);
+  if (!canBroadcastCompletion(persisted)) {
+    return;
+  }
   broadcastMessage({
     type: "ui_surface_complete",
     conversationId: ctx.conversationId,
@@ -2019,6 +2059,9 @@ export async function handleSurfaceAction(
       return { accepted: true, conversationId: ctx.conversationId };
     }
 
+    // Broadcast unconditionally: `showStandaloneSurface` renders straight to
+    // the client without appending a `ui_surface` block, so there is no
+    // persisted state a failed completion write could contradict.
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
@@ -3614,14 +3657,18 @@ export async function surfaceProxyResolver(
         lastAction.data,
         stored?.data,
       );
-      ctx.sendToClient({
-        type: "ui_surface_complete",
-        conversationId: ctx.conversationId,
-        surfaceId,
-        summary,
-        submittedData: lastAction.data,
-      });
-      markSurfaceCompleted(ctx, surfaceId, summary);
+      // A `ui_show` surface owns a persisted block, so the completion has to
+      // land before the client is told the card is answered.
+      const persisted = markSurfaceCompleted(ctx, surfaceId, summary);
+      if (canBroadcastCompletion(persisted)) {
+        ctx.sendToClient({
+          type: "ui_surface_complete",
+          conversationId: ctx.conversationId,
+          surfaceId,
+          summary,
+          submittedData: lastAction.data,
+        });
+      }
     } else {
       ctx.sendToClient({
         type: "ui_surface_dismiss",
