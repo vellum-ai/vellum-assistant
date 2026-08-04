@@ -424,13 +424,13 @@ describe("memoryRetrospectiveJob through the real wake + real agent loop", () =>
     ];
   });
 
-  test("real provider rejection through the real agent loop leaves the window retryable", async () => {
-    // Scenario A: every provider call is rejected. Mechanism under test:
-    // `AgentLoop.run`'s outer catch swallows the throw (emits an `error`
-    // event, `stopTurn("error")`, returns the history unchanged), so the
-    // real wake's silent no-op branch reports `invoked: true`, and the
-    // handler's durable-evidence gate must still refuse to advance,
-    // classifying the run as `no_usable_output` (NOT `wake_failed`).
+  test("real provider rejection is classified at the wake layer and leaves the window retryable", async () => {
+    // The wake's exit-reason classifier fails a swallowed rejection before
+    // finalization (invoked: false, reason run_error), so the handler
+    // reports wake_failed. Full rejection-chain coverage (state
+    // preservation, prior-fork survival, retry consuming the window) lives
+    // in memory-retrospective-wake-chain.test.ts; this case pins only the
+    // layered outcome and that the finalizer was never reached.
     providerImpl = async () => {
       throw new ProviderError(
         "This model (test-model) doesn't support image input. Remove the image or switch to a vision-capable model.",
@@ -441,16 +441,14 @@ describe("memoryRetrospectiveJob through the real wake + real agent loop", () =>
 
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
 
-    expect(outcome.kind).toBe("no_usable_output");
-    // The real loop really issued the provider call.
+    expect(outcome.kind).toBe("wake_failed");
+    if (outcome.kind === "wake_failed") {
+      expect(outcome.reason).toBe("run_error");
+    }
     expect(providerCalls.length).toBeGreaterThanOrEqual(1);
-    // Cursor NOT advanced; window stays retryable.
     expect(stateUpserts).toHaveLength(0);
-    // Cooldown bump only, exactly once, and the orphan fork is cleaned up.
     expect(lastRunAtBumps).toHaveLength(1);
     expect(deletedConversationIds).toEqual([FORK_ID]);
-    // Sanity: the run staged its instruction row but persisted no tail.
-    expect(messageStores[FORK_ID]?.map((row) => row.role)).toEqual(["user"]);
   });
 
   test("durable remember persisted through the real loop advances the cursor", async () => {

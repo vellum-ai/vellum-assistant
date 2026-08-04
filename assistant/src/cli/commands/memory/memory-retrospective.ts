@@ -190,6 +190,16 @@ export function registerMemoryRetrospectiveCommand(memory: Command): void {
         return;
       }
 
+      // Failure outcomes exit non-zero in every output mode, so scripted
+      // callers (and the recovery runbook) can branch on the exit code
+      // without parsing the payload.
+      if (
+        outcome.kind === "wake_failed" ||
+        outcome.kind === "no_usable_output"
+      ) {
+        process.exitCode = 1;
+      }
+
       if (resolution.kind === "override") {
         const { getRetrospectiveState } =
           await import("../../../plugins/defaults/memory/memory-retrospective-state.js");
