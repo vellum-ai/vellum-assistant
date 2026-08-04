@@ -17,6 +17,10 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "./feature-flags.js";
 import { waitForDaemonReady } from "./http-client.js";
 import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
 
@@ -683,6 +687,94 @@ export async function startRemoteWebIngress(opts: {
   }
 
   return { status: "started", listenPort, webDistDir, version };
+}
+
+/**
+ * Resolve the edge mode for an assistant: the `web-remote-ingress` flag selects
+ * the SPA edge when enabled and the webhooks-only edge when disabled. The
+ * lookup requires a reachable assistant, so a failure throws with a wake hint.
+ */
+async function resolveEdgeIncludesWebApp(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<boolean> {
+  try {
+    return await isAssistantFeatureFlagEnabled(
+      assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the tunnel. Is the assistant running? Try \`vellum wake\` and retry. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
+/**
+ * Bring up the nginx edge as the canonical tunnel target and return the listen
+ * port a tunnel should front.
+ *
+ * The `web-remote-ingress` flag picks the edge mode (enabled: SPA + gateway
+ * proxy, disabled: webhooks-only proxy); an entry without an assistant id
+ * cannot have the flag verified and gets the webhooks-only edge. The resolved
+ * mode is always delegated to `startRemoteWebIngress`, which reuses a running
+ * edge that already serves that mode and restarts one that drifted, so the
+ * returned port always fronts the flag-resolved config. `started` is false when
+ * a matching edge was reused. Failures throw with actionable install or
+ * diagnostic text.
+ */
+export async function ensureTunnelEdge(opts: {
+  assistantId: string | undefined;
+  workspaceDir: string;
+  gatewayPort: number;
+}): Promise<{ port: number; started: boolean; includesWebApp: boolean }> {
+  const includeWebApp = opts.assistantId
+    ? await resolveEdgeIncludesWebApp(opts.assistantId, opts.gatewayPort)
+    : false;
+
+  const result = await startRemoteWebIngress({
+    workspaceDir: opts.workspaceDir,
+    gatewayPort: opts.gatewayPort,
+    includeWebApp,
+  });
+
+  switch (result.status) {
+    case "started":
+      return {
+        port: result.listenPort,
+        started: true,
+        includesWebApp: includeWebApp,
+      };
+    case "already-running":
+      // The reused edge's recorded listen port is the target; the result's
+      // listenPort is only the port this call would have requested.
+      return {
+        port:
+          readIngressState(opts.workspaceDir)?.listenPort ?? result.listenPort,
+        started: false,
+        includesWebApp: includeWebApp,
+      };
+    case "nginx-missing":
+      throw new Error(
+        "nginx is not installed, so the tunnel edge cannot start. " +
+          "Install it (macOS: `brew install nginx`, Linux: `sudo apt install nginx`) " +
+          "or point NGINX_BIN at an existing binary.",
+      );
+    case "web-dist-missing":
+      throw new Error(
+        "Unable to locate built web assets for the remote web edge. " +
+          "Build the SPA (`cd clients/web && VITE_PLATFORM_MODE=false bun run build`) " +
+          "or install @vellumai/web so its packaged dist directory is available.",
+      );
+    case "unreachable":
+      throw new Error(
+        `nginx edge did not become reachable on 127.0.0.1:${result.listenPort}. ` +
+          `Check the nginx log: ${result.logPath}`,
+      );
+  }
 }
 
 /**
