@@ -45,6 +45,7 @@ import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
+  ChannelDeliveryObserver,
   ChannelDeliveryPayload,
   ChannelDestination,
   ConversationAction,
@@ -367,6 +368,7 @@ export class NotificationBroadcaster {
     // PLATFORM_OUTCOME_DEADLINE_MS.
     let deferredVellumSend: PendingChannelDispatch | null = null;
     let platformRemotePushAccepted = false;
+    let platformRemotePushPlatforms: ("ios" | "android")[] | undefined;
     const flushDeferredVellumSend = async (): Promise<void> => {
       if (!deferredVellumSend) {
         return;
@@ -374,6 +376,7 @@ export class NotificationBroadcaster {
       const pending = deferredVellumSend;
       deferredVellumSend = null;
       pending.payload.remotePushDispatched = platformRemotePushAccepted;
+      pending.payload.remotePushPlatforms = platformRemotePushPlatforms;
       await this.sendAndRecord(pending, signal, results);
     };
 
@@ -651,6 +654,7 @@ export class NotificationBroadcaster {
 
         const payload: ChannelDeliveryPayload = {
           deliveryId,
+          correlationId: signal.signalId,
           sourceEventName: signal.sourceEventName,
           copy,
           deepLinkTarget,
@@ -735,9 +739,15 @@ export class NotificationBroadcaster {
             dispatch,
             signal,
             backgroundResults,
+            {
+              onRemotePushPlatforms: (platforms) => {
+                platformRemotePushPlatforms = platforms;
+              },
+            },
           ).then((adapterResult) => {
             platformRemotePushAccepted =
               adapterResult?.remotePushAccepted === true;
+            platformRemotePushPlatforms = adapterResult?.remotePushPlatforms;
           });
           let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
           const deadline = new Promise<"deadline">((resolve) => {
@@ -790,6 +800,7 @@ export class NotificationBroadcaster {
     dispatch: PendingChannelDispatch,
     signal: NotificationSignal,
     results: NotificationDeliveryResult[],
+    observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult | null> {
     const {
       adapter,
@@ -801,7 +812,7 @@ export class NotificationBroadcaster {
       hasPersistedDecision,
     } = dispatch;
     try {
-      const adapterResult = await adapter.send(payload, destination);
+      const adapterResult = await adapter.send(payload, destination, observer);
 
       if (adapterResult.success) {
         // Prefer the channel-native id the adapter just captured (e.g.

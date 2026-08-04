@@ -10,7 +10,7 @@ import {
   FileType2,
   FileVideo,
 } from "lucide-react";
-import type { FC, MouseEvent, ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useCallback } from "react";
 
 import { Tooltip, Typography } from "@vellumai/design-library";
@@ -21,21 +21,26 @@ import {
   middleTruncate,
   type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 
+/**
+ * Geometry of the square's inner tile box. Shared with
+ * {@link AttachmentOverflowSquare} so the terminal overflow tile lines up with
+ * the squares it sits beside - the two must stay identical or the strip breaks.
+ */
+export const ATTACHMENT_TILE_BOX_CLASS = "h-16 w-16 shrink-0 rounded-lg";
+
 interface MessageAttachmentSquareProps {
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  previewUrl: string | null;
-  /** JPEG thumbnail URL (from daemon thumbnailData). Used as a background
-   *  image for video attachment chips so they show a poster frame instead of
-   *  a bare icon. Null for non-video or when no thumbnail is available. */
-  thumbnailUrl?: string | null;
+  attachment: DisplayAttachment;
   /** Called when the user clicks the thumbnail to open a full-screen preview. */
   onPreview?: () => void;
   /** Called when the user clicks a download button. */
   onDownload?: () => void;
+  /** Called when the browser fails to decode the image preview (e.g. a HEIC
+   *  blob on a Chromium renderer). Lets the owner null the dead `previewUrl`
+   *  so this square falls back to its file-kind icon. */
+  onPreviewError?: () => void;
 }
 
 const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
@@ -57,23 +62,25 @@ const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
  * with an icon. On hover, a download overlay appears at the bottom-right of
  * the thumbnail.
  */
-export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
-  filename,
-  mimeType,
-  sizeBytes,
-  previewUrl,
-  thumbnailUrl,
+export function MessageAttachmentSquare({
+  attachment,
   onPreview,
   onDownload,
-}) => {
+  onPreviewError,
+}: MessageAttachmentSquareProps) {
+  const { filename, mimeType, sizeBytes, previewUrl, thumbnailUrl } =
+    attachment;
   const kind = classifyAttachment(mimeType, filename);
   const hasImagePreview = kind === "image" && previewUrl !== null;
-  const hasVideoThumbnail = kind === "video" && thumbnailUrl != null;
-  const backgroundImageUrl = hasImagePreview
-    ? previewUrl
-    : hasVideoThumbnail
-      ? thumbnailUrl
-      : null;
+  // Video posters stay a CSS background: there is no fallback to swap to when
+  // a poster fails, so an <img> would surface the browser's broken glyph.
+  const backgroundImageUrl =
+    kind === "video" && thumbnailUrl != null ? thumbnailUrl : null;
+  // With nothing filling the tile, its `--surface-lift` fill disappears on a
+  // container painted the same colour (the files panel's `DetailShell` body),
+  // leaving a bare glyph. A `--border-element` hairline is the one outline that
+  // reads against both `--surface-base` and `--surface-lift` in every theme.
+  const showsIcon = !hasImagePreview && backgroundImageUrl === null;
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
@@ -108,7 +115,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
     >
       <div className="relative w-fit">
         <div
-          className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
+          className={`${ATTACHMENT_TILE_BOX_CLASS} flex items-center justify-center overflow-hidden bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]${showsIcon ? " border border-[var(--border-element)]" : ""}`}
           style={
             backgroundImageUrl
               ? {
@@ -117,7 +124,19 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
               : undefined
           }
         >
-          {backgroundImageUrl ? null : ICON_BY_KIND[kind]}
+          {hasImagePreview ? (
+            // A real <img> rather than a CSS background so an undecodable
+            // preview raises `onError` and the owner can fall back to the icon.
+            <img
+              src={previewUrl}
+              alt=""
+              aria-hidden
+              onError={onPreviewError}
+              className="h-full w-full object-cover"
+            />
+          ) : backgroundImageUrl ? null : (
+            ICON_BY_KIND[kind]
+          )}
         </div>
         {onDownload && (
           <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
@@ -153,4 +172,4 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       )}
     </div>
   );
-};
+}

@@ -2,7 +2,7 @@
  * Local notification bridge for `notification_intent` events from the
  * daemon. Mirrors the macOS client's
  * `AppDelegate+Notifications.postNotificationIntent()` so users get a
- * native banner on Capacitor iOS, an `electron.Notification` on the
+ * native banner on Capacitor mobile, an `electron.Notification` on the
  * Electron desktop shell, or a system Notification on desktop browsers
  * without any server-side push infrastructure.
  *
@@ -12,27 +12,36 @@
  *      which IPC-invokes `electron.Notification` in the main process.
  *      Supports macOS action buttons (View, Approve/Reject, Open) that
  *      the Web Notification API cannot provide.
- *   2. **Capacitor iOS** — schedules via `UNUserNotificationCenter`
- *      through `@capacitor/local-notifications`.
+ *   2. **Capacitor mobile** - schedules through
+ *      `@capacitor/local-notifications`.
  *   3. **Desktop browser** — falls back to the Web Notification API.
  *
  * Key tradeoff vs. APNs remote push: local notifications only fire while
  * the app's JS runtime is alive (foreground or recently backgrounded on
  * iOS, tab open on desktop). A user whose Capacitor iOS app has been
  * suspended for hours will not receive new notifications. For true
- * background delivery we need APNs, tracked in LUM-1159.
+ * background delivery we need APNs or FCM, tracked in LUM-1159.
  */
 
 import {
   LocalNotifications,
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
+import type { PushNotificationSchema } from "@capacitor/push-notifications";
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
+import {
+  ANDROID_ALERTS_CHANNEL_ID,
+  ensureAndroidAlertsChannel,
+} from "@/runtime/android-notification-channels";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { hasSessionConfirmedRemotePushRegistration } from "@/runtime/push-registration";
+import { isNativeAndroid } from "@/runtime/platform-detection";
+import {
+  extractPushConversationId,
+  hasSessionConfirmedRemotePushRegistration,
+} from "@/runtime/push-registration";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -52,6 +61,9 @@ let cachedPermission: PermissionState | null = null;
 let permissionPromptIssued = false;
 let tapListenersRegistered = false;
 let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
+const recentNativeDeliveryIds = new Set<string>();
+const nativeDeliveryPromises = new Map<string, Promise<void>>();
+const MAX_RECENT_DELIVERY_IDS = 128;
 
 /**
  * True when the current host supports system notifications at all (Electron
@@ -141,6 +153,11 @@ export async function getNotificationPermission(): Promise<PermissionState> {
     : checkBrowserPermission();
   cachedPermission = state;
   return state;
+}
+
+export async function refreshNotificationPermission(): Promise<PermissionState> {
+  cachedPermission = null;
+  return getNotificationPermission();
 }
 
 /**
@@ -236,6 +253,40 @@ function toNotificationId(seed: string): number {
   return Math.abs(hash) % 0x7fffffff;
 }
 
+async function scheduleNativeDelivery(
+  deliveryId: string,
+  notification: LocalNotificationSchema,
+): Promise<void> {
+  if (recentNativeDeliveryIds.has(deliveryId)) {
+    return;
+  }
+  let pending = nativeDeliveryPromises.get(deliveryId);
+  if (!pending) {
+    pending = (async () => {
+      try {
+        try {
+          await ensureAndroidAlertsChannel();
+          await LocalNotifications.schedule({ notifications: [notification] });
+        } catch {
+          await ensureAndroidAlertsChannel();
+          await LocalNotifications.schedule({ notifications: [notification] });
+        }
+        recentNativeDeliveryIds.add(deliveryId);
+        if (recentNativeDeliveryIds.size > MAX_RECENT_DELIVERY_IDS) {
+          const oldest = recentNativeDeliveryIds.values().next().value;
+          if (oldest) {
+            recentNativeDeliveryIds.delete(oldest);
+          }
+        }
+      } finally {
+        nativeDeliveryPromises.delete(deliveryId);
+      }
+    })();
+    nativeDeliveryPromises.set(deliveryId, pending);
+  }
+  await pending;
+}
+
 /**
  * Resolve the conversation this notification should deep-link to.
  *
@@ -263,6 +314,7 @@ export interface PostLocalNotificationArgs {
   body: string;
   sourceEventName: string;
   deliveryId?: string;
+  correlationId?: string;
   deepLinkMetadata?: Record<string, unknown>;
   /**
    * When set alongside `deliveryId`, `postLocalNotification` sends a
@@ -280,6 +332,8 @@ export interface PostLocalNotificationArgs {
    * banner so the remote push is the only one.
    */
   remotePushDispatched?: boolean;
+  /** Native platforms that accepted this delivery for remote push. */
+  remotePushPlatforms?: ("ios" | "android")[];
 }
 
 /**
@@ -397,25 +451,19 @@ export async function postLocalNotification(
   let errorMessage: string | undefined;
 
   if (isNativePlatform()) {
-    // iOS suppresses remote pushes while the app is foregrounded (no
-    // presentationOptions configured), so the local banner is the only
-    // foreground surface. The banner is skipped only when the daemon
-    // confirmed an accepted remote push, this device holds a
-    // session-confirmed APNs registration (an upsert succeeded in this JS
-    // session, proving the platform held a live token row for this device
-    // at mount), and the app was hidden when the intent arrived; the
-    // remote push banners on its own there, and scheduling the local one
-    // too would double-notify during the SSE grace window after
-    // backgrounding. A session-confirmed registration implies remote-push
-    // support: it is recorded only by `registerForRemotePush`, which is
-    // gated on that support.
+    // Foreground native pushes use a local banner. Hidden pushes use the OS
+    // banner when this platform accepted the remote delivery, so the SSE path
+    // skips its local copy in that case. The legacy APNs-only flag remains the
+    // iOS fallback when an older assistant omits the platform list.
     //
-    // Residual limitation: `remotePushDispatched` is an aggregate
-    // account-level outcome (any device token accepted), so on a
-    // multi-device account a token pruned mid-session can still suppress
+    // Residual limitation: platform acceptance is an account-level outcome,
+    // so on a multi-device account a token pruned mid-session can suppress
     // this banner while only another device received the push.
+    const remotePushAccepted = args.remotePushPlatforms
+      ? args.remotePushPlatforms.includes(isNativeAndroid() ? "android" : "ios")
+      : !isNativeAndroid() && args.remotePushDispatched === true;
     if (
-      args.remotePushDispatched === true &&
+      remotePushAccepted &&
       args.assistantId !== undefined &&
       hasSessionConfirmedRemotePushRegistration(args.assistantId) &&
       visibilityAtIntent === "hidden"
@@ -431,15 +479,24 @@ export async function postLocalNotification(
     }
 
     const seed =
-      args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
+      args.correlationId ??
+      args.deliveryId ??
+      `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {
       id: toNotificationId(seed),
       title: args.title,
       body: args.body,
       extra: tapPayload,
+      ...(isNativeAndroid() ? { channelId: ANDROID_ALERTS_CHANNEL_ID } : {}),
     };
     try {
-      await LocalNotifications.schedule({ notifications: [notification] });
+      const correlationId = args.correlationId ?? args.deliveryId;
+      if (correlationId && isNativeAndroid()) {
+        await scheduleNativeDelivery(correlationId, notification);
+      } else {
+        await ensureAndroidAlertsChannel();
+        await LocalNotifications.schedule({ notifications: [notification] });
+      }
     } catch (err) {
       // Never block the SSE loop on notification failures, but record the
       // outcome so the daemon's delivery audit trail reflects reality.
@@ -483,4 +540,41 @@ export async function postLocalNotification(
       errorMessage,
     );
   }
+}
+
+export function postForegroundRemotePush(
+  notification: PushNotificationSchema,
+): void {
+  if (!isNativeAndroid()) {
+    return;
+  }
+  const data =
+    typeof notification.data === "object" && notification.data !== null
+      ? (notification.data as Record<string, unknown>)
+      : {};
+  const deliveryId =
+    typeof data.delivery_id === "string" ? data.delivery_id : notification.id;
+  const sourceEventName =
+    typeof data.source_event_name === "string"
+      ? data.source_event_name
+      : "remote_push";
+  const conversationId = extractPushConversationId(data);
+
+  void postLocalNotification({
+    title: notification.title ?? "Vellum",
+    body: notification.body ?? "",
+    sourceEventName,
+    deliveryId,
+    correlationId: deliveryId,
+    deepLinkMetadata: conversationId ? { conversationId } : undefined,
+  });
+}
+
+export function __resetNotificationsStateForTests(): void {
+  cachedPermission = null;
+  permissionPromptIssued = false;
+  tapListenersRegistered = false;
+  tapHandler = null;
+  recentNativeDeliveryIds.clear();
+  nativeDeliveryPromises.clear();
 }

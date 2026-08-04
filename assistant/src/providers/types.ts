@@ -181,6 +181,7 @@ export interface Message {
 
 export type ModelIntent =
   | "balanced"
+  | "cost-optimized"
   | "latency-optimized"
   | "quality-optimized"
   | "vision-optimized";

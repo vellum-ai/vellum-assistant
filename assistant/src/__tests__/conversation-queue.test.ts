@@ -675,6 +675,52 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(3);
   });
 
+  test("[experimental] queued passthrough siblings viewing different apps do NOT batch", async () => {
+    // A batched turn applies only the head's `visibleAppId`, which drives the
+    // `visible_app:` context line. Coalescing messages sent while different
+    // apps were on screen would point "the app" at the head's app for both.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        visibleAppId: "app-a",
+      },
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        visibleAppId: "app-b",
+      },
+    });
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(pendingRuns.length).toBe(3);
+  });
+
   test("message_queued and message_dequeued events are emitted", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

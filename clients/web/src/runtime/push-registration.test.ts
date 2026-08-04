@@ -43,16 +43,18 @@ type ActionPerformedHandler = (action: {
   actionId: string;
   notification: { data?: unknown };
 }) => void;
+type ReceivedHandler = (notification: { id: string; data: unknown }) => void;
 
 let registrationHandler: RegistrationHandler | null = null;
 let registrationErrorHandler: ErrorHandler | null = null;
 let actionPerformedHandler: ActionPerformedHandler | null = null;
+let receivedHandler: ReceivedHandler | null = null;
 let permissionState: "granted" | "denied" | "prompt" = "granted";
 
 const addListenerMock = mock(
   async (
     event: string,
-    handler: RegistrationHandler | ErrorHandler | ActionPerformedHandler,
+    handler: unknown,
   ) => {
     if (event === "registration") {
       registrationHandler = handler as RegistrationHandler;
@@ -60,24 +62,36 @@ const addListenerMock = mock(
       registrationErrorHandler = handler as ErrorHandler;
     } else if (event === "pushNotificationActionPerformed") {
       actionPerformedHandler = handler as ActionPerformedHandler;
+    } else if (event === "pushNotificationReceived") {
+      receivedHandler = handler as ReceivedHandler;
     }
     return { remove: async () => {} };
   },
 );
 const requestPermissionsMock = mock(async () => ({ receive: permissionState }));
 const registerMock = mock(async () => {});
+const unregisterMock = mock(async () => {});
 
 mock.module("@capacitor/push-notifications", () => ({
   PushNotifications: {
     addListener: addListenerMock,
     requestPermissions: requestPermissionsMock,
     register: registerMock,
+    unregister: unregisterMock,
   },
+}));
+
+const callOrder: string[] = [];
+const ensureAndroidAlertsChannelMock = mock(async () => {
+  callOrder.push("channel");
+});
+mock.module("@/runtime/android-notification-channels", () => ({
+  ensureAndroidAlertsChannel: ensureAndroidAlertsChannelMock,
 }));
 
 // ── @capacitor/app (lazy-imported plugin Proxy) ──────────────────────────────
 
-const bundleId = "ai.vocify-inc.vellum-assistant-ios";
+let bundleId = "ai.vocify-inc.vellum-assistant-ios";
 const getInfoMock = mock(async () => ({
   id: bundleId,
   name: "Vellum",
@@ -100,7 +114,7 @@ interface UpsertArg {
     token: string;
     platform: string;
     bundle_id: string;
-    apns_environment: string;
+    apns_environment?: string;
   };
   throwOnError: boolean;
 }
@@ -146,6 +160,7 @@ const {
   hasSessionConfirmedRemotePushRegistration,
   isRemotePushSupported,
   registerForRemotePush,
+  setForegroundPushHandler,
   unregisterFromRemotePush,
   __resetPushRegistrationStateForTests,
 } = await import("@/runtime/push-registration");
@@ -178,12 +193,14 @@ afterEach(() => {
 beforeEach(() => {
   isNative = true;
   platform = "ios";
+  bundleId = "ai.vocify-inc.vellum-assistant-ios";
   permissionState = "granted";
   resolvedApnsEnvironment = "production";
   resolveSignedApnsEnvironmentMock.mockClear();
   registrationHandler = null;
   registrationErrorHandler = null;
   actionPerformedHandler = null;
+  receivedHandler = null;
   lastUpsertArg = null;
   lastDeleteArg = null;
   upsertError = undefined;
@@ -192,6 +209,9 @@ beforeEach(() => {
   addListenerMock.mockClear();
   requestPermissionsMock.mockClear();
   registerMock.mockClear();
+  unregisterMock.mockClear();
+  ensureAndroidAlertsChannelMock.mockClear();
+  callOrder.length = 0;
   getInfoMock.mockClear();
   upsertMock.mockClear();
   deleteMock.mockClear();
@@ -209,10 +229,6 @@ describe("isRemotePushSupported", () => {
     expect(isRemotePushSupported()).toBe(false);
   });
 
-  test("false on a non-iOS native platform (e.g. android)", () => {
-    platform = "android";
-    expect(isRemotePushSupported()).toBe(false);
-  });
 });
 
 describe("registerForRemotePush", () => {
@@ -247,6 +263,29 @@ describe("registerForRemotePush", () => {
       },
       throwOnError: false,
     });
+  });
+
+  test("creates the Android channel before registering and omits APNs fields", async () => {
+    platform = "android";
+    bundleId = "ai.vellum.assistant.dev";
+    const handler = mock(() => {});
+    setForegroundPushHandler(handler);
+    registerMock.mockImplementationOnce(async () => {
+      callOrder.push("register");
+    });
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "fcm-token-abc" });
+    await flushMicrotasks();
+
+    expect(callOrder).toEqual(["channel", "register"]);
+    expect(lastUpsertArg?.body).toEqual({
+      token: "fcm-token-abc",
+      platform: "android",
+      bundle_id: "ai.vellum.assistant.dev",
+    });
+    expect(resolveSignedApnsEnvironmentMock).not.toHaveBeenCalled();
+    receivedHandler?.({ id: "message-1", data: { delivery_id: "delivery-1" } });
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   test("does not register when notification permission is denied", async () => {
@@ -303,11 +342,12 @@ describe("pushNotificationActionPerformed tap routing", () => {
     });
   });
 
-  test("publishes deeplink.openThread from data.deep_link.conversationId", async () => {
+  test("routes an Android JSON deep_link through the same event", async () => {
+    platform = "android";
     await registerForRemotePush("assistant-1");
-    tap({ deep_link: { conversationId: "conv-123" } });
+    tap({ deep_link: '{"conversationId":"conv-android"}' });
 
-    expect(published).toEqual([{ threadId: "conv-123" }]);
+    expect(published).toEqual([{ threadId: "conv-android" }]);
   });
 
   test("falls back to a top-level data.conversationId", async () => {
@@ -446,6 +486,21 @@ describe("unregisterFromRemotePush", () => {
       query: { bundle_id: "ai.vocify-inc.vellum-assistant-ios" },
       throwOnError: false,
     });
+  });
+
+  test("replaces a rotated token and unregisters FCM on logout", async () => {
+    platform = "android";
+    bundleId = "ai.vellum.assistant.dev";
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "fcm-old" });
+    await flushMicrotasks();
+    registrationHandler?.({ value: "fcm-new" });
+    await flushMicrotasks();
+
+    expect(lastDeleteArg?.path.token).toBe("fcm-old");
+    await unregisterFromRemotePush();
+    expect(lastDeleteArg?.path.token).toBe("fcm-new");
+    expect(unregisterMock).toHaveBeenCalledTimes(1);
   });
 
   test("falls back to the persisted token after a process reload (empty module memory)", async () => {

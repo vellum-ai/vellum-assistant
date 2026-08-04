@@ -43,6 +43,7 @@ mock.module("@/hooks/use-platform-gate", () => ({
 let nativeAndroid = false;
 
 mock.module("@/runtime/platform-detection", () => ({
+  isNativeAndroid: () => nativeAndroid,
   useIsNativeAndroid: () => nativeAndroid,
 }));
 

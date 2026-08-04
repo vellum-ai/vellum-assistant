@@ -864,7 +864,7 @@ describe("loadConfig startup behavior", () => {
     expect(effective["quality-optimized"]?.provider).toBe("openai");
     expect(effective["quality-optimized"]?.model).toBe("gpt-5.4");
     expect(effective["cost-optimized"]?.provider).toBe("openai");
-    expect(effective["cost-optimized"]?.model).toBe("gpt-5.6-luna");
+    expect(effective["cost-optimized"]?.model).toBe("gpt-5.4-nano");
   });
 
   test("off-platform hatch with a provider outside the named matrix columns resolves through the shared BYOK templates", () => {
@@ -1471,7 +1471,7 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     );
     expect(effective.balanced?.label).toBe("Balanced");
     expect(effective["quality-optimized"]?.label).toBe("Quality");
-    expect(effective["cost-optimized"]?.label).toBe("Speed");
+    expect(effective["cost-optimized"]?.label).toBe("Cost");
     expect("status" in (effective.balanced ?? {})).toBe(false);
     expect("status" in (effective["quality-optimized"] ?? {})).toBe(false);
     expect("status" in (effective["cost-optimized"] ?? {})).toBe(false);
@@ -1741,7 +1741,39 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     const effective = getEffectiveProfiles(raw.llm.profiles);
     expect(effective.balanced?.label).toBe("Balanced");
     expect(effective["quality-optimized"]?.label).toBe("Quality");
-    expect(effective["cost-optimized"]?.label).toBe("Speed");
+    expect(effective["cost-optimized"]?.label).toBe("Cost");
+  });
+
+  test("a managed key missing from profileOrder lands beside its siblings", () => {
+    // An install that predates a newly shipped managed profile, with a custom
+    // profile already in its order. The new key belongs with the other
+    // managed profiles, not after whatever the user has arranged below them.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          "my-custom": { source: "user", provider: "anthropic", model: "x" },
+        },
+        profileOrder: [
+          "balanced",
+          "quality-optimized",
+          "cost-optimized",
+          "my-custom",
+        ],
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profileOrder).toEqual([
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "latency-optimized",
+      "my-custom",
+    ]);
   });
 
   test("boot leaves legacy bare labels on managed entries untouched", () => {

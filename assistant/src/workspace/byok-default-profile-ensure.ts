@@ -7,10 +7,7 @@ import {
   resolveDefaultProfileForProvider,
   USER_PROFILE_TEMPLATES,
 } from "../config/default-profile-catalog.js";
-import {
-  DEFAULT_PROFILE_KEYS,
-  type DefaultProfileKey,
-} from "../config/default-profile-names.js";
+import type { DefaultProfileKey } from "../config/default-profile-names.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { invalidateConfigCache } from "../config/loader.js";
 import {
@@ -66,6 +63,19 @@ const log = getLogger("byok-default-profile-ensure");
 // stub or copy was removed.
 
 /**
+ * The default keys BYOK hatching writes to disk. `latency-optimized` is absent
+ * by construction: no install carries a hatch stub or a
+ * `custom-latency-optimized` copy for it, and listing it here would make
+ * `uniformCopyProvider` demand a copy that cannot exist and convert nothing.
+ */
+const HATCH_ERA_PROFILE_KEYS = [
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+] as const satisfies readonly DefaultProfileKey[];
+type HatchEraProfileKey = (typeof HATCH_ERA_PROFILE_KEYS)[number];
+
+/**
  * The exact stub shapes BYOK hatching left on each default key: thin (only
  * the workspace-owned overlay fields), `source: "managed"`, the frozen
  * per-key label, and a `status` of `"disabled"` (seeded at hatch, #30367),
@@ -82,7 +92,7 @@ const log = getLogger("byok-default-profile-ensure");
  * alone.
  */
 const STUB_ONLY_KEYS = new Set(["source", "status", "label", "thinking"]);
-const HATCH_STUB_LABELS: Record<DefaultProfileKey, string> = {
+const HATCH_STUB_LABELS: Record<HatchEraProfileKey, string> = {
   balanced: "Balanced (Managed)",
   "quality-optimized": "Quality (Managed)",
   "cost-optimized": "Speed (Managed)",
@@ -100,7 +110,7 @@ const HATCH_STUB_LABELS: Record<DefaultProfileKey, string> = {
 const REPAIR_WRITTEN_THINKING = { enabled: true, streamThinking: true };
 
 function isHatchStub(
-  key: DefaultProfileKey,
+  key: HatchEraProfileKey,
   entry: Record<string, unknown>,
 ): boolean {
   return (
@@ -142,7 +152,7 @@ const IGNORED_COMPARISON_KEYS = new Set(["label", "status", "model"]);
  * field still matches the template.
  */
 const HISTORICAL_INTENT_MODELS: Record<
-  DefaultProfileKey,
+  HatchEraProfileKey,
   Partial<Record<string, readonly string[]>>
 > = {
   balanced: {
@@ -231,7 +241,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   // Deleting a hatch stub makes the default key resolve active from the
   // default provider's catalog column (and drops the stub's suffixed label).
-  for (const key of DEFAULT_PROFILE_KEYS) {
+  for (const key of HATCH_ERA_PROFILE_KEYS) {
     const entry = readObject(profiles[key]);
     if (entry === null || !isHatchStub(key, entry)) {
       continue;
@@ -260,8 +270,8 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
       : null;
 
   const retired = new Map<string, string>();
-  const carriedDisables = new Set<DefaultProfileKey>();
-  for (const key of DEFAULT_PROFILE_KEYS) {
+  const carriedDisables = new Set<HatchEraProfileKey>();
+  for (const key of HATCH_ERA_PROFILE_KEYS) {
     const name = `custom-${key}`;
     const entry = readObject(profiles[name]);
     if (
@@ -318,7 +328,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
 function isKnownUneditedBody(
   entry: Record<string, unknown>,
-  key: DefaultProfileKey,
+  key: HatchEraProfileKey,
   convertibleProvider: LLMProvider | null,
   completionBase: LLMConfigBase | undefined,
 ): boolean {
@@ -374,7 +384,7 @@ function isKnownUneditedBody(
  */
 function uniformCopyProvider(profiles: Record<string, unknown>): string | null {
   let provider: string | null = null;
-  for (const key of DEFAULT_PROFILE_KEYS) {
+  for (const key of HATCH_ERA_PROFILE_KEYS) {
     const entry = readObject(profiles[`custom-${key}`]);
     if (entry === null) {
       return null;
@@ -415,7 +425,7 @@ function uniformCopyProvider(profiles: Record<string, unknown>): string | null {
  */
 function hatchBodyVariants(
   known: Record<string, unknown>,
-  key: DefaultProfileKey,
+  key: HatchEraProfileKey,
   copyProvider: string,
 ): Record<string, unknown>[] {
   let variants = [known];
@@ -460,7 +470,7 @@ function withCompletionBaked(
  */
 function userOverlayState(
   entry: Record<string, unknown>,
-  key: DefaultProfileKey,
+  key: HatchEraProfileKey,
 ): Record<string, unknown> | null {
   const overlay: Record<string, unknown> = {};
   const templateLabel = USER_PROFILE_TEMPLATES[`custom-${key}`]?.label;
@@ -566,7 +576,7 @@ function repairProfileSelections(
   llm: Record<string, unknown>,
   profiles: Record<string, unknown>,
   defaultProvider: DefaultProviderConfig,
-  carriedDisables: ReadonlySet<DefaultProfileKey>,
+  carriedDisables: ReadonlySet<HatchEraProfileKey>,
 ): void {
   const effectiveEntry = (name: string): ProfileEntry | undefined =>
     resolveDefaultProfileForProvider(
