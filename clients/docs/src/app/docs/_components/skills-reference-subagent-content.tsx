@@ -379,7 +379,8 @@ export function SkillsReferenceSubagentContent() {
             <li>
               <strong>Model selection.</strong> A subagent can run under a
               specific model profile. By default it inherits the one your
-              conversation is using.
+              conversation is using, except when it is checking work, which runs
+              on a cheaper model.
             </li>
             <li>
               <strong>Status tracking.</strong> Pending, running, completed,

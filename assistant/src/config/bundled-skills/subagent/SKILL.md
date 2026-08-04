@@ -107,9 +107,17 @@ Only the parent conversation that spawned a subagent can interact with it (check
 
 Set `send_result_to_user: false` when spawning a subagent whose result is for internal processing only. The parent will still be notified on completion, but the notification will instruct it to read the result without presenting it to the user.
 
+## Repeat Spawns
+
+Spawning an objective that several near-identical subagents have already completed in the last day can come back as a message about those earlier runs instead of a new subagent. It is advisory, not a block: read what the earlier run produced with `subagent_read`, narrow the objective to what is actually still missing, or pass `confirm_repeat: true` to spawn anyway. An `advisor` consult is never held this way.
+
 ## Inference Profile
 
-Set `inference_profile` to an `llm.profiles` key when a subagent should run under a specific model profile. When omitted, the subagent inherits the parent turn's active profile if one exists; otherwise it uses the `subagentSpawn` call site's default model selection.
+Set `inference_profile` to an `llm.profiles` key when a subagent should run under a specific model profile.
+
+When it is omitted, one of two things happens. Normally the subagent inherits the parent turn's active profile if one exists, and otherwise uses the `subagentSpawn` call site's default model selection. When profile isolation is enabled, the subagent always takes the `subagentSpawn` default rather than the parent's profile, and an explicit `inference_profile` the model catalog does not report as tool-capable is replaced by that default with a note on the spawn result.
+
+`output_contract: "verdict"` takes a cheaper profile ahead of either path, so a verdict runs cheap unless you name an `inference_profile` yourself.
 
 ## Fork Mode
 
