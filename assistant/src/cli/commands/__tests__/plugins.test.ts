@@ -13,8 +13,8 @@
  *     with the untrusted warning printed before the schedule listing
  *   - upgrade's local fallback runs the same consent gate with upgrade
  *     wording, while a daemon-routed upgrade never reaches it
- *   - under --json the consent listing goes to stderr, leaving stdout a pure
- *     JSON document
+ *   - under --json the consent listing, the prompt, and the cancellation line
+ *     all go to stderr, leaving stdout a pure JSON document
  *   - inspect renders the schedules surface block
  *
  * The installers are replaced by fakes that stage a fixture tree and run the
@@ -50,6 +50,8 @@ import { runCliCommand } from "./cli-test-harness.js";
 let confirmCalls: Array<{
   question: string;
   refuseNonInteractiveMessage: string;
+  /** Where the prompt line itself is written; undefined = readline's default. */
+  stdout: NodeJS.WritableStream | undefined;
 }> = [];
 let confirmResults: Array<"confirmed" | "denied" | "non-interactive"> = [];
 
@@ -83,6 +85,7 @@ mock.module("../../lib/confirm-prompt.js", () => ({
     confirmCalls.push({
       question: opts.question,
       refuseNonInteractiveMessage: opts.refuseNonInteractiveMessage,
+      stdout: opts.stdout,
     });
     return confirmResults.shift() ?? "confirmed";
   },
@@ -492,6 +495,24 @@ describe("plugins upgrade - declared-schedules consent (local fallback)", () => 
       name: "example",
       outcome: "upgraded",
     });
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("--json keeps the prompt and the cancellation off stdout", async () => {
+    stageFixture = writeScheduleFixture;
+    confirmResults = ["denied"];
+
+    const r = await runCommand(["plugins", "upgrade", "example", "--json"]);
+
+    // readline writes the question to whatever stream it is handed, so under
+    // --json that has to be stderr.
+    expect(confirmCalls).toHaveLength(1);
+    expect(confirmCalls[0]!.stdout).toBe(process.stderr);
+    expect(confirmCalls[0]!.question).toContain('Upgrade "example"');
+
+    expect(r.stderr).toContain('Plugin "example" declares 2 schedules:');
+    expect(r.stderr).toContain("Upgrade cancelled.");
+    expect(r.stdout).toBe("");
     expect(r.exitCode).toBe(0);
   });
 

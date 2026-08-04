@@ -1049,8 +1049,9 @@ async function confirmDeclaredSchedules(
   if (!listing) {
     return true;
   }
-  // The listing is human output. Under --json it goes to stderr so it cannot
-  // corrupt the JSON document the caller parses off stdout.
+  // Everything this gate prints is human output: the listing, the prompt
+  // itself, and the cancellation line. Under --json all of it goes to stderr
+  // so it cannot corrupt the JSON document the caller parses off stdout.
   const write = (line: string): void => {
     if (opts.json) {
       console.error(line);
@@ -1073,13 +1074,14 @@ async function confirmDeclaredSchedules(
     question: `${verb} "${staged.name}" and allow these schedules? [y/N] `,
     isTTY: Boolean(process.stdin.isTTY),
     refuseNonInteractiveMessage: `Refusing to ${action} "${staged.name}" non-interactively: it declares schedules. Pass --force to confirm.`,
+    stdout: opts.json ? process.stderr : undefined,
   });
   if (result === "non-interactive") {
     process.exitCode = 1;
     return false;
   }
   if (result === "denied") {
-    console.log(`${verb} cancelled.`);
+    write(`${verb} cancelled.`);
     return false;
   }
   return true;

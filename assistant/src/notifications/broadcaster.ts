@@ -229,6 +229,13 @@ export interface BroadcastDecisionOptions {
   onConversationCreated?: OnConversationCreatedFn;
   /** Deadline override for tests; defaults to PLATFORM_OUTCOME_DEADLINE_MS. */
   platformOutcomeDeadlineMs?: number;
+  /**
+   * Array each channel's result is appended to as it settles, and the same
+   * array `broadcastDecision` returns. Pass one when a broadcast that throws
+   * partway still has to be told apart from one that touched no channel: the
+   * return value is lost to the throw, the sink is not.
+   */
+  resultsSink?: NotificationDeliveryResult[];
 }
 
 // Cap on how long the deferred vellum send waits for the platform dispatch
@@ -348,7 +355,7 @@ export class NotificationBroadcaster {
       signal.contextPayload
         ? parseAccessRequestPayload(signal.contextPayload)
         : undefined;
-    const results: NotificationDeliveryResult[] = [];
+    const results: NotificationDeliveryResult[] = options?.resultsSink ?? [];
 
     // Vellum pairing carried forward for the platform channel's deep link.
     // A single-pass carry is safe because orderedChannels sorts vellum first.

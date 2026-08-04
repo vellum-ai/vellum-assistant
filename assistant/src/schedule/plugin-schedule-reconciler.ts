@@ -167,20 +167,25 @@ async function runReconcilePass(): Promise<void> {
 
 /**
  * True when an `ended` recurrence is the expected end of a bounded schedule
- * rather than something to tell the user about. Its row has already stopped,
- * either latched by the engine on the last occurrence or disabled by the
- * user, so no firing was lost. An ended declaration whose row is still armed
- * does lose firings, and one with no row at all arrives dead; both surface.
+ * rather than something to tell the user about. Two rows qualify: one the
+ * engine latched on its last occurrence (`next_run_at` zeroed with a run
+ * behind it), and one the user turned off. Neither lost a firing.
+ *
+ * A row this reconciler disarmed does not qualify. `enabled = false` there
+ * means the plugin is disabled or its declaration was briefly absent, and
+ * once the plugin comes back the ended recurrence is a dead schedule the
+ * user has to hear about. An ended declaration whose row is still armed
+ * loses firings, and one with no row at all arrives dead; both surface.
  */
 function isCompletedRecurrence(
   error: DeclarationError,
   row: ScheduleJob | undefined,
 ): boolean {
-  return (
-    error.kind === "ended" &&
-    row !== undefined &&
-    (!row.enabled || row.nextRunAt === 0)
-  );
+  if (error.kind !== "ended" || row === undefined) {
+    return false;
+  }
+  const engineLatched = row.nextRunAt === 0 && row.lastRunAt != null;
+  return engineLatched || row.userEnabled === false;
 }
 
 /**
