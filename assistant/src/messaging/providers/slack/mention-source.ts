@@ -22,6 +22,7 @@ import {
   extractSlackChannelReferenceIds,
   extractSlackUserMentionIds,
   renderSlackTextForModel,
+  sanitizeSlackLabel,
 } from "@vellumai/slack-text";
 
 export interface SlackMentionLabelMaps {
@@ -74,26 +75,24 @@ const USER_ID_RE = /^[UW][A-Z0-9]{1,31}$/;
 const TEAM_ID_RE = /^[TE][A-Z0-9]{1,31}$/;
 
 /**
- * Sanitize a label with the same semantics the shared renderer applies
- * (`@vellumai/slack-text`): strip angle brackets, collapse whitespace, strip
- * leading `@`/`#`, cap length. Enforced at this boundary even for
- * gateway-supplied values, so nothing bracket-bearing can be persisted.
- * Returns `undefined` when nothing usable remains.
+ * Sanitize a label for persistence: the shared renderer normalization from
+ * `@vellumai/slack-text` (single source of truth, so persisted labels can
+ * never drift from render-time semantics), plus the persistence-only
+ * bounds this module owns: well-formedness rejection and a length cap.
+ * Returns `undefined` when the input is malformed or nothing usable remains.
  */
 export function sanitizeMentionLabel(value: unknown): string | undefined {
   if (typeof value !== "string" || !isWellFormedString(value)) {
     return undefined;
   }
-  const cleaned = value
-    .replace(/[<>]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^[@#]+/, "")
-    .trim();
+  const normalized = sanitizeSlackLabel(value);
+  if (!normalized) {
+    return undefined;
+  }
   // Truncate on code-point boundaries: a UTF-16 `slice` can split a
   // surrogate pair and persist a lone surrogate, violating the same
   // well-formedness rule this module enforces on rawText.
-  const sanitized = [...cleaned]
+  const sanitized = [...normalized]
     .slice(0, MENTION_LABEL_MAX_CHARS)
     .join("")
     .trim();
@@ -228,16 +227,19 @@ export function readSlackMentionSource(
   if (record.v !== 1) {
     return undefined;
   }
-  const labels =
-    record.labels !== null &&
-    typeof record.labels === "object" &&
-    !Array.isArray(record.labels)
-      ? (record.labels as Record<string, unknown>)
-      : undefined;
+  // A malformed labels container is a rejected shape, not "no labels": a
+  // value that lost its maps but kept `projectable: true` must fall back to
+  // stored text rather than project fallback labels over it.
+  const labels = asRecord(record.labels);
+  const users = asRecord(labels?.users);
+  const channels = asRecord(labels?.channels);
+  if (!labels || !users || !channels) {
+    return undefined;
+  }
   const rebuilt = buildSlackMentionSource({
     rawText: record.rawText,
-    userLabels: asRecord(labels?.users),
-    channelLabels: asRecord(labels?.channels),
+    userLabels: users,
+    channelLabels: channels,
     installTeamId: record.installTeamId ?? undefined,
     // `projectable` is a stored fact; re-deriving it needs the stored body,
     // which readers do not always have. Preserve the persisted flag but only

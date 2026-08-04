@@ -231,6 +231,28 @@ describe("readSlackMentionSource round trip", () => {
     ).toBeUndefined();
     expect(readSlackMentionSource({ ...source, rawText: 42 })).toBeUndefined();
   });
+
+  test("rejects missing or malformed label containers rather than defaulting to empty maps", () => {
+    // A value that lost its maps but kept `projectable: true` must be
+    // rejected: accepting it would let projection paint fallback labels
+    // over readable stored text.
+    const source = build()!;
+    const { labels: _labels, ...withoutLabels } = source;
+    expect(readSlackMentionSource(withoutLabels)).toBeUndefined();
+    expect(readSlackMentionSource({ ...source, labels: null })).toBeUndefined();
+    expect(
+      readSlackMentionSource({ ...source, labels: "corrupt" }),
+    ).toBeUndefined();
+    expect(
+      readSlackMentionSource({
+        ...source,
+        labels: { users: {}, channels: [] },
+      }),
+    ).toBeUndefined();
+    expect(
+      readSlackMentionSource({ ...source, labels: { users: {} } }),
+    ).toBeUndefined();
+  });
 });
 
 describe("sanitizeMentionLabel", () => {
