@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFile, stat as fsStat } from "node:fs/promises";
 
 import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
 import type { ImageContent } from "../../../providers/types.js";
@@ -141,7 +141,7 @@ export async function readImageFile(
 ): Promise<ToolExecutionResult> {
   let stat;
   try {
-    stat = statSync(resolvedPath);
+    stat = await fsStat(resolvedPath);
   } catch {
     return {
       content: `Error: file not found: ${resolvedPath}`,
@@ -163,7 +163,7 @@ export async function readImageFile(
 
   let buffer: Buffer;
   try {
-    buffer = readFileSync(resolvedPath) as Buffer;
+    buffer = (await readFile(resolvedPath)) as Buffer;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error reading file: ${msg}`, isError: true };

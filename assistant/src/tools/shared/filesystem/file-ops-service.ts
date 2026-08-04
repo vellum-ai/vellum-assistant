@@ -1,10 +1,4 @@
-import {
-  lstatSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { lstat, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { minimatch } from "minimatch";
@@ -70,7 +64,7 @@ export class FileSystemOps {
   // Read
   // -------------------------------------------------------------------------
 
-  readFileSafe(input: ReadInput): ReadResult {
+  async readFileSafe(input: ReadInput): Promise<ReadResult> {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
       return {
@@ -84,18 +78,18 @@ export class FileSystemOps {
       return { ok: false, error: Err.notFound(filePath) };
     }
 
-    const stat = statSync(filePath);
-    if (!stat.isFile()) {
+    const pathStat = await stat(filePath);
+    if (!pathStat.isFile()) {
       return { ok: false, error: Err.notAFile(filePath) };
     }
 
-    const sizeErr = checkFileSizeOnDisk(filePath, this.sizeLimit);
+    const sizeErr = await checkFileSizeOnDisk(filePath, this.sizeLimit);
     if (sizeErr) {
       return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
     }
 
     try {
-      const raw = readFileSync(filePath, "utf-8");
+      const raw = await readFile(filePath, "utf-8");
       const lines = raw.split("\n");
 
       const offset = (input.offset ?? 1) - 1;
@@ -120,7 +114,7 @@ export class FileSystemOps {
   // Write
   // -------------------------------------------------------------------------
 
-  writeFileSafe(input: WriteInput): WriteResult {
+  async writeFileSafe(input: WriteInput): Promise<WriteResult> {
     const pathCheck = this.policy(input.path, { mustExist: false });
     if (!pathCheck.ok) {
       return {
@@ -142,13 +136,13 @@ export class FileSystemOps {
       const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
         try {
-          oldContent = readFileSync(filePath, "utf-8");
+          oldContent = await readFile(filePath, "utf-8");
         } catch {
           // Unreadable existing file - keep oldContent as empty string.
         }
       }
 
-      writeFileSync(filePath, input.content);
+      await writeFile(filePath, input.content);
 
       return {
         ok: true,
@@ -169,7 +163,7 @@ export class FileSystemOps {
   // Edit
   // -------------------------------------------------------------------------
 
-  editFileSafe(input: EditInput): EditResult {
+  async editFileSafe(input: EditInput): Promise<EditResult> {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
       return {
@@ -181,7 +175,7 @@ export class FileSystemOps {
 
     // Size-check the file on disk (swallow ENOENT - readFileSync gives a clearer error)
     try {
-      const sizeErr = checkFileSizeOnDisk(filePath, this.sizeLimit);
+      const sizeErr = await checkFileSizeOnDisk(filePath, this.sizeLimit);
       if (sizeErr) {
         return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
       }
@@ -191,7 +185,7 @@ export class FileSystemOps {
 
     let content: string;
     try {
-      content = readFileSync(filePath, "utf-8");
+      content = await readFile(filePath, "utf-8");
     } catch (err) {
       const code =
         err instanceof Error && "code" in err
@@ -229,7 +223,7 @@ export class FileSystemOps {
     }
 
     try {
-      writeFileSync(filePath, result.updatedContent);
+      await writeFile(filePath, result.updatedContent);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { ok: false, error: Err.ioError(filePath, msg) };
@@ -254,7 +248,7 @@ export class FileSystemOps {
   // List
   // -------------------------------------------------------------------------
 
-  listDirSafe(input: ListInput): ListResult {
+  async listDirSafe(input: ListInput): Promise<ListResult> {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
       return {
@@ -268,13 +262,13 @@ export class FileSystemOps {
       return { ok: false, error: Err.notFound(resolved) };
     }
 
-    const stat = statSync(resolved);
-    if (!stat.isDirectory()) {
+    const pathStat = await stat(resolved);
+    if (!pathStat.isDirectory()) {
       return { ok: false, error: Err.notADirectory(resolved) };
     }
 
     try {
-      let entries = readdirSync(resolved, { withFileTypes: true });
+      let entries = await readdir(resolved, { withFileTypes: true });
 
       if (input.glob) {
         const pattern = input.glob;
@@ -294,16 +288,18 @@ export class FileSystemOps {
       const truncated = sorted.length > MAX_ENTRIES;
       const visible = sorted.slice(0, MAX_ENTRIES);
 
-      const lines = visible.map((entry) => {
-        if (entry.isDirectory()) {
-          return `${entry.name}/`;
-        }
-        if (entry.isSymbolicLink()) {
-          return `${entry.name}@`;
-        }
-        const fileStat = lstatSync(join(resolved, entry.name));
-        return `${entry.name}  ${formatSize(fileStat.size)}`;
-      });
+      const lines = await Promise.all(
+        visible.map(async (entry) => {
+          if (entry.isDirectory()) {
+            return `${entry.name}/`;
+          }
+          if (entry.isSymbolicLink()) {
+            return `${entry.name}@`;
+          }
+          const fileStat = await lstat(join(resolved, entry.name));
+          return `${entry.name}  ${formatSize(fileStat.size)}`;
+        }),
+      );
 
       if (truncated) {
         lines.push(
