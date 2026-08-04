@@ -38,7 +38,7 @@
  * plugin Proxy's `.then` trap would hang the awaiting caller forever.
  */
 
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
 
 import {
@@ -58,6 +58,16 @@ interface RegisteredToken {
   bundleId: string;
   assistantId: string;
 }
+
+interface AndroidPushRegistrationPlugin {
+  register(): Promise<void>;
+  unregister(): Promise<void>;
+}
+
+const ANDROID_PUSH_REGISTRATION_PLUGIN = "AndroidPushRegistration";
+const AndroidPushRegistration = registerPlugin<AndroidPushRegistrationPlugin>(
+  ANDROID_PUSH_REGISTRATION_PLUGIN,
+);
 
 function parseRegisteredToken(raw: string): RegisteredToken | null {
   const value = JSON.parse(raw) as Partial<RegisteredToken>;
@@ -348,7 +358,14 @@ export async function registerForRemotePush(
     if (permission.receive !== "granted") {
       return;
     }
-    await PushNotifications.register();
+    if (
+      Capacitor.getPlatform() === "android" &&
+      Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
+    ) {
+      await AndroidPushRegistration.register();
+    } else {
+      await PushNotifications.register();
+    }
   } catch (err) {
     captureError(err, {
       context: "push_registration_register",
@@ -401,9 +418,13 @@ export async function unregisterFromRemotePush(): Promise<void> {
 
   if (Capacitor.getPlatform() === "android") {
     try {
-      const { PushNotifications } =
-        await import("@capacitor/push-notifications");
-      await PushNotifications.unregister();
+      if (Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
+        await AndroidPushRegistration.unregister();
+      } else {
+        const { PushNotifications } =
+          await import("@capacitor/push-notifications");
+        await PushNotifications.unregister();
+      }
     } catch (err) {
       captureError(err, {
         context: "push_registration_unregister",
