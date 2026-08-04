@@ -227,6 +227,19 @@ export async function runForkBasedRetrospective(
      * request overrides the gate.
      */
     enforceUserActivityGate?: boolean;
+    /**
+     * Rewind/backfill override for the review window's start. When provided,
+     * the source window is sliced from this message id (or from the
+     * conversation's beginning when `""` / `null`) instead of the persisted
+     * `lastProcessedMessageId`. The persisted cursor is not modified up
+     * front: a usable-output run advances it to the run's cutoff (the latest
+     * real message) via the normal finalizer, which is always a
+     * forward-or-equal move, so an interrupted or failed replay leaves state
+     * exactly as it was. The `rememberedLog` dedup baseline is still read
+     * from the persisted state row, so `<already_remembered>` applies to
+     * replayed windows and duplicate saves are suppressed.
+     */
+    overrideCursor?: string | null;
   },
 ): Promise<MemoryRetrospectiveOutcome> {
   // Start stamp for the retrospective's end-to-end wall time, surfaced as
@@ -309,7 +322,10 @@ export async function runForkBasedRetrospective(
   }
 
   const state = getRetrospectiveState(sourceConversationId);
-  const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
+  const lastProcessedMessageId =
+    opts?.overrideCursor !== undefined
+      ? opts.overrideCursor
+      : (state?.lastProcessedMessageId ?? null);
   // Kind-aware slice: a prior run's own `skill-authored-card` message lands
   // AFTER the cursor that run persisted, so the raw slice would treat the
   // card as new work — a card-only tail must be `no_new_messages`, and a

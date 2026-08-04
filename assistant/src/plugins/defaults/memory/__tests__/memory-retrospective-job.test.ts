@@ -32,6 +32,13 @@ let newMessages: Array<{
   metadata?: string | null;
 }> = [];
 
+// Recorded `getMessagesAfter` calls, so overrideCursor tests can assert which
+// cursor value actually reached the slice read.
+let messagesAfterCalls: Array<{
+  conversationId: string;
+  afterId: string | null;
+}> = [];
+
 // Prior retrospective conversation + messages. `priorRetroOwnerId` is the
 // fork-chain conversation the prior is rooted at — `findMostRecentRetrospectiveFor`
 // returns it so the GC ownership check can tell "this source's own prior"
@@ -159,7 +166,10 @@ mock.module("../find-most-recent-retrospective-for.js", () => ({
 }));
 
 mock.module("../../../../persistence/conversation-crud.js", () => ({
-  getMessagesAfter: (_id: string, _afterId: string | null) => newMessages,
+  getMessagesAfter: (id: string, afterId: string | null) => {
+    messagesAfterCalls.push({ conversationId: id, afterId });
+    return newMessages;
+  },
   getMessages: (id: string) => {
     if (messagesByConversationId[id]) {
       return messagesByConversationId[id];
@@ -448,6 +458,7 @@ describe("memoryRetrospectiveJob", () => {
       { id: "m2", createdAt: Date.parse("2026-05-11T10:05:00Z") },
       { id: "m3", createdAt: Date.parse("2026-05-11T10:10:00Z") },
     ];
+    messagesAfterCalls = [];
     priorRetroId = null;
     priorRetroOwnerId = "src-conv-1";
     priorRetroMessages = [];
@@ -2230,5 +2241,140 @@ describe("memoryRetrospectiveJob", () => {
     // skill-linking directive.
     expect(instructionText).not.toContain("skill:");
     expect(instructionText).toContain("Ordinary facts still go through");
+  });
+
+  // -------------------------------------------------------------------------
+  // overrideCursor (targeted rewind/backfill replay)
+  // -------------------------------------------------------------------------
+
+  test("no overrideCursor: the slice reads from the persisted cursor", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+    };
+
+    await runForkBasedRetrospective("src-conv-1", stubConfig);
+
+    expect(messagesAfterCalls).toEqual([
+      { conversationId: "src-conv-1", afterId: "prev-msg" },
+    ]);
+  });
+
+  test('overrideCursor "" slices from the start; the persisted cursor is untouched until success and dedup still reads the persisted log', async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["baseline entry"],
+    };
+
+    const outcome = await runForkBasedRetrospective("src-conv-1", stubConfig, {
+      overrideCursor: "",
+    });
+
+    // The override (not the persisted "prev-msg") reaches the slice read.
+    expect(messagesAfterCalls).toEqual([
+      { conversationId: "src-conv-1", afterId: "" },
+    ]);
+    expect(outcome.kind).toBe("invoked");
+    // The only state write is the success finalizer's forward move to the
+    // window cutoff; nothing rewrote the persisted cursor up front.
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(lastRunAtBumps).toHaveLength(0);
+    // <already_remembered> still comes from the persisted state row, so a
+    // replayed window sees prior saves as dedup context.
+    expect(persistedInstructionText()).toContain("- baseline entry");
+  });
+
+  test("overrideCursor null slices from the start (same sentinel family as the empty string)", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+    };
+
+    await runForkBasedRetrospective("src-conv-1", stubConfig, {
+      overrideCursor: null,
+    });
+
+    expect(messagesAfterCalls).toEqual([
+      { conversationId: "src-conv-1", afterId: null },
+    ]);
+  });
+
+  test("overrideCursor with a specific message id reaches the slice call", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+    };
+
+    await runForkBasedRetrospective("src-conv-1", stubConfig, {
+      overrideCursor: "m1",
+    });
+
+    expect(messagesAfterCalls).toEqual([
+      { conversationId: "src-conv-1", afterId: "m1" },
+    ]);
+  });
+
+  test("failed replay (no_usable_output) under overrideCursor leaves the persisted cursor unchanged", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["baseline entry"],
+    };
+    mockWakeResult = { invoked: true };
+    // The replay's fork persisted nothing durable.
+    messagesByConversationId["fork-conv-1"] = [];
+
+    const outcome = await runForkBasedRetrospective("src-conv-1", stubConfig, {
+      overrideCursor: "",
+    });
+
+    expect(outcome.kind).toBe("no_usable_output");
+    // Cursor and remembered log untouched: checkpoint-safe replay.
+    expect(stateUpserts).toHaveLength(0);
+    // Cooldown bump only, orphan fork cleaned up; the window stays retryable.
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+  });
+
+  test("successful replay advances the cursor to the window cutoff and appends run remembers on top of the existing log", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["older pass save"],
+    };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "replayed save" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await runForkBasedRetrospective("src-conv-1", stubConfig, {
+      overrideCursor: "",
+    });
+
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(stateUpserts[0]!.rememberedLog).toEqual([
+      "older pass save",
+      "replayed save",
+    ]);
   });
 });
