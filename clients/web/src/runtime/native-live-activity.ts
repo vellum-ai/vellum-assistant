@@ -67,8 +67,14 @@ export interface VoiceLiveActivityContent {
    * Only this local path carries it; the APNs path composes content from what
    * `live-activity-push-registration.ts` registered, which does not include it,
    * so a server-driven island shows the assistant as audible until this layer
-   * wakes and pushes. The button is unharmed either way because it toggles
-   * rather than setting an absolute value. See `VoiceSessionAttributes.swift`.
+   * wakes and pushes.
+   *
+   * The *action* survives that gap — each button sends the state its own label
+   * promised, so a press against a stale island is a no-op rather than an
+   * inversion (see {@link VoiceLiveActivityControlAction}). The *display* does
+   * not: until the registration carries this field, a server-driven island can
+   * show the assistant as audible while it is muted. See
+   * `VoiceSessionAttributes.swift`.
    */
   outputMuted: boolean;
   /**
@@ -78,6 +84,20 @@ export interface VoiceLiveActivityContent {
    * dispatches carry identical content.
    */
   detail: string;
+  /**
+   * The confirmation the turn is waiting on, or `""` when it is waiting on
+   * none. Non-empty is what puts Approve/Deny on the island's roomy
+   * presentations, and the id travels with them so a decision answers the
+   * request the user was shown.
+   *
+   * Local path only, like `outputMuted`: the APNs path composes content from
+   * the push registration, which has no approval in it, so an island being
+   * driven by the server while this layer is suspended reports the wait in
+   * `detail` (the daemon words both) but offers no buttons. That is the honest
+   * degradation rather than a gap — a suspended web layer is exactly the state
+   * in which nothing here could act on a press anyway.
+   */
+  approvalRequestId: string;
 }
 
 /** {@link VoiceLiveActivityContent} plus the fields fixed for the activity's lifetime. */
@@ -105,26 +125,42 @@ export interface VoiceLiveActivityPushToken {
 /**
  * What an island button asks of the session.
  *
- * The two mutes are **toggles**, not absolute settings, and that is the whole
- * contract rather than an implementation detail: the island renders from a
- * content state that can be seconds old — or, on the APNs path, composed
- * without `outputMuted` at all — so a button that sent "mute" based on what it
- * was drawn from would send the wrong command exactly when the island was
- * wrong. The layer that owns the session resolves the toggle against live
- * state.
+ * Each mute is **absolute — the state the button's own label promised** — not a
+ * toggle. The island renders content that can be seconds old, and on the APNs
+ * path is composed without `outputMuted` at all, so the two disagree exactly
+ * when it matters. A toggle resolved against live session state is
+ * self-consistent and still wrong for the user: a button reading "Mute
+ * assistant" over an already-muted session would unmute. Sending what the
+ * button said makes that press a no-op instead, which the next push corrects.
  *
  * Mirrors `VoiceSessionControlAction` in
  * `clients/ios/App/App/Shared/VoiceSessionControlIntent.swift`; the raw strings
  * cross the bridge, so **the two must change together**.
  */
 export type VoiceLiveActivityControlAction =
-  | "toggleMicrophone"
-  | "toggleAssistantAudio"
-  | "endSession";
+  | "muteMicrophone"
+  | "unmuteMicrophone"
+  | "muteAssistantAudio"
+  | "unmuteAssistantAudio"
+  | "endSession"
+  | "approveRequest"
+  | "denyRequest";
 
 /** The `liveActivityControl` event payload. */
 export interface VoiceLiveActivityControl {
   action: VoiceLiveActivityControlAction;
+  /**
+   * The confirmation an `approveRequest` / `denyRequest` press was drawn
+   * against; absent on every other action.
+   *
+   * The same principle as the absolute mutes, carried one step further. A mute
+   * that arrives stale is a no-op the next push corrects; an approval that
+   * arrived stale would answer a *different question* than the one the user
+   * was shown — the request it named may since have been decided in the app,
+   * timed out, or been superseded. So the press names its request, and the
+   * consumer answers that one or drops the press entirely.
+   */
+  requestId?: string;
 }
 
 interface VoiceLiveActivityPlugin {

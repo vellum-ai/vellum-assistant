@@ -50,6 +50,7 @@ const content: VoiceLiveActivityContent = {
   muted: false,
   outputMuted: false,
   detail: "",
+  approvalRequestId: "",
 };
 const startOptions: VoiceLiveActivityStart = {
   ...content,

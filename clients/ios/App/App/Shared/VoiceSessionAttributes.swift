@@ -88,13 +88,36 @@ struct VoiceSessionAttributes: ActivityAttributes {
         /// web layer would leave the push path with nothing to send.
         var detail: String
 
+        /// The confirmation this turn is blocked on, or `""` when it is
+        /// blocked on none.
+        ///
+        /// Non-empty is what puts Approve and Deny on the two roomy
+        /// presentations, and the id goes back out with the press so the
+        /// decision answers the request the user was actually shown — see
+        /// ``VoiceSessionControlIntent/requestId``.
+        ///
+        /// **A server-composed push does not carry it**, for the same reason
+        /// it does not carry ``outputMuted``: the platform composes content
+        /// from what `live-activity-push-registration.ts` registered. So an
+        /// island being driven by APNs states the wait in ``detail`` — the
+        /// daemon words both, and that one *is* on the push path — and offers
+        /// no buttons for it.
+        ///
+        /// That is the honest degradation rather than a gap. The press is
+        /// delivered across the Capacitor bridge to the web layer that owns
+        /// the session, so a suspended web layer is precisely the state in
+        /// which no button could be acted on anyway; better to show none than
+        /// to show two that do nothing.
+        var approvalRequestId: String
+
         init(
             phase: Phase,
             label: String,
             accentHex: String,
             muted: Bool,
             outputMuted: Bool,
-            detail: String
+            detail: String,
+            approvalRequestId: String = ""
         ) {
             self.phase = phase
             self.label = label
@@ -102,6 +125,7 @@ struct VoiceSessionAttributes: ActivityAttributes {
             self.muted = muted
             self.outputMuted = outputMuted
             self.detail = detail
+            self.approvalRequestId = approvalRequestId
         }
 
         /// Decoding funnels through the validating initializer so the
@@ -128,7 +152,17 @@ struct VoiceSessionAttributes: ActivityAttributes {
                 // meant. See the attributes decoder for why a missing field
                 // must never fail here.
                 detail: try container.decodeIfPresent(String.self, forKey: .detail)
-                    ?? ""
+                    ?? "",
+                // Absent from every server-composed push (see the property),
+                // from a state archived by an earlier build, and from the
+                // overwhelming majority of local pushes, since a turn is
+                // rarely waiting on anyone. All three read as "nothing to
+                // approve", which renders no buttons — the only safe default
+                // for a control that answers a permission prompt.
+                approvalRequestId: try container.decodeIfPresent(
+                    String.self,
+                    forKey: .approvalRequestId
+                ) ?? ""
             )
         }
 

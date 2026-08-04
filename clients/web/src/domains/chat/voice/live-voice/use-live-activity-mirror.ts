@@ -102,6 +102,12 @@ function toActivityContent(
     // push the daemon dispatches while this layer is suspended) and the two
     // must render the same thing.
     detail: session.activityLabel,
+    // Arrives on the same frame as the line above and is the other half of the
+    // same fact: `detail` says the turn is waiting, this says which decision
+    // it is waiting on, and only the second one makes the island's buttons
+    // answerable. `""` for a turn that is not waiting, which is the state a
+    // session spends nearly all of its time in.
+    approvalRequestId: session.pendingApprovalRequestId ?? "",
   };
 }
 
@@ -173,7 +179,11 @@ function sameContent(
     a.accentHex === b.accentHex &&
     a.muted === b.muted &&
     a.outputMuted === b.outputMuted &&
-    a.detail === b.detail
+    a.detail === b.detail &&
+    // Compared as well as pushed: a wait can be entered and left without the
+    // rest of the content moving at all, and an island whose buttons outlive
+    // the decision behind them is worse than one that never had any.
+    a.approvalRequestId === b.approvalRequestId
   );
 }
 

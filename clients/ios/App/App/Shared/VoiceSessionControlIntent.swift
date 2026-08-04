@@ -9,21 +9,46 @@ import Foundation
 /// order, because the island IS that row when the app is not on screen. It is
 /// not a second, smaller feature with controls of its own choosing.
 ///
-/// The two mutes are *toggles*, not "mute" and "unmute": the button's meaning
-/// comes from the state it is rendered against, and the island renders from a
-/// `ContentState` that may be several seconds stale when the web layer is
-/// suspended. A `setMuted(true)` composed natively from that stale view would
-/// be the wrong command as often as the state is wrong; a toggle applied by the
-/// layer that actually owns the session is right whatever the island was
-/// showing.
+/// **Each mute is an absolute command carrying the state the button promised,
+/// not a toggle.** This was a toggle first, on the reasoning that the island
+/// renders a `ContentState` which can be seconds stale — so let the layer that
+/// owns the session resolve it. That is backwards: the user does not act on the
+/// session's hidden state, they act on the label in front of them. A button
+/// reading "Mute assistant" over a session that is *already* muted toggles to
+/// unmuted, which is the exact opposite of what it offered.
+///
+/// The stale case is real (the APNs path composes content without
+/// `outputMuted`, so it decodes `false`), which is precisely why the resolution
+/// has to favour the user's expressed intent. Sending what the button said
+/// makes a press against a stale island a *no-op* — the session is already in
+/// the requested state — instead of an inversion. A no-op is self-correcting:
+/// the next push repaints the button the right way round. An inversion is a
+/// bug the user has to notice and undo.
 enum VoiceSessionControlAction: String, AppEnum {
-    /// Mute or unmute capture, so the assistant stops or resumes hearing you.
-    case toggleMicrophone
-    /// Mute or unmute playback, so you stop or resume hearing the assistant.
-    /// Its turn keeps running underneath either way.
-    case toggleAssistantAudio
-    /// End the call.
+    /// Stop capture, so the assistant stops hearing you.
+    case muteMicrophone
+    /// Resume capture.
+    case unmuteMicrophone
+    /// Silence playback. The assistant's turn keeps running underneath and the
+    /// transcript keeps filling.
+    case muteAssistantAudio
+    /// Resume playback, dropping back into the reply wherever it has reached.
+    case unmuteAssistantAudio
+    /// End the session.
     case endSession
+    /// Allow the tool call the turn is blocked on.
+    ///
+    /// **The two decisions carry a request id and the rest carry nothing**,
+    /// and that difference is the point rather than a detail of plumbing. A
+    /// mute aimed at a stale island is a no-op the next push corrects, so it
+    /// can safely say only *what* to do. A decision aimed at a stale island
+    /// would answer a question the user was never asked — the request it was
+    /// drawn against can be decided in the app, time out, or be superseded
+    /// between the push and the press — so it must also say *what it is
+    /// answering*, and be dropped when that no longer matches.
+    case approveRequest
+    /// Deny the tool call the turn is blocked on.
+    case denyRequest
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation {
         "Voice session control"
@@ -31,9 +56,13 @@ enum VoiceSessionControlAction: String, AppEnum {
 
     static var caseDisplayRepresentations: [Self: DisplayRepresentation] {
         [
-            .toggleMicrophone: "Toggle microphone",
-            .toggleAssistantAudio: "Toggle assistant audio",
+            .muteMicrophone: "Mute microphone",
+            .unmuteMicrophone: "Unmute microphone",
+            .muteAssistantAudio: "Mute assistant audio",
+            .unmuteAssistantAudio: "Unmute assistant audio",
             .endSession: "End voice session",
+            .approveRequest: "Approve the pending request",
+            .denyRequest: "Deny the pending request",
         ]
     }
 }
@@ -73,10 +102,24 @@ struct VoiceSessionControlIntent: LiveActivityIntent {
     @Parameter(title: "Action")
     var action: VoiceSessionControlAction
 
+    /// The confirmation an ``VoiceSessionControlAction/approveRequest`` or
+    /// ``VoiceSessionControlAction/denyRequest`` press is answering, taken
+    /// from the `ContentState` the button was drawn from; `""` on every other
+    /// action.
+    ///
+    /// It travels because the island cannot be trusted to be current, and a
+    /// decision is the one command where that matters: the web layer answers
+    /// this request or drops the press, so a button drawn against a prompt
+    /// that has since been decided cannot approve the next one to arrive. See
+    /// ``VoiceSessionControlAction/approveRequest``.
+    @Parameter(title: "Request")
+    var requestId: String
+
     init() {}
 
-    init(action: VoiceSessionControlAction) {
+    init(action: VoiceSessionControlAction, requestId: String = "") {
         self.action = action
+        self.requestId = requestId
     }
 
     /// Hand the action to the running session and return.
@@ -105,7 +148,7 @@ struct VoiceSessionControlIntent: LiveActivityIntent {
         #if VOICE_ACTIVITY_EXTENSION
         assertionFailure("Voice session controls are performed in the app process, not the appex")
         #else
-        VoiceLiveActivityPlugin.deliverControl(action)
+        VoiceLiveActivityPlugin.deliverControl(action, requestId: requestId)
         #endif
         return .result()
     }

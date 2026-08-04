@@ -225,6 +225,7 @@ describe("starting the activity", () => {
       muted: false,
       outputMuted: false,
       detail: "",
+      approvalRequestId: "",
       assistantName: "Ada",
     });
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
@@ -380,6 +381,7 @@ describe("updating the activity", () => {
       muted: false,
       outputMuted: false,
       detail: "",
+      approvalRequestId: "",
     });
 
     // Re-publishing the same phase changes no `ContentState` field.
@@ -544,6 +546,7 @@ describe("a hands-free reconnect", () => {
       muted: true,
       outputMuted: false,
       detail: "",
+      approvalRequestId: "",
     });
   });
 });

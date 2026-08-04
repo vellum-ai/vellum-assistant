@@ -75,6 +75,22 @@ extension VoiceSessionAttributes.ContentState {
         isStale ? "" : detail
     }
 
+    /// The confirmation to offer buttons for, or `nil` when there is none to
+    /// offer and once the content has gone stale.
+    ///
+    /// Stale drops it hardest of all. Every other claim on the island being
+    /// out of date costs the user a wrong word; this one would offer to
+    /// approve a request nobody can vouch is still open — and the press would
+    /// be dropped anyway, since the web layer answers the named request or
+    /// nothing. Buttons that cannot work are worse than no buttons, so
+    /// staleness takes them away.
+    func displayApprovalRequestId(isStale: Bool) -> String? {
+        if isStale || approvalRequestId.isEmpty {
+            return nil
+        }
+        return approvalRequestId
+    }
+
     /// The SF Symbol standing for this phase.
     ///
     /// **A glyph is not copy, which is why this may switch on `phase` when
@@ -321,13 +337,19 @@ struct VoiceControlButton: View {
     let symbol: String
     let label: String
     let action: VoiceSessionControlAction
+    /// The confirmation an approve/deny button is answering; empty on the
+    /// status controls, which answer nothing. See
+    /// ``VoiceSessionControlIntent/requestId``.
+    var requestId: String = ""
     /// Whether this control is currently doing something to the call — an
     /// engaged mute, or the end control, which is always. Tints it red so an
     /// engaged control is legible as engaged without reading its symbol.
     var engaged: Bool = false
 
     var body: some View {
-        Button(intent: VoiceSessionControlIntent(action: action)) {
+        Button(
+            intent: VoiceSessionControlIntent(action: action, requestId: requestId)
+        ) {
             Image(systemName: symbol)
                 .imageScale(.medium)
                 .foregroundStyle(engaged ? Color.red : Color.primary)
@@ -357,10 +379,11 @@ struct VoiceControlButton: View {
 /// you hear, end — because this row IS that row for a session whose app is not
 /// on screen. The island is not a smaller feature with a control set of its own.
 ///
-/// The two mutes are toggles labelled from the state they are rendered against;
-/// the end control is always red. See ``VoiceSessionControlAction`` for why they
-/// are toggles rather than explicit mute/unmute commands, which matters here
-/// more than anywhere: this row can be drawn from content several seconds old.
+/// Each mute is labelled from the state it is rendered against and sends that
+/// same state as an absolute command; the end control is always red. See
+/// ``VoiceSessionControlAction`` for why the command is what the label
+/// promised rather than a toggle, which matters here more than anywhere: this
+/// row can be drawn from content several seconds old.
 ///
 /// Rendered only where there is genuinely room — the Lock Screen card and the
 /// expanded island. The compact and minimal presentations are a few points
@@ -372,16 +395,18 @@ struct VoiceSessionControls: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Each button sends the state its own label promises, so what the
+            // user asked for survives an island drawn from stale content.
             VoiceControlButton(
                 symbol: muted ? "mic.slash.fill" : "mic.fill",
                 label: muted ? "Unmute microphone" : "Mute microphone",
-                action: .toggleMicrophone,
+                action: muted ? .unmuteMicrophone : .muteMicrophone,
                 engaged: muted
             )
             VoiceControlButton(
                 symbol: outputMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                 label: outputMuted ? "Unmute assistant" : "Mute assistant",
-                action: .toggleAssistantAudio,
+                action: outputMuted ? .unmuteAssistantAudio : .muteAssistantAudio,
                 engaged: outputMuted
             )
             // A red ✕, not a hang-up receiver: this is a session, not truly a
@@ -394,6 +419,102 @@ struct VoiceSessionControls: View {
                 label: "End voice session",
                 action: .endSession,
                 engaged: true
+            )
+        }
+    }
+}
+
+/// One approval button: a word and a glyph in a capsule, wired to the same
+/// intent as the status controls.
+///
+/// **Worded, where every other control on the island is a bare symbol**, and
+/// deliberately so: a checkmark and a cross beside each other on a Lock Screen
+/// are two shapes the user has to work out, and this is the one press here
+/// that grants something. It is also the one that cannot be undone by pressing
+/// again. So it says what it does.
+///
+/// That wording is native, like the controls' accessibility labels and for the
+/// same reason: "Approve" and "Deny" name *these controls*, not the session,
+/// and the copy rule guards session wording that deploys continuously against a
+/// shell that ships on App Store review. The line above the row — what is being
+/// approved — is passed through from the daemon like every other claim about
+/// the turn.
+struct VoiceApprovalButton: View {
+    let title: String
+    let symbol: String
+    let action: VoiceSessionControlAction
+    let requestId: String
+    /// Approve is filled and tinted; deny is the neutral chrome the other
+    /// controls wear. The asymmetry is intended — the affirmative press is the
+    /// one being offered, and the quiet one is always safe.
+    var prominent: Bool = false
+
+    var body: some View {
+        Button(
+            intent: VoiceSessionControlIntent(action: action, requestId: requestId)
+        ) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .imageScale(.small)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(prominent ? Color.green : Color.primary)
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .background(
+                prominent
+                    ? Color.green.opacity(0.18)
+                    : Color.primary.opacity(0.12),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    (prominent ? Color.green : Color.primary).opacity(0.25),
+                    lineWidth: 1
+                )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+}
+
+/// The row that answers a confirmation the turn is blocked on: Approve, Deny.
+///
+/// Shown only while `approvalRequestId` is non-empty, which is exactly while
+/// the daemon says a decision is outstanding — and only on the two roomy
+/// presentations, for the reason the status controls are: a button reachable
+/// with no gesture at all is one a pocket can press, and that argument is
+/// strongest for the press that grants a permission.
+///
+/// It sits *above* the status controls rather than replacing them. Ending the
+/// call has to stay reachable while a decision is pending — that is a perfectly
+/// reasonable way to answer "do you want me to run this?" — and a row that
+/// swapped itself out for another would move the end button under the user's
+/// thumb at the moment the island repainted.
+///
+/// Both buttons carry the request id, so a press that arrives after the
+/// decision was made elsewhere is dropped rather than re-pointed at whatever is
+/// pending by then. See ``VoiceSessionControlAction/approveRequest``.
+struct VoiceApprovalControls: View {
+    let requestId: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VoiceApprovalButton(
+                title: "Approve",
+                symbol: "checkmark",
+                action: .approveRequest,
+                requestId: requestId,
+                prominent: true
+            )
+            VoiceApprovalButton(
+                title: "Deny",
+                symbol: "xmark",
+                action: .denyRequest,
+                requestId: requestId
             )
         }
     }
@@ -454,6 +575,7 @@ struct VoiceSessionLockScreenView: View {
 
     var body: some View {
         let detail = state.displayDetail(isStale: isStale)
+        let approvalRequestId = state.displayApprovalRequestId(isStale: isStale)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 VoiceAccentBadge(accent: state.accentColor, avatarImageData: avatarImageData)
@@ -484,6 +606,14 @@ struct VoiceSessionLockScreenView: View {
                 }
                 Spacer(minLength: 0)
                 VoiceSessionTimer(startedAt: startedAt, isStale: isStale)
+            }
+            // The decision first, when there is one. This is the presentation
+            // that shows on a locked phone, which is the whole reason the wait
+            // is published at all: the approval card is in the app, behind the
+            // lock, and the turn is blocked until someone answers it.
+            if let approvalRequestId {
+                VoiceApprovalControls(requestId: approvalRequestId)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             // Centred under the status block rather than left-aligned with it:
             // the row is a phone call's controls, and that is where a phone

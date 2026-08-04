@@ -49,6 +49,7 @@ struct VoiceSessionLiveActivity: Widget {
             let isStale = context.isStale
             let label = state.displayLabel(isStale: isStale)
             let detail = state.displayDetail(isStale: isStale)
+            let approvalRequestId = state.displayApprovalRequestId(isStale: isStale)
             let avatar = context.attributes.avatarImageData
             let startedAt = context.attributes.startedAt
             return DynamicIsland {
@@ -95,6 +96,15 @@ struct VoiceSessionLiveActivity: Widget {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // A pending decision gets its own row above the
+                        // controls, on the same reasoning as the Lock Screen
+                        // card: the turn is blocked, and this is a surface the
+                        // user can reach without leaving what they are doing.
+                        if let approvalRequestId {
+                            VoiceApprovalControls(requestId: approvalRequestId)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
 
                         VoiceSessionControls(
                             muted: state.muted,

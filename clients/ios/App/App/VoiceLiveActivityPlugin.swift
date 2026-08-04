@@ -310,12 +310,38 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// In practice there IS a listener whenever there is an activity: a live
     /// session holds an active audio session, which is what keeps this app —
     /// and the web view driving it — running behind the Lock Screen at all.
-    static func deliverControl(_ action: VoiceSessionControlAction) {
+    /// `requestId` is the confirmation an approve/deny press is answering and
+    /// is empty for every other action. It is passed through untouched — the
+    /// web layer is what decides whether it still matches the pending request,
+    /// because it is the only side that knows.
+    static func deliverControl(
+        _ action: VoiceSessionControlAction,
+        requestId: String = ""
+    ) {
         guard let plugin = registered else {
             NSLog("[voice] Live Activity control with no plugin loaded; dropping")
             return
         }
-        plugin.notifyListeners(controlEvent, data: ["action": action.rawValue])
+        // Logged on every press, because this hop is otherwise invisible: an
+        // island button leaves no trace in the app, `WKWebView` console output
+        // never reaches the unified log, and a press that lands with nothing
+        // listening is indistinguishable from one that was never made. The
+        // listener count is what separates "the web layer never subscribed"
+        // from "it subscribed and declined to act".
+        NSLog(
+            "[voice] Live Activity control %@ (listening: %@)",
+            action.rawValue,
+            plugin.hasListeners(controlEvent) ? "yes" : "no"
+        )
+        // The id is omitted rather than sent empty when there is none, so the
+        // bridge payload matches the optional field the web type declares and
+        // an action that carries no request cannot be read as carrying a
+        // blank one.
+        var payload: [String: Any] = ["action": action.rawValue]
+        if !requestId.isEmpty {
+            payload["requestId"] = requestId
+        }
+        plugin.notifyListeners(controlEvent, data: payload)
     }
 
     // MARK: - Teardown
@@ -381,9 +407,9 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         return Data(base64Encoded: base64)
     }
 
-    /// Read the four `ContentState` fields off a bridge call. `phase` is
-    /// required and must decode; the rest degrade to harmless defaults rather
-    /// than failing a best-effort call. `accentHex` is canonicalized by
+    /// Read the `ContentState` fields off a bridge call. `phase` is required
+    /// and must decode; the rest degrade to harmless defaults rather than
+    /// failing a best-effort call. `accentHex` is canonicalized by
     /// `ContentState.init`, so an unparseable color lands as the neutral accent.
     private static func contentState(from call: CAPPluginCall) -> VoiceSessionAttributes.ContentState? {
         guard let rawPhase = call.getString("phase"),
@@ -402,7 +428,12 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             outputMuted: call.getBool("outputMuted") ?? false,
             // Absent from a web bundle older than this field, which simply has
             // no activity line to show.
-            detail: call.getString("detail") ?? ""
+            detail: call.getString("detail") ?? "",
+            // Absent from a web bundle older than this field, and from the
+            // great majority of pushes a current one sends, since a turn is
+            // seldom waiting on a decision. Both read as "nothing pending",
+            // which offers no buttons.
+            approvalRequestId: call.getString("approvalRequestId") ?? ""
         )
     }
 }

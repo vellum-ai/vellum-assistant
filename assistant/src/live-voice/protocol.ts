@@ -236,6 +236,18 @@ export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "activity";
   readonly turnId: string;
   readonly label: string;
+  /**
+   * The confirmation this turn is blocked on, when the label describes a wait
+   * rather than work in flight. Absent otherwise.
+   *
+   * It travels so that a surface outside the app — the Live Activity's
+   * Approve/Deny buttons — can answer the request it was drawn against rather
+   * than whatever is pending by the time the press lands. Content on a Lock
+   * Screen can be seconds old, and a decision is the one thing that must not
+   * be re-pointed when it is: the id lets a client drop a press aimed at a
+   * request already answered, timed out, or superseded.
+   */
+  readonly approvalRequestId?: string;
 }
 
 export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {
