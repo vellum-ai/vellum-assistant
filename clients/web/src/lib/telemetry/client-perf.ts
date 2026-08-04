@@ -1,5 +1,6 @@
 import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { postTelemetryEvents } from "@/lib/telemetry/ingest";
+import { mintRandomId } from "@/lib/telemetry/random-id";
 import {
   detectClientOs,
   isNativeAndroid,
@@ -40,18 +41,6 @@ export type ClientPerfCheckName =
   | "client_switch.abandoned"
   | "client_resume.request_count"
   | "client_list.drain";
-
-/**
- * `crypto.randomUUID` is unavailable in non-secure contexts (plain-http LAN
- * dev, self-hosted over http), so fall back rather than throw. This module sits
- * on the eager boot import chain, where a throw would take the app down with
- * it.
- */
-function mintRandomId(): string {
-  return typeof globalThis.crypto?.randomUUID === "function"
-    ? globalThis.crypto.randomUUID()
-    : `perf-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 let pageLoadId: string | null = null;
 
