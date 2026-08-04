@@ -46,7 +46,10 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
-import { noteDaemonApiRequest } from "@/lib/telemetry/resume-request-counter";
+import {
+  isResumeWindowOpen,
+  noteDaemonApiRequest,
+} from "@/lib/telemetry/resume-request-counter";
 import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
@@ -318,34 +321,44 @@ export function authorizeRemoteGatewayRequest(
 /**
  * Builds a request interceptor for a HeyAPI client.
  *
- * @param skipSegmentAllowlist — `true` for the daemon client (every
- *   daemon SDK endpoint is a daemon route by definition, so all
- *   assistant sub-resource paths are forwarded to the self-hosted
- *   gateway unconditionally). `false` for the platform and auth
- *   clients (only allowlisted segments are forwarded; platform-owned
- *   routes like maintenance-mode, system-events, etc. fall through
- *   to Django).
- * @param countEveryRequest `true` for the daemon + gateway clients, where every
- *   request is daemon traffic by definition. The platform and auth clients
- *   count only their daemon-bound paths ({@link isDaemonBoundPath}), the SSE
- *   reopen among them, so the post-resume burst is measured whole while
- *   platform-owned traffic stays out of it. One count per request: this is the
- *   single choke point on each client's chain.
+ * @param isDaemonClient `true` for the daemon + gateway clients, where every
+ *   endpoint is a daemon route by definition. Two things follow from it: all
+ *   assistant sub-resource paths are forwarded to the self-hosted gateway
+ *   without consulting {@link RUNTIME_PROXIED_FIRST_SEGMENTS}, and every
+ *   request counts toward the post-resume burst. `false` for the platform and
+ *   auth clients, where only allowlisted segments are forwarded (platform-owned
+ *   routes like maintenance-mode, system-events, etc. fall through to Django)
+ *   and only daemon-bound paths ({@link isDaemonBoundPath}) count, the SSE
+ *   reopen among them.
+ *
+ * Counting happens once per request, after the routing decision, and this is
+ * the single choke point on each client's chain. On the platform chain it is
+ * additionally conditioned on {@link platformFeaturesGateAllows}, the gate
+ * registered downstream, so a request that gate aborts is never counted. The
+ * auth chain reaches neither test: allauth endpoints live under `/_allauth/`
+ * and are never daemon-bound.
  */
 function createInterceptor({
-  skipSegmentAllowlist = false,
+  isDaemonClient = false,
   allowRemoteGatewayDirect = false,
-  countEveryRequest = false,
 } = {}) {
-  return async (request: Request): Promise<Request> => {
-    try {
-      if (countEveryRequest || isDaemonBoundPath(request.url)) {
-        noteDaemonApiRequest(request.url);
-      }
-    } catch {
-      // Telemetry must never fail a request.
+  /**
+   * `outgoing` is the request the chain hands downstream; `url` is the original
+   * one, which still carries the platform-shaped path a self-hosted rewrite
+   * would have replaced.
+   */
+  function shouldCount(url: string, outgoing: Request): boolean {
+    // Cheapest test first: outside a resume window nothing here parses a URL.
+    if (!isResumeWindowOpen()) {
+      return false;
     }
+    if (isDaemonClient) {
+      return true;
+    }
+    return isDaemonBoundPath(url) && platformFeaturesGateAllows(outgoing);
+  }
 
+  const route = async (request: Request): Promise<Request> => {
     const newRequest = new Request(request);
 
     // Per-tab client identity — sent on *every* request (GET included)
@@ -362,7 +375,7 @@ function createInterceptor({
     // gateway directly instead of stamping the platform's session/CSRF
     // headers.
     const selfHosted = await rewriteForSelfHostedIngress(newRequest, {
-      skipSegmentAllowlist,
+      skipSegmentAllowlist: isDaemonClient,
     });
     if (selfHosted) {
       return selfHosted;
@@ -411,6 +424,18 @@ function createInterceptor({
 
     return newRequest;
   };
+
+  return async (request: Request): Promise<Request> => {
+    const outgoing = await route(request);
+    try {
+      if (shouldCount(request.url, outgoing)) {
+        noteDaemonApiRequest(request.url);
+      }
+    } catch {
+      // Telemetry must never fail a request.
+    }
+    return outgoing;
+  };
 }
 
 /** Platform + auth clients: uses the segment allowlist. */
@@ -418,9 +443,8 @@ export const requestInterceptor = createInterceptor();
 
 /** Daemon client: bypasses the segment allowlist. */
 export const daemonRequestInterceptor = createInterceptor({
-  skipSegmentAllowlist: true,
+  isDaemonClient: true,
   allowRemoteGatewayDirect: true,
-  countEveryRequest: true,
 });
 
 /**
@@ -773,8 +797,39 @@ function arePlatformFeaturesEnabled(): boolean {
 }
 
 /**
+ * Whether {@link platformFeaturesGate} forwards this request.
+ *
+ * Takes the request as the gate sees it: the gate is registered after
+ * {@link requestInterceptor}, so a self-hosted rewrite (gateway origin, bearer
+ * auth) has already happened by the time it runs.
+ */
+function platformFeaturesGateAllows(request: Request): boolean {
+  if (isRemoteGatewayMode()) {
+    return (
+      request.headers
+        .get("Authorization")
+        ?.toLowerCase()
+        .startsWith("bearer ") ?? false
+    );
+  }
+
+  if (!isLocalClient()) {
+    return true;
+  }
+  if (arePlatformFeaturesEnabled()) {
+    return true;
+  }
+
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) {
+    return false;
+  }
+  return new URL(request.url).origin === new URL(ingressUrl).origin;
+}
+
+/**
  * In local mode with platform features disabled, abort platform client
- * requests that still target the platform — but let through requests
+ * requests that still target the platform, but let through requests
  * already rewritten to the self-hosted gateway by the preceding
  * {@link requestInterceptor}. Without this check, daemon endpoints
  * (skills, memories, etc.) that route through the platform client would
@@ -783,49 +838,25 @@ function arePlatformFeaturesEnabled(): boolean {
  * Exported for direct unit testing.
  */
 export function platformFeaturesGate(request: Request): Request {
-  if (isRemoteGatewayMode()) {
-    if (
-      request.headers.get("Authorization")?.toLowerCase().startsWith("bearer ")
-    ) {
-      return request;
-    }
-    console.debug(
-      "remote-gateway mode — no-op platform request:",
-      new URL(request.url).pathname,
-    );
-    const aborted = new AbortController();
-    aborted.abort(
-      new DOMException(
-        "Platform routes disabled in remote-gateway mode",
-        "AbortError",
-      ),
-    );
-    return new Request(request.url, { signal: aborted.signal });
-  }
-
-  if (!isLocalClient()) {
-    return request;
-  }
-  if (arePlatformFeaturesEnabled()) {
+  if (platformFeaturesGateAllows(request)) {
     return request;
   }
 
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl) {
-    const requestOrigin = new URL(request.url).origin;
-    const gatewayOrigin = new URL(ingressUrl).origin;
-    if (requestOrigin === gatewayOrigin) {
-      return request;
-    }
-  }
-
+  const remoteGateway = isRemoteGatewayMode();
   console.debug(
-    "VELLUM_DISABLE_PLATFORM is set — no-op platform request:",
+    remoteGateway
+      ? "remote-gateway mode, no-op platform request:"
+      : "VELLUM_DISABLE_PLATFORM is set, no-op platform request:",
     new URL(request.url).pathname,
   );
   const aborted = new AbortController();
   aborted.abort(
-    new DOMException("Platform features disabled in local mode", "AbortError"),
+    new DOMException(
+      remoteGateway
+        ? "Platform routes disabled in remote-gateway mode"
+        : "Platform features disabled in local mode",
+      "AbortError",
+    ),
   );
   return new Request(request.url, { signal: aborted.signal });
 }
