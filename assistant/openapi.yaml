@@ -9623,6 +9623,9 @@ paths:
                 cronRunId:
                   type: string
                   minLength: 1
+                scheduleId:
+                  type: string
+                  minLength: 1
                 persist:
                   type: boolean
                 externalContent:
