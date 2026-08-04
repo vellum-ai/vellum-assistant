@@ -451,12 +451,19 @@ export function buildActiveDocuments(conversationId: string): Array<{
  * the readable handle is its `slug` (the directory stem, frozen at creation).
  * The app tools key off the id, so the line carries it for tool calls and the
  * slug for everything a human or the model would recognize.
+ *
+ * `resolveAppSource` also knows the app's absolute directory, but that is
+ * deliberately left out: it is fully derivable from context the model already
+ * has. The workspace `Root:` is in the `<workspace>` block, the app-builder
+ * skill documents the `data/apps/<slug>/` layout, and the slug is on this very
+ * line. Verified live: asked where it got an app source path, the model cited
+ * exactly those three and joined them itself. Sending the directory too was
+ * ~90 duplicated characters on every turn an app is open.
  */
 export function buildVisibleAppContext(appId: string | undefined): {
   appId: string;
   name: string;
   slug: string;
-  sourceDir: string;
   pluginName?: string;
 } | null {
   if (!appId) {
@@ -471,7 +478,6 @@ export function buildVisibleAppContext(appId: string | undefined): {
       appId: source.id,
       name: source.name,
       slug: source.dirName,
-      sourceDir: source.sourceDir,
       ...(source.origin.kind === "plugin"
         ? { pluginName: source.origin.pluginName }
         : {}),
