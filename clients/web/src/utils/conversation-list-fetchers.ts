@@ -127,9 +127,10 @@ type FetchConversationListOptions = {
 };
 
 /**
- * Closed set of `list_kind` labels for the `client_list.drain` watchdog event.
- * One label per real caller, so the archive page and the channel sections stay
- * distinguishable from the sidebar's foreground drain in the timing metric.
+ * Closed set of list labels carried by the `client_list.drain` watchdog event
+ * and the `conversation_list_page_fetch` ring entry. One label per real caller,
+ * so the archive page and the channel sections stay distinguishable from the
+ * sidebar's foreground drain in both rails.
  */
 type DrainListKind =
   "foreground" | "background" | "scheduled" | "archived" | "origin_channel";
@@ -173,23 +174,35 @@ type TimedConversationListPage = ConversationListPage & {
   bytes: number | null;
 };
 
-type FirstPageFetchDiagnostic = {
-  assistantId: string;
-  status: number;
-  count: number;
-  hasMore: boolean;
-  durationMs: number;
-  bytes: number | null;
-  conversationType: "background" | "scheduled" | null;
-};
+/** Which path issued an offset-0 list GET. */
+type FirstPageFetchSource = "drain" | "first_page_refresh";
 
 /**
  * Ring entry for one offset-0 list GET, shared by the drain's first page and
  * the standalone first-page fetchers. The standalone ones run debounced (250ms)
  * behind sync events, so their share of the 200-entry ring stays small.
+ *
+ * `listKind` and `source` together fingerprint the caller: without them every
+ * bucket's first page reads as the same offset-0 request, and a slow entry is
+ * not attributable to the path the user waited on.
  */
-function recordFirstPageFetch(entry: FirstPageFetchDiagnostic): void {
-  recordDiagnostic("conversation_list_page_fetch", { ...entry, offset: 0 });
+function recordFirstPageFetch(
+  assistantId: string,
+  page: TimedConversationListPage,
+  listKind: DrainListKind,
+  source: FirstPageFetchSource,
+): void {
+  recordDiagnostic("conversation_list_page_fetch", {
+    assistantId,
+    offset: 0,
+    status: page.status,
+    count: page.conversations.length,
+    hasMore: page.hasMore,
+    durationMs: page.durationMs,
+    bytes: page.bytes,
+    listKind,
+    source,
+  });
 }
 
 async function fetchConversationListPage(
@@ -218,6 +231,7 @@ async function fetchConversationListPage(
       offset,
       status: response.status,
       durationMs,
+      bytes: readContentLength(response),
       conversationType: conversationType ?? null,
       archiveStatus: archiveStatus ?? null,
     });
@@ -279,36 +293,36 @@ async function fetchConversationList(
   try {
     for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
       const offset = page * CONVERSATION_LIST_PAGE_SIZE;
-      const { conversations, hasMore, status, durationMs, bytes } =
-        await fetchConversationListPage(assistantId, offset, options);
+      const result = await fetchConversationListPage(
+        assistantId,
+        offset,
+        options,
+      );
       pages++;
-      maxPageMs = Math.max(maxPageMs, durationMs);
-      if (bytes !== null) {
-        totalBytes = (totalBytes ?? 0) + bytes;
+      maxPageMs = Math.max(maxPageMs, result.durationMs);
+      if (result.bytes !== null) {
+        totalBytes = (totalBytes ?? 0) + result.bytes;
       }
       if (page === 0) {
-        recordFirstPageFetch({
+        recordFirstPageFetch(
           assistantId,
-          status,
-          count: conversations.length,
-          hasMore,
-          durationMs,
-          bytes,
-          conversationType: options.conversationType ?? null,
-        });
+          result,
+          drainListKind(options),
+          "drain",
+        );
       }
-      for (const conversation of conversations) {
+      for (const conversation of result.conversations) {
         if (!seen.has(conversation.conversationId)) {
           seen.add(conversation.conversationId);
           all.push(conversation);
         }
       }
 
-      if (!hasMore) {
+      if (!result.hasMore) {
         break;
       }
 
-      if (conversations.length === 0) {
+      if (result.conversations.length === 0) {
         break;
       }
     }
@@ -505,20 +519,13 @@ export async function listArchivedConversations(
 export async function listConversationsFirstPage(
   assistantId: string,
 ): Promise<ConversationListPage> {
-  const { conversations, hasMore, status, durationMs, bytes } =
-    await fetchConversationListPage(assistantId, 0);
-  recordFirstPageFetch({
-    assistantId,
-    status,
-    count: conversations.length,
-    hasMore,
-    durationMs,
-    bytes,
-    conversationType: null,
-  });
+  const page = await fetchConversationListPage(assistantId, 0);
+  recordFirstPageFetch(assistantId, page, "foreground", "first_page_refresh");
   return {
-    conversations: [...conversations].sort(byTimestampDesc("lastMessageAt")),
-    hasMore,
+    conversations: [...page.conversations].sort(
+      byTimestampDesc("lastMessageAt"),
+    ),
+    hasMore: page.hasMore,
   };
 }
 
@@ -526,24 +533,15 @@ export async function listConversationsFirstPage(
 export async function listBackgroundConversationsFirstPage(
   assistantId: string,
 ): Promise<ConversationListPage> {
-  const { conversations, hasMore, status, durationMs, bytes } =
-    await fetchConversationListPage(assistantId, 0, {
-      conversationType: "background",
-    });
-  recordFirstPageFetch({
-    assistantId,
-    status,
-    count: conversations.length,
-    hasMore,
-    durationMs,
-    bytes,
+  const page = await fetchConversationListPage(assistantId, 0, {
     conversationType: "background",
   });
+  recordFirstPageFetch(assistantId, page, "background", "first_page_refresh");
   return {
-    conversations: conversations
+    conversations: page.conversations
       .filter((c) => !isScheduledConversation(c))
       .sort(byTimestampDesc("lastMessageAt")),
-    hasMore,
+    hasMore: page.hasMore,
   };
 }
 
@@ -551,22 +549,15 @@ export async function listBackgroundConversationsFirstPage(
 export async function listScheduledConversationsFirstPage(
   assistantId: string,
 ): Promise<ConversationListPage> {
-  const { conversations, hasMore, status, durationMs, bytes } =
-    await fetchConversationListPage(assistantId, 0, {
-      conversationType: "scheduled",
-    });
-  recordFirstPageFetch({
-    assistantId,
-    status,
-    count: conversations.length,
-    hasMore,
-    durationMs,
-    bytes,
+  const page = await fetchConversationListPage(assistantId, 0, {
     conversationType: "scheduled",
   });
+  recordFirstPageFetch(assistantId, page, "scheduled", "first_page_refresh");
   return {
-    conversations: [...conversations].sort(byTimestampDesc("lastMessageAt")),
-    hasMore,
+    conversations: [...page.conversations].sort(
+      byTimestampDesc("lastMessageAt"),
+    ),
+    hasMore: page.hasMore,
   };
 }
 

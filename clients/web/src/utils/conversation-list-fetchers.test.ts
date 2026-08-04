@@ -35,6 +35,7 @@ const {
   listConversationsFirstPage,
   listOriginChannelConversations,
   listScheduledConversations,
+  listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
 
 const ASSISTANT_ID = "assistant-1";
@@ -153,7 +154,10 @@ describe("conversation list drain diagnostics", () => {
       count: 2,
       hasMore: true,
       bytes: 100,
+      listKind: "foreground",
+      source: "drain",
     });
+    expect(events[0]?.details).not.toHaveProperty("conversationType");
 
     expect(events[1]?.details).toMatchObject({
       assistantId: ASSISTANT_ID,
@@ -193,6 +197,7 @@ describe("conversation list drain diagnostics", () => {
       assistantId: ASSISTANT_ID,
       offset: 50,
       status: 500,
+      bytes: null,
       conversationType: null,
       archiveStatus: null,
     });
@@ -204,6 +209,64 @@ describe("conversation list drain diagnostics", () => {
       rows: 1,
       totalBytes: 100,
     });
+  });
+
+  test("a failing page's error entry carries the response size", async () => {
+    stubPages([{ ids: [], hasMore: false, status: 500, contentLength: "77" }]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listConversations(ASSISTANT_ID).catch(() => undefined),
+    );
+
+    const errorEntry = events.find(
+      (event) => event.kind === "conversation_list_page_fetch_error",
+    );
+    expect(errorEntry?.details).toMatchObject({ status: 500, bytes: 77 });
+  });
+
+  test("page-0 entries carry the drain's list kind and a drain source", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+    const background = await diagnosticsDuring(() =>
+      listBackgroundConversations(ASSISTANT_ID),
+    );
+
+    expect(background.events[0]?.details).toMatchObject({
+      offset: 0,
+      listKind: "background",
+      source: "drain",
+    });
+
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+    const channel = await diagnosticsDuring(() =>
+      listOriginChannelConversations(ASSISTANT_ID, "slack"),
+    );
+
+    expect(channel.events[0]?.details).toMatchObject({
+      offset: 0,
+      listKind: "origin_channel",
+      source: "drain",
+    });
+
+    // The archive page drains the foreground and background buckets, so both
+    // of its page-0 entries are archive-page cost.
+    stubPages([
+      { ids: ["c-0"], hasMore: false, contentLength: "10" },
+      { ids: ["c-1"], hasMore: false, contentLength: "20" },
+    ]);
+    const archived = await diagnosticsDuring(() =>
+      listArchivedConversations(ASSISTANT_ID),
+    );
+    const pageEntries = archived.events.filter(
+      (event) => event.kind === "conversation_list_page_fetch",
+    );
+
+    expect(pageEntries).toHaveLength(2);
+    for (const entry of pageEntries) {
+      expect(entry.details).toMatchObject({
+        listKind: "archived",
+        source: "drain",
+      });
+    }
   });
 
   test("bytes is null when content-length is absent and numeric when present", async () => {
@@ -283,14 +346,15 @@ describe("first-page fetch diagnostics", () => {
       count: 2,
       hasMore: true,
       bytes: 128,
-      conversationType: null,
+      listKind: "foreground",
+      source: "first_page_refresh",
     });
     expect(typeof events[0]?.details.durationMs).toBe("number");
     // A single page is not a drain, so nothing reaches the telemetry rail.
     expect(emitClientPerfEventMock.mock.calls).toHaveLength(0);
   });
 
-  test("labels the background bucket's entry with its conversation type", async () => {
+  test("labels the background bucket's entry with its list kind", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "12" }]);
 
     const { events } = await diagnosticsDuring(() =>
@@ -300,8 +364,23 @@ describe("first-page fetch diagnostics", () => {
     expect(events[0]?.details).toMatchObject({
       offset: 0,
       status: 200,
-      conversationType: "background",
+      listKind: "background",
+      source: "first_page_refresh",
       bytes: 12,
+    });
+  });
+
+  test("labels the scheduled bucket's entry with its list kind", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "12" }]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listScheduledConversationsFirstPage(ASSISTANT_ID),
+    );
+
+    expect(events[0]?.details).toMatchObject({
+      offset: 0,
+      listKind: "scheduled",
+      source: "first_page_refresh",
     });
   });
 
