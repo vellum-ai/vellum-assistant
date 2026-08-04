@@ -93,6 +93,10 @@ function toActivityContent(
     // not an attribute, so it is not frozen at `start`.
     accentHex: getRenderedAvatarAccentHex() ?? "",
     muted: session.muted,
+    // Only this path carries it — the APNs path composes content from the
+    // push registration, which has no `outputMuted` in it. See the field's
+    // docs in `native-live-activity.ts`.
+    outputMuted: session.outputMuted,
     // The daemon's wording, verbatim, for the same reason the phase label is
     // the room's wording verbatim: the island has a second driver (the APNs
     // push the daemon dispatches while this layer is suspended) and the two
@@ -168,6 +172,7 @@ function sameContent(
     a.label === b.label &&
     a.accentHex === b.accentHex &&
     a.muted === b.muted &&
+    a.outputMuted === b.outputMuted &&
     a.detail === b.detail
   );
 }

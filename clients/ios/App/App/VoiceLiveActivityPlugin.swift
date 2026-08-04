@@ -20,6 +20,15 @@ import Foundation
 /// native side never derives phase wording — see `VoiceSessionAttributes` for
 /// why.
 ///
+/// ## Traffic runs both ways
+///
+/// Content goes out (`start` / `update` / `end`); two things come back as
+/// events. The ActivityKit push token, so the *server* can drive the island
+/// while iOS has this web view suspended, and island button presses, which
+/// arrive through ``deliverControl(_:)`` from an App Intent iOS performs in
+/// this process. Both are events rather than promise results because neither
+/// is the answer to a call the web side made.
+///
 /// ## At most one activity, ever
 ///
 /// The plugin holds a single handle. `start` while one is already running
@@ -69,6 +78,10 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Event carrying an ActivityKit push token to JS. Must match the listener
     /// name in `clients/web/src/runtime/native-live-activity.ts`.
     private static let pushTokenEvent = "liveActivityPushToken"
+
+    /// Event carrying an island button press to JS. Must match the listener
+    /// name in `clients/web/src/runtime/native-live-activity.ts`.
+    private static let controlEvent = "liveActivityControl"
 
     /// Watches ``Activity/pushTokenUpdates`` for the running activity.
     ///
@@ -275,6 +288,36 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         pushTokenTask = nil
     }
 
+    // MARK: - Controls
+
+    /// Forward an island button press to the web layer, which owns the session.
+    ///
+    /// Called from ``VoiceSessionControlIntent/perform()``, which iOS runs in
+    /// *this* process — so this is a direct call, not IPC, and there is no
+    /// App Group, no shared file, and no server round trip between the button
+    /// and the session. `registered` is how it finds the live plugin: an
+    /// intent is not constructed by the bridge and has no handle of its own.
+    ///
+    /// **Best-effort, deliberately not retained.** Capacitor can hold an event
+    /// until a listener attaches (`retainUntilConsumed`), which is right for
+    /// facts and wrong for commands: a mute pressed against a session that is
+    /// already gone would be replayed at whatever session attached next. A
+    /// press that lands with nothing listening does nothing, and the user sees
+    /// that it did nothing, because the island never claimed otherwise (see
+    /// ``VoiceSessionControlIntent/perform()`` on why nothing is applied
+    /// optimistically).
+    ///
+    /// In practice there IS a listener whenever there is an activity: a live
+    /// session holds an active audio session, which is what keeps this app —
+    /// and the web view driving it — running behind the Lock Screen at all.
+    static func deliverControl(_ action: VoiceSessionControlAction) {
+        guard let plugin = registered else {
+            NSLog("[voice] Live Activity control with no plugin loaded; dropping")
+            return
+        }
+        plugin.notifyListeners(controlEvent, data: ["action": action.rawValue])
+    }
+
     // MARK: - Teardown
 
     /// End the running activity as the app terminates. Called from
@@ -354,6 +397,9 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             accentHex: call.getString("accentHex")
                 ?? VoiceSessionAttributes.ContentState.neutralAccentHex,
             muted: call.getBool("muted") ?? false,
+            // Absent from a web bundle older than this field, whose island
+            // shows the assistant as audible. See the property's docs.
+            outputMuted: call.getBool("outputMuted") ?? false,
             // Absent from a web bundle older than this field, which simply has
             // no activity line to show.
             detail: call.getString("detail") ?? ""

@@ -223,6 +223,7 @@ describe("starting the activity", () => {
       label: "Connecting…",
       accentHex: ORANGE,
       muted: false,
+      outputMuted: false,
       detail: "",
       assistantName: "Ada",
     });
@@ -377,6 +378,7 @@ describe("updating the activity", () => {
       label: "Listening…",
       accentHex: ORANGE,
       muted: false,
+      outputMuted: false,
       detail: "",
     });
 
@@ -416,6 +418,26 @@ describe("updating the activity", () => {
     await settled(() => useLiveVoiceStore.getState().setMuted(false));
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(2);
     expect(lastUpdatePayload()?.muted).toBe(false);
+  });
+
+  test("pushes the assistant's mute, the other direction of the same pair", async () => {
+    // The island's speaker button is rendered against this. It is the one
+    // content field the APNs path cannot compose (the push registration does
+    // not carry it), which makes the local push the only thing that ever
+    // gets it right.
+    renderMirror();
+    await setPhase("listening");
+
+    await settled(() => useLiveVoiceStore.getState().setOutputMuted(true));
+    expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
+    expect(lastUpdatePayload()?.outputMuted).toBe(true);
+
+    await settled(() => useLiveVoiceStore.getState().setOutputMuted(true));
+    expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
+
+    await settled(() => useLiveVoiceStore.getState().setOutputMuted(false));
+    expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(2);
+    expect(lastUpdatePayload()?.outputMuted).toBe(false);
   });
 
   test("amplitude and transcript churn pushes nothing", async () => {
@@ -520,6 +542,7 @@ describe("a hands-free reconnect", () => {
       label: "Reconnecting…",
       accentHex: ORANGE,
       muted: true,
+      outputMuted: false,
       detail: "",
     });
   });

@@ -61,6 +61,22 @@ struct VoiceSessionAttributes: ActivityAttributes {
 
         var muted: Bool
 
+        /// Whether the assistant's audio is muted — the other direction of the
+        /// same conversation, and the state the island's speaker button is
+        /// rendered against.
+        ///
+        /// Local pushes from this app always carry it. **A server-composed
+        /// push does not**, and lands here as `false`: the platform composes
+        /// content from what `live-activity-push-registration.ts` registered,
+        /// which is the accent and the *mic* mute only. So the speaker button
+        /// can show unmuted on an island being driven by APNs while the
+        /// suspended web layer has the output muted. It self-corrects the
+        /// moment that layer wakes and pushes, and the button still works
+        /// (it toggles, so it never depends on the state it is drawn from —
+        /// see ``VoiceSessionControlAction``). Registering it is the fix, and
+        /// it is a platform-side change.
+        var outputMuted: Bool
+
         /// One short line describing what the current turn is doing ("Reading
         /// a file"), or `""` when it is doing nothing nameable.
         ///
@@ -77,12 +93,14 @@ struct VoiceSessionAttributes: ActivityAttributes {
             label: String,
             accentHex: String,
             muted: Bool,
+            outputMuted: Bool,
             detail: String
         ) {
             self.phase = phase
             self.label = label
             self.accentHex = Self.canonicalAccentHex(accentHex)
             self.muted = muted
+            self.outputMuted = outputMuted
             self.detail = detail
         }
 
@@ -96,6 +114,14 @@ struct VoiceSessionAttributes: ActivityAttributes {
                 label: try container.decode(String.self, forKey: .label),
                 accentHex: try container.decode(String.self, forKey: .accentHex),
                 muted: try container.decode(Bool.self, forKey: .muted),
+                // Absent from a server-composed push and from a state archived
+                // by an earlier build; both read as "the assistant is audible",
+                // which is the state a session spends nearly all of its time
+                // in. See the property for why the button is unharmed by it.
+                outputMuted: try container.decodeIfPresent(
+                    Bool.self,
+                    forKey: .outputMuted
+                ) ?? false,
                 // Absent from a state pushed by a platform that predates it,
                 // and from one archived by an earlier build of this app. Both
                 // read as "no activity line", which is what those versions

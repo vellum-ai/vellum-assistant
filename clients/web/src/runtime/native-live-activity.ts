@@ -61,6 +61,17 @@ export interface VoiceLiveActivityContent {
   accentHex: string;
   muted: boolean;
   /**
+   * Whether the assistant's audio is muted — the state the island's speaker
+   * button renders against.
+   *
+   * Only this local path carries it; the APNs path composes content from what
+   * `live-activity-push-registration.ts` registered, which does not include it,
+   * so a server-driven island shows the assistant as audible until this layer
+   * wakes and pushes. The button is unharmed either way because it toggles
+   * rather than setting an absolute value. See `VoiceSessionAttributes.swift`.
+   */
+  outputMuted: boolean;
+  /**
    * One short line describing what the current turn is doing ("Reading a
    * file"), or `""` for none. Pass the live-voice store's `activityLabel`
    * verbatim: the daemon words it so that this local push and the APNs push it
@@ -91,6 +102,31 @@ export interface VoiceLiveActivityPushToken {
   token: string;
 }
 
+/**
+ * What an island button asks of the session.
+ *
+ * The two mutes are **toggles**, not absolute settings, and that is the whole
+ * contract rather than an implementation detail: the island renders from a
+ * content state that can be seconds old — or, on the APNs path, composed
+ * without `outputMuted` at all — so a button that sent "mute" based on what it
+ * was drawn from would send the wrong command exactly when the island was
+ * wrong. The layer that owns the session resolves the toggle against live
+ * state.
+ *
+ * Mirrors `VoiceSessionControlAction` in
+ * `clients/ios/App/App/Shared/VoiceSessionControlIntent.swift`; the raw strings
+ * cross the bridge, so **the two must change together**.
+ */
+export type VoiceLiveActivityControlAction =
+  | "toggleMicrophone"
+  | "toggleAssistantAudio"
+  | "endSession";
+
+/** The `liveActivityControl` event payload. */
+export interface VoiceLiveActivityControl {
+  action: VoiceLiveActivityControlAction;
+}
+
 interface VoiceLiveActivityPlugin {
   start(options: VoiceLiveActivityStart): Promise<{ started: boolean }>;
   update(content: VoiceLiveActivityContent): Promise<void>;
@@ -98,6 +134,10 @@ interface VoiceLiveActivityPlugin {
   addListener(
     eventName: "liveActivityPushToken",
     handler: (event: VoiceLiveActivityPushToken) => void,
+  ): Promise<{ remove(): Promise<void> }>;
+  addListener(
+    eventName: "liveActivityControl",
+    handler: (event: VoiceLiveActivityControl) => void,
   ): Promise<{ remove(): Promise<void> }>;
 }
 
@@ -192,6 +232,36 @@ export function subscribeVoiceLiveActivityPushToken(
   }
   return subscribeNativeVoiceListener(
     () => VoiceLiveActivity.addListener("liveActivityPushToken", handler),
+    "native-live-activity",
+  );
+}
+
+/**
+ * Subscribe to island button presses, returning an unsubscribe.
+ *
+ * This is the one inbound path that *acts on* the session rather than
+ * describing it, which is why it does not live beside the mirror: see
+ * `use-live-activity-controls.ts`.
+ *
+ * The press is delivered by an App Intent iOS performs in the app process, so
+ * it arrives as a plain bridge event with no network hop and no credential.
+ * Unrecognized actions are dropped by the consumer rather than filtered here —
+ * a shell newer than this bundle can send an action this build has never heard
+ * of, and the type union is what makes that a compile-time question on the way
+ * back down.
+ *
+ * Fires only while a session is live: nothing native queues these, so a press
+ * that lands with no listener attached does nothing rather than replaying at
+ * the next session. See `VoiceLiveActivityPlugin.deliverControl`.
+ */
+export function subscribeVoiceLiveActivityControl(
+  handler: (event: VoiceLiveActivityControl) => void,
+): () => void {
+  if (!isNativeIOS()) {
+    return () => undefined;
+  }
+  return subscribeNativeVoiceListener(
+    () => VoiceLiveActivity.addListener("liveActivityControl", handler),
     "native-live-activity",
   );
 }
