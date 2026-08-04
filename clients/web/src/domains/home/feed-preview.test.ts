@@ -16,6 +16,9 @@ const PREVIEW_MAX_LENGTH = 280;
 /** The module's `MAX_PARSE_LENGTH`, the bound it puts on the raw markdown. */
 const PARSE_MAX_LENGTH = 4096;
 
+/** The module's `MAX_FALLBACK_PARSE_LENGTH`, the bound on its recovery parse. */
+const FALLBACK_PARSE_MAX_LENGTH = PARSE_MAX_LENGTH * 4;
+
 /** A phrase whose repetition puts the cap in the middle of a word. */
 const CAP_STRADDLING_PHRASE = "lorem ipsum dolor sit amet consectetur ";
 
@@ -540,6 +543,9 @@ describe("summaries past the parse limit", () => {
   /** A fenced block long enough that its closer sits past the parse limit. */
   const LONG_CODE_BODY = "const secret = 1;\n".repeat(400);
 
+  /** A fenced block long enough that its closer sits past the fallback limit. */
+  const OVERSIZED_CODE_BODY = "const secret = 1;\n".repeat(1200);
+
   test("caps prose the same way however far it runs past the limit", () => {
     const summary = CAP_STRADDLING_PHRASE.repeat(400).trim();
     expect(summary.length).toBeGreaterThan(PARSE_MAX_LENGTH);
@@ -574,11 +580,22 @@ describe("summaries past the parse limit", () => {
     expect(preview).not.toContain("const secret");
   });
 
-  test("reparses in full when a cut inside a fence empties the preview", () => {
+  test("reparses a wider window when a cut inside a fence empties the preview", () => {
     const summary = `\`\`\`ts\n${LONG_CODE_BODY}\`\`\`\n\nSee the job output.`;
     expect(summary.lastIndexOf("```")).toBeGreaterThan(PARSE_MAX_LENGTH);
+    expect(summary.lastIndexOf("```")).toBeLessThan(FALLBACK_PARSE_MAX_LENGTH);
 
     expect(flattenSummary(summary)).toBe("See the job output.");
+  });
+
+  test("accepts an empty preview when a fence closes past the fallback window", () => {
+    const summary = `\`\`\`ts\n${OVERSIZED_CODE_BODY}\`\`\`\n\nSee the job output.`;
+    expect(summary.lastIndexOf("```")).toBeGreaterThan(
+      FALLBACK_PARSE_MAX_LENGTH,
+    );
+
+    expect(flattenSummary(summary)).toBe("");
+    expect(resolvePreview("Build log", summary)).toBeNull();
   });
 
   test("returns an empty string for a long summary of only code", () => {

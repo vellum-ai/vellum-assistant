@@ -33,6 +33,16 @@ const MAX_PREVIEW_LENGTH = 280;
 const MAX_PARSE_LENGTH = 4096;
 
 /**
+ * Longest stretch worth re-parsing once the bounded parse comes back empty.
+ * Four times the parse bound, which is wide enough to clear the fenced log or
+ * stack trace a summary realistically leads with, and narrow enough that the
+ * recovery stays a fixed multiple of an already bounded parse rather than
+ * scaling with the summary. A block running past even this leaves the preview
+ * empty, which is the same result the card shows for a summary of only code.
+ */
+const MAX_FALLBACK_PARSE_LENGTH = MAX_PARSE_LENGTH * 4;
+
+/**
  * Sentence punctuation, ignored at the end of a comparison form and left
  * dangling once a title prefix is sliced away. Both sites read this one set,
  * so the slice can never strand a character the comparison already discounted.
@@ -105,8 +115,10 @@ function trimTrailingSentencePunctuation(value: string): string {
  * capped far below that. A cut lands mid-construct often, and the one shape
  * that loses text is a fenced block whose opener sits ahead of it: the fence
  * reads as unterminated, so remark drops everything from the opener on. When
- * that leaves nothing at all, the whole summary is parsed instead, which
- * recovers the text past the block. Only that shape pays for a second parse.
+ * that leaves nothing at all, `MAX_FALLBACK_PARSE_LENGTH` characters are parsed
+ * instead, which recovers the text past a block that closes inside that wider
+ * window. Only that shape pays for a second parse, and both parses read a fixed
+ * length, so no summary is ever parsed whole once it runs past the bound.
  */
 function flattenMarkdownBlocks(summary: string): string {
   if (summary.length <= MAX_PARSE_LENGTH) {
@@ -116,7 +128,7 @@ function flattenMarkdownBlocks(summary: string): string {
   if (flattened.length > 0 || summary.trim().length === 0) {
     return flattened;
   }
-  return parseToSingleLine(summary);
+  return parseToSingleLine(summary.slice(0, MAX_FALLBACK_PARSE_LENGTH));
 }
 
 /** Parse markdown and collapse the tree's text down to one line. */
