@@ -214,14 +214,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "platform-notifications",
-      "scope": "client",
-      "key": "platform-notifications",
-      "label": "Platform Notifications",
-      "description": "Enable the Notifications tab in settings.",
-      "defaultEnabled": false
-    },
-    {
       "id": "centralized-assistant-status",
       "scope": "client",
       "key": "centralized-assistant-status",
