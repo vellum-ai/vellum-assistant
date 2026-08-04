@@ -58,6 +58,10 @@ export function useEventBusInit({
     if (typeof window === "undefined") {
       return;
     }
+    // The post-resume request counter is deliberately absent: React runs
+    // descendant effects before ancestor ones, so a counter registered here
+    // would open its window after in-tree subscribers had already fired their
+    // resume requests. It installs from `lib/api-interceptors.ts` module scope.
     const unsubscribers = [
       publishVisibilitySource(),
       publishWindowOnlineSource(),

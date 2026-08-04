@@ -336,7 +336,7 @@ export function authorizeRemoteGatewayRequest(
  *
  * Counting happens once per request, after the routing decision, and this is
  * the single choke point on each client's chain. On the platform chain it is
- * additionally conditioned on {@link platformFeaturesGateAllows}, the gate
+ * additionally conditioned on {@link platformFeaturesGateDecision}, the gate
  * registered downstream, so a request that gate aborts is never counted. The
  * auth chain reaches neither test: allauth endpoints live under `/_allauth/`
  * and are never daemon-bound.
@@ -359,7 +359,8 @@ function createInterceptor({
       return true;
     }
     return (
-      isDaemonBoundPath(url) && platformFeaturesGateAllows(outgoing) === "allow"
+      isDaemonBoundPath(url) &&
+      platformFeaturesGateDecision(outgoing) === "allow"
     );
   }
 
@@ -811,11 +812,30 @@ function arePlatformFeaturesEnabled(): boolean {
 
 /**
  * What {@link platformFeaturesGate} does with a request. A deny carries the
- * reason it was denied, so the gate reports it without re-probing the mode this
- * function already looked at; a third reason cannot be mislabelled as one of
- * the existing two.
+ * reason it was denied, so the gate reports it without re-probing the mode the
+ * decision already looked at. {@link PLATFORM_GATE_DENIALS} keys off this
+ * union, so a third reason cannot be mislabelled as one of the existing two.
  */
 type PlatformGateDecision = "allow" | "deny_remote_gateway" | "deny_local";
+
+/**
+ * How each denial is reported. Keyed by every deny decision, so a new reason
+ * added to {@link PlatformGateDecision} fails to compile until it says what it
+ * logs and what it aborts with.
+ */
+const PLATFORM_GATE_DENIALS: Record<
+  Exclude<PlatformGateDecision, "allow">,
+  { log: string; abortMessage: string }
+> = {
+  deny_remote_gateway: {
+    log: "remote-gateway mode, no-op platform request:",
+    abortMessage: "Platform routes disabled in remote-gateway mode",
+  },
+  deny_local: {
+    log: "VELLUM_DISABLE_PLATFORM is set, no-op platform request:",
+    abortMessage: "Platform features disabled in local mode",
+  },
+};
 
 /**
  * The decision {@link platformFeaturesGate} reaches for this request.
@@ -824,7 +844,7 @@ type PlatformGateDecision = "allow" | "deny_remote_gateway" | "deny_local";
  * {@link requestInterceptor}, so a self-hosted rewrite (gateway origin, bearer
  * auth) has already happened by the time it runs.
  */
-function platformFeaturesGateAllows(request: Request): PlatformGateDecision {
+function platformFeaturesGateDecision(request: Request): PlatformGateDecision {
   if (isRemoteGatewayMode()) {
     const hasBearer =
       request.headers
@@ -861,27 +881,15 @@ function platformFeaturesGateAllows(request: Request): PlatformGateDecision {
  * Exported for direct unit testing.
  */
 export function platformFeaturesGate(request: Request): Request {
-  const decision = platformFeaturesGateAllows(request);
+  const decision = platformFeaturesGateDecision(request);
   if (decision === "allow") {
     return request;
   }
 
-  const remoteGateway = decision === "deny_remote_gateway";
-  console.debug(
-    remoteGateway
-      ? "remote-gateway mode, no-op platform request:"
-      : "VELLUM_DISABLE_PLATFORM is set, no-op platform request:",
-    new URL(request.url).pathname,
-  );
+  const denial = PLATFORM_GATE_DENIALS[decision];
+  console.debug(denial.log, new URL(request.url).pathname);
   const aborted = new AbortController();
-  aborted.abort(
-    new DOMException(
-      remoteGateway
-        ? "Platform routes disabled in remote-gateway mode"
-        : "Platform features disabled in local mode",
-      "AbortError",
-    ),
-  );
+  aborted.abort(new DOMException(denial.abortMessage, "AbortError"));
   return new Request(request.url, { signal: aborted.signal });
 }
 
