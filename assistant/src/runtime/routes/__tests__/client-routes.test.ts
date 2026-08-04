@@ -1,10 +1,13 @@
 /**
- * Tests for the GET /v1/clients (list_clients) route.
+ * Tests for the client registry routes.
  *
- * Validates the same-user filter applied to client listings:
+ * GET /v1/clients (list_clients) applies a same-user filter to listings:
  * - Caller sees only clients owned by their `actorPrincipalId`.
  * - Clients with no stored `actorPrincipalId` are filtered out (fail-closed).
  * - Dev-bypass mode (`isHttpAuthDisabled()`) returns all clients.
+ *
+ * POST /v1/clients/presence (report_client_presence) records presence keyed
+ * off the `x-vellum-client-id` header.
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -22,6 +25,7 @@ mock.module("../../../config/env.js", () => ({
 
 import { assistantEventHub } from "../../assistant-event-hub.js";
 import { ROUTES } from "../client-routes.js";
+import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 afterAll(() => {
@@ -159,5 +163,64 @@ describe("list_clients route — same-user filter", () => {
 
     expect(result.clients).toHaveLength(1);
     expect(result.clients[0].degraded).toBe(false);
+  });
+});
+
+describe("report_client_presence route", () => {
+  beforeEach(() => {
+    fakeHttpAuthDisabled = false;
+    clearHub();
+  });
+
+  test("records presence against the client named by the header", () => {
+    registerClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_client_presence");
+    const result = handler({
+      headers: { "x-vellum-client-id": "client-A1" },
+      body: { state: "active" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: true });
+    expect(assistantEventHub.getClientById("client-A1")?.presence?.state).toBe(
+      "active",
+    );
+  });
+
+  test("returns recorded false when no connected client matches", () => {
+    const handler = findHandler("report_client_presence");
+    const result = handler({
+      headers: { "x-vellum-client-id": "client-gone" },
+      body: { state: "idle" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: false });
+  });
+
+  test("throws BadRequestError when the client-id header is missing", () => {
+    const handler = findHandler("report_client_presence");
+
+    expect(() => handler({ body: { state: "active" } })).toThrow(
+      BadRequestError,
+    );
+    expect(() =>
+      handler({ headers: { "x-vellum-client-id": "  " }, body: {} }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("rejects an unknown presence state", () => {
+    registerClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("report_client_presence");
+
+    expect(() =>
+      handler({
+        headers: { "x-vellum-client-id": "client-A1" },
+        body: { state: "asleep" },
+      }),
+    ).toThrow(BadRequestError);
+    expect(
+      assistantEventHub.getClientById("client-A1")?.presence,
+    ).toBeUndefined();
   });
 });

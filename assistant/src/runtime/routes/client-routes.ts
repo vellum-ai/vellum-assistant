@@ -10,14 +10,35 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { datesToISO } from "../../util/json.js";
+import type { DesktopPresenceState } from "../assistant-event-hub.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   isClientDegraded,
 } from "../client-health.js";
-import { NotFoundError } from "./errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition } from "./types.js";
+
+/**
+ * States the client may report. `satisfies` keeps this tuple a subset of
+ * {@link DesktopPresenceState}, so the wire enum cannot drift past the type.
+ */
+const PRESENCE_STATES = [
+  "active",
+  "idle",
+  "away",
+] as const satisfies readonly DesktopPresenceState[];
+
+/**
+ * Body of `POST /v1/clients/presence`, declared as the route's `requestBody`
+ * and parsed by the handler, so the OpenAPI contract and the runtime check are
+ * one schema rather than two hand-kept copies.
+ */
+const PresenceBodySchema = z.object({
+  state: z.enum(PRESENCE_STATES).describe("Reported desktop presence state."),
+});
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -114,6 +135,36 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError(`No connected client with id "${clientId}"`);
       }
       return { disconnected: count };
+    },
+  },
+  {
+    operationId: "report_client_presence",
+    endpoint: "clients/presence",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Report desktop presence",
+    description:
+      "Record the desktop presence state reported by the client identified by the X-Vellum-Client-Id header.",
+    tags: ["clients"],
+    requestBody: PresenceBodySchema,
+    responseBody: z.object({
+      recorded: z
+        .boolean()
+        .describe("Whether a connected client matched the reporting clientId."),
+    }),
+    handler: ({ body, headers }) => {
+      const clientId = headers?.["x-vellum-client-id"]?.trim();
+      if (!clientId) {
+        throw new BadRequestError(
+          "x-vellum-client-id header is required to report presence.",
+        );
+      }
+      const { state } = parseBody(PresenceBodySchema, body);
+      // A report racing an SSE reconnect matches nothing; normal, so not a 404.
+      return { recorded: assistantEventHub.setClientPresence(clientId, state) };
     },
   },
 ];

@@ -4615,6 +4615,43 @@ paths:
                 required:
                   - disconnected
                 additionalProperties: false
+  /v1/clients/presence:
+    post:
+      operationId: clients_presence_post
+      summary: Report desktop presence
+      description: Record the desktop presence state reported by the client identified by the X-Vellum-Client-Id header.
+      tags:
+        - clients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - active
+                    - idle
+                    - away
+                  description: Reported desktop presence state.
+              required:
+                - state
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    description: Whether a connected client matched the reporting clientId.
+                required:
+                  - recorded
+                additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
