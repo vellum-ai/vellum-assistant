@@ -318,7 +318,9 @@ export const installLocalMode = (): void => {
     "vellum:localMode:unpair",
     assistantIdArgs,
     ([assistantId]): LockfileWriteResult => {
-      if (!assistantId) return { ok: false, error: "Missing assistantId" };
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
       const result = unpairAssistant(lockfilePaths, configDir, assistantId);
       return result.ok
         ? { ok: true, lockfile: result.lockfile }

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 
 import { guardianTokenPath } from "./config";
 import {
@@ -38,11 +39,18 @@ export function unpairAssistant(
     };
   }
 
-  lockfile.assistants = assistants.filter(
-    (a) => a?.assistantId !== assistantId,
-  );
+  const remaining = assistants.filter((a) => a?.assistantId !== assistantId);
+  lockfile.assistants = remaining;
+  // Reassign the active assistant like the CLI's removeAssistantEntry does, so
+  // unpairing through the bridge and through `vellum unpair` leave the same
+  // active state.
   if (lockfile.activeAssistant === assistantId) {
-    lockfile.activeAssistant = null;
+    const next = remaining[0]?.assistantId;
+    if (typeof next === "string") {
+      lockfile.activeAssistant = next;
+    } else {
+      delete lockfile.activeAssistant;
+    }
   }
 
   const result = writeRawLockfile(lockfilePaths, lockfile);
@@ -50,6 +58,19 @@ export function unpairAssistant(
     return result;
   }
 
-  fs.rmSync(guardianTokenPath(configDir, assistantId), { force: true });
+  // Best-effort, like the CLI's deleteGuardianToken: the entry is already
+  // gone from the lockfile, so a failed token delete must not surface as a
+  // rejected invoke (retrying would 404 on the missing entry anyway).
+  const tokenPath = guardianTokenPath(configDir, assistantId);
+  try {
+    fs.rmSync(tokenPath, { force: true });
+  } catch {
+    // Stale token file remains; it is unusable without its lockfile entry.
+  }
+  try {
+    fs.rmdirSync(path.dirname(tokenPath));
+  } catch {
+    // Directory not empty or absent.
+  }
   return result;
 }

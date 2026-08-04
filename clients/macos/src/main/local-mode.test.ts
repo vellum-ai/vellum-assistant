@@ -625,7 +625,9 @@ describe("vellum:localMode:unpair handler", () => {
     const result = unpair("paired-1");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.lockfile.activeAssistant).toBeNull();
     expect(result.lockfile.assistants).toEqual([]);
     expect(fs.existsSync(tokenPath("paired-1"))).toBe(false);
@@ -641,7 +643,9 @@ describe("vellum:localMode:unpair handler", () => {
     const result = unpair("local-1");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error).toContain("paired");
   });
 

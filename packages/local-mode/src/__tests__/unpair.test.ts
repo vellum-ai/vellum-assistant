@@ -35,7 +35,7 @@ const seedGuardianToken = (assistantId: string): string => {
 };
 
 describe("unpairAssistant", () => {
-  test("removes the paired entry, deletes its guardian token, and clears the active pointer", () => {
+  test("removes the paired entry, deletes its guardian token, and reassigns the active pointer", () => {
     writeLockfile({
       assistants: [
         { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
@@ -48,8 +48,12 @@ describe("unpairAssistant", () => {
     const result = unpairAssistant([lockfilePath], configDir, "paired-1");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.lockfile.activeAssistant).toBeNull();
+    if (!result.ok) {
+      return;
+    }
+    // Active falls back to the first remaining entry, matching the CLI's
+    // removeAssistantEntry semantics.
+    expect(result.lockfile.activeAssistant).toBe("local-1");
     expect(result.lockfile.assistants.map((a) => a.assistantId)).toEqual([
       "local-1",
     ]);
@@ -60,7 +64,23 @@ describe("unpairAssistant", () => {
     expect(onDisk.assistants).toEqual([
       { assistantId: "local-1", cloud: "local", futureField: "keep-me" },
     ]);
-    expect(onDisk.activeAssistant).toBeNull();
+    expect(onDisk.activeAssistant).toBe("local-1");
+  });
+
+  test("removing the sole (active) entry leaves no active pointer", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: "paired-1",
+    });
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.lockfile.activeAssistant).toBeNull();
+    expect(result.lockfile.assistants).toEqual([]);
   });
 
   test("leaves the active pointer alone when it names another assistant", () => {
@@ -75,7 +95,9 @@ describe("unpairAssistant", () => {
     const result = unpairAssistant([lockfilePath], configDir, "paired-1");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.lockfile.activeAssistant).toBe("local-1");
   });
 
@@ -116,7 +138,9 @@ describe("unpairAssistant", () => {
     const result = unpairAssistant([lockfilePath], configDir, "local-1");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.status).toBe(400);
     expect(result.error).toContain("paired");
     expect(fs.existsSync(tokenPath)).toBe(true);
@@ -134,7 +158,9 @@ describe("unpairAssistant", () => {
     const result = unpairAssistant([lockfilePath], configDir, "bare-1");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.status).toBe(400);
   });
 });

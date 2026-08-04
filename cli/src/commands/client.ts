@@ -685,7 +685,9 @@ async function handleLocalEndpoints(
 
   // Unpair: forget a paired assistant (lockfile entry + guardian token).
   if (UNPAIR_PATTERN.test(pathname)) {
-    if (req.method !== "POST") return new Response(null, { status: 405 });
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
 
     let assistantId: string | undefined;
     try {
