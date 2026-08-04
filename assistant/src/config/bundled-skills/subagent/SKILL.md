@@ -59,7 +59,7 @@ Checking that something is actually done is not a fourth type. It is a `research
 
 A verdict subagent returns, for each criterion in the objective, `PASS` or `FAIL` plus the exact evidence (file path, line, value, or quote), `CANNOT VERIFY` where the evidence is missing, and nothing else. Give it the criteria explicitly in the objective; a vague "check the work" gets you a vague list.
 
-It runs on a cheaper model by default, because checking a claim against evidence that already exists is mechanical work, not investigation. An explicit `inference_profile` still wins if a check genuinely needs a stronger model.
+It runs on a cheaper model by default, because checking a claim against evidence that already exists is mechanical work, not investigation. An explicit `inference_profile` still wins if a check genuinely needs a stronger model, and so does a profile pinned on the `subagentSpawn` call site in config (see Inference Profile below).
 
 The other contracts: `output_contract: "artifact"` tells a `builder` that the deliverable is the thing produced and to end by listing the exact files it created or modified. `"report"` is the default and asks for nothing extra. A contract that does not match the type is rejected rather than quietly changed, and the `advisor` takes no contract (it has its own framing).
 
@@ -109,7 +109,11 @@ Set `send_result_to_user: false` when spawning a subagent whose result is for in
 
 ## Repeat Spawns
 
-Spawning an objective that several near-identical subagents have already completed in the last day can come back as a message about those earlier runs instead of a new subagent. It is advisory, not a block: read what the earlier run produced with `subagent_read`, narrow the objective to what is actually still missing, or pass `confirm_repeat: true` to spawn anyway. An `advisor` consult is never held this way.
+Spawning an objective that several near-identical subagents have already completed in the last day can come back as a message about those earlier runs instead of a new subagent. Read what the earlier run produced with `subagent_read`, or narrow the objective to what is actually still missing.
+
+A second message covers the other shape: near-identical copies that are still running and have returned nothing yet. There is nothing to read in that case, so wait for the running ones to report back, or narrow the objective to the part they are not covering.
+
+Either way it is advisory, not a block: pass `confirm_repeat: true` to spawn anyway. An `advisor` consult is never held this way.
 
 ## Inference Profile
 
@@ -117,7 +121,9 @@ Set `inference_profile` to an `llm.profiles` key when a subagent should run unde
 
 When it is omitted, one of two things happens. Normally the subagent inherits the parent turn's active profile if one exists, and otherwise uses the `subagentSpawn` call site's default model selection. When profile isolation is enabled, the subagent always takes the `subagentSpawn` default rather than the parent's profile, and an explicit `inference_profile` the model catalog does not report as tool-capable is replaced by that default with a note on the spawn result.
 
-`output_contract: "verdict"` takes a cheaper profile ahead of either path, so a verdict runs cheap unless you name an `inference_profile` yourself.
+An `advisor` consult is the exception to that second half: it carries read-only tools whether or not profile isolation is on, so a profile the catalog does not report as tool-capable is always replaced by the `subagentSpawn` default, with a note alongside the guidance.
+
+`output_contract: "verdict"` takes a cheaper profile ahead of either path, so a verdict runs cheap unless you name an `inference_profile` yourself. A profile pinned on the `subagentSpawn` call site in config also beats the cheap preset, so an operator can decide what checks run on.
 
 ## Fork Mode
 

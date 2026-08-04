@@ -266,10 +266,11 @@ export interface UnreportedUsageEvent extends UsageEvent {
    */
   subagentRole: string | null;
   /**
-   * How that subagent was spawned (`regular` / `fork` / `advisor_consult` /
-   * `voice_continuation`). Orthogonal to `subagentRole`: the role selects the
-   * child's capabilities, the spawn mode selects its context inheritance and
-   * lifecycle. Null under the same conditions as `subagentRole`.
+   * How that subagent was spawned, one of the modes described on
+   * `SubagentSpawnMode` in `subagent/types.ts`. Orthogonal to `subagentRole`:
+   * the role selects the child's capabilities, the spawn mode selects its
+   * context inheritance and lifecycle. Null under the same conditions as
+   * `subagentRole`.
    */
   subagentSpawnMode: string | null;
 }

@@ -3476,7 +3476,7 @@ describe("Subagent advisor-role consult", () => {
       expect(sawAbort).toBe(true);
       expect(result.isError).toBe(false);
       expect(result.content).toContain("Check the migration ordering first.");
-      expect(result.content).toContain("stopped after 8 tool calls");
+      expect(result.content).toContain("used its full budget of 8 tool calls");
       // Counting must not swallow the child's events on their way to the client.
       expect(forwarded).toHaveLength(12);
     } finally {
@@ -3539,12 +3539,45 @@ describe("Subagent advisor-role consult", () => {
 
       expect(result.isError).toBe(false);
       expect(result.content).toContain(
-        "advisor stopped after 8 tool calls without writing any guidance",
+        "advisor used its full budget of 8 tool calls without writing any guidance",
       );
       // The generic degrade would say nothing about why it stopped.
       expect(result.content).not.toContain("advisor unavailable");
     } finally {
       restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("a consult that both fell back on profile and hit the cap says both", async () => {
+    // The profile note explains guidance that reads oddly, so the branch with
+    // no guidance at all is exactly where it is most needed.
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    setConfig("llm", { ...BASE_LLM_CONFIG, advisorProfile: "no-tool-model" });
+    const { restore } = stubAwait(async (send) => {
+      for (let i = 0; i < 9; i++) {
+        send(toolCallEvent(`tool-${i}`));
+      }
+      throw new SubagentAbortedError("  ");
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-tool-cap-note", { sendToClient: () => {} }),
+      );
+
+      expect(result.content).toContain(
+        "advisor used its full budget of 8 tool calls without writing any guidance",
+      );
+      expect(result.content).toContain(
+        'profile "no-tool-model" is not verified for tool calling',
+      );
+    } finally {
+      restore();
+      setConfig("llm", BASE_LLM_CONFIG);
       mockFindConversation = () => undefined;
     }
   });

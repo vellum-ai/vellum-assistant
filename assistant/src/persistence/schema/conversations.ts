@@ -63,9 +63,8 @@ export const conversations = sqliteTable(
     /**
      * How the subagent that owns this conversation was spawned: context
      * inheritance and lifecycle, orthogonal to {@link subagentRole}. One of
-     * `regular`, `fork`, `advisor_consult`, `voice_continuation`, each
-     * described once on `SubagentSpawnMode` in `subagent/types.ts`. NULL for
-     * every conversation that is not a subagent.
+     * the modes described on `SubagentSpawnMode` in `subagent/types.ts`. NULL
+     * for every conversation that is not a subagent.
      */
     subagentSpawnMode: text("subagent_spawn_mode"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
