@@ -24,16 +24,21 @@ export function SubagentAvatarRow({
 }: SubagentAvatarRowProps) {
   const overflowCount = subagentIds.length - MAX_VISIBLE_SUBAGENT_AVATARS;
 
+  // The row wraps because it can outgrow a phone-width transcript column. At
+  // the six-avatar cap the badges, the overflow chip, and the Details label
+  // need more than the 343px a 375px viewport leaves after the transcript's
+  // px-4, and the transcript wrapper is `contain-content`, so an unwrapped row
+  // loses the Details affordance to clipping rather than overflowing visibly.
   return (
     <button
       type="button"
       onClick={onExpand}
       aria-label="Show subagent details"
       data-testid="subagent-avatar-row-details"
-      className="flex cursor-pointer items-center gap-3"
+      className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-2"
     >
       {/* pointer-events-none so clicking an avatar triggers the button, not the avatar. */}
-      <div className="pointer-events-none flex items-center gap-1">
+      <div className="pointer-events-none flex flex-wrap items-center gap-1">
         {subagentIds.slice(0, MAX_VISIBLE_SUBAGENT_AVATARS).map((id) => (
           <SubagentAvatarBadge key={id} subagentId={id} />
         ))}
