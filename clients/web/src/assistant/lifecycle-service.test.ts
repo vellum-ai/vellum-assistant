@@ -1309,6 +1309,40 @@ describe("lifecycleService — local health heartbeat", () => {
     }
   });
 
+  test("an auth-stale probe resets the failure streak", async () => {
+    await driveHealthyThenProbe(async () => {
+      throw new Error("network error");
+    });
+
+    const probe = (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability.bind(lifecycleService);
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+
+    getAssistantHealthzMock.mockImplementation(async () => ({
+      ok: false,
+      status: 401,
+    }));
+    await probe(assistantId!);
+
+    getAssistantHealthzMock.mockImplementation(async () => {
+      throw new Error("network error");
+    });
+    await probe(assistantId!);
+
+    // Drop, answered-401, drop: the 401 proved the gateway reachable, so the
+    // two drops are not consecutive and health must hold.
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.health).toBe("healthy");
+      expect(state.reachable).toBe(true);
+    }
+  });
+
   test("a successful probe resets the failure streak", async () => {
     await driveHealthyThenProbe(async () => {
       throw new Error("network error");

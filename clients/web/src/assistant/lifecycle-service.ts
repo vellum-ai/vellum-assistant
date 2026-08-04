@@ -690,13 +690,14 @@ class AssistantLifecycleService {
           const healthz = await getAssistantHealthz(assistantId);
           // An answered 401/403 proves the gateway is up: the session bearer
           // went stale (remote-web access tokens rotate continuously), not
-          // the assistant. Mapping it to "unreachable" flashed the wake
-          // banner on every rollover, so keep the last known health and
-          // nudge the session refresh instead.
+          // the assistant. Keep the last known health, count the answer as
+          // evidence of reachability for the failure streak, and nudge the
+          // session refresh.
           if (
             !healthz.ok &&
             (healthz.status === 401 || healthz.status === 403)
           ) {
+            this.probeFailureStreak = 0;
             if (isRemoteGatewayMode()) {
               void refreshRemoteGatewaySession();
             }
