@@ -1209,7 +1209,7 @@ export async function handleListMessages({
       // falling back to createdAt (persistence time). Clients use this display
       // timestamp as their pagination cursor after memory-pressure trimming,
       // while server-side pagination filters on createdAt. The mismatch is
-      // benign — it may return slightly extra data on a page boundary but never
+      // benign: it may return slightly extra data on a page boundary but never
       // loses messages.
       const displayTimestamp = m.sentAt ?? m.createdAt;
       return {

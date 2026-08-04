@@ -126,7 +126,7 @@ describe("upscaleImageToMinimum", () => {
 });
 
 describe("optimizeImageForTransport", () => {
-  it("passes an undersized image through unchanged — the minimum floor is rejection-path only", async () => {
+  it("passes an undersized image through unchanged: the minimum floor is rejection-path only", async () => {
     // The floor is undocumented provider behavior, so pre-send transport
     // never enforces it; only the image-recovery plugin reacts to an actual
     // "Could not process image" rejection.
