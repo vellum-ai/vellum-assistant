@@ -43,6 +43,7 @@ import {
   isCliWakeableAssistant,
   isLocalAssistant,
   isLocalGatewayAssistant,
+  isPairedAssistant,
   isPlatformAssistant,
   isRemoteGatewayMode,
   loadLockfile,
@@ -401,6 +402,13 @@ describe("assistant classification", () => {
       const remote = { assistantId: `r-${cloud}`, cloud } as LockfileAssistant;
       expect(isLocalAssistant(remote)).toBe(false);
       expect(isPlatformAssistant(remote)).toBe(false);
+    }
+  });
+
+  test("only paired-cloud entries are paired assistants", () => {
+    expect(isPairedAssistant({ cloud: "paired" })).toBe(true);
+    for (const cloud of ["local", "docker", "vellum", undefined]) {
+      expect(isPairedAssistant({ cloud })).toBe(false);
     }
   });
 

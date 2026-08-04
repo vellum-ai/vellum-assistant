@@ -29,6 +29,7 @@ import { createSelectors } from "@/utils/create-selectors";
 import {
   isLocalClient,
   isLocalAssistant,
+  isPairedAssistant,
   isPlatformAssistant,
 } from "@/lib/local-mode";
 import {
@@ -52,6 +53,9 @@ export interface ResolvedAssistant {
   isActiveLockfileAssistant?: boolean;
   isLocal: boolean;
   isPlatformHosted: boolean;
+  isPaired: boolean;
+  /** Remote gateway URL for paired entries; only the lockfile carries it. */
+  runtimeUrl?: string;
   /** Owning org for platform entries; only the lockfile carries it, so
    *  API-sourced entries leave this undefined. */
   organizationId?: string;
@@ -133,6 +137,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         isActiveLockfileAssistant: activeLockfileAssistantId === a.assistantId,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
+        isPaired: isPairedAssistant(a),
+        runtimeUrl: a.runtimeUrl,
         organizationId: a.organizationId,
       }));
       set({ assistants, assistantsHydrated: true });
@@ -162,6 +168,9 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             isActiveLockfileAssistant: lockfileFields.isActiveLockfileAssistant,
             isLocal: a.is_local,
             isPlatformHosted: !a.is_local,
+            // API-sourced entries are never paired; paired entries only ever
+            // arrive via the lockfile subscription.
+            isPaired: false,
           };
         }),
       }),
@@ -178,6 +187,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           releaseChannel: assistant.release_channel,
           isLocal: assistant.is_local,
           isPlatformHosted: !assistant.is_local,
+          isPaired: false,
         };
         const idx = state.assistants.findIndex((a) => a.id === assistant.id);
         if (idx >= 0) {

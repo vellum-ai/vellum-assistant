@@ -450,6 +450,17 @@ export function isPlatformAssistant(a: LockfileAssistant): boolean {
 }
 
 /**
+ * A remote assistant paired from another machine via `vellum connect import`
+ * (`cloud === "paired"`): reached directly at its own `runtimeUrl` with the
+ * stored guardian access token as the bearer. Not local (no lifecycle flows,
+ * wake/retire refuse it) and not platform (no platform session involved).
+ * See the `KNOWN_CLOUDS` taxonomy in `@vellumai/local-mode/contract`.
+ */
+export function isPairedAssistant(a: { cloud?: string }): boolean {
+  return a.cloud === "paired";
+}
+
+/**
  * Whether `vellum wake` can start or repair the assistant with this id. Wake
  * operates only on plain local assistants (the {@link isLocalAssistant} set) —
  * it refuses Docker and apple-container entries — so the "Wake up" and
