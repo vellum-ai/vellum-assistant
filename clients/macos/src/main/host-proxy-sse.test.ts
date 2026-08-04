@@ -226,6 +226,46 @@ describe("HostProxySseClient", () => {
     expect(messages.some((m) => m.type === "ok")).toBe(true);
   });
 
+  test("disconnect during a slow token refresh stops the pending reconnect", async () => {
+    let fetchCount = 0;
+    const fakeFetch: typeof globalThis.fetch = (async () => {
+      fetchCount++;
+      // Every attempt fails, driving the client into the reconnect path
+      throw new Error("network error");
+    }) as unknown as typeof globalThis.fetch;
+
+    let refreshStarted = false;
+    let resolveRefresh: (token: string | null) => void = () => {};
+    const onRefreshToken = (): Promise<string | null> => {
+      refreshStarted = true;
+      return new Promise((r) => {
+        resolveRefresh = r;
+      });
+    };
+
+    client = new HostProxySseClient({
+      eventsUrl: "https://stale.example.ngrok.app/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
+      fetch: fakeFetch,
+      onRefreshToken,
+    });
+    client.connect();
+
+    // First attempt fails immediately; the reconnect timer fires after ~1s
+    // and blocks awaiting the slow token refresh.
+    await flush(1_200);
+    expect(fetchCount).toBe(1);
+    expect(refreshStarted).toBe(true);
+
+    // Unpair while the refresh is still in flight, then let it complete.
+    client.disconnect();
+    resolveRefresh("fresh-token");
+    await flush(200);
+
+    // The stale client must not dial the old eventsUrl again.
+    expect(fetchCount).toBe(1);
+  });
+
   // -- Idle watchdog ------------------------------------------------------
 
   test("idle watchdog triggers reconnect when no traffic arrives", async () => {
