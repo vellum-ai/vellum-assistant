@@ -48,13 +48,52 @@ function hasPopulatedUsersDir(): boolean {
   }
 }
 
-function hasExistingConversations(): boolean {
+/**
+ * Conversation types that are internal side channels rather than threads the
+ * user opens: onboarding research, personality/identity rewrites, heartbeat
+ * and scheduled runs, plus legacy private rows.
+ */
+const HIDDEN_CONVERSATION_TYPES = new Set([
+  "background",
+  "scheduled",
+  "private",
+]);
+
+/**
+ * Whether the workspace carries at least one standard (user-visible)
+ * conversation.
+ *
+ * Classifies each disk-view directory by the `type` in its `meta.json` rather
+ * than counting raw directory entries, because hidden side threads get a
+ * disk-view directory too and must not be mistaken for the user's own history.
+ * The type read here is the same value `countConversations("standard")` filters
+ * on, but the answer comes off disk rather than out of the database:
+ * `ensurePromptFiles()` runs before `initializeDb()` settles in
+ * `daemon/lifecycle.ts`, so a query here would hit a partially-migrated schema.
+ *
+ * An entry whose `meta.json` is missing or unreadable counts as standard: a
+ * directory the daemon cannot classify is far more likely to be legacy history
+ * than a side thread, and over-counting only keeps onboarding from re-running.
+ */
+function hasStandardConversations(): boolean {
   try {
     const convDir = getConversationsDir();
     if (!existsSync(convDir)) {
       return false;
     }
-    return readdirSync(convDir).length > 0;
+    return readdirSync(convDir).some((entry) => {
+      try {
+        const meta = JSON.parse(
+          readFileSync(join(convDir, entry, "meta.json"), "utf-8"),
+        ) as { type?: unknown };
+        return (
+          typeof meta.type !== "string" ||
+          !HIDDEN_CONVERSATION_TYPES.has(meta.type)
+        );
+      } catch {
+        return true;
+      }
+    });
   } catch {
     return false;
   }
@@ -78,14 +117,14 @@ export function ensurePromptFiles(): void {
 
   // Track whether this is a fresh workspace.  A workspace counts as fresh
   // only when none of these signals are present: core prompt files, a
-  // populated `users/` directory, or existing conversations.  Upgraded
-  // workspaces that dropped USER.md but still carry personas or history
-  // would otherwise be mistaken for fresh installs and re-trigger
+  // populated `users/` directory, or existing standard conversations.
+  // Upgraded workspaces that dropped USER.md but still carry personas or
+  // history would otherwise be mistaken for fresh installs and re-trigger
   // onboarding.
   const isFirstRun =
     PROMPT_FILES.every((file) => !existsSync(getWorkspacePromptPath(file))) &&
     !hasPopulatedUsersDir() &&
-    !hasExistingConversations();
+    !hasStandardConversations();
 
   for (const file of PROMPT_FILES) {
     const dest = getWorkspacePromptPath(file);
@@ -152,18 +191,20 @@ export function ensurePromptFiles(): void {
   // Auto-delete stale BOOTSTRAP.md at startup.  The model is instructed to
   // delete it at the end of the first conversation, but if the user closes
   // the app or starts a new thread before the model gets another turn, it
-  // never gets the chance.  If BOOTSTRAP.md still exists but prior
-  // conversations are present, the onboarding window has passed — clean up.
+  // never gets the chance.  If BOOTSTRAP.md still exists but prior standard
+  // conversations are present, the onboarding window has passed, so clean up.
+  //
+  // Only standard conversations count, matching the in-process gate in
+  // `persistence/conversation-key-store.ts`.  Onboarding mints hidden side
+  // threads before the user's first visible chat, so counting those would
+  // delete BOOTSTRAP.md out from under that chat on the next daemon restart.
   const bootstrapCleanup = getWorkspacePromptPath("BOOTSTRAP.md");
-  if (!isFirstRun && existsSync(bootstrapCleanup)) {
-    const convDir = getConversationsDir();
-    try {
-      if (existsSync(convDir) && readdirSync(convDir).length > 0) {
-        cleanupBootstrapFiles("prior conversations exist");
-      }
-    } catch (err) {
-      log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
-    }
+  if (
+    !isFirstRun &&
+    existsSync(bootstrapCleanup) &&
+    hasStandardConversations()
+  ) {
+    cleanupBootstrapFiles("prior conversations exist");
   }
 
   // Seed HEARTBEAT.md — always created if missing so the heartbeat service
