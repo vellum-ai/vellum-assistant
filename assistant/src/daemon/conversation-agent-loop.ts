@@ -739,14 +739,18 @@ export async function runAgentLoopImpl(
         }
         // Persist before announcing: a client told the card was dismissed
         // while the write failed would watch the next reseed revert it.
-        if (markSurfaceCompleted(ctx, surfaceId, "Dismissed")) {
-          onEvent({
-            type: "ui_surface_complete",
-            conversationId: ctx.conversationId,
-            surfaceId,
-            summary: "Dismissed",
-          });
+        // An unannounced dismissal keeps its pending entry so client and
+        // daemon agree the card is still live and the one-interactive-surface
+        // gate keeps holding; the next user message sweeps it again.
+        if (!markSurfaceCompleted(ctx, surfaceId, "Dismissed")) {
+          continue;
         }
+        onEvent({
+          type: "ui_surface_complete",
+          conversationId: ctx.conversationId,
+          surfaceId,
+          summary: "Dismissed",
+        });
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
     }

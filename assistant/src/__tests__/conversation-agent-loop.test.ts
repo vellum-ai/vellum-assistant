@@ -1975,7 +1975,7 @@ describe("session-agent-loop", () => {
       expect(ctx.pendingSurfaceActions.has("stale-form-1")).toBe(false);
     });
 
-    test("withholds the dismissal event when its persisted write fails", async () => {
+    test("withholds the dismissal event and keeps the surface pending when its persisted write fails", async () => {
       const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
@@ -2003,7 +2003,46 @@ describe("session-agent-loop", () => {
       expect(
         events.filter((e) => e.type === "ui_surface_complete"),
       ).toHaveLength(0);
-      expect(ctx.pendingSurfaceActions.has("stale-table-2")).toBe(false);
+      // The card stays live on the client, so the daemon must keep treating it
+      // as pending; the sweep retries on the next user message.
+      expect(ctx.pendingSurfaceActions.has("stale-table-2")).toBe(true);
+    });
+
+    test("dismisses the remaining surfaces when one write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-3", { surfaceType: "table" });
+      ctx.pendingSurfaceActions.set("stale-form-3", { surfaceType: "form" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surfaces",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [
+            { type: "ui_surface", surfaceId: "stale-table-3" },
+            { type: "ui_surface", surfaceId: "stale-form-3" },
+          ],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Retaining the failed entry must not stall the sweep: deleting the
+      // current key while iterating the map leaves later keys reachable.
+      const completed = events
+        .filter((e) => e.type === "ui_surface_complete")
+        .map((e) => (e as { surfaceId: string }).surfaceId);
+      expect(completed).toEqual(["stale-form-3"]);
+      expect(ctx.pendingSurfaceActions.has("stale-table-3")).toBe(true);
+      expect(ctx.pendingSurfaceActions.has("stale-form-3")).toBe(false);
     });
 
     test("does not auto-complete surfaces when request is a surface action", async () => {
