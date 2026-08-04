@@ -73,7 +73,13 @@ beforeEach(() => {
     clearIntervalMock as unknown as typeof clearInterval;
 });
 
+// The monitor refuses a second install while one is live, so every test has
+// to hand its own back before the next one starts.
+let activeTeardown: (() => void) | null = null;
+
 afterEach(() => {
+  activeTeardown?.();
+  activeTeardown = null;
   globalThis.setInterval = originalSetInterval;
   globalThis.clearInterval = originalClearInterval;
 });
@@ -83,6 +89,7 @@ afterEach(() => {
 const install = (): { reports: string[]; teardown: () => void } => {
   const reports: string[] = [];
   const teardown = installPresenceMonitor((state) => reports.push(state));
+  activeTeardown = teardown;
   reports.length = 0;
   return { reports, teardown };
 };
@@ -91,7 +98,7 @@ describe("installPresenceMonitor", () => {
   test("reports once at install, before the first poll tick", () => {
     const reports: string[] = [];
     idleSeconds = 0;
-    installPresenceMonitor((state) => reports.push(state));
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
 
     expect(reports).toEqual(["active"]);
   });
@@ -227,6 +234,48 @@ describe("installPresenceMonitor", () => {
     intervalCallback?.();
 
     expect(reports).toEqual(["idle"]);
+  });
+
+  test("a second install while one is live is a no-op", () => {
+    const { reports } = install();
+    expect(listenerCount()).toBe(6);
+    const firstTick = intervalCallback;
+
+    const secondReports: string[] = [];
+    const secondTeardown = installPresenceMonitor((state) =>
+      secondReports.push(state),
+    );
+
+    // No install report, no extra listeners, and the live monitor still owns
+    // the poll loop.
+    expect(secondReports).toEqual([]);
+    expect(listenerCount()).toBe(6);
+    expect(intervalCallback).toBe(firstTick);
+
+    idleSeconds = 0;
+    intervalCallback?.();
+    fire("lock-screen");
+    expect(reports).toEqual(["active", "away"]);
+    expect(secondReports).toEqual([]);
+
+    // The refused install's teardown owns nothing, so it must not detach the
+    // live monitor.
+    secondTeardown();
+    expect(listenerCount()).toBe(6);
+    expect(clearIntervalMock).not.toHaveBeenCalled();
+  });
+
+  test("a fresh install works again after teardown", () => {
+    const { teardown } = install();
+    teardown();
+    expect(listenerCount()).toBe(0);
+
+    idleSeconds = 0;
+    const reports: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
+
+    expect(reports).toEqual(["active"]);
+    expect(listenerCount()).toBe(6);
   });
 
   test("teardown clears the interval and detaches every listener", () => {

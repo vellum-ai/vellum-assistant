@@ -106,18 +106,23 @@ globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
 type Connection = NonNullable<ReturnType<typeof __testing.connections.get>>;
 
 /**
- * Register a connection whose poster records the presence states it receives,
- * or rejects to stand in for an unreachable daemon.
+ * Register a connection whose poster records the presence states it receives.
+ * `opts` is read on every post, so a test holding the object can flip a
+ * connection between healthy and unreachable mid-run: `reject` stands in for
+ * a throw, `ok: false` for the non-2xx that postJson folds into `false`.
  */
 function addPresenceConnection(
   assistantId: string,
-  opts: { reject?: boolean } = {},
+  opts: { reject?: boolean; ok?: boolean } = {},
 ): PresenceState[] {
   const received: PresenceState[] = [];
   const poster = {
     postPresence: async ({ state }: { state: PresenceState }) => {
       if (opts.reject) {
         throw new Error("daemon unreachable");
+      }
+      if (opts.ok === false) {
+        return false;
       }
       received.push(state);
       return true;
@@ -130,6 +135,32 @@ function addPresenceConnection(
   } as unknown as Connection);
   return received;
 }
+
+/**
+ * Route presence POSTs into a captured list, leaving every other request
+ * (the gateway token exchange) on its normal mock.
+ */
+function capturePresencePosts(): { url: string; body: string }[] {
+  const posts: { url: string; body: string }[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/clients/presence")) {
+      posts.push({ url, body: String(init?.body) });
+      return new Response("ok");
+    }
+    return mockGatewayTokenFetch(input);
+  }) as typeof globalThis.fetch;
+  return posts;
+}
+
+/** A lockfile with one local and one cloud assistant. */
+const MIXED_LOCKFILE: Lockfile = {
+  assistants: [
+    { assistantId: "local-1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+    { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
+  ],
+  activeAssistant: "local-1",
+};
 
 /** Create a poster that captures the first POST body for assertions. */
 function capturingPoster(): { poster: InstanceType<typeof HostProxyPoster>; body: () => Record<string, unknown> | null } {
@@ -631,24 +662,10 @@ describe("host-proxy-router", () => {
     });
 
     test("posts presence to every connected assistant", async () => {
-      const presencePosts: { url: string; body: string }[] = [];
-      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
-        if (url.endsWith("/clients/presence")) {
-          presencePosts.push({ url, body: String(init?.body) });
-          return new Response("ok");
-        }
-        return mockGatewayTokenFetch(input);
-      }) as typeof globalThis.fetch;
+      const presencePosts = capturePresencePosts();
 
       installHostProxyBridge(fakeCliResolver);
-      lockfileListener?.({
-        assistants: [
-          { assistantId: "local-1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
-          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
-        ],
-        activeAssistant: "local-1",
-      });
+      lockfileListener?.(MIXED_LOCKFILE);
       await flush();
 
       presenceReporter?.("idle");
@@ -659,6 +676,51 @@ describe("host-proxy-router", () => {
         "https://platform.vellum.ai/v1/assistants/cloud-1/clients/presence",
       ]);
       expect(JSON.parse(presencePosts[0]!.body)).toEqual({ state: "idle" });
+    });
+
+    test("seeds an assistant that connects after the last report", async () => {
+      const presencePosts = capturePresencePosts();
+
+      installHostProxyBridge(fakeCliResolver);
+      presenceReporter?.("idle");
+      await flush();
+      // Nothing was connected when the report fired.
+      expect(presencePosts).toEqual([]);
+
+      lockfileListener?.(MIXED_LOCKFILE);
+      await flush();
+
+      // Both are told the cached state as they join rather than waiting out
+      // the next poll tick. The local one connects asynchronously, so it is
+      // the case the install-time report cannot reach.
+      expect(presencePosts.map((post) => post.url).sort()).toEqual([
+        "http://127.0.0.1:9001/v1/clients/presence",
+        "https://platform.vellum.ai/v1/assistants/cloud-1/clients/presence",
+      ]);
+      expect(JSON.parse(presencePosts[0]!.body)).toEqual({ state: "idle" });
+    });
+
+    test("sends nothing to a new connection before any report", async () => {
+      const presencePosts = capturePresencePosts();
+
+      installHostProxyBridge(fakeCliResolver);
+      lockfileListener?.(MIXED_LOCKFILE);
+      await flush();
+
+      // No observed state means no claim about presence, which is the
+      // fail-open direction: the daemon lets the push through.
+      expect(presencePosts).toEqual([]);
+    });
+
+    test("a second install stops the previous monitor", () => {
+      installHostProxyBridge(fakeCliResolver);
+      const teardown = installHostProxyBridge(fakeCliResolver);
+
+      expect(mockInstallPresenceMonitor).toHaveBeenCalledTimes(2);
+      expect(mockPresenceTeardown).toHaveBeenCalledTimes(1);
+
+      teardown();
+      expect(mockPresenceTeardown).toHaveBeenCalledTimes(2);
     });
 
     test("keeps reporting to siblings when one poster rejects", async () => {
@@ -685,6 +747,57 @@ describe("host-proxy-router", () => {
       await flush();
 
       expect(received).toEqual(["active", "active", "active"]);
+    });
+
+    test("warns once for a run of failing posts, not once per report", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon = { reject: true };
+      addPresenceConnection("a1", daemon);
+
+      mockLogWarn.mockClear();
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(mockLogWarn).toHaveBeenCalledTimes(1);
+
+      // A success re-arms the warning, so the next outage is visible.
+      daemon.reject = false;
+      presenceReporter?.("active");
+      await flush();
+      daemon.reject = true;
+      presenceReporter?.("away");
+      await flush();
+
+      expect(mockLogWarn).toHaveBeenCalledTimes(2);
+    });
+
+    test("warns when a post is rejected without throwing", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      addPresenceConnection("a1", { ok: false });
+
+      mockLogWarn.mockClear();
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("active");
+      await flush();
+
+      expect(mockLogWarn).toHaveBeenCalledTimes(1);
+    });
+
+    test("a failing assistant does not silence its siblings", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      addPresenceConnection("a1", { reject: true });
+      addPresenceConnection("a2", { ok: false });
+
+      mockLogWarn.mockClear();
+      presenceReporter?.("active");
+      await flush();
+
+      expect(mockLogWarn).toHaveBeenCalledTimes(2);
     });
 
     test("bridge teardown stops presence reporting", async () => {
