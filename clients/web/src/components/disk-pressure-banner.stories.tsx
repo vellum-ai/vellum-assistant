@@ -100,7 +100,7 @@ export const WarningNotDismissible: Story = {
   args: { onDismissWarning: undefined },
 };
 
-/** Usage is unknown when the daemon reports a null percentage. */
+/** Usage is unknown when the assistant reports a null percentage. */
 export const WarningUnknownUsage: Story = {
   name: "Warning · unknown usage",
   args: { status: makeStatus({ usagePercent: null }) },
@@ -145,8 +145,9 @@ export const CriticalWithAcknowledgeError: Story = {
 
 /**
  * The acknowledgement modal is where the critical-state **Upgrade** CTA
- * actually lives, beside **Acknowledge**. Opened here so the catalog shows the
- * CTA without a click.
+ * actually lives, beside **Acknowledge**. The interaction below opens it on
+ * the canvas; on this docs page play functions do not run, so open the canvas
+ * (or click **Review**) to see it.
  */
 export const CriticalModalUpgradeCta: Story = {
   name: "Critical · modal holds the Upgrade CTA",
