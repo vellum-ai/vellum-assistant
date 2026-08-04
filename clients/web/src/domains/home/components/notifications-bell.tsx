@@ -115,7 +115,10 @@ export function NotificationsBell() {
             // icon-only buttons grow on touch-mobile. The 2px ring eats into
             // the box (border-box), so size/offset grow by 2px each to keep
             // the 6px amber core in place.
-            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]" />
+            <span
+              data-testid="notifications-bell-unread-dot"
+              className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]"
+            />
           ) : null}
         </span>
       }

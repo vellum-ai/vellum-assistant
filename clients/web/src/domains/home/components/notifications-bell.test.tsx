@@ -57,9 +57,11 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 
-// The trigger's aria-label flips on the same `hasUnread` that renders the dot,
-// so it stands in for the dot without pinning the dot's Tailwind classes. The
-// closing quote is load-bearing: it stops READ_LABEL matching the unread label.
+// The dot element itself, matched by a styling-independent test hook so the
+// assertions survive restyling. The accessible name is a separate concern, so
+// it is asserted alongside. The closing quote is load-bearing: it stops
+// READ_LABEL matching the unread label.
+const UNREAD_DOT = 'data-testid="notifications-bell-unread-dot"';
 const UNREAD_LABEL = 'aria-label="Notifications (unread)"';
 const READ_LABEL = 'aria-label="Notifications"';
 
@@ -89,6 +91,7 @@ describe("NotificationsBell unread dot", () => {
   test("shows the dot when an unread notification exists", () => {
     feedRef.items = [feedItem({ status: "new" })];
     const html = renderBell();
+    expect(html).toContain(UNREAD_DOT);
     expect(html).toContain(UNREAD_LABEL);
   });
 
@@ -98,12 +101,14 @@ describe("NotificationsBell unread dot", () => {
       feedItem({ id: "b", status: "acted_on" }),
     ];
     const html = renderBell();
+    expect(html).not.toContain(UNREAD_DOT);
     expect(html).toContain(READ_LABEL);
     expect(html).not.toContain(UNREAD_LABEL);
   });
 
   test("hides the dot when the feed is empty", () => {
     const html = renderBell();
+    expect(html).not.toContain(UNREAD_DOT);
     expect(html).toContain(READ_LABEL);
   });
 
@@ -115,6 +120,7 @@ describe("NotificationsBell unread dot", () => {
       feedItem({ id: "b", status: "new", urgency: "high" }),
     ];
     const html = renderBell();
+    expect(html).not.toContain(UNREAD_DOT);
     expect(html).toContain(READ_LABEL);
   });
 
@@ -122,6 +128,7 @@ describe("NotificationsBell unread dot", () => {
     isMobileRef.value = true;
     feedRef.items = [feedItem({ status: "new" })];
     const html = renderBell();
+    expect(html).toContain(UNREAD_DOT);
     expect(html).toContain(UNREAD_LABEL);
   });
 });
