@@ -2825,6 +2825,21 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
+ * The persisted `processing_started_at` stamp, or null when idle or missing.
+ * Deliberately reads only the column (no in-memory fallback): consumers use
+ * it to age a flag {@link isConversationProcessing} already reported set, and
+ * the column is the only signal that carries a start time.
+ */
+export function getConversationProcessingStartedAt(id: string): number | null {
+  const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:getProcessingStartedAt",
+    "SELECT processing_started_at FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.processing_started_at ?? null;
+}
+
+/**
  * Conversations currently mid-turn, longest-running first. Throws on a read
  * failure — drain callers must distinguish "nothing processing" from "could
  * not read", so this does not degrade to an empty list.

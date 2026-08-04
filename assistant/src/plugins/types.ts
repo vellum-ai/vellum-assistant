@@ -351,9 +351,67 @@ export interface Injector {
 // than wired through the loader, so they carry no `Plugin` contribution slot.
 
 /**
+ * How the worker resolves a claimed job row after its handler returns
+ * without throwing. Handlers that report failure through a returned domain
+ * outcome (rather than a throw) translate that outcome into one of these at
+ * the registration site, so the persisted `memory_jobs.status` reflects what
+ * actually happened instead of unconditionally reading `completed`.
+ *
+ * - `completed`: the work succeeded (or was a legitimate no-op).
+ * - `failed`: terminal failure; the row is dead-lettered with
+ *   `errorMessage` as `last_error`. Use when retry is owned elsewhere
+ *   (event-driven re-enqueue, durable backoff checkpoints).
+ * - `retryable`: transient failure; the row re-enters the queue's
+ *   attempt-budgeted retry machinery with `errorMessage` recorded.
+ * - `deferred`: the work could not run yet for a reason external to the
+ *   job (e.g. its source conversation is mid-turn); the row goes back to
+ *   pending on the deferral counter's backoff curve and dead-letters with
+ *   `deferralExhaustedMessage` once the deferral budget is spent.
+ */
+export interface JobQueueResolution {
+  queueResolution: "completed" | "failed" | "retryable" | "deferred";
+  /** Persisted to `memory_jobs.last_error` for `failed` / `retryable`. */
+  errorMessage?: string;
+  /** Retry delay override for `retryable`. */
+  retryDelayMs?: number;
+  /** Terminal `last_error` when a `deferred` job exhausts its budget. */
+  deferralExhaustedMessage?: string;
+}
+
+const QUEUE_RESOLUTIONS = new Set([
+  "completed",
+  "failed",
+  "retryable",
+  "deferred",
+]);
+
+/**
+ * Narrow an arbitrary handler return value to a {@link JobQueueResolution}.
+ * Anything else (including `undefined` and legacy domain outcomes) resolves
+ * as `completed`, preserving the historical contract for handlers that only
+ * signal failure by throwing.
+ */
+export function isJobQueueResolution(
+  value: unknown,
+): value is JobQueueResolution {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "queueResolution" in value &&
+    typeof (value as { queueResolution: unknown }).queueResolution ===
+      "string" &&
+    QUEUE_RESOLUTIONS.has(
+      (value as { queueResolution: string }).queueResolution,
+    )
+  );
+}
+
+/**
  * Processes one claimed background job: receives the claimed job row and the
- * live assistant config. The return value is ignored — a handler signals
- * failure by throwing, which the worker records against the job.
+ * live assistant config. A handler signals failure by throwing (recorded
+ * against the job's attempt budget) or by returning a
+ * {@link JobQueueResolution}; any other return value resolves the row as
+ * `completed`.
  */
 export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
