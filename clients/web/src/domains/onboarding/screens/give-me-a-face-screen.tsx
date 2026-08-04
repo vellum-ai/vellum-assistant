@@ -381,7 +381,7 @@ export function GiveMeAFaceScreen({
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default disabled:opacity-40"
             >
               {auditioning ? (
-                <Square className="h-4 w-4 fill-current" />
+                <Square className="h-4 w-4" />
               ) : (
                 <Volume2 className="h-4 w-4" />
               )}
