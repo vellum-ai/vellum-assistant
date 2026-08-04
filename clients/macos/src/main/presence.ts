@@ -28,6 +28,14 @@ export const IDLE_THRESHOLD_MS = 10 * 60_000;
 
 export const POLL_INTERVAL_MS = 30_000;
 
+type PresencePowerEvent =
+  | "lock-screen"
+  | "unlock-screen"
+  | "suspend"
+  | "resume"
+  | "user-did-become-active"
+  | "user-did-resign-active";
+
 let installed = false;
 
 export const installPresenceMonitor = (
@@ -101,12 +109,43 @@ export const installPresenceMonitor = (
     report();
   };
 
-  powerMonitor.on("lock-screen", onLockScreen);
-  powerMonitor.on("unlock-screen", onUnlockScreen);
-  powerMonitor.on("suspend", onSuspend);
-  powerMonitor.on("resume", onResume);
-  powerMonitor.on("user-did-become-active", onSessionBecameActive);
-  powerMonitor.on("user-did-resign-active", onSessionResigned);
+  // Attachment is all-or-nothing. A throw partway through would otherwise
+  // leave the earlier listeners subscribed with no teardown in anyone's hands,
+  // and the next install would stack a second set on top of those stale
+  // closures. Every successful attachment is recorded as it happens so the
+  // unwind below and the teardown at the end share one detach path.
+  const attached: [PresencePowerEvent, () => void][] = [];
+
+  // powerMonitor's typings declare a separate on/off overload per event name
+  // and none of them accepts a union, so subscribing by variable goes through
+  // the EventEmitter surface it already extends.
+  const emitter: NodeJS.EventEmitter = powerMonitor;
+
+  const detachAll = (): void => {
+    for (const [event, handler] of attached.splice(0)) {
+      emitter.off(event, handler);
+    }
+  };
+
+  const attach = (event: PresencePowerEvent, handler: () => void): void => {
+    emitter.on(event, handler);
+    attached.push([event, handler]);
+  };
+
+  try {
+    attach("lock-screen", onLockScreen);
+    attach("unlock-screen", onUnlockScreen);
+    attach("suspend", onSuspend);
+    attach("resume", onResume);
+    attach("user-did-become-active", onSessionBecameActive);
+    attach("user-did-resign-active", onSessionResigned);
+  } catch (err) {
+    // Fail open: no monitor at all means no presence record, which lets the
+    // mobile push through. A half-wired one could report a stale `active` and
+    // suppress it.
+    detachAll();
+    throw err;
+  }
 
   // Latched only once the monitor is fully wired. Claiming it up front would
   // leave a throw from any attachment above with the latch set and no teardown
@@ -129,11 +168,6 @@ export const installPresenceMonitor = (
   return (): void => {
     installed = false;
     clearInterval(timer);
-    powerMonitor.off("lock-screen", onLockScreen);
-    powerMonitor.off("unlock-screen", onUnlockScreen);
-    powerMonitor.off("suspend", onSuspend);
-    powerMonitor.off("resume", onResume);
-    powerMonitor.off("user-did-become-active", onSessionBecameActive);
-    powerMonitor.off("user-did-resign-active", onSessionResigned);
+    detachAll();
   };
 };
