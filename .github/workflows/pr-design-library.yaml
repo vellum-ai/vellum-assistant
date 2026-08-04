@@ -40,5 +40,11 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      # `bun run test` is vitest, whose config only defines the Storybook
+      # browser project, so the bun:test unit files never ran in CI and
+      # stale assertions went unnoticed. This step runs them.
+      - name: Unit tests
+        run: bun run test:unit
+
       - name: Test
         run: bun run test
