@@ -26,7 +26,7 @@ export function SubagentAvatarRow({
 
   // The row wraps because it can outgrow the transcript column. At the
   // six-avatar cap the badges, the overflow chip, and the Details label need
-  // about 401px, more than every phone in portrait leaves after the
+  // about 416px, more than every phone in portrait leaves after the
   // transcript's px-4 (a 430px viewport leaves ~398px), and more than a narrow
   // transcript leaves on desktop once the detail panel is dragged out to
   // `minLeftWidth` (`chat-content-layout.tsx`). The transcript wrapper is
