@@ -209,11 +209,17 @@ You don't need multiple assistant installs. The impersonation flag
 overrides the version every gate sees:
 
 ```js
-// In the browser console (debug builds expose window._vellumDebug.flags):
+// In the browser console, under window._vellumDebug.flags:
 impersonateVersion("0.8.6"); // pretend the assistant is 0.8.6, then reload
 impersonateVersion(null); // clear the override, then reload
 impersonateVersion(); // log the current override, no reload
 ```
+
+`_vellumDebug.flags` is installed at boot by
+[`lib/feature-flags/vellum-debug-flags.ts`](../src/lib/feature-flags/vellum-debug-flags.ts)
+and holds every dev-toggleable client flag, so it is reachable on any route.
+(Its siblings `chat`, `events`, and `api` are built from the chat page's refs
+and exist only while that page is mounted.)
 
 It persists to `localStorage` (`vellum:debug:impersonateAssistantVersion`)
 and reloads the page so the whole app — version-derived constants, SSE

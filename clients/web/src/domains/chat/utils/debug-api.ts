@@ -46,7 +46,6 @@ import {
 } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
-import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -413,7 +412,6 @@ export interface ChatDebugApi {
 const DEFAULT_CLIENT_MESSAGES_LIMIT = 20;
 const ROOT_NS = "_vellumDebug";
 const CHAT_NS = "chat";
-const FLAGS_NS = "flags";
 
 /**
  * Refs the API reads to surface client state and trigger actions. All are
@@ -869,32 +867,10 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 const EVENTS_NS = "events";
 const API_NS = "api";
 
-/**
- * Dev-only toggle surface. Each function is a single-purpose imperative
- * flip — call from the console to flip a localStorage-persisted flag.
- * Toggles that change React hook ordering or module-load constants
- * reload the page so the new value takes effect cleanly.
- */
-export interface VellumDebugFlagsApi {
-  /** Override the assistant's reported version for every version-gated
-   *  code path in the web client (the wire-field cutover, the
-   *  server-mint gate, `useAssistantSupports`, …). Persists to
-   *  localStorage and reloads.
-   *
-   *  - `impersonateVersion("0.8.6")` — set to that version + reload.
-   *  - `impersonateVersion(null)`    — clear override + reload.
-   *  - `impersonateVersion()`        — log + return current value
-   *    (no reload, no mutation).
-   *
-   *  Returns the value in effect after the call. */
-  impersonateVersion(value?: string | null): string | null;
-}
-
 interface VellumDebugRoot extends Record<string, unknown> {
   [EVENTS_NS]?: ChatDebugEventsApi;
   [CHAT_NS]?: ChatDebugApi;
   [API_NS]?: typeof assistantApi;
-  [FLAGS_NS]?: VellumDebugFlagsApi;
 }
 
 declare global {
@@ -914,22 +890,21 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags (`impersonateVersion`).
- *     Stable singleton; pure module exports backed by localStorage.
+ * All three are page-scoped: `chat` is rebuilt from this mount's refs,
+ * and `events` / `api` are paired with it so DevTools never sees one
+ * namespace populated and the others missing.
  *
- * Consolidating these into one installer guarantees they're set at the
- * same time and torn down together, so DevTools never sees one namespace
- * populated and the others missing.
+ * The sibling `flags` namespace is deliberately not installed here. Its
+ * flags are pure module state with no page affinity, and the surfaces
+ * they gate are not chat-only, so they are installed once at boot by
+ * {@link @/lib/feature-flags/vellum-debug-flags} and outlive this mount.
  *
  * Returns a cleanup function that removes all bindings (identity-
  * checking the chat API in case a newer mount replaced it) and the
  * root object if it's empty afterwards. Safe to call on the server —
  * no-op when `window` is undefined.
  */
-export function installVellumDebugApi(
-  chatApi: ChatDebugApi,
-  flagsApi: VellumDebugFlagsApi,
-): () => void {
+export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
   if (typeof window === "undefined") {
     return () => {};
   }
@@ -940,7 +915,6 @@ export function installVellumDebugApi(
   existing[EVENTS_NS] = eventsDebugApi;
   existing[CHAT_NS] = chatApi;
   existing[API_NS] = assistantApi;
-  existing[FLAGS_NS] = flagsApi;
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
@@ -950,17 +924,17 @@ export function installVellumDebugApi(
     // Gate every deletion on the chat-API identity check. If a newer
     // mount has already replaced our chatApi (strict-mode double-mount,
     // hot reload, etc.), our teardown is stale — leave the world alone.
-    // `events`, `api`, and `flags` lifecycles are paired with `chat`
-    // because they are stable singletons (pure module exports);
-    // identity-checking them would always pass.
+    // `events` and `api` lifecycles are paired with `chat` because they
+    // are stable singletons (pure module exports); identity-checking
+    // them would always pass.
     if (current[CHAT_NS] === chatApi) {
       delete current[CHAT_NS];
       delete current[EVENTS_NS];
       delete current[API_NS];
-      delete current[FLAGS_NS];
     }
     // Only remove the root if we left it empty — other debug domains
-    // may have attached siblings under the same namespace.
+    // may have attached siblings under the same namespace. In the app
+    // this is never the case: `flags` is installed at boot and stays.
     if (Object.keys(current).length === 0) {
       delete win[ROOT_NS];
     }
@@ -1005,10 +979,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       historyFetcher: refs.historyFetcher,
     };
     const api = createChatDebugApi(stableRefs);
-    const flagsApi: VellumDebugFlagsApi = {
-      impersonateVersion: setImpersonatedAssistantVersion,
-    };
-    const uninstall = installVellumDebugApi(api, flagsApi);
+    const uninstall = installVellumDebugApi(api);
     return uninstall;
   }, []);
 }

@@ -16,6 +16,7 @@ import {
   installVellumDebugApi,
 } from "@/domains/chat/utils/debug-api";
 import { recordDiagnostic, recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { installVellumDebugFlags } from "@/lib/feature-flags/vellum-debug-flags";
 import { INITIAL_TURN_STATE, type TurnState } from "@/domains/chat/turn-store";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -839,34 +840,26 @@ type DebugWindow = Window & {
   _vellumDebug?: {
     chat?: unknown;
     events?: { getClients: unknown; getEvents: unknown };
-    flags?: {
-      impersonateVersion?: (v?: string | null) => string | null;
-    };
+    flags?: unknown;
     other?: unknown;
   };
 };
 
-const makeFlagsApi = () => ({
-  impersonateVersion: (_value?: string | null): string | null => null,
-});
-
 describe("installVellumDebugApi", () => {
-  test("attaches .events, .chat, and .flags in one call", () => {
+  test("attaches .events, .chat, and .api in one call", () => {
     const api = createChatDebugApi(makeRefs());
-    const flags = makeFlagsApi();
-    const uninstall = installVellumDebugApi(api, flags);
+    const uninstall = installVellumDebugApi(api);
     const root = (globalThis as unknown as DebugWindow)._vellumDebug;
     expect(root?.chat).toBe(api);
     expect(root?.events).toBeDefined();
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
-    expect(typeof root?.flags?.impersonateVersion).toBe("function");
     uninstall();
   });
 
-  test("removes .events, .chat, and .flags on uninstall", () => {
+  test("removes .events, .chat, and .api on uninstall", () => {
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installVellumDebugApi(api, makeFlagsApi());
+    const uninstall = installVellumDebugApi(api);
     uninstall();
     const root = (globalThis as unknown as DebugWindow)._vellumDebug;
     // Root should be gone entirely since nothing else was attached.
@@ -878,23 +871,40 @@ describe("installVellumDebugApi", () => {
     win.window._vellumDebug = { other: "keep" };
 
     const api = createChatDebugApi(makeRefs());
-    const uninstall = installVellumDebugApi(api, makeFlagsApi());
+    const uninstall = installVellumDebugApi(api);
     uninstall();
     expect(win.window._vellumDebug?.chat).toBeUndefined();
     expect(win.window._vellumDebug?.events).toBeUndefined();
-    expect(win.window._vellumDebug?.flags).toBeUndefined();
     expect(win.window._vellumDebug?.other).toBe("keep");
 
     // Cleanup so we don't leak state into other tests.
     delete win.window._vellumDebug;
   });
 
+  test("leaves the boot-installed `flags` namespace alone", () => {
+    const win = globalThis as unknown as { window: DebugWindow };
+    installVellumDebugFlags();
+
+    const api = createChatDebugApi(makeRefs());
+    const uninstall = installVellumDebugApi(api);
+    expect(win.window._vellumDebug?.flags).toBeDefined();
+
+    // Unmounting the chat page must not take the flags with it — they
+    // gate surfaces that render outside chat (e.g. the library detail
+    // page's app viewer).
+    uninstall();
+    expect(win.window._vellumDebug?.chat).toBeUndefined();
+    expect(win.window._vellumDebug?.flags).toBeDefined();
+
+    delete win.window._vellumDebug;
+  });
+
   test("identity-checks chat on teardown so a newer mount isn't clobbered", () => {
     const first = createChatDebugApi(makeRefs());
-    const uninstallFirst = installVellumDebugApi(first, makeFlagsApi());
+    const uninstallFirst = installVellumDebugApi(first);
 
     const second = createChatDebugApi(makeRefs());
-    installVellumDebugApi(second, makeFlagsApi());
+    installVellumDebugApi(second);
 
     // First mount's teardown runs after second mount installed —
     // simulates strict-mode double-mount or hot-reload races.
@@ -903,7 +913,6 @@ describe("installVellumDebugApi", () => {
     const root = (globalThis as unknown as DebugWindow)._vellumDebug;
     expect(root?.chat).toBe(second);
     expect(root?.events).toBeDefined();
-    expect(root?.flags).toBeDefined();
   });
 });
 

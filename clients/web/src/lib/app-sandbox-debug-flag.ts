@@ -13,7 +13,7 @@
  * That trade is why the flag is off unless a developer types it, in
  * DevTools, on the session they want it:
  *
- *   window._vellumDebug.apps.disableIframeSandbox = true
+ *   window._vellumDebug.flags.disableIframeSandbox = true
  *
  * Only the literal `true` enables it. The value lives in memory (a page
  * reload restores the sandbox) and flipping it logs a console warning
@@ -23,6 +23,10 @@
  * apps against platform-hosted assistants, which run production
  * bundles, so it must not be compiled out.
  *
+ * This module owns the flag's state and semantics; the console binding
+ * that reads and writes it lives with the other debug flags in
+ * {@link @/lib/feature-flags/vellum-debug-flags}.
+ *
  * @see {@link @/components/app-viewer-container} for the consumer, which
  *   re-keys the iframe on every change so the frame reloads under the
  *   attribute in effect.
@@ -30,9 +34,7 @@
 
 import { useSyncExternalStore } from "react";
 
-const ROOT_NS = "_vellumDebug";
-const APPS_NS = "apps";
-const FLAG_KEY = "disableIframeSandbox";
+const FLAG_LABEL = "flags.disableIframeSandbox";
 
 let sandboxDisabled = false;
 const listeners = new Set<() => void>();
@@ -42,7 +44,15 @@ export function isAppIframeSandboxDisabled(): boolean {
   return sandboxDisabled;
 }
 
-function setAppIframeSandboxDisabled(value: unknown): void {
+/**
+ * Apply a console assignment to the flag. Exported for the debug-flags
+ * namespace to install as the property setter — nothing else should call
+ * it, since the flag exists to be typed by a developer.
+ *
+ * Takes `unknown` because it is fed straight from a console assignment:
+ * anything that is not the literal `true` leaves the sandbox on.
+ */
+export function setAppIframeSandboxDisabled(value: unknown): void {
   const next = value === true;
   if (next === sandboxDisabled) {
     return;
@@ -50,14 +60,14 @@ function setAppIframeSandboxDisabled(value: unknown): void {
   sandboxDisabled = next;
   if (next) {
     console.warn(
-      `[vellumDebug] ${APPS_NS}.${FLAG_KEY} = true: app iframes render without ` +
+      `[vellumDebug] ${FLAG_LABEL} = true: app iframes render without ` +
         "the sandbox attribute. App HTML runs same-origin with the host and can " +
         "reach its DOM, storage, and cookies. Open apps reload to pick this up. " +
         "Set it back to false, or reload the page, to restore the sandbox.",
     );
   } else {
     console.info(
-      `[vellumDebug] ${APPS_NS}.${FLAG_KEY} = false: app iframes are sandboxed again.`,
+      `[vellumDebug] ${FLAG_LABEL} = false: app iframes are sandboxed again.`,
     );
   }
   for (const listener of listeners) {
@@ -74,7 +84,7 @@ function subscribe(onStoreChange: () => void): () => void {
 
 /**
  * Subscribe a component to the flag. Returns `false` until someone sets
- * `window._vellumDebug.apps.disableIframeSandbox = true`, and re-renders
+ * `window._vellumDebug.flags.disableIframeSandbox = true`, and re-renders
  * the caller on every change.
  */
 export function useAppIframeSandboxDisabled(): boolean {
@@ -83,33 +93,4 @@ export function useAppIframeSandboxDisabled(): boolean {
     isAppIframeSandboxDisabled,
     () => false,
   );
-}
-
-/**
- * Attach the `apps` namespace to `window._vellumDebug`, siblings of the
- * `chat` and `events` namespaces installed from the chat page.
- *
- * The flag is an accessor rather than a plain property so a console
- * assignment is observable: the setter is what warns and notifies
- * mounted viewers. Called once at boot so the namespace is there before
- * an app is open, and safe to call again (the property is
- * `configurable`). No-op on the server.
- */
-export function installAppSandboxDebugFlag(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const win = window as Omit<Window, typeof ROOT_NS> & {
-    [ROOT_NS]?: Record<string, unknown>;
-  };
-  const root = win[ROOT_NS] ?? {};
-  const apps = (root[APPS_NS] as Record<string, unknown> | undefined) ?? {};
-  Object.defineProperty(apps, FLAG_KEY, {
-    configurable: true,
-    enumerable: true,
-    get: isAppIframeSandboxDisabled,
-    set: setAppIframeSandboxDisabled,
-  });
-  root[APPS_NS] = apps;
-  win[ROOT_NS] = root;
 }

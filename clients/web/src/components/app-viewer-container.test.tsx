@@ -36,23 +36,23 @@ mock.module("@/utils/sandbox-bridge", () => ({
 }));
 
 import { AppViewerContainer } from "@/components/app-viewer-container";
-import { installAppSandboxDebugFlag } from "@/lib/app-sandbox-debug-flag";
+import { installVellumDebugFlags } from "@/lib/feature-flags/vellum-debug-flags";
 
 type DebugWindow = Omit<Window, "_vellumDebug"> & {
-  _vellumDebug?: { apps?: { disableIframeSandbox?: unknown } };
+  _vellumDebug?: { flags?: { disableIframeSandbox?: unknown } };
 };
 
 // The flag namespace is installed at boot in the real app; `main.tsx`
 // never runs under the test harness.
-installAppSandboxDebugFlag();
+installVellumDebugFlags();
 spyOn(console, "warn").mockImplementation(() => {});
 spyOn(console, "info").mockImplementation(() => {});
 
 function setSandboxFlag(value: unknown): void {
-  const apps = (window as DebugWindow)._vellumDebug?.apps;
+  const flags = (window as DebugWindow)._vellumDebug?.flags;
   act(() => {
-    if (apps) {
-      apps.disableIframeSandbox = value;
+    if (flags) {
+      flags.disableIframeSandbox = value;
     }
   });
 }
