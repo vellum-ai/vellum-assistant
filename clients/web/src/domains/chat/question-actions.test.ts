@@ -62,9 +62,15 @@ mock.module("@/domains/chat/api/interactions", () => ({
     if (gate) {
       await gate.promise;
     }
+    if (throwByRequestId.has(requestId)) {
+      throw new Error("network down");
+    }
     return resultByRequestId.get(requestId) ?? submitQuestionResult;
   },
 }));
+
+/** Requests that reject rather than resolve, modelling a transport failure. */
+const throwByRequestId = new Set<string>();
 
 /** Per-requestId results, for tests where two requests resolve differently. */
 const resultByRequestId = new Map<string, SubmitSecretResponseResult>();
@@ -115,6 +121,7 @@ beforeEach(() => {
   onSubmit = undefined;
   deferred.clear();
   resultByRequestId.clear();
+  throwByRequestId.clear();
   submitQuestionResult = { ok: true };
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().setError(null);
@@ -187,71 +194,130 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
   });
 });
 
-describe("handleQuestionResponse: a late 404 must not rewrite newer state", () => {
-  // `isSubmittingQuestion` and the session error are shared, not per-request.
-  // The daemon supersedes A with B, which is why A 404s, and `showQuestion`
-  // clears `isSubmittingQuestion` when B arrives, so B can already be in flight
-  // when A's response lands.
-  it("leaves the newer prompt's submitting state intact", async () => {
-    holdRequest("q-a");
+/**
+ * Start request A, let prompt B supersede it, then start request B, leaving
+ * both in flight. Returns A's promise plus a release for it.
+ *
+ * `isSubmittingQuestion` and the session error are single slots on the store.
+ * The daemon supersedes A with B, and `showQuestion` clears
+ * `isSubmittingQuestion` when B arrives, so the user can answer B while A is
+ * still open. Every completion path of A then lands after ownership has moved.
+ */
+async function startOverlappingRequests(): Promise<{
+  answerA: Promise<void>;
+  answerB: Promise<void>;
+}> {
+  holdRequest("q-a");
+  holdRequest("q-b");
+
+  seedPendingQuestion("q-a");
+  const answerA = handleQuestionResponse([
+    { questionId: "q1", kind: "option", optionId: "alice_work" },
+  ]);
+
+  useInteractionStore
+    .getState()
+    .showQuestion({ requestId: "q-b", entries: [] });
+  const answerB = handleQuestionResponse([
+    { questionId: "q1", kind: "option", optionId: "alice_work" },
+  ]);
+
+  // Both are genuinely in flight, and B owns the shared state.
+  expect(submitCalls.map((c) => c.requestId)).toEqual(["q-a", "q-b"]);
+  expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+  return { answerA, answerB };
+}
+
+/** Assert B still owns everything after A landed late. */
+function expectBStillOwnsState(): void {
+  expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+  expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe("q-b");
+}
+
+describe("handleQuestionResponse: a late completion must not rewrite newer state", () => {
+  it("stale A 404 leaves B's pending/submitting state intact", async () => {
     resultByRequestId.set("q-a", {
       ok: false,
       status: 404,
       error: "No pending question interaction found for this requestId",
     });
-    resultByRequestId.set("q-b", { ok: true });
-    holdRequest("q-b");
+    const { answerA, answerB } = await startOverlappingRequests();
 
-    seedPendingQuestion("q-a");
-    const answerA = handleQuestionResponse([
-      { questionId: "q1", kind: "option", optionId: "alice_work" },
-    ]);
-
-    // B supersedes A. `showQuestion` resets the submitting flag, so the user
-    // can answer B while A is still open.
-    useInteractionStore
-      .getState()
-      .showQuestion({ requestId: "q-b", entries: [] });
-    const answerB = handleQuestionResponse([
-      { questionId: "q1", kind: "option", optionId: "alice_work" },
-    ]);
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
-
-    // Now A's 404 lands, after B is already in flight.
     releaseRequest("q-a");
     await answerA;
 
-    // B still owns the submitting flag, so its double-submit guard holds.
-    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
-    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
-      "q-b",
+    expectBStillOwnsState();
+    expect(useChatSessionStore.getState().error).toBeNull();
+
+    releaseRequest("q-b");
+    await answerB;
+  });
+
+  it("stale A success leaves B's pending/submitting state intact", async () => {
+    // The success path is the sharpest case: its card-retiring branch compares
+    // request ids, so the fallback branch fires precisely when B owns the state.
+    resultByRequestId.set("q-a", { ok: true });
+    const { answerA, answerB } = await startOverlappingRequests();
+
+    releaseRequest("q-a");
+    await answerA;
+
+    expectBStillOwnsState();
+
+    releaseRequest("q-b");
+    await answerB;
+  });
+
+  it("stale A non-404 failure leaves B's pending/submitting state intact", async () => {
+    resultByRequestId.set("q-a", {
+      ok: false,
+      status: 500,
+      error: "A exploded",
+    });
+    const { answerA, answerB } = await startOverlappingRequests();
+
+    releaseRequest("q-a");
+    await answerA;
+
+    expectBStillOwnsState();
+    // A's failure belongs to a prompt the user can no longer see.
+    expect(useChatSessionStore.getState().error).toBeNull();
+
+    releaseRequest("q-b");
+    await answerB;
+  });
+
+  it("stale A transport failure leaves B's pending/submitting state intact", async () => {
+    throwByRequestId.add("q-a");
+    const { answerA, answerB } = await startOverlappingRequests();
+
+    releaseRequest("q-a");
+    await answerA;
+
+    expectBStillOwnsState();
+    expect(useChatSessionStore.getState().error).toBeNull();
+    // The throw is still reported: suppressing the banner is not suppressing
+    // telemetry.
+    expect(capturedErrors.map((e) => e.context)).toContain(
+      "submit_question_response",
     );
 
     releaseRequest("q-b");
     await answerB;
-    expect(submitCalls.map((c) => c.requestId)).toEqual(["q-a", "q-b"]);
   });
 
-  it("leaves the newer prompt's error intact", async () => {
-    holdRequest("q-a");
+  it("B's error survives A's late completion", async () => {
+    // B fails for real while A is still open; A must not erase the banner.
     resultByRequestId.set("q-a", { ok: false, status: 404, error: "gone" });
     resultByRequestId.set("q-b", {
       ok: false,
       status: 500,
       error: "Internal error",
     });
+    const { answerA, answerB } = await startOverlappingRequests();
 
-    seedPendingQuestion("q-a");
-    const answerA = handleQuestionResponse([
-      { questionId: "q1", kind: "option", optionId: "alice_work" },
-    ]);
-
-    useInteractionStore
-      .getState()
-      .showQuestion({ requestId: "q-b", entries: [] });
-    await handleQuestionResponse([
-      { questionId: "q1", kind: "option", optionId: "alice_work" },
-    ]);
+    releaseRequest("q-b");
+    await answerB;
     expect(useChatSessionStore.getState().error?.message).toBe(
       "Internal error",
     );
@@ -259,10 +325,27 @@ describe("handleQuestionResponse: a late 404 must not rewrite newer state", () =
     releaseRequest("q-a");
     await answerA;
 
-    // A's stale cleanup must not erase the failure the user needs to see.
     expect(useChatSessionStore.getState().error?.message).toBe(
       "Internal error",
     );
+  });
+
+  it("still cleans up its own state when no newer prompt took over", async () => {
+    // The guard must not strand the submitting flag in the ordinary case where
+    // the card was retired by `interaction_resolved` mid-flight.
+    resultByRequestId.set("q-a", { ok: false, status: 500, error: "boom" });
+    holdRequest("q-a");
+    seedPendingQuestion("q-a");
+    const answerA = handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "alice_work" },
+    ]);
+    useInteractionStore.getState().dismissQuestionIfMatches("q-a");
+
+    releaseRequest("q-a");
+    await answerA;
+
+    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+    expect(useChatSessionStore.getState().error?.message).toBe("boom");
   });
 });
 
