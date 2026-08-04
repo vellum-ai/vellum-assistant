@@ -338,6 +338,96 @@ describe("tunnel edge targeting", () => {
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
   });
 
+  test("a positional display name resolves the local assistant", async () => {
+    const local = makeLocalEntry();
+    local.name = "Ada";
+    writeLockfile([makeCloudEntry(), local], "cloud-1");
+    process.argv = ["bun", "vellum", "tunnel", "Ada", "--provider", "ngrok"];
+
+    await runTunnelCapturingLogs();
+
+    const workspaceDir = join(
+      local.resources!.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("an exact assistant ID wins over a colliding display name", async () => {
+    const decoy = makeLocalEntry("assistant-a");
+    decoy.name = "assistant-b";
+    const target = makeLocalEntry("assistant-b");
+    writeLockfile([decoy, target], "assistant-a");
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "assistant-b",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "assistant-b" }),
+    );
+  });
+
+  test("a positional display name of a cloud assistant errors without auto-fallback", async () => {
+    const cloud = makeCloudEntry();
+    cloud.name = "Cloudy";
+    const local = makeLocalEntry();
+    writeLockfile([cloud, local], local.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "Cloudy", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Assistant 'Cloudy (cloud-1)' runs on Vellum Cloud and needs no tunnel.",
+    );
+    expect(errors).toContain(
+      "Pass a local assistant as the name argument: assistant-1.",
+    );
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an ambiguous positional display name errors listing the candidates", async () => {
+    const first = makeLocalEntry("assistant-a");
+    first.name = "Ada";
+    const second = makeLocalEntry("assistant-b");
+    second.name = "Ada";
+    writeLockfile([first, second], "assistant-a");
+    process.argv = ["bun", "vellum", "tunnel", "Ada", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Multiple assistants match 'Ada': Ada (assistant-a), Ada (assistant-b).",
+    );
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an unknown positional name errors", async () => {
+    process.argv = ["bun", "vellum", "tunnel", "nope", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("No assistant found with name or ID 'nope'.");
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
   test("targets the edge port for cloudflare", async () => {
     const entry = makeLocalEntry();
     writeLockfile(entry);

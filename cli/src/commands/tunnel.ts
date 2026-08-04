@@ -3,7 +3,7 @@ import { join } from "path";
 import {
   formatAssistantReference,
   loadAllAssistants,
-  resolveAssistant,
+  resolveTargetAssistant,
   type AssistantEntry,
   type LocalInstanceResources,
 } from "../lib/assistant-config";
@@ -201,18 +201,7 @@ function describeUntunnelableEntry(entry: AssistantEntry): string {
 function resolveLocalTunnelEntry(
   assistantName: string | null,
 ): LocalAssistantEntry {
-  const entry = resolveAssistant(assistantName ?? undefined);
-
-  if (!entry) {
-    if (assistantName) {
-      console.error(
-        `No assistant instance found with name '${assistantName}'.`,
-      );
-    } else {
-      console.error("No assistant instance found. Run `vellum hatch` first.");
-    }
-    process.exit(1);
-  }
+  const entry = resolveTargetAssistant(assistantName ?? undefined);
 
   if (isLocalEntry(entry)) {
     return entry;
