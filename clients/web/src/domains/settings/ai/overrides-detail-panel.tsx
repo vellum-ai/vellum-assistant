@@ -723,22 +723,31 @@ export function OverridesDetailPanel({
                         }
                         return d.profile ?? "";
                       })();
-                      // Caption provenance for an unpinned site on a
-                      // tier-overrides daemon builds from the shipped tier
-                      // plus its remap; `defaultProfile` (the effective
-                      // winner) already IS the remapped profile there, so
-                      // deriving from it would lose the tier. A pinned
-                      // site keeps the winner caption: the pin outranks
-                      // the remap, so an arrow would claim an effect the
+                      // Provenance for an unpinned site on a tier-overrides
+                      // daemon builds from the shipped tier plus its remap;
+                      // `defaultProfile` (the effective winner) already IS
+                      // the remapped profile there, so deriving from it
+                      // would lose the tier. A remapped site renders the
+                      // effective profile in a ghost dropdown (picking from
+                      // it creates a pin) instead of caption text. A pinned
+                      // site keeps the winner caption: the pin outranks the
+                      // remap, so tier provenance would claim an effect the
                       // resolver doesn't apply.
                       const pinned = isDraftActive(drafts[cs.id] ?? null);
                       const shippedTier = cs.shippedDefaultProfile;
                       let defaultProfileLabel: string | null = null;
+                      let ghost: { profile: string; caption: string } | null =
+                        null;
                       if (supportsTierOverrides && shippedTier && !pinned) {
                         const tierRemap = effectiveTierRemap(shippedTier);
-                        defaultProfileLabel =
-                          profileLabelFor(shippedTier) +
-                          (tierRemap ? ` → ${profileLabelFor(tierRemap)}` : "");
+                        if (tierRemap) {
+                          ghost = {
+                            profile: tierRemap,
+                            caption: `via ${profileLabelFor(shippedTier)} default`,
+                          };
+                        } else {
+                          defaultProfileLabel = profileLabelFor(shippedTier);
+                        }
                       } else if (cs.defaultProfile) {
                         defaultProfileLabel = profileLabelFor(
                           cs.defaultProfile,
@@ -752,10 +761,11 @@ export function OverridesDetailPanel({
                           displayName={cs.displayName}
                           description={cs.description}
                           defaultProfileLabel={defaultProfileLabel}
+                          ghost={ghost}
                           draft={drafts[cs.id] ?? null}
                           profileOptions={buildProfileOptionsForRow(
                             profileVal === "" || profileVal === CUSTOM_SENTINEL
-                              ? null
+                              ? (ghost?.profile ?? null)
                               : profileVal,
                           )}
                           onDraftChange={handleDraftChange}

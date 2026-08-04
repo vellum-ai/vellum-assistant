@@ -515,8 +515,9 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     });
 
     pickOption(tierTrigger("Balanced (default)"), "My BYOK");
-    // The per-action caption reflects the pending remap.
-    expect(renderedText()).toContain("Balanced → My BYOK");
+    // The unpinned Balanced-tier row reflects the pending remap as a ghost
+    // dropdown with tier provenance.
+    expect(renderedText()).toContain("via Balanced default");
 
     fireEvent.click(getButton("Save"));
     await waitFor(() => {
@@ -538,9 +539,9 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     await waitFor(() => {
       expect(renderedText()).toContain("Defaults");
     });
-    // The persisted remap is visible on the tier row and in the caption of
-    // unpinned Speed-tier sites.
-    expect(renderedText()).toContain("Speed → My BYOK");
+    // The persisted remap is visible on the tier row and as ghost provenance
+    // on unpinned Speed-tier sites.
+    expect(renderedText()).toContain("via Speed default");
     // The pinned Filing Agent keeps its winner caption without an arrow:
     // its pin outranks the remap.
     expect(renderedText()).toContain("Default: My BYOK");
@@ -554,6 +555,104 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     expect(body.llm.defaultProfileOverrides).toEqual({
       "cost-optimized": null,
     });
+  });
+
+  // The card containing `rowText`, for scoping queries to one call-site row.
+  function rowCard(rowText: string): HTMLElement {
+    const match = Array.from(
+      document.querySelectorAll<HTMLElement>("div.rounded-lg"),
+    ).find((d) => d.textContent?.includes(rowText));
+    if (!match) {
+      throw new Error(`expected a row card containing "${rowText}"`);
+    }
+    return match;
+  }
+
+  test("a remapped unpinned row shows a ghost dropdown, toggle stays off", async () => {
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { balanced: "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("via Balanced default");
+    });
+    const card = rowCard("Workflow Leaf");
+    const dropdown = card.querySelector<HTMLElement>('button[role="combobox"]');
+    expect(dropdown?.textContent).toContain("My BYOK");
+    const toggle = card.querySelector<HTMLElement>('[role="switch"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("picking from the ghost dropdown creates a real pin", async () => {
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { balanced: "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("via Balanced default");
+    });
+    const dropdown = rowCard("Workflow Leaf").querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!dropdown) {
+      throw new Error("expected the ghost dropdown");
+    }
+    pickOption(dropdown, "Quality");
+    // The pin flips the toggle on and drops the tier provenance.
+    const toggle = rowCard("Workflow Leaf").querySelector<HTMLElement>(
+      '[role="switch"]',
+    );
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    expect(renderedText()).not.toContain("via Balanced default");
+
+    fireEvent.click(getButton("Save"));
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, unknown> };
+    };
+    expect(body.llm.callSites.workflowLeaf).toEqual({
+      profile: "quality",
+      provider: null,
+      model: null,
+    });
+    // The other ghost-eligible rows stay out of the patch.
+    expect("heartbeatAgent" in body.llm.callSites).toBe(false);
+  });
+
+  test("untouched ghost rows serialize no per-action pins", async () => {
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { balanced: "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("via Balanced default");
+    });
+    // Save something unrelated (the advisor) so the patch fires.
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    pickOption(advisorTrigger, "My BYOK");
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    // The remap must stay a tier-level fact: no ghost row materializes
+    // into `llm.callSites`, else later tier changes stop moving them.
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    expect("callSites" in body.llm).toBe(false);
+    expect("defaultProfileOverrides" in body.llm).toBe(false);
   });
 
   test("Reset clears per-action pins but keeps the tier remaps", async () => {
