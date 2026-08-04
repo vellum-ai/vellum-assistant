@@ -141,7 +141,7 @@ export function CallSiteOverrideRow({
           {/* Ghost pinning depends on `Dropdown` firing onChange when the
               already-selected option is re-picked (how a user pins the shown
               value). `Select`, its planned replacement, is silent on
-              re-selection — a migration must keep that path working. */}
+              re-selection, so a migration must keep that path working. */}
           {(overrideOn || shownGhost) && (
             <Dropdown
               value={shownGhost ? shownGhost.profile : profileVal}
