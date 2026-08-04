@@ -47,10 +47,10 @@ describe("NativeAppCard", () => {
 
     render(<NativeAppCard />);
 
-    expect(screen.getByText("Get the iOS App")).toBeInTheDocument();
+    expect(screen.getByText("Get the iOS App")).toBeDefined();
     expect(
       screen.getByText("The Vellum iOS app gives you a native experience."),
-    ).toBeInTheDocument();
+    ).toBeDefined();
   });
 
   test("hides Android promotion without a configured Play listing", () => {
@@ -58,7 +58,7 @@ describe("NativeAppCard", () => {
 
     const { container } = render(<NativeAppCard />);
 
-    expect(container).toBeEmptyDOMElement();
+    expect(container.innerHTML).toBe("");
   });
 
   test("opens a configured Android listing and records the action", () => {

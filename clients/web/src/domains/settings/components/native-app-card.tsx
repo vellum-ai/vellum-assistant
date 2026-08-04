@@ -39,8 +39,8 @@ export function NativeAppCard() {
       ctaLabel="Download"
       ctaLeftIcon={<Smartphone size={16} />}
       onAction={() => {
-        writeNativeAppDownloaded(platform);
-        openNativeAppStore(platform);
+        writeNativeAppDownloaded(promotion.platform);
+        openNativeAppStore(promotion.platform);
       }}
     />
   );

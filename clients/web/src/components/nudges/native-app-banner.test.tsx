@@ -15,10 +15,10 @@ describe("NativeAppBanner", () => {
       />,
     );
 
-    expect(screen.getByText("Get the iOS app")).toBeInTheDocument();
+    expect(screen.getByText("Get the iOS app")).toBeDefined();
     expect(
       screen.getByRole("button", { name: "Download iOS app" }),
-    ).toBeInTheDocument();
+    ).toBeDefined();
   });
 
   test("renders Android-specific promotion copy", () => {
@@ -30,9 +30,9 @@ describe("NativeAppBanner", () => {
       />,
     );
 
-    expect(screen.getByText("Get the Android app")).toBeInTheDocument();
+    expect(screen.getByText("Get the Android app")).toBeDefined();
     expect(
       screen.getByRole("button", { name: "Download Android app" }),
-    ).toBeInTheDocument();
+    ).toBeDefined();
   });
 });
