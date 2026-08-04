@@ -753,18 +753,20 @@ export function OverridesDetailPanel({
                       // caption. `displayedDefaultFor` trusts the resolver's
                       // winner for untouched tiers, so a remap resolution
                       // skipped never renders as if it applied. A pinned
-                      // site keeps the winner caption: the pin outranks the
-                      // remap, so tier provenance would claim an effect the
-                      // resolver doesn't apply.
+                      // site's caption stays the shipped tier: the default
+                      // is what the action falls back to when unpinned, and
+                      // must not follow the pin (`cs.defaultProfile` is the
+                      // effective winner, pins included, so it would just
+                      // echo the pin back).
                       const pinned = isDraftActive(drafts[cs.id] ?? null);
                       const shippedTier = cs.shippedDefaultProfile;
                       let defaultProfileLabel: string | null = null;
                       let ghost: { profile: string; caption: string } | null =
                         null;
-                      if (supportsTierOverrides && shippedTier && !pinned) {
+                      if (supportsTierOverrides && shippedTier) {
                         const displayed =
                           displayedDefaultFor(cs) ?? shippedTier;
-                        if (displayed !== shippedTier) {
+                        if (!pinned && displayed !== shippedTier) {
                           ghost = {
                             profile: displayed,
                             caption: `via ${profileLabelFor(shippedTier)} default`,
