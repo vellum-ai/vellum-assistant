@@ -107,9 +107,10 @@ const {
   surfaceProxyResolver,
 } = await import("../daemon/conversation-surfaces.js");
 
+import type { Conversation } from "../daemon/conversation.js";
 import type { SurfaceStateEntry } from "../daemon/conversation-surface-state.js";
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 const CONVERSATION_ID = "conv-history-restored-1";
 
@@ -124,9 +125,9 @@ type EnqueueResult = { queued: boolean; requestId: string; rejected?: boolean };
 function makeContext(
   enqueueResult: EnqueueResult = { queued: false, requestId: "req-1" },
   overrides: { trustContext?: TrustContext; queueDepth?: number } = {},
-): SurfaceConversationContext & { enqueuedContents: string[] } {
+): Conversation & { enqueuedContents: string[] } {
   const enqueuedContents: string[] = [];
-  return {
+  return asConversation({
     conversationId: CONVERSATION_ID,
     trustContext: overrides.trustContext ?? GUARDIAN_TRUST,
     sendToClient: () => {},
@@ -151,7 +152,7 @@ function makeContext(
     processMessage: async () => "msg-1",
     withSurface: createSurfaceMutex(),
     enqueuedContents,
-  };
+  });
 }
 
 function seedSurfaceRow(
@@ -786,10 +787,7 @@ describe("completion summary sourcing", () => {
 });
 
 /** The live entries a `ui_dismiss` with a recorded action tears down. */
-function seedAnsweredSurface(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-): void {
+function seedAnsweredSurface(ctx: Conversation, surfaceId: string): void {
   ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "choice" });
   ctx.lastSurfaceAction.set(surfaceId, {
     actionId: "inbox",
@@ -807,7 +805,7 @@ function seedAnsweredSurface(
 }
 
 function liveSurfaceKeysRemaining(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
 ): string[] {
   return (

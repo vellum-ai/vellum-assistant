@@ -71,11 +71,11 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { Conversation } from "../daemon/conversation.js";
+import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
   isRefusedInReadOnlyPass,
-  type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
 import {
   __clearRegistryForTesting,
@@ -86,6 +86,7 @@ import {
 } from "../tools/registry.js";
 import { RiskLevel } from "../tools/tool-types.js";
 import type { Tool } from "../tools/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,18 +101,16 @@ function makeToolDef(name: string): ToolDefinition {
 function makeProjectionCtx(
   overrides: Partial<Conversation> = {},
 ): Conversation {
-  return {
+  return asConversation({
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
     toolsDisabledDepth: 0,
     ...overrides,
-  } as unknown as Conversation;
+  }) as unknown as Conversation;
 }
 
-function makeSetupCtx(
-  overrides: Partial<ToolSetupContext> = {},
-): ToolSetupContext {
-  return {
+function makeSetupCtx(overrides: Partial<Conversation> = {}): Conversation {
+  return asConversation({
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
@@ -128,9 +127,9 @@ function makeSetupCtx(
     enqueueMessage: () => ({ queued: false, requestId: "r" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
+    withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
 /** Fake ToolExecutor that records every execute() invocation. */
@@ -156,7 +155,7 @@ const noopSecretPrompter = {
   prompt: mock(async () => ({ cancelled: true })),
 } as unknown as SecretPrompter;
 
-function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
+function makeToolFn(executor: ToolExecutor, ctx: Conversation) {
   return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 

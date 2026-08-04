@@ -19,6 +19,8 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asConversation } from "./helpers/mock-conversation.js";
+
 // ---------------------------------------------------------------------------
 // Module mocks (must be installed before importing the units under test)
 // ---------------------------------------------------------------------------
@@ -102,12 +104,11 @@ const {
   _setActiveAppControlSession,
 } = await import("../daemon/host-app-control-proxy.js");
 const { ROUTES } = await import("../runtime/routes/host-app-control-routes.js");
-const { surfaceProxyResolver } =
+const { createSurfaceMutex, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 const { setConversation, clearConversations } =
   await import("../daemon/conversation-registry.js");
-type SurfaceConversationContext =
-  import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
+type Conversation = import("../daemon/conversation.js").Conversation;
 
 const handleHostAppControlResult = ROUTES.find(
   (r) => r.endpoint === "host-app-control-result",
@@ -123,15 +124,15 @@ const TINY_PNG_B64 = "iVBORw0KGgoAAAA";
 // ---------------------------------------------------------------------------
 
 /**
- * Build a SurfaceConversationContext with a real proxy attached. Only the
+ * Build a Conversation with a real proxy attached. Only the
  * fields the app-control branch reads are populated — see
  * `cu-unified-flow.test.ts` for the analogous shape.
  */
 function buildContext(
   proxy: InstanceType<typeof HostAppControlProxy>,
   conversationId = "test-conv",
-): SurfaceConversationContext {
-  return {
+): Conversation {
+  return asConversation({
     conversationId,
     trustContext: {
       sourceChannel: "vellum",
@@ -151,8 +152,8 @@ function buildContext(
     enqueueMessage: () => ({ queued: false, requestId: "r1" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async (_id, fn) => fn(),
-  };
+    withSurface: createSurfaceMutex(),
+  });
 }
 
 /**

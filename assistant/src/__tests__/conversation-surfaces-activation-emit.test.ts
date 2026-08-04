@@ -29,7 +29,8 @@ const {
   surfaceProxyResolver,
 } = await import("../daemon/conversation-surfaces.js");
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
+import type { Conversation } from "../daemon/conversation.js";
+import type { ProcessMessageOptions } from "../daemon/conversation-process.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import {
   getMemorySqlite,
@@ -61,7 +62,7 @@ interface ProcessMessageCall {
 function makeContext(
   conversationId: string,
   sent: AssistantEvent[] = [],
-): SurfaceConversationContext & {
+): Conversation & {
   processMessageCalls: ProcessMessageCall[];
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
@@ -81,7 +82,7 @@ function makeContext(
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
     getQueueDepth: () => 0,
-    processMessage: async (options) => {
+    processMessage: async (options: ProcessMessageOptions) => {
       processMessageCalls.push({
         content: options.content,
         activeSurfaceId: options.activeSurfaceId,
@@ -90,7 +91,7 @@ function makeContext(
     },
     withSurface: createSurfaceMutex(),
     processMessageCalls,
-  } as SurfaceConversationContext & {
+  } as unknown as Conversation & {
     processMessageCalls: ProcessMessageCall[];
   };
 }
@@ -102,7 +103,7 @@ function resetTables(): void {
 
 /** Render a choice surface tagged (or not) with an activation_moment. */
 async function showTaggedChoice(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   sent: AssistantEvent[],
   activationMoment?: string,
 ): Promise<string> {
