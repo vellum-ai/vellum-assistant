@@ -1,7 +1,9 @@
 /**
  * Tests for ScheduleDetailPanel's plugin-sourced treatment: sourced schedules
  * hide the Delete affordance and show plugin attribution in its place;
- * user-created schedules keep the Delete button.
+ * user-created schedules keep the Delete button. Run now is withheld from a
+ * plugin-sourced schedule that is turned off, since the daemon refuses to run
+ * one whose plugin is disabled.
  *
  * The generated daemon SDK is mocked so the runs query resolves without a
  * daemon.
@@ -67,5 +69,53 @@ describe("ScheduleDetailPanel plugin-sourced treatment", () => {
       expect(getByText("Managed by plugin gmail")).toBeTruthy();
     });
     expect(queryByText("Delete")).toBeNull();
+  });
+});
+
+describe("ScheduleDetailPanel Run now availability", () => {
+  const scriptSchedule = (overrides: Parameters<typeof makeSchedule>[0]) =>
+    makeSchedule({ mode: "script", script: "echo hi", ...overrides });
+
+  test("a disabled plugin-sourced schedule cannot be run", async () => {
+    const { getByRole, getByText } = renderPanel(
+      scriptSchedule({
+        sourceKey: "plugin:gmail/poll-inbox",
+        enabled: false,
+        userEnabled: false,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        (getByRole("button", { name: "Run now" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true);
+    });
+    expect(getByText("Turn this schedule on to run it")).toBeTruthy();
+  });
+
+  test("an enabled plugin-sourced schedule can be run", async () => {
+    const { getByRole, queryByText } = renderPanel(
+      scriptSchedule({ sourceKey: "plugin:gmail/poll-inbox", enabled: true }),
+    );
+
+    await waitFor(() => {
+      expect(
+        (getByRole("button", { name: "Run now" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+    expect(queryByText("Turn this schedule on to run it")).toBeNull();
+  });
+
+  test("a disabled user-created schedule can still be run", async () => {
+    const { getByRole } = renderPanel(scriptSchedule({ enabled: false }));
+
+    await waitFor(() => {
+      expect(
+        (getByRole("button", { name: "Run now" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
   });
 });

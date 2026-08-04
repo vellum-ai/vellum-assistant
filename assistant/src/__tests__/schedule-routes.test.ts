@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -1519,6 +1519,78 @@ describe("plugin-sourced schedules over routes", () => {
     await expect(cancel()).rejects.toThrow(
       "This schedule is managed by a plugin and cannot be cancelled. Disable it instead via the enabled toggle.",
     );
+  });
+
+  describe("run now", () => {
+    const RUN_MARKER = join(getWorkspacePluginsDir(), "run-now-marker.txt");
+
+    beforeEach(() => {
+      rmSync(RUN_MARKER, { force: true });
+    });
+
+    function seedSourcedScript() {
+      return seedSourcedSchedule({
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+        message: "",
+      });
+    }
+
+    async function runNow(id: string) {
+      return findRoute("schedules/:id/run", "POST").handler({
+        pathParams: { id },
+      });
+    }
+
+    test("refuses a sourced row whose plugin is disabled", async () => {
+      const sourced = await seedSourcedScript();
+      writeFileSync(
+        join(getWorkspacePluginsDir(), "example-plugin", ".disabled"),
+        "",
+      );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      // Refused before execution: the plugin's script never ran.
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row whose declaration is gone", async () => {
+      const sourced = await seedSourcedScript();
+      rmSync(
+        join(
+          getWorkspacePluginsDir(),
+          "example-plugin",
+          "schedules",
+          "daily-digest.md",
+        ),
+        { force: true },
+      );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("runs a sourced row whose plugin is healthy", async () => {
+      const sourced = await seedSourcedScript();
+
+      await runNow(sourced.id);
+
+      expect(existsSync(RUN_MARKER)).toBe(true);
+    });
+
+    test("runs an imperative row", async () => {
+      const imperative = await createSchedule({
+        name: "Imperative script",
+        cronExpression: "* * * * *",
+        message: "",
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+      });
+
+      await runNow(imperative.id);
+
+      expect(existsSync(RUN_MARKER)).toBe(true);
+    });
   });
 });
 

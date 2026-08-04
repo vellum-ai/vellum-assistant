@@ -18,8 +18,9 @@
  * outside the daemon, notably the CLI's own enable/disable.
  *
  * Rows this pass has not caught up with are still safe to leave armed: the
- * scheduler re-reads the `.disabled` sentinel at fire time, so reconcile lag
- * delays bookkeeping rather than letting a disabled plugin execute.
+ * scheduler re-reads the `.disabled` sentinel at fire time and the run-now
+ * route re-probes the declaration, so reconcile lag delays bookkeeping rather
+ * than letting a disabled plugin execute.
  */
 
 import { existsSync } from "node:fs";

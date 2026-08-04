@@ -26455,7 +26455,9 @@ paths:
     post:
       operationId: schedules_by_id_run_post
       summary: Run schedule now
-      description: Trigger an immediate execution of a schedule.
+      description:
+        Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its
+        plugin is disabled or no longer declares it.
       tags:
         - schedules
       parameters:

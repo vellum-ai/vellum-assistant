@@ -884,7 +884,9 @@ registered with the HTTP server's background sweeps.
 Reconcile lag never lets a disabled plugin run. The disable path writes a
 `.disabled` sentinel that only a reconcile pass turns into disarmed rows, so
 the scheduler re-reads the sentinel at fire time and records a skipped run
-instead of executing a claimed row whose plugin is off.
+instead of executing a claimed row whose plugin is off. Run-now applies the
+same boundary through `declarationExistsOnDisk`, which also covers a plugin
+whose manifest no longer parses or whose declaration file is gone.
 
 Ownership boundaries: the reconciler owns definition columns (expression,
 timezone, message/script, retry policy, `definition_hash`); the execution

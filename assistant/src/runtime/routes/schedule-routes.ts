@@ -17,6 +17,7 @@ import {
 } from "../../persistence/llm-usage-store.js";
 import { isDeferSchedule } from "../../schedule/defer-provenance.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
+import { declarationExistsOnDisk } from "../../schedule/plugin-schedule-declarations.js";
 import {
   describeRRuleExpression,
   isSingleFireRRule,
@@ -1078,7 +1079,8 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Run schedule now",
-    description: "Trigger an immediate execution of a schedule.",
+    description:
+      "Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its plugin is disabled or no longer declares it.",
     tags: ["schedules"],
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
@@ -1095,6 +1097,21 @@ async function handleRunScheduleNow(
   const schedule = getSchedule(id);
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
+  }
+
+  // A plugin-sourced row runs the plugin's own script or prompt, so run-now is
+  // only offered while that plugin is something the runtime would activate.
+  // `declarationExistsOnDisk` is the same probe the enable path uses: it covers
+  // a disabled plugin, an unreadable or invalid manifest, and a declaration
+  // that is simply gone. The row can still be armed at this point, because the
+  // reconciler that disarms it runs on its own schedule.
+  if (
+    schedule.sourceKey !== null &&
+    !(await declarationExistsOnDisk(schedule.sourceKey))
+  ) {
+    throw new BadRequestError(
+      "This schedule's plugin is disabled or no longer declares it, so it cannot be run.",
+    );
   }
 
   // ── Script mode (shell command, no LLM) ──────────────────────────

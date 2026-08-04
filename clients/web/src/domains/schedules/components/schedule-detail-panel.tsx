@@ -372,6 +372,11 @@ export function ScheduleDetailPanel({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
+  // A plugin-sourced schedule is off either because the user turned it off or
+  // because the plugin is disabled. Running it would execute the plugin's
+  // script anyway, which the daemon refuses, so the affordance is disabled
+  // here rather than surfacing that refusal as a failed run.
+  const runNowBlocked = pluginName !== null && !schedule.enabled;
 
   const handleRunNow = async () => {
     setIsRunning(true);
@@ -523,18 +528,28 @@ export function ScheduleDetailPanel({
             View usage
           </Button>
           {schedule.mode === "script" ? (
-            <Button
-              variant="primary"
-              leftIcon={
-                isRunning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : undefined
-              }
-              onClick={() => void handleRunNow()}
-              disabled={isRunning}
-            >
-              {isRunning ? "Running…" : "Run now"}
-            </Button>
+            <>
+              {runNowBlocked ? (
+                // Plain text rather than a tooltip: a tooltip on a disabled
+                // button never opens, so the reason would be invisible exactly
+                // when it is needed.
+                <span className="text-body-small-default text-[var(--content-tertiary)]">
+                  Turn this schedule on to run it
+                </span>
+              ) : null}
+              <Button
+                variant="primary"
+                leftIcon={
+                  isRunning ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : undefined
+                }
+                onClick={() => void handleRunNow()}
+                disabled={isRunning || runNowBlocked}
+              >
+                {isRunning ? "Running…" : "Run now"}
+              </Button>
+            </>
           ) : null}
         </div>
       </div>
