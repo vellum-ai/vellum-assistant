@@ -231,6 +231,137 @@ describe("schedules list", () => {
     expect(logLines.join("\n")).not.toContain("Authored heartbeat check");
   });
 
+  test("renders a SOURCE column with the owning plugin's name", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "schedule-plugin",
+            name: "Inbox poll",
+            enabled: true,
+            syntax: "cron",
+            expression: "*/15 * * * *",
+            cronExpression: "*/15 * * * *",
+            timezone: null,
+            message: "poll the inbox",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: null,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Polls the inbox",
+            cadenceDescription: "Every 15 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            sourceKey: "plugin:gmail/poll-inbox",
+            userEnabled: null,
+            isOneShot: false,
+          },
+          {
+            id: "schedule-imperative",
+            name: "Heartbeat",
+            enabled: true,
+            syntax: "cron",
+            expression: "*/30 * * * *",
+            cronExpression: "*/30 * * * *",
+            timezone: null,
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_100_000,
+            lastRunAt: null,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Checks the heartbeat",
+            cadenceDescription: "Every 30 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            sourceKey: null,
+            userEnabled: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand(["schedules", "list"]);
+
+    expect(exitCode).toBe(0);
+    expect(logLines.join("\n")).toContain("SOURCE");
+    const pluginLine = logLines.find((line) =>
+      line.includes("schedule-plugin"),
+    );
+    const imperativeLine = logLines.find((line) =>
+      line.includes("schedule-imperative"),
+    );
+    expect(pluginLine).toContain("gmail");
+    expect(imperativeLine).not.toContain("gmail");
+  });
+
+  test("--json passes sourceKey and userEnabled through untouched", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "schedule-plugin",
+            name: "Inbox poll",
+            enabled: false,
+            syntax: "cron",
+            expression: "*/15 * * * *",
+            cronExpression: "*/15 * * * *",
+            timezone: null,
+            message: "poll the inbox",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: null,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Polls the inbox",
+            cadenceDescription: "Every 15 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            sourceKey: "plugin:gmail/poll-inbox",
+            userEnabled: false,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "list",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      schedules: [
+        expect.objectContaining({
+          id: "schedule-plugin",
+          sourceKey: "plugin:gmail/poll-inbox",
+          userEnabled: false,
+        }),
+      ],
+    });
+  });
+
   test("sets exit code on IPC failure", async () => {
     mockIpcResult = { ok: false, error: "daemon unavailable" };
 

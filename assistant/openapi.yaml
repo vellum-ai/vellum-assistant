@@ -25359,6 +25359,20 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
                           type: boolean
                       required:
@@ -25391,6 +25405,8 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
                       additionalProperties: false
                     description: Schedule objects
@@ -25571,6 +25587,20 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      sourceKey:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                        description:
+                          Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                          schedules
+                      userEnabled:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                        description:
+                          User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                          applies. Always null for user-created schedules.
                       isOneShot:
                         type: boolean
                     required:
@@ -25603,6 +25633,8 @@ paths:
                       - reuseConversation
                       - wakeConversationId
                       - workflowName
+                      - sourceKey
+                      - userEnabled
                       - isOneShot
                     additionalProperties: false
                     description: The created schedule
@@ -25737,6 +25769,20 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
                           type: boolean
                       required:
@@ -25769,6 +25815,8 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -25900,6 +25948,20 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      sourceKey:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                        description:
+                          Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                          schedules
+                      userEnabled:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                        description:
+                          User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                          applies. Always null for user-created schedules.
                       isOneShot:
                         type: boolean
                     required:
@@ -25932,6 +25994,8 @@ paths:
                       - reuseConversation
                       - wakeConversationId
                       - workflowName
+                      - sourceKey
+                      - userEnabled
                       - isOneShot
                     additionalProperties: false
                     description: Schedule object
@@ -26122,6 +26186,20 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
                           type: boolean
                       required:
@@ -26154,6 +26232,8 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -26288,6 +26368,20 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
                           type: boolean
                       required:
@@ -26320,6 +26414,8 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -26454,6 +26550,20 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
                           type: boolean
                       required:
@@ -26486,6 +26596,8 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list
@@ -26621,7 +26733,7 @@ paths:
     post:
       operationId: schedules_by_id_toggle_post
       summary: Toggle schedule
-      description: Enable or disable a schedule.
+      description: Enable or disable a schedule. On a plugin-managed schedule this records the user's override (userEnabled).
       tags:
         - schedules
       parameters:
@@ -26757,6 +26869,20 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
                           type: boolean
                       required:
@@ -26789,6 +26915,8 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
                       additionalProperties: false
                     description: Updated schedule list

@@ -39,6 +39,7 @@ import {
   listSchedules,
   resolveScheduleConversationGroupId,
   type ScheduleJob,
+  setUserEnabled,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
@@ -135,6 +136,18 @@ const scheduleSchema = z.object({
   reuseConversation: z.boolean(),
   wakeConversationId: z.string().nullable(),
   workflowName: z.string().nullable(),
+  sourceKey: z
+    .string()
+    .nullable()
+    .describe(
+      "Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created schedules",
+    ),
+  userEnabled: z
+    .boolean()
+    .nullable()
+    .describe(
+      "User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value applies. Always null for user-created schedules.",
+    ),
   isOneShot: z.boolean(),
 });
 
@@ -271,6 +284,8 @@ function serializeSchedule(
     reuseConversation: j.reuseConversation,
     wakeConversationId: j.wakeConversationId,
     workflowName: j.workflowName,
+    sourceKey: j.sourceKey,
+    userEnabled: j.userEnabled,
     isOneShot: isOneShotForDisplay(j),
   };
 }
@@ -468,7 +483,9 @@ async function handleToggleSchedule(
   // enabled, with no further caller involvement.
   await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
 
-  const updated = await updateSchedule(id, { enabled });
+  // One endpoint serves both kinds of row: imperative schedules take the
+  // plain enabled write, plugin-sourced ones record the user_enabled override.
+  const updated = await setUserEnabled(id, enabled);
   if (!updated) {
     throw new NotFoundError("Schedule not found");
   }
@@ -481,7 +498,18 @@ async function handleDeleteSchedule(
   headers?: Record<string, string>,
 ) {
   await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
-  const removed = await deleteSchedule(id);
+  let removed: boolean;
+  try {
+    removed = await deleteSchedule(id);
+  } catch (err) {
+    // Store-layer refusals (e.g. plugin-sourced rows, which only the plugin's
+    // schedule file can remove) are caller mistakes with an actionable
+    // message, not daemon faults.
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
   if (!removed) {
     throw new NotFoundError("Schedule not found");
   }
@@ -919,7 +947,8 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Toggle schedule",
-    description: "Enable or disable a schedule.",
+    description:
+      "Enable or disable a schedule. On a plugin-managed schedule this records the user's override (userEnabled).",
     tags: ["schedules"],
     requestBody: z.object({
       enabled: z.boolean().describe("New enabled state"),

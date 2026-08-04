@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
 import {
   deleteSchedule,
   fetchScheduleRuns,
@@ -370,6 +371,7 @@ export function ScheduleDetailPanel({
   const [isRunning, setIsRunning] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
 
   const handleRunNow = async () => {
     setIsRunning(true);
@@ -478,7 +480,13 @@ export function ScheduleDetailPanel({
 
       {/* Footer actions */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        {!confirmingDelete ? (
+        {pluginName ? (
+          // Plugin-sourced schedules cannot be deleted here; the plugin's
+          // schedule file is the source of truth, so only attribution shows.
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            Managed by plugin {pluginName}
+          </span>
+        ) : !confirmingDelete ? (
           <Button
             variant="dangerOutline"
             leftIcon={<Trash2 className="h-3.5 w-3.5" />}

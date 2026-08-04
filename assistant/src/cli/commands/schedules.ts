@@ -36,6 +36,8 @@ interface ScheduleRecord {
   routingIntent: string;
   reuseConversation: boolean;
   wakeConversationId: string | null;
+  sourceKey: string | null;
+  userEnabled: boolean | null;
   isOneShot: boolean;
 }
 
@@ -115,6 +117,7 @@ export function registerSchedulesCommand(program: Command): void {
             name: schedule.name,
             enabled: schedule.enabled ? "enabled" : "disabled",
             mode: schedule.mode,
+            source: describeSource(schedule.sourceKey),
             schedule: describeSchedule(schedule),
             nextRun: formatTimestamp(schedule.nextRunAt),
             lastStatus: schedule.lastStatus ?? "—",
@@ -125,6 +128,7 @@ export function registerSchedulesCommand(program: Command): void {
             "NAME",
             "ENABLED",
             "MODE",
+            "SOURCE",
             "SCHEDULE",
             "NEXT RUN",
             "LAST STATUS",
@@ -137,6 +141,7 @@ export function registerSchedulesCommand(program: Command): void {
             headers[4].length,
             headers[5].length,
             headers[6].length,
+            headers[7].length,
           ];
 
           for (const row of rows) {
@@ -144,9 +149,10 @@ export function registerSchedulesCommand(program: Command): void {
             widths[1] = Math.max(widths[1], row.name.length);
             widths[2] = Math.max(widths[2], row.enabled.length);
             widths[3] = Math.max(widths[3], row.mode.length);
-            widths[4] = Math.max(widths[4], row.schedule.length);
-            widths[5] = Math.max(widths[5], row.nextRun.length);
-            widths[6] = Math.max(widths[6], row.lastStatus.length);
+            widths[4] = Math.max(widths[4], row.source.length);
+            widths[5] = Math.max(widths[5], row.schedule.length);
+            widths[6] = Math.max(widths[6], row.nextRun.length);
+            widths[7] = Math.max(widths[7], row.lastStatus.length);
           }
 
           const pad = (value: string, width: number) => value.padEnd(width);
@@ -163,6 +169,7 @@ export function registerSchedulesCommand(program: Command): void {
                 row.name,
                 row.enabled,
                 row.mode,
+                row.source,
                 row.schedule,
                 row.nextRun,
                 row.lastStatus,
@@ -232,6 +239,7 @@ export function registerSchedulesCommand(program: Command): void {
             ["Retry backoff", formatDuration(schedule.retryBackoffMs)],
             ["Timeout", formatDuration(schedule.timeoutMs)],
             ["Source conversation", schedule.createdFromConversationId ?? "—"],
+            ["Plugin", describeSource(schedule.sourceKey) || "—"],
           ];
           const labelWidth = Math.max(...fields.map(([label]) => label.length));
           for (const [label, value] of fields) {
@@ -776,6 +784,19 @@ async function toggleScheduleEnabled(
   }
 
   log.info(`${enabled ? "Enabled" : "Disabled"} schedule: ${scheduleId}`);
+}
+
+/**
+ * Plugin attribution for the list's SOURCE column: the owning plugin's name,
+ * the raw key when it does not parse, blank for imperative schedules. Parses
+ * the wire value locally; the key format is defined by
+ * `pluginScheduleSourceKey` in schedule/plugin-schedule-declarations.ts.
+ */
+function describeSource(sourceKey: string | null | undefined): string {
+  if (!sourceKey) {
+    return "";
+  }
+  return /^plugin:([^/]+)\//.exec(sourceKey)?.[1] ?? sourceKey;
 }
 
 function describeSchedule(schedule: ScheduleRecord): string {
