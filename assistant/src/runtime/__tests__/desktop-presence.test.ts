@@ -4,7 +4,8 @@
  * The invariant under test is fail-open: only a fresh `active` report from a
  * `macos` client answers `true`. Every other shape (stale, idle, away, no
  * presence, wrong interface, no clients, hub throw) answers `false` so the
- * push is sent.
+ * push is sent. Scoping the read to an actor principal narrows what counts as
+ * attendance, so it can only ever turn a `true` into a `false`.
  */
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -25,12 +26,14 @@ function registerClient(args: {
   clientId: string;
   interfaceId?: InterfaceId;
   presence?: DesktopPresenceState;
+  actorPrincipalId?: string;
 }): void {
   assistantEventHub.subscribe({
     type: "client",
     clientId: args.clientId,
     interfaceId: args.interfaceId ?? "macos",
     capabilities: [],
+    actorPrincipalId: args.actorPrincipalId,
     callback: () => {},
   });
   if (args.presence) {
@@ -63,7 +66,7 @@ describe("isDesktopAttended", () => {
 
   test("active report older than the staleness bound is not attended", () => {
     registerClient({ clientId: "mac-1", presence: "active" });
-    expect(isDesktopAttended(afterStaleness())).toBe(false);
+    expect(isDesktopAttended({ now: afterStaleness() })).toBe(false);
   });
 
   test("idle is not attended", () => {
@@ -112,5 +115,67 @@ describe("isDesktopAttended", () => {
     registerClient({ clientId: "mac-1", presence: "away" });
     registerClient({ clientId: "mac-2", presence: "active" });
     expect(isDesktopAttended()).toBe(true);
+  });
+});
+
+describe("isDesktopAttended scoped to an actor principal", () => {
+  test("matching actor principal is attended", () => {
+    registerClient({
+      clientId: "mac-1",
+      presence: "active",
+      actorPrincipalId: "actor-a",
+    });
+    expect(isDesktopAttended({ actorPrincipalId: "actor-a" })).toBe(true);
+  });
+
+  test("another actor's attended mac does not count", () => {
+    registerClient({
+      clientId: "mac-1",
+      presence: "active",
+      actorPrincipalId: "actor-a",
+    });
+    expect(isDesktopAttended({ actorPrincipalId: "actor-b" })).toBe(false);
+  });
+
+  test("client with no principal does not match a supplied principal", () => {
+    registerClient({ clientId: "mac-1", presence: "active" });
+    expect(isDesktopAttended({ actorPrincipalId: "actor-a" })).toBe(false);
+  });
+
+  test("omitting the principal counts any attended macos client", () => {
+    registerClient({
+      clientId: "mac-1",
+      presence: "active",
+      actorPrincipalId: "actor-a",
+    });
+    expect(isDesktopAttended()).toBe(true);
+  });
+
+  test("target actor's stale report is not attended", () => {
+    registerClient({
+      clientId: "mac-1",
+      presence: "active",
+      actorPrincipalId: "actor-a",
+    });
+    expect(
+      isDesktopAttended({
+        actorPrincipalId: "actor-a",
+        now: afterStaleness(),
+      }),
+    ).toBe(false);
+  });
+
+  test("only the non-target actor is active among several clients", () => {
+    registerClient({
+      clientId: "mac-1",
+      presence: "active",
+      actorPrincipalId: "actor-a",
+    });
+    registerClient({
+      clientId: "mac-2",
+      presence: "away",
+      actorPrincipalId: "actor-b",
+    });
+    expect(isDesktopAttended({ actorPrincipalId: "actor-b" })).toBe(false);
   });
 });

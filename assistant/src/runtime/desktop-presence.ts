@@ -9,10 +9,6 @@
  * a client that can drop off at any time, so anything short of a fresh
  * `active` report from a `macos` client answers `false` and the push goes
  * out. A missed notification is strictly worse than a redundant one.
- *
- * A future two-tier-delay design (hold the push briefly, then send it if the
- * user never acknowledges) extends this module with delay tiers rather than
- * replacing it: the attended/unattended read stays the same input.
  */
 
 import { getLogger } from "../util/logger.js";
@@ -23,20 +19,45 @@ const log = getLogger("desktop-presence");
 /** Must exceed the client's report interval with margin, so a single dropped report does not read as absent. */
 export const PRESENCE_STALE_AFTER_MS = 3 * 60_000;
 
+export interface DesktopAttendanceOptions {
+  /**
+   * Only count macOS clients whose verified actor principal matches this id.
+   * A client that connected without a principal (legacy or service token)
+   * never matches a supplied id.
+   */
+  actorPrincipalId?: string;
+  /** Clock used for the staleness comparison. */
+  now?: Date;
+}
+
 /**
  * Whether some macOS client has reported `active` recently enough to trust.
  * Stale, absent, non-macOS, and error reads all answer `false`.
+ *
+ * Callers whose notification targets one recipient (guardian-scoped or
+ * otherwise per-recipient pushes) must pass that recipient's
+ * `actorPrincipalId`, or another user's attended Mac suppresses the push.
+ * Omitting it treats any attended macOS client as attendance, which only
+ * suits notifications with no single recipient.
  */
-export function isDesktopAttended(now: Date = new Date()): boolean {
+export function isDesktopAttended(
+  options: DesktopAttendanceOptions = {},
+): boolean {
+  const { actorPrincipalId, now = new Date() } = options;
   try {
-    return assistantEventHub
-      .listClientsByInterface("macos")
-      .some(
-        (client) =>
-          client.presence?.state === "active" &&
-          now.getTime() - client.presence.reportedAt.getTime() <=
-            PRESENCE_STALE_AFTER_MS,
+    return assistantEventHub.listClientsByInterface("macos").some((client) => {
+      if (
+        actorPrincipalId !== undefined &&
+        client.actorPrincipalId !== actorPrincipalId
+      ) {
+        return false;
+      }
+      return (
+        client.presence?.state === "active" &&
+        now.getTime() - client.presence.reportedAt.getTime() <=
+          PRESENCE_STALE_AFTER_MS
       );
+    });
   } catch (err) {
     // Returning false sends the push, which is the safe direction.
     log.warn({ err }, "desktop presence read failed; treating as unattended");
