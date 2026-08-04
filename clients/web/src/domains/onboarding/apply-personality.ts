@@ -115,8 +115,8 @@ export async function applyPersonality({
     // rewrite alone would lose them. Best-effort, like the rest of the flow.
     await savePersonalitySliders(assistantId, completeSliderValues(values));
 
-    // Let the rewrite turn run before hiding the thread — archiving mid-turn
-    // could drop the identity edits, and the chat handoff awaits this promise
+    // Let the rewrite turn run before the archive: archiving mid-turn could
+    // drop the identity edits, and the chat handoff awaits this promise
     // so the first greeting must not start until the identity files are
     // written. Settle on the daemon's turn-completion flag (see
     // `shouldSettlePersonalityPoll`).
