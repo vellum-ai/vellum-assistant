@@ -236,7 +236,23 @@ export function startResourceSampler(
   // thread's kernel state mid-stall when the heartbeat goes stale.
   const stallCapture = createStallCaptureMonitor(dataDir);
 
+  // Skip ticks while a sample is in flight: the disk measurement can take
+  // seconds (du over the workspace), and overlapping ticks would all delta
+  // against the same stale prevSample and land in one burst.
+  let sampleInFlight = false;
   const tick = async () => {
+    if (sampleInFlight) {
+      return;
+    }
+    sampleInFlight = true;
+    try {
+      await runTick();
+    } finally {
+      sampleInFlight = false;
+    }
+  };
+
+  const runTick = async () => {
     const now = clock();
     let sample: ResourceSample;
     try {

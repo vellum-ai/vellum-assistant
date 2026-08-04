@@ -617,16 +617,16 @@ describe("handleListMessages page=latest", () => {
   test("page=invalid throws BadRequestError", async () => {
     const conv = createConversation();
 
-    expect(() =>
+    await expect(
       handleListMessages({
         queryParams: { conversationId: conv.id, page: "invalid" },
       }),
-    ).toThrow(BadRequestError);
-    expect(() =>
+    ).rejects.toThrow(BadRequestError);
+    await expect(
       handleListMessages({
         queryParams: { conversationId: conv.id, page: "invalid" },
       }),
-    ).toThrow("page must be 'latest' when provided");
+    ).rejects.toThrow("page must be 'latest' when provided");
   });
 
   test("no-param GET returns full history without pagination metadata", async () => {

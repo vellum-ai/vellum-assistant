@@ -722,7 +722,7 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     const args = createPaginatedArgs(conv.id, { limit: "abc" });
 
-    expect(() => handleListMessages(args)).toThrow(
+    await expect(handleListMessages(args)).rejects.toThrow(
       "limit must be a valid number",
     );
   });
@@ -731,7 +731,7 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     const args = createPaginatedArgs(conv.id, { beforeTimestamp: "abc" });
 
-    expect(() => handleListMessages(args)).toThrow(
+    await expect(handleListMessages(args)).rejects.toThrow(
       "beforeTimestamp must be a valid number",
     );
   });
