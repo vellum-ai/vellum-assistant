@@ -1,12 +1,14 @@
 import { join } from "path";
 
-import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
-import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
-import { GATEWAY_PORT } from "../lib/constants.js";
 import {
-  getDefaultWorkspaceDir,
-  saveNgrokDomain,
-} from "../lib/ingress-config.js";
+  formatAssistantReference,
+  loadAllAssistants,
+  resolveAssistant,
+  type AssistantEntry,
+  type LocalInstanceResources,
+} from "../lib/assistant-config";
+import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
+import { saveNgrokDomain } from "../lib/ingress-config.js";
 import {
   ensureTunnelEdge,
   formatEdgeMode,
@@ -174,30 +176,31 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider, domain, clearDomain };
 }
 
-function parsePortFromUrl(url: unknown): number | undefined {
-  if (typeof url !== "string" || !url.trim()) return undefined;
-  try {
-    const port = Number(new URL(url).port);
-    return Number.isInteger(port) && port > 0 && port <= 65535
-      ? port
-      : undefined;
-  } catch {
-    return undefined;
-  }
+type LocalAssistantEntry = AssistantEntry & {
+  resources: LocalInstanceResources;
+};
+
+function isLocalEntry(entry: AssistantEntry): entry is LocalAssistantEntry {
+  return entry.resources !== undefined;
 }
 
-function resolveEntryGatewayPort(entry: AssistantEntry): number {
-  return (
-    entry.resources?.gatewayPort ??
-    parsePortFromUrl(entry.localUrl) ??
-    parsePortFromUrl(entry.runtimeUrl) ??
-    GATEWAY_PORT
-  );
+function describeUntunnelableEntry(entry: AssistantEntry): string {
+  const reference = formatAssistantReference(entry);
+  return entry.cloud === "vellum"
+    ? `Assistant '${reference}' runs on Vellum Cloud and needs no tunnel.`
+    : `Assistant '${reference}' has no locally managed runtime to tunnel.`;
 }
 
-export async function tunnel(): Promise<void> {
-  const { assistantName, provider, domain, clearDomain } = parseArgs();
-
+/**
+ * Resolve the assistant whose gateway and workspace the tunnel edge fronts.
+ * Tunnels only make sense for assistants with local resources; when the
+ * resolved entry has none (e.g. the active assistant is platform-hosted) and
+ * no name was given, fall back to the sole local entry, otherwise exit with
+ * an error naming the local assistants to pass explicitly.
+ */
+function resolveLocalTunnelEntry(
+  assistantName: string | null,
+): LocalAssistantEntry {
   const entry = resolveAssistant(assistantName ?? undefined);
 
   if (!entry) {
@@ -211,6 +214,37 @@ export async function tunnel(): Promise<void> {
     process.exit(1);
   }
 
+  if (isLocalEntry(entry)) {
+    return entry;
+  }
+
+  const localEntries = loadAllAssistants().filter(isLocalEntry);
+
+  if (!assistantName && localEntries.length === 1) {
+    console.log(
+      `${describeUntunnelableEntry(entry)} Tunneling the local assistant '${formatAssistantReference(localEntries[0])}' instead.`,
+    );
+    return localEntries[0];
+  }
+
+  console.error(describeUntunnelableEntry(entry));
+  if (localEntries.length === 0) {
+    console.error(
+      "No local assistant found to tunnel. Run `vellum hatch` first.",
+    );
+  } else {
+    console.error(
+      `Pass a local assistant as the name argument: ${localEntries
+        .map((local) => formatAssistantReference(local))
+        .join(", ")}.`,
+    );
+  }
+  process.exit(1);
+}
+
+export async function tunnel(): Promise<void> {
+  const { assistantName, provider, domain, clearDomain } = parseArgs();
+
   if (provider === "vellum") {
     throw new Error(
       `Tunnel provider '${provider}' is not yet implemented. ` +
@@ -218,11 +252,9 @@ export async function tunnel(): Promise<void> {
     );
   }
 
-  const resources = entry.resources;
-  const gatewayPort = resolveEntryGatewayPort(entry);
-  const workspaceDir = resources
-    ? join(resources.instanceDir, ".vellum", "workspace")
-    : getDefaultWorkspaceDir();
+  const entry = resolveLocalTunnelEntry(assistantName);
+  const { instanceDir, gatewayPort } = entry.resources;
+  const workspaceDir = join(instanceDir, ".vellum", "workspace");
 
   if (clearDomain) {
     saveNgrokDomain(workspaceDir, null);
