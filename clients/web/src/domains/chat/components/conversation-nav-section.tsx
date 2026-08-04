@@ -67,7 +67,7 @@ export interface ConversationRowListProps {
   /**
    * Scroll against this ancestor rather than bounding the list. Only the flat
    * list and Chats pass it: both already fill the sidebar body (directly, or
-   * nested in the persistent "Threads" header), so opening a scroller of
+   * nested in the persistent "Conversations" header), so opening a scroller of
    * their own would put a second scrollbar in the rail.
    */
   scrollParent?: HTMLElement;

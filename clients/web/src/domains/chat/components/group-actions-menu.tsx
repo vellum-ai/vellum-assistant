@@ -353,6 +353,11 @@ export function GroupActionsMenu({
         sideOffset={4}
         className="w-48 rounded-lg py-2 px-0"
         onClick={(event) => event.stopPropagation()}
+        // The footer's "Group by" Select portals its menu outside this
+        // popover and moves focus into it; a non-modal popover reads that
+        // as focus leaving and would dismiss, unmounting the select
+        // mid-interaction. Outside clicks still dismiss via pointer-down.
+        onFocusOutside={(event) => event.preventDefault()}
       >
         <div className="px-2">{items}</div>
       </Popover.Content>

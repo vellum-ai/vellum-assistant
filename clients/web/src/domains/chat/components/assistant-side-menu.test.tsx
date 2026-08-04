@@ -295,10 +295,10 @@ describe("AssistantSideMenu · All view", () => {
     expect(indexOfText("Alpha")).toBeLessThan(indexOfText("Chats"));
   });
 
-  test("offers the view switch behind the Threads actions menu", async () => {
-    // "Threads" is the persistent header carrying the toggle, in every
-    // view mode, including this describe block's List view (see its own
-    // `beforeEach`).
+  test("offers the grouping dropdown behind the Conversations actions menu", async () => {
+    // "Conversations" is the persistent header carrying the dropdown, in
+    // every view mode, including this describe block's flat All view (see
+    // its own `beforeEach`).
     const { container } = render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -310,17 +310,23 @@ describe("AssistantSideMenu · All view", () => {
     );
     try {
       const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Threads actions"]',
+        '[aria-label="Conversations actions"]',
       );
       expect(trigger).not.toBeNull();
       act(() => {
         trigger?.click();
       });
       await waitFor(() => {
-        expect(document.body.textContent).toContain("View As");
+        expect(document.body.textContent).toContain("Group by");
       });
-      expect(document.body.textContent).toContain("All");
-      expect(document.body.textContent).toContain("Sources");
+      // A dropdown, not tabs: only the selected option ("None", this
+      // block's flat view mode) shows on the closed trigger; "Channel"
+      // waits in the menu.
+      const select = document.body.querySelector<HTMLElement>(
+        '[data-slot="select-trigger"]',
+      );
+      expect(select).not.toBeNull();
+      expect(select?.textContent).toContain("None");
     } finally {
       cleanup();
     }
@@ -956,13 +962,14 @@ describe("AssistantSideMenu · section spacing", () => {
       }),
     );
 
-    // "Threads" is the persistent header for everything that isn't
+    // "Conversations" is the persistent header for everything that isn't
     // Pinned or a custom group; Chats and each channel section nest inside
-    // it in Grouped view rather than sitting as its top-level siblings.
+    // it when grouped by Channels rather than sitting as its top-level
+    // siblings.
     expect(sectionLabels(container)).toEqual([
       "Pinned",
       "Alpha",
-      "Threads",
+      "Conversations",
       "Chats",
       "Slack",
     ]);
@@ -1127,16 +1134,17 @@ describe("AssistantSideMenu · equal section treatment", () => {
     }
   });
 
-  // The switch isn't statically rendered at all: it lives behind the
-  // persistent "Threads" header's "…" button, reachable rather than
-  // always on screen (Chats itself, nested inside Threads in Grouped
-  // view, carries no button of its own, see `sidebar-section-item.tsx`).
-  test("the view switch is behind the Threads actions menu, not statically rendered", async () => {
+  // The dropdown isn't statically rendered at all: it lives behind the
+  // persistent "Conversations" header's "…" button, reachable rather than
+  // always on screen (Chats itself, nested inside Conversations when
+  // grouped by Channels, carries no button of its own, see
+  // `sidebar-section-item.tsx`).
+  test("the grouping dropdown is behind the Conversations actions menu, not statically rendered", async () => {
     const html = renderMenu({
       conversations: LAYOUT_CONVERSATIONS,
       conversationGroups: LAYOUT_GROUPS,
     });
-    expect(html).not.toContain('data-slot="segment-control"');
+    expect(html).not.toContain('data-slot="select"');
 
     const { container } = render(
       createElement(AssistantSideMenu, {
@@ -1150,14 +1158,14 @@ describe("AssistantSideMenu · equal section treatment", () => {
     );
     try {
       const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Threads actions"]',
+        '[aria-label="Conversations actions"]',
       );
       expect(trigger).not.toBeNull();
       act(() => {
         trigger?.click();
       });
       await waitFor(() => {
-        expect(document.body.textContent).toContain("View As");
+        expect(document.body.textContent).toContain("Group by");
       });
     } finally {
       cleanup();
@@ -1175,13 +1183,13 @@ describe("AssistantSideMenu · equal section treatment", () => {
     const sections = sectionElements(container);
     expect(sections).toHaveLength(5);
 
-    // "Threads" is the persistent wrapper, not itself a member of
+    // "Conversations" is the persistent wrapper, not itself a member of
     // `sidebar.sections`: it doesn't drag and carries no icon (matching
     // Pinned's icon-less header). Everything else still shares the same
     // affordances.
     const labels = sectionLabels(container);
     const reorderable = sections.filter(
-      (_, index) => labels[index] !== "Threads",
+      (_, index) => labels[index] !== "Conversations",
     );
     expect(reorderable).toHaveLength(4);
 
@@ -1206,7 +1214,7 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Threads" is the persistent wrapper (not a member of
+    // "Conversations" is the persistent wrapper (not a member of
     // `sidebar.sections`), so it never drags; everything else does.
     const labels = sectionLabels(container);
     const headers = Array.from(
@@ -1216,7 +1224,7 @@ describe("AssistantSideMenu · section reordering", () => {
     );
     expect(headers).toHaveLength(5);
     const draggable = headers.filter(
-      (_, index) => labels[index] !== "Threads",
+      (_, index) => labels[index] !== "Conversations",
     );
     expect(draggable).toHaveLength(4);
     expect(
@@ -1231,9 +1239,10 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Threads" (always present) plus the lone nested "Chats" section:
-    // neither drags. Threads isn't a member of `sidebar.sections` to
-    // begin with, and Chats has nothing to reorder against.
+    // "Conversations" (always present) plus the lone nested "Chats"
+    // section: neither drags. Conversations isn't a member of
+    // `sidebar.sections` to begin with, and Chats has nothing to reorder
+    // against.
     const headers = Array.from(
       container.querySelectorAll<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
