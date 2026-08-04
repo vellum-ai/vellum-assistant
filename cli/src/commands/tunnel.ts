@@ -3,10 +3,8 @@ import { join } from "path";
 import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
-import {
-  isAssistantFeatureFlagEnabled,
-  WEB_REMOTE_INGRESS_FLAG,
-} from "../lib/feature-flags.js";
+import { getDefaultWorkspaceDir } from "../lib/ingress-config.js";
+import { ensureTunnelEdge } from "../lib/nginx-ingress.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
@@ -41,6 +39,13 @@ function parseArgs(): TunnelArgs {
       );
       console.log(
         "enabling webhook integrations (Telegram, Twilio, etc.) to reach the assistant.",
+      );
+      console.log("");
+      console.log(
+        "The tunnel always fronts the local nginx edge, which is started automatically.",
+      );
+      console.log(
+        "nginx must be installed (macOS: brew install nginx, Linux: sudo apt install nginx).",
       );
       console.log("");
       console.log("Arguments:");
@@ -159,25 +164,6 @@ function resolveEntryGatewayPort(entry: AssistantEntry): number {
   );
 }
 
-async function shouldPreferNginxIngress(
-  assistantId: string,
-  gatewayPort: number,
-): Promise<boolean> {
-  try {
-    return await isAssistantFeatureFlagEnabled(
-      assistantId,
-      WEB_REMOTE_INGRESS_FLAG,
-      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
-    );
-  } catch (err) {
-    throw new Error(
-      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the tunnel. Is the assistant running? Try \`vellum wake\` and retry. ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-}
-
 export async function tunnel(): Promise<void> {
   const { assistantName, provider, domain } = parseArgs();
 
@@ -194,52 +180,58 @@ export async function tunnel(): Promise<void> {
     process.exit(1);
   }
 
+  if (
+    provider !== "ngrok" &&
+    provider !== "cloudflare" &&
+    provider !== "tailscale"
+  ) {
+    throw new Error(
+      `Tunnel provider '${provider}' is not yet implemented. ` +
+        `If this provider is documented, ${STALE_CLI_UPDATE_HINT}`,
+    );
+  }
+
   const resources = entry.resources;
   const gatewayPort = resolveEntryGatewayPort(entry);
+  const workspaceDir = resources
+    ? join(resources.instanceDir, ".vellum", "workspace")
+    : getDefaultWorkspaceDir();
+
+  let edge: Awaited<ReturnType<typeof ensureTunnelEdge>>;
+  try {
+    edge = await ensureTunnelEdge({
+      assistantId: entry.assistantId,
+      workspaceDir,
+      gatewayPort,
+    });
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  console.log(
+    `${edge.started ? "Started" : "Reusing"} the nginx edge on 127.0.0.1:${edge.port} ` +
+      `(${edge.includesWebApp ? "serves remote web and webhooks" : "serves webhooks only"}).`,
+  );
+
   const baseTunnelOpts = {
-    port: gatewayPort,
+    port: edge.port,
     assistantId: entry.assistantId,
-    ...(resources
-      ? { workspaceDir: join(resources.instanceDir, ".vellum", "workspace") }
-      : {}),
+    workspaceDir,
   };
 
   if (provider === "ngrok") {
     await runNgrokTunnel({
       ...baseTunnelOpts,
       ...(domain ? { domain } : {}),
-      preferNginxIngress: await shouldPreferNginxIngress(
-        entry.assistantId,
-        gatewayPort,
-      ),
     });
     return;
   }
 
   if (provider === "cloudflare") {
-    await runCloudflareTunnel({
-      ...baseTunnelOpts,
-      preferNginxIngress: await shouldPreferNginxIngress(
-        entry.assistantId,
-        gatewayPort,
-      ),
-    });
+    await runCloudflareTunnel(baseTunnelOpts);
     return;
   }
 
-  if (provider === "tailscale") {
-    await runTailscaleTunnel({
-      ...baseTunnelOpts,
-      preferNginxIngress: await shouldPreferNginxIngress(
-        entry.assistantId,
-        gatewayPort,
-      ),
-    });
-    return;
-  }
-
-  throw new Error(
-    `Tunnel provider '${provider}' is not yet implemented. ` +
-      `If this provider is documented, ${STALE_CLI_UPDATE_HINT}`,
-  );
+  await runTailscaleTunnel(baseTunnelOpts);
 }

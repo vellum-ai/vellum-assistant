@@ -160,7 +160,6 @@ describe("startTailscaleServe", () => {
 
     expect(info.publicUrl).toBe("https://my-host.tail-scale.ts.net");
     expect(info.port).toBe(7840);
-    expect(info.viaIngress).toBe(false);
     expect(calls).toContainEqual(["serve", "--bg", "7840"]);
 
     const config = JSON.parse(
