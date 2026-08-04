@@ -56,7 +56,10 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
-import { noteSwitchTranscriptPainted } from "@/lib/telemetry/switch-telemetry";
+import {
+  abandonSwitchMeasurement,
+  noteSwitchTranscriptPainted,
+} from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -515,14 +518,36 @@ export function ChatMainPanel({
   // conversation's first paint. It runs from an ancestor effect
   // (`ActiveChatView`), which React commits after this one, so the render that
   // first carries the new id finds no pending window and measures nothing.
-  const switchTranscriptPainted = !(isLoadingHistory && messages.length === 0);
+  // A failed initial `/messages` fetch clears `isLoadingHistory` with no
+  // messages, which reads exactly like an instant empty conversation, so the
+  // query's own error state has to veto the paint. An older-page failure keeps
+  // `isSuccess`, and the transcript it already painted still counts.
+  const historyLoadFailed =
+    historyPagination.isError && !historyPagination.isSuccess;
+  const switchTranscriptPainted =
+    !historyLoadFailed && !(isLoadingHistory && messages.length === 0);
   useEffect(() => {
-    if (switchTranscriptPainted && activeConversationId) {
+    if (!activeConversationId) {
+      return;
+    }
+    if (historyLoadFailed) {
+      // A failed load is neither a paint nor a stall. The failure is already
+      // visible as `history_page_fetch_error`, and leaving the window open
+      // would let the 15s TTL bill a fast-failing fetch as a slow switch.
+      abandonSwitchMeasurement();
+      return;
+    }
+    if (switchTranscriptPainted) {
       noteSwitchTranscriptPainted(activeConversationId, {
         hadHistory: messages.length > 0,
       });
     }
-  }, [switchTranscriptPainted, activeConversationId, messages.length]);
+  }, [
+    switchTranscriptPainted,
+    historyLoadFailed,
+    activeConversationId,
+    messages.length,
+  ]);
 
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking

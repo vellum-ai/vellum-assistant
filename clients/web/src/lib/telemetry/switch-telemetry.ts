@@ -2,10 +2,12 @@
  * Measures conversation switch to first transcript paint.
  *
  * `switchToConversation` opens a pending window at the instant the transcript
- * is blanked; the chat panel closes it on the first render that is no longer
- * an empty loading transcript. One `client_switch.transcript_painted` sample
- * per switch, or one `client_switch.stalled` if the window outlives its TTL.
- * Never both: whichever lands first clears the pending window.
+ * is blanked, and only for a real move between two conversations of the same
+ * assistant; the chat panel closes it on the first render that is no longer an
+ * empty loading transcript. One `client_switch.transcript_painted` sample per
+ * switch, or one `client_switch.stalled` if the window outlives its TTL. Never
+ * both: whichever lands first clears the pending window. A window whose history
+ * fetch failed is abandoned without a sample.
  *
  * The TTL is 15s rather than the resume family's 10s because a cold history
  * fetch through the proxy chain can legitimately take that long on LTE. The
@@ -69,6 +71,14 @@ export function noteSwitchTranscriptPainted(
   emitClientPerfEvent("client_switch.transcript_painted", elapsedMs, {
     had_history: String(extra.hadHistory),
   });
+}
+
+/**
+ * Drops the pending window without emitting anything. Used when the switch
+ * neither painted nor stalled, so there is no sample to attribute to it.
+ */
+export function abandonSwitchMeasurement(): void {
+  abandonPending();
 }
 
 /**

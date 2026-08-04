@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
@@ -13,6 +13,20 @@ import type { AssistantEvent } from "@/types/event-types";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 const CONV = "conv-A";
+
+// Records which conversations opened a switch-telemetry window, so the gate in
+// `switchToConversation` can be asserted without reaching the ingest layer.
+// The module's other exports are stubbed too: a module mock is process-wide, so
+// a sibling file sharing this Bun process must still find them.
+const switchStartedConversationIds: string[] = [];
+mock.module("@/lib/telemetry/switch-telemetry", () => ({
+  noteConversationSwitchStarted: (conversationId: string) => {
+    switchStartedConversationIds.push(conversationId);
+  },
+  noteSwitchTranscriptPainted: () => {},
+  abandonSwitchMeasurement: () => {},
+  subscribeSwitchTelemetry: () => () => {},
+}));
 
 function snapshot(
   messages: DisplayMessage[],
@@ -353,5 +367,78 @@ describe("chat-session-store — snapshot + optimistic", () => {
       afterReseed.find((m) => m.id === "msg-server-1")?.attachments?.[0]
         ?.previewUrl,
     ).toBe("data:image/png;base64,x");
+  });
+});
+
+describe("chat-session-store: switch telemetry gate", () => {
+  beforeEach(() => {
+    switchStartedConversationIds.length = 0;
+    useChatSessionStore.setState({
+      previousConversationId: null,
+      previousAssistantId: null,
+      draftConversationIdResolution: false,
+    });
+  });
+
+  test("a cold mount with no prior conversation opens no window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("a move between two conversations of one assistant opens a window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
+
+    expect(switchStartedConversationIds).toEqual(["conv-B"]);
+  });
+
+  test("an assistant change opens no window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("re-entering the same conversation opens no window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("a draft-key resolution is not a switch", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().markDraftResolution();
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-server-1",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
   });
 });

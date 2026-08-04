@@ -517,8 +517,14 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       ? loadContextWindowUsageMap(assistantId)
       : state.contextWindowUsageByConversation;
 
-    // Start the paint measurement at the same instant the transcript blanks.
-    noteConversationSwitchStarted(activeConversationId);
+    // Start the paint measurement at the same instant the transcript blanks,
+    // but only for a real conversation-to-conversation move within the same
+    // assistant. A cold mount, a last-viewed bootstrap, or an assistant change
+    // is boot latency, which the boot family already owns; folding it in here
+    // would mix first-fetch time into the switch distribution.
+    if (isConversationSwitch && !isAssistantSwitch) {
+      noteConversationSwitchStarted(activeConversationId);
+    }
 
     set({
       snapshot: null,

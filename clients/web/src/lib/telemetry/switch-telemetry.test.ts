@@ -4,6 +4,7 @@
  *   - a paint for a different conversation leaves the window open
  *   - a re-switch supersedes the pending sample silently
  *   - `app.hidden` abandons it so backgrounded switches never land
+ *   - a failed history load abandons it: neither a paint nor a stall
  *   - nothing is emitted without analytics consent
  *   - no emitted detail carries a conversation id
  */
@@ -22,6 +23,7 @@ mock.module("@/lib/telemetry/ingest", () => ({
 const { publish, __resetForTesting } = await import("@/lib/event-bus");
 const {
   __resetSwitchTelemetryForTests,
+  abandonSwitchMeasurement,
   noteConversationSwitchStarted,
   noteSwitchTranscriptPainted,
   subscribeSwitchTelemetry,
@@ -168,6 +170,28 @@ describe("switch telemetry", () => {
     expect(postTelemetryEventsMock).not.toHaveBeenCalled();
 
     unsubscribe();
+  });
+
+  test("a failed history load abandons the window without a sample", () => {
+    // The panel calls this on the error path instead of reporting a paint.
+    noteConversationSwitchStarted("conv-1");
+    clock += 300;
+    abandonSwitchMeasurement();
+    expect(postTelemetryEventsMock).not.toHaveBeenCalled();
+
+    // The stall timer went with it, so the failure never lands as a slow switch.
+    runScheduledTimers();
+    noteSwitchTranscriptPainted("conv-1", { hadHistory: false });
+    expect(postTelemetryEventsMock).not.toHaveBeenCalled();
+  });
+
+  test("abandoning with no pending window is a no-op", () => {
+    abandonSwitchMeasurement();
+    noteConversationSwitchStarted("conv-1");
+    clock += 40;
+    noteSwitchTranscriptPainted("conv-1", { hadHistory: true });
+
+    expect(onlyEvent().value).toBe(40);
   });
 
   test("emits nothing without analytics consent", () => {
