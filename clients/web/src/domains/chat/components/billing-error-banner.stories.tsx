@@ -7,11 +7,14 @@
  *      CTA.
  *
  * Which of the composer banners is shown is decided by the pure resolver
- * `resolveComposerBillingBanner` (`utils/error-classification.ts:111`), whose
- * precedence is strict: daily_limit > provider_billing > managed_credits
- * (which renders nothing here, since the transcript's credit wall owns it) >
- * low_balance. The credit wall itself lives in its own story file, since its
- * CTA is the one that forks between Add credits and View plans.
+ * `resolveComposerBillingBanner` (`utils/error-classification.ts`), whose
+ * precedence is strict. Error-driven decisions come first: daily_limit >
+ * provider_billing > managed_credits (which renders nothing here, since the
+ * transcript's credit wall owns it). With no error decision the billing
+ * summary's `daily_limit_reached` raises `DailyLimitBanner` proactively, and
+ * low_balance is the last fallback. The credit wall itself lives in its own
+ * story file, since its CTA is the one that forks between Add credits and
+ * View plans.
  *
  * Android consumption-only suppression applies to **purchase** surfaces only.
  * Among these three that is just `LowBalanceBanner`; `DailyLimitBanner` (a

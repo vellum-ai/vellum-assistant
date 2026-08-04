@@ -1098,6 +1098,9 @@ export function ChatMainPanel({
     billingBannerDecision,
     isLowBalance: balanceStatus.isLowBalance,
     dismissed: lowBalanceBannerDismissed,
+    // State-driven, so the banner is already up when the user returns to an
+    // app whose daily cap was reached by background turns.
+    dailyLimitReached: balanceStatus.dailyLimitReached,
   });
 
   // -------------------------------------------------------------------------
