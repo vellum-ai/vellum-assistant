@@ -214,6 +214,39 @@ describe("host-proxy-router", () => {
       expect(lockfileListener).toBeNull();
     });
 
+    test("retiring an assistant during token acquisition aborts the stale connect", async () => {
+      const requests: string[] = [];
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        requests.push(String(input));
+        return mockGatewayTokenFetch(input);
+      }) as typeof globalThis.fetch;
+      let resolveToken: ((result: { ok: true; accessToken: string }) => void) | null = null;
+      mockGetGuardianAccessToken.mockImplementation(
+        () => new Promise((resolve) => { resolveToken = resolve; }),
+      );
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+        ],
+        activeAssistant: "a1",
+      });
+      await flush();
+      expect(__testing.pendingConnects.has("a1")).toBe(true);
+
+      // Retired before the token resolves — the pending connect is cancelled.
+      lockfileListener?.({ assistants: [], activeAssistant: null });
+      expect(__testing.pendingConnects.has("a1")).toBe(false);
+
+      resolveToken!({ ok: true, accessToken: "test-token" });
+      await flush();
+
+      expect(requests.some((url) => url.includes("/v1/events"))).toBe(false);
+      expect(__testing.connections.has("a1")).toBe(false);
+      expect(__testing.pendingConnects.size).toBe(0);
+    });
+
     test("does not connect when guardian token fetch fails", async () => {
       mockGetGuardianAccessToken.mockImplementation(
         async () => ({ ok: false, status: 401, error: "expired" }),
@@ -542,6 +575,112 @@ describe("host-proxy-router", () => {
       await flush();
 
       expect(__testing.connections.size).toBe(0);
+    });
+
+    test("unpairing during token acquisition aborts the stale connect", async () => {
+      const requests = recordingFetch();
+      let resolveToken: ((result: { ok: true; accessToken: string }) => void) | null = null;
+      mockGetGuardianAccessToken.mockImplementation(
+        () => new Promise((resolve) => { resolveToken = resolve; }),
+      );
+      installHostProxyBridge(fakeCliResolver);
+
+      // Paired entry appears; connect blocks on the slow token acquisition.
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://stale-tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+      expect(__testing.pendingConnects.has("paired-1")).toBe(true);
+
+      // Unpaired before the token resolves — the pending connect is cancelled.
+      lockfileListener?.({ assistants: [], activeAssistant: null });
+      expect(__testing.pendingConnects.has("paired-1")).toBe(false);
+
+      resolveToken!({ ok: true, accessToken: "test-token" });
+      await flush();
+
+      // No SSE was opened or recorded against the stale runtimeUrl.
+      expect(requests.some((r) => r.url.startsWith("https://stale-tunnel.example.com"))).toBe(false);
+      expect(__testing.connections.has("paired-1")).toBe(false);
+      expect(__testing.pendingConnects.size).toBe(0);
+    });
+
+    test("retargeting during token acquisition connects only to the new runtimeUrl", async () => {
+      const requests = recordingFetch();
+      let resolveFirstToken: ((result: { ok: true; accessToken: string }) => void) | null = null;
+      let tokenCalls = 0;
+      mockGetGuardianAccessToken.mockImplementation(() => {
+        tokenCalls += 1;
+        if (tokenCalls === 1) {
+          return new Promise((resolve) => { resolveFirstToken = resolve; });
+        }
+        return Promise.resolve({ ok: true, accessToken: "fresh-token" });
+      });
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://old-tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      // Retarget while the first token acquisition is still pending.
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://new-tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+      expect(__testing.connections.get("paired-1")!.fingerprint).toBe(
+        "paired:https://new-tunnel.example.com:paired-1",
+      );
+
+      // The stale connect resolves late and must not open SSE or clobber the entry.
+      resolveFirstToken!({ ok: true, accessToken: "stale-token" });
+      await flush();
+
+      expect(requests.some((r) => r.url.startsWith("https://old-tunnel.example.com"))).toBe(false);
+      expect(__testing.connections.get("paired-1")!.fingerprint).toBe(
+        "paired:https://new-tunnel.example.com:paired-1",
+      );
+      expect(__testing.pendingConnects.size).toBe(0);
+    });
+
+    test("repeated lockfile updates during a pending connect do not stack connects", async () => {
+      recordingFetch();
+      let resolveToken: ((result: { ok: true; accessToken: string }) => void) | null = null;
+      const tokenPromises: Promise<{ ok: true; accessToken: string }>[] = [];
+      mockGetGuardianAccessToken.mockImplementation(() => {
+        const p = new Promise<{ ok: true; accessToken: string }>((resolve) => { resolveToken = resolve; });
+        tokenPromises.push(p);
+        return p;
+      });
+      installHostProxyBridge(fakeCliResolver);
+
+      const lockfile: Lockfile = {
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      };
+      lockfileListener?.(lockfile);
+      lockfileListener?.(lockfile);
+      lockfileListener?.(lockfile);
+      await flush();
+
+      // Only one token acquisition in flight for the unchanged fingerprint.
+      expect(tokenPromises.length).toBe(1);
+
+      resolveToken!({ ok: true, accessToken: "test-token" });
+      await flush();
+      expect(__testing.connections.has("paired-1")).toBe(true);
+      expect(__testing.pendingConnects.size).toBe(0);
     });
 
     test("guardian-token failure skips the paired entry without breaking other connections", async () => {

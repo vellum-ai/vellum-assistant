@@ -59,6 +59,18 @@ interface AssistantConnection {
 // ---------------------------------------------------------------------------
 
 const connections = new Map<string, AssistantConnection>();
+
+// Connects that are still awaiting token acquisition. Registered synchronously
+// before the first await so the lockfile reconcile pass can cancel them; a
+// connect whose entry is gone (or replaced) when the await resolves must abort
+// instead of opening SSE to a possibly stale target. Entries are compared by
+// identity so a cancel-then-reconnect with the same fingerprint can't be
+// completed by the superseded attempt.
+interface PendingConnect {
+  fingerprint: string;
+}
+const pendingConnects = new Map<string, PendingConnect>();
+
 const executors = new Map<string, HostProxyExecutor>();
 
 // Injected by installHostProxyBridge; kept at module scope so the
@@ -282,14 +294,35 @@ async function connectLocalAssistant(
   assistantId: string,
   gatewayPort: number,
 ): Promise<void> {
+  const fingerprint = localFingerprint(gatewayPort);
   if (connections.has(assistantId)) return;
+  if (pendingConnects.get(assistantId)?.fingerprint === fingerprint) return;
 
-  const gatewayToken = await acquireGatewayToken(assistantId, gatewayPort);
-  if (!gatewayToken) {
-    log.warn("[host-proxy-router] could not acquire gateway token, skipping connection", { assistantId });
-    return;
+  const pending: PendingConnect = { fingerprint };
+  pendingConnects.set(assistantId, pending);
+  try {
+    const gatewayToken = await acquireGatewayToken(assistantId, gatewayPort);
+    if (pendingConnects.get(assistantId) !== pending || connections.has(assistantId)) {
+      log.info("[host-proxy-router] lockfile changed during token acquisition, aborting stale connect", { assistantId });
+      return;
+    }
+    if (!gatewayToken) {
+      log.warn("[host-proxy-router] could not acquire gateway token, skipping connection", { assistantId });
+      return;
+    }
+
+    openLocalConnection(assistantId, gatewayPort, gatewayToken, fingerprint);
+  } finally {
+    if (pendingConnects.get(assistantId) === pending) pendingConnects.delete(assistantId);
   }
+}
 
+function openLocalConnection(
+  assistantId: string,
+  gatewayPort: number,
+  gatewayToken: string,
+  fingerprint: string,
+): void {
   let currentToken = gatewayToken;
   const authHeaders = () => ({ Authorization: `Bearer ${currentToken}` });
 
@@ -308,7 +341,7 @@ async function connectLocalAssistant(
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, { sse, poster, fingerprint: localFingerprint(gatewayPort) });
+  connections.set(assistantId, { sse, poster, fingerprint });
   log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
 }
 
@@ -318,14 +351,35 @@ async function connectPairedAssistant(
   assistantId: string,
   runtimeUrl: string,
 ): Promise<void> {
+  const fingerprint = pairedFingerprint(runtimeUrl, assistantId);
   if (connections.has(assistantId)) return;
+  if (pendingConnects.get(assistantId)?.fingerprint === fingerprint) return;
 
-  const guardianToken = await acquireGuardianToken(assistantId);
-  if (!guardianToken) {
-    log.warn("[host-proxy-router] could not acquire guardian token, skipping paired connection", { assistantId });
-    return;
+  const pending: PendingConnect = { fingerprint };
+  pendingConnects.set(assistantId, pending);
+  try {
+    const guardianToken = await acquireGuardianToken(assistantId);
+    if (pendingConnects.get(assistantId) !== pending || connections.has(assistantId)) {
+      log.info("[host-proxy-router] lockfile changed during token acquisition, aborting stale connect", { assistantId, runtimeUrl });
+      return;
+    }
+    if (!guardianToken) {
+      log.warn("[host-proxy-router] could not acquire guardian token, skipping paired connection", { assistantId });
+      return;
+    }
+
+    openPairedConnection(assistantId, runtimeUrl, guardianToken, fingerprint);
+  } finally {
+    if (pendingConnects.get(assistantId) === pending) pendingConnects.delete(assistantId);
   }
+}
 
+function openPairedConnection(
+  assistantId: string,
+  runtimeUrl: string,
+  guardianToken: string,
+  fingerprint: string,
+): void {
   let currentToken = guardianToken;
   // The guardian access token is the bearer on the remote hop; the
   // /auth/token exchange is loopback-only and never runs for paired entries.
@@ -352,11 +406,7 @@ async function connectPairedAssistant(
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, {
-    sse,
-    poster,
-    fingerprint: pairedFingerprint(runtimeUrl, assistantId),
-  });
+  connections.set(assistantId, { sse, poster, fingerprint });
   log.info("[host-proxy-router] connected to paired assistant", { assistantId, runtimeUrl });
 }
 
@@ -405,6 +455,9 @@ function connectCloudAssistant(
 // -- Disconnect -------------------------------------------------------------
 
 function disconnectAssistant(assistantId: string): void {
+  if (pendingConnects.delete(assistantId)) {
+    log.info("[host-proxy-router] cancelled pending connection", { assistantId });
+  }
   const conn = connections.get(assistantId);
   if (!conn) return;
   conn.sse.disconnect();
@@ -434,10 +487,11 @@ function handleLockfileChange(lockfile: Lockfile): void {
         : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
 
     const existing = connections.get(assistant.assistantId);
-    if (existing && existing.fingerprint !== fp) {
+    const pending = pendingConnects.get(assistant.assistantId);
+    if ((existing && existing.fingerprint !== fp) || (pending && pending.fingerprint !== fp)) {
       log.info("[host-proxy-router] connection config changed, reconnecting", {
         assistantId: assistant.assistantId,
-        oldFingerprint: existing.fingerprint,
+        oldFingerprint: existing?.fingerprint ?? pending?.fingerprint,
         newFingerprint: fp,
       });
       disconnectAssistant(assistant.assistantId);
@@ -457,8 +511,8 @@ function handleLockfileChange(lockfile: Lockfile): void {
     }
   }
 
-  // Disconnect assistants that are no longer in the lockfile
-  for (const assistantId of connections.keys()) {
+  // Disconnect assistants (including in-flight connects) no longer in the lockfile
+  for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
     if (!activeIds.has(assistantId)) {
       disconnectAssistant(assistantId);
     }
@@ -501,7 +555,7 @@ export function installHostProxyBridge(
   return () => {
     unsubscribe?.();
     unsubscribe = null;
-    for (const assistantId of [...connections.keys()]) {
+    for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
       disconnectAssistant(assistantId);
     }
     browserExecutor.destroy();
@@ -521,6 +575,9 @@ export const __testing = {
   get connections() {
     return connections;
   },
+  get pendingConnects() {
+    return pendingConnects;
+  },
   get executors() {
     return executors;
   },
@@ -531,7 +588,7 @@ export const __testing = {
   disconnectAssistant,
   handleLockfileChange,
   reset() {
-    for (const assistantId of [...connections.keys()]) {
+    for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
       disconnectAssistant(assistantId);
     }
     executors.clear();
