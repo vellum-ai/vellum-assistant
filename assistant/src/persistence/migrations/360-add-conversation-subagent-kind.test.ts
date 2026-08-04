@@ -146,6 +146,34 @@ describe("migration 360: conversations subagent role / spawn mode", () => {
     });
   });
 
+  test("indexes subagents.conversation_id so the backfill is not quadratic", () => {
+    const { sqlite, db } = createTestDb();
+
+    migrateAddConversationSubagentKind(db);
+
+    const indexes = (
+      sqlite.query("PRAGMA index_list(subagents)").all() as Array<{
+        name: string;
+      }>
+    ).map((i) => i.name);
+    expect(indexes).toContain("idx_subagents_conversation_id");
+
+    // Both backfill statements look `subagents` up once per `conversations`
+    // row. Without the index that lookup is a full scan of `subagents`, which
+    // makes a step that blocks daemon startup quadratic.
+    const plan = (
+      sqlite
+        .query(
+          "EXPLAIN QUERY PLAN SELECT 1 FROM subagents s WHERE s.conversation_id = 'c1'",
+        )
+        .all() as Array<{ detail: string }>
+    )
+      .map((row) => row.detail)
+      .join(" ");
+    expect(plan).toContain("idx_subagents_conversation_id");
+    expect(plan).not.toContain("SCAN");
+  });
+
   test("is idempotent: re-run is a no-op", () => {
     const { sqlite, db } = createTestDb();
 

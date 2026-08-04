@@ -54,6 +54,7 @@ import {
   type SubagentSpawnMode,
   type SubagentState,
   type SubagentStatus,
+  type SubagentToolStatsReading,
   type SubagentToolStatsSummary,
   TERMINAL_STATUSES,
 } from "./types.js";
@@ -104,13 +105,13 @@ const QUEUED_TURN_POLL_MS = 25;
  * profile overrides) are absent, so this shape answers lifecycle questions
  * only.
  *
- * The result is marked `rehydrated`, which is what tells a reader that its
- * missing tool-call counters are unrecoverable rather than merely unrecorded:
- * a rehydrated entry lives in the manager alongside live ones.
+ * Tool-call counters are in-memory only and the row carries none, so a state
+ * built here never has {@link SubagentState.stats}. What that absence means is
+ * the manager's answer to give, not this shape's: see
+ * {@link SubagentManager.currentToolStats}.
  */
 export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
   return {
-    rehydrated: true,
     config: {
       id: rec.id,
       parentConversationId: rec.parentConversationId,
@@ -355,6 +356,14 @@ interface ManagedSubagent {
   parentSendToClient: (msg: AssistantEvent) => void;
   /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
   retainedUntil?: number;
+  /**
+   * True for an entry the startup rehydration rebuilt from a durable row
+   * rather than a run this process executed. Such an entry sits in the manager
+   * exactly like a live one but can never have tool-call counters, so
+   * {@link SubagentManager.currentToolStats} reads this to tell "never
+   * measured here" apart from "not measured yet".
+   */
+  rehydrated?: boolean;
   /**
    * Sticky monotonic flag: set to true when sendMessage enqueues a follow-up
    * message while a run is in progress, and never cleared. Needed because the
@@ -1327,7 +1336,8 @@ export class SubagentManager {
   }
 
   /**
-   * The subagent's tool-call counters, brought up to date first.
+   * The subagent's tool-call counters, brought up to date first, or why there
+   * are none (see {@link SubagentToolStatsReading}).
    *
    * `runSubagent` harvests when its awaited agent loop returns, but that is not
    * the end of the child's work: guidance queued during the run drains
@@ -1336,14 +1346,24 @@ export class SubagentManager {
    * still retained (see {@link refreshToolStats}), and the release freezes the
    * settled numbers. Readers that need the queued turn's calls included wait
    * for it first, via {@link settleQueuedTurns}.
+   *
+   * An id the manager does not hold is `unrecoverable` rather than unknown:
+   * counters exist nowhere else, so no caller can ever obtain them, and the
+   * only state a caller can be holding for such an id came from the durable
+   * row.
    */
-  currentToolStats(subagentId: string): SubagentToolStatsSummary | undefined {
+  currentToolStats(subagentId: string): SubagentToolStatsReading {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
-      return undefined;
+      return { kind: "unrecoverable" };
     }
     this.refreshToolStats(managed);
-    return managed.state.stats;
+    if (managed.state.stats) {
+      return { kind: "counted", stats: managed.state.stats };
+    }
+    return managed.rehydrated
+      ? { kind: "unrecoverable" }
+      : { kind: "unmeasured" };
   }
 
   /**
@@ -1661,6 +1681,7 @@ export class SubagentManager {
         state,
         parentSendToClient: () => {},
         retainedUntil: now + TERMINAL_RETENTION_MS,
+        rehydrated: true,
       };
       this.subagents.set(rec.id, managed);
 

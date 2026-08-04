@@ -394,7 +394,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
     expect(capturedNotifications[0].message).toContain(
-      "[stats: 2 tool calls, 2 succeeded, files written: 1]",
+      "[stats: 2 tool calls, 2 succeeded, files written via file_write/file_edit: 1]",
     );
 
     asInternals(manager).stopSweep();
@@ -440,9 +440,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     counters.filesWritten.add("/queued-turn.md");
 
     expect(manager.currentToolStats(subagentId)).toEqual({
-      calls: 5,
-      succeeded: 4,
-      filesWritten: 1,
+      kind: "counted",
+      stats: { calls: 5, succeeded: 4, filesWritten: 1 },
     });
 
     asInternals(manager).stopSweep();
@@ -478,9 +477,8 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     expect(managed.conversation).toBeNull();
     expect(manager.currentToolStats(subagentId)).toEqual({
-      calls: 5,
-      succeeded: 4,
-      filesWritten: 0,
+      kind: "counted",
+      stats: { calls: 5, succeeded: 4, filesWritten: 0 },
     });
 
     asInternals(manager).stopSweep();
@@ -493,7 +491,20 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 
     // Still running: its counters are mid-flight, and a zero read off them now
     // would read as "this subagent used no tools".
-    expect(manager.currentToolStats(subagentId)).toBeUndefined();
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "unmeasured",
+    });
+  });
+
+  test("an id the manager never held reports its counters unrecoverable", () => {
+    const manager = new SubagentManager();
+
+    // The counters exist nowhere but memory, so a caller holding a
+    // record-derived state for this id can never get them, and reporting zero
+    // calls would read as "this subagent did nothing".
+    expect(manager.currentToolStats("sub-not-in-manager")).toEqual({
+      kind: "unrecoverable",
+    });
   });
 
   test("failed subagent does not notify if already aborted", async () => {

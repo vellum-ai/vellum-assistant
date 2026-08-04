@@ -204,20 +204,10 @@ export interface SubagentState {
    * What the subagent actually ran, harvested from the child conversation when
    * the run ends and re-read while that conversation is still retained (a
    * follow-up turn queued during the run drains after the run returns). In
-   * memory only: see {@link rehydrated}.
+   * memory only, so a state rebuilt from the durable row never has it: the
+   * manager answers that case with {@link SubagentToolStatsReading}.
    */
   stats?: SubagentToolStatsSummary;
-  /**
-   * True when this state was rebuilt from the subagent's durable row rather
-   * than from a run this process executed: the startup rehydration, or the
-   * tools' fallback for a subagent the manager's window no longer holds.
-   *
-   * The row carries no tool-call counters, so {@link stats} can never be
-   * filled in for one of these. Readers key the "unavailable" stats footer on
-   * this flag: a rehydrated entry sits in the manager exactly like a live one,
-   * so manager membership alone cannot tell the two apart.
-   */
-  rehydrated?: boolean;
 }
 
 /**
@@ -228,14 +218,48 @@ export interface SubagentState {
 export interface SubagentToolStatsSummary {
   calls: number;
   succeeded: number;
+  /**
+   * Distinct paths the child passed to `file_write` / `file_edit`. Those two
+   * tools are the only writes the executor can attribute to a path, so a
+   * builder that writes through the shell, a document tool, or an MCP tool
+   * adds nothing here. {@link formatSubagentToolStats} names the two tools for
+   * that reason.
+   */
   filesWritten: number;
 }
+
+/**
+ * What the manager can say about a subagent's tool-call counters, which live in
+ * memory only.
+ *
+ * - `counted`: the run was harvested, so the numbers are real.
+ * - `unmeasured`: a live run that never reached its harvest. Nothing was
+ *   measured and nothing was lost, so a reader claims neither.
+ * - `unrecoverable`: the state was rebuilt from the durable row (the startup
+ *   rehydration, or a subagent the manager's window no longer holds). The row
+ *   carries no counters, so they can never be produced for this subagent, and
+ *   reporting zero calls would read as "this subagent did nothing".
+ *
+ * A rehydrated entry sits in the manager exactly like a live one, so manager
+ * membership alone cannot separate the last two; the manager tracks which of
+ * its entries it rebuilt and answers with this instead.
+ */
+export type SubagentToolStatsReading =
+  | { kind: "counted"; stats: SubagentToolStatsSummary }
+  | { kind: "unmeasured" }
+  | { kind: "unrecoverable" };
 
 /**
  * The machine half of a subagent's result, appended to the parent's completion
  * notification and to `subagent_read`. The child's prose is its own account of
  * what it did; this line is the measured one, so a report of executed work by a
  * subagent that called nothing is visible instead of taken on trust.
+ *
+ * The file count names the two tools it comes from. A builder runs on the
+ * parent's whole tool surface and can write through the shell, a document tool,
+ * or an MCP tool, none of which the counter sees; an unqualified "files
+ * written: 0" would read as fabricated work for a subagent that really did
+ * write, which is the exact misreading this line exists to prevent.
  */
 export function formatSubagentToolStats(
   stats: SubagentToolStatsSummary,
@@ -244,7 +268,7 @@ export function formatSubagentToolStats(
     return "[stats: no tools were used by this subagent; treat any claims of executed work as unverified]";
   }
   const plural = stats.calls === 1 ? "" : "s";
-  return `[stats: ${stats.calls} tool call${plural}, ${stats.succeeded} succeeded, files written: ${stats.filesWritten}]`;
+  return `[stats: ${stats.calls} tool call${plural}, ${stats.succeeded} succeeded, files written via file_write/file_edit: ${stats.filesWritten}]`;
 }
 
 /** Stats footer for a subagent whose in-memory counters no longer exist. */
@@ -391,8 +415,17 @@ export function subagentOutputContractText(
  * - `fork`: `subagent_spawn` with `fork: true`, inherits the parent transcript.
  * - `advisor_consult`: synchronous, read-only advisor consult on the advisor
  *   profile; the parent turn blocks on it and returns its guidance inline.
- * - `voice_continuation`: silent, read-only live-voice background
- *   continuation of an interrupted turn.
+ * - `voice_continuation`: live-voice background continuation of an interrupted
+ *   turn, spawned as a fork with no role and therefore WRITE-CAPABLE: it runs
+ *   as {@link DEFAULT_SUBAGENT_ROLE} on the parent's full tool surface, with
+ *   side effects governed by the standard non-interactive permission path
+ *   under the trust the foreground voice turn ran under. "Silent" is about
+ *   sound, not blast radius: the run says nothing itself, and a later session
+ *   turn speaks its answer.
+ *
+ * This block is the single description of the modes. The persistence and
+ * telemetry layers that carry the same values point here rather than restate
+ * them, so a correction lands once.
  *
  * Mirrored on the wire as `llm_usage.subagent_spawn_mode`, which is an OPEN
  * string set on the platform side: adding a value here needs no coordinated
