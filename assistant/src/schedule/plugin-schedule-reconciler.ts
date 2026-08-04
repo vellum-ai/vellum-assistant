@@ -104,6 +104,14 @@ async function runReconcilePass(): Promise<void> {
     // transition gets the arrival notification below; a plain re-enable or
     // reinstall re-link (hash unchanged) stays quiet.
     const armsDisarmedRow = definitionChanged && !row.enabled;
+    // The change notice fires once, and by the next pass the new hash is
+    // already stored, so `changesArmedRow` can never bring it back. A pending
+    // entry means the emit never reached a pipeline verdict; it is retried
+    // while the row is still there and still armed for this definition.
+    const pendingChanged =
+      row !== undefined &&
+      row.enabled &&
+      isEmitPending("changed", sourceKey, definition.definitionHash);
     let applied: ScheduleJob;
     try {
       applied = await upsertDeclaredSchedule(sourceKey, definition);
@@ -114,7 +122,7 @@ async function runReconcilePass(): Promise<void> {
       );
       continue;
     }
-    if (changesArmedRow) {
+    if (changesArmedRow || pendingChanged) {
       emitDefinitionChanged(pluginName, declaration);
     }
     // A row arming without consent must never be silent: a daemon-route
@@ -126,8 +134,11 @@ async function runReconcilePass(): Promise<void> {
     // unless its definition change is what armed it. A pending entry means a
     // prior emit for this exact definition never reached a pipeline verdict,
     // so the notification is re-attempted even though the row already exists.
-    const pendingDeclared =
-      pendingDeclaredEmits.get(sourceKey) === definition.definitionHash;
+    const pendingDeclared = isEmitPending(
+      "declared",
+      sourceKey,
+      definition.definitionHash,
+    );
     if (
       applied.enabled &&
       (row === undefined || armsDisarmedRow || pendingDeclared)
@@ -341,22 +352,77 @@ async function emitDefinitionSignal(
 const definitionErrorEmittedDay = new Map<string, string>();
 
 /**
- * Definition hash of a `schedule.declared` emit that has not yet reached a
- * pipeline verdict, per `sourceKey`. The arrival notification is the consent
- * surface for unattended arming (daemon-route install/upgrade), so a
- * transient pipeline failure must not drop it: while an entry is pending,
- * every reconcile pass re-emits until a verdict lands. Entries are kept
- * across disarm so a reinstall re-delivers a never-delivered consent
- * notification; the map is bounded by distinct declared schedules seen in
- * this process. In-memory only: a daemon restart inside the failure window
- * loses the retry, a residual accepted over persisting a marker.
+ * The two definition-lifecycle events whose emit is retried until a pipeline
+ * verdict. Both are one-shot per definition hash: `declared` is the consent
+ * surface for unattended arming (daemon-route install/upgrade), and `changed`
+ * is the only notice that an armed schedule's definition was rewritten. The
+ * hash that triggered each is stored before the emit, so a transient pipeline
+ * failure leaves a marker the next pass acts on rather than losing the
+ * notification.
  */
-const pendingDeclaredEmits = new Map<string, string>();
+type TrackedEmitKind = "declared" | "changed";
 
-/** Test-only: forget emit-guard state (error day-latch and pending emits). */
+function trackedEmitKey(kind: TrackedEmitKind, sourceKey: string): string {
+  return `${kind}:${sourceKey}`;
+}
+
+/**
+ * Definition hash of a tracked emit that has not yet reached a pipeline
+ * verdict, keyed by {@link trackedEmitKey}. Declared entries are kept across
+ * disarm so a reinstall re-delivers a never-delivered consent notification;
+ * the map is bounded by distinct declared schedules seen in this process.
+ * In-memory only: a daemon restart inside the failure window loses the retry,
+ * a residual accepted over persisting a marker.
+ */
+const pendingEmits = new Map<string, string>();
+
+/** Keys whose emit is awaiting its pipeline result. */
+const inFlightEmits = new Set<string>();
+
+function isEmitPending(
+  kind: TrackedEmitKind,
+  sourceKey: string,
+  definitionHash: string,
+): boolean {
+  return pendingEmits.get(trackedEmitKey(kind, sourceKey)) === definitionHash;
+}
+
+/**
+ * Emit one tracked event, holding a pending marker until the pipeline reaches
+ * a verdict. Emits for a key are serialized: while one is still evaluating, a
+ * later pass does not start a second. A duplicate would hit event-store dedupe
+ * and resolve as a verdict of its own, clearing the marker the original still
+ * needs if it goes on to fail and release the dedupe key. Skipping leaves the
+ * marker in place, so a pass after the in-flight attempt settles retries it.
+ */
+function trackedEmit(
+  kind: TrackedEmitKind,
+  sourceKey: string,
+  definitionHash: string,
+  emit: () => Promise<boolean>,
+): void {
+  const key = trackedEmitKey(kind, sourceKey);
+  pendingEmits.set(key, definitionHash);
+  if (inFlightEmits.has(key)) {
+    return;
+  }
+  inFlightEmits.add(key);
+  void emit()
+    .then((verdict) => {
+      if (verdict && pendingEmits.get(key) === definitionHash) {
+        pendingEmits.delete(key);
+      }
+    })
+    .finally(() => {
+      inFlightEmits.delete(key);
+    });
+}
+
+/** Test-only: forget emit-guard state (error day-latch and tracked emits). */
 export function resetDefinitionErrorEmitGuardForTests(): void {
   definitionErrorEmittedDay.clear();
-  pendingDeclaredEmits.clear();
+  pendingEmits.clear();
+  inFlightEmits.clear();
 }
 
 /**
@@ -391,21 +457,28 @@ function emitDefinitionError(error: DeclarationError): void {
 /**
  * Surface a plugin upgrade rewriting an armed schedule's definition, so the
  * user learns the thing firing on their behalf changed. Deduped by the new
- * hash so concurrent triggers emit once per change.
+ * hash so concurrent triggers emit once per change, and retried while the
+ * pipeline has not reached a verdict.
  */
 function emitDefinitionChanged(
   pluginName: string,
   declaration: ScheduleDeclaration,
 ): void {
-  void emitDefinitionSignal(
-    "schedule.definition_changed",
+  trackedEmit(
+    "changed",
     declaration.sourceKey,
-    `schedule-definition-changed:${declaration.sourceKey}:${declaration.definitionHash}`,
-    {
-      pluginName,
-      scheduleName: declaration.name,
-      sourceKey: declaration.sourceKey,
-    },
+    declaration.definitionHash,
+    () =>
+      emitDefinitionSignal(
+        "schedule.definition_changed",
+        declaration.sourceKey,
+        `schedule-definition-changed:${declaration.sourceKey}:${declaration.definitionHash}`,
+        {
+          pluginName,
+          scheduleName: declaration.name,
+          sourceKey: declaration.sourceKey,
+        },
+      ),
   );
 }
 
@@ -419,26 +492,23 @@ function emitScheduleDeclared(
   pluginName: string,
   declaration: ScheduleDeclaration,
 ): void {
-  pendingDeclaredEmits.set(declaration.sourceKey, declaration.definitionHash);
-  void emitDefinitionSignal(
-    "schedule.declared",
+  trackedEmit(
+    "declared",
     declaration.sourceKey,
-    `schedule-declared:${declaration.sourceKey}:${declaration.definitionHash}`,
-    {
-      pluginName,
-      scheduleName: declaration.name,
-      sourceKey: declaration.sourceKey,
-      cadence: declaration.config.expression,
-    },
-  ).then((verdict) => {
-    if (
-      verdict &&
-      pendingDeclaredEmits.get(declaration.sourceKey) ===
-        declaration.definitionHash
-    ) {
-      pendingDeclaredEmits.delete(declaration.sourceKey);
-    }
-  });
+    declaration.definitionHash,
+    () =>
+      emitDefinitionSignal(
+        "schedule.declared",
+        declaration.sourceKey,
+        `schedule-declared:${declaration.sourceKey}:${declaration.definitionHash}`,
+        {
+          pluginName,
+          scheduleName: declaration.name,
+          sourceKey: declaration.sourceKey,
+          cadence: declaration.config.expression,
+        },
+      ),
+  );
 }
 
 // ── Periodic backstop sweep ─────────────────────────────────────────────

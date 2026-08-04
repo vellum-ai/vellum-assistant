@@ -21,9 +21,18 @@ const emittedSignals: Array<Record<string, unknown>> = [];
 /** When set, merged into the next emit results (e.g. a failure reason). */
 let emitResultOverride: Record<string, unknown> | null = null;
 
+/**
+ * When set, an emit records its call and then parks on this promise instead
+ * of resolving, so a test can hold one attempt open across further passes.
+ */
+let emitGate: Promise<void> | null = null;
+
 mock.module("../../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emittedSignals.push(params);
+    if (emitGate) {
+      await emitGate;
+    }
     return {
       signalId: "test-signal",
       deduplicated: false,
@@ -140,8 +149,14 @@ describe("reconcilePluginSchedules", () => {
     rmSync(pluginsDir, { recursive: true, force: true });
     emittedSignals.length = 0;
     emitResultOverride = null;
+    emitGate = null;
     resetDefinitionErrorEmitGuardForTests();
   });
+
+  /** Let a released emit's continuation, `.then`, and `.finally` all run. */
+  async function settleEmits(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 
   test("converges both declaration forms into rows the engine claims", async () => {
     writePlugin("news", {
@@ -610,6 +625,74 @@ describe("reconcilePluginSchedules", () => {
     // Verdict reached: further passes stay quiet.
     await reconcilePluginSchedules();
     expect(declared()).toHaveLength(2);
+  });
+
+  test("a declared emit still in flight is not duplicated by the next pass", async () => {
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    let releaseGate!: () => void;
+    emitGate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const declared = () =>
+      emittedSignals.filter((s) => s.sourceEventName === "schedule.declared");
+
+    // The first pass starts the emit and returns without awaiting it.
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(1);
+
+    // A second attempt while the first is still evaluating would hit
+    // event-store dedupe, resolve as a verdict of its own, and clear the
+    // pending marker the first attempt still owns.
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(1);
+
+    // The held attempt fails, so the marker it owns survives.
+    emitResultOverride = {
+      dispatched: false,
+      pipelineFailed: true,
+      reason: "Signal pipeline failed: transient outage",
+    };
+    emitGate = null;
+    releaseGate();
+    await settleEmits();
+    expect(declared()).toHaveLength(1);
+
+    emitResultOverride = null;
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(2);
+
+    // Verdict reached: further passes stay quiet.
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(2);
+  });
+
+  test("a pipeline-failed definition_changed emit is retried on later passes until a verdict", async () => {
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    await reconcilePluginSchedules();
+    emittedSignals.length = 0;
+    const changed = () =>
+      emittedSignals.filter(
+        (s) => s.sourceEventName === "schedule.definition_changed",
+      );
+
+    emitResultOverride = {
+      dispatched: false,
+      pipelineFailed: true,
+      reason: "Signal pipeline failed: transient outage",
+    };
+    writePlugin("news", { "digest.md": digestMd("Summarize the WEEK.") });
+    await reconcilePluginSchedules();
+    expect(changed()).toHaveLength(1);
+
+    // The new hash is already stored, so without the pending retry this pass
+    // would be silent and the change notice lost.
+    emitResultOverride = null;
+    await reconcilePluginSchedules();
+    expect(changed()).toHaveLength(2);
+
+    // Verdict reached: further passes stay quiet.
+    await reconcilePluginSchedules();
+    expect(changed()).toHaveLength(2);
   });
 
   test("a completed bounded recurrence stays silent across passes", async () => {
