@@ -1,23 +1,29 @@
-name: PR Design Library Checks
+name: CI/CD Main Design Library
 
+# Typecheck and unit-test the design library off main. The PR workflow gates
+# merges; this catches breakage that lands without touching the package's PR
+# path filters (dependency bumps, direct pushes).
 on:
-  pull_request:
-    types: [synchronize, opened, reopened]
+  workflow_dispatch:
+  push:
+    branches: [main]
     paths:
       - 'package.json'
       - 'bun.lock'
       - 'patches/**'
       - 'packages/design-library/**'
-      - '.github/workflows/pr-design-library.yaml'
+      - '.github/workflows/ci-main-design-library.yaml'
 
 concurrency:
-  group: pr-design-library-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   checks:
-    name: Lint, Type Check & Test
+    name: Type Check & Unit Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: packages/design-library
@@ -34,16 +40,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --filter=@vellumai/design-library
 
-      - name: Install Playwright browsers
-        run: bunx playwright install chromium --with-deps
-
       - name: Type check
         run: bun run typecheck
 
-      # `bun run test` is vitest, whose config covers only the Storybook
-      # browser project; this step runs the package's bun:test unit files.
       - name: Unit tests
         run: bun run test:unit
-
-      - name: Test
-        run: bun run test

@@ -4,7 +4,7 @@
  * No DOM environment — mirroring `button.test.tsx`, we verify behavior through
  * two angles:
  *   1. `renderToStaticMarkup` — asserts the HTML the component emits, including
- *      the normalized radii that #38603 made uniform across modes.
+ *      the track/segment radii shared by both modes.
  *   2. The pure `resolveSegmentSelection` helper that each segment's onClick
  *      delegates to — asserts the click→onChange decision without a renderer.
  */
@@ -49,12 +49,10 @@ function containerClassName(html: string): string {
   return match?.match(/class="([^"]*)"/)?.[1] ?? "";
 }
 
-// #38603 normalized the radii: the outer track is a strict 8px radius
-// (`rounded-md`: this repo's token scale maps md to 8px in tokens.css) and
-// the inner segments a strict 6px radius, identical in both modes. Icon-only
-// previously carried its own enlarged radii (`rounded-[10px]` track,
-// `rounded-lg` segments) from the iOS mock; these tests pin the
-// special-casing as gone, so a revert reintroducing it fails here.
+// The outer track uses a strict 8px radius (`rounded-md`: this repo's token
+// scale maps md to 8px in tokens.css) and the inner segments a strict 6px
+// radius, identical in icon-only and text modes. These tests pin that shared
+// geometry, so any per-mode radius special-casing fails here.
 describe("SegmentControl geometry (normalized radii)", () => {
   test("icon-only container uses the shared 8px track radius, not an enlarged one", () => {
     const html = renderToStaticMarkup(
@@ -123,7 +121,7 @@ describe("SegmentControl geometry (normalized radii)", () => {
       expect(cls).toContain("px-3");
       expect(cls).toContain("rounded-[6px]");
       // Single-line segments are height-sized (see the size describe below);
-      // py-1.5 only returns when a sublabel switches the segment to h-auto.
+      // py-1.5 appears only when a sublabel switches the segment to h-auto.
       expect(cls).not.toContain("py-1.5");
     }
   });
