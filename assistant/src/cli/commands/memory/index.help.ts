@@ -839,6 +839,21 @@ Examples:
           ],
           options: [
             {
+              flags: "--from <messageId>",
+              description:
+                "Rewind: review from this message id instead of the saved cursor (mutually exclusive with --from-start)",
+            },
+            {
+              flags: "--from-start",
+              description:
+                "Rewind: review the conversation from its first message",
+            },
+            {
+              flags: "--dry-run",
+              description:
+                "Read-only preview: report cursors and the unprocessed message count without running anything",
+            },
+            {
               flags: "--json",
               description: "Emit raw JSON instead of a formatted summary",
             },
@@ -849,8 +864,21 @@ retrospective instruction, and wakes the fork so the agent reviews the new
 messages and calls \`remember\` on anything worth saving. Runs entirely in the
 CLI process — no IPC round-trip to the daemon.
 
+Rewind/backfill: --from <messageId> (or --from-start) replays a window whose
+cursor already advanced, e.g. past runs that produced no usable output. The
+replay is idempotent with respect to the remembered log: the run sees every
+previously saved entry as <already_remembered> dedup context, and the saved
+cursor only advances (forward, to the window's latest real message) once the
+run persists verified usable output; a failed or interrupted replay leaves
+state exactly as it was. --dry-run previews the window (current cursor, target
+cursor, unprocessed message count, last run time, remembered-log size) with no
+writes of any kind.
+
 Examples:
-  $ assistant memory retrospective run abc123`,
+  $ assistant memory retrospective run abc123
+  $ assistant memory retrospective run abc123 --dry-run
+  $ assistant memory retrospective run abc123 --from 9f2c4f3a-3f1a-41e4-88e7-abc123 --dry-run
+  $ assistant memory retrospective run abc123 --from-start`,
         },
         {
           name: "list",
