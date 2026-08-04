@@ -6,6 +6,7 @@
  * circular dependencies.
  */
 
+import { stripAnsiAndControlChars } from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
@@ -61,12 +62,12 @@ export function truncate(text: string, maxLength: number): string {
 
 // ── Sanitization ────────────────────────────────────────────────────────────
 
-/** Strip control characters and newlines, then truncate to `maxLength`. */
+/**
+ * Strip escape sequences, flatten control characters and newlines to spaces,
+ * then truncate to `maxLength`.
+ */
 function sanitize(value: string, maxLength: number): string {
-  return truncate(
-    value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim(),
-    maxLength,
-  );
+  return truncate(stripAnsiAndControlChars(value, " ").trim(), maxLength);
 }
 
 /**

@@ -1964,6 +1964,31 @@ describe("schedule tools on plugin-sourced schedules", () => {
     expect(result.content).toContain("managed by a plugin");
     expect(getSchedule(job.id)).not.toBeNull();
   });
+
+  test("schedule_list marks plugin-managed rows in list and detail modes", async () => {
+    const job = await createSourcedSchedule();
+
+    const list = await executeScheduleList({}, ctx);
+    expect(list.isError).toBe(false);
+    expect(list.content).toContain("(managed by plugin example)");
+
+    const detail = await executeScheduleList({ job_id: job.id }, ctx);
+    expect(detail.isError).toBe(false);
+    expect(detail.content).toContain("Managed by plugin: example");
+    expect(detail.content).toContain("only enabled can be changed");
+  });
+
+  test("schedule_list carries no plugin marker on imperative rows", async () => {
+    const created = await executeScheduleCreate(
+      { name: "imperative", expression: "0 9 * * *", message: "Do the thing." },
+      ctx,
+    );
+    expect(created.isError).toBe(false);
+
+    const list = await executeScheduleList({}, ctx);
+    expect(list.isError).toBe(false);
+    expect(list.content).not.toContain("managed by plugin");
+  });
 });
 
 // ── model-input schema validation (LUM-2853) ────────────────────────

@@ -7,10 +7,14 @@
  */
 
 import { createRequire } from "node:module";
+import { join } from "node:path";
 
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { stripAnsiAndControlChars } from "../../util/ansi.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
+import { truncate } from "../../util/truncate.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -427,7 +431,10 @@ export function registerPluginsCommand(program: Command): void {
               "plugin inspect",
             );
 
-            for (const line of formatInspection(inspection)) {
+            const describeCron = inspection.surfaces?.schedules.length
+              ? await loadCronDescriber()
+              : null;
+            for (const line of formatInspection(inspection, describeCron)) {
               console.log(line);
             }
           } catch (err) {
@@ -709,12 +716,14 @@ export function registerPluginsCommand(program: Command): void {
             // symmetric to how install/uninstall run their lifecycle there.
             // The daemon route is unattended (no staging prompt); a schedule
             // the upgraded revision adds is surfaced by the reconciler's
-            // `schedule.declared` notification instead.
+            // `schedule.declared` notification, and mirrored at the terminal
+            // by the declared-schedules listing printed after the upgrade.
             // Fall back to a local upgrade only when the daemon is unreachable
             // (a transport error carries no `statusCode`); an operator can still
             // upgrade while it's stopped, and the new code is picked up on the
             // daemon's next start. A daemon-side decision (not installed, not
             // upgradable, …) is surfaced rather than silently retried locally.
+            const preUpgradeScheduleNames = listInstalledScheduleNames(name);
             const daemon = await cliIpcCall<PluginUpgradeResult>(
               "plugins_upgrade",
               {
@@ -723,8 +732,10 @@ export function registerPluginsCommand(program: Command): void {
               },
             );
             let result: PluginUpgradeResult;
+            let upgradedViaDaemon = false;
             if (daemon.ok && daemon.result) {
               result = daemon.result;
+              upgradedViaDaemon = true;
             } else if (daemon.statusCode === undefined) {
               log.debug(
                 { name, error: daemon.error },
@@ -772,6 +783,14 @@ export function registerPluginsCommand(program: Command): void {
 
             for (const line of formatUpgrade(result)) {
               console.log(line);
+            }
+
+            if (upgradedViaDaemon && result.outcome === "upgraded") {
+              await printDeclaredSchedulesAfterUpgrade(
+                result.name,
+                result.target,
+                preUpgradeScheduleNames,
+              );
             }
           } catch (err) {
             if (err instanceof libs.installGitHub.PluginInstallDeclinedError) {
@@ -994,10 +1013,11 @@ async function confirmDeclaredSchedules(
   if (schedules.length === 0) {
     return true;
   }
+  const describeCron = await loadCronDescriber();
   console.log(
     `Plugin "${staged.name}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
   );
-  for (const row of formatScheduleRows(schedules)) {
+  for (const row of formatScheduleRows(schedules, describeCron)) {
     console.log(`  ${row}`);
   }
   console.log(
@@ -1032,31 +1052,61 @@ const MAX_SCHEDULE_CELL_WIDTH = 60;
 
 /**
  * Make a plugin-controlled declaration string safe to print next to the
- * install consent prompt: drop well-formed CSI/OSC escape sequences whole,
- * strip every remaining C0/C1 control character (which could rewrite or hide
- * the surrounding untrusted-source warning), and cap the cell width.
+ * install consent prompt: drop escape sequences and control characters
+ * (which could rewrite or hide the surrounding untrusted-source warning)
+ * and cap the cell width.
  */
 function sanitizeScheduleCell(value: string): string {
-  const stripped = value
-    .replace(/\u001b\[[0-9:;<=>?]*[ -\/]*[@-~]/g, "")
-    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, "")
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
-  return stripped.length > MAX_SCHEDULE_CELL_WIDTH
-    ? `${stripped.slice(0, MAX_SCHEDULE_CELL_WIDTH - 3)}...`
-    : stripped;
+  return truncate(stripAnsiAndControlChars(value), MAX_SCHEDULE_CELL_WIDTH);
+}
+
+/** Humanizes a cron expression for display; returns the input when unrecognized. */
+type CronDescriber = (expression: string) => string;
+
+/**
+ * Load the schedule store's cron humanizer for cadence display. Loaded
+ * lazily inside actions because it lives in the daemon's module graph
+ * (see the `cli/no-daemon-internals` hoisting rule); when it cannot be
+ * loaded, listings fall back to raw expressions.
+ */
+async function loadCronDescriber(): Promise<CronDescriber | null> {
+  try {
+    const { describeCronExpression } =
+      await import("../../schedule/schedule-store.js");
+    return describeCronExpression;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cadence cell for a declared-schedules listing: the humanized cron cadence
+ * with the raw expression kept as ground truth ("Every day at 9:00 AM
+ * (0 9 * * *)"). RRULEs and anything the describer does not recognize stay
+ * as the raw expression alone.
+ */
+function formatCadenceCell(
+  cadence: string,
+  describeCron: CronDescriber | null,
+): string {
+  const described = describeCron?.(cadence);
+  return described && described !== cadence
+    ? `${described} (${cadence})`
+    : cadence;
 }
 
 /** Aligned `name  cadence  (mode)` rows for a declared-schedules listing. */
 function formatScheduleRows(
   schedules: readonly PluginScheduleSurface[],
+  describeCron: CronDescriber | null,
 ): string[] {
   if (schedules.length === 0) {
     return [];
   }
   const rows = schedules.map((s) => ({
     name: sanitizeScheduleCell(s.name),
-    cadence: sanitizeScheduleCell(s.cadence),
-    mode: sanitizeScheduleCell(s.mode),
+    cadence: sanitizeScheduleCell(formatCadenceCell(s.cadence, describeCron)),
+    mode: s.mode,
   }));
   const nameW = Math.max(...rows.map((r) => r.name.length));
   const cadenceW = Math.max(...rows.map((r) => r.cadence.length));
@@ -1064,6 +1114,56 @@ function formatScheduleRows(
     (r) =>
       `${r.name.padEnd(nameW)}  ${r.cadence.padEnd(cadenceW)}  (${r.mode})`,
   );
+}
+
+/**
+ * Names of the schedules the installed copy of a plugin currently declares.
+ * Empty when the plugin (or its schedules/ dir) is absent, or when the
+ * install path cannot be probed at all (for example an unsanitized name);
+ * the upgrade itself surfaces such errors, this snapshot never does.
+ */
+function listInstalledScheduleNames(name: string): ReadonlySet<string> {
+  try {
+    const surfaces = libs.surfaces.detectPluginSurfaces(
+      join(getWorkspacePluginsDir(), name),
+    );
+    return new Set(surfaces.schedules.map((s) => s.name));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * After a daemon-applied upgrade, list the revision's declared schedules with
+ * a `[new]` marker on the ones the previous revision did not declare. The
+ * daemon path has no staging prompt, so this display is how the operator sees
+ * at the terminal what the reconciler's notification says. Display only:
+ * arming decisions stay with the reconciler.
+ */
+async function printDeclaredSchedulesAfterUpgrade(
+  name: string,
+  target: string,
+  previousNames: ReadonlySet<string>,
+): Promise<void> {
+  const { schedules } = libs.surfaces.detectPluginSurfaces(target);
+  if (schedules.length === 0) {
+    return;
+  }
+  const describeCron = await loadCronDescriber();
+  console.log("");
+  console.log(
+    `Plugin "${name}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
+  );
+  const rows = formatScheduleRows(schedules, describeCron);
+  schedules.forEach((schedule, index) => {
+    const marker = previousNames.has(schedule.name) ? "" : "  [new]";
+    console.log(`  ${rows[index]}${marker}`);
+  });
+  if (schedules.some((schedule) => !previousNames.has(schedule.name))) {
+    console.log(
+      "New schedules run automatically in the background. Run 'assistant schedules list' to review them, or 'assistant schedules disable <id>' to turn one off.",
+    );
+  }
 }
 
 /**
@@ -1190,7 +1290,10 @@ function remoteLocation(remote: PluginRemoteInfo): string {
  * that each carry `timestamp` (the human version), `hash` (the precise id), and
  * `location`, with a `drift` line under the installed copy.
  */
-function formatInspection(inspection: PluginInspection): string[] {
+function formatInspection(
+  inspection: PluginInspection,
+  describeCron: CronDescriber | null,
+): string[] {
   const { name, status, local, remote, remoteError, surfaces } = inspection;
   const lines: string[] = [name, "─".repeat(44)];
   const topRow = (label: string, value: string) =>
@@ -1255,7 +1358,10 @@ function formatInspection(inspection: PluginInspection): string[] {
     surfaceBlock("skills", surfaces.skills);
     surfaceBlock("hooks", surfaces.hooks);
     surfaceBlock("tools", surfaces.tools);
-    surfaceBlock("schedules", formatScheduleRows(surfaces.schedules));
+    surfaceBlock(
+      "schedules",
+      formatScheduleRows(surfaces.schedules, describeCron),
+    );
   }
 
   for (const issue of local?.issues ?? []) {
