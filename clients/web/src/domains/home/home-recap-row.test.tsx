@@ -2,9 +2,9 @@
  * Tests for `HomeRecapRow`.
  *
  * Rendered into happy-dom via `@testing-library/react` so clicks can be
- * dispatched. Assertions target text, roles, `aria-label`s, and DOM structure,
- * never class strings: those drift with styling and turn behaviour tests into
- * styling tests.
+ * dispatched. Assertions target text, roles, `aria-label`s, test ids, and DOM
+ * structure, never class strings: those drift with styling and turn behaviour
+ * tests into styling tests.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -40,7 +40,7 @@ function renderRow(props: Partial<HomeRecapRowProps> = {}) {
   const threads: string[] = [];
   const item = props.item ?? makeItem();
 
-  render(
+  const { container } = render(
     <HomeRecapRow
       item={item}
       onSelect={(selectedItem) => selected.push(selectedItem)}
@@ -51,7 +51,7 @@ function renderRow(props: Partial<HomeRecapRowProps> = {}) {
     />,
   );
 
-  return { item, selected, dismissed, readToggles, threads };
+  return { container, item, selected, dismissed, readToggles, threads };
 }
 
 afterEach(() => {
@@ -166,5 +166,71 @@ describe("HomeRecapRow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
 
     expect(dismissed).toEqual(["feed-1"]);
+  });
+});
+
+describe("HomeRecapRow card content", () => {
+  test("renders the category, the title, and a preview of the summary", () => {
+    renderRow();
+
+    expect(screen.getByText("Background")).toBeTruthy();
+    expect(screen.getByText("Watcher job failed")).toBeTruthy();
+    expect(
+      screen.getByText("The watcher job could not reach the upstream service."),
+    ).toBeTruthy();
+  });
+
+  test("renders no preview when the summary only restates the title", () => {
+    renderRow({
+      item: makeItem({
+        title: "Watcher job failed",
+        summary: "Watcher job failed",
+      }),
+    });
+
+    expect(screen.getAllByText("Watcher job failed").length).toBe(1);
+  });
+
+  test("an untitled item shows its summary once and no preview", () => {
+    const summary = "The watcher job could not reach the upstream service.";
+    renderRow({ item: makeItem({ title: undefined }) });
+
+    expect(screen.getAllByText(summary).length).toBe(1);
+  });
+
+  test("renders an informative source label", () => {
+    renderRow({ item: makeItem({ sourceLabel: "Heartbeat" }) });
+
+    expect(screen.getByText("Heartbeat")).toBeTruthy();
+  });
+
+  test.each(["Conversation", "Other"])(
+    "omits the generic %s source label",
+    (sourceLabel) => {
+      renderRow({ item: makeItem({ sourceLabel }) });
+
+      expect(screen.queryByText(sourceLabel)).toBeNull();
+    },
+  );
+
+  test("marks an unread item with a dot", () => {
+    renderRow();
+
+    expect(screen.getByTestId("home-recap-row-unread-dot")).toBeTruthy();
+  });
+
+  test("omits the dot for an already-read item", () => {
+    renderRow({ item: makeItem({ status: "seen" }) });
+
+    expect(screen.queryByTestId("home-recap-row-unread-dot")).toBeNull();
+  });
+
+  test("compact density renders and differs from the comfortable default", () => {
+    const comfortable = renderRow().container.innerHTML;
+    cleanup();
+    const { container } = renderRow({ density: "compact" });
+
+    expect(screen.getByText("Watcher job failed")).toBeTruthy();
+    expect(container.innerHTML).not.toBe(comfortable);
   });
 });
