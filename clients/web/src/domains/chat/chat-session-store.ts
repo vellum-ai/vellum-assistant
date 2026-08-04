@@ -465,7 +465,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     // opened under the draft key can only be closed by a paint under that key,
     // and the transcript paints under the server id, so close it here.
     if (state.draftConversationIdResolution) {
-      abandonSwitchMeasurement("context_change");
+      abandonSwitchMeasurement("draft_resolution");
       set({ draftConversationIdResolution: false });
       return;
     }

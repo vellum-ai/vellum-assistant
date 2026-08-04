@@ -474,7 +474,7 @@ describe("chat-session-store: switch telemetry gate", () => {
       "context_change",
       "context_change",
       "context_change",
-      "context_change",
+      "draft_resolution",
     ]);
   });
 

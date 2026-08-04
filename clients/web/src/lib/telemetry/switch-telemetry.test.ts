@@ -140,14 +140,14 @@ describe("switch telemetry", () => {
     const sample = onlySample();
     expect(sample.checkName).toBe("client_switch.transcript_painted");
     expect(sample.value).toBe(412);
-    expect(sample.detail.had_history).toBe("true");
+    expect(sample.detail.had_history).toBe(true);
   });
 
   test("labels an empty incoming conversation with had_history false", () => {
     noteConversationSwitchStarted("conv-1");
     noteSwitchTranscriptPainted("conv-1", { hadHistory: false });
 
-    expect(onlySample().detail.had_history).toBe("false");
+    expect(onlySample().detail.had_history).toBe(false);
   });
 
   test("ignores a paint for a different conversation and keeps the window", () => {
@@ -232,8 +232,8 @@ describe("switch telemetry", () => {
   });
 
   test("a context change abandons the window and cancels its stall", () => {
-    // The store takes this branch for assistant switches, re-entering the same
-    // conversation, and draft-key resolution.
+    // The store takes this branch for assistant switches and for re-entering
+    // the same conversation; draft-key resolution has its own reason.
     noteConversationSwitchStarted("conv-1");
     clock += 300;
     abandonSwitchMeasurement("context_change");
@@ -293,7 +293,7 @@ describe("useSwitchPaintMeasurement", () => {
     const sample = onlySample();
     expect(sample.checkName).toBe("client_switch.transcript_painted");
     expect(sample.value).toBe(120);
-    expect(sample.detail.had_history).toBe("true");
+    expect(sample.detail.had_history).toBe(true);
   });
 
   test("closes a window whose incoming transcript was already cached", () => {

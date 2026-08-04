@@ -10,7 +10,8 @@
  * `client_switch.abandoned` when the switch is cut short (history error, app
  * backgrounded, panel unmounted, a re-switch, or a move the family does not
  * measure). Painted plus stalled plus abandoned is therefore the full set of
- * measured switches, so no attempt silently leaves the denominator.
+ * measured switches, so no attempt silently leaves the denominator, apart from
+ * subscription teardown, which drops an open window silently.
  *
  * The TTL is 15s rather than the resume family's 10s because a cold history
  * fetch through the proxy chain can legitimately take that long on LTE. The
@@ -32,8 +33,13 @@ const STALL_TTL_MS = 15_000;
  * Why a measured switch ended without painting. A closed set so the abandoned
  * series stays a groupable dimension rather than an open string.
  */
-export type SwitchAbandonReason =
-  "history_error" | "hidden" | "unmount" | "superseded" | "context_change";
+type SwitchAbandonReason =
+  | "history_error"
+  | "hidden"
+  | "unmount"
+  | "superseded"
+  | "context_change"
+  | "draft_resolution";
 
 let pending: {
   conversationId: string;
@@ -97,7 +103,7 @@ export function noteSwitchTranscriptPainted(
   const elapsedMs = performance.now() - pending.at;
   clearPending();
   emitClientPerfEvent("client_switch.transcript_painted", elapsedMs, {
-    had_history: String(extra.hadHistory),
+    had_history: extra.hadHistory,
   });
 }
 
