@@ -63,9 +63,25 @@ export function getConsolidationLockPath(memoryDir: string): string {
 }
 
 /**
- * Atomically create the lock file with `wx` (O_CREAT | O_EXCL) flags. Returns
- * `null` on success, or the current holder string (file contents, typically
- * `pid timestamp`) when the file already exists and the holder is still alive.
+ * Result of a lock acquisition attempt. On success, `ownerToken` is the exact
+ * payload written into the lock file (trimmed), synthesized at acquire time
+ * rather than read back from disk: a read-back would silently yield no token
+ * when the payload write failed (disk full, transient IO error), and a
+ * token-less caller would fall back to `releaseLock`'s unconditional unlink,
+ * disabling the owner verification precisely when the on-disk state is least
+ * trustworthy. With a synthesized token, a lock whose payload never made it
+ * to disk simply fails the owner comparison and is left for the stale
+ * classifier's `unparseable` takeover instead of being unlinked blind.
+ */
+export type LockAcquireResult =
+  | { acquired: true; ownerToken: string }
+  | { acquired: false; holder: string };
+
+/**
+ * Atomically create the lock file with `wx` (O_CREAT | O_EXCL) flags. On
+ * success returns the owner token to present to `releaseLock`; otherwise
+ * returns the current holder string (file contents, typically
+ * `pid timestamp`).
  *
  * `holderTag` is an optional advisory suffix appended after the PID and
  * timestamp (payload `<pid> <timestamp> <tag>`) so operators can tell which
@@ -89,23 +105,23 @@ export function getConsolidationLockPath(memoryDir: string): string {
 export function tryAcquireLock(
   lockPath: string,
   holderTag?: string,
-): string | null {
+): LockAcquireResult {
   // The workspace migration seeds `memory/.v2-state/`, but tests and
   // ad-hoc workspaces may not have it yet. `mkdirSync({ recursive: true })`
   // is idempotent, so the call is cheap when the dir already exists.
   mkdirSync(dirname(lockPath), { recursive: true });
 
-  const firstHolder = tryCreate(lockPath, holderTag);
-  if (firstHolder === null) {
-    return null;
+  const first = tryCreate(lockPath, holderTag);
+  if (first.acquired) {
+    return first;
   }
-  const staleReason = holderStaleReason(firstHolder);
+  const staleReason = holderStaleReason(first.holder);
   if (staleReason === null) {
-    return firstHolder;
+    return first;
   }
 
   log.info(
-    { lockPath, holder: firstHolder, reason: staleReason },
+    { lockPath, holder: first.holder, reason: staleReason },
     "consolidation: taking over stale lock",
   );
   try {
@@ -117,7 +133,7 @@ export function tryAcquireLock(
         { err, lockPath },
         "consolidation: failed to unlink stale lock; reporting as locked",
       );
-      return firstHolder;
+      return first;
     }
   }
   // After unlink, the next `wx` create should succeed. If a third party
@@ -127,11 +143,12 @@ export function tryAcquireLock(
 }
 
 /**
- * Atomically create the lock file. Returns `null` on success, or the holder
- * string read from the file when it already exists (`"unknown"` if the read
- * itself fails). Rethrows any non-EEXIST errno from `openSync`.
+ * Atomically create the lock file. On success returns the owner token (the
+ * payload written, trimmed); on EEXIST returns the holder string read from
+ * the file (`"unknown"` if the read itself fails). Rethrows any non-EEXIST
+ * errno from `openSync`.
  */
-function tryCreate(lockPath: string, holderTag?: string): string | null {
+function tryCreate(lockPath: string, holderTag?: string): LockAcquireResult {
   let fd: number;
   try {
     fd = openSync(lockPath, "wx");
@@ -140,16 +157,23 @@ function tryCreate(lockPath: string, holderTag?: string): string | null {
       throw err;
     }
     try {
-      return readFileSync(lockPath, "utf-8").trim() || "unknown";
+      return {
+        acquired: false,
+        holder: readFileSync(lockPath, "utf-8").trim() || "unknown",
+      };
     } catch {
-      return "unknown";
+      return { acquired: false, holder: "unknown" };
     }
   }
+  const tagSuffix = holderTag === undefined ? "" : ` ${holderTag}`;
+  const payload = `${process.pid} ${Date.now()}${tagSuffix}`;
   try {
-    const tagSuffix = holderTag === undefined ? "" : ` ${holderTag}`;
-    writeSync(fd, `${process.pid} ${Date.now()}${tagSuffix}\n`);
+    writeSync(fd, `${payload}\n`);
   } catch {
-    // best-effort: payload is advisory, the file's existence is the lock
+    // Best-effort: the file's existence is the lock. A failed payload write
+    // leaves an empty file whose owner comparison can never match, so the
+    // holder's release is a no-op and the next acquirer reclaims it via the
+    // `unparseable` stale classification.
   } finally {
     try {
       closeSync(fd);
@@ -157,7 +181,7 @@ function tryCreate(lockPath: string, holderTag?: string): string | null {
       // best-effort
     }
   }
-  return null;
+  return { acquired: true, ownerToken: payload };
 }
 
 /**
@@ -229,11 +253,11 @@ function holderStaleReason(holder: string): StaleReason | null {
 
 /**
  * Read the lock file's current holder payload (trimmed), or `null` when the
- * file is missing or unreadable. An acquirer reads its own payload back right
- * after a successful `tryAcquireLock` to obtain the owner token it must
- * present to `releaseLock`.
+ * file is missing or unreadable. Owner tokens come from `tryAcquireLock`'s
+ * return value, not from this read-back; this helper exists for
+ * `releaseLock`'s owner comparison.
  */
-export function readLockHolder(lockPath: string): string | null {
+function readLockHolder(lockPath: string): string | null {
   try {
     const holder = readFileSync(lockPath, "utf-8").trim();
     return holder.length > 0 ? holder : null;

@@ -97,7 +97,6 @@ import { getWorkspaceDir } from "../paths.js";
 import {
   CONSOLIDATION_TIMEOUT_MS,
   getConsolidationLockPath,
-  readLockHolder,
   releaseLock,
   tryAcquireLock,
 } from "./consolidation-lock.js";
@@ -315,15 +314,18 @@ export async function memoryV2ConsolidateJob(
 
   // Step 1: acquire lock. Bails immediately if another consolidation is
   // already in flight — the next scheduled run can pick up where we leave off.
-  const holder = tryAcquireLock(lockPath, "consolidation");
-  if (holder !== null) {
-    log.warn({ lockPath, holder }, "consolidation skipped: lock already held");
-    return { kind: "locked", holder };
+  const acquired = tryAcquireLock(lockPath, "consolidation");
+  if (!acquired.acquired) {
+    log.warn(
+      { lockPath, holder: acquired.holder },
+      "consolidation skipped: lock already held",
+    );
+    return { kind: "locked", holder: acquired.holder };
   }
-  // Read our own payload back as the owner token: `releaseLock` below is
-  // owner-verified, so a lock that was stale-classified and taken over by a
-  // newer run mid-execution is never unlinked out from under that newer run.
-  const ownerToken = readLockHolder(lockPath) ?? undefined;
+  // The acquire-time owner token makes `releaseLock` below owner-verified: a
+  // lock that was stale-classified and taken over by a newer run
+  // mid-execution is never unlinked out from under that newer run.
+  const ownerToken = acquired.ownerToken;
   // Set when the run timed out and the underlying turn did NOT stop within
   // the abort grace window: the abandoned turn can still be writing
   // `memory/**`, so releasing the lock would let a second consolidation run
@@ -610,10 +612,15 @@ export async function memoryV2ConsolidateJob(
     };
   } finally {
     if (abandonedRunStillWriting) {
-      // The timed-out turn is still executing: keep the lock so no second
-      // consolidation overlaps its writes. Reclamation is the stale-lock
-      // classifier's job (PID death, or the TTL for a wedged-but-alive
-      // process).
+      // The timed-out turn is still executing: keep the lock so no other
+      // bulk memory writer overlaps its writes. That includes the page-ingest
+      // path (`ingest.ts` acquires this same lock), which returns 409 while
+      // the zombie holds it: ingest writing `memory/**` concurrently with a
+      // still-writing abandoned turn risks the same corruption as a second
+      // consolidation, so the exclusion is deliberate, bounded by the
+      // `workSettled` late release above and, failing that, the stale-lock
+      // TTL. Reclamation is otherwise the stale-lock classifier's job (PID
+      // death, or the TTL for a wedged-but-alive process).
       log.warn(
         { lockPath },
         "consolidation: leaving lock held for a timed-out run that has not stopped",

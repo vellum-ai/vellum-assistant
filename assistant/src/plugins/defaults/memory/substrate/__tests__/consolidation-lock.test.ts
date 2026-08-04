@@ -2,7 +2,8 @@
  * Tests for `substrate/consolidation-lock.ts`.
  *
  * Coverage matrix:
- *   - Free lock → acquired; payload records `<pid> <timestamp>`.
+ *   - Free lock → acquired; payload records `<pid> <timestamp>`; the returned
+ *     owner token matches the on-disk payload byte-for-byte.
  *   - Held by a live PID within the TTL → refused with the holder string,
  *     and the live holder's file is left in place.
  *   - Holder PID not running → stale takeover.
@@ -10,6 +11,9 @@
  *     collision) → stale takeover.
  *   - Empty / corrupted payload → stale takeover.
  *   - `releaseLock` removes the file and is a no-op when it is absent.
+ *   - Owner-verified release: matching token unlinks; a taken-over lock is
+ *     never unlinked; an empty-payload lock (failed payload write) is left
+ *     for the stale classifier instead of being unlinked blind.
  *   - `getConsolidationLockPath` resolves the frozen
  *     `.v2-state/consolidation.lock` path.
  *
@@ -29,7 +33,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getConsolidationLockPath,
-  readLockHolder,
   releaseLock,
   STALE_LOCK_TTL_MS,
   tryAcquireLock,
@@ -51,6 +54,15 @@ afterEach(() => {
   rmSync(memoryDir, { recursive: true, force: true });
 });
 
+/** Acquire and assert success, returning the owner token. */
+function acquireExpectingSuccess(tag?: string): string {
+  const result = tryAcquireLock(lockPath, tag);
+  if (!result.acquired) {
+    throw new Error(`expected acquire to succeed; held by ${result.holder}`);
+  }
+  return result.ownerToken;
+}
+
 describe("getConsolidationLockPath", () => {
   test("resolves the frozen .v2-state/consolidation.lock path", () => {
     expect(lockPath).toBe(join(memoryDir, ".v2-state", "consolidation.lock"));
@@ -60,22 +72,26 @@ describe("getConsolidationLockPath", () => {
 describe("tryAcquireLock", () => {
   test("acquires a free lock and records the holder's PID and timestamp", () => {
     const before = Date.now();
-    expect(tryAcquireLock(lockPath)).toBeNull();
+    const ownerToken = acquireExpectingSuccess();
 
     // The payload is `<pid> <timestamp>` so a crashed run leaves a
-    // diagnosable trace.
-    const [pid, timestamp] = readFileSync(lockPath, "utf-8").trim().split(" ");
+    // diagnosable trace, and the returned token is that exact payload so
+    // owner verification never depends on reading the file back.
+    const payload = readFileSync(lockPath, "utf-8").trim();
+    expect(ownerToken).toBe(payload);
+    const [pid, timestamp] = payload.split(" ");
     expect(Number.parseInt(pid, 10)).toBe(process.pid);
     expect(Number.parseInt(timestamp, 10)).toBeGreaterThanOrEqual(before);
   });
 
   test("appends the advisory holder tag after the PID and timestamp", () => {
-    expect(tryAcquireLock(lockPath, "ingest:123")).toBeNull();
+    const ownerToken = acquireExpectingSuccess("ingest:123");
 
     const parts = readFileSync(lockPath, "utf-8").trim().split(" ");
     expect(parts).toHaveLength(3);
     expect(Number.parseInt(parts[0], 10)).toBe(process.pid);
     expect(parts[2]).toBe("ingest:123");
+    expect(ownerToken).toEndWith(" ingest:123");
   });
 
   test("refuses with the holder string when held by a live PID within the TTL", () => {
@@ -87,7 +103,7 @@ describe("tryAcquireLock", () => {
 
     // WHEN a second acquire attempts the lock, THEN it reports the holder
     // rather than taking over, AND the live holder's file is untouched.
-    expect(tryAcquireLock(lockPath)).toBe(holder);
+    expect(tryAcquireLock(lockPath)).toEqual({ acquired: false, holder });
     expect(readFileSync(lockPath, "utf-8")).toBe(`${holder}\n`);
   });
 
@@ -96,7 +112,7 @@ describe("tryAcquireLock", () => {
     // reports the holder dead.
     writeFileSync(lockPath, "999999 1700000000000\n");
 
-    expect(tryAcquireLock(lockPath)).toBeNull();
+    acquireExpectingSuccess();
 
     // The stale file was replaced by this process's own lock.
     expect(readFileSync(lockPath, "utf-8")).toStartWith(`${process.pid} `);
@@ -109,7 +125,7 @@ describe("tryAcquireLock", () => {
     const ancient = Date.now() - STALE_LOCK_TTL_MS - 1;
     writeFileSync(lockPath, `${process.pid} ${ancient}\n`);
 
-    expect(tryAcquireLock(lockPath)).toBeNull();
+    acquireExpectingSuccess();
     expect(readFileSync(lockPath, "utf-8")).not.toContain(`${ancient}`);
   });
 
@@ -118,14 +134,14 @@ describe("tryAcquireLock", () => {
     // corruption from a partial write that crashed mid-flush.
     writeFileSync(lockPath, "");
 
-    expect(tryAcquireLock(lockPath)).toBeNull();
+    acquireExpectingSuccess();
     expect(readFileSync(lockPath, "utf-8")).toStartWith(`${process.pid} `);
   });
 });
 
 describe("releaseLock", () => {
   test("removes the lock file", () => {
-    expect(tryAcquireLock(lockPath)).toBeNull();
+    acquireExpectingSuccess();
     releaseLock(lockPath);
     expect(existsSync(lockPath)).toBe(false);
   });
@@ -136,17 +152,14 @@ describe("releaseLock", () => {
   });
 
   test("owner-verified release removes the lock while the payload still matches", () => {
-    expect(tryAcquireLock(lockPath, "consolidation")).toBeNull();
-    const ownerToken = readLockHolder(lockPath);
-    expect(ownerToken).not.toBeNull();
+    const ownerToken = acquireExpectingSuccess("consolidation");
 
-    releaseLock(lockPath, ownerToken!);
+    releaseLock(lockPath, ownerToken);
     expect(existsSync(lockPath)).toBe(false);
   });
 
   test("owner-verified release refuses to unlink a lock held by a different owner", () => {
-    expect(tryAcquireLock(lockPath, "consolidation")).toBeNull();
-    const ownerToken = readLockHolder(lockPath)!;
+    const ownerToken = acquireExpectingSuccess("consolidation");
 
     // A takeover re-wrote the lock: the original owner's token no longer
     // matches, so its release must be a no-op.
@@ -158,25 +171,22 @@ describe("releaseLock", () => {
     expect(readFileSync(lockPath, "utf-8").trim()).toBe(newerHolder);
   });
 
+  test("owner-verified release leaves an empty-payload lock in place for the stale classifier", () => {
+    // An empty lock file is the on-disk shape of a swallowed payload-write
+    // failure in `tryCreate`. The synthesized token can never match it, so
+    // the owner-verified release must not unlink it: reclamation belongs to
+    // the next acquirer's `unparseable` stale takeover, not to a release
+    // whose ownership cannot be proven.
+    const ownerToken = acquireExpectingSuccess("consolidation");
+    writeFileSync(lockPath, "");
+
+    releaseLock(lockPath, ownerToken);
+    expect(existsSync(lockPath)).toBe(true);
+  });
+
   test("owner-verified release is a no-op when the lock is already gone", () => {
-    expect(tryAcquireLock(lockPath)).toBeNull();
-    const ownerToken = readLockHolder(lockPath)!;
+    const ownerToken = acquireExpectingSuccess();
     releaseLock(lockPath);
     expect(() => releaseLock(lockPath, ownerToken)).not.toThrow();
-  });
-});
-
-describe("readLockHolder", () => {
-  test("returns the trimmed payload of a held lock", () => {
-    expect(tryAcquireLock(lockPath, "consolidation")).toBeNull();
-    const holder = readLockHolder(lockPath);
-    expect(holder).toStartWith(`${process.pid} `);
-    expect(holder).toEndWith(" consolidation");
-  });
-
-  test("returns null for a missing or empty lock file", () => {
-    expect(readLockHolder(lockPath)).toBeNull();
-    writeFileSync(lockPath, "");
-    expect(readLockHolder(lockPath)).toBeNull();
   });
 });

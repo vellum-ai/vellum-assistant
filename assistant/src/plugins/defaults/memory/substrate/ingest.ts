@@ -254,9 +254,9 @@ export async function ingestPages(
   }
 
   const lockPath = getConsolidationLockPath(join(workspaceDir, "memory"));
-  const holder = tryAcquireLock(lockPath, "ingest");
-  if (holder !== null) {
-    throw new IngestLockedError(holder);
+  const acquired = tryAcquireLock(lockPath, "ingest");
+  if (!acquired.acquired) {
+    throw new IngestLockedError(acquired.holder);
   }
   let successfulWrites = 0;
   try {
@@ -283,7 +283,7 @@ export async function ingestPages(
     }
     return summary;
   } finally {
-    releaseLock(lockPath);
+    releaseLock(lockPath, acquired.ownerToken);
     // Every committed page needs reindexing, including when a later write
     // in the batch threw; the follow-ups are enqueued before that error
     // propagates to the caller.

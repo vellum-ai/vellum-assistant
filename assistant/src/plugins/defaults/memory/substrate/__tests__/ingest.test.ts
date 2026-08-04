@@ -100,13 +100,13 @@ mock.module("../consolidation-lock.js", () => ({
   ...realLock,
   tryAcquireLock: (
     ...args: Parameters<typeof realTryAcquireLock>
-  ): string | null => {
-    const holder = realTryAcquireLock(...args);
-    if (holder === null) {
+  ): ReturnType<typeof realTryAcquireLock> => {
+    const result = realTryAcquireLock(...args);
+    if (result.acquired) {
       callTrace.push("tryAcquireLock");
       onLockAcquired?.();
     }
-    return holder;
+    return result;
   },
 }));
 
