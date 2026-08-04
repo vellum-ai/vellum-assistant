@@ -339,7 +339,7 @@ describe("pending provider key", () => {
     });
   });
 
-  test("a provider-rejected key throws, re-stages the selection with the key cleared, and writes nothing downstream", async () => {
+  test("a provider-rejected key throws, re-stages the selection, and writes nothing downstream", async () => {
     // The daemon reports provider-side key validation failure as a 200 with
     // success:false (the key is NOT stored).
     secretsPostMock.mockImplementationOnce(async () => ({
@@ -359,9 +359,13 @@ describe("pending provider key", () => {
         }),
       );
     });
-    // The selection survives for the API-key screen to prefill, minus the
-    // rejected key itself.
-    expect(peekPendingProviderKey()).toEqual({ provider: "anthropic", key: "" });
+    // The full selection survives for the API-key screen to prefill. The
+    // rejected key is kept so a reload re-applies it and re-surfaces the
+    // rejection instead of proceeding with no provider key at all.
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "anthropic",
+      key: "sk-ant-bad",
+    });
     // Nothing downstream may reference the never-stored credential.
     expect(inferenceProviderconnectionsPostMock).not.toHaveBeenCalled();
     expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
@@ -379,7 +383,10 @@ describe("pending provider key", () => {
     await expect(applyPendingProviderKey("local-9")).rejects.toBeInstanceOf(
       ProviderKeyRejectedError,
     );
-    expect(peekPendingProviderKey()).toEqual({ provider: "openai", key: "" });
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "openai",
+      key: "sk-proj-bad",
+    });
   });
 
   test("a success:true response with a body proceeds normally", async () => {

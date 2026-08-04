@@ -333,8 +333,9 @@ async function applyLegacyOnboardingProfile(
  * freshly hatched local assistant. Consumes the pending key; no-op when nothing
  * was collected (e.g. Vellum Cloud, which skips the API-key step). Throws
  * {@link ProviderKeyRejectedError} when the daemon's provider-side validation
- * rejects the key, re-staging the selection (key cleared) so the API-key
- * screen can prefill on the correction pass.
+ * rejects the key, re-staging the full selection so the API-key screen can
+ * prefill on the correction pass (and a reload re-applies and re-surfaces
+ * the rejection).
  *
  * API-key providers rely on the daemon's code-defined default profiles: store
  * the key, create the `<provider>-personal` connection the defaults dispatch
@@ -355,10 +356,14 @@ export async function applyPendingProviderKey(
     await applyProviderSelection(assistantId, pending);
   } catch (err) {
     if (err instanceof ProviderKeyRejectedError) {
-      // A rejected key is user-correctable: preserve the collected selection
-      // (with the bad key cleared) so the API-key screen prefills the
-      // provider/model when the user goes back to re-enter the key.
-      setPendingProviderKey({ ...pending, key: "" });
+      // A rejected key is user-correctable: re-stage the collected selection,
+      // rejected key included, so the API-key screen prefills for correction.
+      // The key is deliberately KEPT: the hold on the error screen is
+      // in-memory, so a reload there re-runs the apply, and re-applying the
+      // bad key re-surfaces this rejection. A cleared key would instead
+      // no-op the apply and hand the user a provider-less assistant, which
+      // is the silent dead-chat state this error exists to prevent.
+      setPendingProviderKey(pending);
     }
     throw err;
   }

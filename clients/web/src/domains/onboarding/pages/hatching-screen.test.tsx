@@ -200,10 +200,12 @@ const operationalStatusReadMock = mock(async () => {
   };
 });
 
-const hatchLocalAssistantMock = mock(async () => ({
-  ok: true as const,
-  assistantId: "local-1",
-}));
+const hatchLocalAssistantMock = mock(
+  async (_species?: string, _remote?: string) => ({
+    ok: true as const,
+    assistantId: "local-1",
+  }),
+);
 
 const saveLockfileAssistantMock = mock(
   async (_entry: {
@@ -1025,6 +1027,51 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
       { timeout: 5000 },
     );
     expect(hatchLocalAssistantMock).toHaveBeenCalledTimes(1);
+  }, 15000);
+
+  test("switching hosting modes after a rejected key hatches fresh for the new mode instead of reusing the old assistant", async () => {
+    // First pass: a Local hatch whose key is rejected parks on the error
+    // screen with the hatch guard held.
+    isLocalClientValue = true;
+    searchParams = new URLSearchParams("hosting=local");
+    applyPendingProviderKeyMock.mockImplementation(async () => {
+      throw new MockProviderKeyRejectedError(
+        "anthropic",
+        "API key is invalid or expired.",
+      );
+    });
+
+    render(<HatchingScreen />);
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText(/rejected the API key you entered/),
+        ).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(hatchLocalAssistantMock).toHaveBeenCalledTimes(1);
+    expect(hatchLocalAssistantMock.mock.calls[0]?.[1]).toBeUndefined();
+
+    // The user backs out to the hosting screen and picks Docker instead. The
+    // held Local promise must not answer for the Docker choice.
+    cleanup();
+    navigateMock.mockClear();
+    applyPendingProviderKeyMock.mockImplementation(async () => {});
+    searchParams = new URLSearchParams("hosting=docker");
+
+    render(<HatchingScreen />);
+
+    await waitFor(
+      () =>
+        expect(navigateMock).toHaveBeenCalledWith(
+          expect.stringContaining("/onboarding/research"),
+          { replace: true },
+        ),
+      { timeout: 5000 },
+    );
+    expect(hatchLocalAssistantMock).toHaveBeenCalledTimes(2);
+    expect(hatchLocalAssistantMock.mock.calls[1]?.[1]).toBe("docker");
   }, 15000);
 
   test("a local hatch keeps its gateway session", async () => {

@@ -79,6 +79,12 @@ const COMPLETION_NAVIGATE_DELAY_MS = 800;
 let localHatchPromise: Promise<
   import("@/runtime/local-mode-host").LocalHatchResult
 > | null = null;
+// The hosting mode (`--remote` arg) the held localHatchPromise was created
+// with. A held promise only answers for the SAME mode: the guard can outlive
+// a trip through the hosting screen (the rejected-key hold below), where the
+// user may switch Local <-> Docker, and the abandoned mode's assistant must
+// not be adopted for the new choice.
+let localHatchRemote: string | undefined;
 let platformHatchPromise: Promise<
   import("@/assistant/api").HatchResult
 > | null = null;
@@ -86,6 +92,7 @@ let hatchTraitsCache: CharacterTraits | null = null;
 
 function releaseHatchGuards(): void {
   localHatchPromise = null;
+  localHatchRemote = undefined;
   platformHatchPromise = null;
   hatchTraitsCache = null;
 }
@@ -373,8 +380,14 @@ export function HatchingScreen() {
       // 4. Navigate to pre-chat flow
       if (useLocalHatch) {
         try {
+          const remote = hostingParam === "docker" ? "docker" : undefined;
+          // A promise held across the rejected-key hold answers only for the
+          // hosting mode it was created with; a switched mode hatches fresh.
+          if (localHatchPromise && localHatchRemote !== remote) {
+            releaseHatchGuards();
+          }
           if (!localHatchPromise) {
-            const remote = hostingParam === "docker" ? "docker" : undefined;
+            localHatchRemote = remote;
             localHatchPromise = hatchLocalAssistant(undefined, remote);
           }
           // Keep `localHatchPromise` set through the rest of the flow. The
@@ -450,8 +463,10 @@ export function HatchingScreen() {
                 // Surface a correctable error and hold here, KEEPING the
                 // module-level hatch guards: the user returns via the API-key
                 // screen and this screen re-adopts the same live assistant
-                // instead of hatching a duplicate. The pending selection was
-                // re-staged (key cleared) by applyPendingProviderKey.
+                // instead of hatching a duplicate. The pending selection
+                // (rejected key included) was re-staged by
+                // applyPendingProviderKey, so a reload here re-applies it and
+                // lands back on this screen rather than proceeding keyless.
                 if (!cancelled) {
                   const displayName =
                     onboardingProvider(err.provider)?.displayName ??
