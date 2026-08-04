@@ -132,6 +132,13 @@ export interface SendChatMessageOptions {
    */
   hidden?: boolean;
   /**
+   * Resend an unsent row under its original identity rather than minting a new
+   * one. The daemon deduplicates on (conversation, clientMessageId), so a send
+   * whose response was lost is recognized instead of running the turn twice.
+   * Set only by {@link UseSendMessageResult.retryFailedSend}.
+   */
+  retryOfClientMessageId?: string;
+  /**
    * Single-use override for the daemon's `secret_blocked` ingress guard.
    * Set ONLY by the composer secret guard's "Send anyway" handler, after
    * the user explicitly confirmed sending content the client-side scan
@@ -195,6 +202,16 @@ export function useSendMessage({
   const doctorGate = usePlatformGate({ platformHostedOnly: true });
   const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
+
+  /** Flag a still-present optimistic row as unsent. */
+  const markSendFailed = useCallback(
+    (rowId: string) => {
+      setOptimisticSends((prev) =>
+        prev.map((m) => (m.id === rowId ? { ...m, sendFailed: true } : m)),
+      );
+    },
+    [setOptimisticSends],
+  );
   const setError = useChatSessionStore.use.setError();
   const setNotice = useChatSessionStore.use.setNotice();
 
@@ -734,7 +751,10 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
-      const clientMessageId = crypto.randomUUID();
+      // A retry carries the identity of the row it is resending, so the daemon
+      // can recognize a message it already received. Everything downstream
+      // treats this send normally.
+      const clientMessageId = opts.retryOfClientMessageId ?? crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
         clientMessageId,
@@ -751,7 +771,17 @@ export function useSendMessage({
           : {}),
       };
       if (!isHidden) {
-        addOptimisticSend(userMessage);
+        if (opts.retryOfClientMessageId) {
+          // The row is already on screen. Clear the unsent mark in place so the
+          // retry does not stack a second copy beside it.
+          setOptimisticSends((prev) =>
+            prev.map((m) =>
+              m.id === clientMessageId ? { ...userMessage } : m,
+            ),
+          );
+        } else {
+          addOptimisticSend(userMessage);
+        }
       }
       void getSoundManager().play("message_sent");
 
@@ -902,28 +932,22 @@ export function useSendMessage({
         );
 
         if (result.status === "failed") {
-          // Roll back every piece of optimistic state we just set up: the
-          // optimistic send, the processing flag on the conversation, the
-          // prepended draft conversation in the sidebar, and the cleared
-          // composer input. Then surface the error.
-          setOptimisticSends((prev) =>
-            prev.filter((m) => m.id !== userMessage.id),
-          );
+          // Mark the row unsent and leave it where the user put it, rather
+          // than rolling it back into the composer. It keeps its text, its
+          // attachments, and its `clientMessageId`, so retrying resends this
+          // same message instead of composing a new one. Hidden sends render
+          // no row, so they have nothing to mark.
+          markSendFailed(userMessage.id);
           useConversationStore
             .getState()
             .removeProcessingConversationId(activeConversationId);
           if (isDraft) {
             removeConversation(queryClient, assistantId, activeConversationId);
-            setError({
-              message: result.error.message,
-              ...(result.error.code ? { code: result.error.code } : {}),
-              displayAs: "modal",
-              restoreContent: content,
-            });
-          } else {
-            useComposerStore.getState().setInput(content);
-            setError(result.error);
           }
+          setError({
+            message: result.error.message,
+            ...(result.error.code ? { code: result.error.code } : {}),
+          });
           return;
         }
 
@@ -975,6 +999,11 @@ export function useSendMessage({
         void refreshConversations();
       } catch (err) {
         captureError(err, { context: "send_chat_message" });
+        // A throw means the request never got an answer, so whether the daemon
+        // saw it is unknown. Mark the row unsent and keep it: retry reuses its
+        // `clientMessageId`, which is what lets the daemon recognize a send it
+        // already received instead of running the turn twice.
+        markSendFailed(userMessage.id);
         setError({ message: "Something went wrong. Please try again." });
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key
@@ -1013,6 +1042,40 @@ export function useSendMessage({
   );
 
   // -------------------------------------------------------------------------
+  // retryFailedSend / discardFailedSend: actions on an unsent row
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resend an unsent row as itself: same text, same attachments, same
+   * `clientMessageId`. Reusing the identity is what lets the daemon dedup a
+   * send it already received but never answered for.
+   */
+  const retryFailedSend = useCallback(
+    async (clientMessageId: string) => {
+      const row = useChatSessionStore
+        .getState()
+        .optimisticSends.find((m) => m.id === clientMessageId);
+      if (!row?.sendFailed) {
+        return;
+      }
+      await sendMessage(row.textSegments?.[0] ?? "", row.attachments ?? [], {
+        retryOfClientMessageId: clientMessageId,
+      });
+    },
+    [sendMessage],
+  );
+
+  /** Drop an unsent row the user no longer wants. */
+  const discardFailedSend = useCallback(
+    (clientMessageId: string) => {
+      setOptimisticSends((prev) =>
+        prev.filter((m) => !(m.id === clientMessageId && m.sendFailed)),
+      );
+    },
+    [setOptimisticSends],
+  );
+
+  // -------------------------------------------------------------------------
   // handleStopGenerating — cancel the active generation
   // -------------------------------------------------------------------------
   const handleStopGenerating = useCallback(async () => {
@@ -1042,6 +1105,8 @@ export function useSendMessage({
 
   return {
     sendMessage,
+    retryFailedSend,
+    discardFailedSend,
     handleStopGenerating,
     queuedMessages,
     handleCancelQueuedMessage,

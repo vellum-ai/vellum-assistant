@@ -187,6 +187,8 @@ export interface ChatMainPanelProps {
   onSummarizeUpToHere?: (messageId: string) => void;
   /** Opens the "Retry" confirm dialog for the latest assistant turn. */
   onRetryLatestTurn?: () => void;
+  onRetryFailedSend?: (clientMessageId: string) => void;
+  onDiscardFailedSend?: (clientMessageId: string) => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -277,6 +279,8 @@ export function ChatMainPanel({
   handleForkConversation,
   onSummarizeUpToHere,
   onRetryLatestTurn,
+  onRetryFailedSend,
+  onDiscardFailedSend,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -1121,6 +1125,8 @@ export function ChatMainPanel({
     // Hidden while a turn is in flight: retrying mid-generation would 409,
     // and the affordance targets the settled latest response.
     onRetryLatestTurn: isAssistantBusy ? undefined : onRetryLatestTurn,
+    onRetryFailedSend,
+    onDiscardFailedSend,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,

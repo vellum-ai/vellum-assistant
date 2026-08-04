@@ -82,6 +82,15 @@ export interface DisplayMessage {
    */
   isOptimistic?: boolean;
   /**
+   * True on a user message whose send did not reach the server. The row stays
+   * in the transcript so the text and its attachments are still in front of
+   * the user, rendered as unsent with retry and discard actions. Retry resends
+   * this same row under its original `clientMessageId`, so a send that did
+   * reach the daemon and lost only its response is deduplicated rather than
+   * run a second time.
+   */
+  sendFailed?: boolean;
+  /**
    * Server message ids folded into this canonical display row. Reconcile treats
    * these as aliases so a live SSE row can merge into its collapsed history row.
    */
