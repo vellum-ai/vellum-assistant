@@ -2,13 +2,10 @@
  * The personality signature: one dot per trait axis on a dashed neutral rule,
  * joined by a drawn curve, with each axis' two poles named above and below its
  * dot ("Coworker" over "Companion"). A dot's height between its own pair of
- * words is the whole reading — there is no chart grammar to learn.
- *
- * This replaces a pentagon radar, which mis-encoded the data: the axes are
- * bipolar (50 is neutral and both ends are equally valid), so a radar's
- * "further out = more" grammar drew one pole as abundance and the other as
- * absence, and an untouched personality — the common case — drew a confident
- * but information-free pentagon. Here an untouched personality is a flat line.
+ * words is the whole reading, so there is no chart grammar to learn. The axes
+ * are bipolar (50 is neutral and both ends are equally valid), which is why
+ * the mark measures from a centre rule rather than from a corner or an origin.
+ * A personality nobody has tuned sits flat on that rule.
  *
  * The dots carry the data; the curve and its wash only bind them into one
  * mark, so left-to-right order is a reading aid rather than a measurement.
