@@ -568,7 +568,8 @@ export type StartRemoteWebIngressResult =
   | {
       status: "started";
       listenPort: number;
-      webDistDir: string;
+      /** SPA dist directory served by the edge; null in webhooks-only mode. */
+      webDistDir: string | null;
       version: string;
     }
   | { status: "already-running"; listenPort: number }
@@ -592,18 +593,26 @@ export async function startRemoteWebIngress(opts: {
   listenPort?: number;
   readyTimeoutMs?: number;
   /**
+   * Serve the web SPA from the edge (default true). When false the web-dist
+   * preflight is skipped and the edge only proxies gateway traffic behind the
+   * sensitive-route denylist (webhooks-only mode).
+   */
+  includeWebApp?: boolean;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
-   * with the resolved version/dist/port. Never fires on a preflight bail-out
-   * (nginx-missing, already-running, web-dist-missing).
+   * with the resolved version/dist/port (webDistDir is null in webhooks-only
+   * mode). Never fires on a preflight bail-out (nginx-missing,
+   * already-running, web-dist-missing).
    */
   onStarting?: (info: {
     version: string;
-    webDistDir: string;
+    webDistDir: string | null;
     listenPort: number;
   }) => void;
 }): Promise<StartRemoteWebIngressResult> {
   const listenPort = opts.listenPort ?? getNginxIngressPort();
+  const includeWebApp = opts.includeWebApp ?? true;
 
   const version = getNginxVersion();
   if (!version) {
@@ -614,9 +623,12 @@ export async function startRemoteWebIngress(opts: {
     return { status: "already-running", listenPort };
   }
 
-  const webDistDir = findWebDistDir();
-  if (!webDistDir) {
-    return { status: "web-dist-missing" };
+  let webDistDir: string | null = null;
+  if (includeWebApp) {
+    webDistDir = findWebDistDir();
+    if (!webDistDir) {
+      return { status: "web-dist-missing" };
+    }
   }
 
   opts.onStarting?.({ version, webDistDir, listenPort });
@@ -625,7 +637,7 @@ export async function startRemoteWebIngress(opts: {
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
     listenPort,
-    remoteWebIngress: { webDistDir },
+    remoteWebIngress: webDistDir ? { webDistDir } : undefined,
   });
   child.unref();
 
