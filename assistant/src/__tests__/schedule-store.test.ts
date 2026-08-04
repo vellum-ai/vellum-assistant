@@ -14,6 +14,10 @@ mock.module("../background-wake/publisher.js", () => ({
 
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import {
+  createConversation,
+  setConversationInferenceProfile,
+} from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -22,6 +26,7 @@ import {
   LEGACY_DEFER_CREATED_BY,
   OWNER_DEFER_CREATED_BY,
 } from "../schedule/defer-provenance.js";
+import { resolveDefaultScheduleInferenceProfile } from "../schedule/inference-profile.js";
 import {
   cancelSchedule,
   claimDueSchedules,
@@ -1504,5 +1509,94 @@ describe("owner-defer provenance", () => {
     expect(updated!.message).toBe("something else");
     expect(updated!.wakeConversationId).toBe("conv-elsewhere");
     expect(hasOwnerDeferProvenance(updated!.createdBy)).toBe(false);
+  });
+});
+
+// ── Inference-profile pinning ─────────────────────────────────────────────
+
+/**
+ * Every assertion below compares against the live resolution rather than a
+ * literal key, so the tests describe the invariant (a schedule is pinned to
+ * whatever the default resolves to at write time) instead of freezing this
+ * workspace's shipped profile catalog.
+ */
+describe("inference-profile pinning", () => {
+  beforeEach(() => {
+    getDb().run("DELETE FROM cron_runs");
+    getDb().run("DELETE FROM cron_jobs");
+    getDb().run("DELETE FROM conversations");
+  });
+
+  test("creation with no profile pins the resolved default", async () => {
+    const expected = resolveDefaultScheduleInferenceProfile();
+    expect(expected).not.toBeNull();
+
+    const job = await createSchedule({
+      name: "Unpinned",
+      message: "hi",
+      cronExpression: "0 9 * * *",
+    });
+
+    expect(job.inferenceProfile).toBe(expected!);
+    expect(getSchedule(job.id)!.inferenceProfile).toBe(expected!);
+  });
+
+  test("creation with an explicit profile keeps it", async () => {
+    expect(resolveDefaultScheduleInferenceProfile()).not.toBe("cost-optimized");
+
+    const job = await createSchedule({
+      name: "Pinned",
+      message: "hi",
+      cronExpression: "0 9 * * *",
+      inferenceProfile: "cost-optimized",
+    });
+
+    expect(job.inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("updating to null re-snapshots the default instead of unpinning", async () => {
+    const job = await createSchedule({
+      name: "Repinned",
+      message: "hi",
+      cronExpression: "0 9 * * *",
+      inferenceProfile: "cost-optimized",
+    });
+
+    const updated = await updateSchedule(job.id, { inferenceProfile: null });
+
+    expect(updated!.inferenceProfile).toBe(
+      resolveDefaultScheduleInferenceProfile()!,
+    );
+  });
+
+  test("a defer seeds the source conversation's pinned profile", async () => {
+    const conversation = createConversation({ id: "conv-pinned" });
+    setConversationInferenceProfile(conversation.id, "cost-optimized");
+    expect(resolveDefaultScheduleInferenceProfile()).not.toBe("cost-optimized");
+
+    const job = await createOwnerDeferredWake({
+      conversationId: conversation.id,
+      hint: "check back",
+      fireAt: Date.now() + 60_000,
+    });
+
+    // The wake resumes this conversation and forces the row's pin as the
+    // turn's override, so seeding from the global default would move a pinned
+    // conversation's own follow-up onto a different model.
+    expect(job.inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("a defer from an unpinned conversation seeds the default", async () => {
+    const conversation = createConversation({ id: "conv-unpinned" });
+
+    const job = await createOwnerDeferredWake({
+      conversationId: conversation.id,
+      hint: "check back",
+      fireAt: Date.now() + 60_000,
+    });
+
+    expect(job.inferenceProfile).toBe(
+      resolveDefaultScheduleInferenceProfile()!,
+    );
   });
 });
