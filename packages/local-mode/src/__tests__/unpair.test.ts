@@ -1,0 +1,140 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { guardianTokenPath } from "../config";
+import { unpairAssistant } from "../unpair";
+
+let tmpDir: string;
+let lockfilePath: string;
+let configDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-unpair-"));
+  lockfilePath = path.join(tmpDir, "lockfile.json");
+  configDir = path.join(tmpDir, "config");
+});
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+const writeLockfile = (data: Record<string, unknown>): void => {
+  fs.writeFileSync(lockfilePath, JSON.stringify(data));
+};
+
+const readLockfileFromDisk = (): Record<string, unknown> =>
+  JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as Record<string, unknown>;
+
+const seedGuardianToken = (assistantId: string): string => {
+  const tokenPath = guardianTokenPath(configDir, assistantId);
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+  fs.writeFileSync(tokenPath, JSON.stringify({ accessToken: "tok" }));
+  return tokenPath;
+};
+
+describe("unpairAssistant", () => {
+  test("removes the paired entry, deletes its guardian token, and clears the active pointer", () => {
+    writeLockfile({
+      assistants: [
+        { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
+        { assistantId: "local-1", cloud: "local", futureField: "keep-me" },
+      ],
+      activeAssistant: "paired-1",
+    });
+    const tokenPath = seedGuardianToken("paired-1");
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lockfile.activeAssistant).toBeNull();
+    expect(result.lockfile.assistants.map((a) => a.assistantId)).toEqual([
+      "local-1",
+    ]);
+    expect(fs.existsSync(tokenPath)).toBe(false);
+
+    // Unknown fields on the remaining entries survive the rewrite.
+    const onDisk = readLockfileFromDisk();
+    expect(onDisk.assistants).toEqual([
+      { assistantId: "local-1", cloud: "local", futureField: "keep-me" },
+    ]);
+    expect(onDisk.activeAssistant).toBeNull();
+  });
+
+  test("leaves the active pointer alone when it names another assistant", () => {
+    writeLockfile({
+      assistants: [
+        { assistantId: "paired-1", cloud: "paired" },
+        { assistantId: "local-1", cloud: "local" },
+      ],
+      activeAssistant: "local-1",
+    });
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.lockfile.activeAssistant).toBe("local-1");
+  });
+
+  test("succeeds when the guardian token file is already gone", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: null,
+    });
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("refuses an unknown assistant without touching disk", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: "paired-1",
+    });
+
+    const result = unpairAssistant([lockfilePath], configDir, "nope");
+
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "No such assistant",
+    });
+    expect(readLockfileFromDisk().activeAssistant).toBe("paired-1");
+  });
+
+  test("refuses a non-paired assistant and leaves its entry and token alone", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "local-1", cloud: "local" }],
+      activeAssistant: "local-1",
+    });
+    const tokenPath = seedGuardianToken("local-1");
+
+    const result = unpairAssistant([lockfilePath], configDir, "local-1");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(400);
+    expect(result.error).toContain("paired");
+    expect(fs.existsSync(tokenPath)).toBe(true);
+    expect(readLockfileFromDisk().assistants).toEqual([
+      { assistantId: "local-1", cloud: "local" },
+    ]);
+  });
+
+  test("refuses a cloudless entry (defaults to local) rather than treating it as paired", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "bare-1" }],
+      activeAssistant: null,
+    });
+
+    const result = unpairAssistant([lockfilePath], configDir, "bare-1");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(400);
+  });
+});

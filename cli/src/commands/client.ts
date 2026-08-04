@@ -34,6 +34,7 @@ import {
   isActiveAssistant,
   runHatch,
   runRetire,
+  unpairAssistant,
   getGuardianAccessToken,
   parseGatewayUrl,
   resolveGatewayProxyTarget,
@@ -445,6 +446,7 @@ function findWebSourceDir(): string | null {
 const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
+const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -500,6 +502,7 @@ async function handleLocalEndpoints(
     LOCKFILE_PATTERN.test(pathname) ||
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
+    UNPAIR_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
     parseGatewayUrl(pathname).match;
@@ -673,6 +676,38 @@ async function handleLocalEndpoints(
     const result = await runRetire(invocation, assistantId);
     if (result.ok) {
       return Response.json({ ok: true });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
+  // Unpair: forget a paired assistant (lockfile entry + guardian token).
+  if (UNPAIR_PATTERN.test(pathname)) {
+    if (req.method !== "POST") return new Response(null, { status: 405 });
+
+    let assistantId: string | undefined;
+    try {
+      const body = (await req.json()) as { assistantId?: string };
+      assistantId = body.assistantId;
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    if (!assistantId) {
+      return Response.json(
+        { ok: false, error: "Missing assistantId" },
+        { status: 400 },
+      );
+    }
+
+    const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+    if (result.ok) {
+      return Response.json({ ok: true, lockfile: result.lockfile });
     }
     return Response.json(
       { ok: false, error: result.error },

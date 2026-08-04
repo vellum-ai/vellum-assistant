@@ -39,6 +39,53 @@ export type WriteResult =
   | { ok: true; lockfile: Lockfile }
   | { ok: false; status: number; error: string };
 
+/**
+ * Read the first parseable lockfile as raw JSON (unknown fields intact) for a
+ * read-modify-write cycle; an unreadable file yields an empty lockfile.
+ */
+export function readRawLockfile(
+  lockfilePaths: string[],
+): Record<string, unknown> {
+  for (const candidate of lockfilePaths) {
+    try {
+      return JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      // continue
+    }
+  }
+  return { assistants: [], activeAssistant: null };
+}
+
+/**
+ * Atomically persist a raw lockfile (write-to-temp + rename) and return the
+ * validated, sensitive-field-stripped view of what was written.
+ */
+export function writeRawLockfile(
+  lockfilePaths: string[],
+  lockfile: Record<string, unknown>,
+): WriteResult {
+  const writePath = lockfilePaths[0]!;
+  try {
+    const dir = path.dirname(writePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${writePath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
+    fs.renameSync(tmp, writePath);
+  } catch (err) {
+    return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
+  }
+
+  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<
+    string,
+    unknown
+  >;
+  stripSensitiveFields(stripped);
+  return { ok: true, lockfile: parseLockfile(stripped) };
+}
+
 export function upsertLockfileAssistant(
   lockfilePaths: string[],
   assistant: Record<string, unknown>,
@@ -48,16 +95,7 @@ export function upsertLockfileAssistant(
     return { ok: false, status: 400, error: "Missing assistant.assistantId" };
   }
 
-  let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
-  for (const candidate of lockfilePaths) {
-    try {
-      lockfile = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
-      break;
-    } catch {
-      // continue
-    }
-  }
-
+  const lockfile = readRawLockfile(lockfilePaths);
   const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
   const existingIdx = assistants.findIndex(
     (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
@@ -72,20 +110,7 @@ export function upsertLockfileAssistant(
     lockfile.activeAssistant = activeAssistant;
   }
 
-  const writePath = lockfilePaths[0]!;
-  try {
-    const dir = path.dirname(writePath);
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${writePath}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
-    fs.renameSync(tmp, writePath);
-  } catch (err) {
-    return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
-  }
-
-  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
-  stripSensitiveFields(stripped);
-  return { ok: true, lockfile: parseLockfile(stripped) };
+  return writeRawLockfile(lockfilePaths, lockfile);
 }
 
 export function isActiveAssistant(
@@ -115,16 +140,7 @@ export function replacePlatformAssistants(
   platformAssistants: Array<Record<string, unknown>>,
   organizationId?: string,
 ): WriteResult {
-  let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
-  for (const candidate of lockfilePaths) {
-    try {
-      lockfile = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
-      break;
-    } catch {
-      // continue
-    }
-  }
-
+  const lockfile = readRawLockfile(lockfilePaths);
   const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
   const syncedIds = new Set(platformAssistants.map((a) => a.assistantId));
   // Org-scoped sync preserves other orgs' platform entries; no org full-replaces.
@@ -143,18 +159,5 @@ export function replacePlatformAssistants(
     if (!stillExists) lockfile.activeAssistant = null;
   }
 
-  const writePath = lockfilePaths[0]!;
-  try {
-    const dir = path.dirname(writePath);
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${writePath}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
-    fs.renameSync(tmp, writePath);
-  } catch (err) {
-    return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
-  }
-
-  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
-  stripSensitiveFields(stripped);
-  return { ok: true, lockfile: parseLockfile(stripped) };
+  return writeRawLockfile(lockfilePaths, lockfile);
 }

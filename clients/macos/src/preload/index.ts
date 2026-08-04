@@ -341,6 +341,11 @@ const bridge: VellumBridge = {
         ok: boolean;
         error?: string;
       }>,
+    unpair: (assistantId: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:unpair",
+        assistantId,
+      ) as Promise<LockfileWriteResult>,
     sleep: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
         ok: boolean;

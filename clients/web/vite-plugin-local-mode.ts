@@ -19,6 +19,7 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  unpairAssistant,
   getGuardianAccessToken,
   resolveGatewayProxyTarget,
   readAllowedGatewayPorts,
@@ -84,6 +85,9 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
+      server.middlewares.use(
+        unpairMiddleware(config.lockfilePaths, config.configDir),
+      );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
       const upgradingLocalAssistantIds = new Set<string>();
@@ -459,6 +463,67 @@ function retireMiddleware(
           ),
         );
       });
+    });
+  };
+}
+
+function unpairMiddleware(
+  lockfilePaths: string[],
+  configDir: string,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/unpair" &&
+      req.url !== "/__local/unpair"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let assistantId: string | undefined;
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            assistantId?: string;
+          };
+          assistantId = body.assistantId;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      if (!assistantId) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+        return;
+      }
+
+      const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+      res.statusCode = result.ok ? 200 : result.status;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify(
+          result.ok
+            ? { ok: true, lockfile: result.lockfile }
+            : { ok: false, error: result.error },
+        ),
+      );
     });
   };
 }

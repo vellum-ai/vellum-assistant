@@ -44,6 +44,7 @@ export { runHatch } from "./hatch";
 export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireOptions, RetireResult } from "./retire";
+export { unpairAssistant } from "./unpair";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
