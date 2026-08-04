@@ -85,6 +85,10 @@ export interface HostAppControlResultPayload {
   executionError?: string;
 }
 
+export interface PresencePayload {
+  state: "active" | "idle" | "away";
+}
+
 // ---------------------------------------------------------------------------
 // Fetch type — matches the subset of globalThis.fetch we use
 // ---------------------------------------------------------------------------
@@ -170,6 +174,10 @@ export class HostProxyPoster {
     result: HostUiSnapshotResultPayload,
   ): Promise<boolean> {
     return this.postJson("/host-ui-snapshot-result", result);
+  }
+
+  async postPresence(payload: PresencePayload): Promise<boolean> {
+    return this.postJson("/clients/presence", payload);
   }
 
   // -----------------------------------------------------------------------
