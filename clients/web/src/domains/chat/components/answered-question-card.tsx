@@ -73,13 +73,18 @@ export function resolveAnswers(answered: AnsweredQuestion): ResolvedAnswer[] {
         answerDescription: option?.description,
       };
     }
-    if (response?.decision === "free_text") {
+    // Blank free text means the user skipped. The card cannot submit an empty
+    // answer (`handleSubmitFreeText` returns early on blank input), so the only
+    // way one reaches here is the legacy single-question wire shape, which has
+    // no `skip` kind and coerces a skip to `free_text` with empty text. Reading
+    // it as free text would render a blank answer row.
+    if (response?.decision === "free_text" && response.text?.trim()) {
       return {
         questionId: question.id,
         question: question.question,
         description: question.description,
         kind: "free_text",
-        answer: response.text ?? "",
+        answer: response.text,
       };
     }
     return {

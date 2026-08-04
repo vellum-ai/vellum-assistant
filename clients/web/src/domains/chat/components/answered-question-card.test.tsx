@@ -186,6 +186,44 @@ describe("resolveAnswers", () => {
     expect(resolved[0]?.answer).toBe("Skipped");
   });
 
+  test("reads a blank free-text answer as skipped", () => {
+    // The single-question wire shape has no `skip` kind, so a skip arrives as
+    // `free_text` with empty text. Rendering it as free text would show an
+    // empty answer row, and the raw tool chip is suppressed, so the user would
+    // see the question with no answer at all.
+    const resolved = resolveAnswers(
+      makeAnswered({
+        responses: [{ questionId: "q1", decision: "free_text", text: "" }],
+      }),
+    );
+
+    expect(resolved[0]?.kind).toBe("skipped");
+    expect(resolved[0]?.answer).toBe("Skipped");
+  });
+
+  test("reads a whitespace-only free-text answer as skipped", () => {
+    const resolved = resolveAnswers(
+      makeAnswered({
+        responses: [{ questionId: "q1", decision: "free_text", text: "   " }],
+      }),
+    );
+
+    expect(resolved[0]?.kind).toBe("skipped");
+  });
+
+  test("keeps a real free-text answer verbatim, including its spacing", () => {
+    const resolved = resolveAnswers(
+      makeAnswered({
+        responses: [
+          { questionId: "q1", decision: "free_text", text: "the one at Acme" },
+        ],
+      }),
+    );
+
+    expect(resolved[0]?.kind).toBe("free_text");
+    expect(resolved[0]?.answer).toBe("the one at Acme");
+  });
+
   test("falls back to the raw option id when the options no longer carry it", () => {
     const resolved = resolveAnswers(
       makeAnswered({
