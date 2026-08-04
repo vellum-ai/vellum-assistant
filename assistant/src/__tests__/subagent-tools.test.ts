@@ -894,8 +894,10 @@ describe("Subagent spawn profile isolation", () => {
       label: "Pinned parent",
       objective: "Do it",
     });
-    // The subagentSpawn call site's own default, not the parent's pin.
-    expect(config.overrideProfile).toBe("balanced");
+    // No override travels with the spawn, which is what lands the child on
+    // the subagentSpawn call site's own profile while leaving usage
+    // attribution on `call_site` instead of reporting a pin nobody set.
+    expect(config.overrideProfile).toBeUndefined();
     expect(config.forceOverrideProfile).toBeUndefined();
   });
 
@@ -905,7 +907,7 @@ describe("Subagent spawn profile isolation", () => {
       { label: "Override parent", objective: "Do it" },
       { invokingCallSite: "mainAgent", overrideProfile: "quality-optimized" },
     );
-    expect(config.overrideProfile).toBe("balanced");
+    expect(config.overrideProfile).toBeUndefined();
   });
 
   test("flag on still honors an explicit inference_profile", async () => {
@@ -926,8 +928,10 @@ describe("Subagent spawn profile isolation", () => {
       objective: "Do it",
       inference_profile: "no-tool-model",
     });
-    expect(config.overrideProfile).toBe("balanced");
-    expect(config.forceOverrideProfile).toBe(true);
+    // Dropping the override is what redirects the child to the call site's
+    // profile; naming it explicitly would re-file the spend as a pin.
+    expect(config.overrideProfile).toBeUndefined();
+    expect(config.forceOverrideProfile).toBeUndefined();
     const parsed = JSON.parse(result.content);
     expect(parsed.subagentId).toBe("isolation-subagent-id");
     expect(parsed.status).toBe("pending");

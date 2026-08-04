@@ -307,11 +307,13 @@ export async function executeSubagentSpawn(
   const isolateProfile = isAssistantFeatureFlagEnabled(
     "subagent-profile-isolation",
   );
-  // `resolveDefaultProfileKey` already prefers an `llm.callSites.subagentSpawn`
-  // pin over the `balanced` catalog intent, and skips a pin that is disabled or
-  // incomplete, so it is the whole answer for "what does this call site run on".
-  const subagentCallSiteProfile = (): string | undefined =>
-    resolveDefaultProfileKey("subagentSpawn", llm);
+  // Landing on the subagentSpawn call site's own profile means passing NO
+  // override: the child already runs its loop under `callSite: "subagentSpawn"`,
+  // so the resolver picks that profile on its own. Passing it explicitly would
+  // select the same model but register as an override, and
+  // `resolveUsageAttribution` classifies an override winner as `conversation`,
+  // which would file every isolated subagent's spend under a pin the caller
+  // never set and break the call-site breakdown this telemetry exists for.
 
   let profileNote: string | undefined;
   let inheritedOverrideProfile = requestedOverrideProfile;
@@ -330,7 +332,9 @@ export async function executeSubagentSpawn(
           ? VERDICT_PROFILE_KEY
           : undefined;
     } else if (isolateProfile) {
-      inheritedOverrideProfile = subagentCallSiteProfile();
+      // Isolation means the parent's pinned profile does not reach the child.
+      // Leaving this unset is what lands it on the subagentSpawn default.
+      inheritedOverrideProfile = undefined;
     } else {
       inheritedOverrideProfile =
         context.overrideProfile ??
@@ -347,8 +351,8 @@ export async function executeSubagentSpawn(
     profileSupportsTools(inheritedOverrideProfile, config) === false
   ) {
     profileNote = `requested profile "${inheritedOverrideProfile}" is not verified for tool calling; ran on the default profile instead.`;
-    inheritedOverrideProfile = subagentCallSiteProfile();
-    forceOverrideProfile = inheritedOverrideProfile !== undefined;
+    inheritedOverrideProfile = undefined;
+    forceOverrideProfile = false;
   }
 
   const roleNote = resolvedRoleNote(resolvedRole);
