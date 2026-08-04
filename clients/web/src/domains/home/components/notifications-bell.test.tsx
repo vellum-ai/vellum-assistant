@@ -57,10 +57,11 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 
-// The same amber dot HomeRecapRow puts on unread rows, top-right of the bell,
-// ringed in the top-bar surface color to separate it from the bell outline.
-const UNREAD_DOT_CLASS =
-  "-right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]";
+// The trigger's aria-label flips on the same `hasUnread` that renders the dot,
+// so it stands in for the dot without pinning the dot's Tailwind classes. The
+// closing quote is load-bearing: it stops READ_LABEL matching the unread label.
+const UNREAD_LABEL = 'aria-label="Notifications (unread)"';
+const READ_LABEL = 'aria-label="Notifications"';
 
 function feedItem(overrides: Partial<FeedItem>): FeedItem {
   return {
@@ -88,8 +89,7 @@ describe("NotificationsBell unread dot", () => {
   test("shows the dot when an unread notification exists", () => {
     feedRef.items = [feedItem({ status: "new" })];
     const html = renderBell();
-    expect(html).toContain(UNREAD_DOT_CLASS);
-    expect(html).toContain("Notifications (unread)");
+    expect(html).toContain(UNREAD_LABEL);
   });
 
   test("hides the dot when every notification has been read", () => {
@@ -98,14 +98,13 @@ describe("NotificationsBell unread dot", () => {
       feedItem({ id: "b", status: "acted_on" }),
     ];
     const html = renderBell();
-    expect(html).not.toContain(UNREAD_DOT_CLASS);
-    expect(html).toContain("Notifications");
-    expect(html).not.toContain("(unread)");
+    expect(html).toContain(READ_LABEL);
+    expect(html).not.toContain(UNREAD_LABEL);
   });
 
   test("hides the dot when the feed is empty", () => {
     const html = renderBell();
-    expect(html).not.toContain(UNREAD_DOT_CLASS);
+    expect(html).toContain(READ_LABEL);
   });
 
   test("ignores unread items that the popover never shows", () => {
@@ -116,13 +115,13 @@ describe("NotificationsBell unread dot", () => {
       feedItem({ id: "b", status: "new", urgency: "high" }),
     ];
     const html = renderBell();
-    expect(html).not.toContain(UNREAD_DOT_CLASS);
+    expect(html).toContain(READ_LABEL);
   });
 
   test("mobile trigger carries the same dot", () => {
     isMobileRef.value = true;
     feedRef.items = [feedItem({ status: "new" })];
     const html = renderBell();
-    expect(html).toContain(UNREAD_DOT_CLASS);
+    expect(html).toContain(UNREAD_LABEL);
   });
 });
