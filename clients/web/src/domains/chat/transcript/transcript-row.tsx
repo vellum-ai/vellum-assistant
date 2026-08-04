@@ -46,7 +46,10 @@ export interface TranscriptRowProps {
   onSummarizeUpToHere?: (messageId: string) => void;
   onRetryLatestTurn?: () => void;
   /** Resend an unsent row under its original identity. */
-  onRetryFailedSend?: (clientMessageId: string) => void;
+  onRetryFailedSend?: (
+    clientMessageId: string,
+    options?: { bypassSecretCheck?: boolean },
+  ) => void;
   /** Drop an unsent row. */
   onDiscardFailedSend?: (clientMessageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
@@ -228,6 +231,12 @@ export const TranscriptRow = memo(function TranscriptRow({
             <UnsentMessageActions
               onRetry={() => onRetryFailedSend?.(failedId)}
               onDiscard={() => onDiscardFailedSend?.(failedId)}
+              blockedForSecret={
+                item.message.sendFailed.code === "secret_blocked"
+              }
+              onSendAnyway={() =>
+                onRetryFailedSend?.(failedId, { bypassSecretCheck: true })
+              }
             />
           </div>
         );

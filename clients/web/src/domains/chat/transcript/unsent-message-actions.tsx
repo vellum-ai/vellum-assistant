@@ -15,12 +15,38 @@ import { AlertCircle } from "lucide-react";
 export interface UnsentMessageActionsProps {
   onRetry: () => void;
   onDiscard: () => void;
+  /**
+   * The daemon blocked this message for a suspected credential. A plain retry
+   * resends the same content and is rejected identically, so the row offers
+   * the same explicit override the composer's blocked notice does.
+   */
+  blockedForSecret?: boolean;
+  onSendAnyway?: () => void;
 }
 
 export function UnsentMessageActions({
   onRetry,
   onDiscard,
+  blockedForSecret,
+  onSendAnyway,
 }: UnsentMessageActionsProps) {
+  if (blockedForSecret && onSendAnyway) {
+    return (
+      <div
+        data-testid="unsent-message-actions"
+        className="mt-1 flex items-center justify-end gap-2 text-body-small-default text-[var(--content-secondary)]"
+      >
+        <AlertCircle aria-hidden className="size-3.5" />
+        <span>Not sent</span>
+        <Button variant="ghost" size="compact" onClick={onSendAnyway}>
+          Send anyway
+        </Button>
+        <Button variant="ghost" size="compact" onClick={onDiscard}>
+          Discard
+        </Button>
+      </div>
+    );
+  }
   return (
     <div
       data-testid="unsent-message-actions"

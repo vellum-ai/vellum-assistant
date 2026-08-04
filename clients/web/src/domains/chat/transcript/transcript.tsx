@@ -48,7 +48,10 @@ export interface TranscriptProps {
   /** Callback for "Retry" from the latest assistant message's hover actions. */
   onRetryLatestTurn?: () => void;
   /** Resend an unsent row under its original identity. */
-  onRetryFailedSend?: (clientMessageId: string) => void;
+  onRetryFailedSend?: (
+    clientMessageId: string,
+    options?: { bypassSecretCheck?: boolean },
+  ) => void;
   /** Drop an unsent row. */
   onDiscardFailedSend?: (clientMessageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */

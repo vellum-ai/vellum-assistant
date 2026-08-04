@@ -203,11 +203,30 @@ export function useSendMessage({
   const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
 
-  /** Flag a still-present optimistic row as unsent. */
+  /**
+   * Mark a still-present optimistic row unsent, carrying what a retry needs to
+   * reproduce the original send. Queue bookkeeping is dropped at the same time:
+   * the message never reached the server queue, so leaving it tracked would
+   * bind the next queued ack to a row that is not waiting for one.
+   */
   const markSendFailed = useCallback(
-    (rowId: string) => {
+    (rowId: string, detail: NonNullable<DisplayMessage["sendFailed"]> = {}) => {
+      const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
+      const queueIdx = queueIds.indexOf(rowId);
+      if (queueIdx !== -1) {
+        queueIds.splice(queueIdx, 1);
+      }
       setOptimisticSends((prev) =>
-        prev.map((m) => (m.id === rowId ? { ...m, sendFailed: true } : m)),
+        prev.map((m) =>
+          m.id === rowId
+            ? {
+                ...m,
+                sendFailed: detail,
+                queueStatus: undefined,
+                queuePosition: undefined,
+              }
+            : m,
+        ),
       );
     },
     [setOptimisticSends],
@@ -812,7 +831,12 @@ export function useSendMessage({
             },
           );
           if (!postResult.ok) {
-            revertQueuedMessage(userMessage.id);
+            markSendFailed(userMessage.id, {
+              ...(postResult.error.code
+                ? { code: postResult.error.code }
+                : {}),
+              ...(opts.scripted ? { scripted: true } : {}),
+            });
             const detail = resolvePostError(
               postResult.error.code,
               postResult.error.detail,
@@ -882,7 +906,10 @@ export function useSendMessage({
           }
         } catch (err) {
           captureError(err, { context: "send_message_queue" });
-          revertQueuedMessage(userMessage.id);
+          markSendFailed(
+            userMessage.id,
+            opts.scripted ? { scripted: true } : {},
+          );
           setError({ message: "Failed to queue message. Please try again." });
         }
         return;
@@ -937,7 +964,10 @@ export function useSendMessage({
           // attachments, and its `clientMessageId`, so retrying resends this
           // same message instead of composing a new one. Hidden sends render
           // no row, so they have nothing to mark.
-          markSendFailed(userMessage.id);
+          markSendFailed(userMessage.id, {
+            ...(result.error.code ? { code: result.error.code } : {}),
+            ...(opts.scripted ? { scripted: true } : {}),
+          });
           useConversationStore
             .getState()
             .removeProcessingConversationId(activeConversationId);
@@ -1003,7 +1033,7 @@ export function useSendMessage({
         // saw it is unknown. Mark the row unsent and keep it: retry reuses its
         // `clientMessageId`, which is what lets the daemon recognize a send it
         // already received instead of running the turn twice.
-        markSendFailed(userMessage.id);
+        markSendFailed(userMessage.id, opts.scripted ? { scripted: true } : {});
         setError({ message: "Something went wrong. Please try again." });
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key
@@ -1051,7 +1081,7 @@ export function useSendMessage({
    * send it already received but never answered for.
    */
   const retryFailedSend = useCallback(
-    async (clientMessageId: string) => {
+    async (clientMessageId: string, options: { bypassSecretCheck?: boolean } = {}) => {
       const row = useChatSessionStore
         .getState()
         .optimisticSends.find((m) => m.id === clientMessageId);
@@ -1060,6 +1090,10 @@ export function useSendMessage({
       }
       await sendMessage(row.textSegments?.[0] ?? "", row.attachments ?? [], {
         retryOfClientMessageId: clientMessageId,
+        // Carry the original turn's provenance so a retried auto-send is still
+        // excluded from activation metrics.
+        ...(row.sendFailed.scripted ? { scripted: true } : {}),
+        ...(options.bypassSecretCheck ? { bypassSecretCheck: true } : {}),
       });
     },
     [sendMessage],

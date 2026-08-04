@@ -28,6 +28,7 @@ const DRAFT_ID = "draft-1";
 const SENT_TEXT = "resume: oil change, tire change, appraisal";
 
 const sentNonces: string[] = [];
+const sentBodies: Record<string, unknown>[] = [];
 const originalPost = daemonClient.post;
 
 const queryClient = new QueryClient();
@@ -63,6 +64,7 @@ const unsentRows = () =>
 
 beforeEach(() => {
   sentNonces.length = 0;
+  sentBodies.length = 0;
   queryClient.clear();
   useConversationStore.getState().reset();
   useTurnStore.setState(INITIAL_TURN_STATE);
@@ -74,6 +76,7 @@ beforeEach(() => {
 
   daemonClient.post = mock(
     async (options: { body?: Record<string, unknown> }) => {
+      sentBodies.push(options.body ?? {});
       const nonce = options.body?.clientMessageId;
       if (typeof nonce === "string") {
         sentNonces.push(nonce);
@@ -134,6 +137,43 @@ describe("useSendMessage: a send that never reaches the server", () => {
     });
 
     expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
+  });
+
+  test("a send that fails while another turn is active is also kept", async () => {
+    // The queue branch used to revert the row outright, so an ordinary message
+    // sent while the assistant was busy still vanished on failure.
+    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "sending" });
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT);
+    });
+
+    const rows = unsentRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textSegments).toEqual([SENT_TEXT]);
+    // Queue bookkeeping is dropped: the message never reached the server queue.
+    expect(rows[0]!.queueStatus).toBeUndefined();
+    expect(
+      useChatSessionStore.getState().pendingQueuedMessageIds,
+    ).not.toContain(rows[0]!.id);
+  });
+
+  test("retry carries the original send's scripted provenance", async () => {
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT, [], { scripted: true });
+    });
+    const row = unsentRows()[0]!;
+    expect(row.sendFailed?.scripted).toBe(true);
+
+    await act(async () => {
+      await result.current.retryFailedSend(row.id);
+    });
+
+    expect(sentBodies).toHaveLength(2);
+    expect(sentBodies[1]!.scripted).toBe(true);
   });
 
   test("a hidden machine send leaves nothing behind to retry", async () => {

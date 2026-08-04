@@ -187,7 +187,10 @@ export interface ChatMainPanelProps {
   onSummarizeUpToHere?: (messageId: string) => void;
   /** Opens the "Retry" confirm dialog for the latest assistant turn. */
   onRetryLatestTurn?: () => void;
-  onRetryFailedSend?: (clientMessageId: string) => void;
+  onRetryFailedSend?: (
+    clientMessageId: string,
+    options?: { bypassSecretCheck?: boolean },
+  ) => void;
   onDiscardFailedSend?: (clientMessageId: string) => void;
   handleInspectMessage?: (messageId: string) => void;
 
