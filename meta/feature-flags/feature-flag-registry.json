@@ -370,7 +370,7 @@
       "scope": "assistant",
       "key": "subagent-profile-isolation",
       "label": "Subagent Profile Isolation",
-      "description": "Subagents use their type's default model profile instead of inheriting the conversation's pinned profile; profiles without verified tool support fall back to the type default.",
+      "description": "Subagents resolve the subagentSpawn call site's own default model profile instead of inheriting the conversation's active profile, and an explicitly requested profile the model catalog does not report as tool-capable falls back to that same default. Applies to forks too: a fork otherwise stays on the parent's model and reuses its cached context, so under isolation a fork can run on a different model and re-prefill the transcript it inherits.",
       "defaultEnabled": false
     },
     {
