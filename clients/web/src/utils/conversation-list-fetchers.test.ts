@@ -22,8 +22,13 @@ mock.module("@/lib/telemetry/client-perf", () => ({
   emitClientPerfEvent: emitClientPerfEventMock,
 }));
 
-const { listBackgroundConversations, listConversations } =
-  await import("@/utils/conversation-list-fetchers");
+const {
+  listArchivedConversations,
+  listBackgroundConversations,
+  listConversations,
+  listOriginChannelConversations,
+  listScheduledConversations,
+} = await import("@/utils/conversation-list-fetchers");
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -267,6 +272,48 @@ describe("conversation list drain telemetry", () => {
       pages: "1",
       list_kind: "background",
     });
+  });
+
+  test("a scheduled drain reports its own list_kind", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+
+    await listScheduledConversations(ASSISTANT_ID);
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.detail).toMatchObject({ list_kind: "scheduled" });
+  });
+
+  test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+
+    await listOriginChannelConversations(ASSISTANT_ID, "slack");
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.detail).toMatchObject({
+      outcome: "ok",
+      pages: "1",
+      list_kind: "origin_channel",
+    });
+  });
+
+  test("both archive-page drains are labeled archived, not foreground or background", async () => {
+    // The archive page drains the foreground and background buckets in
+    // parallel, so one call produces two emits.
+    stubPages([
+      { ids: ["c-0"], hasMore: false, contentLength: "10" },
+      { ids: ["c-1"], hasMore: false, contentLength: "20" },
+    ]);
+
+    await listArchivedConversations(ASSISTANT_ID);
+
+    const emits = drainEmits();
+    expect(emits).toHaveLength(2);
+    expect(emits.map((emit) => emit.detail.list_kind)).toEqual([
+      "archived",
+      "archived",
+    ]);
   });
 
   test("the detail bag carries no assistant id, and unknown bytes when content-length is absent", async () => {

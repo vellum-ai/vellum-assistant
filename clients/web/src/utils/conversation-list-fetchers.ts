@@ -125,6 +125,34 @@ type FetchConversationListOptions = {
   originChannel?: OriginChannel;
 };
 
+/**
+ * Closed set of `list_kind` labels for the `client_list.drain` watchdog event.
+ * One label per real caller, so the archive page and the channel sections stay
+ * distinguishable from the sidebar's foreground drain in the timing metric.
+ */
+type DrainListKind =
+  "foreground" | "background" | "scheduled" | "archived" | "origin_channel";
+
+/**
+ * Label a drain by the list it is fetching. Archive status is checked first
+ * because the archive page drains both the foreground and the background
+ * bucket, and both are archive-page cost rather than sidebar cost. Every
+ * channel collapses to one `"origin_channel"` label so the set stays bounded
+ * as channels are added.
+ */
+function drainListKind(options: FetchConversationListOptions): DrainListKind {
+  if (options.archiveStatus === "archived") {
+    return "archived";
+  }
+  if (options.conversationType !== undefined) {
+    return options.conversationType;
+  }
+  if (options.originChannel !== undefined) {
+    return "origin_channel";
+  }
+  return "foreground";
+}
+
 /** One page of a conversation list plus whether more pages exist. */
 export type ConversationListPage = {
   conversations: Conversation[];
@@ -229,7 +257,7 @@ async function fetchConversationList(
       rows: String(all.length),
       max_page_ms: String(maxPageMs),
       total_bytes: totalBytes === null ? "unknown" : String(totalBytes),
-      list_kind: options.conversationType ?? "foreground",
+      list_kind: drainListKind(options),
     });
   };
 
