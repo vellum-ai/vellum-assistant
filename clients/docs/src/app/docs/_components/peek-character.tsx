@@ -53,6 +53,22 @@ function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+// SSR renders the motion-on path (false), then syncs to the media query on
+// mount so the blink/twitch timers never schedule for motion-sensitive
+// readers. The CSS breathe pulse is gated separately via a media query.
+function usePrefersReducedMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReduce(mq.matches);
+    const onChange = () => setReduce(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduce;
+}
+
 // Body transform: aspect-fit scale + center translation from the body viewBox
 // to the output size. Eye transform: remap from the eye sourceViewBox into the
 // body viewBox (aligning eyeCenter onto the body's faceCenter), composed with
@@ -82,23 +98,25 @@ function computeLayout(size: number) {
 
 /**
  * The teal curious urchin, with the avatar family's idle animations:
- *   - Breathing: continuous 4s scale pulse (CSS keyframe; disabled under
- *     `prefers-reduced-motion: reduce`)
+ *   - Breathing: continuous 4s scale pulse (CSS keyframe)
  *   - Blink: random eye scaleY squish with a quick first "hello" wink after
  *     mount, 20% double-blink
  *   - Twitch: random 8-15s body rotation wobble (±1-2°)
  *
- * Blink and twitch deliberately ignore `prefers-reduced-motion` — this is a
- * character surface where the avatar needs to read as alive.
+ * All animations are suppressed under `prefers-reduced-motion: reduce`.
  */
 export function PeekCharacter({ size }: { size: number }) {
   const [isBlinking, setIsBlinking] = useState(false);
   const [twitchAngle, setTwitchAngle] = useState(0);
   const mountedRef = useRef(true);
+  const reduceMotion = usePrefersReducedMotion();
 
   const { bodyTransform, eyeTransform, eyeCenterX, eyeCenterY } = computeLayout(size);
 
   useEffect(() => {
+    if (reduceMotion) {
+      return;
+    }
     mountedRef.current = true;
     let timer: ReturnType<typeof setTimeout>;
 
@@ -131,10 +149,14 @@ export function PeekCharacter({ size }: { size: number }) {
     return () => {
       mountedRef.current = false;
       clearTimeout(timer);
+      setIsBlinking(false);
     };
-  }, []);
+  }, [reduceMotion]);
 
   useEffect(() => {
+    if (reduceMotion) {
+      return;
+    }
     mountedRef.current = true;
     let timer: ReturnType<typeof setTimeout>;
 
@@ -154,8 +176,9 @@ export function PeekCharacter({ size }: { size: number }) {
     return () => {
       mountedRef.current = false;
       clearTimeout(timer);
+      setTwitchAngle(0);
     };
-  }, []);
+  }, [reduceMotion]);
 
   return (
     <svg

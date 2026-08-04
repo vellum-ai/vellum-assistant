@@ -138,7 +138,7 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
           zIndex: 10,
         }}
       >
-        {/* Speech bubble — always visible, sits on top of the urchin's head */}
+        {/* Speech bubble: always visible, sits on top of the urchin's head */}
         <a
           href="https://discord.gg/ZABd9V2zM8"
           target="_blank"
