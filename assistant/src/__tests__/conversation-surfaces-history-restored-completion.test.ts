@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { UISurfaceCompleteEvent } from "../api/events/ui-surface-complete.js";
 import type { AssistantEvent } from "../api/index.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  createMockLoggerModule,
+  makeMockLogger,
+} from "./helpers/mock-logger.js";
 
 /** Interleaved record of persist writes and broadcasts, for ordering asserts. */
 let callOrder: string[] = [];
@@ -19,18 +23,20 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 let loggedWarnings: Array<{ fields: Record<string, unknown>; msg: string }> =
   [];
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: (fields: Record<string, unknown>, msg: string) =>
-      loggedWarnings.push({ fields, msg }),
-    error: () => {},
-    fatal: () => {},
-    trace: () => {},
-    child: () => ({}),
+mock.module("../util/logger.js", () =>
+  createMockLoggerModule({
+    getLogger: () => ({
+      debug: () => {},
+      info: () => {},
+      warn: (fields: Record<string, unknown>, msg: string) =>
+        loggedWarnings.push({ fields, msg }),
+      error: () => {},
+      fatal: () => {},
+      trace: () => {},
+      child: makeMockLogger,
+    }),
   }),
-}));
+);
 
 // Stand-in for the persisted message store: `getMessages` reads it and
 // `updateMessageContent` writes back through JSON, so a read after a write
@@ -94,12 +100,14 @@ function resetSurfaceState(): void {
 // Import must come AFTER mock.module so the surface module picks up the
 // mocked event hub and persistence functions.
 const {
+  completeSurfaceAndNotify,
   createSurfaceMutex,
   handleSurfaceAction,
   markSurfaceCompleted,
   surfaceProxyResolver,
 } = await import("../daemon/conversation-surfaces.js");
 
+import type { SurfaceStateEntry } from "../daemon/conversation-surface-state.js";
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
 
@@ -234,10 +242,8 @@ describe("history-restored surface completion", () => {
   test("one-shot choice surface with no in-memory state is completed and persisted", async () => {
     const surfaceId = "surface-choice-history-1";
     seedSurfaceRow(surfaceId, "choice");
+    // Neither live map holds anything, so the type can only come from history.
     const ctx = makeContext();
-
-    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
-    expect(ctx.surfaceState.has(surfaceId)).toBe(false);
 
     // The history-restored branch signals acceptance by returning nothing; the
     // HTTP route maps that to `{ ok: true }`.
@@ -272,11 +278,8 @@ describe("history-restored surface completion", () => {
       confirmLabel: "Delete forever",
       cancelLabel: "Keep it",
     });
+    // Neither live map holds anything, so the labels come from history.
     const ctx = makeContext();
-
-    // Neither live map has anything: the labels can only come from history.
-    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
-    expect(ctx.surfaceState.has(surfaceId)).toBe(false);
 
     await handleSurfaceAction(ctx, surfaceId, "confirm", {});
 
@@ -373,7 +376,7 @@ describe("history-restored surface completion", () => {
     expect(completions[0].summary).toBe("Answered");
   });
 
-  test("the pending branch still completes a one-shot surface exactly as before", async () => {
+  test("the pending branch completes a one-shot surface too", async () => {
     const surfaceId = "surface-choice-pending-1";
     seedSurfaceRow(surfaceId, "choice");
     const ctx = makeContext();
@@ -443,7 +446,7 @@ describe("history-restored surface completion", () => {
 describe("history-restored surface completion: requester provenance", () => {
   beforeEach(resetSurfaceState);
 
-  test("an untrusted requester cannot complete a guardian-provenance surface", async () => {
+  test("the type-driven rule does not read a guardian-provenance surface for an untrusted requester", async () => {
     const surfaceId = "surface-choice-guardian-1";
     seedSurfaceRow(
       surfaceId,
@@ -457,7 +460,9 @@ describe("history-restored surface completion: requester provenance", () => {
     await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
 
     // The live path hides this row from this actor, so the persisted fallback
-    // must not hand back its type or its labels.
+    // must not hand back its type or its labels. The filter covers that read
+    // only: an explicit `_completeSurface` request skips it, and the write
+    // scan is unfiltered.
     expect(readPersistedSurface(surfaceId)?.completed).toBeUndefined();
     expect(contentWrites).toHaveLength(0);
     expect(completionBroadcasts(surfaceId)).toHaveLength(0);
@@ -484,15 +489,17 @@ describe("history-restored surface completion: requester provenance", () => {
 describe("history-restored surface completion: scan cost", () => {
   beforeEach(resetSurfaceState);
 
-  test("a one-shot action with no live state costs one full scan", async () => {
+  test("a one-shot action with no live state costs two full scans", async () => {
     const surfaceId = "surface-scan-1";
     seedSurfaceRow(surfaceId, "choice");
     const ctx = makeContext();
 
     await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
 
-    // One read that resolves the type and the labels, reused by the write.
-    expect(getMessagesCalls).toBe(1);
+    // One read to resolve the type and the labels, then the write's own scan.
+    // The write scans unfiltered while the read is provenance-filtered, so
+    // each resolves its own row rather than sharing one.
+    expect(getMessagesCalls).toBe(2);
     expect(readPersistedSurface(surfaceId)?.completed).toBe(true);
   });
 
@@ -707,6 +714,75 @@ describe("markSurfaceCompleted in-memory patching", () => {
     expect(newer.completionSummary).toBe("Done");
     expect(older.completed).toBeUndefined();
   });
+
+  test("leaves in-memory messages pending when the persisted write throws", () => {
+    const surfaceId = "surface-rollback-1";
+    seedSurfaceRow(surfaceId, "choice");
+    const block = { type: "ui_surface", surfaceId } as Record<string, unknown>;
+    persistError = new Error("database is locked");
+
+    expect(
+      markSurfaceCompleted(
+        { conversationId: CONVERSATION_ID, messages: [{ content: [block] }] },
+        surfaceId,
+        "Done",
+      ),
+    ).toBe(false);
+
+    // A patched in-memory block over a pending DB row is the same divergence
+    // the completion write exists to close.
+    expect(block.completed).toBeUndefined();
+    expect(block.completionSummary).toBeUndefined();
+    expect(readPersistedSurface(surfaceId)?.completed).toBeUndefined();
+  });
+
+  test("patches in-memory messages when there is no persisted block to write", () => {
+    const surfaceId = "surface-memory-only-1";
+    const block = { type: "ui_surface", surfaceId } as Record<string, unknown>;
+
+    expect(
+      markSurfaceCompleted(
+        { conversationId: CONVERSATION_ID, messages: [{ content: [block] }] },
+        surfaceId,
+        "Done",
+      ),
+    ).toBe(true);
+
+    expect(block.completed).toBe(true);
+    expect(block.completionSummary).toBe("Done");
+  });
+});
+
+describe("completion summary sourcing", () => {
+  beforeEach(resetSurfaceState);
+
+  test("keeps live surface data when the persisted block carries none", async () => {
+    const surfaceId = "surface-live-data-1";
+    storedRows = [
+      {
+        id: "msg-typed-dataless",
+        conversationId: CONVERSATION_ID,
+        role: "assistant",
+        content: [
+          { type: "ui_surface", surfaceId, surfaceType: "confirmation" },
+        ],
+        createdAt: 0,
+        metadata: null,
+      },
+    ];
+    const ctx = makeContext();
+    // `liveSurfaceType` and `liveSurfaceData` are independent inputs, so live
+    // labels must survive a persisted read that only resolves the type.
+    ctx.surfaceState.set(surfaceId, {
+      data: { message: "Delete it?", confirmLabel: "Delete forever" },
+    } as unknown as SurfaceStateEntry);
+
+    await handleSurfaceAction(ctx, surfaceId, "confirm", {});
+
+    expect(completionBroadcasts(surfaceId)[0].summary).toBe(
+      'User chose: "Delete forever"',
+    );
+  });
 });
 
 describe("surface completion when the persisted write does not land", () => {
@@ -753,5 +829,20 @@ describe("surface completion when the persisted write does not land", () => {
     expect(readPersistedSurface(surfaceId)).toBeUndefined();
     expect(contentWrites).toHaveLength(0);
     expect(completionBroadcasts(surfaceId)).toHaveLength(1);
+  });
+
+  test("a guardian card withdrawal is announced even when its write throws", () => {
+    const surfaceId = "surface-withdrawn-1";
+    seedSurfaceRow(surfaceId, "confirmation");
+    persistError = new Error("database is locked");
+
+    completeSurfaceAndNotify(CONVERSATION_ID, surfaceId, "Approved");
+
+    // The request is already resolved, so withholding the announcement would
+    // strand a live, clickable approval card for a decided request.
+    expect(readPersistedSurface(surfaceId)?.completed).toBeUndefined();
+    const completions = completionBroadcasts(surfaceId);
+    expect(completions).toHaveLength(1);
+    expect(completions[0].summary).toBe("Approved");
   });
 });
