@@ -419,9 +419,9 @@ interface IngressState {
   includeWebApp: boolean;
   /**
    * Gateway port the edge's proxy_pass targets. Undefined in state records
-   * that predate the field; callers treat an unknown port as matching the
-   * request, since the running edge was almost certainly started against the
-   * same still-valid port and a restart would be gratuitous.
+   * that predate the field; callers treat an unknown port as unverified and
+   * restart the edge so the running config provably targets the requested
+   * port and the state is stamped for future comparisons.
    */
   gatewayPort?: number;
 }
@@ -657,11 +657,11 @@ export async function startRemoteWebIngress(opts: {
   if (running) {
     const state = readIngressState(opts.workspaceDir);
     const recordedMode = state?.includeWebApp ?? true;
-    // An unknown recorded gateway port matches any request (see IngressState).
-    const gatewayPortMatches =
-      state?.gatewayPort === undefined ||
-      state.gatewayPort === opts.gatewayPort;
-    if (recordedMode === includeWebApp && gatewayPortMatches) {
+    // An unknown recorded gateway port is unverified (see IngressState).
+    if (
+      recordedMode === includeWebApp &&
+      state?.gatewayPort === opts.gatewayPort
+    ) {
       return { status: "already-running", listenPort };
     }
   }
@@ -776,7 +776,7 @@ export async function ensureTunnelEdge(opts: {
       // `already-running` also covers a drifted edge whose restart failed, so
       // trust the recorded state over the requested config. A state record
       // without includeWebApp represents an SPA edge; one without a gateway
-      // port matches any requested port (see IngressState).
+      // port is unverified (see IngressState).
       const state = readIngressState(opts.workspaceDir);
       const recordedIncludesWebApp = state?.includeWebApp ?? true;
       if (recordedIncludesWebApp !== includeWebApp) {
@@ -787,12 +787,13 @@ export async function ensureTunnelEdge(opts: {
             "Run `vellum nginx-ingress down` and retry.",
         );
       }
-      if (
-        state?.gatewayPort !== undefined &&
-        state.gatewayPort !== opts.gatewayPort
-      ) {
+      if (state?.gatewayPort !== opts.gatewayPort) {
+        const upstream =
+          state?.gatewayPort !== undefined
+            ? `still proxying gateway port ${state.gatewayPort}`
+            : "proxying an unknown gateway port";
         throw new Error(
-          `The nginx edge is still proxying gateway port ${state.gatewayPort} ` +
+          `The nginx edge is ${upstream} ` +
             `and could not be restarted against port ${opts.gatewayPort}. ` +
             "Run `vellum nginx-ingress down` and retry.",
         );

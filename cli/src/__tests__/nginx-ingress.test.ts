@@ -746,7 +746,11 @@ describe("startRemoteWebIngress", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: false });
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7830,
+    });
     const edge = mockKillableNginx(pid);
 
     const result = await startRemoteWebIngress({
@@ -823,10 +827,11 @@ describe("startRemoteWebIngress", () => {
     });
   });
 
-  test("reuses an edge whose state predates the recorded gateway port", async () => {
+  test("restarts an edge whose state predates the recorded gateway port", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
+    mockWebDistMissing();
     const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: false });
     const edge = mockKillableNginx(pid);
 
@@ -837,16 +842,29 @@ describe("startRemoteWebIngress", () => {
       includeWebApp: false,
     });
 
-    expect(result).toEqual({ status: "already-running", listenPort: 7845 });
-    expect(edge.killed()).toBe(false);
-    expect(spawnMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: "started",
+      listenPort: 7845,
+      webDistDir: null,
+      version: NGINX_VERSION,
+    });
+    expect(edge.killed()).toBe(true);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(realFs.readFileSync(ingressConfPath(ws), "utf-8")).toBe(
+      buildIngressNginxConfig({ gatewayPort: 7900, listenPort: 7845 }),
+    );
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7900,
+    });
   });
 
   test("treats recorded state without a mode as an SPA edge", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    const pid = mockRunningEdge(ws, { listenPort: 7845 });
+    const pid = mockRunningEdge(ws, { listenPort: 7845, gatewayPort: 7830 });
     const edge = mockKillableNginx(pid);
 
     const result = await startRemoteWebIngress({
@@ -1008,7 +1026,11 @@ describe("ensureTunnelEdge", () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
-    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: true });
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+    });
     const edge = mockKillableNginx(pid);
 
     const result = await ensureTunnelEdge({
@@ -1032,7 +1054,11 @@ describe("ensureTunnelEdge", () => {
     mockNginxSpawn();
     mockWebDistMissing();
     isFeatureFlagEnabledMock.mockImplementation(async () => false);
-    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: false });
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7830,
+    });
     const edge = mockKillableNginx(pid);
 
     const result = await ensureTunnelEdge({
