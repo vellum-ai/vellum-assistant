@@ -785,6 +785,44 @@ describe("completion summary sourcing", () => {
   });
 });
 
+/** The live entries a `ui_dismiss` with a recorded action tears down. */
+function seedAnsweredSurface(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+): void {
+  ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "choice" });
+  ctx.lastSurfaceAction.set(surfaceId, {
+    actionId: "inbox",
+    data: CHOICE_PAYLOAD,
+  });
+  ctx.surfaceState.set(surfaceId, {
+    surfaceType: "choice",
+    data: {
+      options: [{ id: "inbox", title: "Clean up my inbox" }],
+      selectionMode: "single",
+    },
+  });
+  ctx.surfaceUndoStacks.set(surfaceId, ["{}"]);
+  ctx.accumulatedSurfaceState.set(surfaceId, { selectedIds: ["inbox"] });
+}
+
+function liveSurfaceKeysRemaining(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+): string[] {
+  return (
+    [
+      ["pendingSurfaceActions", ctx.pendingSurfaceActions],
+      ["lastSurfaceAction", ctx.lastSurfaceAction],
+      ["surfaceState", ctx.surfaceState],
+      ["surfaceUndoStacks", ctx.surfaceUndoStacks],
+      ["accumulatedSurfaceState", ctx.accumulatedSurfaceState],
+    ] as const
+  )
+    .filter(([, map]) => map.has(surfaceId))
+    .map(([name]) => name);
+}
+
 describe("surface completion when the persisted write does not land", () => {
   beforeEach(resetSurfaceState);
 
@@ -844,5 +882,88 @@ describe("surface completion when the persisted write does not land", () => {
     const completions = completionBroadcasts(surfaceId);
     expect(completions).toHaveLength(1);
     expect(completions[0].summary).toBe("Approved");
+  });
+
+  test("a ui_dismiss completion whose write throws stays retryable", async () => {
+    const surfaceId = "surface-dismiss-persist-throws-1";
+    seedSurfaceRow(surfaceId, "choice");
+    const ctx = makeContext();
+    const sentToClient: AssistantEvent[] = [];
+    ctx.sendToClient = (msg) => {
+      sentToClient.push(msg);
+    };
+    seedAnsweredSurface(ctx, surfaceId);
+    persistError = new Error("database is locked");
+
+    const result = await surfaceProxyResolver(ctx, "ui_dismiss", {
+      surface_id: surfaceId,
+    });
+
+    // Claiming success would have the model treat a card the next reseed
+    // restores as gone, inviting a duplicate action.
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain("completed");
+    expect(
+      sentToClient.filter((m) => m.type === "ui_surface_complete"),
+    ).toHaveLength(0);
+    expect(readPersistedSurface(surfaceId)?.completed).toBeUndefined();
+
+    // Everything a retry needs survives.
+    expect(liveSurfaceKeysRemaining(ctx, surfaceId)).toEqual([
+      "pendingSurfaceActions",
+      "lastSurfaceAction",
+      "surfaceState",
+      "surfaceUndoStacks",
+      "accumulatedSurfaceState",
+    ]);
+  });
+
+  test("a ui_dismiss completion that lands clears the live state", async () => {
+    const surfaceId = "surface-dismiss-persist-lands-1";
+    seedSurfaceRow(surfaceId, "choice");
+    const ctx = makeContext();
+    const sentToClient: AssistantEvent[] = [];
+    ctx.sendToClient = (msg) => {
+      sentToClient.push(msg);
+    };
+    seedAnsweredSurface(ctx, surfaceId);
+
+    const result = await surfaceProxyResolver(ctx, "ui_dismiss", {
+      surface_id: surfaceId,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("Surface completed");
+    expect(
+      sentToClient.filter((m) => m.type === "ui_surface_complete"),
+    ).toHaveLength(1);
+    expect(readPersistedSurface(surfaceId)?.completed).toBe(true);
+    expect(liveSurfaceKeysRemaining(ctx, surfaceId)).toEqual([]);
+  });
+
+  test("a ui_dismiss with no recorded action clears the live state even when the write throws", async () => {
+    const surfaceId = "surface-dismiss-no-action-1";
+    seedSurfaceRow(surfaceId, "card");
+    const ctx = makeContext();
+    const sentToClient: AssistantEvent[] = [];
+    ctx.sendToClient = (msg) => {
+      sentToClient.push(msg);
+    };
+    ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "card" });
+    ctx.surfaceState.set(surfaceId, { surfaceType: "card", data: {} });
+    persistError = new Error("database is locked");
+
+    const result = await surfaceProxyResolver(ctx, "ui_dismiss", {
+      surface_id: surfaceId,
+    });
+
+    // The passive-dismiss branch owns its own persistence and drops the card
+    // outright, so the completion gate must not hold its cleanup back.
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("Surface dismissed");
+    expect(
+      sentToClient.filter((m) => m.type === "ui_surface_dismiss"),
+    ).toHaveLength(1);
+    expect(liveSurfaceKeysRemaining(ctx, surfaceId)).toEqual([]);
   });
 });

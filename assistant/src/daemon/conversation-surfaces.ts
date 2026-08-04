@@ -3611,15 +3611,23 @@ export async function surfaceProxyResolver(
       );
       // A `ui_show` surface owns a persisted block, so the completion has to
       // land before the client is told the card is answered.
-      if (markSurfaceCompleted(ctx, surfaceId, summary)) {
-        ctx.sendToClient({
-          type: "ui_surface_complete",
-          conversationId: ctx.conversationId,
-          surfaceId,
-          summary,
-          submittedData: lastAction.data,
-        });
+      if (!markSurfaceCompleted(ctx, surfaceId, summary)) {
+        // Tearing the live entries down here would strand the card that the
+        // next reseed restores, so leave them for a retry and tell the model
+        // the dismissal did not land.
+        return {
+          content:
+            "Could not dismiss the surface: persisting its completion failed. The card is still showing, so try ui_dismiss again.",
+          isError: true,
+        };
       }
+      ctx.sendToClient({
+        type: "ui_surface_complete",
+        conversationId: ctx.conversationId,
+        surfaceId,
+        summary,
+        submittedData: lastAction.data,
+      });
     } else {
       ctx.sendToClient({
         type: "ui_surface_dismiss",
