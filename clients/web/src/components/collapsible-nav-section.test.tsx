@@ -70,7 +70,7 @@ describe("CollapsibleNavSection", () => {
     const html = renderSingleSection({ value: "pinned", label: "Pinned" });
     // When no trailing is passed, the trailing wrapper span is not rendered
     const buttonCount = (html.match(/<button/g) ?? []).length;
-    expect(buttonCount).toBe(1); // Only the trigger button
+    expect(buttonCount).toBe(2); // The title trigger and the chevron trigger
   });
 
   test("trailing slot is rendered OUTSIDE the trigger button", () => {
@@ -111,10 +111,11 @@ describe("CollapsibleNavSection", () => {
     expect(html).not.toContain("lucide-clock");
   });
 
-  // Regression: the title used to be the whole clickable trigger. Now only
-  // the chevron toggles, so the title can be press-and-held to drag the
-  // section without also expanding or collapsing it.
-  test("only the chevron toggles; the title is a plain, non-button label", () => {
+  // Regression: a polish pass once made the title a plain drag-only label,
+  // leaving the small chevron as the sole toggle target. The whole title
+  // row must be a trigger again - click toggles, click-and-hold-and-move
+  // drags - with the chevron as a second trigger in the trailing cluster.
+  test("the title and the chevron are both accordion triggers", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     const container = document.createElement("div");
     container.innerHTML = html;
@@ -123,13 +124,16 @@ describe("CollapsibleNavSection", () => {
       '[data-slot="collapsible-nav-section-title"]',
     );
     expect(title).not.toBeNull();
-    expect(title?.closest("button")).toBeNull();
-    expect(title?.querySelector("button")).toBeNull();
+    // A real accordion trigger, not a styled lookalike: the button carries
+    // Radix's expanded state, which is what wires the click to the toggle.
+    expect(title?.tagName).toBe("BUTTON");
+    expect(title?.getAttribute("aria-expanded")).toBe("false");
 
     const chevronButton = Array.from(
       container.querySelectorAll("button"),
     ).find((button) => button.querySelector(".lucide-chevron-down"));
     expect(chevronButton).toBeDefined();
+    expect(chevronButton?.getAttribute("aria-expanded")).toBe("false");
     expect(chevronButton?.getAttribute("aria-label")).toBe("Recents");
     // Icon-only: the label text isn't duplicated inside the toggle button.
     expect(chevronButton?.textContent?.trim()).toBe("");

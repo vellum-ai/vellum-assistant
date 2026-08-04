@@ -23,14 +23,14 @@ import { isPointerCoarse } from "@/utils/pointer";
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
  *
- *   - No leading icon. The title itself isn't the toggle: it's a plain
- *     label that just sits inside the draggable header, so clicking and
- *     holding it drags the section (see `drag`) without also expanding
- *     or collapsing it. The one toggle target is a small chevron button
- *     on the trailing edge, left of the "…", revealed only on hover, not
- *     on click-then-release focus, which would otherwise linger after the
- *     click that opened/closed it, and not just because the section is
- *     open.
+ *   - No leading icon. The whole title row is a toggle target: a click
+ *     expands or collapses the section, while click-and-hold-and-move
+ *     still drags it (see `drag`): HTML5 drag only starts on movement,
+ *     so the two coexist on one surface. The chevron button on the
+ *     trailing edge, left of the "…", is a second toggle target with the
+ *     same wiring, revealed only on hover, not on click-then-release
+ *     focus, which would otherwise linger after the click that
+ *     opened/closed it, and not just because the section is open.
  *   - Optional `trailing` slot for an ellipsis menu or other per-row
  *     affordance. Pointer events are isolated so clicking trailing
  *     content doesn't toggle the section.
@@ -213,6 +213,11 @@ function CollapsibleNavSectionSection({
         // icon/chevron swap, and it is a *sibling* of the trailing slot, so
         // that one can't reach it.
         "group/header flex items-center justify-between",
+        // The title trigger's Accordion.Header wrapper must grow to fill
+        // the row, so the whole header (minus the trailing cluster) is
+        // the click target and long labels still truncate. The primitive
+        // hardcodes `flex` on it, so the growth comes from here.
+        "[&>[data-slot=collapsible-header]]:min-w-0 [&>[data-slot=collapsible-header]]:flex-1",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}
@@ -223,14 +228,17 @@ function CollapsibleNavSectionSection({
           the New Chat plus and the assistant eyes. Only the vertical
           metrics grow on mobile. */}
       {collapsible ? (
-        // Not the toggle target: clicking/holding the title drags the
-        // section (native HTML5 drag on the header div, see `drag` below).
-        // Only the chevron toggles, in the trailing cluster.
-        <div
+        // The toggle target: a click anywhere on the title row expands or
+        // collapses the section, while click-and-hold-and-move drags it
+        // (native HTML5 drag on the header div, see `drag` below). Same
+        // visual treatment as before it toggled: the chevron stays in the
+        // trailing cluster as its own second trigger.
+        <Collapsible.Trigger
           data-slot="collapsible-nav-section-title"
           className={cn(
-            "flex h-[30px] min-w-0 flex-1 items-center max-md:h-auto",
+            "h-[30px] max-md:h-auto",
             "rounded-[6px] py-[6px] max-md:py-3",
+            "text-left",
             SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
           )}
           style={{
@@ -245,7 +253,7 @@ function CollapsibleNavSectionSection({
               {collapsedIndicator}
             </span>
           ) : null}
-        </div>
+        </Collapsible.Trigger>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
         // slot (if given) and the label, always at rest.
@@ -278,10 +286,10 @@ function CollapsibleNavSectionSection({
       {collapsible || trailing ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
           {collapsible ? (
-            // The toggle target, moved off the title (which now only
-            // drags) and off the leading icon slot (there is no icon
-            // anymore) onto its own small trailing button, left of the
-            // "…". Icon-only, so it needs its own accessible name.
+            // A second toggle target with the same wiring as the title:
+            // the chevron keeps its own button (and hover box) so the
+            // trailing cluster reads exactly as it did, left of the "…".
+            // Icon-only, so it needs its own accessible name.
             <Collapsible.Trigger
               aria-label={label}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"

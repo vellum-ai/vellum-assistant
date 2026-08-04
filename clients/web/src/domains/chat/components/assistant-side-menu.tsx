@@ -429,7 +429,6 @@ export function AssistantSideMenu({
       groupMenu={sectionMenu(section)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot(section.all)}
-      scrollParent={bodyElement ?? undefined}
     />
   );
 
