@@ -12,9 +12,13 @@
 
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
+  readSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
@@ -264,10 +268,43 @@ function writeAttachmentFile(
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether the file at `filePath` ends with exactly `line` (trailing newline
+ * included). Reads only the trailing `line` bytes, so the check stays cheap
+ * on large JSONL files. Any I/O error (including a missing file) reports no
+ * match.
+ */
+function fileEndsWithLine(filePath: string, line: string): boolean {
+  try {
+    const expected = Buffer.from(line, "utf-8");
+    const { size } = statSync(filePath);
+    if (size < expected.length) {
+      return false;
+    }
+    const fd = openSync(filePath, "r");
+    try {
+      const tail = Buffer.alloc(expected.length);
+      readSync(fd, tail, 0, expected.length, size - expected.length);
+      return tail.equals(expected);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Read a message and its attachments from DB, flatten content, and append
  * a JSONL line to `messages.jsonl` in the conversation's disk-view directory.
  * Attachment filenames are recorded from the conversation's attachments/
  * subdirectory, materializing legacy rows there only when needed.
+ *
+ * Idempotent per row state: when the file already ends with the exact record
+ * this call would write (a re-sync of an unchanged row, e.g. a retried
+ * finalize), the append is skipped so one DB row projects to one JSONL
+ * record. A row whose content changed since its last sync still appends a
+ * fresh record; `rebuildConversationDiskViewFromDbState` is the path that
+ * collapses those to the final state.
  *
  * Requires `createdAtMs` of the conversation to resolve the directory path.
  */
@@ -331,10 +368,12 @@ export function syncMessageToDisk(
       }
     }
 
-    appendFileSync(
-      join(dirPath, "messages.jsonl"),
-      JSON.stringify(record) + "\n",
-    );
+    const messagesPath = join(dirPath, "messages.jsonl");
+    const line = JSON.stringify(record) + "\n";
+    if (fileEndsWithLine(messagesPath, line)) {
+      return;
+    }
+    appendFileSync(messagesPath, line);
   } catch (err) {
     log.warn(
       { err, conversationId, messageId },
