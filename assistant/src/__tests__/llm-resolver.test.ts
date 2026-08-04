@@ -385,7 +385,6 @@ describe("resolveCallSiteConfig", () => {
       callSites: {
         mainAgent: { profile: "nonexistent" },
       },
-      defaultProfileOverrides: {},
       profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
     };
@@ -562,7 +561,6 @@ describe("resolveCallSiteConfig", () => {
       profileOrder: [],
       callSites: {},
       activeProfile: "nonexistent",
-      defaultProfileOverrides: {},
       profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
     };

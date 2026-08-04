@@ -7,7 +7,10 @@ import {
 } from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type { AssistantEvent } from "@/types/event-types";
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import type {
+  AnsweredQuestion,
+  AssistantEventEnvelope,
+} from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -542,6 +545,74 @@ describe("rolling-snapshot reducer", () => {
         );
       }
     });
+  });
+});
+
+describe("answered ask_question", () => {
+  const ANSWERED: AnsweredQuestion = {
+    requestId: "req-1",
+    questions: [
+      {
+        id: "q1",
+        question: "Which Alice?",
+        options: [
+          { id: "alice_work", label: "Alice (work)" },
+          { id: "alice_personal", label: "Alice (personal)" },
+        ],
+      },
+    ],
+    responses: [
+      { questionId: "q1", decision: "option", optionId: "alice_work" },
+    ],
+    overall: "completed",
+  };
+
+  const answeredResult = (seq: number, toolUseId: string) =>
+    env(seq, {
+      type: "tool_result",
+      toolUseId,
+      result: "answered",
+      isError: false,
+      answeredQuestion: ANSWERED,
+    } as AssistantEvent);
+
+  test("folds the answered record onto the ask_question tool call", () => {
+    const history = applyEventsToHistory(SEED, [
+      toolUseStart(1, "a1", "t1", "ask_question"),
+      answeredResult(2, "t1"),
+    ]);
+
+    expect(history.messages[0]?.toolCalls?.[0]?.answeredQuestion).toEqual(
+      ANSWERED,
+    );
+  });
+
+  test("a replayed result does not duplicate the answered card", () => {
+    // The card renders one per tool call, so a re-folded event must leave the
+    // tool call count and its record untouched.
+    const events = [
+      toolUseStart(1, "a1", "t1", "ask_question"),
+      answeredResult(2, "t1"),
+    ];
+    const once = applyEventsToHistory(SEED, events);
+    const twice = applyEventsToHistory(SEED, [
+      ...events,
+      answeredResult(2, "t1"),
+    ]);
+
+    expect(twice).toEqual(once);
+    expect(twice.messages[0]?.toolCalls).toHaveLength(1);
+  });
+
+  test("leaves the tool call untouched when the result carries no answer", () => {
+    const history = applyEventsToHistory(SEED, [
+      toolUseStart(1, "a1", "t1", "bash"),
+      toolResult(2, "t1"),
+    ]);
+
+    expect(
+      history.messages[0]?.toolCalls?.[0]?.answeredQuestion,
+    ).toBeUndefined();
   });
 });
 

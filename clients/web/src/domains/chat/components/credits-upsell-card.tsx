@@ -13,13 +13,15 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { routes } from "@/utils/routes";
 
-const UPGRADE_COPY = {
+/** Free-plan copy in the `upgrade-cta` experiment arm. */
+export const UPGRADE_COPY = {
   title: "You’re out of Free credits",
   subtitle: "Upgrade your plan to keep the conversation going.",
   ctaLabel: "View plans",
 };
 
-const ADD_CREDITS_COPY = {
+/** The default credit-wall copy: control arm, or any paid plan. */
+export const ADD_CREDITS_COPY = {
   title: "You’re out of credits",
   subtitle: "Add credits to pick up where you left off.",
   ctaLabel: "Add credits",

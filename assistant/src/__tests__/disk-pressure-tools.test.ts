@@ -196,7 +196,7 @@ describe("disk pressure cleanup tool restrictions", () => {
     expect(result.tool.name).toBe("skill_load");
   });
 
-  test("locking cancels registered terminal background tools with disk pressure reason", () => {
+  test("locking cancels registered terminal background tools with disk pressure reason", async () => {
     const bashCancel = mock((_reason?: string) => undefined);
     const hostCancel = mock((_reason?: string) => undefined);
     const otherCancel = mock((_reason?: string) => undefined);
@@ -227,7 +227,7 @@ describe("disk pressure cleanup tool restrictions", () => {
     });
 
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT);
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.locked).toBe(true);
     expect(bashCancel).toHaveBeenCalledWith("disk_pressure");

@@ -590,12 +590,12 @@ export function validateAttachmentUpload(
  * @param bytes     Raw file content
  * @returns The stored attachment record
  */
-export function uploadAttachmentFromBytes(
+export async function uploadAttachmentFromBytes(
   filename: string,
   mimeType: string,
   bytes: Uint8Array,
-): StoredAttachment {
-  let norm = normalizeImageBytes(mimeType, bytes);
+): Promise<StoredAttachment> {
+  let norm = await normalizeImageBytes(mimeType, bytes);
   if (norm.converted && norm.bytes.length > MAX_UPLOAD_BYTES) {
     norm = { mimeType, bytes, converted: false };
   }
@@ -803,12 +803,12 @@ function validateAttachmentPayload(
  * conversion whose output would break the upload size limit — passes through
  * verbatim.
  */
-function normalizeUploadedImageBase64(
+async function normalizeUploadedImageBase64(
   filename: string,
   mimeType: string,
   dataBase64: string,
-): { filename: string; mimeType: string; dataBase64: string } {
-  const norm = normalizeImageBase64(mimeType, dataBase64);
+): Promise<{ filename: string; mimeType: string; dataBase64: string }> {
+  const norm = await normalizeImageBase64(mimeType, dataBase64);
   if (!norm.converted) {
     // Bytes untouched, but the declared MIME may have been sniff-corrected.
     return { filename, mimeType: norm.mimeType, dataBase64 };
@@ -823,15 +823,15 @@ function normalizeUploadedImageBase64(
   };
 }
 
-export function uploadAttachment(
+export async function uploadAttachment(
   filename: string,
   mimeType: string,
   dataBase64: string,
   sourcePath?: string,
-): StoredAttachment {
+): Promise<StoredAttachment> {
   validateAttachmentPayload(dataBase64);
 
-  ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
+  ({ filename, mimeType, dataBase64 } = await normalizeUploadedImageBase64(
     filename,
     mimeType,
     dataBase64,
@@ -896,16 +896,16 @@ export interface CreateInlineAttachmentOptions {
  * normalized MIME type, and byte size) before it serializes the message
  * content into a workspace reference.
  */
-export function createInlineAttachment(
+export async function createInlineAttachment(
   conversationId: string,
   conversationCreatedAt: number,
   filename: string,
   mimeType: string,
   dataBase64: string,
   options?: CreateInlineAttachmentOptions,
-): StoredAttachment & { filePath: string } {
+): Promise<StoredAttachment & { filePath: string }> {
   if (options?.normalizeImage) {
-    ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
+    ({ filename, mimeType, dataBase64 } = await normalizeUploadedImageBase64(
       filename,
       mimeType,
       dataBase64,
@@ -965,20 +965,20 @@ export function createInlineAttachment(
   };
 }
 
-export function attachInlineAttachmentToMessage(
+export async function attachInlineAttachmentToMessage(
   messageId: string,
   position: number,
   filename: string,
   mimeType: string,
   dataBase64: string,
   options?: CreateInlineAttachmentOptions,
-): StoredAttachment & { filePath: string } {
+): Promise<StoredAttachment & { filePath: string }> {
   const ctx = getMessageConversationContext(messageId);
   if (!ctx) {
     throw new Error(`Message not found: ${messageId}`);
   }
 
-  const stored = createInlineAttachment(
+  const stored = await createInlineAttachment(
     ctx.conversationId,
     ctx.conversationCreatedAt,
     filename,

@@ -50,7 +50,7 @@ function sandboxPolicyFor(boundary: string): PathPolicy {
 // ---------------------------------------------------------------------------
 
 describe("FileSystemOps.listDirSafe", () => {
-  test("lists directory contents with type indicators (dirs end with /)", () => {
+  test("lists directory contents with type indicators (dirs end with /)", async () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, "subdir-a"));
     mkdirSync(join(dir, "subdir-b"));
@@ -58,7 +58,7 @@ describe("FileSystemOps.listDirSafe", () => {
     writeFileSync(join(dir, "file-b.md"), "world");
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: dir });
+    const result = await ops.listDirSafe({ path: dir });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -73,7 +73,7 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(lines[3]).toMatch(/^file-b\.md\s+\d+\s*B$/);
   });
 
-  test("glob filtering works (e.g. '*.md' only returns .md files)", () => {
+  test("glob filtering works (e.g. '*.md' only returns .md files)", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "readme.md"), "# Title");
     writeFileSync(join(dir, "notes.md"), "some notes");
@@ -81,7 +81,7 @@ describe("FileSystemOps.listDirSafe", () => {
     writeFileSync(join(dir, "config.json"), "{}");
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: dir, glob: "*.md" });
+    const result = await ops.listDirSafe({ path: dir, glob: "*.md" });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -93,12 +93,14 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(lines[1]).toMatch(/^readme\.md/);
   });
 
-  test("returns NOT_A_DIRECTORY error for file paths", () => {
+  test("returns NOT_A_DIRECTORY error for file paths", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "regular-file.txt"), "content");
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: join(dir, "regular-file.txt") });
+    const result = await ops.listDirSafe({
+      path: join(dir, "regular-file.txt"),
+    });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
@@ -106,11 +108,11 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(result.error.code).toBe("NOT_A_DIRECTORY");
   });
 
-  test("returns NOT_FOUND error for nonexistent paths", () => {
+  test("returns NOT_FOUND error for nonexistent paths", async () => {
     const dir = makeTempDir();
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: join(dir, "nonexistent") });
+    const result = await ops.listDirSafe({ path: join(dir, "nonexistent") });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
@@ -118,11 +120,11 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
-  test("sandbox policy rejects paths outside boundary", () => {
+  test("sandbox policy rejects paths outside boundary", async () => {
     const dir = makeTempDir();
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: "../../../etc" });
+    const result = await ops.listDirSafe({ path: "../../../etc" });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;

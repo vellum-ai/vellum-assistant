@@ -42,6 +42,8 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { hasRenderableAnswer } from "@/domains/chat/answered-question";
+import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
@@ -386,6 +388,22 @@ export function TranscriptMessageBody({
     const id = extractBgIdFromResult(tc);
     return id !== undefined && cardBackedBackgroundTaskIds.has(id) ? id : null;
   };
+  /**
+   * Whether a dedicated inline card renders this tool call's content, which
+   * makes the raw chip a duplicate. Each clause requires the card to actually
+   * be there: a failed call (no id), a run with no store entry, and an answered
+   * question with nothing to show are all not card-backed, so they keep the
+   * chip instead of vanishing from the transcript.
+   *
+   * Read by all three places that must agree on this: the chip filter, the
+   * group's suppression set, and the collapse guard that keeps a card-backed
+   * group out of the "Earlier activity" disclosure.
+   */
+  const isCardBacked = (tc: ChatMessageToolCall): boolean =>
+    cardBackedWorkflowRunId(tc) !== null ||
+    cardBackedAcpRunId(tc) !== null ||
+    cardBackedBackgroundTaskId(tc) !== null ||
+    hasRenderableAnswer(tc.answeredQuestion);
   const handleAcpRunClick = useCallback((acpSessionId: string) => {
     useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
@@ -655,6 +673,27 @@ export function TranscriptMessageBody({
       <AcpConnectAffordance assistantId={assistantId} />
     ) : null;
 
+  // An answered `ask_question` renders its questions and the user's answers as
+  // a durable transcript row. The record rides the tool call itself (live from
+  // `tool_result`, then from the daemon's persisted copy on reload), so this
+  // renders identically on both paths and cannot double up: one card per
+  // answered tool call.
+  const renderAnsweredQuestionCards = (toolCalls: ChatMessageToolCall[]) => {
+    const answered = toolCalls.filter((tc) =>
+      hasRenderableAnswer(tc.answeredQuestion),
+    );
+    if (answered.length === 0) {
+      return null;
+    }
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {answered.map((tc) => (
+          <AnsweredQuestionCard key={tc.id} answered={tc.answeredQuestion!} />
+        ))}
+      </div>
+    );
+  };
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
@@ -729,16 +768,7 @@ export function TranscriptMessageBody({
       it.kind === "thinking" ? [it.text] : [],
     );
     const renderableToolCalls = groupToolCalls.filter(
-      // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
-      // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
-      // cardBackedBackgroundTaskId). A failed call (no id) or a run with no
-      // store entry is not card-backed, so it renders its tool result instead
-      // of vanishing.
-      (tc) =>
-        !isSubagentSpawnCall(tc) &&
-        cardBackedWorkflowRunId(tc) === null &&
-        cardBackedAcpRunId(tc) === null &&
-        cardBackedBackgroundTaskId(tc) === null,
+      (tc) => !isSubagentSpawnCall(tc) && !isCardBacked(tc),
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -757,25 +787,17 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
     if (renderableToolCalls.length > 0) {
-      // A card-backed run_workflow / acp_spawn call is shown by its dedicated
-      // inline card, so drop it from the steps MultiActivityGroup renders too
-      // (the group filters subagent_spawn internally but not the others). A
-      // failed or pruned call is not card-backed and is kept, so its tool result
-      // still renders as a step; subagent spawns are left for the group to filter.
+      // A card-backed call is shown by its dedicated inline card, so drop it
+      // from the steps MultiActivityGroup renders too (the group filters
+      // subagent_spawn internally but not the others).
       const suppressedCardIds = new Set(
-        groupToolCalls
-          .filter(
-            (tc) =>
-              cardBackedWorkflowRunId(tc) !== null ||
-              cardBackedAcpRunId(tc) !== null ||
-              cardBackedBackgroundTaskId(tc) !== null,
-          )
-          .map((tc) => tc.id),
+        groupToolCalls.filter(isCardBacked).map((tc) => tc.id),
       );
       const groupCardToolCalls =
         suppressedCardIds.size === 0
@@ -809,6 +831,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
@@ -834,6 +857,7 @@ export function TranscriptMessageBody({
         {renderInlineWorkflowCards(groupToolCalls)}
         {renderInlineAcpRunCards(groupToolCalls)}
         {renderInlineBackgroundTaskCards(groupToolCalls)}
+        {renderAnsweredQuestionCards(groupToolCalls)}
       </Fragment>
     );
   };
@@ -1044,9 +1068,7 @@ export function TranscriptMessageBody({
               isToolCallRunning(toolCall) ||
               toolCall.pendingConfirmation !== undefined ||
               isSubagentSpawnCall(toolCall) ||
-              cardBackedWorkflowRunId(toolCall) !== null ||
-              cardBackedAcpRunId(toolCall) !== null ||
-              cardBackedBackgroundTaskId(toolCall) !== null ||
+              isCardBacked(toolCall) ||
               acpConnectToolUseId === toolCall.id ||
               unknownNudgeToolCallIds?.has(toolCall.id) === true,
           );

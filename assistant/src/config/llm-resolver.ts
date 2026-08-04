@@ -38,12 +38,10 @@ import {
  *   2. `llm.activeProfile` — `mainAgent` only, since it IS that call site's
  *      user-facing chat-model selection
  *   3. `llm.callSites[callSite].profile` (the call site's named profile)
- *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent, remapped through
- *      `llm.defaultProfileOverrides[intent]` when set, otherwise resolved
- *      through `llm.defaultProvider`
- *   5. balanced intent (same remap consult) through `llm.defaultProvider`:
- *      the code-owned anchor for profileless call sites, or when nothing
- *      above is usable
+ *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent resolved through
+ *      `llm.defaultProvider`
+ *   5. balanced intent through `llm.defaultProvider`: the code-owned anchor
+ *      for profileless call sites, or when nothing above is usable
  *
  * A winner must carry its own `provider` AND `model`: the base layer's schema
  * default identity never stands in for a selected profile. The anchor is
@@ -149,11 +147,9 @@ export function resolveCallSiteConfig(
 //   1. `opts.overrideProfile` (conversation/schedule/per-turn pin)
 //   2. `llm.activeProfile` (mainAgent only — it IS that call site's selection)
 //   3. `llm.callSites[callSite].profile`
-//   4. `CALL_SITE_DEFAULTS[callSite].profile` intent, remapped via
-//      `llm.defaultProfileOverrides[intent]` when set, else intent × default
-//      provider
-//   5. balanced intent (same remap consult) × default provider (profileless
-//      sites, or nothing above usable)
+//   4. `CALL_SITE_DEFAULTS[callSite].profile` intent × default provider
+//   5. balanced intent × default provider (profileless sites, or nothing
+//      above usable)
 // A winner must carry its own `provider` AND `model`: the base layer's
 // schema-default identity must never stand in for a selected profile (that
 // would be merge inheritance by the back door). A fallback anchor must be
@@ -216,28 +212,8 @@ export function selectWinningProfile(
       entry: sitePin.entry,
     };
   }
-  // A tier remap (`llm.defaultProfileOverrides`) redirects the intent rung
-  // to a named profile. Resolved through the same `usableEntry` gate as
-  // every other rung, so an unusable target reports and falls through to
-  // the stock tier resolution. A self-reference is skipped rather than
-  // resolved: the stock rung's handling of unusable user shadows differs
-  // from the named-rung path, and a no-op remap must not change behavior.
-  const remappedIntent = (intent: string) => {
-    if (!isDefaultProfileKey(intent)) {
-      return undefined;
-    }
-    const target = llm.defaultProfileOverrides?.[intent];
-    return target === intent
-      ? undefined
-      : usableEntry(target, llm, opts, report);
-  };
-
   const intent = CALL_SITE_DEFAULTS[callSite]?.profile;
   if (intent != null) {
-    const remap = remappedIntent(intent);
-    if (remap) {
-      return { profileName: remap.name, source: "default", entry: remap.entry };
-    }
     const entry = usableDefaultIntent(intent, llm, opts, report);
     if (entry) {
       return { profileName: intent, source: "default", entry };
@@ -245,19 +221,9 @@ export function selectWinningProfile(
   }
   // Anchor: profileless call sites (`vision`, `workflowLeaf`) and any
   // resolution whose every named rung was unusable land on balanced intent
-  // through the default provider. The anchor consults the balanced remap
-  // first (a profileless call site follows the user's balanced choice like
-  // any balanced-tier site) but bottoms out on the code-owned catalog, so
-  // it always resolves. `profileName` stays null on the catalog path: the
-  // anchor itself is not a selection.
-  const anchorRemap = remappedIntent("balanced");
-  if (anchorRemap) {
-    return {
-      profileName: anchorRemap.name,
-      source: "default",
-      entry: anchorRemap.entry,
-    };
-  }
+  // through the default provider, bottoming out on the code-owned catalog,
+  // so it always resolves. `profileName` stays null on the catalog path:
+  // the anchor itself is not a selection.
   return {
     profileName: null,
     source: "default",

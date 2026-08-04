@@ -4152,6 +4152,27 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/managed-speech/tts/voices/:
+    get:
+      operationId: managed_speech_tts_voices_retrieve
+      description: List the voices offered by Vellum's managed text-to-speech, in
+        display order, with the platform's default voice. Only voices that are currently
+        priced (and therefore usable via the synthesize endpoint) are returned.
+      tags:
+      - managed-speech
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechTTSVoicesResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/:
     get:
       operationId: organizations_list

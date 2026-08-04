@@ -43,6 +43,8 @@ const llmUsage: LlmUsageTelemetryEvent = {
   // Zero is legitimate (wire bound is min(0)): a subagent can be spawned
   // before the parent's first real user turn.
   parent_turn_index: 0,
+  subagent_role: "advisor",
+  subagent_spawn_mode: "advisor_consult",
   provider: "anthropic",
   model: "claude-fable-5",
   input_tokens: 1200,

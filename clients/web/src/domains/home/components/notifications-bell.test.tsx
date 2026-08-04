@@ -1,13 +1,23 @@
 /**
  * Tests for `NotificationsBell`.
  *
- * Uses `renderToStaticMarkup` (SSR) like `preferences-menu.test.tsx`: only
- * the trigger is exercisable — Radix Popover/BottomSheet content is not
- * rendered when `open={false}`. The unread dot lives on the trigger, so
- * that's exactly the surface these tests pin down.
+ * The trigger tests use `renderToStaticMarkup` (SSR) like
+ * `preferences-menu.test.tsx`: the unread dot lives on the trigger, which is
+ * all Radix renders while the popover is closed. The panel tests render into
+ * happy-dom and click the trigger open, since the rows only mount with it.
+ *
+ * Assertions target text and test ids, never class strings: those drift with
+ * styling and turn behaviour tests into styling tests.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -57,10 +67,13 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 
-// The same amber dot HomeRecapRow puts on unread rows, top-right of the bell,
-// ringed in the top-bar surface color to separate it from the bell outline.
-const UNREAD_DOT_CLASS =
-  "-right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]";
+// The dot element itself, matched by a styling-independent test hook so the
+// assertions survive restyling. The accessible name is a separate concern, so
+// it is asserted alongside. The closing quote is load-bearing: it stops
+// READ_LABEL matching the unread label.
+const UNREAD_DOT = 'data-testid="notifications-bell-unread-dot"';
+const UNREAD_LABEL = 'aria-label="Notifications (unread)"';
+const READ_LABEL = 'aria-label="Notifications"';
 
 function feedItem(overrides: Partial<FeedItem>): FeedItem {
   return {
@@ -79,17 +92,28 @@ function renderBell(): string {
   return renderToStaticMarkup(createElement(NotificationsBell));
 }
 
+async function openBell(): Promise<void> {
+  render(<NotificationsBell />);
+  fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
+  // Radix measures and positions the panel after the click, off a promise.
+  await act(async () => {});
+}
+
 beforeEach(() => {
   isMobileRef.value = false;
   feedRef.items = [];
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("NotificationsBell unread dot", () => {
   test("shows the dot when an unread notification exists", () => {
     feedRef.items = [feedItem({ status: "new" })];
     const html = renderBell();
-    expect(html).toContain(UNREAD_DOT_CLASS);
-    expect(html).toContain("Notifications (unread)");
+    expect(html).toContain(UNREAD_DOT);
+    expect(html).toContain(UNREAD_LABEL);
   });
 
   test("hides the dot when every notification has been read", () => {
@@ -98,14 +122,15 @@ describe("NotificationsBell unread dot", () => {
       feedItem({ id: "b", status: "acted_on" }),
     ];
     const html = renderBell();
-    expect(html).not.toContain(UNREAD_DOT_CLASS);
-    expect(html).toContain("Notifications");
-    expect(html).not.toContain("(unread)");
+    expect(html).not.toContain(UNREAD_DOT);
+    expect(html).toContain(READ_LABEL);
+    expect(html).not.toContain(UNREAD_LABEL);
   });
 
   test("hides the dot when the feed is empty", () => {
     const html = renderBell();
-    expect(html).not.toContain(UNREAD_DOT_CLASS);
+    expect(html).not.toContain(UNREAD_DOT);
+    expect(html).toContain(READ_LABEL);
   });
 
   test("ignores unread items that the popover never shows", () => {
@@ -116,13 +141,57 @@ describe("NotificationsBell unread dot", () => {
       feedItem({ id: "b", status: "new", urgency: "high" }),
     ];
     const html = renderBell();
-    expect(html).not.toContain(UNREAD_DOT_CLASS);
+    expect(html).not.toContain(UNREAD_DOT);
+    expect(html).toContain(READ_LABEL);
   });
 
   test("mobile trigger carries the same dot", () => {
     isMobileRef.value = true;
     feedRef.items = [feedItem({ status: "new" })];
     const html = renderBell();
-    expect(html).toContain(UNREAD_DOT_CLASS);
+    expect(html).toContain(UNREAD_DOT);
+    expect(html).toContain(UNREAD_LABEL);
+  });
+});
+
+describe("NotificationsBell panel", () => {
+  test("renders each row as a card with category, title, and preview", async () => {
+    feedRef.items = [
+      feedItem({
+        category: "background",
+        title: "Watcher job failed",
+        summary: "The watcher job could not reach the upstream service.",
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByText("Background")).toBeTruthy();
+    expect(screen.getByText("Watcher job failed")).toBeTruthy();
+    expect(
+      screen.getByText("The watcher job could not reach the upstream service."),
+    ).toBeTruthy();
+  });
+
+  test("keeps its own unread dot distinct from the rows'", async () => {
+    feedRef.items = [feedItem({ status: "new" })];
+
+    await openBell();
+
+    expect(screen.getByTestId("notifications-bell-unread-dot")).toBeTruthy();
+    expect(screen.getByTestId("home-recap-row-unread-dot")).toBeTruthy();
+  });
+
+  test("keeps the panel header and bulk actions", async () => {
+    feedRef.items = [feedItem({ status: "new" })];
+
+    await openBell();
+
+    expect(screen.getByRole("heading", { name: "Notifications" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View all" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Mark all as read" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear all" })).toBeTruthy();
   });
 });

@@ -865,10 +865,10 @@ function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
 // Retained-image hydration
 // ---------------------------------------------------------------------------
 
-function buildRetainedImageBlocks(
+async function buildRetainedImageBlocks(
   filenames: string[],
   manifest: ManifestEntry[],
-): { blocks: ImageContent[]; resolved: string[]; missing: string[] } {
+): Promise<{ blocks: ImageContent[]; resolved: string[]; missing: string[] }> {
   const blocks: ImageContent[] = [];
   const resolved: string[] = [];
   const missing: string[] = [];
@@ -887,7 +887,7 @@ function buildRetainedImageBlocks(
     // Run the same downscale pass the agent uses when first sending an
     // image. Without this, attachments that exceed the provider's per-image
     // byte limit (Anthropic: 5 MB) crash the next turn after compaction.
-    const optimized = optimizeImageForTransport(
+    const optimized = await optimizeImageForTransport(
       content.toString("base64"),
       sourceMime,
     );
@@ -1393,7 +1393,7 @@ export async function runAssistantDrivenCompaction(
     blocks: retainedImageBlocks,
     resolved,
     missing,
-  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
+  } = await buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
   if (missing.length > 0) {
     log.warn(
       { missing },

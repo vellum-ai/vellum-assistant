@@ -32,9 +32,12 @@ export interface ActivityLocationState {
   feedItemId?: string;
 }
 
-// Caps the visible list at roughly five rows (48px rows + 4px gaps);
-// older notifications stay reachable by scrolling.
-const LIST_MAX_HEIGHT_CLASS = "max-h-[280px]";
+// Caps the visible list at five compact cards plus the four 8px gaps between
+// them. A compact card is 94.25px tall: 2px borders, 16px padding, a 32px meta
+// row (sized by the h-8 hover actions), two 2px gaps, a 19.25px title line, and
+// a 21px preview line. 5 * 94.25 + 4 * 8 = 503.25, rounded up here. Older
+// notifications stay reachable by scrolling.
+const LIST_MAX_HEIGHT_CLASS = "max-h-[504px]";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
@@ -115,7 +118,10 @@ export function NotificationsBell() {
             // icon-only buttons grow on touch-mobile. The 2px ring eats into
             // the box (border-box), so size/offset grow by 2px each to keep
             // the 6px amber core in place.
-            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]" />
+            <span
+              data-testid="notifications-bell-unread-dot"
+              className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]"
+            />
           ) : null}
         </span>
       }
@@ -135,7 +141,7 @@ export function NotificationsBell() {
       </Typography>
     ) : (
       <div
-        className={`flex flex-col gap-[var(--app-spacing-xs)] overflow-y-auto ${
+        className={`flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto ${
           isMobile ? "max-h-[60dvh]" : LIST_MAX_HEIGHT_CLASS
         }`}
       >
@@ -143,6 +149,7 @@ export function NotificationsBell() {
           <HomeRecapRow
             key={item.id}
             item={item}
+            density="compact"
             onSelect={handleSelectItem}
             onDismiss={(itemId) =>
               feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })

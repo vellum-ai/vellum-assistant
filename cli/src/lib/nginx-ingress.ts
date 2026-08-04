@@ -588,6 +588,17 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 export const INGRESS_READY_TIMEOUT_MS = 5_000;
 
 /**
+ * Settle budget for the spawned nginx to prove port ownership: a healthy
+ * master records its pid under our prefix within milliseconds, while one that
+ * lost the bind exits. Bounds the wait for whichever happens first.
+ */
+// The settle window must outlast nginx's internal bind-retry loop (5 attempts
+// with 500ms sleeps) so a contested bind resolves to a child exit rather than
+// a timeout while the child is still retrying.
+const OWNERSHIP_SETTLE_TIMEOUT_MS = 4_000;
+const OWNERSHIP_SETTLE_INTERVAL_MS = 100;
+
+/**
  * Outcome of an attempt to bring up the nginx ingress edge. Callers render
  * their own messaging per variant: `ensureTunnelEdge` maps failure variants to
  * thrown errors with actionable text, which `vellum tunnel` and
@@ -617,10 +628,11 @@ export type StartRemoteWebIngressResult =
   | { status: "port-conflict"; listenPort: number; logPath: string };
 
 /**
- * Generate the nginx config and start the remote-web ingress edge, then probe
- * /healthz through it to prove the ingress → gateway path is live. A spawned
- * but unreachable nginx is rolled back so a failed attempt leaves no half-up
- * edge behind.
+ * Generate the nginx config and start the remote-web ingress edge, probe
+ * /healthz through it to prove the ingress → gateway path is live, and confirm
+ * via the recorded pid file that the spawned nginx owns the listen port. A
+ * spawned but unreachable or unowned nginx is rolled back so a failed attempt
+ * leaves no half-up edge behind.
  *
  * An edge already running in the requested mode against the requested gateway
  * port short-circuits as `already-running`; one running in the other mode
@@ -723,23 +735,51 @@ export async function startRemoteWebIngress(opts: {
     listenPort,
     opts.readyTimeoutMs ?? INGRESS_READY_TIMEOUT_MS,
   );
+  const rollback = async (
+    status: "port-conflict" | "unreachable",
+  ): Promise<StartRemoteWebIngressResult> => {
+    const { logPath } = getIngressPaths(opts.workspaceDir);
+    await stopIngressNginx(opts.workspaceDir);
+    return { status, listenPort, logPath };
+  };
+  const childExited = (): boolean => exited || child.exitCode !== null;
   // nginx runs `daemon off`, so the spawned process is the master and stays
-  // alive while the edge serves. An early exit means startup failed, and a
-  // probe that still succeeded reached some other process bound to the port
-  // (e.g. another assistant's edge), not this one. Checked before readiness
-  // so a dead spawn is reported as a port conflict, not as this edge.
-  if (exited || child.exitCode !== null) {
-    const { logPath } = getIngressPaths(opts.workspaceDir);
-    await stopIngressNginx(opts.workspaceDir);
-    return { status: "port-conflict", listenPort, logPath };
-  }
+  // alive while the edge serves. An early exit means startup failed: a dead
+  // spawn is reported as a port conflict even when the probe succeeded, since
+  // that probe reached some other process bound to the port (e.g. another
+  // assistant's edge), not this one.
   if (!ready) {
-    const { logPath } = getIngressPaths(opts.workspaceDir);
-    await stopIngressNginx(opts.workspaceDir);
-    return { status: "unreachable", listenPort, logPath };
+    return rollback(childExited() ? "port-conflict" : "unreachable");
   }
-
-  return { status: "started", listenPort, webDistDir, version };
+  // A successful probe alone does not prove ownership either: a healthy edge
+  // from another workspace answers /healthz before our master finishes failing
+  // its bind. A master that won the bind records its pid under our prefix, so
+  // settle-poll until the spawn either exits (lost the bind) or that pid file
+  // names a live ingress nginx of ours (owns the port).
+  const deadline = Date.now() + OWNERSHIP_SETTLE_TIMEOUT_MS;
+  for (;;) {
+    if (childExited()) {
+      break;
+    }
+    if (getIngressPid(opts.workspaceDir) !== null) {
+      return { status: "started", listenPort, webDistDir, version };
+    }
+    if (Date.now() >= deadline) {
+      // The child is alive but never proved ownership. Kill it before rolling
+      // back: it may still be inside nginx's bind-retry loop, and an orphan
+      // that later wins the bind would serve with no recorded state.
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // Already gone; the rollback below clears any remaining state.
+      }
+      break;
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, OWNERSHIP_SETTLE_INTERVAL_MS),
+    );
+  }
+  return rollback("port-conflict");
 }
 
 /** Retry policy for the `web-remote-ingress` flag lookup. */

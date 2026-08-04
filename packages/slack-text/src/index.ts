@@ -301,13 +301,27 @@ function sanitizeLabel(label: string | undefined, fallback: string): string {
   return sanitizedFallback || "unknown";
 }
 
-function sanitizeOptionalLabel(label: string | undefined): string | undefined {
-  return label
+/**
+ * Normalize a mention label to the renderer's semantics: strip angle
+ * brackets, collapse whitespace, strip leading `@`/`#` prefixes. Exported as
+ * the single source of truth so persistence-side validation applies exactly
+ * the normalization rendering applies; returns `undefined` when nothing
+ * usable remains.
+ */
+export function sanitizeSlackLabel(
+  label: string | undefined,
+): string | undefined {
+  const sanitized = label
     ?.replace(/[<>]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^[@#]+/, "")
     .trim();
+  return sanitized || undefined;
+}
+
+function sanitizeOptionalLabel(label: string | undefined): string | undefined {
+  return sanitizeSlackLabel(label);
 }
 
 function isSlackUserId(value: string): boolean {
