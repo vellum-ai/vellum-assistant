@@ -1,11 +1,9 @@
 /**
- * Draft-mint gate release when the send POST throws.
- *
- * The gate blocks a second send while a draft's first POST is in flight. It
- * was cleared on the statement after the await, so a throw skipped the clear
- * and left it held for the rest of the session, refusing every later send for
- * that draft with "Setting up your conversation. Please try again in a
- * moment." Releasing it from a `finally` is what this test pins.
+ * The draft-mint gate blocks a second send while a draft's first POST is in
+ * flight, and is released however that POST settles. A gate still held after
+ * the POST rejects refuses every later send for that draft with "Setting up
+ * your conversation. Please try again in a moment." for the rest of the
+ * session, so the rejection path is the one worth pinning.
  *
  * Driven end-to-end against a spied daemon client, mirroring the sibling
  * plugins test so the module registry stays clean.
