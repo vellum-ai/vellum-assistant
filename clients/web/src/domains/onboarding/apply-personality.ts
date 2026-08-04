@@ -13,9 +13,14 @@
  * Like the research turn (`research-runner.ts`) and the check-in
  * (`checkin-scheduler.ts`), this runs on a dedicated throwaway side
  * conversation: we await hatch readiness, mint a conversation, post the prompt,
- * let the rewrite turn settle, then archive it so it never shows in the user's
- * sidebar. Talks to the daemon through the generated SDK directly
- * (`@/domains/chat/api/*` is import-banned from onboarding).
+ * and let the rewrite turn settle. Talks to the daemon through the generated
+ * SDK directly (`@/domains/chat/api/*` is import-banned from onboarding).
+ *
+ * The thread is minted `conversationType: "background"`, which keeps it out of
+ * the daemon's default `standard` conversation list: it never enters Recents
+ * and is never selectable as the landing conversation. The prompt posts hidden,
+ * so the thread's only renderable content is the assistant's reply. The archive
+ * below is best-effort cleanup.
  *
  * Best-effort and fire-and-forget: a failure here must never block or surface
  * in the onboarding flow. Every error is swallowed (reported to Sentry).
@@ -83,7 +88,7 @@ export async function applyPersonality({
 
     const conversation = await conversationsPost({
       path: { assistant_id: assistantId },
-      body: { conversationType: "standard", title: "Updating personality" },
+      body: { conversationType: "background", title: "Updating personality" },
       throwOnError: false,
     });
     conversationId = conversation.data?.id;
@@ -148,7 +153,8 @@ export async function applyPersonality({
   } catch (err) {
     captureError(err, { context: "research_onboarding_personality" });
   } finally {
-    // Archive the throwaway thread so it never appears in the sidebar.
+    // Best-effort cleanup of the throwaway thread. The `background` mint (see
+    // the module header) is what keeps it hidden, not this call.
     if (assistantId && conversationId) {
       try {
         await conversationsByIdArchivePost({
