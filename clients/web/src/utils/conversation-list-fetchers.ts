@@ -23,6 +23,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
 import type { Conversation } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
@@ -209,15 +210,26 @@ async function fetchConversationList(
   let totalBytes: number | null = null;
 
   const recordDrain = (outcome: "ok" | "error"): void => {
+    const totalMs = Math.round(performance.now() - drainStartedAt);
     recordDiagnostic("conversation_list_drain", {
       assistantId,
       outcome,
       pages,
       rows: all.length,
-      totalMs: Math.round(performance.now() - drainStartedAt),
+      totalMs,
       maxPageMs,
       totalBytes,
       conversationType: options.conversationType ?? null,
+    });
+    // The ring keeps `assistantId` for feedback bundles; the telemetry rail is
+    // metadata only.
+    emitClientPerfEvent("client_list.drain", totalMs, {
+      outcome,
+      pages: String(pages),
+      rows: String(all.length),
+      max_page_ms: String(maxPageMs),
+      total_bytes: totalBytes === null ? "unknown" : String(totalBytes),
+      list_kind: options.conversationType ?? "foreground",
     });
   };
 
