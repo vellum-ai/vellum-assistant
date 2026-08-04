@@ -83,12 +83,17 @@ mock.module("@/lib/auth/hard-navigate", () => ({
 }));
 
 // Post-resume request counter, stubbed so a test can make it throw and prove
-// the interceptor still returns its request.
+// the interceptor still returns its request. `isResumeWindowOpen` defaults to
+// true so counting is exercised; a test flips it to pin the idle fast path.
 let noteDaemonApiRequestImpl: (url: string) => void = () => {};
+let resumeWindowOpen = true;
 const noteDaemonApiRequestMock = mock((url: string) => {
   noteDaemonApiRequestImpl(url);
 });
+const isResumeWindowOpenMock = mock(() => resumeWindowOpen);
 mock.module("@/lib/telemetry/resume-request-counter", () => ({
+  __resetResumeRequestCounterForTests: () => {},
+  isResumeWindowOpen: isResumeWindowOpenMock,
   noteDaemonApiRequest: noteDaemonApiRequestMock,
   subscribeResumeRequestCounter: () => () => {},
 }));
@@ -1687,12 +1692,18 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
 describe("api-interceptors / post-resume request counting", () => {
   beforeEach(() => {
     noteDaemonApiRequestMock.mockClear();
+    isResumeWindowOpenMock.mockClear();
     noteDaemonApiRequestImpl = () => {};
+    resumeWindowOpen = true;
   });
 
   afterEach(() => {
     noteDaemonApiRequestImpl = () => {};
+    resumeWindowOpen = true;
     setSelfHostedConnection(null);
+    window.__VELLUM_CONFIG__ = undefined;
+    isLocalClientMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
+    isPlatformDisabledMock.mockImplementation(() => false);
   });
 
   test("notes daemon requests", async () => {
@@ -1733,6 +1744,60 @@ describe("api-interceptors / post-resume request counting", () => {
       ),
     );
     expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("does not count when no resume window is open", async () => {
+    resumeWindowOpen = false;
+    await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/a1/conversations"),
+    );
+    await requestInterceptor(
+      new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/events/`,
+      ),
+    );
+
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("does not count a platform request the features gate aborts", async () => {
+    isLocalClientMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    // No ingress registered, so the daemon-bound path is not rewritten and the
+    // gate downstream aborts it. An aborted request never reaches the network.
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/conversations/`,
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(platformFeaturesGate(output).signal.aborted).toBe(true);
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("does not count a platform request aborted in remote-gateway mode", async () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/${SELF_HOSTED_ID}/conversations/`,
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(platformFeaturesGate(output).signal.aborted).toBe(true);
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("counts a gate-passing platform request exactly once", async () => {
+    isLocalClientMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const url = `https://platform.test${RUNTIME_PROXIED_PATH}`;
+
+    const output = await requestInterceptor(new Request(url));
+
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+    expect(noteDaemonApiRequestMock.mock.calls.at(-1)?.[0]).toBe(url);
   });
 
   test("a throwing counter leaves the request path intact", async () => {
