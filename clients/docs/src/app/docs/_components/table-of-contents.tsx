@@ -134,7 +134,6 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
           height: 160,
           opacity: peekVisible ? 1 : 0,
           transform: peekVisible ? "translateY(0)" : "translateY(96px)",
-          transition: "opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           zIndex: 10,
         }}
       >
@@ -229,6 +228,9 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
       </div>
       <style>{`
         @media (prefers-reduced-motion: no-preference) {
+          .docs-toc-peek-wrapper {
+            transition: opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+          }
           .docs-toc-peek {
             transition: transform 200ms ease;
           }
