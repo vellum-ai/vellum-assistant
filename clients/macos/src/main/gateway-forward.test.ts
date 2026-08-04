@@ -136,7 +136,9 @@ describe("planPairedGatewayForward", () => {
       request("/assistant/__gateway-paired/abc/v1/foo?x=1"),
       pair({ abc: "https://gw.example.com" }),
     );
-    if (plan.kind !== "forward") throw new Error("expected forward");
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
     expect(plan.url).toBe("https://gw.example.com/v1/foo?x=1");
     expect(plan.method).toBe("GET");
     expect(plan.hasBody).toBe(false);
@@ -158,7 +160,9 @@ describe("planPairedGatewayForward", () => {
       req,
       pair({ abc: "https://gw.example.com" }),
     );
-    if (plan.kind !== "forward") throw new Error("expected forward");
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
     expect(plan.headers.has("origin")).toBe(false);
     expect(plan.headers.has("referer")).toBe(false);
     expect(plan.headers.has("cookie")).toBe(false);
@@ -194,7 +198,9 @@ describe("planPairedGatewayForward", () => {
       req,
       pair({ abc: "https://gw.example.com" }),
     );
-    if (plan.kind !== "forward") throw new Error("expected forward");
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
     expect(plan.headers.get("authorization")).toBe("Bearer guardian-token");
     expect(plan.headers.get("accept")).toBe("text/event-stream");
   });

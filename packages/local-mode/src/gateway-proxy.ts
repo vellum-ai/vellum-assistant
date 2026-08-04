@@ -215,6 +215,10 @@ export function sanitizePairedForwardHeaders(headers: Headers): void {
   headers.delete("origin");
   headers.delete("referer");
   headers.delete("cookie");
+  // Paired runtimeUrls are commonly ngrok tunnels; free-tier ngrok answers
+  // browser User-Agents with an interstitial page (ERR_NGROK_6024) unless
+  // this header is present. Harmless for every other target.
+  headers.set("ngrok-skip-browser-warning", "true");
 }
 
 function addPortFromUrl(url: unknown, ports: Set<number>): void {

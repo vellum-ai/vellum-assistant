@@ -467,4 +467,10 @@ describe("sanitizePairedForwardHeaders", () => {
     expect(headers.get("accept")).toBe("text/event-stream");
     expect(headers.get("content-type")).toBe("application/json");
   });
+
+  test("adds the ngrok interstitial bypass header", () => {
+    const headers = new Headers({ authorization: "Bearer guardian-token" });
+    sanitizePairedForwardHeaders(headers);
+    expect(headers.get("ngrok-skip-browser-warning")).toBe("true");
+  });
 });
