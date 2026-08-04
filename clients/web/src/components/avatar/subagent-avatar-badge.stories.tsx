@@ -39,6 +39,13 @@ function BadgeSample({ status }: { status: SubagentStatus }) {
 }
 
 /**
+ * How many `EveryStatusRow` instances are on screen. The docs page renders the
+ * primary story twice, once under `Primary` and again under `Stories`, so the
+ * seed is shared and only the last unmount may clear it.
+ */
+let mountedRows = 0;
+
+/**
  * Seeds one entry per status on mount and removes exactly those ids on
  * unmount. Seeding belongs to the story's own lifecycle rather than a shared
  * `beforeEach` because the project renders `autodocs`, which mounts every
@@ -51,9 +58,15 @@ function BadgeSample({ status }: { status: SubagentStatus }) {
  * unrelated stories render activity affordances they do not expect. An entry
  * with no parent message and no tool-use id sits only in `byId` and
  * `orderedIds`, so those two are the whole cleanup.
+ *
+ * The ids stay fixed rather than per mount because `SubagentAvatarChip` hashes
+ * the subagent id to pick the creature's shape, eyes, and colour. A unique id
+ * per mount would draw a different avatar on every reload and let the docs
+ * page's two copies disagree, so the shared seed is refcounted instead.
  */
 function EveryStatusRow() {
   useEffect(() => {
+    mountedRows += 1;
     const { spawnSubagent } = useSubagentStore.getState();
     for (const status of SubagentStatusSchema.options) {
       spawnSubagent({
@@ -66,6 +79,10 @@ function EveryStatusRow() {
     }
 
     return () => {
+      mountedRows -= 1;
+      if (mountedRows > 0) {
+        return;
+      }
       const seeded = new Set(SubagentStatusSchema.options.map(storyId));
       useSubagentStore.setState((state) => ({
         byId: Object.fromEntries(
