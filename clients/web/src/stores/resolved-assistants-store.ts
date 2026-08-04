@@ -157,7 +157,6 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         assistantsHydrated: true,
         assistants: assistants.map((a) => {
           const lockfileFields = getLockfileFields(a.id);
-          const isPaired = lockfileFields.isPaired ?? false;
           return {
             id: a.id,
             name: a.name,
@@ -168,11 +167,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             currentReleaseVersion: a.current_release_version,
             releaseChannel: a.release_channel,
             isActiveLockfileAssistant: lockfileFields.isActiveLockfileAssistant,
-            // A paired entry is neither local nor platform-hosted, whatever
-            // the API's is_local claims — classification follows the lockfile.
-            isLocal: isPaired ? false : a.is_local,
-            isPlatformHosted: isPaired ? false : !a.is_local,
-            isPaired,
+            ...classifyApiEntry(a.is_local, lockfileFields.isPaired),
           };
         }),
       }),
@@ -185,18 +180,18 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         const prior = idx >= 0 ? state.assistants[idx] : undefined;
         const lockfileFields = getLockfileFields(assistant.id);
         // The API payload omits lockfile-sourced fields; preserve them across
-        // lifecycle refreshes. A paired entry is neither local nor
-        // platform-hosted, whatever the API's is_local claims.
-        const isPaired = lockfileFields.isPaired ?? prior?.isPaired ?? false;
+        // lifecycle refreshes.
         const entry: ResolvedAssistant = {
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
-          isLocal: isPaired ? false : assistant.is_local,
-          isPlatformHosted: isPaired ? false : !assistant.is_local,
-          isPaired,
+          ...classifyApiEntry(
+            assistant.is_local,
+            lockfileFields.isPaired,
+            prior?.isPaired,
+          ),
         };
         if (prior) {
           const next = [...state.assistants];
@@ -281,6 +276,25 @@ function reconcileSelection(
 export const useResolvedAssistantsStore = createSelectors(
   useResolvedAssistantsStoreBase,
 );
+
+/**
+ * Classification triplet for an API-shaped entry, honoring the lockfile: a
+ * paired entry is neither local nor platform-hosted, whatever the API's
+ * `is_local` claims. `priorIsPaired` carries an already-resolved entry's
+ * classification through refreshes where the lockfile is unavailable.
+ */
+function classifyApiEntry(
+  isLocalFromApi: boolean,
+  lockfileIsPaired: boolean | undefined,
+  priorIsPaired?: boolean,
+): Pick<ResolvedAssistant, "isLocal" | "isPlatformHosted" | "isPaired"> {
+  const isPaired = lockfileIsPaired ?? priorIsPaired ?? false;
+  return {
+    isPaired,
+    isLocal: isPaired ? false : isLocalFromApi,
+    isPlatformHosted: isPaired ? false : !isLocalFromApi,
+  };
+}
 
 function getLockfileFields(assistantId: string): {
   cloud?: string;
