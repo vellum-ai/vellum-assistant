@@ -97,7 +97,7 @@ describe("SubagentAvatarRow", () => {
       <SubagentAvatarRow subagentIds={ids} onExpand={() => {}} />,
     );
 
-    // At the cap the row is wider than a 375px viewport leaves, and the
+    // At the cap the row is wider than any phone in portrait leaves, and the
     // transcript wrapper is `contain-content`, so without wrapping the
     // Details affordance is clipped instead of overflowing visibly.
     const row = getByTestId("subagent-avatar-row-details");

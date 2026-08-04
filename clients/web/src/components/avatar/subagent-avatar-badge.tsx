@@ -74,13 +74,13 @@ export function SubagentAvatarBadge({
   return (
     <div
       data-testid="subagent-avatar-badge"
-      className={`inline-flex h-8 w-[46px] shrink-0 items-center gap-1 rounded-full px-1.5 transition-colors ${pillBackgroundClass(badgeState)} ${className ?? ""}`.trim()}
+      className={`inline-flex h-8 w-[2.875rem] shrink-0 items-center gap-1 rounded-full px-1.5 transition-colors ${pillBackgroundClass(badgeState)} ${className ?? ""}`.trim()}
     >
       {/* The glyph slot is a fixed 14px and always renders, including before
           the store entry lands. The three glyphs are different widths (13px
-          dots, 10px check, 10px X), so a slot that sized to its content would
-          change the pill's width every time a subagent settles and shift the
-          whole avatar row sideways. */}
+          dots, 10px check, 10px X), and the pill packs its items at
+          flex-start, so a slot that sized to its content would slide the
+          avatar about 3px left the moment a subagent settles. */}
       <span
         data-testid="subagent-avatar-badge-slot"
         className="flex w-3.5 shrink-0 items-center justify-center"
@@ -123,7 +123,11 @@ export function SubagentAvatarBadge({
         )}
       </span>
 
-      <SubagentAvatarChip subagentId={subagentId} size={16} />
+      <SubagentAvatarChip
+        subagentId={subagentId}
+        size={16}
+        className="shrink-0"
+      />
     </div>
   );
 }
