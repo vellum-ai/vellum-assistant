@@ -148,9 +148,18 @@ const WORKER_DEATH_MESSAGE_FRAGMENTS = [
  * conditions.
  */
 export function isEmbeddingWorkerDeath(err: unknown): boolean {
-  if (err instanceof EmbeddingWorkerDiedError) {
-    return true;
+  // Walk the cause chain: a backend chain that falls back past a dead worker
+  // rethrows the last backend's failure, attaching the worker death as its
+  // cause, so the fault stays detectable on multi-backend setups.
+  for (let cur = err, depth = 0; cur != null && depth < 8; depth++) {
+    if (cur instanceof EmbeddingWorkerDiedError) {
+      return true;
+    }
+    const message = cur instanceof Error ? cur.message : String(cur);
+    if (WORKER_DEATH_MESSAGE_FRAGMENTS.some((m) => message.includes(m))) {
+      return true;
+    }
+    cur = cur instanceof Error ? cur.cause : undefined;
   }
-  const message = err instanceof Error ? err.message : String(err);
-  return WORKER_DEATH_MESSAGE_FRAGMENTS.some((m) => message.includes(m));
+  return false;
 }

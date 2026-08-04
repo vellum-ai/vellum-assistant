@@ -789,11 +789,10 @@ describe("model matching", () => {
 
 describe("stderr capture across worker startup", () => {
   /**
-   * Discriminating test for drain ordering. The worker prints to stderr, waits,
-   * and only then signals ready. While readiness is still pending, the tail
-   * must already hold that line, which is true only if draining began at spawn.
-   * A drain started after readiness sees an empty tail at this point, so this
-   * fails on the pre-fix ordering rather than passing either way.
+   * Drain ordering. The worker prints to stderr, waits, and only then signals
+   * ready. While readiness is still pending the tail must already hold that
+   * line, which holds only if draining begins at spawn: a drain that starts
+   * after the readiness handshake sees an empty tail at this point.
    */
   test("stderr is captured while readiness is still pending", async () => {
     const dir = mkdtempSync(join(tmpdir(), "embed-worker-drain-order-"));
@@ -853,5 +852,36 @@ describe("stderr capture across worker startup", () => {
     await expect(
       backend.startWorker(process.execPath, scriptPath),
     ).rejects.toThrow(/died before ready/);
+  });
+});
+
+describe("startup failure diagnostics", () => {
+  /**
+   * `initialize` classifies a startup failure by pattern-matching the thrown
+   * message to decide whether to clear the model cache and retry. The retained
+   * stderr tail is bounded, so a corruption signature must survive independently
+   * of it: a worker that keeps printing after the signature would otherwise
+   * evict it and silently disable the self-healing retry.
+   */
+  test("a corruption signature survives a worker that keeps printing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-corrupt-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(
+      scriptPath,
+      [
+        `process.stderr.write("Error: protobuf parsing failed\\n");`,
+        `for (let i = 0; i < 60; i++) process.stderr.write("noise line " + i + "\\n");`,
+        `process.exit(1);`,
+        ``,
+      ].join("\n"),
+    );
+
+    mkdirSync(getEmbeddingModelsDir(), { recursive: true });
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 300;
+
+    await expect(
+      backend.startWorker(process.execPath, scriptPath),
+    ).rejects.toThrow(/protobuf parsing/);
   });
 });

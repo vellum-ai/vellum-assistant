@@ -900,6 +900,11 @@ export async function embedWithBackend(
   const backends = await assembleEmbeddingBackends(config, selection.backend);
 
   let lastErr: unknown;
+  // The first worker death seen while walking the chain. Only the last
+  // backend's failure is rethrown, so without this a fallback that also fails
+  // would mask a dead local worker and the fault would classify as an ordinary
+  // query failure on multi-backend setups.
+  let workerDeath: unknown;
   let anyBackendAttempted = false;
   for (const backend of backends) {
     const isPrimary = backend === selection.backend;
@@ -965,6 +970,9 @@ export async function embedWithBackend(
       return { provider: backend.provider, model: backend.model, vectors };
     } catch (err) {
       lastErr = err;
+      if (workerDeath === undefined && isEmbeddingWorkerDeath(err)) {
+        workerDeath = err;
+      }
       // If ANY backend in the chain returns 402, trip the billing breaker
       // immediately — fallbacks will hit the same depleted balance.
       if (extractHttpStatus(err) === 402) {
@@ -988,6 +996,14 @@ export async function embedWithBackend(
       throw new Error(
         "No available embedding backend supports multimodal inputs. Gemini API key is required for image/audio/video embeddings.",
       );
+    }
+  }
+  // Surface the last backend's failure as before, but carry the worker death
+  // as its cause so `isEmbeddingWorkerDeath` still recognises it. Attaching
+  // rather than substituting keeps the message the caller sees unchanged.
+  if (workerDeath !== undefined && workerDeath !== lastErr) {
+    if (lastErr instanceof Error && lastErr.cause === undefined) {
+      lastErr.cause = workerDeath;
     }
   }
   throw lastErr;

@@ -395,3 +395,27 @@ describe("classifyDenseLaneFailure", () => {
     expect(classifyDenseLaneFailure(undefined)).toBe("dense_query_failed");
   });
 });
+
+describe("worker death through a backend fallback chain", () => {
+  /**
+   * A chain that falls back past a dead local worker rethrows the last
+   * backend's failure and attaches the worker death as its cause. The lane must
+   * still classify the fault, or worker deaths go uncounted wherever a fallback
+   * backend is configured.
+   */
+  test("classifies a worker death carried as the cause of another error", () => {
+    const chainFailure = new Error("openai embeddings: 500 Internal Error", {
+      cause: new EmbeddingWorkerDiedError(
+        "Embedding worker error: Embedding worker process exited unexpectedly",
+      ),
+    });
+
+    expect(classifyDenseLaneFailure(chainFailure)).toBe("embed_worker_died");
+  });
+
+  test("an unrelated cause chain still classifies as a query failure", () => {
+    const nested = new Error("outer", { cause: new Error("qdrant timeout") });
+
+    expect(classifyDenseLaneFailure(nested)).toBe("dense_query_failed");
+  });
+});

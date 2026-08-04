@@ -42,20 +42,26 @@ interface WorkerResponse {
 }
 
 /**
- * Detect model loading errors (corrupted cache, incompatible ONNX format, etc.)
- * that can be resolved by clearing the model cache and re-downloading.
+ * Whether a line of worker output signals a corrupted or incompatible model
+ * cache. Single source of the patterns, so the per-line scan during startup and
+ * the error-level check below cannot drift apart.
  */
-function isModelCorruptionError(err: unknown): boolean {
-  if (!(err instanceof Error)) {
-    return false;
-  }
-  const msg = err.message.toLowerCase();
+function isModelCorruptionMessage(text: string): boolean {
+  const msg = text.toLowerCase();
   return (
     msg.includes("protobuf parsing") ||
     (msg.includes("load model") && msg.includes("failed")) ||
     msg.includes("invalid model") ||
     msg.includes("corrupt")
   );
+}
+
+/**
+ * Detect model loading errors (corrupted cache, incompatible ONNX format, etc.)
+ * that can be resolved by clearing the model cache and re-downloading.
+ */
+function isModelCorruptionError(err: unknown): boolean {
+  return err instanceof Error && isModelCorruptionMessage(err.message);
 }
 
 /** Remove the cached model files so they are re-downloaded on next attempt. */
@@ -84,6 +90,13 @@ const WORKER_EXIT_POLL_MS = 50;
  * what carries the fatal message.
  */
 const WORKER_STDERR_TAIL_LINES = 20;
+
+/**
+ * Corruption signatures retained from a worker's startup output, independent of
+ * the bounded tail. One line is enough to classify; the small allowance covers
+ * a runtime that reports the same fault across a couple of lines.
+ */
+const WORKER_CORRUPTION_LINES = 5;
 
 /**
  * How long the unexpected-exit report waits for the worker's stderr stream to
@@ -568,7 +581,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     //
     // Each drain owns its tail array, so this points at the new worker's buffer
     // while a still-running drain from a previous worker appends to its own.
-    const { drained, tail } = this.drainStderr(proc.stderr);
+    const { drained, tail, corruption } = this.drainStderr(proc.stderr);
     this.stderrDrained = drained;
     this.stderrTail = tail;
 
@@ -594,7 +607,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // than the stream itself. Bounded for the same reason the drain is: a
       // live child never closes stderr.
       await didSettle(drained, this.terminateGraceMs);
-      const stderr = tail.join("\n");
+      // Corruption lines are prepended rather than left to the tail: the tail
+      // is bounded, so a signature followed by enough further output would be
+      // evicted and the clear-cache-and-retry recovery would stop firing.
+      const stderr = [...corruption, ...tail].join("\n");
       if (stderr.trim()) {
         log.warn(
           { stderr: stderr.trim(), exitCode, bunPath },
@@ -640,10 +656,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private drainStderr(stderr: ReadableStream<Uint8Array>): {
     drained: Promise<void>;
     tail: string[];
+    corruption: string[];
   } {
     const reader = stderr.getReader();
     const decoder = new TextDecoder();
     const tail: string[] = [];
+    // Corruption signatures are captured as they stream, because the bounded
+    // tail evicts them when a worker keeps printing afterwards, and the
+    // startup-failure path classifies on this text to decide whether to clear
+    // the model cache and retry.
+    const corruption: string[] = [];
     const drained = (async () => {
       let carry = "";
       const retain = (line: string): void => {
@@ -652,6 +674,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
           return;
         }
         log.debug({ workerStderr: text }, "Embedding worker stderr");
+        if (
+          corruption.length < WORKER_CORRUPTION_LINES &&
+          isModelCorruptionMessage(text)
+        ) {
+          corruption.push(text);
+        }
         tail.push(text);
         if (tail.length > WORKER_STDERR_TAIL_LINES) {
           tail.splice(0, tail.length - WORKER_STDERR_TAIL_LINES);
@@ -679,7 +707,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // A worker killed mid-line still emitted that text; keep it.
       retain(carry);
     })();
-    return { drained, tail };
+    return { drained, tail, corruption };
   }
 
   private startStdoutReader(): void {
