@@ -814,7 +814,12 @@ describe("AssistantSideMenu · section header menus", () => {
     }),
   ];
 
-  function renderWithGroupActions() {
+  function renderWithGroupActions(
+    onArchiveAllInGroup: (
+      groupName: string,
+      conversations: Conversation[],
+    ) => void = () => {},
+  ) {
     return render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -823,7 +828,7 @@ describe("AssistantSideMenu · section header menus", () => {
         conversations,
         onSelectConversation: () => {},
         onMarkAllReadInGroup: () => {},
-        onArchiveAllInGroup: () => {},
+        onArchiveAllInGroup,
       }),
     );
   }
@@ -891,6 +896,92 @@ describe("AssistantSideMenu · section header menus", () => {
         // the disabled state tracks each action's own precondition.
         expect(archiveAll?.getAttribute("aria-disabled")).not.toBe("true");
       });
+    } finally {
+      cleanup();
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Archive All confirmation (LUM-3036): one click must never clear a
+  // whole section from the sidebar. The menu item arms a ConfirmDialog;
+  // only its explicit confirm runs the archive.
+  // ---------------------------------------------------------------------
+
+  async function openArchiveAllFrom(container: HTMLElement, label: string) {
+    act(() => {
+      headerFor(container, label).dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+      );
+    });
+    await waitFor(() => {
+      expect(document.querySelector('[role="menuitem"]')).not.toBeNull();
+    });
+    const archiveAll = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((el) => el.textContent?.includes("Archive All"));
+    expect(archiveAll).toBeDefined();
+    act(() => {
+      archiveAll?.click();
+    });
+  }
+
+  test("Archive All asks for confirmation instead of archiving outright", async () => {
+    const calls: Array<[string, Conversation[]]> = [];
+    const { container } = renderWithGroupActions((name, convs) => {
+      calls.push([name, convs]);
+    });
+    try {
+      await openArchiveAllFrom(container, "Pinned");
+
+      // The dialog is the only thing that may result from the click.
+      await waitFor(() => {
+        expect(
+          document.querySelector("[data-confirm-dialog-confirm]"),
+        ).not.toBeNull();
+      });
+      expect(calls).toHaveLength(0);
+
+      act(() => {
+        document
+          .querySelector<HTMLElement>("[data-confirm-dialog-confirm]")!
+          .click();
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]![0]).toBe("Pinned");
+      expect(calls[0]![1].map((c) => c.conversationId)).toEqual(["p1"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("cancelling the confirmation archives nothing and closes the dialog", async () => {
+    const calls: Array<[string, Conversation[]]> = [];
+    const { container } = renderWithGroupActions((name, convs) => {
+      calls.push([name, convs]);
+    });
+    try {
+      await openArchiveAllFrom(container, "Pinned");
+      await waitFor(() => {
+        expect(
+          document.querySelector("[data-confirm-dialog-confirm]"),
+        ).not.toBeNull();
+      });
+
+      const cancel = Array.from(
+        document.querySelectorAll<HTMLElement>("button"),
+      ).find((el) => el.textContent?.trim() === "Cancel");
+      expect(cancel).toBeDefined();
+      act(() => {
+        cancel?.click();
+      });
+
+      await waitFor(() => {
+        expect(
+          document.querySelector("[data-confirm-dialog-confirm]"),
+        ).toBeNull();
+      });
+      expect(calls).toHaveLength(0);
     } finally {
       cleanup();
     }
