@@ -46,6 +46,7 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { noteDaemonApiRequest } from "@/lib/telemetry/resume-request-counter";
 import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
@@ -134,6 +135,26 @@ const FLATTENED_FIRST_SEGMENTS = new Set<string>([
   "contacts",
   "contact-channels",
 ]);
+
+/**
+ * True when a path names daemon/gateway traffic, whichever client issues it.
+ * Mirrors the routing decision {@link rewriteForSelfHostedIngress} makes for
+ * the platform client, but is deliberately independent of whether an ingress
+ * is registered: the same path reaches the daemon through the platform's
+ * runtime proxy in cloud mode, so `client_resume.request_count` stays
+ * comparable across cloud and self-hosted.
+ */
+function isDaemonBoundPath(url: string): boolean {
+  const match = ASSISTANT_PATH_RE.exec(new URL(url).pathname);
+  if (!match) {
+    return false;
+  }
+  const firstSegment = match[2];
+  return (
+    RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) ||
+    FLATTENED_FIRST_SEGMENTS.has(firstSegment)
+  );
+}
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -304,12 +325,27 @@ export function authorizeRemoteGatewayRequest(
  *   clients (only allowlisted segments are forwarded; platform-owned
  *   routes like maintenance-mode, system-events, etc. fall through
  *   to Django).
+ * @param countEveryRequest `true` for the daemon + gateway clients, where every
+ *   request is daemon traffic by definition. The platform and auth clients
+ *   count only their daemon-bound paths ({@link isDaemonBoundPath}), the SSE
+ *   reopen among them, so the post-resume burst is measured whole while
+ *   platform-owned traffic stays out of it. One count per request: this is the
+ *   single choke point on each client's chain.
  */
 function createInterceptor({
   skipSegmentAllowlist = false,
   allowRemoteGatewayDirect = false,
+  countEveryRequest = false,
 } = {}) {
   return async (request: Request): Promise<Request> => {
+    try {
+      if (countEveryRequest || isDaemonBoundPath(request.url)) {
+        noteDaemonApiRequest(request.url);
+      }
+    } catch {
+      // Telemetry must never fail a request.
+    }
+
     const newRequest = new Request(request);
 
     // Per-tab client identity — sent on *every* request (GET included)
@@ -384,6 +420,7 @@ export const requestInterceptor = createInterceptor();
 export const daemonRequestInterceptor = createInterceptor({
   skipSegmentAllowlist: true,
   allowRemoteGatewayDirect: true,
+  countEveryRequest: true,
 });
 
 /**
