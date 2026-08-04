@@ -83,7 +83,7 @@ describe("applyLiveActivityControl", () => {
     expect(controls.setOutputMuted).not.toHaveBeenCalledWith(true);
   });
 
-  test("the hang-up ends the session", () => {
+  test("the end control ends the session", () => {
     session("listening");
     applyLiveActivityControl("endSession");
     expect(controls.stop).toHaveBeenCalledTimes(1);
@@ -91,7 +91,7 @@ describe("applyLiveActivityControl", () => {
 
   test("a press against a session that has already ended does nothing", () => {
     // The island outlives its session by however long ActivityKit takes to
-    // dismiss it. A hang-up landing in that window must not tear down whatever
+    // dismiss it. An end landing in that window must not tear down whatever
     // the user started next.
     session("idle");
     for (const action of [

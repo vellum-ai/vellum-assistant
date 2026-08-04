@@ -378,7 +378,7 @@ describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
 
 const roomDialog = () =>
   screen.queryByRole("dialog", { name: "Voice session" });
-/** The control row's hang-up: the room's only way to end a call. */
+/** The control row's ✕: the room's only way to end a session. */
 const endButton = () =>
   screen.queryByRole("button", { name: "End voice session" });
 /** The corner chevron: dismisses the room, leaves the call running. */
@@ -847,7 +847,7 @@ describe("VoiceRoom — listening waves", () => {
 });
 
 describe("VoiceRoom — ending the call", () => {
-  test("the row's hang-up ends the session via controls.stop", () => {
+  test("the row's ✕ ends the session via controls.stop", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     fireEvent.click(endButton()!);
@@ -877,7 +877,7 @@ describe("VoiceRoom — ending the call", () => {
 });
 
 // The three things a caller does mid-call sit in one centred row: mute the
-// mic, stop the assistant talking, hang up. Minimizing is deliberately NOT
+// mic, stop the assistant talking, end the session. Minimizing is NOT
 // among them — it lives in the corner.
 describe("VoiceRoom: centred session controls", () => {
   const controlRow = () => screen.getByTestId("voice-room-controls");
@@ -903,7 +903,7 @@ describe("VoiceRoom: centred session controls", () => {
     }
   });
 
-  test("the hang-up is toned apart from the reversible toggles beside it", () => {
+  test("the end control is toned apart from the reversible toggles beside it", () => {
     // Three identical circles, one of which cannot be undone, is how the row
     // collects the mis-tap. The mutes are neutral until engaged; this is not.
     startOwnedSession("listening");

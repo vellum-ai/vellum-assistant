@@ -4,7 +4,7 @@
  *
  * The inbound half of the island. {@link useLiveActivityMirror} pushes what the
  * session *is* out to the Dynamic Island and Lock Screen; this takes what the
- * user asks of it from there — mute the mic, mute the assistant, hang up — and
+ * user asks of it from there — mute the mic, mute the assistant, end it — and
  * runs it through the same store controls the voice room's own control row
  * uses. One set of semantics for both surfaces, so a mute from a locked phone
  * and a mute from the room are the same operation and cannot drift.
@@ -55,7 +55,7 @@ export function applyLiveActivityControl(
   const session = useLiveVoiceStore.getState();
   // A press against a session that has already ended does nothing. The island
   // outlives the session by the moment it takes ActivityKit to dismiss it, and
-  // a hang-up landing in that window must not tear down a session the user has
+  // an end landing in that window must not tear down a session the user has
   // since started.
   if (!isLiveVoiceSessionActive(session.state)) {
     return;

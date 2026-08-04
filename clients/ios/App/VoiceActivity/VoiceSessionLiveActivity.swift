@@ -11,7 +11,7 @@ import WidgetKit
 /// and for which facts survive into the tightest slots.
 ///
 /// **The two roomy presentations carry the call's controls** — mute the mic,
-/// mute the assistant, hang up (``VoiceSessionControls``). They are the voice
+/// mute the assistant, end it (``VoiceSessionControls``). They are the voice
 /// room's own control row, because for a session whose app is not on screen
 /// this IS that row, and because the alternative for a locked phone was to
 /// unlock it, wait for the app, and find the room. The two tight

@@ -322,7 +322,7 @@ struct VoiceControlButton: View {
     let label: String
     let action: VoiceSessionControlAction
     /// Whether this control is currently doing something to the call — an
-    /// engaged mute, or the hang-up, which is always. Tints it red so an
+    /// engaged mute, or the end control, which is always. Tints it red so an
     /// engaged control is legible as engaged without reading its symbol.
     var engaged: Bool = false
 
@@ -350,17 +350,17 @@ struct VoiceControlButton: View {
     }
 }
 
-/// The island's control row: mute the mic, mute the assistant, hang up.
+/// The island's control row: mute the mic, mute the assistant, end the session.
 ///
-/// **The same three controls as the voice room's own row, in the same order**
-/// (`voice-room.tsx`) — mute what it hears, mute what you hear, end the call —
-/// because this row IS that row for a session whose app is not on screen. The
-/// island is not a smaller feature with a control set of its own.
+/// **The same three controls as the voice room's own row, in the same order and
+/// wearing the same glyphs** (`voice-room.tsx`) — mute what it hears, mute what
+/// you hear, end — because this row IS that row for a session whose app is not
+/// on screen. The island is not a smaller feature with a control set of its own.
 ///
 /// The two mutes are toggles labelled from the state they are rendered against;
-/// the hang-up is always red. See ``VoiceSessionControlAction`` for why they are
-/// toggles rather than explicit mute/unmute commands, which matters here more
-/// than anywhere: this row can be drawn from content several seconds old.
+/// the end control is always red. See ``VoiceSessionControlAction`` for why they
+/// are toggles rather than explicit mute/unmute commands, which matters here
+/// more than anywhere: this row can be drawn from content several seconds old.
 ///
 /// Rendered only where there is genuinely room — the Lock Screen card and the
 /// expanded island. The compact and minimal presentations are a few points
@@ -384,8 +384,13 @@ struct VoiceSessionControls: View {
                 action: .toggleAssistantAudio,
                 engaged: outputMuted
             )
+            // A red ✕, not a hang-up receiver: this is a session, not truly a
+            // phone call, and it is the glyph every other surface ends one
+            // with (the voice room's control row, the composer bar, the pill).
+            // A receiver here would be the one place in the product calling it
+            // something else.
             VoiceControlButton(
-                symbol: "phone.down.fill",
+                symbol: "xmark",
                 label: "End voice session",
                 action: .endSession,
                 engaged: true
@@ -484,7 +489,7 @@ struct VoiceSessionLockScreenView: View {
             // the row is a phone call's controls, and that is where a phone
             // call puts them. It stays up when the content goes stale — unlike
             // every *claim* on this card, which drops — because a wedged
-            // session is precisely when the user wants the hang-up.
+            // session is precisely when the user wants the way out.
             VoiceSessionControls(muted: state.muted, outputMuted: state.outputMuted)
                 .frame(maxWidth: .infinity, alignment: .center)
         }

@@ -49,8 +49,7 @@
  * The room is not exit-only. Minimizing (the corner chevron, Escape, or — on
  * the sheet — pulling it down) dismisses the room while the session keeps
  * running, handing the session to the composer's voice bar or the title-bar
- * pill; ending the session (the control row's hang-up) tears the whole call
- * down.
+ * pill; ending the session (the control row's ✕) tears the whole call down.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
  * session, owned by the on-screen composer, main window, not minimized. Any
@@ -62,10 +61,10 @@
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
  * push-to-talk control. One centred row near the bottom carries the three
  * things a caller does mid-call, left to right: mute the mic so it stops
- * hearing you, mute the assistant so you stop hearing it, and hang up. It reads
- * as a call's control row, which is what it is; the hang-up is toned
- * destructively so it never reads as a third neutral toggle beside the two
- * mutes.
+ * hearing you, mute the assistant so you stop hearing it, and end the session.
+ * The end control is a red ✕ — the same glyph the composer bar and the pill
+ * end a session with — toned destructively so it never reads as a third
+ * neutral toggle beside the two mutes.
  *
  * **Leaving the room and ending the call are different acts, and the room says
  * so in three places.** Minimizing is the light one — the session keeps running
@@ -73,7 +72,7 @@
  * chevron does, what Escape does (every variant; the key handler attaches only
  * while the room is mounted), and what pulling the mobile sheet down does. All
  * three are the same call to `minimizeVoiceRoom`. Ending is the heavy one, and
- * it lives in one place only: the row's hang-up. Nothing in the corner ends a
+ * it lives in one place only: the row's ✕. Nothing in the corner ends a
  * call any more, which is what makes the corner safe to reach for.
  */
 
@@ -84,14 +83,7 @@ import {
   useReducedMotion,
   type MotionProps,
 } from "motion/react";
-import {
-  ChevronDown,
-  Mic,
-  MicOff,
-  PhoneOff,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
+import { ChevronDown, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import {
   BottomSheet,
@@ -172,7 +164,7 @@ const SESSION_CONTROL_NEUTRAL_CLASS =
 
 /**
  * The red treatment worn by a control that is doing something to the call: the
- * two mutes while engaged, and the hang-up always.
+ * two mutes while engaged, and the end control always.
  *
  * Two variants because the room's background is the assistant's avatar color,
  * which can be a light one (yellow). A single red picked against the dark look
@@ -800,13 +792,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           - mute the assistant, so you stop hearing it. Its reply keeps running
             underneath and the transcript keeps filling, so unmuting drops you
             back in wherever it has reached,
-          - hang up, which ends the call.
+          - end the session.
 
           The two mutes are a symmetric pair: one per direction of the
-          conversation, reading left to right as you and then it. The hang-up
-          closes the row the way it closes a phone call, which is the shape a
-          caller already knows — and it is the room's ONLY end control, so
-          there is exactly one place a call can be hung up from.
+          conversation, reading left to right as you and then it. The end
+          control closes the row, and it is the room's ONLY one, so there is
+          exactly one place a session can be ended from.
+
+          A red ✕, not a hang-up receiver. This is not truly a phone call —
+          it is a session you are in, the same one the composer's ✕ ends and
+          the same one the pill's ✕ ends — and a receiver glyph would be the
+          only place in the app that called it something else.
 
           It wears the destructive tone unconditionally, rather than the
           neutral one the mutes wear until engaged, precisely because the row
@@ -869,7 +865,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               destructiveControlClass(tone?.isLight),
             )}
           >
-            <PhoneOff className="size-5" />
+            <X className="size-5" strokeWidth={2.5} />
           </button>
         </Tooltip>
       </div>

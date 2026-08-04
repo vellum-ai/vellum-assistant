@@ -223,14 +223,36 @@ describe("VoiceComposerBar: no transient stop", () => {
 });
 
 describe("VoiceComposerBar — expand to room", () => {
-  test("renders with onExpand wired and fires it", () => {
+  test("the centre reopens the room", () => {
+    // The way back is the band, not a fourth icon: it is the bar's largest
+    // region, and seeing the session again is the likeliest thing to want
+    // from a minimized one.
     const onExpand = mock(() => {});
     renderBar("listening", { onExpand });
     fireEvent.click(screen.getByRole("button", { name: "Open voice room" }));
     expect(onExpand).toHaveBeenCalledTimes(1);
   });
 
-  test("absent without onExpand (pop-out windows)", () => {
+  test("the centre is the flexible middle, not a chip beside the icons", () => {
+    renderBar("listening", { onExpand: () => {} });
+    const { className } = screen.getByRole("button", {
+      name: "Open voice room",
+    });
+    expect(className).toContain("flex-1");
+    expect(className).toContain("self-stretch");
+  });
+
+  test("no separate expand control remains", () => {
+    // It was a fourth icon on a rail of 16px targets; the centre replaced it.
+    renderBar("listening", { onExpand: () => {} });
+    const icons = screen
+      .getAllByRole("button")
+      .filter((b) => b.className.includes("--room-fg-muted"));
+    expect(icons).toHaveLength(3);
+  });
+
+  test("inert without onExpand (pop-out windows)", () => {
+    // A button that opens nothing is worse than no button.
     renderBar("listening");
     expect(
       screen.queryByRole("button", { name: "Open voice room" }),
@@ -301,7 +323,6 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     for (const name of [
       "Mute microphone",
       "Mute assistant",
-      "Open voice room",
       "End voice session",
     ]) {
       expect(screen.getByRole("button", { name }).className).toContain(
@@ -335,16 +356,17 @@ describe("VoiceComposerBar — structure and accessibility", () => {
   });
 
   test("the block holds the room's control set, and nothing else", () => {
-    // Same four as the room, in the same reading order: the two mutes (one per
-    // direction of the conversation), the way back into the room, and end.
+    // The room's own three, in the same reading order — the two mutes (one per
+    // direction of the conversation) and end — with the way back into the room
+    // sitting between them as the band it is drawn on.
     renderBar("listening", { onExpand: () => {} });
     const names = screen
       .getAllByRole("button")
       .map((b) => b.getAttribute("aria-label"));
     expect(names).toEqual([
       "Mute microphone",
-      "Mute assistant",
       "Open voice room",
+      "Mute assistant",
       "End voice session",
     ]);
   });

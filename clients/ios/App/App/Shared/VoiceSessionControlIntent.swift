@@ -2,7 +2,7 @@ import AppIntents
 import Foundation
 
 /// The three things the Live Activity can do to a running voice session: mute
-/// the microphone, mute the assistant's audio, and hang up.
+/// the microphone, mute the assistant's audio, and end the session.
 ///
 /// Deliberately the same three the voice room's control row carries
 /// (`clients/web/src/domains/chat/voice/voice-room/voice-room.tsx`), in the same
