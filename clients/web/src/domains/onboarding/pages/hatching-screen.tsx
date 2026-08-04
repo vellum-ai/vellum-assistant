@@ -23,7 +23,11 @@ import {
   readSelectedVersion,
   writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
-import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import {
+  applyPendingProviderKey,
+  ProviderKeyRejectedError,
+} from "@/domains/onboarding/provider-key";
+import { onboardingProvider } from "@/domains/onboarding/provider-catalog";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import {
   awaitPurchasedProvisioning,
@@ -183,6 +187,11 @@ export function HatchingScreen() {
   const [phase, setPhase] = useState<HatchPhase>("initializing");
   const [error, setError] = useState<string | null>(null);
   const [platformHostedDisabled, setPlatformHostedDisabled] = useState(false);
+  // The provider rejected the entered API key (daemon-side validation). The
+  // error screen swaps its retry for an "Update API key" path back to the
+  // key screen; the hatch guards stay held so the corrected pass reuses the
+  // already-hatched assistant instead of hatching a second one.
+  const [apiKeyRejected, setApiKeyRejected] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [displayProgress, setDisplayProgress] = useState<number>(0);
   const [animationEpoch, setAnimationEpoch] = useState(0);
@@ -231,6 +240,7 @@ export function HatchingScreen() {
     }
 
     setPlatformHostedDisabled(false);
+    setApiKeyRejected(false);
 
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -435,6 +445,26 @@ export function HatchingScreen() {
             try {
               await applyPendingProviderKey(result.assistantId);
             } catch (err) {
+              if (err instanceof ProviderKeyRejectedError) {
+                // The assistant hatched fine; only the entered key is bad.
+                // Surface a correctable error and hold here, KEEPING the
+                // module-level hatch guards: the user returns via the API-key
+                // screen and this screen re-adopts the same live assistant
+                // instead of hatching a duplicate. The pending selection was
+                // re-staged (key cleared) by applyPendingProviderKey.
+                if (!cancelled) {
+                  const displayName =
+                    onboardingProvider(err.provider)?.displayName ??
+                    err.provider;
+                  setApiKeyRejected(true);
+                  setError(
+                    `${displayName} rejected the API key you entered. ${
+                      err.reason ?? "Please check the key and try again."
+                    }`,
+                  );
+                }
+                return;
+              }
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
           }
@@ -765,26 +795,45 @@ export function HatchingScreen() {
           <div
             className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}
           >
-            <Button
-              variant="primary"
-              size="regular"
-              fullWidth
-              className={electron ? undefined : "h-11 text-base"}
-              onClick={() => {
-                segmentStartRef.current = 0;
-                segmentStartTimeRef.current = Date.now();
-                phaseRef.current = "initializing";
-                displayProgressRef.current = 0;
-                setPhase("initializing");
-                setDisplayProgress(0);
-                setAnimationEpoch((n) => n + 1);
-                setError(null);
-                setPlatformHostedDisabled(false);
-                setAttempt((n) => n + 1);
-              }}
-            >
-              Try again
-            </Button>
+            {apiKeyRejected ? (
+              <Button
+                variant="primary"
+                size="regular"
+                fullWidth
+                className={electron ? undefined : "h-11 text-base"}
+                onClick={() =>
+                  void navigate(
+                    hostingParam
+                      ? `${routes.onboarding.apiKey}?hosting=${hostingParam}`
+                      : routes.onboarding.apiKey,
+                    { replace: true },
+                  )
+                }
+              >
+                Update API key
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="regular"
+                fullWidth
+                className={electron ? undefined : "h-11 text-base"}
+                onClick={() => {
+                  segmentStartRef.current = 0;
+                  segmentStartTimeRef.current = Date.now();
+                  phaseRef.current = "initializing";
+                  displayProgressRef.current = 0;
+                  setPhase("initializing");
+                  setDisplayProgress(0);
+                  setAnimationEpoch((n) => n + 1);
+                  setError(null);
+                  setPlatformHostedDisabled(false);
+                  setAttempt((n) => n + 1);
+                }}
+              >
+                Try again
+              </Button>
+            )}
             <Button
               variant="outlined"
               size="regular"

@@ -98,6 +98,24 @@ export function consumePendingProviderKey(): PendingProviderKey | null {
   return value;
 }
 
+/**
+ * The daemon validated the entered API key against the provider and the
+ * provider rejected it (e.g. a 401 on a typo'd key). A user-correctable input
+ * error, not a transport failure: callers surface it with a path back to the
+ * API-key screen instead of logging and moving on.
+ */
+export class ProviderKeyRejectedError extends Error {
+  readonly provider: OnboardingProviderId;
+  readonly reason?: string;
+
+  constructor(provider: OnboardingProviderId, reason?: string) {
+    super(reason ?? `${provider} rejected the API key`);
+    this.name = "ProviderKeyRejectedError";
+    this.provider = provider;
+    this.reason = reason;
+  }
+}
+
 // Daemon wrappers via the generated SDK. Duplicated minimally here because
 // cross-domain imports are ESLint-gated in clients/web.
 
@@ -115,12 +133,18 @@ async function writeApiKeySecret(
   provider: OnboardingProviderId,
   value: string,
 ): Promise<void> {
-  const { response } = await secretsPost({
+  const { data, response } = await secretsPost({
     path: { assistant_id: assistantId },
     body: { type: "api_key", name: provider, value },
     throwOnError: false,
   });
   ensureOk(response, "Failed to write provider secret");
+  // The daemon reports a provider-rejected key as a 200 with success:false.
+  // The key was NOT stored, so continuing would point the assistant's config
+  // at a credential that doesn't exist.
+  if (data && data.success === false) {
+    throw new ProviderKeyRejectedError(provider, data.error);
+  }
 }
 
 /**
@@ -307,7 +331,10 @@ async function applyLegacyOnboardingProfile(
 /**
  * Apply the model-provider selection collected during onboarding to the
  * freshly hatched local assistant. Consumes the pending key; no-op when nothing
- * was collected (e.g. Vellum Cloud, which skips the API-key step).
+ * was collected (e.g. Vellum Cloud, which skips the API-key step). Throws
+ * {@link ProviderKeyRejectedError} when the daemon's provider-side validation
+ * rejects the key, re-staging the selection (key cleared) so the API-key
+ * screen can prefill on the correction pass.
  *
  * API-key providers rely on the daemon's code-defined default profiles: store
  * the key, create the `<provider>-personal` connection the defaults dispatch
@@ -324,6 +351,23 @@ export async function applyPendingProviderKey(
   if (!pending) {
     return;
   }
+  try {
+    await applyProviderSelection(assistantId, pending);
+  } catch (err) {
+    if (err instanceof ProviderKeyRejectedError) {
+      // A rejected key is user-correctable: preserve the collected selection
+      // (with the bad key cleared) so the API-key screen prefills the
+      // provider/model when the user goes back to re-enter the key.
+      setPendingProviderKey({ ...pending, key: "" });
+    }
+    throw err;
+  }
+}
+
+async function applyProviderSelection(
+  assistantId: string,
+  pending: PendingProviderKey,
+): Promise<void> {
   const trimmed = pending.key.trim();
 
   if (!PROFILE_AUTHORING_PROVIDERS.has(pending.provider)) {

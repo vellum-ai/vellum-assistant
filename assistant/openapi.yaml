@@ -27286,10 +27286,13 @@ paths:
                     type: string
                   name:
                     type: string
+                  error:
+                    description:
+                      Why the secret was not stored (e.g. provider-side API key validation failed). Present only when success is
+                      false.
+                    type: string
                 required:
                   - success
-                  - type
-                  - name
                 additionalProperties: false
   /v1/secrets/read:
     post:
