@@ -40,5 +40,12 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      # `bun run test` maps to Vitest, whose only project is the Storybook
+      # browser suite, so `bun:test` files do not run there. This step is
+      # scoped to the token guard because the package's other `bun:test` files
+      # include four failing segment-control assertions.
+      - name: Token contrast guard
+        run: bun run test:tokens
+
       - name: Test
         run: bun run test
