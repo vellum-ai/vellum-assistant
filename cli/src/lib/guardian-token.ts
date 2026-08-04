@@ -17,7 +17,12 @@ import { platform } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS } from "@vellumai/environments";
-import { guardianTokenPath, resolveConfigDir } from "@vellumai/local-mode";
+import {
+  guardianTokenPath,
+  resolveConfigDir,
+  saveGuardianToken as writeGuardianToken,
+  type GuardianTokenData,
+} from "@vellumai/local-mode";
 
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -25,19 +30,7 @@ import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 const DEVICE_ID_SALT = "vellum-assistant-host-id";
 
-export interface GuardianTokenData {
-  guardianPrincipalId: string;
-  accessToken: string;
-  /** ISO date string or epoch-ms number as returned by the gateway. */
-  accessTokenExpiresAt: string | number;
-  refreshToken: string;
-  /** ISO date string or epoch-ms number as returned by the gateway. */
-  refreshTokenExpiresAt: string | number;
-  refreshAfter: string;
-  isNew: boolean;
-  deviceId: string;
-  leasedAt: string;
-}
+export type { GuardianTokenData };
 
 function getGuardianTokenPath(assistantId: string): string {
   // Resolve via the shared @vellumai/local-mode resolver — the same one every
@@ -178,15 +171,9 @@ export function saveGuardianToken(
   assistantId: string,
   data: GuardianTokenData,
 ): void {
-  const tokenPath = getGuardianTokenPath(assistantId);
-  const dir = dirname(tokenPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  writeFileSync(tokenPath, JSON.stringify(data, null, 2) + "\n", {
-    mode: 0o600,
-  });
-  chmodSync(tokenPath, 0o600);
+  // Delegates to the shared @vellumai/local-mode writer (0700 dir, 0600 file)
+  // with the same env-resolved config dir the path resolver above uses.
+  writeGuardianToken(resolveConfigDir(process.env), assistantId, data);
 }
 
 /** Abort the refresh POST if the gateway is slow/unreachable (it's now on the
