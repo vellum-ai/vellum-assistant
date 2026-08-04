@@ -10,16 +10,31 @@
  *                                (see the external plugin loader's tool walk).
  * - `skills/<id>/SKILL.md`     → a skill owned by the plugin (see the skills
  *                                catalog's `discoverPluginResidentSkills`).
+ * - `schedules/<name>.md` or
+ *   `schedules/<name>/`        → a declared schedule (see the daemon's plugin
+ *                                schedule declaration parser).
  *
  * This module re-derives those same sets so `plugins inspect` can report exactly
  * what a plugin contributes. Detection is intentionally a self-contained walk of
- * the install tree — `cli/lib` does not reach into the daemon-internal loader or
- * skills catalog — but it mirrors their conventions so inspect agrees with what
- * the runtime actually loads.
+ * the install tree (`cli/lib` does not reach into the daemon-internal loader,
+ * skills catalog, or schedule parser), but it mirrors their conventions so
+ * inspect agrees with what the runtime actually loads.
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+
+import { parse as parseYaml } from "yaml";
+
+/** A schedule the plugin declares under `schedules/`. */
+export interface PluginScheduleSurface {
+  /** Schedule name: the flat file's basename or the declaration directory's name. */
+  readonly name: string;
+  /** Raw schedule `expression` string from the declaration's config. */
+  readonly cadence: string;
+  /** `execute` for a markdown prompt entrypoint, `script` for `index.sh`. */
+  readonly mode: "execute" | "script";
+}
 
 /** The surfaces an installed plugin contributes, each sorted and de-duplicated. */
 export interface PluginSurfaces {
@@ -36,6 +51,16 @@ export interface PluginSurfaces {
    * importing and executing untrusted plugin code, which inspection avoids.
    */
   readonly tools: readonly string[];
+  /**
+   * Schedules declared under `schedules/`, in either of the loader's two forms:
+   * a flat `<name>.md` with YAML frontmatter (mode `execute`), or a `<name>/`
+   * directory with a `config.json` plus exactly one `index.md` (`execute`) or
+   * `index.sh` (`script`) entrypoint. This is a display surface, not the arming
+   * path: ambiguous or unsupported declarations (a basename in both forms, a
+   * bad entrypoint set, an unreadable config, a missing `expression`) are
+   * skipped rather than reported as errors.
+   */
+  readonly schedules: readonly PluginScheduleSurface[];
 }
 
 /**
@@ -97,6 +122,134 @@ function listSkillIds(skillsDir: string): string[] {
   return ids.sort();
 }
 
+/** Matches a `---` delimited YAML frontmatter block at the start of a file. */
+const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+
+/** Read the raw `expression` string from a parsed schedule config, or `null`. */
+function readConfigExpression(config: unknown): string | null {
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+    return null;
+  }
+  const expression = (config as Record<string, unknown>).expression;
+  return typeof expression === "string" && expression.trim() !== ""
+    ? expression
+    : null;
+}
+
+/**
+ * Read the cadence of a flat `<name>.md` declaration: the `expression` field of
+ * its YAML frontmatter. `null` when the file is unreadable, carries no
+ * frontmatter, or declares no expression.
+ */
+function readFlatScheduleCadence(filePath: string): string | null {
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const match = FRONTMATTER_REGEX.exec(content);
+  if (!match) {
+    return null;
+  }
+  let fields: unknown;
+  try {
+    fields = parseYaml(match[1]!);
+  } catch {
+    return null;
+  }
+  return readConfigExpression(fields);
+}
+
+/**
+ * Read a `<name>/` directory declaration: `config.json` supplies the cadence
+ * and the single `index.md`/`index.sh` entrypoint decides the mode. `null` for
+ * anything the loader would refuse (zero or multiple `index.*` entries, an
+ * unsupported entrypoint, an unreadable config, a missing expression).
+ */
+function readDirectorySchedule(
+  dirPath: string,
+): { cadence: string; mode: PluginScheduleSurface["mode"] } | null {
+  let children;
+  try {
+    children = readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const entrypoints = children
+    .filter((c) => c.isFile() && c.name.startsWith("index."))
+    .map((c) => c.name);
+  if (entrypoints.length !== 1) {
+    return null;
+  }
+  const entrypoint = entrypoints[0]!;
+  if (entrypoint !== "index.md" && entrypoint !== "index.sh") {
+    return null;
+  }
+  let config: unknown;
+  try {
+    config = JSON.parse(readFileSync(join(dirPath, "config.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  const cadence = readConfigExpression(config);
+  if (cadence === null) {
+    return null;
+  }
+  return { cadence, mode: entrypoint === "index.md" ? "execute" : "script" };
+}
+
+/**
+ * List the schedules a plugin declares under `schedules/`, mirroring the
+ * declaration parser's two forms. A basename declared in both forms is
+ * ambiguous (the loader refuses it), so neither form is listed. Returns
+ * schedules sorted by name; a missing directory yields `[]`.
+ */
+function listSchedules(schedulesDir: string): PluginScheduleSurface[] {
+  let entries;
+  try {
+    entries = readdirSync(schedulesDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const flatNames = new Map<string, string>();
+  const dirNames = new Set<string>();
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      dirNames.add(entry.name);
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      flatNames.set(entry.name.slice(0, -".md".length), entry.name);
+    }
+  }
+  for (const name of [...flatNames.keys()]) {
+    if (dirNames.has(name)) {
+      flatNames.delete(name);
+      dirNames.delete(name);
+    }
+  }
+
+  const schedules: PluginScheduleSurface[] = [];
+  for (const [name, fileName] of flatNames) {
+    const cadence = readFlatScheduleCadence(join(schedulesDir, fileName));
+    if (cadence !== null) {
+      schedules.push({ name, cadence, mode: "execute" });
+    }
+  }
+  for (const name of dirNames) {
+    const parsed = readDirectorySchedule(join(schedulesDir, name));
+    if (parsed) {
+      schedules.push({ name, ...parsed });
+    }
+  }
+  return schedules.sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  );
+}
+
 /**
  * Detect the {@link PluginSurfaces} an installed plugin contributes by walking
  * its install tree at `pluginDir`. Surface types with no contributions come
@@ -110,5 +263,6 @@ export function detectPluginSurfaces(pluginDir: string): PluginSurfaces {
     skills: listSkillIds(join(pluginDir, "skills")),
     hooks: listModuleBasenames(join(pluginDir, "hooks")),
     tools: [...new Set(toolNames)].sort(),
+    schedules: listSchedules(join(pluginDir, "schedules")),
   };
 }
