@@ -13,9 +13,20 @@
  * Like the research turn (`research-runner.ts`) and the check-in
  * (`checkin-scheduler.ts`), this runs on a dedicated throwaway side
  * conversation: we await hatch readiness, mint a conversation, post the prompt,
- * let the rewrite turn settle, then archive it so it never shows in the user's
- * sidebar. Talks to the daemon through the generated SDK directly
- * (`@/domains/chat/api/*` is import-banned from onboarding).
+ * and let the rewrite turn settle. Talks to the daemon through the generated
+ * SDK directly (`@/domains/chat/api/*` is import-banned from onboarding).
+ *
+ * The thread is minted `conversationType: "background"`, which hides it from
+ * creation: the daemon's conversation list defaults to `standard`, so a
+ * background thread can never be the landing conversation or enter Recents.
+ * That matters here because the rewrite prompt asks for a first-person
+ * self-description (see `@/assistant/personality-rewrite`) and the prompt
+ * itself posts hidden, so the thread's only visible content is an
+ * assistant-authored intro message — the stray intro users hit on first chat
+ * load back when a retroactive archive was the only thing hiding the thread.
+ * The archive below is best-effort cleanup, not the hiding mechanism. A daemon
+ * predating this field ignores it and leaves the thread visible until the
+ * archive lands, which is exactly the previous behavior, so no version gate.
  *
  * Best-effort and fire-and-forget: a failure here must never block or surface
  * in the onboarding flow. Every error is swallowed (reported to Sentry).
@@ -83,7 +94,7 @@ export async function applyPersonality({
 
     const conversation = await conversationsPost({
       path: { assistant_id: assistantId },
-      body: { conversationType: "standard", title: "Updating personality" },
+      body: { conversationType: "background", title: "Updating personality" },
       throwOnError: false,
     });
     conversationId = conversation.data?.id;
@@ -148,7 +159,8 @@ export async function applyPersonality({
   } catch (err) {
     captureError(err, { context: "research_onboarding_personality" });
   } finally {
-    // Archive the throwaway thread so it never appears in the sidebar.
+    // Best-effort cleanup of the throwaway thread. Hiding it does not depend on
+    // this landing — it was minted `background` (see the module header).
     if (assistantId && conversationId) {
       try {
         await conversationsByIdArchivePost({

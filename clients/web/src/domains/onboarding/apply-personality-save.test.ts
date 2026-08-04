@@ -7,15 +7,18 @@
  * message-builder tests stay free of module mocks.
  *
  * Also pins that the rewrite send goes out hidden (see
- * `lib/side-conversation-message.ts`).
+ * `lib/side-conversation-message.ts`) and that the throwaway thread is minted
+ * `background` rather than relying on the retroactive archive to hide it.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const conversationsPostMock = mock(async () => ({
-  data: { id: "conv-1" },
-  response: { ok: true },
-}));
+const conversationsPostMock = mock(
+  async (_opts: { body: { conversationType?: string } }) => ({
+    data: { id: "conv-1" },
+    response: { ok: true },
+  }),
+);
 const messagesPostMock = mock(
   async (_opts: { body: { hidden?: boolean } }) => ({
     response: { ok: true },
@@ -58,6 +61,26 @@ beforeEach(() => {
   conversationsPostMock.mockClear();
   messagesPostMock.mockClear();
   saveSlidersMock.mockClear();
+});
+
+describe("applyPersonality side conversation", () => {
+  test("mints the throwaway thread as background even when the archive fails", async () => {
+    // The thread's only visible content is the assistant's first-person
+    // self-description (the prompt posts hidden), so a `standard` mint that
+    // outran the archive surfaced as a stray intro message on first chat load.
+    // Failing the archive here pins that the hiding comes from the mint.
+    archivePostMock.mockRejectedValueOnce(new Error("archive failed"));
+
+    await applyPersonality({
+      awaitAssistantId: async () => "ast-1",
+      values: {},
+    });
+
+    expect(conversationsPostMock.mock.calls[0]?.[0].body).toMatchObject({
+      conversationType: "background",
+      title: "Updating personality",
+    });
+  });
 });
 
 describe("applyPersonality rewrite prompt", () => {
