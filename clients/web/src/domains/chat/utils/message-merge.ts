@@ -208,6 +208,21 @@ function canFoldAdjacentAssistant(
   ) {
     return false;
   }
+  // Standalone display turns, mirroring the daemon's
+  // `isStandaloneAssistantRow` (message-consolidation.ts): system cards and
+  // provider-error notices never merge with adjacent assistant rows. The fold
+  // keeps only the survivor's metadata, so merging would either drop the
+  // donor's marker (a credits-exhausted row silently loses its upsell card)
+  // or stamp the survivor's marker onto a bubble holding the donor's real
+  // assistant text (the transcript substitution would then hide that text).
+  if (
+    survivor.isSystemCard ||
+    donor.isSystemCard ||
+    survivor.providerError ||
+    donor.providerError
+  ) {
+    return false;
+  }
   return true;
 }
 

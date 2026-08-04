@@ -169,6 +169,13 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 let requested = try Activity.request(
                     attributes: VoiceSessionAttributes(
                         assistantName: assistantName,
+                        // Stamped here, at the one moment an activity begins.
+                        // A `start` that lands on a running activity takes the
+                        // branch above and only updates its content, so the
+                        // timer keeps counting the session rather than
+                        // restarting on a redundant start (the controller
+                        // remounting across a route change issues exactly one).
+                        startedAt: Date(),
                         avatarImageData: Self.avatarImageData(from: call)
                     ),
                     content: Self.content(state),
@@ -346,7 +353,10 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             label: call.getString("label") ?? "",
             accentHex: call.getString("accentHex")
                 ?? VoiceSessionAttributes.ContentState.neutralAccentHex,
-            muted: call.getBool("muted") ?? false
+            muted: call.getBool("muted") ?? false,
+            // Absent from a web bundle older than this field, which simply has
+            // no activity line to show.
+            detail: call.getString("detail") ?? ""
         )
     }
 }

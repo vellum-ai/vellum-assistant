@@ -1028,6 +1028,10 @@ export class AgentLoop {
     // rejection means the repair could not recover, so the error surfaces
     // instead of looping. Turn-scoped, so each turn recovers afresh.
     let orderingRepairAttempted = false;
+    // One resume per turn after a call dies mid-generation: a second
+    // interruption means re-issuing is not getting through, so the error
+    // surfaces instead of looping.
+    let interruptedCallResumed = false;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
@@ -1176,6 +1180,12 @@ export class AgentLoop {
       // elsewhere in the turn body (tool execution, the success-path stop
       // chain, post-model-call hooks) must not re-enter the stop chain.
       let providerCallError: unknown;
+      // Set once the model streams its first token on this iteration's call.
+      // Two readers: latency instrumentation stamps time-to-first-token off
+      // its rising edge, and the outer catch reads it to tell a refused
+      // request from a generation that died mid-flight. Declared here so that
+      // catch can reach it.
+      let streamedTokens = false;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -1527,11 +1537,6 @@ export class AgentLoop {
         // the client would otherwise see nothing.
         let streamedVisibleText = false;
 
-        // Latency instrumentation: stamp the first streamed token (thinking or
-        // text) of THIS call exactly once, so each per-call segment carries its
-        // own time-to-first-token. Reset per provider call.
-        let firstTokenMarked = false;
-
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1541,10 +1546,10 @@ export class AgentLoop {
           config: providerConfig,
           onEvent: (event) => {
             if (
-              !firstTokenMarked &&
+              !streamedTokens &&
               (event.type === "thinking_delta" || event.type === "text_delta")
             ) {
-              firstTokenMarked = true;
+              streamedTokens = true;
               latencyTracker?.markFirstToken(
                 event.type === "thinking_delta" ? "thinking" : "text",
               );
@@ -2496,6 +2501,30 @@ export class AgentLoop {
             // onto the new array; the repaired history is the base the retry's
             // output appends after.
             newMessagesStart = history.length;
+            continue;
+          }
+
+          // Last: the call died mid-generation. `streamedTokens` means the
+          // provider accepted the request and started producing before it
+          // failed, so the request is fine and re-issuing it as-is is the
+          // recovery — nothing to repair, which is why no branch above claims
+          // it. A rejection that streamed nothing is the opposite case (the
+          // provider refused the request), and an identical resend would be
+          // refused identically, so those surface. Main-agent turns only:
+          // background call sites answer to callers that handle their own
+          // failures.
+          if (
+            streamedTokens &&
+            !interruptedCallResumed &&
+            callSite === "mainAgent" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            interruptedCallResumed = true;
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, messageCount: history.length, err },
+              "Model call died mid-generation, resuming the turn",
+            );
             continue;
           }
         }

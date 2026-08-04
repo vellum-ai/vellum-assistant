@@ -15,6 +15,7 @@ import {
   getEmbedWorkerPidPath,
 } from "../../util/platform.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
+import { workerComputeEnv } from "../../util/worker-compute.js";
 import { workerMemoryEnv } from "../../util/worker-memory.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
 import {
@@ -509,7 +510,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
     const proc = Bun.spawn({
       cmd: [bunPath, "--smol", workerPath, this.model, modelCacheDir],
-      env: workerMemoryEnv(),
+      env: { ...workerMemoryEnv(), ...workerComputeEnv() },
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

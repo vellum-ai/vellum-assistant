@@ -167,8 +167,17 @@ export function handleFeedbackPrompt(
   });
 }
 
+/**
+ * Records the resolution prompt while the turn is still running.
+ *
+ * The Doctor requests the prompt through a tool call and keeps working
+ * afterwards, usually to write a closing reply, so the turn stays marked as
+ * thinking until that reply completes or the session ends. The panel holds the
+ * prompt back until then, which keeps the card from surfacing above the reply
+ * it asks about.
+ */
 export function handleUserOutcomePrompt(ctx: DoctorPanelContext): void {
-  ctx.setThinking(false);
+  ctx.setThinking(true);
   ctx.appendEntry({
     kind: "user_outcome_prompt",
     content: USER_OUTCOME_PROMPT_QUESTION,

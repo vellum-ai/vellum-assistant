@@ -122,11 +122,110 @@ of importance:
    natively means shipping more state across the bridge and duplicating the rule.
 3. **Localization.** The web layer already owns user-facing copy.
 
-The compact trailing slot is very tight. It *truncates* the passed label
-(`.lineLimit(1)` + `.truncationMode(.tail)` in `VoiceSessionText`); it does not
-substitute a shorter native string. Every phase that reaches an activity has a
-non-empty label, so there is no empty-string case for `VoiceSessionText` to
-handle.
+Wherever the label *is* rendered it is only ever truncated (`.lineLimit(1)` +
+`.truncationMode(.tail)` in `VoiceSessionText`), never swapped for a shorter
+native string. Every phase that reaches an activity has a non-empty label, so
+there is no empty-string case for `VoiceSessionText` to handle.
+
+### What the native side may derive: the phase glyph
+
+The rule above is about *wording*, and `ContentState.phaseSymbol` is the one
+place that switches on `phase` without breaking it. An SF Symbol has no
+second source deploying on a different cadence to drift from, and the phase
+vocabulary it switches over is already a contract both sides must change
+together, so a new case is a Swift compile error rather than silent drift.
+
+It exists because the inline slots are a few characters wide. The passed label
+truncates to a fragment there, and the fragments of "Listening…" and
+"Thinking…" are not worth telling apart. Those slots render the glyph; the
+roomier presentations render glyph *and* label. If short *wording* is ever
+wanted inline, it belongs to the web layer that owns the wording, as a second
+short label, not to a native `switch`.
+
+### Which presentation a voice session actually gets
+
+Probably the minimal one, which is why the phase glyph is what it renders.
+
+iOS falls back to the minimal presentation when the Dynamic Island is shared,
+and a live-voice session always shares it: the system's microphone privacy
+indicator is on for the entire call. It stays on while muted, too, because
+muting streams silence rather than stopping capture. That indicator cannot be
+suppressed and should not be.
+
+Two consequences worth keeping in mind when changing these views:
+
+- **The minimal slot is the island, for most of a call.** It carries the phase
+  rather than the avatar: identity is the fact that does not change and that
+  the user already knows, and the accent tint keeps it weakly present anyway.
+  It falls back to the identity mark when the content is stale, because a
+  presentation that renders nothing reads as a broken app.
+- **The expanded presentation is reached deliberately**, by touch and hold
+  (a tap opens the app through `widgetURL`; the gesture mapping is the
+  system's). Someone who held is asking for what the inline slots dropped, so
+  it shows everything the activity knows: avatar, name, elapsed time, mute,
+  phase glyph, phase label, and the activity line.
+
+None of this is verifiable in the simulator, which has no island and no real
+microphone. It is a device check.
+
+### Alerting updates are reserved
+
+`AlertConfiguration` forces a brief expanded presentation plus a haptic, a
+sound, a Lock Screen banner, and an Apple Watch forward. No phase change ever
+uses it: at the rate a conversation changes phase it would be intolerable, and
+the phase is not something the user must be interrupted for. It is reserved for
+a state change that genuinely requires attention, the first of which is an
+approval request the turn is blocked on.
+
+### The activity line: wording from a third layer
+
+`ContentState.detail` is one short line saying what the turn is doing right now
+("Reading a file"), or `""` when nothing nameable is. The phase says whether it
+is your turn to talk; this says what it is busy with, and a turn can be
+thinking *and* reading a file.
+
+Its wording comes from neither this shell nor the web layer but from the
+**daemon** (`assistant/src/live-voice/activity-label.ts`). Two reasons, and the
+first is the binding one:
+
+1. The island has two drivers carrying identical content state, and only one of
+   them runs web code. A label composed in the web layer could not be
+   reproduced by the APNs push that takes over once that layer is suspended, so
+   both are handed the same string: the daemon sends an `activity` frame down
+   the socket *and* the same text in its dispatch.
+2. The daemon is the only layer that knows a tool ran at all.
+
+This does not reopen the cadence question the phase-label rule answers. That
+rule exists because *this shell* ships on App Store review; the daemon deploys
+continuously, like the web bundle.
+
+The label names what the user would say is happening, never the tool and never
+its arguments: a path or a URL is unreadable at a glance and may be something
+the user would not choose to show whoever else can see the Lock Screen. Every
+tool gets a line, including ones the map has never seen, because the vocabulary
+is open (plugins, MCP, skills) and a blank line at the busiest moment is the
+worst of the options.
+
+### What moves without an update: the elapsed timer
+
+`VoiceSessionAttributes.startedAt` is stamped natively at `Activity.request`,
+and `VoiceSessionTimer` renders it with `Text(timerInterval:)`, a
+system-driven timer. It therefore keeps counting with no `ContentState` update
+at all: through a suspended web layer, through a dropped push, and through
+ActivityKit's update rate limit. For a session whose phase can legitimately sit
+unchanged for minutes, it is what distinguishes an island that looks frozen
+from one that visibly is not.
+
+It is an attribute rather than content for two reasons: it is fixed for the
+activity's lifetime, and being an attribute is what keeps a server-driven push
+(which replaces the content state wholesale) from touching it. Stamping it
+natively also puts it on the same clock as the device rendering it, which a
+timestamp composed on the platform would not be.
+
+Everything phase-derived (label, glyph, the activity line, and the timer)
+drops when `context.isStale` goes true. Identity (avatar, name, accent) stays: that a
+session with this assistant exists is still true, and tapping through still
+reaches it.
 
 ## The deep-link contract
 
@@ -422,6 +521,16 @@ Three rules fall out of this:
   continuously — applies to the platform too, one layer further out. The client
   registers a phase→label map and dispatch only ever looks a phase up in it,
   skipping a phase it has no label for.
+- **Nor does it invent the rest of the content state.** A push replaces
+  `ContentState` wholesale, and two of its fields (`accentHex` and `muted`)
+  are things only the client can see: the accent is the avatar color this web
+  layer renders, and mute is a local control the daemon's session never hears
+  about. They are therefore stored on the token row at registration and
+  composed from there, and the client re-registers whenever either moves. When
+  the dispatch payload carried them instead, the daemon (which has neither) sent
+  nothing and every field defaulted, so the first server-driven update grayed
+  the island's accent out and dropped its mute glyph, which is to say it did so
+  the moment the app was backgrounded.
 - **`aps.timestamp` is a counter, not wall time.** iOS discards a push whose
   timestamp is not newer than the state it holds, and `transcribing` →
   `thinking` is routinely sub-second.
@@ -432,32 +541,45 @@ Three rules fall out of this:
 
 Even with both drivers, a push can be missed — so every update still carries a
 `staleDate` (`VoiceLiveActivityPlugin.contentStaleAfter`), and the views drop
-the phase label once `context.isStale` goes true. An island frozen on
+everything phase-derived once `context.isStale` goes true. An island frozen on
 "Listening…" is a claim about a live socket and a live mic that nothing is
 checking; the horizon does not make it correct, only honest about not knowing.
 
+**Both drivers must use the same horizon**, since either can deliver the state
+whose staleness is being judged. They are two constants in two repos
+(`VoiceLiveActivityPlugin.contentStaleAfter` and the platform's
+`STALE_AFTER_SECONDS`), and they had already drifted (120 against 45) once.
+The client's 120 is the correct one: a quiet call emits no frames, so nothing
+dispatches, and a 45-second horizon would strip the phase off a perfectly
+healthy session that nobody happens to be talking to.
+
 ### 2. No App Group
 
-`ContentState` carries only primitives: `phase`, `label`, `accentHex`, `muted`,
-plus `assistantName` on the attributes. The extension ships **no entitlements
-file at all**.
+`ContentState` carries only primitives (`phase`, `label`, `detail`,
+`accentHex`, `muted`), and the attributes carry `assistantName`, `startedAt`, and the
+avatar as `Data`. The extension ships **no entitlements file at all**.
 
-*Why:* an App Group is only needed to share *files* — the obvious candidate being
-a user's custom avatar image in the island. A hex accent gets most of the visual
-identity for none of the plumbing, and no entitlement means one less Apple
-Developer portal capability to keep in sync (an entitlement enabled in the portal
-but not satisfiable by the build is a provisioning failure waiting to happen).
+*Why:* an App Group is only needed to share *files*, and nothing here needs
+one. The obvious candidate was the avatar, but `ActivityAttributes` is
+`Codable`, so the bytes travel in the attributes and render via
+`Image(uiImage:)`: no entitlement, and one less Apple Developer portal
+capability to keep in sync across six App IDs (an entitlement enabled in the
+portal but not satisfiable by the build is a provisioning failure waiting to
+happen).
 
-*To revisit:* enable an App Group capability on all six App IDs (three apps,
-three extensions), add entitlements files, regenerate all six profiles, write the
-avatar into the shared container on the app side, and read it in
-`VoiceSessionIslandViews`. Note that the container write has to happen before the
-activity starts, so it also needs an avatar-caching path.
+What is genuinely impossible is fetching anything at render time: a Live
+Activity draws from a snapshot, so a URL would only ever render `AsyncImage`'s
+placeholder. That is also why the avatar is sized to a measured byte ceiling
+before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
+`clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
+activity rather than degrading the image.
 
-### 3. The island is tap-to-return only — no interactive End button
+### 3. The island is tap-to-return only, with no interactive End button
 
 `VoiceSessionLiveActivity` has no buttons. The only affordance is
-`.widgetURL(VoiceModeDeepLink.resume.url())`.
+`.widgetURL(VoiceModeDeepLink.resume.url())`, which a tap follows; a touch and
+hold expands the presentation instead, and that is the system's gesture
+mapping, not a choice made here.
 
 *Why:* two reasons. Mechanically, an in-island control needs a
 `LiveActivityIntent` plus a signalling path into the running app (the appex
@@ -518,10 +640,19 @@ expect.
 | Deep-link contract, both modes | `xcrun simctl openurl booted "vellum-assistant-dev://voice?mode=new"` — and `…?mode=resume`, and a `&prompt=` variant with `&`, `#`, and emoji to check the round trip |
 | Terminated-launch delivery | Force-quit the app in the simulator first, then `openurl`. This is the path that used to drop; a warm-open pass proves nothing about it |
 | Scheme isolation | Open a `vellum-assistant://` link with only the Dev build installed — nothing should happen |
-| Live Activity presentations | Start a session; the Lock Screen presentation renders in the simulator. Check both appearances (Features → Toggle Appearance) — the accent is an arbitrary avatar color over a wallpaper |
+| Live Activity presentations | Start a session, then background the app (`xcrun simctl launch booted com.apple.Preferences`; there is no home key). **The Dynamic Island renders in the simulator** on a Pro device: compact inline, and expanded on a touch and hold. Lock (⌘L) for the Lock Screen presentation, and check both appearances (Features → Toggle Appearance) since the accent is an arbitrary avatar color over a wallpaper |
+| The mic privacy indicator competing for the island | Also reproducible: a session holds the mic for the whole call, muted included, so the island is shared and iOS falls back to the minimal presentation. This is the one that decides whether the compact slots are ever seen during a call |
 | App Intents in the Shortcuts app | The three intents appear under the app with their icons and short titles |
 | Control Center control | Add "New voice conversation" from the gallery and tap it |
-| Extension builds | `cd clients/ios/App && xcodebuild -project App.xcodeproj -target "VoiceActivity Dev" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO` after `bun run ios:setup` |
+| Extension builds (compile check only) | `cd clients/ios/App && xcodebuild -project App.xcodeproj -target "VoiceActivity Dev" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO` after `bun run ios:setup`. **Never install a build made with that flag**; see below |
+
+**`CODE_SIGNING_ALLOWED=NO` silently kills Live Activities.** It is fine for a
+compile check and wrong for anything you install: it strips the signature *and*
+the entitlements, and an unsigned widget extension is never loaded, so the app
+runs, the session runs, and the activity simply has nothing to render it. There
+is no error anywhere, on either side, which makes it look like backgrounding
+stopped working. Simulator builds ad-hoc sign without a team, so the flag buys
+nothing there: build with signing on and install that.
 
 Note on local builds: a full-app local build has been failing while resolving the
 Capacitor SPM graph (`IONFilesystemLib`), which is environmental and pre-existing
@@ -538,7 +669,6 @@ The Simulator does not faithfully reproduce any of these.
 
 | What | Why the simulator can't |
 | --- | --- |
-| Dynamic Island (compact / expanded / minimal) | No island hardware; only the Lock Screen presentation renders |
 | Backgrounded and locked audio | The simulator does not suspend the web process the way real iOS does — this is exactly the measurement the missing spike needs |
 | Siri phrase matching | Needs the on-device App Intents index and real speech. Allow a few minutes after install before the phrases resolve |
 | Action Button | iPhone 15 Pro or newer. Settings → Action Button → Shortcut → Vellum → "New voice conversation" |

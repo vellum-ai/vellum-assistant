@@ -308,10 +308,25 @@ export const messageMetadataSchema = z
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
-     * Kept as a plain string so unknown future kinds never fail metadata
-     * validation.
+     * `"provider_error"` marks the synthetic assistant row the agent loop
+     * persists when a turn dies on the provider-error path; see
+     * {@link PROVIDER_ERROR_MESSAGE_KIND}. Kept as a plain string so unknown
+     * future kinds never fail metadata validation.
      */
     messageKind: z.string().optional(),
+    /**
+     * Stable classified error code (`ClassifiedConversationError.code`, e.g.
+     * `"PROVIDER_BILLING"`) stamped alongside
+     * `messageKind: "provider_error"` on persisted provider-failure rows.
+     */
+    providerErrorCode: z.string().optional(),
+    /**
+     * Classified error category (`ClassifiedConversationError.errorCategory`,
+     * e.g. `"credits_exhausted"`) stamped alongside
+     * `messageKind: "provider_error"`. Clients switch on this to pick a
+     * themed rendering for the row.
+     */
+    providerErrorCategory: z.string().optional(),
     /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
@@ -377,6 +392,16 @@ export {
 export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
 
 /**
+ * `messageKind` value marking the synthetic assistant row the agent loop
+ * persists when a turn terminates on the provider-error path (see the
+ * `persistProviderErrorAsAssistantMessage` branch). The row's text stays in
+ * LLM history like any assistant message; the marker (plus the
+ * `providerErrorCode`/`providerErrorCategory` fields stamped next to it) lets
+ * clients render the row as a themed notice instead of persona speech.
+ */
+export const PROVIDER_ERROR_MESSAGE_KIND = "provider_error";
+
+/**
  * Shared predicate for the system-card marker on assistant-message metadata
  * (see the `messageKind` field on {@link messageMetadataSchema}). One
  * definition so display merging, transcript rendering, and turn grouping
@@ -389,11 +414,24 @@ export function isSystemCardMetadata(
 }
 
 /**
- * Row-level variant of {@link isSystemCardMetadata} for callers holding the
- * raw persisted `metadata` JSON string. The single place the parse lives so
- * display merging and turn grouping agree on what a card is.
+ * Shared predicate for the provider-error marker on assistant-message
+ * metadata (see the `messageKind` field on {@link messageMetadataSchema}).
+ * One definition so persistence stamping and wire projection cannot drift.
  */
-export function isSystemCardMessage(
+export function isProviderErrorMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === PROVIDER_ERROR_MESSAGE_KIND;
+}
+
+/**
+ * True when an assistant row is a standalone display turn: a system card or
+ * a provider-error notice. Standalone rows never merge with adjacent
+ * assistant rows, and turn grouping closes on them, so display merging and
+ * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
+ * JSON string; malformed JSON and non-assistant roles are never standalone.
+ */
+export function isStandaloneAssistantMessage(
   role: string,
   metadata: string | null,
 ): boolean {
@@ -401,9 +439,8 @@ export function isSystemCardMessage(
     return false;
   }
   try {
-    return isSystemCardMetadata(
-      JSON.parse(metadata) as Record<string, unknown>,
-    );
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
   } catch {
     return false;
   }
@@ -4216,8 +4253,10 @@ export function getTurnTimeBounds(
 /**
  * Resolve all assistant message IDs that belong to the same agent turn
  * as the given `messageId`. A "turn" is bounded by:
- *   - The start of the conversation, or
- *   - A user message whose content is NOT a tool_result array.
+ *   - The start of the conversation,
+ *   - A user message whose content is NOT a tool_result array, or
+ *   - A standalone assistant row (see {@link isStandaloneAssistantMessage}),
+ *     which always forms its own single-row turn.
  *
  * Within a multi-step agent loop, the pattern is:
  *   user msg → assistant A1 → user (tool_result) → assistant A2 → ...
@@ -4236,9 +4275,10 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     return [messageId];
   }
 
-  // A system card is its own single-row group — its linked calls (e.g. the
-  // summarize-up-to compaction call) never mix into a neighbouring turn.
-  if (isSystemCardMessage(target.role, target.metadata)) {
+  // A standalone row (system card or provider-error notice) is its own
+  // single-row group: its linked calls (e.g. the summarize-up-to compaction
+  // call) never mix into a neighbouring turn.
+  if (isStandaloneAssistantMessage(target.role, target.metadata)) {
     return [target.id];
   }
 
@@ -4268,9 +4308,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of backwardRows) {
     if (row.role === "assistant") {
-      if (isSystemCardMessage(row.role, row.metadata)) {
-        // A system card closes the groups on either side of it — rows
-        // before the card belong to an earlier display group.
+      if (isStandaloneAssistantMessage(row.role, row.metadata)) {
+        // A standalone row closes the groups on either side of it: rows
+        // before it belong to an earlier display group.
         boundaryCreatedAt = row.createdAt;
         break;
       }
@@ -4310,10 +4350,10 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of forwardRows) {
     if (row.role === "assistant") {
-      if (isSystemCardMessage(row.role, row.metadata)) {
-        // A card that is the queried user message's only reply (e.g. the
-        // /compact result) IS the turn's response; otherwise the card
-        // closes the group.
+      if (isStandaloneAssistantMessage(row.role, row.metadata)) {
+        // A standalone row that is the queried user message's only reply
+        // (e.g. the /compact result card, or a provider-error notice) IS
+        // the turn's response; otherwise it closes the group.
         if (assistantIds.length === 0) {
           assistantIds.push(row.id);
         }
@@ -4357,7 +4397,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     for (const row of gapRows) {
       if (
         row.role === "assistant" &&
-        !isSystemCardMessage(row.role, row.metadata) &&
+        !isStandaloneAssistantMessage(row.role, row.metadata) &&
         !assistantIds.includes(row.id)
       ) {
         assistantIds.push(row.id);

@@ -49,14 +49,16 @@ export class TelegramAdapter implements ChannelAdapter {
         // Attempt rich delivery with inline keyboard buttons.
         // On failure, fall back to plain text below.
         try {
-          await sendTelegramReply(chatId, messageText, approval);
+          const sent = await sendTelegramReply(chatId, messageText, approval);
 
           log.info(
             { sourceEventName: payload.sourceEventName, chatId },
             "Telegram approval notification delivered with inline buttons",
           );
 
-          return { success: true };
+          // The message id lets the delivery row address the card later
+          // (in-place withdrawal when the request resolves elsewhere).
+          return { success: true, messageId: sent.lastMessageId };
         } catch (richErr) {
           log.warn(
             { err: richErr, sourceEventName: payload.sourceEventName, chatId },
@@ -73,14 +75,14 @@ export class TelegramAdapter implements ChannelAdapter {
           ? `${messageText}\n\n${approval.plainTextFallback}`
           : messageText;
 
-      await sendTelegramReply(chatId, fallbackText);
+      const sent = await sendTelegramReply(chatId, fallbackText);
 
       log.info(
         { sourceEventName: payload.sourceEventName, chatId },
         "Telegram notification delivered",
       );
 
-      return { success: true };
+      return { success: true, messageId: sent.lastMessageId };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // A missing bot token means the operator simply hasn't configured

@@ -36,6 +36,8 @@ interface UpsertArg {
     apns_environment: string;
     conversation_id: string;
     labels: Record<string, string>;
+    accent_hex: string;
+    muted: boolean;
   };
   throwOnError: boolean;
 }
@@ -71,13 +73,17 @@ beforeEach(() => {
   localStorage.removeItem("vellum:live_activity_registration");
 });
 
+const REGISTRATION = {
+  token: "activity-token",
+  assistantId: "assistant-1",
+  conversationId: "conv-1",
+  accentHex: "#FF8800",
+  muted: false,
+};
+
 describe("registerLiveActivityPushToken APNs environment", () => {
   test("tags the upsert with the shared resolver's environment", async () => {
-    await registerLiveActivityPushToken(
-      "activity-token",
-      "assistant-1",
-      "conv-1",
-    );
+    await registerLiveActivityPushToken(REGISTRATION);
 
     expect(resolveSignedApnsEnvironmentMock).toHaveBeenCalledWith(bundleId);
     expect(upsertMock).toHaveBeenCalledTimes(1);
@@ -86,5 +92,58 @@ describe("registerLiveActivityPushToken APNs environment", () => {
     expect(lastUpsertArg?.body.bundle_id).toBe(bundleId);
     expect(lastUpsertArg?.body.conversation_id).toBe("conv-1");
     expect(lastUpsertArg?.body.apns_environment).toBe("production");
+  });
+});
+
+describe("registerLiveActivityPushToken content state", () => {
+  // The daemon that drives the server-side pushes observes neither, so the
+  // registration is the only path either has into a pushed content state.
+  test("carries the accent and mute state the daemon cannot see", async () => {
+    await registerLiveActivityPushToken({
+      ...REGISTRATION,
+      accentHex: "#22CC99",
+      muted: true,
+    });
+
+    expect(lastUpsertArg?.body.accent_hex).toBe("#22CC99");
+    expect(lastUpsertArg?.body.muted).toBe(true);
+  });
+
+  // The stored row is what every background push composes from, so a slow
+  // first request landing after a fast second one would leave the island
+  // rendering the state the user moved away from.
+  test("registrations reach the platform in call order", async () => {
+    const arrived: boolean[] = [];
+    let releaseFirst!: () => void;
+    const firstInFlight = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    upsertMock.mockImplementation(async (arg: UpsertArg) => {
+      lastUpsertArg = arg;
+      calls += 1;
+      // Hold the first request open past the point the second is issued, so
+      // an unserialized implementation would let the second overtake it.
+      if (calls === 1) {
+        await firstInFlight;
+      }
+      arrived.push(arg.body.muted);
+      return { data: {}, error: undefined };
+    });
+
+    const first = registerLiveActivityPushToken({
+      ...REGISTRATION,
+      muted: true,
+    });
+    const second = registerLiveActivityPushToken({
+      ...REGISTRATION,
+      muted: false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(arrived).toEqual([true, false]);
+    expect(lastUpsertArg?.body.muted).toBe(false);
   });
 });

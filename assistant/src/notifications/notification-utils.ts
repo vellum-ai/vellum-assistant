@@ -91,8 +91,14 @@ export function sanitizeMessagePreview(value: string): string {
 export const NOTIFICATION_TITLE_MAX_LENGTH = 60;
 
 /**
- * Sanitize an untrusted notification title for inclusion in notification copy.
- * Strips control characters and clamps to `NOTIFICATION_TITLE_MAX_LENGTH`.
+ * Flatten an untrusted notification title onto a single line, stripping control
+ * characters and newlines and bounding it at `NOTIFICATION_TITLE_MAX_LENGTH`.
+ *
+ * The newline flattening is the load-bearing part: downstream consumers re-run
+ * the value through `normalizeTitle`, whose prose guard discards any string
+ * containing a newline outright, so a multi-line conversation title would be
+ * thrown away wholesale instead of salvaged. The length bound is a backstop;
+ * `normalizeTitle`'s tighter 40-character budget is what callers observe.
  */
 export function sanitizeNotificationTitle(value: string): string {
   return sanitize(value, NOTIFICATION_TITLE_MAX_LENGTH);

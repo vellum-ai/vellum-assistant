@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { X } from "lucide-react";
+
 import { Button } from "@vellumai/design-library";
 
 interface BillingErrorBannerAction {
@@ -13,6 +15,8 @@ interface BillingErrorBannerProps {
   title: string;
   subtitle: string;
   action?: BillingErrorBannerAction;
+  /** When provided, renders a small dismiss (X) button after the CTA. */
+  onDismiss?: () => void;
   /**
    * Render as a standalone, centered card ~24px narrower than the composer with
    * full rounding, instead of a full-width banner flush-mounted above the
@@ -27,6 +31,7 @@ export function BillingErrorBanner({
   title,
   subtitle,
   action,
+  onDismiss,
   detached = false,
 }: BillingErrorBannerProps) {
   return (
@@ -72,16 +77,28 @@ export function BillingErrorBanner({
           </p>
         </div>
 
-        {action ? (
-          <div className="flex shrink-0 items-center">
-            <Button
-              variant="primary"
-              size="regular"
-              onClick={action.onClick}
-              aria-label={action.label}
-            >
-              {action.label}
-            </Button>
+        {action || onDismiss ? (
+          <div className="flex items-center gap-1 shrink-0">
+            {action ? (
+              <Button
+                variant="primary"
+                size="regular"
+                onClick={action.onClick}
+                aria-label={action.label}
+              >
+                {action.label}
+              </Button>
+            ) : null}
+            {onDismiss ? (
+              <Button
+                variant="ghost"
+                size="compact"
+                iconOnly={<X />}
+                tooltip="Dismiss"
+                aria-label="Dismiss"
+                onClick={onDismiss}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>

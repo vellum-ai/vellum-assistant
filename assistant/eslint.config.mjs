@@ -49,14 +49,29 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
-  // Managed-column profile resolution (`getEffectiveProfile(s)`) resolves
-  // default profiles against the vellum column only, ignoring
-  // `llm.defaultProvider`; on a BYO install that is not the body that
-  // dispatches. Runtime code must use `resolveDefaultProfileForProvider` /
-  // `getEffectiveProfilesForProvider` instead. The allowlist below is the
-  // full set of intentional managed-column consumers: the catalog itself,
-  // hatch-time seeding (writes managed stubs by design), and write-path
-  // validation.
+  // Two unrelated import bans share one `no-restricted-imports` entry on
+  // purpose: flat config replaces rule options rather than merging them, so a
+  // second block setting the same rule over overlapping files would silently
+  // drop the first one's patterns.
+  //
+  // 1. Managed-column profile resolution (`getEffectiveProfile(s)`) resolves
+  //    default profiles against the vellum column only, ignoring
+  //    `llm.defaultProvider`; on a BYO install that is not the body that
+  //    dispatches. Runtime code must use `resolveDefaultProfileForProvider` /
+  //    `getEffectiveProfilesForProvider` instead. The allowlist below is the
+  //    full set of intentional managed-column consumers: the catalog itself,
+  //    hatch-time seeding (writes managed stubs by design), and write-path
+  //    validation.
+  //
+  // 2. `cli/logger` is the plain-stdout writer for short-lived `assistant …`
+  //    invocations. It has no level filtering and no log-file routing, so a
+  //    daemon-side module reaching for it writes debug output straight to a
+  //    stdout the daemon may not own. Daemon code uses `getLogger()` from
+  //    `util/logger.js`. The pattern matches on the import specifier, so
+  //    CLI-internal files (which reach their logger relatively, as
+  //    `../logger.js`) are unaffected. The companion guard test
+  //    `src/__tests__/cli-logger-boundary-guard.test.ts` enforces the same
+  //    boundary by resolved path, independent of how a specifier is spelled.
   {
     files: ["src/**/*.ts"],
     ignores: [
@@ -76,6 +91,11 @@ const eslintConfig = defineConfig([
               importNames: ["getEffectiveProfile", "getEffectiveProfiles"],
               message:
                 "Managed-column resolution ignores llm.defaultProvider. Use resolveDefaultProfileForProvider / getEffectiveProfilesForProvider with the parsed config's llm.defaultProvider ?? null.",
+            },
+            {
+              group: ["**/cli/logger.js"],
+              message:
+                "cli/logger writes unfiltered plain text to stdout and is for src/cli/ only. Daemon and shared modules must use getLogger() from util/logger.js so output is level-filtered and routed to the log file. Within src/cli/, import the logger relatively (../logger.js).",
             },
           ],
         },
