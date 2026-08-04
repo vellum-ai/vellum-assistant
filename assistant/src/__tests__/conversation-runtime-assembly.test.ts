@@ -3430,6 +3430,28 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     );
   });
 
+  test("keeps the stored text when projection would resolve worse than ingress did", async () => {
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m-rawtext-downgrade",
+        createdAt: 1700000000_000,
+        // Ingress resolved the bare token to a real name; a later projection
+        // with no labels (auth down, timeout, non-turn assembly) must not
+        // replace it with the fallback.
+        text: "post this in #prod-models going forward",
+        slackMeta: buildSlackMeta({
+          channelTs: T0,
+          rawText: "post this in <#C99XYZ> going forward",
+        }),
+      }),
+    ];
+
+    const rendered = loadWithLabels(rows);
+
+    expect(rendered).toContain("post this in #prod-models going forward");
+    expect(rendered).not.toContain("#unknown-channel");
+  });
+
   test("hostile mention labels and raw text cannot break the untrusted fence", async () => {
     const rows: MessageRow[] = [
       userRow({

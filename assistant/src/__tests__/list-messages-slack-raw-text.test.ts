@@ -120,6 +120,28 @@ describe("handleListMessages Slack rawText projection", () => {
     );
   });
 
+  test("keeps the stored text when it resolved better than the projection", async () => {
+    const conv = createConversation();
+    // Ingress resolved the bare token; with no Slack auth in the test
+    // environment the projection cannot, so the stored copy must win.
+    const row = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "post this in #prod-models going forward" },
+      ]),
+      {
+        metadata: slackUserMessageMetadata({
+          channelTs: "1700000000.000250",
+          rawText: "post this in <#C99XYZ> going forward",
+        }),
+      },
+    );
+
+    const texts = await listTexts(conv.id);
+    expect(texts.get(row.id)).toBe("post this in #prod-models going forward");
+  });
+
   test("serves rows without rawText exactly as stored", async () => {
     const conv = createConversation();
     const row = await addMessage(

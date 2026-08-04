@@ -18,6 +18,7 @@ import type { ChannelId } from "../../../channels/types.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
 import {
   getMessageById,
@@ -134,11 +135,20 @@ export async function handleEditIntercept(
     // previous revision. Skipping the DB write here covers that case and
     // also drops trivially-redundant edit webhooks. We only have the
     // authoritative previous text once the original row is located, so
-    // this check lives after the lookup.
+    // this check lives after the lookup. For Slack, the stored `rawText`
+    // must match too: an edit can change the mention markup (a different
+    // target that renders to the same name) without changing the display
+    // text, and skipping the write would leave the stale markup for
+    // projection to keep resolving.
     const existingRow = getMessageById(original.messageId);
+    const existingRawText =
+      sourceChannel === "slack" && existingRow
+        ? readSlackMetadataFromMessageMetadata(existingRow.metadata)?.rawText
+        : undefined;
     if (
       existingRow &&
-      stringifyMessageContent(existingRow.content) === newContent
+      stringifyMessageContent(existingRow.content) === newContent &&
+      (sourceChannel !== "slack" || existingRawText === slackRawText)
     ) {
       log.debug(
         {

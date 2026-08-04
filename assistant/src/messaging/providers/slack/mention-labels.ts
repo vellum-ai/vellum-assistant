@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import {
   buildSlackChannelLabelMap,
   buildSlackUserLabelMap,
+  renderSlackTextForModel,
 } from "@vellumai/slack-text";
 
 import { findContactChannel } from "../../../contacts/contact-store.js";
@@ -330,6 +331,49 @@ export async function resolveSlackMentionLabelsForTexts(
     log.debug({ err }, "Slack mention label resolution failed");
     return empty;
   }
+}
+
+/**
+ * Matches the renderer's unresolved-mention fallback labels
+ * (`#unknown-channel …` / `@unknown-user …`). Used to compare how well two
+ * renderings of the same message resolved their mentions.
+ */
+const UNRESOLVED_MENTION_MARKER_RE = /[#@]unknown-(?:channel|user)\b/g;
+
+function countUnresolvedMentionMarkers(text: string): number {
+  return text.match(UNRESOLVED_MENTION_MARKER_RE)?.length ?? 0;
+}
+
+/**
+ * Render a persisted Slack raw text for projection, keeping the stored copy
+ * whenever the re-render would be a downgrade.
+ *
+ * Label resolution can legitimately come back empty (Slack auth unavailable,
+ * the bounded resolution timing out, an id this identity cannot see, or an
+ * assembly path that never resolved labels). A bare token then renders as the
+ * id-carrying fallback even though ingress may have resolved the real name
+ * into the stored copy, so the projection only wins when it leaves no more
+ * unresolved mentions than the stored text already had. Equal counts favor
+ * the projection: re-rendering an unresolved `#unknown-channel` upgrades it
+ * to the id-carrying `#unknown-channel (C…)` form, and resolutions that
+ * improve later win on the next read.
+ */
+export function projectPersistedSlackText(
+  rawText: string,
+  storedText: string,
+  labels: SlackMentionLabels,
+): string {
+  const projected = renderSlackTextForModel(rawText, labels).trim();
+  if (projected.length === 0) {
+    return storedText;
+  }
+  if (
+    countUnresolvedMentionMarkers(projected) >
+    countUnresolvedMentionMarkers(storedText)
+  ) {
+    return storedText;
+  }
+  return projected;
 }
 
 export function __resetSlackMentionCachesForTests(): void {

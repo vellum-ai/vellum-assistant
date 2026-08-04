@@ -8,7 +8,6 @@ import {
   type ClientMetadataField,
   sanitizeClientMetadataValue,
 } from "@vellumai/service-contracts/client-metadata";
-import { renderSlackTextForModel } from "@vellumai/slack-text";
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
@@ -94,7 +93,11 @@ import {
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
-import { resolveSlackMentionLabelsForTexts } from "../../messaging/providers/slack/mention-labels.js";
+import {
+  projectPersistedSlackText,
+  resolveSlackMentionLabelsForTexts,
+  type SlackMentionLabels,
+} from "../../messaging/providers/slack/mention-labels.js";
 import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
@@ -764,18 +767,19 @@ function buildQueuedMessagePayloads(
 }
 
 /**
- * Substitute a projected Slack text into a stored message content value,
- * replacing the first `text` block (or the whole value for plain-string
- * rows) while leaving attachment/file blocks untouched. Returns the input
- * unchanged when the projected text is empty or the shape is unrecognized.
+ * Substitute the projected render of a Slack raw text into a stored message
+ * content value, replacing the first `text` block (or the whole value for
+ * plain-string rows) while leaving attachment/file blocks untouched. The
+ * projection is computed against each replaced block's own stored text via
+ * `projectPersistedSlackText`, which keeps the stored copy whenever the
+ * re-render would resolve mentions worse than ingress did. Returns the input
+ * unchanged when the shape is unrecognized.
  */
 function projectSlackRawTextIntoContent(
   content: unknown,
-  projectedText: string,
+  rawText: string,
+  labels: SlackMentionLabels,
 ): unknown {
-  if (projectedText.trim().length === 0) {
-    return content;
-  }
   const replaceFirstTextBlock = (blocks: unknown[]): unknown[] => {
     let replaced = false;
     return blocks.map((block) => {
@@ -786,7 +790,15 @@ function projectSlackRawTextIntoContent(
         (block as { type?: unknown }).type === "text"
       ) {
         replaced = true;
-        return { ...(block as object), text: projectedText };
+        const storedText = (block as { text?: unknown }).text;
+        return {
+          ...(block as object),
+          text: projectPersistedSlackText(
+            rawText,
+            typeof storedText === "string" ? storedText : "",
+            labels,
+          ),
+        };
       }
       return block;
     });
@@ -803,7 +815,7 @@ function projectSlackRawTextIntoContent(
     } catch {
       // Plain-string legacy row; fall through to whole-value replacement.
     }
-    return projectedText;
+    return projectPersistedSlackText(rawText, content, labels);
   }
   return content;
 }
@@ -1183,7 +1195,8 @@ export async function handleListMessages({
     const contentForRender = m.slackRawText
       ? projectSlackRawTextIntoContent(
           m.content,
-          renderSlackTextForModel(m.slackRawText, slackMentionLabels),
+          m.slackRawText,
+          slackMentionLabels,
         )
       : m.content;
     const rendered = renderHistoryContent(

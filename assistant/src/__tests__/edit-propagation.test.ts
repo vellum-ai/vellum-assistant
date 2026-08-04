@@ -196,6 +196,43 @@ describe("Slack edit propagation", () => {
     expect(slackMeta?.rawText).toBe("see <#CNEW123|new-channel>");
   });
 
+  test("a display no-op edit with changed markup still refreshes rawText", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.6003",
+      initialContent: "ping #ops",
+    });
+
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "ping #ops",
+      slackRawText: "ping <#COPS111|ops>",
+    });
+
+    // Same display text, different mention target: the no-op guard must not
+    // skip the write, or projection keeps resolving the old markup.
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "ping #ops",
+      slackRawText: "ping <#COPS222|ops>",
+    });
+
+    const after = readMessageRow(seeded.messageId);
+    const outer = JSON.parse(after.metadata!);
+    const slackMeta = readSlackMetadata(outer.slackMeta);
+    expect(slackMeta?.rawText).toBe("ping <#COPS222|ops>");
+  });
+
   test("clears a stale slackMeta.rawText when the edit carries no mention tokens", async () => {
     const seeded = await seedSlackMessage({
       conversationExternalId: "C0123CHANNEL",

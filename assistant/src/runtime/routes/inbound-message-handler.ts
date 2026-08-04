@@ -661,6 +661,7 @@ export async function handleChannelInbound({
   }
 
   // Auto-transcribe audio attachments from channel messages
+  let contentAugmentedBeyondChannelText = false;
   if (hasAttachments && sourceChannel) {
     const transcribeResult = await tryTranscribeAudioAttachments(attachmentIds);
     switch (transcribeResult.status) {
@@ -670,6 +671,7 @@ export async function handleChannelInbound({
         trimmedContent =
           transcribeResult.text +
           (trimmedContent ? `\n\n${trimmedContent}` : "");
+        contentAugmentedBeyondChannelText = true;
         break;
       case "no_provider":
       case "error":
@@ -678,6 +680,7 @@ export async function handleChannelInbound({
         trimmedContent =
           `[Voice message received — ${transcribeResult.reason}]` +
           (trimmedContent ? `\n\n${trimmedContent}` : "");
+        contentAugmentedBeyondChannelText = true;
         break;
       // "no_audio" — no action needed
     }
@@ -1368,8 +1371,13 @@ export async function handleChannelInbound({
         Array.isArray(sourceMetadata?.appContext?.entities)
           ? sourceMetadata.appContext.entities
           : undefined;
+      // Dropped when ingress augmented the persisted text beyond the Slack
+      // event text (audio transcription, voice hint): `rawText` mirrors only
+      // the Slack message body, so projecting it over an augmented row would
+      // discard the augmentation.
       const slackRawText =
         sourceChannel === "slack" &&
+        !contentAugmentedBeyondChannelText &&
         typeof sourceMetadata?.slackRawText === "string" &&
         sourceMetadata.slackRawText.length > 0
           ? sourceMetadata.slackRawText

@@ -8,8 +8,6 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
-import { renderSlackTextForModel } from "@vellumai/slack-text";
-
 import {
   getApp,
   getAppDirPath,
@@ -35,6 +33,7 @@ import {
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
+  projectPersistedSlackText,
   resolveSlackMentionLabelsForTexts,
   type SlackMentionLabels,
 } from "../messaging/providers/slack/mention-labels.js";
@@ -1142,17 +1141,20 @@ function rowToRenderable(
   // Rows that carry the verbatim Slack text (mention markup intact) render it
   // here with the current label cache instead of trusting the name resolution
   // baked into `content` at ingress, so a mention that resolved late (or a
-  // renamed channel) projects its current name. This runs BEFORE the
-  // `wrapContentForModel` fencing in the transcript renderer, preserving the
-  // ingress pipeline's render-then-fence order, and resolved labels are
-  // bracket-stripped by the renderer's sanitizer, so a hostile channel or
-  // user name cannot forge fence boundaries.
+  // renamed channel) projects its current name. The projector keeps the
+  // stored copy whenever the re-render resolves worse (empty labels, an id
+  // this identity cannot see). This runs BEFORE the `wrapContentForModel`
+  // fencing in the transcript renderer, preserving the ingress pipeline's
+  // render-then-fence order, and resolved labels are bracket-stripped by the
+  // renderer's sanitizer, so a hostile channel or user name cannot forge
+  // fence boundaries.
   const rawText = slackMeta?.rawText;
   if (rawText && slackMeta?.eventKind === "message" && !slackMeta.deletedAt) {
-    const projected = renderSlackTextForModel(rawText, mentionLabels ?? {});
-    if (projected.trim().length > 0) {
-      plainText = projected;
-    }
+    plainText = projectPersistedSlackText(
+      rawText,
+      plainText,
+      mentionLabels ?? { userLabels: {}, channelLabels: {} },
+    );
   }
 
   // Attachment-only rows (images, files) carry no text block, so the
