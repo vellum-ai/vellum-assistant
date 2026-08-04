@@ -113,6 +113,24 @@ function endedDigestMd(): string {
   ].join("\n");
 }
 
+/**
+ * The same five daily occurrences, shipped switched off and starting at the
+ * given DTSTART. A declaration with `enabled: false` inserts its row unarmed:
+ * the clock is zeroed, no run sits behind it, and no user choice is recorded.
+ */
+function disabledDigestMd(dtstart: string): string {
+  return [
+    "---",
+    `expression: "DTSTART:${dtstart}\\nRRULE:FREQ=DAILY;COUNT=5"`,
+    "expression_syntax: rrule",
+    "enabled: false",
+    "---",
+    "",
+    "Summarize the day.",
+    "",
+  ].join("\n");
+}
+
 const DIGEST_KEY = "plugin:news/digest";
 
 describe("reconcilePluginSchedules", () => {
@@ -651,6 +669,27 @@ describe("reconcilePluginSchedules", () => {
     // The user turned the schedule off, so its recurrence running out costs
     // no firing they expected.
     writePlugin("news", { "digest.md": endedDigestMd() });
+    await reconcilePluginSchedules();
+
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("a declaration that shipped disabled keeps an ended recurrence quiet", async () => {
+    writePlugin("news", { "digest.md": disabledDigestMd("20990101T090000Z") });
+    await reconcilePluginSchedules();
+
+    const created = listDeclaredSchedules()[0]!;
+    expect(created.enabled).toBe(false);
+    expect(created.nextRunAt).toBe(0);
+    expect(created.lastRunAt).toBeNull();
+    expect(created.userEnabled).toBeNull();
+    emittedSignals.length = 0;
+
+    // The row was never armed, so the recurrence running out costs no firing
+    // the user was going to get. Telling them every day about a schedule they
+    // never turned on is noise.
+    writePlugin("news", { "digest.md": disabledDigestMd("20200101T090000Z") });
+    await reconcilePluginSchedules();
     await reconcilePluginSchedules();
 
     expect(emittedSignals).toHaveLength(0);
