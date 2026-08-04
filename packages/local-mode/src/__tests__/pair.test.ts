@@ -369,14 +369,15 @@ describe("pairAssistant", () => {
   });
 
   test("deletes the just-written token when the lockfile write fails", () => {
-    // A read-only lockfile directory makes the tmp-file write fail after the
-    // token has already been written.
-    const lockedDir = path.join(tmpDir, "locked");
-    fs.mkdirSync(lockedDir, { mode: 0o500 });
+    // A lockfile path whose parent is a regular file makes the write fail
+    // deterministically (unlike chmod, which root ignores) after the token
+    // has already been written.
+    const notADir = path.join(tmpDir, "not-a-dir");
+    fs.writeFileSync(notADir, "");
     const tokenPath = guardianTokenPath(configDir, "paired-dev-aaa");
 
     const result = pairAssistant(
-      [path.join(lockedDir, "lockfile.json")],
+      [path.join(notADir, "lockfile.json")],
       configDir,
       { bundle: bundle() },
     );
@@ -395,17 +396,20 @@ describe("pairAssistant", () => {
     const tokenPath = guardianTokenPath(configDir, "paired-dev-re");
     const priorContents = fs.readFileSync(tokenPath, "utf-8");
 
-    fs.chmodSync(tmpDir, 0o500);
-    try {
-      const result = pairAssistant([lockfilePath], configDir, {
-        bundle: bundle({ deviceId: "dev-re", token: "t2" }),
-      });
+    // Reads fall back to the real lockfile (so the existing entry is found
+    // and this is a genuine re-import) while the write targets a path whose
+    // parent is a regular file and fails deterministically (unlike chmod,
+    // which root ignores).
+    const notADir = path.join(tmpDir, "not-a-dir");
+    fs.writeFileSync(notADir, "");
+    const result = pairAssistant(
+      [path.join(notADir, "lockfile.json"), lockfilePath],
+      configDir,
+      { bundle: bundle({ deviceId: "dev-re", token: "t2" }) },
+    );
 
-      expect(result.ok).toBe(false);
-      expect(fs.readFileSync(tokenPath, "utf-8")).toBe(priorContents);
-    } finally {
-      fs.chmodSync(tmpDir, 0o700);
-    }
+    expect(result.ok).toBe(false);
+    expect(fs.readFileSync(tokenPath, "utf-8")).toBe(priorContents);
   });
 
   test("an unparseable gatewayUrl on an unvalidated bundle is refused, not thrown", () => {

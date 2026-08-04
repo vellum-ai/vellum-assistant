@@ -90,7 +90,7 @@ export async function connectImport(): Promise<void> {
   console.log("");
   console.log(
     result.accessOnly
-      ? "Note: the token is access-only and will expire — re-run `vellum pair` and import again when it does."
-      : "Note: this connection includes a refresh credential, so it can renew itself — re-pair only if it's revoked or the refresh credential expires.",
+      ? "Note: the token is access-only and will expire. Re-run `vellum pair` and import again when it does."
+      : "Note: this connection includes a refresh credential, so it can renew itself. Re-pair only if it's revoked or the refresh credential expires.",
   );
 }
