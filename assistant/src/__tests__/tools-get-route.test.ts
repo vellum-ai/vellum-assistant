@@ -41,6 +41,12 @@ interface ToolsGetResponse {
   names: string[];
   schemas: Record<string, unknown>;
   tools: ToolListEntry[];
+  agent?: {
+    requested: string;
+    role: string;
+    alias?: string;
+    persona?: string;
+  };
 }
 
 function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
@@ -313,9 +319,52 @@ describe("GET /tools", () => {
     expect(tools.some((t) => t.name === "notify_parent")).toBe(true);
   });
 
-  test("with an unknown agent, throws a 404 RouteError", () => {
-    expect(() =>
-      handler({ queryParams: { agent: "nonexistent_role" } }),
-    ).toThrow(/Unknown agent "nonexistent_role"/);
+  test("with agent=role, reports the type it listed", async () => {
+    registerTool(makeFakeTool("file_read"));
+
+    const { agent } = (await handler({
+      queryParams: { agent: "researcher" },
+    })) as ToolsGetResponse;
+
+    expect(agent).toEqual({ requested: "researcher", role: "researcher" });
+  });
+
+  test("a legacy role name lists its successor type and names the alias", async () => {
+    // GIVEN tools on both sides of the researcher allowlist
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("bash"));
+
+    // WHEN the handler runs with an older role name a spawn still accepts
+    const { names, agent } = (await handler({
+      queryParams: { agent: "coder" },
+    })) as ToolsGetResponse;
+
+    // THEN it previews the type that name resolves to, and says which alias
+    // produced it rather than 404ing on a name spawns still take.
+    expect(agent).toEqual({
+      requested: "coder",
+      role: "builder",
+      alias: "coder",
+    });
+    expect(names).toContain("bash");
+  });
+
+  test("free text previews the persona fallback surface instead of 404ing", async () => {
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("bash"));
+
+    const { names, agent } = (await handler({
+      queryParams: { agent: "a skeptical security reviewer" },
+    })) as ToolsGetResponse;
+
+    // A role naming no type runs as a researcher carrying the text as a
+    // persona, so the preview is the read-only surface, reported as such.
+    expect(agent).toEqual({
+      requested: "a skeptical security reviewer",
+      role: "researcher",
+      persona: "a skeptical security reviewer",
+    });
+    expect(names).toContain("file_read");
+    expect(names).not.toContain("bash");
   });
 });

@@ -12,7 +12,9 @@ import { setConfig } from "./helpers/set-config.js";
 // model the catalog has never heard of). The catalog profiles (balanced,
 // cost-optimized, quality-optimized) always resolve through the code catalog,
 // so they need no seeding.
-setConfig("llm", {
+// Exported as a constant so a test that needs an extra `llm` key (a call-site
+// pin, say) can re-seed the whole block and restore this baseline afterwards.
+const BASE_LLM_CONFIG = {
   profiles: {
     disabled: { status: "disabled" },
     frontier: {},
@@ -26,7 +28,8 @@ setConfig("llm", {
     },
   },
   advisorProfile: "frontier",
-});
+};
+setConfig("llm", BASE_LLM_CONFIG);
 
 // Mock conversation-crud before importing tool executors that depend on it.
 let mockGetMessages: (
@@ -1115,6 +1118,114 @@ describe("Subagent spawn repeat-loop guard", () => {
     expect(result.content).not.toContain("confirm_repeat");
   });
 
+  test("copies still running trip the guard before any of them completes", async () => {
+    // The runaway shape the guard exists for: a burst issued faster than
+    // anything can finish, which a completed-only count cannot see.
+    const objective = "Audit the in-flight pipeline for drift";
+    seedSpawn("guard-flight-0", objective, { status: "running" });
+    seedSpawn("guard-flight-1", objective, { status: "pending" });
+
+    const { result, spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(
+      "2 near-identical subagents are already running in this conversation",
+    );
+    expect(result.content).toContain("none of them has returned yet");
+    // Nothing has been produced, so the caller must not be sent reading.
+    expect(result.content).not.toContain("subagent_read");
+    expect(result.content).toContain("confirm_repeat: true");
+  });
+
+  test("a single in-flight copy is not a loop", async () => {
+    const objective = "Audit the single-flight pipeline for drift";
+    seedSpawn("guard-flight-solo", objective, { status: "running" });
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
+  test("the assistant-wide in-flight ceiling catches a burst across conversations", async () => {
+    const objective = "Audit the fleet-wide in-flight pipeline for drift";
+    for (let i = 0; i < 4; i++) {
+      seedSpawn(`guard-flight-wide-${i}`, objective, {
+        status: "running",
+        parentConversationId: `guard-flight-parent-${i}`,
+      });
+    }
+
+    const { result, spawned } = await spawnWithGuard(
+      true,
+      { label: "Repeat", objective },
+      "guard-flight-fresh-conversation",
+    );
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "4 near-identical subagents are already running in this assistant",
+    );
+  });
+
+  test("completed runs are reported ahead of in-flight ones", async () => {
+    // Both ceilings are met; the answer that already exists is the more
+    // actionable thing to hand back.
+    const objective = "Audit the mixed pipeline for drift";
+    seedSpawns("guard-mixed", objective, 3);
+    seedSpawn("guard-mixed-running-0", objective, { status: "running" });
+    seedSpawn("guard-mixed-running-1", objective, { status: "running" });
+
+    const { result, spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+    });
+
+    expect(spawned).toBe(false);
+    expect(result.content).toContain(
+      "3 near-identical subagents already completed in this conversation",
+    );
+    expect(result.content).toContain("subagent_read");
+  });
+
+  test("confirm_repeat spawns past the in-flight guard too", async () => {
+    const objective = "Audit the confirmed in-flight pipeline for drift";
+    seedSpawns("guard-flight-confirm", objective, 0);
+    for (let i = 0; i < 3; i++) {
+      seedSpawn(`guard-flight-confirm-${i}`, objective, { status: "running" });
+    }
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Repeat",
+      objective,
+      confirm_repeat: true,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
+  test("runs that ended without an answer never trip either ceiling", async () => {
+    const objective = "Audit the failed pipeline for drift";
+    for (const status of ["failed", "aborted", "interrupted"]) {
+      for (let i = 0; i < 4; i++) {
+        seedSpawn(`guard-dead-${status}-${i}`, objective, { status });
+      }
+    }
+
+    const { spawned } = await spawnWithGuard(true, {
+      label: "Retry",
+      objective,
+    });
+
+    expect(spawned).toBe(true);
+  });
+
   test("case and spacing differences count as the same objective", async () => {
     const objective = "Audit the normalized pipeline for drift";
     seedSpawn("guard-norm-0", objective.toUpperCase());
@@ -1166,10 +1277,12 @@ describe("Subagent spawn repeat-loop guard", () => {
   });
 
   test("runs still in flight do not count as answers already produced", async () => {
-    const objective = "Audit the in-flight pipeline for drift";
-    seedSpawn("guard-inflight-0", objective, { status: "running" });
-    seedSpawn("guard-inflight-1", objective, { status: "pending" });
-    seedSpawn("guard-inflight-2", objective, { status: "awaiting_input" });
+    // Two answers plus one copy still executing. Each ceiling is judged on its
+    // own tally, so neither is reached; folding them into one count would hold
+    // this spawn on work that has produced nothing.
+    const objective = "Audit the mixed-tally pipeline for drift";
+    seedSpawns("guard-inflight-done", objective, 2);
+    seedSpawn("guard-inflight-0", objective, { status: "awaiting_input" });
 
     const { spawned } = await spawnWithGuard(true, {
       label: "Repeat",
@@ -2567,16 +2680,18 @@ describe("Subagent role-based spawn", () => {
     }
   });
 
-  test("spawn tool definition includes role property", () => {
+  test("spawn tool definition takes role as an unconstrained string", () => {
     const def = findTool("subagent_spawn");
     expect(def).toBeDefined();
     expect(def.input_schema.properties.role).toBeDefined();
     expect(def.input_schema.properties.role.type).toBe("string");
-    expect(def.input_schema.properties.role.enum).toEqual([
-      "researcher",
-      "builder",
-      "advisor",
-    ]);
+    // Manifest validation runs ahead of the executor, so an enum here would
+    // reject the legacy names and personas `resolveSubagentRole` handles. The
+    // three types are named in the description instead.
+    expect(def.input_schema.properties.role.enum).toBeUndefined();
+    for (const type of ["researcher", "builder", "advisor"]) {
+      expect(def.input_schema.properties.role.description).toContain(type);
+    }
     // role is not required
     expect(def.input_schema.required).not.toContain("role");
   });
@@ -2782,6 +2897,56 @@ describe("Subagent output contract", () => {
     expect(config!.forceOverrideProfile).toBeUndefined();
   });
 
+  test("a subagentSpawn call-site pin outranks the verdict preset", async () => {
+    // A pinned call site is a user's choice about delegated work; the verdict
+    // tier is this tool's preset. An override wins over a call-site profile
+    // outright under single-winner resolution, so the preset must not be
+    // forwarded as one here or the pin is silently downgraded.
+    setConfig("llm", {
+      ...BASE_LLM_CONFIG,
+      callSites: { subagentSpawn: { profile: "quality-optimized" } },
+    });
+    try {
+      const { result, config } = await spawnCapturing(
+        {
+          label: "Check it",
+          objective: "Verify each acceptance criterion",
+          role: "researcher",
+          output_contract: "verdict",
+        },
+        { invokingCallSite: "mainAgent" },
+      );
+      expect(result.isError).toBe(false);
+      // No override at all, so the child resolves on the pinned call site.
+      expect(config!.overrideProfile).toBeUndefined();
+      expect(config!.forceOverrideProfile).toBeUndefined();
+    } finally {
+      setConfig("llm", BASE_LLM_CONFIG);
+    }
+  });
+
+  test("the verdict preset still applies when the call site is unpinned", async () => {
+    setConfig("llm", {
+      ...BASE_LLM_CONFIG,
+      callSites: { mainAgent: { profile: "quality-optimized" } },
+    });
+    try {
+      const { config } = await spawnCapturing(
+        {
+          label: "Check it",
+          objective: "Verify each acceptance criterion",
+          role: "researcher",
+          output_contract: "verdict",
+        },
+        { invokingCallSite: "mainAgent" },
+      );
+      // A pin on some other call site says nothing about delegated checks.
+      expect(config!.overrideProfile).toBe("cost-optimized");
+    } finally {
+      setConfig("llm", BASE_LLM_CONFIG);
+    }
+  });
+
   test("an explicit inference_profile beats the verdict default", async () => {
     const { config } = await spawnCapturing({
       label: "Check it",
@@ -2878,8 +3043,16 @@ describe("Subagent advisor-role consult", () => {
   /**
    * Stub `manager.spawnAndAwait` to capture the config + opts and resolve to
    * `advice`. Restores the original on cleanup. Returns the captured-call ref.
+   *
+   * A function `advice` receives the sender the consult passed in, so a test
+   * can drive the child's event stream (the tool activity the consult counts)
+   * before deciding what the run returns.
    */
-  function stubAwait(advice: string | (() => Promise<string>)): {
+  function stubAwait(
+    advice:
+      | string
+      | ((send: (msg: Record<string, unknown>) => void) => Promise<string>),
+  ): {
     captured: { current?: CapturedAwait };
     restore: () => void;
   } {
@@ -2888,12 +3061,12 @@ describe("Subagent advisor-role consult", () => {
     const captured: { current?: CapturedAwait } = {};
     manager.spawnAndAwait = (async (
       config: Record<string, unknown>,
-      _send: unknown,
+      send: (msg: Record<string, unknown>) => void,
       opts?: CapturedAwait["opts"],
     ) => {
       captured.current = { config, opts };
-      return typeof advice === "function" ? await advice() : advice;
-    }) as typeof manager.spawnAndAwait;
+      return typeof advice === "function" ? await advice(send) : advice;
+    }) as unknown as typeof manager.spawnAndAwait;
     return {
       captured,
       restore: () => {
@@ -3117,6 +3290,88 @@ describe("Subagent advisor-role consult", () => {
     }
   });
 
+  test("an advisorProfile the catalog denies tools falls back with a note", async () => {
+    // The advisor carries read tools now, so a profile that cannot call them
+    // would answer from the transcript alone with nothing saying why.
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    setConfig("llm", { ...BASE_LLM_CONFIG, advisorProfile: "no-tool-model" });
+    const { captured, restore } = stubAwait("Ship the data model first.");
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-no-tools", { sendToClient: () => {} }),
+      );
+      // The subagentSpawn call site's own default, not the denied profile.
+      expect(captured.current!.config.overrideProfile).toBe("balanced");
+      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+      expect(result.content).toContain("Ship the data model first.");
+      expect(result.content).toContain(
+        'profile "no-tool-model" is not verified for tool calling',
+      );
+    } finally {
+      restore();
+      setConfig("llm", BASE_LLM_CONFIG);
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("an explicit inference_profile the catalog denies tools falls back too", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "x",
+          role: "advisor",
+          inference_profile: "no-tool-model",
+        },
+        makeContext("advisor-sess-no-tools-explicit", {
+          sendToClient: () => {},
+        }),
+      );
+      expect(captured.current!.config.overrideProfile).toBe("balanced");
+      expect(result.content).toContain("is not verified for tool calling");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("a model the catalog does not list keeps the advisor on it", async () => {
+    // Fail open: an unknown model is not evidence of anything, and BYOK
+    // installs point profiles at models the catalog has never heard of.
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "x",
+          role: "advisor",
+          inference_profile: "byok-unknown-model",
+        },
+        makeContext("advisor-sess-byok", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.config.overrideProfile).toBe(
+        "byok-unknown-model",
+      );
+      expect(result.content).toBe("advice");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
   test("advisor forwards streamed chunks to the tool's onOutput sink", async () => {
     mockFindConversation = () => ({
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
@@ -3167,6 +3422,121 @@ describe("Subagent advisor-role consult", () => {
       // caller's stream sink.
       expect(chunks).toEqual([]);
       expect(captured.current!.opts?.signal?.aborted).toBe(false);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  /** One child tool call, enveloped the way the manager sends it to a parent. */
+  function toolCallEvent(toolUseId: string): Record<string, unknown> {
+    return {
+      type: "subagent_event",
+      subagentId: "advisor-child",
+      conversationId: "advisor-parent",
+      event: {
+        type: "tool_use_start",
+        toolName: "file_read",
+        toolUseId,
+        conversationId: "advisor-child-conv",
+      },
+    };
+  }
+
+  test("a consult that keeps reading is stopped and answers with what it has", async () => {
+    // Tool events re-arm the idle window, so without a ceiling on tool rounds
+    // a reading advisor blocks the user's turn until the absolute backstop.
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    let sawAbort = false;
+    const { captured, restore } = stubAwait(async (send) => {
+      for (let i = 0; i < 12; i++) {
+        send(toolCallEvent(`tool-${i}`));
+      }
+      sawAbort = captured.current!.opts!.signal!.aborted;
+      throw new SubagentAbortedError("Check the migration ordering first.");
+    });
+    const forwarded: unknown[] = [];
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-tool-cap", {
+          sendToClient: (msg: unknown) => forwarded.push(msg),
+        }),
+      );
+
+      expect(sawAbort).toBe(true);
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Check the migration ordering first.");
+      expect(result.content).toContain("stopped after 8 tool calls");
+      // Counting must not swallow the child's events on their way to the client.
+      expect(forwarded).toHaveLength(12);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("tool calls under the ceiling leave the consult running", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    let sawAbort = true;
+    const { captured, restore } = stubAwait(async (send) => {
+      for (let i = 0; i < 8; i++) {
+        send(toolCallEvent(`tool-${i}`));
+      }
+      // Non-tool traffic must not count against the ceiling.
+      for (let i = 0; i < 20; i++) {
+        send({
+          type: "subagent_event",
+          subagentId: "advisor-child",
+          event: { type: "assistant_text_delta", text: "thinking" },
+        });
+      }
+      sawAbort = captured.current!.opts!.signal!.aborted;
+      return "Read enough. Ship the data model first.";
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-tool-cap-under", { sendToClient: () => {} }),
+      );
+
+      expect(sawAbort).toBe(false);
+      expect(result.content).toBe("Read enough. Ship the data model first.");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("a consult stopped at the ceiling with nothing written says so", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { restore } = stubAwait(async (send) => {
+      for (let i = 0; i < 9; i++) {
+        send(toolCallEvent(`tool-${i}`));
+      }
+      throw new SubagentAbortedError("  ");
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-tool-cap-empty", { sendToClient: () => {} }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain(
+        "advisor stopped after 8 tool calls without writing any guidance",
+      );
+      // The generic degrade would say nothing about why it stopped.
+      expect(result.content).not.toContain("advisor unavailable");
     } finally {
       restore();
       mockFindConversation = () => undefined;

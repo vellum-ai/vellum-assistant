@@ -4,14 +4,18 @@
  *
  * This module owns only the durable row shape and raw SQL. The mapping to and
  * from the manager's `SubagentState` lives in `SubagentManager`, keeping this
- * layer decoupled from the subagent domain types. The one domain function it
- * does reach for is `normalizeSubagentLabel`: label lookups have to fold
- * exactly the way the manager's in-memory index folds, and SQLite has no
- * equivalent (`lower()` is ASCII-only), so the comparison runs in JS against
- * the single shared normalizer rather than a SQL predicate that can drift.
+ * layer decoupled from the subagent domain types. It reaches into that domain
+ * for exactly two things, both to keep a SQL predicate from drifting away from
+ * the definition the manager uses: `normalizeSubagentLabel`, because label
+ * lookups have to fold the way the in-memory index folds and SQLite has no
+ * equivalent (`lower()` is ASCII-only), and `TERMINAL_STATUSES`, which decides
+ * which statuses a similarity scan reads as finished.
  */
 
-import { normalizeSubagentLabel } from "../subagent/types.js";
+import {
+  normalizeSubagentLabel,
+  TERMINAL_STATUSES,
+} from "../subagent/types.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
 
 /** A durable subagent lifecycle record (camelCase mirror of the row). */
@@ -316,6 +320,15 @@ const RECENT_SPAWN_SCAN_LIMIT = 500;
 const REUSABLE_SPAWN_STATUS = "completed";
 
 /**
+ * Statuses the scan skips: the run ended without an answer, so it is neither
+ * work already done nor work still under way. Derived from the terminal set so
+ * a new terminal status cannot silently read as in flight.
+ */
+const DEAD_END_SPAWN_STATUSES: readonly string[] = [
+  ...TERMINAL_STATUSES,
+].filter((status) => status !== REUSABLE_SPAWN_STATUS);
+
+/**
  * Fold an objective to the form two spawns are compared in: lowercased and
  * whitespace-collapsed. Callers normalize the incoming objective with this same
  * function, so both sides of the comparison are folded by one implementation.
@@ -325,7 +338,10 @@ const REUSABLE_SPAWN_STATUS = "completed";
  * component, or ticket each run targets), and comparing prefixes reads that
  * batch as one objective repeated. Comparing in full costs only the re-run
  * whose wording changed, which is a missed catch by an advisory guard, while a
- * batch folded together holds work the caller genuinely meant to run.
+ * batch folded together holds work the caller genuinely meant to run. The
+ * runaway shape this guard exists for is a burst of the SAME objective, which
+ * folds identically either way, so full comparison gives up nothing on the
+ * case that matters and keeps a legitimate fan-out running.
  *
  * The separate `context` spawn argument is not part of the key: a subagent row
  * does not carry it (context, prompts, and trust are deliberately left off the
@@ -337,11 +353,18 @@ export function normalizeSpawnObjective(objective: string): string {
   return objective.toLowerCase().replace(/\s+/gu, " ").trim();
 }
 
-/** How many completed runs matched one normalized objective, and their cost. */
+/** How runs matching one normalized objective are distributed in a scope. */
 export interface SimilarSpawnTally {
+  /** Runs that completed, so their answer exists and can be read. */
   count: number;
-  /** Summed `estimated_cost` of the matched rows. */
+  /** Summed `estimated_cost` of the completed rows. */
   estimatedCost: number;
+  /**
+   * Runs still under way (pending, running, or awaiting input). Kept apart
+   * from `count` because they have produced nothing to read yet: they are
+   * evidence of duplicated work in progress, not of an available answer.
+   */
+  inFlight: number;
 }
 
 /** The two scopes a repeat spawn is judged against. */
@@ -353,14 +376,14 @@ export interface RecentSimilarSpawns {
 }
 
 /**
- * Tally the runs since `sinceMs` (an epoch cutoff) that completed and whose
- * objective folds to `normalizedObjective`, both under `parentConversationId`
- * and assistant-wide.
+ * Tally the runs since `sinceMs` (an epoch cutoff) whose objective folds to
+ * `normalizedObjective`, both under `parentConversationId` and assistant-wide,
+ * split by whether each run finished with an answer or is still under way.
  *
- * Only {@link REUSABLE_SPAWN_STATUS} rows are counted, so a run that is still
- * in flight or that ended without an answer never reads as work already done.
- * Advisor rows are left out too: an advisor consult blocks its caller and is
- * not rate-limited, so its history must not count against a background spawn.
+ * Runs that ended without an answer are left out entirely: spawning their
+ * objective again is recovery rather than repetition. Advisor rows are left out
+ * too: an advisor consult blocks its caller and is not rate-limited, so its
+ * history must not count against a background spawn.
  *
  * Both scopes come from one bounded scan because the assistant-wide set
  * contains the conversation's, so a second query would read the same rows
@@ -380,31 +403,39 @@ export function countRecentSimilarSpawns(args: {
   const rows = rawAll<{
     parent_conversation_id: string;
     objective: string;
+    status: string;
     estimated_cost: number;
   }>(
     "subagent:countRecentSimilar",
-    `SELECT parent_conversation_id, objective, estimated_cost FROM subagents
-       WHERE created_at >= ? AND role <> 'advisor' AND status = ?
+    `SELECT parent_conversation_id, objective, status, estimated_cost FROM subagents
+       WHERE created_at >= ? AND role <> 'advisor'
+         AND status NOT IN (${DEAD_END_SPAWN_STATUSES.map(() => "?").join(", ")})
        ORDER BY created_at DESC
        LIMIT ?`,
     args.sinceMs,
-    REUSABLE_SPAWN_STATUS,
+    ...DEAD_END_SPAWN_STATUSES,
     RECENT_SPAWN_SCAN_LIMIT,
   );
 
   const tally: RecentSimilarSpawns = {
-    conversation: { count: 0, estimatedCost: 0 },
-    assistant: { count: 0, estimatedCost: 0 },
+    conversation: { count: 0, estimatedCost: 0, inFlight: 0 },
+    assistant: { count: 0, estimatedCost: 0, inFlight: 0 },
+  };
+  const add = (scope: SimilarSpawnTally, row: (typeof rows)[number]): void => {
+    if (row.status === REUSABLE_SPAWN_STATUS) {
+      scope.count += 1;
+      scope.estimatedCost += row.estimated_cost;
+    } else {
+      scope.inFlight += 1;
+    }
   };
   for (const row of rows) {
     if (normalizeSpawnObjective(row.objective) !== args.normalizedObjective) {
       continue;
     }
-    tally.assistant.count += 1;
-    tally.assistant.estimatedCost += row.estimated_cost;
+    add(tally.assistant, row);
     if (row.parent_conversation_id === args.parentConversationId) {
-      tally.conversation.count += 1;
-      tally.conversation.estimatedCost += row.estimated_cost;
+      add(tally.conversation, row);
     }
   }
   return tally;

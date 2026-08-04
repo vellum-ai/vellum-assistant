@@ -179,8 +179,8 @@ describe("recent similar spawn tallies", () => {
     upsertSubagentRecord(spawn("c", { parentConversationId: "parent-2" }));
 
     expect(tally()).toEqual({
-      conversation: { count: 2, estimatedCost: 1 },
-      assistant: { count: 3, estimatedCost: 1.5 },
+      conversation: { count: 2, estimatedCost: 1, inFlight: 0 },
+      assistant: { count: 3, estimatedCost: 1.5, inFlight: 0 },
     });
   });
 
@@ -238,19 +238,39 @@ describe("recent similar spawn tallies", () => {
     expect(tally().assistant.count).toBe(1);
   });
 
-  test("runs that produced no answer are left out of both scopes", () => {
+  test("runs that ended without an answer are left out of both scopes", () => {
     upsertSubagentRecord(spawn("done"));
     for (const status of ["failed", "aborted", "interrupted"]) {
       upsertSubagentRecord(
         spawn(`ended-${status}`, { status, completedAt: Date.now() }),
       );
     }
-    upsertSubagentRecord(spawn("in-flight", { status: "running" }));
-    upsertSubagentRecord(spawn("queued", { status: "pending" }));
 
     expect(tally()).toEqual({
-      conversation: { count: 1, estimatedCost: 0.5 },
-      assistant: { count: 1, estimatedCost: 0.5 },
+      conversation: { count: 1, estimatedCost: 0.5, inFlight: 0 },
+      assistant: { count: 1, estimatedCost: 0.5, inFlight: 0 },
+    });
+  });
+
+  test("runs still under way are tallied apart from completed ones", () => {
+    // The burst shape the loop guard exists for: copies fired faster than any
+    // of them can finish are invisible to a completed-only count.
+    upsertSubagentRecord(spawn("done"));
+    upsertSubagentRecord(spawn("running", { status: "running" }));
+    upsertSubagentRecord(spawn("queued", { status: "pending" }));
+    upsertSubagentRecord(spawn("asking", { status: "awaiting_input" }));
+    upsertSubagentRecord(
+      spawn("running-elsewhere", {
+        status: "running",
+        parentConversationId: "parent-2",
+      }),
+    );
+
+    expect(tally()).toEqual({
+      // An unfinished run has no cost recorded yet, so it adds nothing to the
+      // completed tally's spend.
+      conversation: { count: 1, estimatedCost: 0.5, inFlight: 3 },
+      assistant: { count: 1, estimatedCost: 0.5, inFlight: 4 },
     });
   });
 });

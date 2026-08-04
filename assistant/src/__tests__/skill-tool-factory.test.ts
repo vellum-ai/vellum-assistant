@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { SkillToolEntry } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
+import { resolveSubagentRole } from "../subagent/role-resolution.js";
+import type { SubagentRole } from "../subagent/types.js";
 import { bundledToolInputMisuseKeys } from "../tools/shared/input-misuse.js";
 import {
   createSkillTool,
@@ -635,6 +637,103 @@ describe("createSkillTool: parameter misuse redirects", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Invalid input for tool "test_tool"');
     expect(result.content).toContain('Unknown parameter "path"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSkillTool: subagent_spawn roles survive manifest validation
+// ---------------------------------------------------------------------------
+
+/** The subagent skill's real `subagent_spawn` manifest entry. */
+function subagentSpawnEntry(): SkillToolEntry {
+  const manifest = JSON.parse(
+    readFileSync(
+      join(import.meta.dir, "../config/bundled-skills/subagent/TOOLS.json"),
+      "utf-8",
+    ),
+  ) as { tools: SkillToolEntry[] };
+  const entry = manifest.tools.find((t) => t.name === "subagent_spawn");
+  if (!entry) {
+    throw new Error("subagent_spawn is missing from the subagent TOOLS.json");
+  }
+  return entry;
+}
+
+/**
+ * The real `subagent_spawn` schema wired to a stub executor. Only the schema
+ * is under test here, so the manifest's own executor (which would really spawn)
+ * is swapped for the echo script.
+ */
+function subagentSpawnTool() {
+  return createSkillTool(
+    { ...subagentSpawnEntry(), executor: "echo.ts" },
+    tempDir,
+    computeSkillVersionHash(tempDir),
+    BUNDLED,
+  );
+}
+
+/**
+ * Every `role` string {@link resolveSubagentRole} defines an answer for has to
+ * clear manifest validation first: `createSkillTool` validates against the
+ * manifest BEFORE the executor runs, so a constraint there that is narrower
+ * than the resolver silently deletes the resolver's behavior, and every test
+ * that calls `executeSubagentSpawn` directly still passes.
+ */
+describe("createSkillTool: subagent_spawn role validation", () => {
+  const ROLE_CASES: ReadonlyArray<readonly [string, SubagentRole]> = [
+    ["researcher", "researcher"],
+    ["builder", "builder"],
+    ["advisor", "advisor"],
+    ["planner", "researcher"],
+    ["investigator", "researcher"],
+    ["coder", "builder"],
+    ["general", "builder"],
+    ["a skeptical security reviewer", "researcher"],
+    ["Researcher", "researcher"],
+  ];
+
+  test.each(ROLE_CASES)(
+    'role "%s" passes manifest validation and resolves to %s',
+    async (role, expected) => {
+      const result = await subagentSpawnTool().execute(
+        { label: "Check", objective: "Do the thing", role },
+        makeContext(),
+      );
+
+      // Reached the executor at all, so validation let the role through.
+      expect(result.isError).toBe(false);
+      expect(JSON.parse(result.content).input.role).toBe(role);
+      // And the value the executor receives lands where the tool description
+      // and the docs say it does.
+      expect(resolveSubagentRole(role).role).toBe(expected);
+    },
+  );
+
+  test("role declares no enum, so the resolver stays reachable", () => {
+    const role = (
+      subagentSpawnEntry().input_schema as {
+        properties: Record<string, { type?: string; enum?: unknown }>;
+      }
+    ).properties.role;
+
+    expect(role.type).toBe("string");
+    // An enum here is enforced by `validateInputAgainstSchema` ahead of the
+    // executor, so any list short of "every string" rejects the legacy names
+    // and free-text personas the resolver exists to handle.
+    expect(role.enum).toBeUndefined();
+  });
+
+  test("output_contract keeps its enum, which the resolver has no fallback for", () => {
+    // The counterpart constraint: unlike `role`, an unrecognized contract has
+    // no defined behavior, so rejecting it at the boundary is correct.
+    const contract = (
+      subagentSpawnEntry().input_schema as {
+        properties: Record<string, { enum?: string[] }>;
+      }
+    ).properties.output_contract;
+
+    expect(contract.enum).toEqual(["report", "verdict", "artifact"]);
   });
 });
 
