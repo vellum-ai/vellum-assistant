@@ -468,6 +468,20 @@ function mockNginxMissing(): void {
 function mockNginxSpawn(): void {
   spawnMock.mockReturnValue({
     unref: () => {},
+    once: () => {},
+    exitCode: null,
+    pid: 4243,
+  } as unknown as ChildProcess);
+}
+
+/** Spawned nginx that exits on startup, as when the listen port is already bound. */
+function mockNginxSpawnExitsOnStartup(): void {
+  spawnMock.mockReturnValue({
+    unref: () => {},
+    once: (event: string, listener: () => void) => {
+      if (event === "exit") listener();
+    },
+    exitCode: 1,
     pid: 4243,
   } as unknown as ChildProcess);
 }
@@ -972,6 +986,52 @@ describe("startRemoteWebIngress", () => {
       includeWebApp: false,
     });
   });
+
+  test("a spawn that exits despite a successful probe is a port conflict, not started", async () => {
+    // Another assistant's edge on the same listen port answers the readiness
+    // probe while this workspace's nginx dies on the bind, so a healthy probe
+    // alone must not count as started.
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawnExitsOnStartup();
+    mockWebDistMissing();
+    waitForDaemonReadyMock.mockImplementation(async () => true);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result).toEqual({
+      status: "port-conflict",
+      listenPort: 7845,
+      logPath: join(ws, "data", "logs", "nginx-ingress.log"),
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const ingress = readConfig(ws).ingress as
+      | Record<string, unknown>
+      | undefined;
+    expect(ingress?.nginx).toBeUndefined();
+  });
+
+  test("a spawn that exits with a failed probe is also a port conflict", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawnExitsOnStartup();
+    mockWebDistMissing();
+    waitForDaemonReadyMock.mockImplementation(async () => false);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result.status).toBe("port-conflict");
+  });
 });
 
 describe("ensureTunnelEdge", () => {
@@ -1402,5 +1462,29 @@ describe("ensureTunnelEdge", () => {
         gatewayPort: 7830,
       }),
     ).rejects.toThrow(join(ws, "data", "logs", "nginx-ingress.log"));
+  });
+
+  test("a port conflict throws naming the port and the override mechanism", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawnExitsOnStartup();
+    mockWebDistMissing();
+    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    waitForDaemonReadyMock.mockImplementation(async () => true);
+
+    const promise = ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    await expect(promise).rejects.toThrow(
+      `already in use (for example by another assistant's tunnel edge)`,
+    );
+    await expect(promise).rejects.toThrow(`127.0.0.1:${REQUESTED_PORT}`);
+    await expect(promise).rejects.toThrow("VELLUM_NGINX_INGRESS_PORT");
+    await expect(promise).rejects.toThrow(
+      join(ws, "data", "logs", "nginx-ingress.log"),
+    );
   });
 });

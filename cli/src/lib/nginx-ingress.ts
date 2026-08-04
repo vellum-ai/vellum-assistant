@@ -612,7 +612,8 @@ export type StartRemoteWebIngressResult =
     }
   | { status: "nginx-missing" }
   | { status: "web-dist-missing" }
-  | { status: "unreachable"; listenPort: number; logPath: string };
+  | { status: "unreachable"; listenPort: number; logPath: string }
+  | { status: "port-conflict"; listenPort: number; logPath: string };
 
 /**
  * Generate the nginx config and start the remote-web ingress edge, then probe
@@ -709,6 +710,10 @@ export async function startRemoteWebIngress(opts: {
     listenPort,
     remoteWebIngress: webDistDir ? { webDistDir } : undefined,
   });
+  let exited = false;
+  child.once("exit", () => {
+    exited = true;
+  });
   child.unref();
 
   // /healthz proxies through nginx to the gateway, so a 200 proves the whole
@@ -717,6 +722,16 @@ export async function startRemoteWebIngress(opts: {
     listenPort,
     opts.readyTimeoutMs ?? INGRESS_READY_TIMEOUT_MS,
   );
+  // nginx runs `daemon off`, so the spawned process is the master and stays
+  // alive while the edge serves. An early exit means startup failed, and a
+  // probe that still succeeded reached some other process bound to the port
+  // (e.g. another assistant's edge), not this one. Checked before readiness
+  // so a dead spawn is reported as a port conflict, not as this edge.
+  if (exited || child.exitCode !== null) {
+    const { logPath } = getIngressPaths(opts.workspaceDir);
+    await stopIngressNginx(opts.workspaceDir);
+    return { status: "port-conflict", listenPort, logPath };
+  }
   if (!ready) {
     const { logPath } = getIngressPaths(opts.workspaceDir);
     await stopIngressNginx(opts.workspaceDir);
@@ -877,6 +892,14 @@ export async function ensureTunnelEdge(opts: {
     case "unreachable":
       throw new Error(
         `nginx edge did not become reachable on 127.0.0.1:${result.listenPort}. ` +
+          `Check the nginx log: ${result.logPath}`,
+      );
+    case "port-conflict":
+      throw new Error(
+        `nginx edge exited on startup, most likely because 127.0.0.1:${result.listenPort} ` +
+          "is already in use (for example by another assistant's tunnel edge). " +
+          "Stop whatever is bound to that port, or pick a different edge port by " +
+          "setting the VELLUM_NGINX_INGRESS_PORT environment variable, then retry. " +
           `Check the nginx log: ${result.logPath}`,
       );
   }
