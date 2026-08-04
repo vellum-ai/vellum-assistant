@@ -233,6 +233,58 @@ export function stripBulkBase64(value: unknown, path = new WeakSet()): unknown {
   return out;
 }
 
+/**
+ * Replace transcript-item message objects that are identical (by reference)
+ * to a `clientMessages` entry with a pointer marker, so the capture carries
+ * each message once. Matching is object identity, which is exactly how the
+ * duplication arises: transcript items embed the same `DisplayMessage`
+ * instances `clientMessages` lists. A structurally-equal copy is not
+ * identity-matched and is captured in full, so any divergence between the
+ * two surfaces survives; only true duplicates collapse.
+ */
+export function dedupeAgainstClientMessages(
+  transcriptItems: unknown,
+  clientMessages: unknown,
+): unknown {
+  if (!Array.isArray(clientMessages)) {
+    return transcriptItems;
+  }
+  const refs = new Map<object, string>();
+  clientMessages.forEach((m, i) => {
+    if (m && typeof m === "object") {
+      const id = (m as { id?: unknown }).id;
+      refs.set(m, typeof id === "string" ? id : `index ${i}`);
+    }
+  });
+
+  const replace = (value: unknown, path: WeakSet<object>): unknown => {
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+    const ref = refs.get(value);
+    if (ref !== undefined) {
+      return `[deduplicated: see clientMessages ${ref}]`;
+    }
+    if (path.has(value)) {
+      return "[cyclic]";
+    }
+    path.add(value);
+    let out: unknown;
+    if (Array.isArray(value)) {
+      out = value.map((v) => replace(v, path));
+    } else {
+      const obj: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value)) {
+        obj[k] = replace(v, path);
+      }
+      out = obj;
+    }
+    path.delete(value);
+    return out;
+  };
+  return replace(transcriptItems, new WeakSet());
+}
+
 function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   const blockSize = 512;
   const dataBlocks = Math.ceil(data.length / blockSize);
@@ -444,9 +496,17 @@ async function buildClientLogsFile(
             ._vellumDebug?.chat
         : null;
     if (debugApi) {
+      const clientMessages = debugApi.getClientMessages?.() ?? null;
+      const transcriptItems = debugApi.getTranscriptItems?.() ?? null;
       const triagePayload = {
-        clientMessages: debugApi.getClientMessages?.() ?? null,
-        transcriptItems: debugApi.getTranscriptItems?.() ?? null,
+        clientMessages,
+        // Transcript items embed the same message objects `clientMessages`
+        // lists; carry the item-layer structure (kinds, keys, ordering) with
+        // pointers instead of a second full copy of every message.
+        transcriptItems: dedupeAgainstClientMessages(
+          transcriptItems,
+          clientMessages,
+        ),
         // Ephemeral interaction prompts (secret / confirmation /
         // contact-request / question) render as transcript trailer rows
         // outside any message's `contentBlocks`, so they're invisible in

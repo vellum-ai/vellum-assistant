@@ -23,7 +23,7 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { ShareFeedbackModal, stripBulkBase64 } =
+const { ShareFeedbackModal, stripBulkBase64, dedupeAgainstClientMessages } =
   await import("@/components/share-feedback-modal");
 
 afterEach(() => {
@@ -193,14 +193,19 @@ describe("diagnostics capture base64 stripping", () => {
     expect(logsText).not.toContain(bigBase64);
     expect(logsText).toContain("[stripped data URI image/png,");
     expect(logsText).toContain("[stripped base64,");
-    // The diagnostic signal survives IN BOTH SURFACES: transcript items
-    // embed the same message objects clientMessages lists, and a shared
-    // reference is not a cycle. Each capture surface must carry the full
-    // message, so the text and both stripped markers appear twice.
+    // The message ships once, via clientMessages (text appears twice there:
+    // textSegments + contentBlocks). The transcript item that embeds the
+    // same object by reference carries a pointer, not a second copy, and a
+    // shared reference is never misread as a cycle.
     expect(logsText).not.toContain("[cyclic]");
-    expect(logsText.split("look at this photo").length - 1).toBe(4);
-    expect(logsText.split("[stripped data URI image/png,").length - 1).toBe(2);
-    expect(logsText.split("[stripped base64,").length - 1).toBe(2);
+    expect(logsText.split("look at this photo").length - 1).toBe(2);
+    expect(logsText.split("[stripped data URI image/png,").length - 1).toBe(1);
+    expect(logsText.split("[stripped base64,").length - 1).toBe(1);
+    expect(logsText).toContain(
+      "[deduplicated: see clientMessages msg-1]",
+    );
+    // The item-layer structure survives alongside the pointer.
+    expect(logsText).toContain('"kind": "message"');
     expect(logsText).toContain('"photo.png"');
   });
 
@@ -226,6 +231,38 @@ describe("diagnostics capture base64 stripping", () => {
 
     expect(logsText).toContain(prose);
     expect(logsText).not.toContain("[stripped");
+  });
+});
+
+describe("dedupeAgainstClientMessages", () => {
+  test("replaces identity-shared messages, keeps structurally-equal copies", () => {
+    const shared = { id: "msg-1", text: "hello" };
+    const copy = { id: "msg-1", text: "hello" };
+    const items = [
+      { kind: "message", key: "a", message: shared },
+      { kind: "message", key: "b", message: copy },
+      { kind: "thinking", key: "c", active: true },
+    ];
+    const result = dedupeAgainstClientMessages(items, [shared]) as Array<
+      Record<string, unknown>
+    >;
+
+    // Identity match becomes a pointer; the item wrapper survives.
+    expect(result[0]).toEqual({
+      kind: "message",
+      key: "a",
+      message: "[deduplicated: see clientMessages msg-1]",
+    });
+    // A structurally-equal but distinct object is NOT deduplicated: any
+    // divergence between the surfaces must be captured in full.
+    expect(result[1].message).toEqual(copy);
+    // Non-message items pass through untouched.
+    expect(result[2]).toEqual({ kind: "thinking", key: "c", active: true });
+  });
+
+  test("passes items through when clientMessages is unavailable", () => {
+    const items = [{ kind: "message", message: { id: "m" } }];
+    expect(dedupeAgainstClientMessages(items, null)).toBe(items);
   });
 });
 
