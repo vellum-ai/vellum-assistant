@@ -83,6 +83,50 @@ describe("unpairAssistant", () => {
     expect(result.lockfile.assistants).toEqual([]);
   });
 
+  test("reassigns the active pointer past tolerated malformed entries", () => {
+    writeLockfile({
+      assistants: [
+        { assistantId: "paired-1", cloud: "paired" },
+        { notAnAssistant: true },
+        { assistantId: "local-1", cloud: "local" },
+      ],
+      activeAssistant: "paired-1",
+    });
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.lockfile.activeAssistant).toBe("local-1");
+  });
+
+  test("a failed token delete aborts before touching the lockfile", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: "paired-1",
+    });
+    // A non-empty directory at the token path makes rmSync (non-recursive)
+    // throw, standing in for EPERM-style failures.
+    const tokenPath = guardianTokenPath(configDir, "paired-1");
+    fs.mkdirSync(path.join(tokenPath, "oops"), { recursive: true });
+
+    const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.status).toBe(500);
+    expect(result.error).toContain("guardian token");
+    // The entry is untouched, so the unpair can be retried.
+    expect(readLockfileFromDisk().assistants).toEqual([
+      { assistantId: "paired-1", cloud: "paired" },
+    ]);
+    expect(readLockfileFromDisk().activeAssistant).toBe("paired-1");
+  });
+
   test("leaves the active pointer alone when it names another assistant", () => {
     writeLockfile({
       assistants: [

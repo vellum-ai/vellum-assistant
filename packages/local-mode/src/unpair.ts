@@ -39,13 +39,39 @@ export function unpairAssistant(
     };
   }
 
+  // Delete the token BEFORE committing the lockfile removal. A failed delete
+  // aborts with the entry intact, so unpair stays retryable; the reverse order
+  // would strand the credential on disk forever (the retry 404s on the
+  // already-removed entry and never reaches cleanup).
+  const tokenPath = guardianTokenPath(configDir, assistantId);
+  try {
+    fs.rmSync(tokenPath, { force: true });
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: `Failed to delete the stored guardian token: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+  try {
+    fs.rmdirSync(path.dirname(tokenPath));
+  } catch {
+    // Directory not empty or absent.
+  }
+
   const remaining = assistants.filter((a) => a?.assistantId !== assistantId);
   lockfile.assistants = remaining;
   // Reassign the active assistant like the CLI's removeAssistantEntry does, so
   // unpairing through the bridge and through `vellum unpair` leave the same
-  // active state.
+  // active state. Skip tolerated malformed entries (no string assistantId) —
+  // parseLockfile drops them from the returned lockfile, so pointing at one
+  // would report no active assistant while valid entries remain.
   if (lockfile.activeAssistant === assistantId) {
-    const next = remaining[0]?.assistantId;
+    const next = remaining.find(
+      (a) => typeof a?.assistantId === "string",
+    )?.assistantId;
     if (typeof next === "string") {
       lockfile.activeAssistant = next;
     } else {
@@ -53,24 +79,5 @@ export function unpairAssistant(
     }
   }
 
-  const result = writeRawLockfile(lockfilePaths, lockfile);
-  if (!result.ok) {
-    return result;
-  }
-
-  // Best-effort, like the CLI's deleteGuardianToken: the entry is already
-  // gone from the lockfile, so a failed token delete must not surface as a
-  // rejected invoke (retrying would 404 on the missing entry anyway).
-  const tokenPath = guardianTokenPath(configDir, assistantId);
-  try {
-    fs.rmSync(tokenPath, { force: true });
-  } catch {
-    // Stale token file remains; it is unusable without its lockfile entry.
-  }
-  try {
-    fs.rmdirSync(path.dirname(tokenPath));
-  } catch {
-    // Directory not empty or absent.
-  }
-  return result;
+  return writeRawLockfile(lockfilePaths, lockfile);
 }
