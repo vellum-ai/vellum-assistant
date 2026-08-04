@@ -607,9 +607,46 @@ const LATEX_MATH_DELIMITERS = [
 ] as const;
 
 /**
- * Offset of the next `close` delimiter at or after `from` that sits in prose,
- * or -1. Every other backslash consumes the character it escapes, so a `\\]`
- * (an escaped backslash followed by a bracket) never reads as a closer.
+ * Whether a single range in `ranges` holds both characters of the delimiter at
+ * `offset`. Binary search, not a linear probe: this runs at every delimiter in
+ * the message, and a long message has many of both.
+ *
+ * `ranges` must be sorted and non-overlapping, which document-order collection
+ * guarantees.
+ */
+function containsDelimiter(
+  ranges: Array<[number, number]>,
+  offset: number,
+): boolean {
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const [start, end] = ranges[mid]!;
+    if (offset < start) {
+      high = mid - 1;
+    } else if (offset >= end) {
+      low = mid + 1;
+    } else {
+      return offset + 2 <= end;
+    }
+  }
+  return false;
+}
+
+/**
+ * Offset of the `close` delimiter pairing with the opener that ends at `from`,
+ * or -1 when there is none.
+ *
+ * The search stops at the next opener of either style: no equation contains
+ * one, so a closer reached past it belongs to that opener rather than this one.
+ * Without the stop, a stray `\(` earlier in the prose would pair with the
+ * closer of the next real equation and swallow it. Stopping also bounds the
+ * scan by the distance to the next opener, which keeps a message full of
+ * unmatched openers linear rather than quadratic.
+ *
+ * Every other backslash consumes the character it escapes, so a `\\]` (an
+ * escaped backslash followed by a bracket) never reads as a closer.
  */
 function findClosingDelimiter(
   content: string,
@@ -623,6 +660,12 @@ function findClosingDelimiter(
     }
     if (content.startsWith(close, i) && inProse(i)) {
       return i;
+    }
+    const opensAgain = LATEX_MATH_DELIMITERS.some((candidate) =>
+      content.startsWith(candidate.open, i),
+    );
+    if (opensAgain && inProse(i)) {
+      return -1;
     }
     i += 1;
   }
@@ -639,8 +682,10 @@ function findClosingDelimiter(
  * Only paired delimiters are converted, and only where both halves sit in
  * prose: a lone `\[` left as `$$` would pair with the next unrelated `$$` and
  * swallow the text between them. For the same reason a pair whose contents span
- * a blank line (which ends the enclosing block) or a verbatim region (inline or
- * fenced code) is left alone: neither is a real equation.
+ * a blank line (which ends the enclosing block), a verbatim region (inline or
+ * fenced code), or another opener is left alone: none of those is an equation.
+ * A rejected opener is skipped rather than abandoning the rest of the message,
+ * so a stray delimiter never costs a real equation that follows it.
  */
 function convertLatexDelimiters(content: string): string {
   // Fast path: neither opener present means no work to do.
@@ -653,8 +698,7 @@ function convertLatexDelimiters(content: string): string {
     return content;
   }
   const verbatim = collectRanges(tree, VERBATIM_NODES);
-  const inProse = (offset: number) =>
-    prose.some(([start, end]) => offset >= start && offset + 2 <= end);
+  const inProse = (offset: number) => containsDelimiter(prose, offset);
 
   let result = "";
   let cursor = 0;

@@ -530,6 +530,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("[ bracket");
   });
 
+  test("a stray opener does not consume the equation that follows it", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Prefix \\( literal; then \\(x = 1\\) here.",
+      }),
+    );
+
+    // Pairing the stray opener with the real equation's closer would hand
+    // KaTeX `\( literal; then \(x = 1` and lose the equation entirely.
+    expect(html).toContain("katex");
+    expect(html).not.toContain("katex-error");
+    expect(html).toContain("Prefix ( literal; then ");
+    expect(html).toContain("here.");
+  });
+
+  test("a stray display opener does not consume the equation that follows", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Arrays \\[ literal; the identity \\[E = mc^2\\] holds.",
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html).not.toContain("katex-error");
+    expect(html).toContain("Arrays [ literal; the identity");
+    expect(html).toContain("holds.");
+  });
+
   test("delimiters separated by a blank line are not paired into math", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
