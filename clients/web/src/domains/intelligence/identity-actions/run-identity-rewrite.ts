@@ -78,9 +78,9 @@ export async function runIdentityRewrite({
       return false;
     }
 
-    // Let the rewrite turn run before hiding the thread — archiving mid-turn
-    // could drop the identity edits. Settle on the daemon's turn-completion
-    // flag (see `shouldSettlePersonalityPoll`).
+    // Let the rewrite turn run before the archive: archiving mid-turn could
+    // drop the identity edits. Settle on the daemon's turn-completion flag
+    // (see `shouldSettlePersonalityPoll`).
     const deadline = Date.now() + MAX_POLL_MS;
     let lastText = "";
     let stableReads = 0;
@@ -115,7 +115,7 @@ export async function runIdentityRewrite({
   } catch (err) {
     captureError(err, { context });
   } finally {
-    // Archive the throwaway thread so it never appears in the sidebar.
+    // Best-effort cleanup of the throwaway thread.
     if (conversationId) {
       try {
         await conversationsByIdArchivePost({

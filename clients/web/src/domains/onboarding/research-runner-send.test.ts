@@ -2,7 +2,8 @@
  * Tests for how the research runner opens its side conversation: it is minted
  * `background` so it never enters the foreground list, the prompt is posted
  * hidden (see `lib/side-conversation-message.ts`), and a resumed run re-posts
- * only when the turn never started.
+ * only when the turn never started. It also covers the archive that cleans the
+ * thread up on every exit path, including a poll-ceiling timeout.
  *
  * Hidden rows are filtered out of `/messages`, so "did the prompt land?" reads
  * the turn's own state (still processing, or rows already produced) instead of
@@ -16,7 +17,14 @@ import { createElement, type ReactNode } from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import type { ResearchSubject } from "@/domains/onboarding/research-prompt";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
@@ -31,10 +39,22 @@ interface CreateCall {
   body: { conversationType?: string; title?: string };
 }
 
+interface ArchiveCall {
+  path: { assistant_id: string; id: string };
+}
+
 let postCalls: PostCall[] = [];
 let createCalls: CreateCall[] = [];
+let archiveCalls: ArchiveCall[] = [];
 let getCalls = 0;
 let listed: { processing?: boolean; messages: unknown[] } = { messages: [] };
+/**
+ * When set, every `/messages` read jumps the clock past the runner's poll
+ * ceiling, so the poll loop exits on its deadline check having parsed no
+ * complete payload.
+ */
+let expirePollCeiling = false;
+const PAST_POLL_CEILING_MS = 300_000;
 
 const ok = <T>(data: T) =>
   Promise.resolve({ data, error: undefined, response: { ok: true } });
@@ -48,9 +68,15 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     createCalls.push(opts);
     return ok({ id: "conv-fresh" });
   },
-  conversationsByIdArchivePost: () => ok({}),
+  conversationsByIdArchivePost: (opts: ArchiveCall) => {
+    archiveCalls.push(opts);
+    return ok({});
+  },
   messagesGet: () => {
     getCalls += 1;
+    if (expirePollCeiling) {
+      setSystemTime(new Date(Date.now() + PAST_POLL_CEILING_MS));
+    }
     return ok(listed);
   },
   messagesPost: (opts: PostCall) => {
@@ -82,8 +108,11 @@ function renderRunner() {
 afterEach(() => {
   postCalls = [];
   createCalls = [];
+  archiveCalls = [];
   getCalls = 0;
   listed = { messages: [] };
+  expirePollCeiling = false;
+  setSystemTime();
 });
 
 /**
@@ -210,4 +239,34 @@ describe("research prompt send", () => {
       result.current.reset();
     });
   });
+});
+
+describe("research conversation archive", () => {
+  test("archives the side conversation when the poll loop times out", async () => {
+    expirePollCeiling = true;
+    const { result } = renderRunner();
+    // A dedicated assistant id keeps this assertion clear of archives from
+    // the runs the tests above leave in flight.
+    const archived = () =>
+      archiveCalls.filter((c) => c.path.assistant_id === "ast-timeout");
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-timeout",
+        subject,
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(archived()).toHaveLength(1);
+      },
+      { timeout: 8000 },
+    );
+    expect(archived()[0]?.path.id).toBe("conv-fresh");
+
+    act(() => {
+      result.current.reset();
+    });
+  }, 10_000);
 });

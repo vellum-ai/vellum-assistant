@@ -78,13 +78,6 @@ export function resolveResearchCompletionStatus({
   return sawCompletePayload ? "done" : "error";
 }
 
-export function shouldArchiveCompletedResearchConversation({
-  sawCompletePayload,
-}: {
-  sawCompletePayload: boolean;
-}): boolean {
-  return sawCompletePayload;
-}
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
  * surfaces and installs plugins from this owner — never third-party/external
@@ -632,8 +625,8 @@ export function useResearchRunner(): UseResearchRunner {
               },
               throwOnError: false,
             });
-            // Capture before the stale check so the finally block can archive it
-            // once a complete payload settles.
+            // Capture before the stale check so the finally block can archive
+            // it on every exit path.
             createdConversationId = conversation.data?.id;
             const id = conversation.data?.id;
             if (!conversation.response?.ok || !id) {
@@ -851,16 +844,9 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
-          // Archive only after the full research payload is available. If the poll
-          // ceiling fired before that, the assistant turn may still be running and
-          // the conversation remains available for reconciliation/debugging.
-          if (
-            shouldArchiveCompletedResearchConversation({
-              sawCompletePayload,
-            }) &&
-            resolvedAssistantId &&
-            createdConversationId
-          ) {
+          // Unconditional cleanup: a timed-out or superseded run must not leave
+          // the throwaway side conversation behind.
+          if (resolvedAssistantId && createdConversationId) {
             await archiveResearchConversation(
               resolvedAssistantId,
               createdConversationId,
