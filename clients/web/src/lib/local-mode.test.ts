@@ -27,12 +27,20 @@ const saveLockfileAssistantHost = mock(
 
 const fetchGuardianTokenHost = mock(async (_id: string) => "guardian-tok");
 
+const unpairAssistantHost = mock(
+  async (_assistantId: string): Promise<localModeHost.LockfileWriteResult> => ({
+    ok: true as const,
+    lockfile: { assistants: [], activeAssistant: null },
+  }),
+);
+
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
   loadLockfileHost,
   saveLockfileAssistantHost,
   fetchGuardianTokenHost,
+  unpairAssistantHost,
 }));
 
 import {
@@ -56,6 +64,7 @@ import {
   primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithStartupRetry,
   reconcileSelectedAssistant,
+  removePairedAssistantFromLockfile,
   removePlatformAssistantFromLockfile,
   saveManagedLockfileAssistant,
   syncPlatformAssistantsToLockfile,
@@ -65,6 +74,7 @@ import {
 import {
   clearGatewayToken,
   getGatewayToken,
+  seedGatewayToken,
 } from "@/lib/auth/gateway-session";
 import {
   getSelfHostedActorToken,
@@ -123,6 +133,7 @@ afterEach(() => {
   replacePlatformAssistantsHost.mockClear();
   saveLockfileAssistantHost.mockClear();
   fetchGuardianTokenHost.mockClear();
+  unpairAssistantHost.mockClear();
   clearGatewayToken();
   setSelfHostedConnection(null);
 });
@@ -308,6 +319,124 @@ describe("removePlatformAssistantFromLockfile", () => {
     await removePlatformAssistantFromLockfile("platform-a");
 
     expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("removePairedAssistantFromLockfile", () => {
+  function seedSessionResidue(): void {
+    seedGatewayToken({
+      token: "tok",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "src",
+    });
+    setSelfHostedConnection({ url: "http://localhost/x", token: "tok" });
+  }
+
+  test("calls the host unpair and commits the returned lockfile", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    const resulting = { assistants: [localA], activeAssistant: "local-a" };
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: resulting,
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result).toEqual({ ok: true });
+    expect(unpairAssistantHost).toHaveBeenCalledWith("paired-a");
+    expect(useLockfileStore.getState().lockfile).toEqual(resulting);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("refuses non-paired entries without calling the host", async () => {
+    setLockfile({
+      assistants: [localA, platform],
+      activeAssistant: "local-a",
+    });
+
+    for (const id of ["local-a", "platform-a"]) {
+      const result = await removePairedAssistantFromLockfile(id);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeTruthy();
+    }
+    expect(unpairAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("refuses an unknown id without calling the host", async () => {
+    setLockfile({ assistants: [pairedEntry], activeAssistant: null });
+
+    const result = await removePairedAssistantFromLockfile("nope");
+
+    expect(result.ok).toBe(false);
+    expect(unpairAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("propagates a host failure without committing or clearing session state", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("paired-a");
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    });
+    expect(useLockfileStore.getState().committed).toBe(false);
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe(
+      "paired-a",
+    );
+  });
+
+  test("clears selection, gateway token, and self-hosted connection when removing the selected entry", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("paired-a");
+    seedSessionResidue();
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [localA], activeAssistant: "local-a" },
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result.ok).toBe(true);
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
+    expect(getGatewayToken()).toBeNull();
+    expect(getSelfHostedIngressUrl()).toBeNull();
+  });
+
+  test("leaves session state alone when removing a non-selected entry", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    seedSessionResidue();
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [localA], activeAssistant: "local-a" },
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result.ok).toBe(true);
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe(
+      "local-a",
+    );
+    expect(getGatewayToken()).toBe("tok");
+    expect(getSelfHostedIngressUrl()).toBe("http://localhost/x");
   });
 });
 

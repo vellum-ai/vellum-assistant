@@ -21,6 +21,22 @@ const navigateMock = mock((_to: string, _opts?: unknown) => {});
 let searchParams = new URLSearchParams();
 let hasPlatformSessionValue = false;
 let assistantsValue: ResolvedAssistant[] = [];
+let localModeHostAvailableValue = false;
+let activeAssistantIdValue: string | null = null;
+const setActiveAssistantIdMock = mock((id: string | null) => {
+  activeAssistantIdValue = id;
+});
+
+const removePairedAssistantFromLockfileMock = mock(
+  async (_id: string): Promise<{ ok: boolean; error?: string }> => ({
+    ok: true,
+  }),
+);
+const removePlatformAssistantFromLockfileMock = mock(
+  async (_id: string): Promise<{ ok: boolean; error?: string }> => ({
+    ok: true,
+  }),
+);
 
 const connectPairedAssistantMock = mock(async (_id: string) => {});
 const connectLocalAssistantMock = mock(async (_id: string) => {});
@@ -62,7 +78,8 @@ class MockUnresolvedLocalGatewayError extends Error {}
 
 mock.module("@/lib/local-mode", () => ({
   isCliWakeableAssistant: () => false,
-  removePlatformAssistantFromLockfile: async () => ({ ok: true as const }),
+  removePairedAssistantFromLockfile: removePairedAssistantFromLockfileMock,
+  removePlatformAssistantFromLockfile: removePlatformAssistantFromLockfileMock,
   UnresolvedLocalGatewayError: MockUnresolvedLocalGatewayError,
 }));
 
@@ -97,7 +114,7 @@ mock.module("@/runtime/is-electron", () => ({
 
 mock.module("@/runtime/local-mode-host", () => ({
   GuardianTokenError: MockGuardianTokenError,
-  isLocalModeHostAvailable: () => false,
+  isLocalModeHostAvailable: () => localModeHostAvailableValue,
   requiresGuardianReprovision: (error: unknown) =>
     error instanceof MockGuardianTokenError &&
     (error.status === 404 || error.status === 401),
@@ -124,6 +141,10 @@ mock.module("@/stores/organization-store", () => ({
 mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: {
     use: { assistants: () => assistantsValue },
+    getState: () => ({
+      activeAssistantId: activeAssistantIdValue,
+      setActiveAssistantId: setActiveAssistantIdMock,
+    }),
   },
 }));
 
@@ -154,8 +175,21 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 mock.module("@vellumai/design-library/components/confirm-dialog", () => ({
-  ConfirmDialog: ({ open, message }: { open: boolean; message: ReactNode }) =>
-    open ? <div>{message}</div> : null,
+  ConfirmDialog: ({
+    open,
+    message,
+    onConfirm,
+  }: {
+    open: boolean;
+    message: ReactNode;
+    onConfirm?: () => void;
+  }) =>
+    open ? (
+      <div>
+        {message}
+        <button onClick={onConfirm}>Confirm remove</button>
+      </div>
+    ) : null,
 }));
 
 mock.module("@vellumai/design-library/components/menu", () => ({
@@ -163,7 +197,13 @@ mock.module("@vellumai/design-library/components/menu", () => ({
     Root: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     Trigger: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     Content: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    Item: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    Item: ({
+      children,
+      onSelect,
+    }: {
+      children: ReactNode;
+      onSelect?: () => void;
+    }) => <div onClick={onSelect}>{children}</div>,
   },
 }));
 
@@ -219,6 +259,14 @@ describe("SelectAssistantScreen paired assistants", () => {
     searchParams = new URLSearchParams();
     hasPlatformSessionValue = false;
     assistantsValue = [];
+    localModeHostAvailableValue = false;
+    removePairedAssistantFromLockfileMock.mockClear();
+    removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
+      ok: true,
+    }));
+    removePlatformAssistantFromLockfileMock.mockClear();
+    activeAssistantIdValue = null;
+    setActiveAssistantIdMock.mockClear();
   });
 
   afterEach(cleanup);
@@ -339,5 +387,150 @@ describe("SelectAssistantScreen paired assistants", () => {
     );
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("a paired card offers the remove menu when the local-mode host is available", () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByLabelText("Actions for Office Mac")).toBeTruthy();
+  });
+
+  test("a paired card offers no remove menu without a local-mode host", () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByLabelText("Actions for Office Mac")).toBeNull();
+  });
+
+  test("confirming a paired removal shows the pairing copy and calls removePairedAssistantFromLockfile", async () => {
+    // A pairing is device-local, so the affordance survives a platform
+    // session (which locks out the platform-card removal instead).
+    localModeHostAvailableValue = true;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+
+    expect(
+      screen.getByText(/It only forgets the pairing on this device/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Pair again anytime with vellum connect import/),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removePairedAssistantFromLockfileMock).toHaveBeenCalledWith(
+        PAIRED_ID,
+      ),
+    );
+    expect(removePlatformAssistantFromLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("removing the lifecycle-active paired entry clears the active id", async () => {
+    localModeHostAvailableValue = true;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    activeAssistantIdValue = PAIRED_ID;
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(setActiveAssistantIdMock).toHaveBeenCalledWith(null),
+    );
+  });
+
+  test("removing a non-active paired entry leaves the active id alone", async () => {
+    localModeHostAvailableValue = true;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    activeAssistantIdValue = "some-other-assistant";
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removePairedAssistantFromLockfileMock).toHaveBeenCalled(),
+    );
+    expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
+  });
+
+  test("a paired removal failure surfaces the host error in the dialog", async () => {
+    localModeHostAvailableValue = true;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    }));
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Unpair is not supported by this app version"),
+      ).toBeTruthy(),
+    );
+  });
+
+  test("clicking the remove menu does not select the card", () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [
+      makePairedAssistant(),
+      makePairedAssistant({ id: "paired-2", name: "Second Mac" }),
+    ];
+
+    render(<SelectAssistantScreen />);
+
+    // The first accessible card is auto-selected; poking the second card's
+    // menu trigger must not move the selection.
+    fireEvent.click(screen.getByLabelText("Actions for Second Mac"));
+
+    const radios = screen.getAllByRole("radio");
+    expect(
+      radios.find((r) => r.textContent?.includes("Office Mac"))
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      radios.find((r) => r.textContent?.includes("Second Mac"))
+        ?.getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
+  test("confirming a locked platform removal still calls removePlatformAssistantFromLockfile", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+
+    expect(
+      screen.getByText(/It only removes it from this device/),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removePlatformAssistantFromLockfileMock).toHaveBeenCalledWith(
+        PLATFORM_ID,
+      ),
+    );
+    expect(removePairedAssistantFromLockfileMock).not.toHaveBeenCalled();
   });
 });

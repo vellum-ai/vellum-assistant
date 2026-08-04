@@ -44,6 +44,7 @@ mock.module("@/lib/local-mode", () => ({
   }),
   isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isLocalClient: () => isLocalClientValue,
+  isPairedAssistant: (a: { cloud?: string }) => a.cloud === "paired",
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
 }));
@@ -196,6 +197,29 @@ describe("retireAssistant", () => {
     expect(retireLocalAssistantMock).toHaveBeenCalledWith("l1");
     expect(retireAssistantByIdMock).not.toHaveBeenCalled();
     expect(outcome.ok).toBe(true);
+  });
+
+  test("a paired target is refused before any retire path runs", async () => {
+    // GIVEN a paired target in local mode
+    isLocalClientValue = true;
+    lockfileAssistants = [{ assistantId: "pr1", cloud: "paired" }];
+    storeAssistants = [{ id: "pr1" }];
+
+    // WHEN retiring it
+    const outcome = await retireAssistant("pr1");
+
+    // THEN the guard fails fast: neither retire path ran and nothing was
+    // cleaned up (the assistant still exists on its host machine).
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toBe(
+        "This is a paired assistant. Remove it from this device instead of retiring it.",
+      );
+    }
+    expect(retireLocalAssistantMock).not.toHaveBeenCalled();
+    expect(retireAssistantByIdMock).not.toHaveBeenCalled();
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(clearResearchSnapshotMock).not.toHaveBeenCalled();
   });
 
   test("routes by the TARGET assistant, not local-mode alone", async () => {

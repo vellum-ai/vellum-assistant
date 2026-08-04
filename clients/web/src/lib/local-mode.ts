@@ -22,6 +22,7 @@ import {
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
+  unpairAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import type {
@@ -372,6 +373,48 @@ export async function removePlatformAssistantFromLockfile(
   return { ok: true };
 }
 
+/**
+ * Drop the session state bound to the selected assistant: the raw selection
+ * key (no store import here, that would cycle; the reactive slice reconciles
+ * via `setFromLockfile` on the next lockfile commit/load), the gateway token,
+ * and the self-hosted connection.
+ */
+function clearSelectedAssistantSession(): void {
+  clearSelectedAssistantId();
+  clearGatewayToken();
+  setSelfHostedConnection(null);
+}
+
+/**
+ * Forget a paired assistant on this device: the host removes its lockfile
+ * entry and deletes its stored guardian token, never touching the remote
+ * assistant (pair again anytime with `vellum connect import`). When the
+ * removed entry is the effective selection, the session residue (selection
+ * key, gateway token, self-hosted connection) is cleared the same way a
+ * local retire clears it, so the next connect starts clean.
+ */
+export async function removePairedAssistantFromLockfile(
+  assistantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry) {
+    return { ok: false, error: "This assistant isn't in the local list." };
+  }
+  if (!isPairedAssistant(entry)) {
+    return { ok: false, error: "This assistant isn't paired on this device." };
+  }
+  const wasSelected = getSelectedAssistant()?.assistantId === assistantId;
+  const result = await unpairAssistantHost(assistantId);
+  if (!result.ok) {
+    return { ok: false, error: result.error || "Failed to remove assistant." };
+  }
+  if (wasSelected) {
+    clearSelectedAssistantSession();
+  }
+  commitLockfile(result.lockfile);
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Retire
 // ---------------------------------------------------------------------------
@@ -386,11 +429,7 @@ export async function retireLocalAssistant(
 ): Promise<LocalRetireResult> {
   const result = await retireLocalAssistantHost(assistantId);
   if (result.ok) {
-    // Clear the raw key directly (no store import here — that would cycle); the
-    // reactive slice reconciles via the `loadLockfile` below → `setFromLockfile`.
-    clearSelectedAssistantId();
-    clearGatewayToken();
-    setSelfHostedConnection(null);
+    clearSelectedAssistantSession();
     await loadLockfile();
   }
   return result;
