@@ -621,13 +621,9 @@ export function useResearchRunner(): UseResearchRunner {
           const startFreshConversation = async (): Promise<
             string | undefined
           > => {
-            // `background` puts the thread outside the foreground list — the
-            // daemon's default conversation filter is `standard` — so it can
-            // never be the landing conversation nor appear in Recents. That
-            // makes the archive below cleanup rather than the thing that hides
-            // it. A daemon predating this field ignores it and falls back to a
-            // standard row plus the archive (the previous behavior), so no
-            // version gate is needed.
+            // `background` creates the row outside the daemon's default
+            // `standard` list, so it never appears in Recents and can never be
+            // selected as the landing conversation.
             const conversation = await conversationsPost({
               path: { assistant_id: assistantId },
               body: {
