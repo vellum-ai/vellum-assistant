@@ -49,3 +49,17 @@ export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
  */
 export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
 export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;
+
+/**
+ * Text treatment for a section title (Pinned, Pinned Apps, a custom
+ * group, the persistent Threads header, View As). `font-[350]!` sits below
+ * the `lighter` type-scale tier's own 400 weight, a step past the scale's
+ * lightest named weight rather than a new tier of its own (DM Sans is a
+ * variable font down to 300). The trailing `!` forces it over the
+ * `text-body-*-lighter` utility's own font-weight: cross-package Tailwind
+ * generation order doesn't reliably favor a plain (unmarked) override here.
+ * Shared so every title reads at the same weight without drifting per call
+ * site.
+ */
+export const SIDEBAR_SECTION_TITLE_TEXT_CLASSES =
+  "text-left font-[350]! text-body-medium-lighter max-md:text-body-large-lighter text-[var(--content-tertiary)]";

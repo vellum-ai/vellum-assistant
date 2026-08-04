@@ -15,6 +15,7 @@ import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import {
   CollapsedGroupIcon,
@@ -55,7 +56,7 @@ import {
 } from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -409,11 +410,8 @@ export function AssistantSideMenu({
 
   // List/Groups switch, in the persistent "Threads" header's menu.
   const viewAsFooter = (
-    <div className="mt-2 px-2 pb-1">
-      <div
-        className="mb-1.5 text-label-small-default text-[var(--content-tertiary)]"
-        style={{ fontSize: 12 }}
-      >
+    <div className="px-2 pb-1">
+      <div className={cn("mt-3 mb-2", SIDEBAR_SECTION_TITLE_TEXT_CLASSES)}>
         View As
       </div>
       <SidebarViewModeToggle
@@ -502,7 +500,10 @@ export function AssistantSideMenu({
               // both contexts. Mobile (always the overlay) shaves more,
               // halving the 16px gap to Lucky Dip below instead of the
               // 12px this leaves elsewhere.
-              className="flex h-[30px] max-md:h-auto items-center rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5 text-left text-body-medium-lighter max-md:text-body-large-lighter text-[var(--content-tertiary)] -mb-1 max-md:-mb-[10px]"
+              className={cn(
+                "flex h-[30px] max-md:h-auto items-center rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5 -mb-1 max-md:-mb-[10px]",
+                SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+              )}
               style={{
                 paddingLeft: SIDEBAR_ROW_PADDING_X,
                 paddingRight: SIDEBAR_ROW_PADDING_X,
@@ -807,14 +808,31 @@ export function AssistantSideMenu({
                 {tipCard}
               </div>
             ) : null}
-            <div className="flex items-center justify-center gap-4">
+            {/* Grid, not flex: a plain `flex-1` on both children doesn't
+               actually split them evenly here, since the Preferences pill
+               (wrapped in its own div, see `footerAction` below) and the New
+               Chat button (a flex item directly) don't carry the same
+               content-based automatic minimum size, so equal flex-grow still
+               resolves to unequal widths. `minmax(0,1fr)` tracks are immune
+               to that: each column is forced to the same size regardless of
+               its content or DOM depth. */}
+            <div
+              className={cn(
+                "grid items-center gap-4",
+                footerAction
+                  ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+                  : "grid-cols-1",
+              )}
+            >
               {footerAction ? (
-                <div className="pointer-events-auto flex-1">{footerAction}</div>
+                <div className="pointer-events-auto min-w-0">
+                  {footerAction}
+                </div>
               ) : null}
               {onStartNewConversation ? (
                 <Button
                   variant="primary"
-                  className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                  className="pointer-events-auto h-10 w-full rounded-full px-4 shadow-[var(--shadow-lg)]"
                   leftIcon={<SquarePen />}
                   onClick={() => {
                     onStartNewConversation();

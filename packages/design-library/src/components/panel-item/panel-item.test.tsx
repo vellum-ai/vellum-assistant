@@ -13,14 +13,12 @@ import { PanelItem } from "./panel-item";
 
 function renderRow(
   trailingAction = createElement("button", {}, "⋯"),
-  hideTrailingActionOnTouch = false,
 ): string {
   return renderToStaticMarkup(
     createElement(PanelItem, {
       label: "Row",
       onSelect: () => {},
       trailingAction,
-      hideTrailingActionOnTouch,
     }),
   );
 }
@@ -42,22 +40,11 @@ describe("PanelItem trailing action", () => {
     expect(html).toContain("has-[[aria-expanded=true]]:opacity-100");
   });
 
-  test("stays visible on touch devices by default (no hover to reveal it)", () => {
+  test("stays visible on touch devices (no hover to reveal it)", () => {
+    // Callers that already have their own touch affordance (long-press,
+    // swipe) simply don't pass `trailingAction` on touch, rather than
+    // asking PanelItem to hide one it was given, see conversation-row.tsx.
     expect(renderRow()).toContain("pointer-coarse:opacity-100");
-  });
-
-  test("is hidden on touch when hideTrailingActionOnTouch is set (caller has long-press + swipe)", () => {
-    const html = renderRow(undefined, true);
-    expect(html).not.toContain("pointer-coarse:opacity-100");
-  });
-
-  test("disables pointer events on touch when hideTrailingActionOnTouch is set (taps pass through to the row)", () => {
-    const html = renderRow(undefined, true);
-    expect(html).toContain("pointer-coarse:pointer-events-none");
-  });
-
-  test("keeps pointer events on touch by default (trailing action is visible and tappable)", () => {
-    expect(renderRow()).not.toContain("pointer-coarse:pointer-events-none");
   });
 
   test("stays visible on the active row", () => {
@@ -67,13 +54,17 @@ describe("PanelItem trailing action", () => {
 });
 
 describe("PanelItem badge", () => {
-  function renderWithBadge(badgeBare?: boolean): string {
+  function renderWithBadge(
+    badgeBare?: boolean,
+    trailingAction?: ReturnType<typeof createElement>,
+  ): string {
     return renderToStaticMarkup(
       createElement(PanelItem, {
         label: "Row",
         onSelect: () => {},
         badge: createElement("span", null, "3"),
         badgeBare,
+        trailingAction,
       }),
     );
   }
@@ -90,6 +81,16 @@ describe("PanelItem badge", () => {
     expect(html).not.toContain("rounded-[4px]");
     // Still renders the badge content itself.
     expect(html).toContain(">3<");
+  });
+
+  test("a bare badge alone gets an 8px inset from the row's edge", () => {
+    const html = renderWithBadge(true);
+    expect(html).toContain("mr-2");
+  });
+
+  test("a bare badge next to a trailing action skips the extra inset (gap-2 already separates them)", () => {
+    const html = renderWithBadge(true, createElement("button", {}, "⋯"));
+    expect(html).not.toContain("mr-2");
   });
 });
 

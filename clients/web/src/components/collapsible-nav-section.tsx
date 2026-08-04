@@ -14,6 +14,7 @@ import {
   SIDEBAR_CHIP_SIZE,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
+  SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -230,8 +231,7 @@ function CollapsibleNavSectionSection({
           className={cn(
             "flex h-[30px] min-w-0 flex-1 items-center max-md:h-auto",
             "rounded-[6px] py-[6px] max-md:py-3",
-            "text-left text-body-medium-lighter max-md:text-body-large-lighter",
-            "text-[var(--content-tertiary)]",
+            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
           )}
           style={{
             paddingLeft: SIDEBAR_ROW_PADDING_X,
@@ -256,8 +256,7 @@ function CollapsibleNavSectionSection({
             // row below reads as too large at the full py-3 (matches the
             // desktop py-[6px] top/bottom, kept as-is above).
             "rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5",
-            "text-left text-body-medium-lighter max-md:text-body-large-lighter",
-            "text-[var(--content-tertiary)]",
+            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
           )}
           style={{
             paddingLeft: SIDEBAR_ROW_PADDING_X,

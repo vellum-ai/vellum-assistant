@@ -17,6 +17,7 @@ import { ContextMenu, PanelItem } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   ConversationActionsMenu,
   ConversationActionsSheet,
@@ -257,6 +258,15 @@ export function ConversationRow({
   );
 
   const isTouch = isPointerCoarse();
+  // The ellipsis-hiding decision below also honors a narrow *viewport*, not
+  // just a coarse *pointer*: `isTouch` alone misses a desktop browser
+  // window narrowed to the mobile width with a mouse/trackpad, which still
+  // gets the mobile row layout (`max-md:` styling) but isn't touch. This
+  // doesn't affect which affordance actually opens the menu below (that
+  // still keys off real touch capability, via `isTouch`): a narrow desktop
+  // window still falls through to the right-click `ContextMenu.Root`
+  // branch, just without a visible ellipsis prompting it.
+  const isMobileViewport = useIsMobile();
 
   const panelItem = (
     <SwipeActionReveal
@@ -268,14 +278,25 @@ export function ConversationRow({
         marqueeOnHover={marquee}
         active={conversationId === ctx.activeConversationId}
         onSelect={() => select(conversationId)}
-        hideTrailingActionOnTouch={withContextMenu}
         badge={
           hasThreadStatus(status) ? (
             <ThreadStatusIndicator {...status} />
           ) : undefined
         }
         badgeBare
-        trailingAction={<ConversationActionsMenu {...menuProps} />}
+        // On touch, or a mobile-width viewport, the row already opens this
+        // exact menu another way (long-press → bottom sheet on touch,
+        // right-click on a narrow desktop window), so the trailing button
+        // isn't just hidden, it's absent: no leftover hover/active-state
+        // opacity rule can force it visible (as `hideTrailingActionOnTouch`
+        // alone didn't, for an active row), and the dot lands at the row's
+        // true right edge instead of sitting next to an invisible-but-
+        // space-reserving button.
+        trailingAction={
+          (isTouch || isMobileViewport) && withContextMenu ? undefined : (
+            <ConversationActionsMenu {...menuProps} />
+          )
+        }
         {...dragProps}
         className={cn(
           // `!` forces this over PanelItem's own max-md:py-3: cross-package
