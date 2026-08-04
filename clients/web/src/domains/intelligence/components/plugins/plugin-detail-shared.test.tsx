@@ -57,6 +57,7 @@ describe("PluginDetailMetadata", () => {
       skills: ["a", "b"],
       hooks: [],
       tools: ["t"],
+      schedules: [],
     };
     const { container } = render(
       <PluginDetailMetadata plugin={githubPlugin} surfaces={surfaces} />,
