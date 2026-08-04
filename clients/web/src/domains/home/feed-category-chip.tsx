@@ -14,10 +14,12 @@ export interface FeedCategoryChipProps {
 /**
  * Text-only chip naming a feed item's category, toned from `CATEGORY_STYLES`.
  *
- * The category tokens are runtime values, so they go in as local custom
- * properties that static Tailwind utilities read back. Those static utilities
- * land in the same `tailwind-merge` conflict groups as `Tag`'s own
- * `bg-[var(...)]` / `text-[color:var(...)]` base classes, so they win.
+ * The background alone carries the category hue: the `weak` token is a runtime
+ * value, so it goes in as a local custom property that a static Tailwind
+ * utility reads back, landing in the same `tailwind-merge` conflict group as
+ * `Tag`'s own `bg-[var(...)]` base class so it wins. The label deliberately
+ * keeps `Tag`'s `--content-default` text color, which clears WCAG AA against
+ * every category background at this 12px/600 size.
  */
 export function FeedCategoryChip({ category }: FeedCategoryChipProps) {
   const style = resolveCategoryStyle(category);
@@ -25,13 +27,8 @@ export function FeedCategoryChip({ category }: FeedCategoryChipProps) {
 
   return (
     <Tag
-      className="bg-[var(--feed-chip-weak)] text-[color:var(--feed-chip-strong)] uppercase tracking-wide leading-none"
-      style={
-        {
-          "--feed-chip-weak": style.weak,
-          "--feed-chip-strong": style.strong,
-        } as CSSProperties
-      }
+      className="bg-[var(--feed-chip-weak)] uppercase tracking-wide leading-none"
+      style={{ "--feed-chip-weak": style.weak } as CSSProperties}
     >
       {label.charAt(0).toUpperCase() + label.slice(1)}
     </Tag>
