@@ -277,7 +277,10 @@ function serializeSchedule(
 
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
-  const jobs = listSchedules();
+  const inferenceProfile = queryParams.inference_profile?.trim();
+  const jobs = listSchedules(
+    inferenceProfile ? { inferenceProfile } : undefined,
+  );
   const filtered = includeAll
     ? jobs
     : jobs.filter((j) => !isDeferSchedule(j.createdBy));
@@ -298,6 +301,59 @@ function handleGetSchedule(id: string) {
     throw new NotFoundError("Schedule not found");
   }
   return { schedule: serializeSchedule(job, new Map()) };
+}
+
+/**
+ * Move every schedule pinned to `from` onto `to`.
+ *
+ * This is the companion to deleting an inference profile: without it the
+ * profile's schedules keep a pin that no longer names anything. The dangling
+ * pin is not fatal (the resolver drops a missing override and falls through to
+ * the call site's own selection), so this exists to keep the user's stated
+ * model choice rather than to prevent a failure.
+ *
+ * Each row goes through `updateSchedule`, so the store's profile validation
+ * and re-snapshot semantics apply exactly as they do to a single-row PATCH.
+ * Deferred-wake rows are moved too, since a defer inherits the profile of the
+ * conversation it was created in and would otherwise be the one row left
+ * dangling. Moving one is a guardian-owned state change, so the whole call
+ * requires owner authority as soon as a wake row is in scope.
+ */
+async function handleReassignScheduleInferenceProfile(
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+) {
+  const from = typeof body.from === "string" ? body.from.trim() : "";
+  const to = typeof body.to === "string" ? body.to.trim() : "";
+  if (!from) {
+    throw new BadRequestError("from is required");
+  }
+  if (!to) {
+    throw new BadRequestError("to is required");
+  }
+  // `to` must name a configured profile; `from` deliberately is not validated
+  // so an already-deleted profile's leftover pins can still be swept up.
+  const profileError = validateScheduleInferenceProfile(to);
+  if (profileError) {
+    throw new BadRequestError(profileError);
+  }
+
+  const matches = listSchedules({ inferenceProfile: from });
+  for (const job of matches) {
+    await assertWakeMutationAllowed(job, undefined, headers);
+  }
+
+  let reassigned = 0;
+  for (const job of matches) {
+    const updated = await updateSchedule(job.id, { inferenceProfile: to });
+    if (updated) {
+      reassigned += 1;
+    }
+  }
+  if (reassigned > 0) {
+    log.info({ from, to, reassigned }, "Schedules reassigned to new profile");
+  }
+  return { reassigned };
 }
 
 async function handleCreateSchedule(body: Record<string, unknown>) {
@@ -763,6 +819,12 @@ export const ROUTES: RouteDefinition[] = [
         description:
           "When 'true', include deferred schedules that are normally hidden.",
       },
+      {
+        name: "inference_profile",
+        schema: { type: "string" },
+        description:
+          "Return only schedules pinned to this inference profile (llm.profiles key).",
+      },
     ],
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Schedule objects"),
@@ -804,8 +866,35 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleScheduleUsageSummary(queryParams ?? {}),
   },
-  // Must stay after literal `schedules/*` GET siblings (e.g. usage-summary):
-  // the router matches in declaration order and `:id` would shadow them.
+  {
+    operationId: "reassignScheduleInferenceProfile",
+    endpoint: "schedules/reassign-profile",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Reassign schedules to another inference profile",
+    description:
+      "Move every schedule pinned to one inference profile onto another, so deleting a profile does not leave its schedules pointing at a name that no longer exists.",
+    tags: ["schedules"],
+    requestBody: z.object({
+      from: z
+        .string()
+        .describe("Inference profile key the schedules are pinned to now"),
+      to: z
+        .string()
+        .describe("Inference profile key to move them to; must be configured"),
+    }),
+    responseBody: z.object({
+      reassigned: z.number().describe("Number of schedules moved"),
+    }),
+    handler: ({ body, headers }: RouteHandlerArgs) =>
+      handleReassignScheduleInferenceProfile(body ?? {}, headers),
+  },
+  // Must stay after literal `schedules/*` siblings (e.g. usage-summary,
+  // reassign-profile): the router matches in declaration order and `:id`
+  // would shadow them.
   {
     operationId: "getSchedule",
     endpoint: "schedules/:id",

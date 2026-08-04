@@ -78,6 +78,10 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const actualSdk = await import("@/generated/daemon/sdk.gen");
 
+// The delete flow scans for schedules pinned to the profile before it deletes
+// anything, so this section's kebab tests need a schedule list to resolve.
+let schedulesByProfile: Record<string, Array<{ name: string }>> = {};
+
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...actualSdk,
   configGet: mock(async () => ({ data: configPayload() })),
@@ -92,6 +96,13 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }
     return { data: { ok: true } };
   },
+  schedulesGet: async (options?: {
+    query?: { inference_profile?: string };
+  }) => ({
+    data: {
+      schedules: schedulesByProfile[options?.query?.inference_profile ?? ""] ?? [],
+    },
+  }),
 }));
 
 // The effective-catalog gate reads the identity store; leave the version
@@ -213,6 +224,7 @@ beforeEach(() => {
   capturedErrorContexts = [];
   activeProfileState = null;
   advisorProfileState = null;
+  schedulesByProfile = {};
   seedProfiles();
   useAssistantIdentityStore.getState().clearIdentity();
 });
@@ -366,7 +378,7 @@ describe("ProfilesSection - kebab menus", () => {
     clickMenuItem(menu, "Delete");
 
     await waitFor(() => {
-      expect(document.body.textContent).toContain("Can't Delete Profile");
+      expect(document.body.textContent).toContain("Choose a Replacement Profile");
     });
     expect(configPatchBodies.length).toBe(0);
   });

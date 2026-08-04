@@ -1533,3 +1533,208 @@ describe("PATCH /schedules/:id — timeout override", () => {
     expect(listOne().timeoutMs).toBeNull();
   });
 });
+
+// ── GET /schedules with the inference_profile filter ────────────────────────────
+
+describe("GET /schedules - inference_profile filter", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("narrows the list to schedules pinned to that profile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Default schedule",
+      description: "Default schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const filtered = (await route.handler({
+      queryParams: { inference_profile: "cost-optimized" },
+    })) as { schedules: Array<{ name: string; inferenceProfile: string }> };
+    expect(filtered.schedules.map((s) => s.name)).toEqual(["Cheap digest"]);
+
+    const unfiltered = (await route.handler({})) as {
+      schedules: Array<{ name: string }>;
+    };
+    expect(unfiltered.schedules).toHaveLength(2);
+  });
+
+  test("returns nothing for a profile no schedule is pinned to", async () => {
+    await createSchedule({
+      name: "Default schedule",
+      description: "Default schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({
+      queryParams: { inference_profile: "cost-optimized" },
+    })) as { schedules: unknown[] };
+    expect(result.schedules).toEqual([]);
+  });
+});
+
+// ── POST /schedules/reassign-profile ─────────────────────────────────────
+
+describe("POST /schedules/reassign-profile", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function reassignRoute(): RouteDefinition {
+    return findRoute("schedules/reassign-profile", "POST");
+  }
+
+  test("moves every schedule pinned to the source profile and leaves the rest alone", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Cheap sweep",
+      description: "Cheap sweep",
+      cronExpression: "30 * * * *",
+      message: "sweep",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Untouched",
+      description: "Untouched",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(2);
+    expect(listSchedules({ inferenceProfile: "cost-optimized" })).toEqual([]);
+    expect(
+      listSchedules()
+        .map((j) => j.inferenceProfile)
+        .every((p) => p === resolvedDefault),
+    ).toBe(true);
+  });
+
+  test("moves deferred wake rows too when the caller holds owner authority", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+      headers: { "x-vellum-principal-type": "local" },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(1);
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+
+  test("rejects an unknown target profile without touching any schedule", async () => {
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+
+    await expect(
+      reassignRoute().handler({
+        body: { from: "cost-optimized", to: "does-not-exist" },
+      }),
+    ).rejects.toThrow('Inference profile "does-not-exist" is not defined');
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("requires both from and to", async () => {
+    await expect(
+      reassignRoute().handler({ body: { to: "balanced" } }),
+    ).rejects.toThrow("from is required");
+    await expect(
+      reassignRoute().handler({ body: { from: "cost-optimized" } }),
+    ).rejects.toThrow("to is required");
+  });
+
+  test("is a no-op when nothing is pinned to the source profile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    const schedule = await createSchedule({
+      name: "Default schedule",
+      description: "Default schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const updatedAtBefore = listSchedules()[0].updatedAt;
+
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(0);
+    expect(listSchedules()[0].id).toBe(schedule.id);
+    expect(listSchedules()[0].updatedAt).toBe(updatedAtBefore);
+  });
+
+  test("sweeps up pins left behind by an already-deleted profile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    const schedule = await createSchedule({
+      name: "Dangling pin",
+      description: "Dangling pin",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    // A profile deleted out from under its schedules leaves rows naming a key
+    // that no longer resolves; the sweep must still be able to move them.
+    rawRun(
+      "test:setDanglingInferenceProfile",
+      "UPDATE cron_jobs SET inference_profile = ? WHERE id = ?",
+      "deleted-profile",
+      schedule.id,
+    );
+
+    const result = (await reassignRoute().handler({
+      body: { from: "deleted-profile", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(1);
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+});

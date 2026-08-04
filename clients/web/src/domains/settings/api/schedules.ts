@@ -9,6 +9,7 @@ import {
   schedulesByIdRunPost,
   schedulesByIdRunsGet,
   schedulesByIdTogglePost,
+  schedulesReassignprofilePost,
   schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
@@ -90,6 +91,34 @@ export async function updateSchedule(
 
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
   return fetchSharedSchedules(assistantId);
+}
+
+const REASSIGN_PROFILE_ERROR =
+  "Failed to move schedules to the replacement profile.";
+
+/**
+ * Move every schedule pinned to `fromProfile` onto `toProfile`, returning how
+ * many moved. Used by the profile-delete flow so a deleted inference profile
+ * never leaves schedules naming it.
+ */
+export async function reassignScheduleInferenceProfile(
+  assistantId: string,
+  fromProfile: string,
+  toProfile: string,
+): Promise<number> {
+  const { data, error, response } = await schedulesReassignprofilePost({
+    path: { assistant_id: assistantId },
+    body: { from: fromProfile, to: toProfile },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, REASSIGN_PROFILE_ERROR);
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, REASSIGN_PROFILE_ERROR),
+    );
+  }
+  return data?.reassigned ?? 0;
 }
 
 /**

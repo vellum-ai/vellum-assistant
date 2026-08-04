@@ -424,6 +424,7 @@ export function listSchedules(options?: {
   mode?: ScheduleMode;
   createdBy?: string | readonly string[];
   conversationId?: string;
+  inferenceProfile?: string;
 }): ScheduleJob[] {
   const db = getDb();
   const conditions = [];
@@ -450,6 +451,11 @@ export function listSchedules(options?: {
   if (options?.conversationId) {
     conditions.push(
       eq(scheduleJobs.wakeConversationId, options.conversationId),
+    );
+  }
+  if (options?.inferenceProfile) {
+    conditions.push(
+      eq(scheduleJobs.inferenceProfile, options.inferenceProfile),
     );
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;

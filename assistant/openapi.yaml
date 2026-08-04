@@ -25473,6 +25473,12 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+        - name: inference_profile
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Return only schedules pinned to this inference profile (llm.profiles key).
       responses:
         "200":
           description: Successful response
@@ -27026,6 +27032,45 @@ paths:
                     description: Updated schedule list
                 required:
                   - schedules
+                additionalProperties: false
+  /v1/schedules/reassign-profile:
+    post:
+      operationId: schedules_reassignprofile_post
+      summary: Reassign schedules to another inference profile
+      description:
+        Move every schedule pinned to one inference profile onto another, so deleting a profile does not leave its
+        schedules pointing at a name that no longer exists.
+      tags:
+        - schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  description: Inference profile key the schedules are pinned to now
+                to:
+                  type: string
+                  description: Inference profile key to move them to; must be configured
+              required:
+                - from
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reassigned:
+                    type: number
+                    description: Number of schedules moved
+                required:
+                  - reassigned
                 additionalProperties: false
   /v1/schedules/usage-summary:
     get:
