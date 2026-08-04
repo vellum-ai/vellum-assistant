@@ -167,15 +167,19 @@ async function runReconcilePass(): Promise<void> {
 
 /**
  * True when an `ended` recurrence is the expected end of a bounded schedule
- * rather than something to tell the user about. Two rows qualify: one the
- * engine latched on its last occurrence (`next_run_at` zeroed with a run
- * behind it), and one the user turned off. Neither lost a firing.
+ * rather than something to tell the user about. Three rows qualify: one the
+ * engine latched on its last occurrence, which zeroes `next_run_at` with a
+ * run behind it; one the user turned off; and one that shipped disabled and
+ * was never armed, which has `next_run_at` zeroed with no run behind it and
+ * no user choice recorded. None of them lost a firing the user expected.
  *
- * A row this reconciler disarmed does not qualify. `enabled = false` there
- * means the plugin is disabled or its declaration was briefly absent, and
- * once the plugin comes back the ended recurrence is a dead schedule the
- * user has to hear about. An ended declaration whose row is still armed
- * loses firings, and one with no row at all arrives dead; both surface.
+ * A row this reconciler disarmed does not qualify, and cannot be mistaken
+ * for the never-armed one because it keeps the stale non-zero `next_run_at`
+ * it was armed with. `enabled = false` there means the plugin is disabled or
+ * its declaration was briefly absent, and once the plugin comes back the
+ * ended recurrence is a dead schedule the user has to hear about. An ended
+ * declaration whose row is still armed loses firings, and one with no row at
+ * all arrives dead; both surface.
  */
 function isCompletedRecurrence(
   error: DeclarationError,
@@ -185,7 +189,12 @@ function isCompletedRecurrence(
     return false;
   }
   const engineLatched = row.nextRunAt === 0 && row.lastRunAt != null;
-  return engineLatched || row.userEnabled === false;
+  const insertedDisabled =
+    !row.enabled &&
+    row.nextRunAt === 0 &&
+    row.lastRunAt == null &&
+    row.userEnabled == null;
+  return engineLatched || row.userEnabled === false || insertedDisabled;
 }
 
 /**

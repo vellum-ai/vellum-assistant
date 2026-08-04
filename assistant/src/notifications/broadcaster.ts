@@ -801,7 +801,9 @@ export class NotificationBroadcaster {
   /**
    * Dispatch a prepared payload through its channel adapter and record the
    * outcome (delivery row status + results entry). Returns the adapter's
-   * result, or null when the send threw.
+   * result, or null when the send threw. The recorded result tracks what the
+   * adapter actually did, so a status write that fails after a successful
+   * send is logged and swallowed rather than downgrading the result.
    */
   private async sendAndRecord(
     dispatch: PendingChannelDispatch,
@@ -829,14 +831,25 @@ export class NotificationBroadcaster {
         const resolvedMessageId =
           adapterResult.messageId ?? pairing.messageId ?? undefined;
         if (hasPersistedDecision) {
-          updateDeliveryStatus(
-            deliveryId,
-            "sent",
-            undefined,
-            adapterResult.messageId
-              ? { messageId: adapterResult.messageId }
-              : undefined,
-          );
+          try {
+            updateDeliveryStatus(
+              deliveryId,
+              "sent",
+              undefined,
+              adapterResult.messageId
+                ? { messageId: adapterResult.messageId }
+                : undefined,
+            );
+          } catch (statusErr) {
+            // The message is already out; a lost status write must not turn
+            // this into a `failed` result. Callers read the results to decide
+            // whether a retry would re-deliver, so reporting a real send as
+            // failed releases the signal's dedupe claim and double-sends.
+            log.warn(
+              { err: statusErr, channel, signalId: signal.signalId },
+              "Failed to record a sent delivery; the send itself succeeded",
+            );
+          }
         }
         results.push(
           buildDeliveryResult(dispatch, "sent", {

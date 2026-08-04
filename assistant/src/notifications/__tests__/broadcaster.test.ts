@@ -61,9 +61,14 @@ mock.module("../conversation-pairing.js", () => ({
   },
 }));
 
+// Status writes are inert by default; tests that need a failing store swap
+// the implementation in.
+let updateDeliveryStatusImpl: (status: string) => void = () => {};
+
 mock.module("../deliveries-store.js", () => ({
   createDelivery: () => {},
-  updateDeliveryStatus: () => {},
+  updateDeliveryStatus: (_deliveryId: string, status: string) =>
+    updateDeliveryStatusImpl(status),
   findDeliveryByDecisionAndChannel: () => undefined,
 }));
 
@@ -162,6 +167,7 @@ beforeEach(() => {
   knownConversations = new Set();
   pairingByChannel = {};
   pairingErrorByChannel = {};
+  updateDeliveryStatusImpl = () => {};
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -232,6 +238,36 @@ describe("NotificationBroadcaster last-resort copy resolution", () => {
     expect(sends[0]?.payload.copy.body).toBe("Time to drink water");
     expect(results.length).toBe(1);
     expect(results[0]?.status).toBe("sent");
+  });
+});
+
+describe("NotificationBroadcaster delivery status recording", () => {
+  test("a successful send is recorded as sent even when its status write throws", async () => {
+    // The results array is what `emitNotificationSignal` reads to decide
+    // whether a retry would re-deliver. Reporting a real send as failed
+    // releases the signal's dedupe claim, so the retry sends this message a
+    // second time. The lost status write only costs the delivery row.
+    composeFallbackReturn = {
+      vellum: { title: "Reminder", body: "Time to drink water" },
+    };
+    updateDeliveryStatusImpl = (status: string) => {
+      if (status === "sent") {
+        throw new Error("deliveries store is locked");
+      }
+    };
+
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const results = await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({ renderedCopy: {} }),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(results.length).toBe(1);
+    expect(results[0]?.status).toBe("sent");
+    expect(results[0]?.errorMessage).toBeUndefined();
   });
 });
 
