@@ -21,6 +21,29 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     );
   });
 
+  test("google injection templates cover all Google product hosts", () => {
+    // BYO-mode CES header injection only fires for hosts with a matching
+    // template; a missing host means requests go out with no Authorization
+    // header. Keep this list in sync with the Google products we call.
+    const templates = PROVIDER_SEED_DATA.google.injectionTemplates ?? [];
+    const hosts = templates.map((t) => t.hostPattern);
+    expect(hosts).toEqual(
+      expect.arrayContaining([
+        "gmail.googleapis.com",
+        "www.googleapis.com",
+        "people.googleapis.com",
+        "docs.googleapis.com",
+        "tasks.googleapis.com",
+        "calendar.googleapis.com",
+      ]),
+    );
+    for (const template of templates) {
+      expect(template.injectionType).toBe("header");
+      expect(template.headerName).toBe("Authorization");
+      expect(template.valuePrefix).toBe("Bearer ");
+    }
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in
