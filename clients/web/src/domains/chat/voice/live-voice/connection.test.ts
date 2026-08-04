@@ -268,8 +268,8 @@ describe("buildSelfHostedLiveVoiceWsUrl", () => {
 
   test("paired __gateway-paired path throws on an Electron app:// origin too", () => {
     // The app:// protocol can't be rewritten to wss (the WHATWG setter no-ops
-    // on non-special to special), so this branch used to throw an opaque
-    // WebSocket construction error; now it fails typed before any dial.
+    // on non-special to special), so a raw dial would throw an opaque
+    // WebSocket construction error; the builder fails typed before any dial.
     expect(() =>
       buildSelfHostedLiveVoiceWsUrl({
         ingressUrl: "app://vellum/assistant/__gateway-paired/asst-1",

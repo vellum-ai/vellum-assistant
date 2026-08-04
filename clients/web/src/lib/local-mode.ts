@@ -836,7 +836,7 @@ export async function primeLocalGatewayConnection(
       source: `${pairedUrl}/auth/token`,
     });
     setSelfHostedConnection({
-      url: `${window.location.origin}${pairedUrl}`,
+      url: getAuthGatewayIngressUrl(assistant)!,
       token: guardianToken,
     });
     return;
