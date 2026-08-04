@@ -178,6 +178,13 @@ type TimedConversationListPage = ConversationListPage & {
 type FirstPageFetchSource = "drain" | "first_page_refresh";
 
 /**
+ * Superset of {@link FirstPageFetchSource} for the error entry, which any
+ * caller of {@link fetchConversationListPage} can produce, including the
+ * onboarding existence probe.
+ */
+type ListFetchSource = FirstPageFetchSource | "existence_probe";
+
+/**
  * Ring entry for one offset-0 list GET, shared by the drain's first page and
  * the standalone first-page fetchers. The standalone ones run debounced (250ms)
  * behind sync events, so their share of the 200-entry ring stays small.
@@ -186,9 +193,11 @@ type FirstPageFetchSource = "drain" | "first_page_refresh";
  * bucket's first page reads as the same offset-0 request, and a slow entry is
  * not attributable to the path the user waited on.
  *
- * {@link hasAnyActiveConversation} deliberately records nothing: it is an
+ * {@link hasAnyActiveConversation} contributes no success entry: it is an
  * offset-0 existence probe on the onboarding path, not a list the user is
  * waiting to see, so keeping it out preserves the ring for real list fetches.
+ * A failed probe still lands one `conversation_list_page_fetch_error`, labeled
+ * `source: "existence_probe"` so it cannot be mistaken for a drain failure.
  */
 function recordFirstPageFetch(
   assistantId: string,
@@ -212,6 +221,7 @@ function recordFirstPageFetch(
 async function fetchConversationListPage(
   assistantId: string,
   offset: number,
+  source: ListFetchSource,
   options: FetchConversationListOptions = {},
 ): Promise<TimedConversationListPage> {
   const { conversationType, archiveStatus, originChannel } = options;
@@ -237,6 +247,7 @@ async function fetchConversationListPage(
       durationMs,
       bytes: readContentLength(response),
       listKind: drainListKind(options),
+      source,
     });
     const msg = extractErrorMessage(
       error,
@@ -299,6 +310,7 @@ async function fetchConversationList(
       const result = await fetchConversationListPage(
         assistantId,
         offset,
+        "drain",
         options,
       );
       pages++;
@@ -428,7 +440,11 @@ export async function listConversations(
 export async function hasAnyActiveConversation(
   assistantId: string,
 ): Promise<boolean> {
-  const { conversations } = await fetchConversationListPage(assistantId, 0);
+  const { conversations } = await fetchConversationListPage(
+    assistantId,
+    0,
+    "existence_probe",
+  );
   return conversations.length > 0;
 }
 
@@ -522,7 +538,11 @@ export async function listArchivedConversations(
 export async function listConversationsFirstPage(
   assistantId: string,
 ): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(assistantId, 0);
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "first_page_refresh",
+  );
   recordFirstPageFetch(assistantId, page, "foreground", "first_page_refresh");
   return {
     conversations: [...page.conversations].sort(
@@ -536,9 +556,12 @@ export async function listConversationsFirstPage(
 export async function listBackgroundConversationsFirstPage(
   assistantId: string,
 ): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(assistantId, 0, {
-    conversationType: "background",
-  });
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "first_page_refresh",
+    { conversationType: "background" },
+  );
   recordFirstPageFetch(assistantId, page, "background", "first_page_refresh");
   return {
     conversations: page.conversations
@@ -552,9 +575,12 @@ export async function listBackgroundConversationsFirstPage(
 export async function listScheduledConversationsFirstPage(
   assistantId: string,
 ): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(assistantId, 0, {
-    conversationType: "scheduled",
-  });
+  const page = await fetchConversationListPage(
+    assistantId,
+    0,
+    "first_page_refresh",
+    { conversationType: "scheduled" },
+  );
   recordFirstPageFetch(assistantId, page, "scheduled", "first_page_refresh");
   return {
     conversations: [...page.conversations].sort(

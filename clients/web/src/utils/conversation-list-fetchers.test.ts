@@ -28,6 +28,7 @@ mock.module("@/lib/telemetry/client-perf", () => ({
 }));
 
 const {
+  hasAnyActiveConversation,
   listArchivedConversations,
   listBackgroundConversations,
   listBackgroundConversationsFirstPage,
@@ -200,6 +201,7 @@ describe("conversation list drain diagnostics", () => {
       status: 500,
       bytes: null,
       listKind: "foreground",
+      source: "drain",
     });
     expect(events[1]?.details).not.toHaveProperty("conversationType");
     expect(events[1]?.details).not.toHaveProperty("archiveStatus");
@@ -236,8 +238,31 @@ describe("conversation list drain diagnostics", () => {
     const errorEntry = events.find(
       (event) => event.kind === "conversation_list_page_fetch_error",
     );
-    expect(errorEntry?.details).toMatchObject({ listKind: "background" });
+    expect(errorEntry?.details).toMatchObject({
+      listKind: "background",
+      source: "drain",
+    });
     expect(errorEntry?.details).not.toHaveProperty("archiveStatus");
+  });
+
+  test("a failing existence probe is labeled so it cannot pass as a drain failure", async () => {
+    stubPages([{ ids: [], hasMore: false, status: 500 }]);
+
+    const { events, result } = await diagnosticsDuring(() =>
+      hasAnyActiveConversation(ASSISTANT_ID).catch(() => "threw"),
+    );
+
+    expect(result).toBe("threw");
+    const errorEntry = events.find(
+      (event) => event.kind === "conversation_list_page_fetch_error",
+    );
+    expect(errorEntry?.details).toMatchObject({
+      listKind: "foreground",
+      source: "existence_probe",
+    });
+    expect(
+      events.filter((event) => event.kind === "conversation_list_page_fetch"),
+    ).toHaveLength(0);
   });
 
   test("both archive-page drain summaries are labeled archived", async () => {
