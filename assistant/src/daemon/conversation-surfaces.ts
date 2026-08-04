@@ -197,7 +197,7 @@ type PersistedSurfaceHit = {
  * different blocks.
  *
  * The scan is deliberately unbounded by compaction (see
- * {@link findPersistedSurfaceType}), and it throws rather than swallowing DB
+ * {@link findPersistedSurfaceInfo}), and it throws rather than swallowing DB
  * errors so each caller keeps its own logging.
  */
 function findPersistedSurfaceBlock(
@@ -389,8 +389,19 @@ export function markSurfaceCompleted(
   }
 }
 
+/** What a persisted `ui_surface` block can still tell us once it is cold. */
+export type PersistedSurfaceInfo = {
+  /** The block's `surfaceType`, absent when it carries no string type. */
+  surfaceType: string | undefined;
+  /** The block's `data`, absent when it carries no plain-object data. */
+  data: Record<string, unknown> | undefined;
+};
+
 /**
- * Read a `ui_surface` block's `surfaceType` out of persisted history.
+ * Read a `ui_surface` block's `surfaceType` and `data` out of persisted
+ * history. Both travel together because every caller that has lost the live
+ * entry needs both: the type to decide completion, the data for the labels a
+ * completion summary quotes.
  *
  * This must NOT be routed through `findPersistedSurfaceState`
  * (`runtime/routes/surface-conversation-resolver.ts`): that helper is bounded
@@ -403,19 +414,30 @@ export function markSurfaceCompleted(
  * `runtime/routes/surface-content-routes.ts` for why that shared map must not
  * absorb scan results.
  */
-export function findPersistedSurfaceType(
+export function findPersistedSurfaceInfo(
   conversationId: string,
   surfaceId: string,
-): string | undefined {
+): PersistedSurfaceInfo | undefined {
   try {
     const hit = findPersistedSurfaceBlock(conversationId, surfaceId);
-    if (hit && typeof hit.block.surfaceType === "string") {
-      return hit.block.surfaceType;
+    if (!hit) {
+      return undefined;
     }
+    const data = hit.block.data;
+    return {
+      surfaceType:
+        typeof hit.block.surfaceType === "string"
+          ? hit.block.surfaceType
+          : undefined,
+      data:
+        typeof data === "object" && data !== null && !Array.isArray(data)
+          ? (data as Record<string, unknown>)
+          : undefined,
+    };
   } catch (err) {
     log.warn(
       { err, conversationId, surfaceId },
-      "Failed to read persisted surface type from DB",
+      "Failed to read persisted surface info from DB",
     );
   }
   return undefined;
@@ -2143,10 +2165,16 @@ export async function handleSurfaceAction(
 
     // In-memory state is absent whenever the surface outlived its live entry
     // (client reload, daemon restart), so the persisted block is the only
-    // remaining source for the surface type.
-    const resolvedSurfaceType =
-      stored?.surfaceType ??
-      findPersistedSurfaceType(ctx.conversationId, surfaceId);
+    // remaining source for both the surface type and the labels the completion
+    // summary quotes. One lookup serves both, and is skipped entirely while
+    // live state still covers them.
+    const persisted = stored
+      ? undefined
+      : findPersistedSurfaceInfo(ctx.conversationId, surfaceId);
+    const resolvedSurfaceType = stored?.surfaceType ?? persisted?.surfaceType;
+    const resolvedSurfaceData = (stored?.data ?? persisted?.data) as
+      | Record<string, unknown>
+      | undefined;
     if (!stored) {
       log.info(
         {
@@ -2166,7 +2194,7 @@ export async function handleSurfaceAction(
         resolvedSurfaceType,
         actionId,
         mergedData,
-        stored?.data as Record<string, unknown> | undefined,
+        resolvedSurfaceData,
       ),
     });
 

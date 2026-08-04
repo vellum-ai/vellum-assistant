@@ -111,6 +111,25 @@ function seedSurfaceRow(surfaceId: string, surfaceType: string): void {
   ];
 }
 
+function seedConfirmationRow(
+  surfaceId: string,
+  data: Record<string, unknown>,
+): void {
+  storedRows = [
+    {
+      id: "msg-with-confirmation",
+      conversationId: CONVERSATION_ID,
+      role: "assistant",
+      content: [
+        { type: "text", text: "Are you sure?" },
+        { type: "ui_surface", surfaceId, surfaceType: "confirmation", data },
+      ],
+      createdAt: 0,
+      metadata: null,
+    },
+  ];
+}
+
 /** Re-read the persisted block the way a history reseed would. */
 function readPersistedSurface(
   surfaceId: string,
@@ -180,6 +199,45 @@ describe("history-restored surface completion", () => {
     const completions = completionBroadcasts(surfaceId);
     expect(completions).toHaveLength(1);
     expect(completions[0].summary).toBe('User chose: "Clean up my inbox"');
+  });
+
+  test("a history-restored confirmation quotes its persisted confirmLabel", async () => {
+    const surfaceId = "surface-confirm-history-1";
+    seedConfirmationRow(surfaceId, {
+      message: "Delete this project?",
+      confirmLabel: "Delete forever",
+      cancelLabel: "Keep it",
+    });
+    const ctx = makeContext();
+
+    // Neither live map has anything: the labels can only come from history.
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    expect(ctx.surfaceState.has(surfaceId)).toBe(false);
+
+    await handleSurfaceAction(ctx, surfaceId, "confirm", {});
+
+    expect(readPersistedSurface(surfaceId)?.completionSummary).toBe(
+      'User chose: "Delete forever"',
+    );
+    const completions = completionBroadcasts(surfaceId);
+    expect(completions).toHaveLength(1);
+    expect(completions[0].summary).toBe('User chose: "Delete forever"');
+  });
+
+  test("a history-restored confirmation quotes its persisted cancelLabel", async () => {
+    const surfaceId = "surface-confirm-history-2";
+    seedConfirmationRow(surfaceId, {
+      message: "Delete this project?",
+      confirmLabel: "Delete forever",
+      cancelLabel: "Keep it",
+    });
+    const ctx = makeContext();
+
+    await handleSurfaceAction(ctx, surfaceId, "cancel", {});
+
+    expect(readPersistedSurface(surfaceId)?.completionSummary).toBe(
+      'User chose: "Keep it"',
+    );
   });
 
   test("in-memory surface state supplies the type when it is still present", async () => {
