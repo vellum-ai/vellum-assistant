@@ -1207,8 +1207,16 @@ describe("LiveVoiceSession server VAD", () => {
     });
     // The barge-in utterance transcribes to nothing, so no follow-up turn
     // consumes the stash before the interrupt lands.
+    //
+    // "third question" is repeated because finals are handed out by transcriber
+    // creation order, and the session pre-arms a transcriber for the next
+    // utterance. The interrupt below can discard that pre-armed one and re-arm,
+    // which shifts the final utterance onto the following index — with a
+    // 3-entry list it would fall off the end and transcribe to the "utterance
+    // N" placeholder, so the wait for "third question" would time out rather
+    // than fail on the assertion. Both landing spots carry the same text.
     const { frames, session } = createHarness({
-      finals: ["first question", "", "third question"],
+      finals: ["first question", "", "third question", "third question"],
       startVoiceTurn,
       streamTtsAudio,
       spawnBackgroundContinuation,

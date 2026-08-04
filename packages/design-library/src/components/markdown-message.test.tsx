@@ -466,6 +466,97 @@ describe("MarkdownMessage", () => {
     expect(html).not.toContain('rel="noopener noreferrer"');
   });
 
+  test("custom imageComponent receives absolute host paths", () => {
+    const seen: { src: string; alt: string }[] = [];
+    function CustomImage({ src, alt }: { src: string; alt: string }) {
+      seen.push({ src, alt });
+      return <span data-custom-image={src}>{alt}</span>;
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "![chart](/Users/alice/files/chart.png)",
+        imageComponent: CustomImage,
+      }),
+    );
+
+    expect(seen).toEqual([
+      { src: "/Users/alice/files/chart.png", alt: "chart" },
+    ]);
+    expect(html).toContain('data-custom-image="/Users/alice/files/chart.png"');
+    expect(html).not.toContain("<img");
+  });
+
+  test("custom imageComponent receives data: srcs", () => {
+    const seen: string[] = [];
+    function CustomImage({ src, alt }: { src: string; alt: string }) {
+      seen.push(src);
+      return <span data-custom-image="true">{alt}</span>;
+    }
+
+    const dataUri = "data:image/png;base64,iVBORw0KGgo=";
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: `![inline](${dataUri})`,
+        imageComponent: CustomImage,
+        // react-markdown's default sanitizer rejects `data:`, so the consumer's
+        // transform is what lets the payload through to the component.
+        urlTransform: (url: string) => url,
+      }),
+    );
+
+    expect(seen).toEqual([dataUri]);
+    expect(html).toContain('data-custom-image="true"');
+    expect(html).not.toContain("<img");
+  });
+
+  test("custom imageComponent receives srcs the url transform rejected", () => {
+    const seen: string[] = [];
+    function CustomImage({ src, alt }: { src: string; alt: string }) {
+      seen.push(src);
+      return <span data-custom-image="true">{alt}</span>;
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        // The default sanitizer blanks the `data:` src, and the empty result
+        // still belongs to the consumer's component, not a bare <img>.
+        content: "![inline](data:image/png;base64,iVBORw0KGgo=)",
+        imageComponent: CustomImage,
+      }),
+    );
+
+    expect(seen).toEqual([""]);
+    expect(html).not.toContain("<img");
+  });
+
+  test("without an imageComponent local srcs render a bare img", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content:
+          "![chart](/Users/alice/files/chart.png)\n\n![thumb](./thumb.png)",
+      }),
+    );
+
+    expect(html).toContain(
+      '<img src="/Users/alice/files/chart.png" alt="chart"',
+    );
+    expect(html).toContain('<img src="./thumb.png" alt="thumb"');
+    expect(html).toContain("my-1 max-w-full rounded");
+  });
+
+  test("without an imageComponent remote srcs show the blocked placeholder", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "![blocked](https://example.com/blocked.png)",
+      }),
+    );
+
+    expect(html).toContain("External image not rendered");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("https://example.com/blocked.png");
+  });
+
   test("emoji inside markdown italic renders upright, not skewed", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, { content: "*🥺*" }),

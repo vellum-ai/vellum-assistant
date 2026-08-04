@@ -22,6 +22,7 @@ import {
   updateDeliveryRenderedCopy,
 } from "./deliveries-store.js";
 import { getBroadcaster } from "./emit-signal.js";
+import { nonEmpty } from "./notification-utils.js";
 import type { NotificationChannel } from "./types.js";
 
 const log = getLogger("edit-notification");
@@ -88,8 +89,12 @@ export async function editNotification(
 ): Promise<EditNotificationResult | null> {
   const feedItemId = normalizeFeedItemId(params.id);
 
+  // Titles are never cleared, so a blank one is dropped before it can
+  // reach the feed patch or a channel update.
+  const title = nonEmpty(params.title);
+
   const feedItem = await patchFeedItemContent(feedItemId, {
-    title: params.title,
+    title,
     summary: params.body,
     urgency: params.urgency,
     status: params.status,
@@ -102,8 +107,7 @@ export async function editNotification(
   // Only edit channel messages when the user-visible text changed.
   // Urgency/status are feed-only — pushing a channel update for those
   // alone would re-deliver the same body and confuse the recipient.
-  const shouldUpdateChannels =
-    params.title !== undefined || params.body !== undefined;
+  const shouldUpdateChannels = title !== undefined || params.body !== undefined;
   if (!shouldUpdateChannels) {
     return { feedItem, channels: [] };
   }
@@ -120,7 +124,7 @@ export async function editNotification(
 
   const deliveries = findDeliveriesByDecisionId(decision.id);
   const channels = await updateChannelDeliveries(deliveries, {
-    title: params.title,
+    title,
     body: params.body,
   });
 

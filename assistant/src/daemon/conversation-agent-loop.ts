@@ -30,7 +30,7 @@ import {
 } from "../config/llm-context-resolution.js";
 import {
   resolveCallSiteConfig,
-  resolveEffectiveProfileKey,
+  resolveCallSiteConfigWithProfile,
   resolveProfilelessModelKey,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -61,6 +61,11 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
+import { isManagedConnectionRoute } from "../providers/connection-resolution.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "../providers/routing-identity.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
@@ -95,6 +100,7 @@ import {
   budgetYieldUnrecoveredClassification,
   buildConversationErrorMessage,
   classifyConversationError,
+  type ConversationErrorAttribution,
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
@@ -422,10 +428,7 @@ export async function runAgentLoopImpl(
   // connection and profile so credential/connection errors point at the
   // exact slot to fix instead of a generic banner. Resolution can itself
   // throw on a broken config — attribution must never mask the real error.
-  const turnErrorAttribution = (): {
-    connectionName?: string;
-    profileName?: string;
-  } => {
+  const turnErrorAttribution = (): ConversationErrorAttribution => {
     try {
       const overrideProfile = readCurrentOverrideProfile();
       const resolveOpts = {
@@ -433,21 +436,30 @@ export async function runAgentLoopImpl(
         forceOverrideProfile,
         selectionSeed: ctx.conversationId,
       };
-      const resolved = resolveCallSiteConfig(
-        turnCallSite,
-        config.llm,
-        resolveOpts,
-      );
-      const profileName = resolveEffectiveProfileKey(
-        turnCallSite,
-        config.llm,
-        resolveOpts,
-      );
+      const { config: resolved, profileName } =
+        resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);
+      let connectionName = resolved.provider_connection;
+      try {
+        connectionName =
+          resolveRoutingIdentity(resolved.provider, resolved.model)
+            ?.connectionName ?? connectionName;
+      } catch (error) {
+        if (!(error instanceof ConnectionResolutionError)) {
+          throw error;
+        }
+        connectionName = error.connectionName;
+      }
+      // Managed-ness comes from the connection row, matching what dispatch
+      // decides. The profile's own provider can't stand in: a concrete
+      // provider tweak over a managed winner keeps the managed connection
+      // while replacing the provider (`llm-resolver.ts`).
+      const isManagedRoute = connectionName
+        ? isManagedConnectionRoute(connectionName)
+        : undefined;
       return {
-        ...(resolved.provider_connection
-          ? { connectionName: resolved.provider_connection }
-          : {}),
+        ...(connectionName ? { connectionName } : {}),
         ...(profileName ? { profileName } : {}),
+        ...(isManagedRoute !== undefined ? { isManagedRoute } : {}),
       };
     } catch {
       return {};
@@ -949,6 +961,10 @@ export async function runAgentLoopImpl(
     // `client_os` into the in-flight turn.
     ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
 
+    // Freeze the app the client had in view at turn start, for the same
+    // anti-race reason as `client_os` above.
+    ctx.currentTurnVisibleAppId = ctx.visibleAppId ?? undefined;
+
     // Resolve the effective profile key for this turn and detect changes.
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
@@ -1049,6 +1065,7 @@ export async function runAgentLoopImpl(
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
       latencyTracker,
+      errorAttribution: turnErrorAttribution,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
@@ -1728,6 +1745,15 @@ export async function runAgentLoopImpl(
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
+    // The app on screen is view state owned by the message that reported it,
+    // not durable conversation state: nothing tells the daemon when the user
+    // closes an app. Clear both copies at turn end so a later turn that brings
+    // no client transport (a scheduled wake, a background follow-up) cannot
+    // claim the user is looking at an app they may have closed. Every inbound
+    // send re-applies it from transport before its own turn, including the
+    // queue drain, so live turns are unaffected.
+    ctx.visibleAppId = undefined;
+    ctx.currentTurnVisibleAppId = undefined;
     // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
     // before drainQueue so queued/drained turns on a reused conversation can't
     // inherit stale in-task-run scope from the turn that just finished.

@@ -20,6 +20,7 @@ export interface AppSettings {
   featureFlags: Record<string, boolean>;
   launchAtLogin: boolean;
   shareDiagnostics: boolean;
+  suppressRelocationPrompt: boolean;
 }
 
 const schema: Schema<AppSettings> = {
@@ -42,6 +43,9 @@ const schema: Schema<AppSettings> = {
     type: "boolean",
   },
   shareDiagnostics: {
+    type: "boolean",
+  },
+  suppressRelocationPrompt: {
     type: "boolean",
   },
 };

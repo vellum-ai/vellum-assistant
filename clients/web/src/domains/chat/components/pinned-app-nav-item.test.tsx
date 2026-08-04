@@ -112,12 +112,23 @@ describe("PinnedAppNavItem", () => {
     expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(false);
   });
 
+  test("expanded: the hover-revealed unpin button also clears the pin", () => {
+    seedPin(APP);
+    expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(true);
+
+    render(<PinnedAppNavItem app={APP} active={false} collapsed={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
+
+    expect(usePinnedAppsStore.getState().isPinned("app-1")).toBe(false);
+  });
+
   test("collapsed rail: renders the row without the context-menu wrapper", () => {
     render(<PinnedAppNavItem app={APP} active={false} collapsed />);
 
     expect(screen.getByTestId("app-row").textContent).toBe("My App");
     expect(screen.queryByTestId("ctx-root")).toBeNull();
     expect(screen.queryByRole("button", { name: "Unpin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Unpin My App" })).toBeNull();
   });
 
   test("marks the row active when active is true", () => {

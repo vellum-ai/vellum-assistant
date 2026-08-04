@@ -52,7 +52,7 @@ export function QuickInputPage() {
     <div className="flex h-screen w-screen items-center justify-center bg-transparent p-2">
       <form
         onSubmit={handleSubmit}
-        className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-3 shadow-lg"
+        className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border-element)] bg-[var(--surface-base)] px-4 py-3 shadow-lg"
       >
         <img
           src={publicAsset("/vellum-logo.svg")}

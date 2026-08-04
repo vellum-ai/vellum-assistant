@@ -13,6 +13,7 @@ import { getLogger } from "../../../util/logger.js";
 import {
   callTelegramBotApi,
   callTelegramBotApiMultipart,
+  type TelegramMessage,
   TelegramNonRetryableError,
 } from "./api.js";
 import { renderTelegramHtml } from "./render.js";
@@ -121,6 +122,17 @@ function buildInlineKeyboard(approval: ApprovalUIMetadata): {
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Outcome of a Telegram reply send. */
+export interface TelegramSendResult {
+  /**
+   * Channel-native id of the last sent chunk (the message carrying the
+   * inline keyboard when an approval was attached). Callers that need to
+   * address the message later (e.g. approval-card withdrawal) persist this.
+   * Undefined when the API response did not carry a message id.
+   */
+  lastMessageId?: string;
+}
+
 /**
  * Send a Telegram text reply, splitting long messages and optionally
  * attaching inline keyboard buttons for approval prompts.
@@ -130,9 +142,10 @@ export async function sendTelegramReply(
   text: string,
   approval?: ApprovalUIMetadata,
   opts?: TelegramSendOptions,
-): Promise<void> {
+): Promise<TelegramSendResult> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
+  let lastMessageId: string | undefined;
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
@@ -146,10 +159,18 @@ export async function sendTelegramReply(
       payload.reply_markup = buildInlineKeyboard(approval);
     }
 
-    await callTelegramBotApi("sendMessage", payload);
+    const sent = await callTelegramBotApi<TelegramMessage>(
+      "sendMessage",
+      payload,
+    );
+    lastMessageId =
+      typeof sent?.message_id === "number"
+        ? String(sent.message_id)
+        : undefined;
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
+  return lastMessageId !== undefined ? { lastMessageId } : {};
 }
 
 /**

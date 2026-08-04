@@ -7,7 +7,9 @@
  * **State managed:**
  * - `mainView` — which top-level panel is displayed
  * - `activeAppId` / `openedAppState` — app viewer
- * - `openedDocumentState` — document viewer
+ * - `activeDocumentTarget` / `openedDocumentState` — document viewer, holding
+ *   a document surface (which may be bound to a workspace markdown file) or a
+ *   read-only preview of a workspace file the editor cannot round-trip
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
@@ -32,8 +34,17 @@ import type { SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
-import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import { toast } from "@vellumai/design-library";
+
+import {
+  appsByIdOpenPost,
+  documentsByIdGet,
+  documentsForworkspacefilePost,
+} from "@/generated/daemon/sdk.gen";
+import { ApiError } from "@/utils/api-errors";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
+import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
@@ -108,6 +119,57 @@ export function isAppNotFoundError(err: unknown): boolean {
   return typeof message === "string" && message.startsWith("App not found");
 }
 
+/**
+ * What to tell the reader when opening a workspace file as a document fails.
+ *
+ * The daemon refuses these opens with a message written for a reader (the
+ * file was deleted, the path is not markdown), so a client error's message is
+ * repeated verbatim. A server fault or a transport failure carries no such
+ * message, only `HTTP 500` or the fetch layer's own wording, so those get a
+ * generic line instead of leaking plumbing into the toast.
+ */
+function workspaceDocumentErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status < 500 && err.message) {
+    return err.message;
+  }
+  return "Couldn't open this file";
+}
+
+/**
+ * The daemon messages the file-backed document route answers a 404 with
+ * (`assistant/src/runtime/routes/documents-routes.ts`). Both are written for a
+ * reader, and both mean the route ran and the file is genuinely gone.
+ */
+const WORKSPACE_FILE_404_MARKERS = [
+  "File not found",
+  "The file backing this document no longer exists",
+];
+
+/**
+ * Whether a 404 means the daemon does not serve this route at all, rather than
+ * the route answering that the file is gone.
+ *
+ * A web bundle can be newer than the assistant installed beside it, and an
+ * unknown endpoint comes back through the daemon's catch-all as a bare
+ * `{ error: { code: "NOT_FOUND", message: "Not found" } }`. Closing the drawer
+ * and blaming the file for that would strand every markdown link on the older
+ * assistant, so a 404 carrying neither of the route's own messages is read as
+ * route-missing and the click falls back to the workspace browser, which every
+ * assistant version serves.
+ *
+ * The marker check is the only signal available: the status code is identical
+ * either way, so a genuine 404 whose wording changes daemon-side degrades to
+ * the fallback navigation rather than to a broken link.
+ */
+function isWorkspaceFileRouteMissing(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 404) {
+    return false;
+  }
+  return !WORKSPACE_FILE_404_MARKERS.some((marker) =>
+    err.message.startsWith(marker),
+  );
+}
+
 function resolveViewBefore(
   state: ViewerState,
   field:
@@ -165,11 +227,97 @@ export interface OpenedAppState {
   html: string;
 }
 
-export interface OpenedDocumentState {
+/**
+ * A document surface stored in the daemon's document database. Edits are saved
+ * through the documents API and carry the document-id affordances (comments,
+ * PDF export, feedback).
+ */
+export interface OpenedDbDocumentState {
+  source: "document";
   surfaceId: string;
   conversationId: string;
   documentName: string;
   content: string;
+  /**
+   * The workspace markdown file this document is bound to, when it has one.
+   * A file-backed document is a full document surface, since the daemon writes
+   * every save through to the file, so it differs from any other document only
+   * in carrying the path, which the transcript's file affordances match on to
+   * show which file is open. Absent or `null` for a document that has no file
+   * behind it.
+   */
+  workspacePath?: string | null;
+}
+
+/**
+ * Workspace file formats the drawer renders read-only, without an editor.
+ * `unsupported` is the catch-all: the drawer opens for every file type, and a
+ * format no reader covers shows the file's identity plus the two ways out
+ * (open in the workspace, download) rather than refusing to open at all.
+ */
+export type WorkspaceFilePreviewKind =
+  | "csv"
+  | "text"
+  | "pdf"
+  | "image"
+  | "audio"
+  | "video"
+  | "unsupported";
+
+/**
+ * A workspace file shown read-only in the drawer, because the markdown editor
+ * could not round-trip it. Nothing is editable, so this variant carries no
+ * content: the preview component reads the bytes from the query cache, which
+ * stays the single owner of that server data.
+ */
+export interface OpenedWorkspaceFilePreviewState {
+  source: "workspace-file-preview";
+  workspacePath: string;
+  documentName: string;
+  previewKind: WorkspaceFilePreviewKind;
+}
+
+/**
+ * What the document viewer is showing. The `source` discriminant decides
+ * whether edits save anywhere: a document surface autosaves through the
+ * documents API, and a preview saves nowhere.
+ */
+export type OpenedDocumentState =
+  | OpenedDbDocumentState
+  | OpenedWorkspaceFilePreviewState;
+
+/**
+ * The document the viewer is loading or showing, tracked so a load that
+ * resolves after the user moved on can detect that it is stale. One union
+ * rather than a surface-id field plus a path field, so "showing a file while a
+ * surface id is active" cannot be represented.
+ *
+ * `workspace-file` is the in-flight target of a file-backed document open: the
+ * surface id only exists once the daemon has answered, so until then the
+ * request is addressed by the path the user clicked.
+ */
+export type DocumentTarget =
+  | { source: "document"; surfaceId: string }
+  | { source: "workspace-file"; workspacePath: string }
+  | { source: "workspace-file-preview"; workspacePath: string };
+
+/** Whether two document targets address the same document. */
+export function sameDocumentTarget(
+  a: DocumentTarget | null,
+  b: DocumentTarget,
+): boolean {
+  if (a === null || a.source !== b.source) {
+    return false;
+  }
+  if (a.source === "document" && b.source === "document") {
+    return a.surfaceId === b.surfaceId;
+  }
+  // The same path opened as an editable file and as a preview are different
+  // targets, and the `source` check above has already separated them.
+  if (a.source === "document" || b.source === "document") {
+    return false;
+  }
+  return a.workspacePath === b.workspacePath;
 }
 
 export type ChannelSetupType = SetupChannelId;
@@ -312,7 +460,7 @@ export interface ViewerState {
   mainView: MainView;
   activeAppId: string | null;
   openedAppState: OpenedAppState | null;
-  activeDocumentSurfaceId: string | null;
+  activeDocumentTarget: DocumentTarget | null;
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
@@ -433,6 +581,31 @@ export interface ViewerActions {
     assistantId: string,
     documentSurfaceId: string,
   ) => Promise<void>;
+  /**
+   * Open a markdown file from the assistant workspace in the document viewer.
+   * The daemon finds or creates the document bound to that file and keeps the
+   * two in step: the file wins at open, and every save writes back through to
+   * it. So this opens a full document surface, with the comment panel,
+   * assistant iteration, and PDF export a document carries.
+   *
+   * `conversationId` is the conversation the file was opened from, which the
+   * document is bound to.
+   */
+  loadWorkspaceFileDocument: (
+    assistantId: string,
+    workspacePath: string,
+    conversationId: string,
+  ) => Promise<void>;
+  /**
+   * Open a workspace file the editor cannot round-trip (a spreadsheet, a Word
+   * or PowerPoint package, media, or a format with no reader at all) read-only
+   * in the document drawer. Synchronous: the preview owns its own bytes through
+   * the query cache, so the store records only which file is on show.
+   */
+  openWorkspaceFilePreview: (
+    workspacePath: string,
+    previewKind: WorkspaceFilePreviewKind,
+  ) => void;
   setLoadedDocument: (document: OpenedDocumentState) => void;
   updateDocumentContent: (
     surfaceId: string,
@@ -459,7 +632,7 @@ const INITIAL_STATE: ViewerState = {
   mainView: "chat",
   activeAppId: null,
   openedAppState: null,
-  activeDocumentSurfaceId: null,
+  activeDocumentTarget: null,
   openedDocumentState: null,
   isAppMinimized: false,
   intelligenceTab: "identity",
@@ -871,9 +1044,13 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   loadDocument: async (assistantId, documentSurfaceId) => {
     const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
+    const target: DocumentTarget = {
+      source: "document",
+      surfaceId: documentSurfaceId,
+    };
     set({
       mainView: "document",
-      activeDocumentSurfaceId: documentSurfaceId,
+      activeDocumentTarget: target,
       openedDocumentState: null,
       viewBeforeDocument,
     });
@@ -882,35 +1059,118 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         path: { assistant_id: assistantId, id: documentSurfaceId },
         throwOnError: true,
       });
-      if (get().activeDocumentSurfaceId !== documentSurfaceId) {
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
       }
       if (!result) {
         set({
           mainView: viewBeforeDocument,
-          activeDocumentSurfaceId: null,
+          activeDocumentTarget: null,
           openedDocumentState: null,
         });
         return;
       }
       set({
         openedDocumentState: {
+          source: "document",
           surfaceId: result.surfaceId,
           conversationId: result.conversationId,
           documentName: result.title ?? "Untitled",
           content: result.content ?? "",
+          workspacePath: result.workspacePath,
         },
       });
     } catch {
-      if (get().activeDocumentSurfaceId !== documentSurfaceId) {
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
       }
       set({
         mainView: viewBeforeDocument,
-        activeDocumentSurfaceId: null,
+        activeDocumentTarget: null,
         openedDocumentState: null,
       });
     }
+  },
+
+  loadWorkspaceFileDocument: async (
+    assistantId,
+    workspacePath,
+    conversationId,
+  ) => {
+    const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
+    const target: DocumentTarget = { source: "workspace-file", workspacePath };
+    set({
+      mainView: "document",
+      activeDocumentTarget: target,
+      openedDocumentState: null,
+      viewBeforeDocument,
+    });
+
+    const giveUp = (err: unknown) => {
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
+        return;
+      }
+      set({
+        mainView: viewBeforeDocument,
+        activeDocumentTarget: null,
+        openedDocumentState: null,
+      });
+      if (isWorkspaceFileRouteMissing(err)) {
+        // The assistant beside this bundle has no file-backed document route,
+        // so the file opens where every version can show it. No toast: nothing
+        // went wrong from the reader's side.
+        void openWorkspaceFile(workspacePath);
+        return;
+      }
+      toast.error(workspaceDocumentErrorMessage(err));
+    };
+
+    try {
+      const { data: result } = await documentsForworkspacefilePost({
+        path: { assistant_id: assistantId },
+        body: { path: workspacePath, conversationId },
+        throwOnError: true,
+      });
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
+        return;
+      }
+      if (!result) {
+        giveUp(null);
+        return;
+      }
+      set({
+        // The surface id exists now, so the target becomes the same one a
+        // document opened from the transcript carries.
+        activeDocumentTarget: {
+          source: "document",
+          surfaceId: result.surfaceId,
+        },
+        openedDocumentState: {
+          source: "document",
+          surfaceId: result.surfaceId,
+          conversationId: result.conversationId,
+          documentName: result.title || "Untitled",
+          content: result.content ?? "",
+          workspacePath: result.workspacePath,
+        },
+      });
+    } catch (err) {
+      giveUp(err);
+    }
+  },
+
+  openWorkspaceFilePreview: (workspacePath, previewKind) => {
+    set({
+      mainView: "document",
+      activeDocumentTarget: { source: "workspace-file-preview", workspacePath },
+      openedDocumentState: {
+        source: "workspace-file-preview",
+        workspacePath,
+        documentName: workspaceBasenameOf(workspacePath),
+        previewKind,
+      },
+      viewBeforeDocument: resolveViewBefore(get(), "viewBeforeDocument"),
+    });
   },
 
   setLoadedDocument: (document) => {
@@ -918,14 +1178,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   updateDocumentContent: (surfaceId, content, mode) => {
-    const state = get();
-    if (
-      !state.openedDocumentState ||
-      state.openedDocumentState.surfaceId !== surfaceId
-    ) {
+    const prev = get().openedDocumentState;
+    // Streamed edits address a document surface, so they never apply to a
+    // read-only preview.
+    if (!prev || prev.source !== "document" || prev.surfaceId !== surfaceId) {
       return;
     }
-    const prev = state.openedDocumentState;
     const newContent = mode === "append" ? prev.content + content : content;
     set({ openedDocumentState: { ...prev, content: newContent } });
   },
@@ -933,7 +1191,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   handleDocumentLoadFailed: () => {
     set({
       mainView: get().viewBeforeDocument,
-      activeDocumentSurfaceId: null,
+      activeDocumentTarget: null,
       openedDocumentState: null,
     });
   },
@@ -941,7 +1199,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   closeDocument: () => {
     set({
       mainView: get().viewBeforeDocument,
-      activeDocumentSurfaceId: null,
+      activeDocumentTarget: null,
       openedDocumentState: null,
     });
   },

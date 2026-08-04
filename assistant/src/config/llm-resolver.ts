@@ -11,7 +11,7 @@ import {
 } from "../providers/vellum-model-routing.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
-  isMatrixProfileKey,
+  isDefaultProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
 import {
@@ -114,12 +114,29 @@ export interface ResolveCallSiteOpts {
 
 export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
 
+export interface ResolvedCallSiteConfig {
+  config: z.infer<typeof LLMConfigBase>;
+  profileName?: string;
+}
+
+export function resolveCallSiteConfigWithProfile(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): ResolvedCallSiteConfig {
+  const selection = selectWinningProfile(callSite, llm, opts);
+  return {
+    config: resolveOverrideOrDefault(callSite, llm, selection),
+    ...(selection.profileName ? { profileName: selection.profileName } : {}),
+  };
+}
+
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts = {},
 ): z.infer<typeof LLMConfigBase> {
-  return resolveOverrideOrDefault(callSite, llm, opts);
+  return resolveCallSiteConfigWithProfile(callSite, llm, opts).config;
 }
 
 // ─── Single-winner profile resolution ───────────────────────────────────────
@@ -234,7 +251,7 @@ function providerAwareEntry(
     name,
     defaultProvider,
   );
-  if (!isMatrixProfileKey(name) || entry?.mix != null) {
+  if (!isDefaultProfileKey(name) || entry?.mix != null) {
     return entry;
   }
   if (
@@ -358,9 +375,8 @@ const CODE_DEFAULT_BASE: z.infer<typeof LLMConfigBase> = LLMConfigBase.parse(
 function resolveOverrideOrDefault(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
-  opts: ResolveCallSiteOpts,
+  selection: ProfileWinnerSelection,
 ): z.infer<typeof LLMConfigBase> {
-  const selection = selectWinningProfile(callSite, llm, opts);
   const winnerFragment: Mergeable =
     selection.entry == null ? {} : winnerConfigFragment(selection.entry);
 

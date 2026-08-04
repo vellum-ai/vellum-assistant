@@ -101,10 +101,61 @@ describe("CollapsibleNavSection", () => {
     expect(html).toContain("text-body-medium-lighter");
   });
 
-  test("emits both leading glyphs (category icon + chevron-right) layered", () => {
+  // No leading icon: the header's only glyph is the trailing disclosure
+  // chevron, whatever `icon` the caller passes.
+  test("renders no leading icon, just the trailing chevron", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     const svgCount = (html.match(/<\/svg>/g) ?? []).length;
-    expect(svgCount).toBeGreaterThanOrEqual(2);
+    expect(svgCount).toBe(1);
+    expect(html).toContain("lucide-chevron-down");
+    expect(html).not.toContain("lucide-clock");
+  });
+
+  // Regression: the title used to be the whole clickable trigger. Now only
+  // the chevron toggles, so the title can be press-and-held to drag the
+  // section without also expanding or collapsing it.
+  test("only the chevron toggles; the title is a plain, non-button label", () => {
+    const html = renderSingleSection({ value: "recents", label: "Recents" });
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    const title = container.querySelector(
+      '[data-slot="collapsible-nav-section-title"]',
+    );
+    expect(title).not.toBeNull();
+    expect(title?.closest("button")).toBeNull();
+    expect(title?.querySelector("button")).toBeNull();
+
+    const chevronButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.querySelector(".lucide-chevron-down"));
+    expect(chevronButton).toBeDefined();
+    expect(chevronButton?.getAttribute("aria-label")).toBe("Recents");
+    // Icon-only: the label text isn't duplicated inside the toggle button.
+    expect(chevronButton?.textContent?.trim()).toBe("");
+  });
+
+  // The chevron stays hidden at rest so a resting row stays quiet, but
+  // reveals on hover, or whenever the section is open: an expanded section
+  // always keeps a visible way to collapse itself again.
+  test("the chevron stays visible while the section is expanded", () => {
+    const html = renderSingleSection({
+      value: "recents",
+      label: "Recents",
+      defaultValue: ["recents"],
+    });
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    const item = container.querySelector(
+      '[data-slot="collapsible-nav-section-section"]',
+    );
+    expect(item?.getAttribute("data-state")).toBe("open");
+
+    const chevron = container.querySelector(".lucide-chevron-down");
+    expect(chevron?.getAttribute("class")).toContain(
+      "group-data-[state=open]/section:opacity-100",
+    );
   });
 
   test("composes on top of design library Collapsible", () => {

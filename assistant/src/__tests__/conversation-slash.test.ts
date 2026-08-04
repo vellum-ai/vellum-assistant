@@ -51,7 +51,8 @@ describe("/model list", () => {
     const message = ((await resolveSlash("/model")) as { message: string })
       .message;
     expect(message).toContain("Best results with the most capable model");
-    expect(message).toContain("Fastest responses at lower cost");
+    expect(message).toContain("Cheapest responses, for high-volume work");
+    expect(message).toContain("Fastest responses, with reasoning turned off");
     expect(message).not.toContain("(DeepSeek V4 Flash)");
   });
 
@@ -63,7 +64,8 @@ describe("/model list", () => {
     expect(message).toContain(
       "High-quality results with the most capable model",
     );
-    expect(message).toContain("Fastest responses at lower cost");
+    expect(message).toContain("Cheapest responses, for high-volume work");
+    expect(message).toContain("Fastest responses, with reasoning turned off");
     expect(message).not.toContain("(DeepSeek V4 Flash)");
   });
 });

@@ -1119,17 +1119,24 @@ export function loadConfig(): AssistantConfig {
         // Drop the deployment-context embedding provider so it is never
         // persisted (see above); the schema default re-applies in memory.
         delete (seed.memory.embeddings as { provider?: unknown }).provider;
-        // Memory-v3 tuning knobs are globally-shipped defaults, not per-assistant
-        // config: persist only `live` (genuine per-assistant state — some
-        // workspaces predate the v3 migration and must not be flipped on) and let
-        // every tuning knob resolve from the schema on load. This way a shipped
-        // schema-default change reaches all assistants (mirrors the
-        // embedding-provider strip above); migration
-        // 119-strip-persisted-memory-v3-tuning-defaults handles already-seeded
-        // configs.
-        seed.memory.v3 = {
-          live: seed.memory.v3.live,
-        } as (typeof seed.memory)["v3"];
+        // Nothing under memory.v3 is persisted at seed time.
+        //
+        // The tuning knobs are globally-shipped defaults: freezing them to
+        // disk would stop a shipped default change from reaching this
+        // assistant (mirrors the embedding-provider strip above; migration 119
+        // strips them from configs that already carry them).
+        //
+        // `live` stays absent because an absent leaf is the only way to
+        // express "no decision recorded". This seed runs before workspace
+        // migrations, and migration 105 defers to any value already present
+        // (`if ("live" in v3Config) return`), unable to tell a deliberate
+        // choice from a schema default. Writing the leaf here would pin a
+        // brand-new workspace to the schema default; leaving it absent lets
+        // 105 decide regardless of boot ordering. The schema default still
+        // applies in memory on every load, and a hatch-time
+        // `memory.v3.live=false` override still wins by merging after
+        // migrations.
+        seed.memory.v3 = {} as (typeof seed.memory)["v3"];
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");

@@ -419,6 +419,12 @@ function buildMarkdownComponents(
     img: ({ src, alt }) => {
       const srcStr = typeof src === "string" ? src : "";
       const altStr = typeof alt === "string" ? alt : "";
+      // Every src goes to the consumer's component, absolute host paths and
+      // inline `data:`/`blob:` payloads included: only the app knows which of
+      // them it can resolve into a real image.
+      if (ImageComponent) {
+        return <ImageComponent src={srcStr} alt={altStr} />;
+      }
       const isLocal =
         !srcStr ||
         srcStr.startsWith("/") ||
@@ -429,9 +435,6 @@ function buildMarkdownComponents(
         return (
           <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />
         );
-      }
-      if (ImageComponent) {
-        return <ImageComponent src={srcStr} alt={altStr} />;
       }
       return (
         <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
@@ -651,9 +654,13 @@ export interface MarkdownMessageProps {
    */
   linkComponent?: MarkdownLinkComponent;
   /**
-   * Custom image component for rendering external `<img>` elements inside
-   * markdown. Receives `src` and `alt` props. By default, external images
-   * are blocked and show a placeholder label.
+   * Custom image component for rendering every `<img>` element inside
+   * markdown. Receives `src` and `alt` props, whatever the src looks like:
+   * remote URLs, absolute host paths, relative paths, `data:`/`blob:`
+   * payloads, and the empty string a rejected `urlTransform` leaves behind.
+   *
+   * Without it, local-looking srcs render a plain `<img>` and remote ones are
+   * blocked behind a placeholder label.
    *
    * Pass a stable reference (module-level function or `useCallback`) to
    * avoid rebuilding internal component overrides on every render.

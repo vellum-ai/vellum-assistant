@@ -86,8 +86,12 @@ mock.module("@/runtime/text-insertion", () => ({
   openTextInsertionSettings: async () => undefined,
 }));
 
+// The design-library barrel re-exports every name from this module, so the
+// mock must cover the full export surface or barrel linking fails.
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { error: toastErrorMock },
+  Toaster: () => null,
+  ToastContent: () => null,
 }));
 
 const { GlobalPushToTalkBridge } = await import("./global-push-to-talk-bridge");

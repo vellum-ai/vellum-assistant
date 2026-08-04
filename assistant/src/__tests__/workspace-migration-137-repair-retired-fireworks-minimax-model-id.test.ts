@@ -47,15 +47,15 @@ afterEach(() => {
 });
 
 describe("137-repair-retired-fireworks-minimax-model-id migration", () => {
-  test("has correct migration id and is registered last", () => {
+  test("has correct migration id and is registered", () => {
     expect(repairRetiredFireworksMinimaxModelIdMigration.id).toBe(
       "137-repair-retired-fireworks-minimax-model-id",
     );
-    // getLastWorkspaceMigrationId() reports the final entry as the registry
-    // ceiling, so the highest id must stay last.
-    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
-      "137-repair-retired-fireworks-minimax-model-id",
-    );
+    expect(
+      WORKSPACE_MIGRATIONS.some(
+        (m) => m.id === "137-repair-retired-fireworks-minimax-model-id",
+      ),
+    ).toBe(true);
   });
 
   test("repairs the retired ID in default, call sites, and profiles", () => {
