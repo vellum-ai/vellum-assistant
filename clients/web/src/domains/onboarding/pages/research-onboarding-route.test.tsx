@@ -150,12 +150,15 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
   POST_CHECKOUT_HATCH_PARAM: "post_checkout",
 }));
 
+let hasPlatformSession = true;
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
       user: () => ({ id: USER_ID, firstName: "Alice", lastName: "Example" }),
     },
   },
+  useHasPlatformSession: () => hasPlatformSession,
 }));
 
 mock.module("@/utils/routes", () => ({
@@ -179,8 +182,10 @@ mock.module("@/domains/onboarding/research-prompt", () => ({
   buildResearchPrompt: () => "research prompt",
 }));
 
+let adoptExistingAssistant = false;
+
 mock.module("@/domains/onboarding/adopt-existing-assistant", () => ({
-  shouldAdoptExistingAssistant: () => false,
+  shouldAdoptExistingAssistant: () => adoptExistingAssistant,
 }));
 
 mock.module("@/domains/onboarding/use-background-hatch", () => ({
@@ -421,6 +426,8 @@ function doneSnapshot(): ResearchOnboardingSnapshot {
 
 beforeEach(() => {
   localStorage.clear();
+  adoptExistingAssistant = false;
+  hasPlatformSession = true;
   researchStatus = "idle";
   installedPlugins = [];
   establishedResult = { established: false, assistantName: null };
@@ -1026,5 +1033,48 @@ describe("ResearchOnboardingRoute hatch retry", () => {
     // redo — and an idle turn has no restored installs to re-enqueue either.
     expect(applyPersonalityMock).not.toHaveBeenCalled();
     expect(reinstallPluginsMock).not.toHaveBeenCalled();
+  });
+});
+
+// The claim-credits step ("integration") promises managed free credits, which
+// only a platform account can hold — a self-hosted onboarding with no platform
+// login skips it (LUM-3028).
+describe("ResearchOnboardingRoute claim-credits skip", () => {
+  test("self-hosted without a platform session skips the claim-credits step", async () => {
+    adoptExistingAssistant = true;
+    hasPlatformSession = false;
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "personality" }));
+
+    render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("personality-continue"));
+
+    // Straight to the research reveal — the calendar steps are skipped for
+    // self-hosted too, so nothing renders between.
+    await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
+    expect(screen.queryByTestId("integration-step")).toBeNull();
+  });
+
+  test("self-hosted WITH a platform session keeps the claim-credits step", async () => {
+    adoptExistingAssistant = true;
+    hasPlatformSession = true;
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "personality" }));
+
+    render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("personality-continue"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-step")).toBeTruthy(),
+    );
+  });
+
+  test("a snapshot resuming onto the skipped claim-credits step remaps to the research reveal", async () => {
+    adoptExistingAssistant = true;
+    hasPlatformSession = false;
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "integration" }));
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
+    expect(screen.queryByTestId("integration-step")).toBeNull();
   });
 });
