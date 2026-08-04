@@ -221,7 +221,7 @@ function disableProfile(
     }
   }
 
-  // Clear any tier override targeting a removed profile — the cleared tier
+  // Clear any tier override targeting a removed profile; the cleared tier
   // falls back to its stock intent resolution.
   const tierOverrides = readObject(llm.defaultProfileOverrides);
   if (tierOverrides) {

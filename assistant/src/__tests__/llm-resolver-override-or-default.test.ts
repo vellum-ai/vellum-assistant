@@ -592,7 +592,7 @@ describe("defaultProfileOverrides tier remap", () => {
       defaultProfileOverrides: { balanced: "mine" },
       ...anthropicDp,
     });
-    // `vision` has no shipped profile — it resolves through the anchor.
+    // `vision` has no shipped profile; it resolves through the anchor.
     expect(resolveCallSiteConfig("vision", llm).model).toBe("gpt-5.5");
     expect(selectWinningProfile("vision", llm).profileName).toBe("mine");
   });

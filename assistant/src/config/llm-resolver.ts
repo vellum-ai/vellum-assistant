@@ -38,10 +38,10 @@ import {
  *   2. `llm.activeProfile` — `mainAgent` only, since it IS that call site's
  *      user-facing chat-model selection
  *   3. `llm.callSites[callSite].profile` (the call site's named profile)
- *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent — remapped through
+ *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent, remapped through
  *      `llm.defaultProfileOverrides[intent]` when set, otherwise resolved
  *      through `llm.defaultProvider`
- *   5. balanced intent (same remap consult) through `llm.defaultProvider` —
+ *   5. balanced intent (same remap consult) through `llm.defaultProvider`:
  *      the code-owned anchor for profileless call sites, or when nothing
  *      above is usable
  *
@@ -149,7 +149,7 @@ export function resolveCallSiteConfig(
 //   1. `opts.overrideProfile` (conversation/schedule/per-turn pin)
 //   2. `llm.activeProfile` (mainAgent only — it IS that call site's selection)
 //   3. `llm.callSites[callSite].profile`
-//   4. `CALL_SITE_DEFAULTS[callSite].profile` intent — remapped via
+//   4. `CALL_SITE_DEFAULTS[callSite].profile` intent, remapped via
 //      `llm.defaultProfileOverrides[intent]` when set, else intent × default
 //      provider
 //   5. balanced intent (same remap consult) × default provider (profileless
@@ -246,9 +246,9 @@ export function selectWinningProfile(
   // Anchor: profileless call sites (`vision`, `workflowLeaf`) and any
   // resolution whose every named rung was unusable land on balanced intent
   // through the default provider. The anchor consults the balanced remap
-  // first — a profileless call site follows the user's balanced choice like
-  // any balanced-tier site — but bottoms out on the code-owned catalog, so
-  // it always resolves. `profileName` stays null on the catalog path — the
+  // first (a profileless call site follows the user's balanced choice like
+  // any balanced-tier site) but bottoms out on the code-owned catalog, so
+  // it always resolves. `profileName` stays null on the catalog path: the
   // anchor itself is not a selection.
   const anchorRemap = remappedIntent("balanced");
   if (anchorRemap) {
