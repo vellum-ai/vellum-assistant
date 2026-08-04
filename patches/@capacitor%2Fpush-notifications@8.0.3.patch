@@ -1,0 +1,59 @@
+diff --git a/android/src/main/java/com/capacitorjs/plugins/pushnotifications/PushNotificationsPlugin.java b/android/src/main/java/com/capacitorjs/plugins/pushnotifications/PushNotificationsPlugin.java
+index f338f49953cb7b9826c8d7393a65d3afaa6b958c..f8cd803182120b72dc04cc9f07e9cd24c7eaeaa8 100644
+--- a/android/src/main/java/com/capacitorjs/plugins/pushnotifications/PushNotificationsPlugin.java
++++ b/android/src/main/java/com/capacitorjs/plugins/pushnotifications/PushNotificationsPlugin.java
+@@ -99,24 +99,40 @@ public class PushNotificationsPlugin extends Plugin {
+ 
+     @PluginMethod
+     public void register(PluginCall call) {
+-        FirebaseMessaging.getInstance().setAutoInitEnabled(true);
+-        FirebaseMessaging.getInstance()
+-            .getToken()
+-            .addOnCompleteListener((task) -> {
+-                if (!task.isSuccessful()) {
+-                    sendError(task.getException().getLocalizedMessage());
+-                    return;
+-                }
+-                sendToken(task.getResult());
+-            });
+-        call.resolve();
++        try {
++            FirebaseMessaging firebaseMessaging = FirebaseMessaging.getInstance();
++            firebaseMessaging.setAutoInitEnabled(true);
++            firebaseMessaging
++                .getToken()
++                .addOnCompleteListener((task) -> {
++                    if (!task.isSuccessful()) {
++                        Exception exception = task.getException();
++                        String message = exception == null ? null : exception.getLocalizedMessage();
++                        sendError(message == null ? "FCM token registration failed" : message);
++                        return;
++                    }
++                    sendToken(task.getResult());
++                });
++            call.resolve();
++        } catch (RuntimeException exception) {
++            rejectFirebaseUnavailable(call, exception);
++        }
+     }
+ 
+     @PluginMethod
+     public void unregister(PluginCall call) {
+-        FirebaseMessaging.getInstance().setAutoInitEnabled(false);
+-        FirebaseMessaging.getInstance().deleteToken();
+-        call.resolve();
++        try {
++            FirebaseMessaging firebaseMessaging = FirebaseMessaging.getInstance();
++            firebaseMessaging.setAutoInitEnabled(false);
++            firebaseMessaging.deleteToken();
++            call.resolve();
++        } catch (RuntimeException exception) {
++            rejectFirebaseUnavailable(call, exception);
++        }
++    }
++
++    private void rejectFirebaseUnavailable(PluginCall call, RuntimeException exception) {
++        call.reject("Push notifications are unavailable", "firebase_unavailable", exception);
+     }
+ 
+     @PluginMethod

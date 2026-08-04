@@ -578,6 +578,7 @@
     "@playwright/browser-chromium",
   ],
   "patchedDependencies": {
+    "@capacitor/push-notifications@8.0.3": "patches/@capacitor%2Fpush-notifications@8.0.3.patch",
     "storybook@10.4.0": "patches/storybook@10.4.0.patch",
   },
   "overrides": {
