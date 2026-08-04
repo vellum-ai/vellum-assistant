@@ -122,9 +122,7 @@ describe("connectivity-probe", () => {
   });
 
   test("sets backend reachable=true when a cloud assistant carries leftover local resources", async () => {
-    // Lockfile merges preserve `resources` across cloud transitions, so a
-    // platform entry can carry a stale gatewayPort. It must not be
-    // loopback-probed: that port belongs to a stopped local runtime.
+    // A stale gatewayPort merged onto a platform entry must not be probed.
     mockLockfileData = {
       ok: true,
       data: {

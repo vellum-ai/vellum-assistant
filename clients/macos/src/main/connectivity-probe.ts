@@ -42,9 +42,8 @@ function resolveProbeTarget(lockfilePaths: string[]): ProbeTarget {
   if (!activeAssistant) return { kind: "unknown" };
   const entry = assistants.find((a) => a.assistantId === activeAssistant);
   if (!entry) return { kind: "unknown" };
-  // Classify by cloud before resources: lockfile merges preserve stale
-  // `resources` across cloud transitions, so a non-local entry can carry a
-  // leftover gatewayPort that must not be loopback-probed.
+  // Cloud wins over resources: merges can leave a stale gatewayPort on a
+  // non-local entry, and it must not be loopback-probed.
   if (!isLoopbackGatewayCloud(entry.cloud)) {
     return { kind: "non-local" };
   }
@@ -55,7 +54,6 @@ function resolveProbeTarget(lockfilePaths: string[]): ProbeTarget {
       url: `http://127.0.0.1:${port}/healthz`,
     };
   }
-  // Local runtime missing its port: can't prove reachability either way.
   return { kind: "unknown" };
 }
 

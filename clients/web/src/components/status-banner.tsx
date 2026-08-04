@@ -893,10 +893,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
     return localHealthBanner;
   }
 
-  // The main-process probe only watches the lockfile-active local
-  // assistant's loopback gateway. A platform session must not surface it:
-  // the probe may be watching a stale/stopped local entry while the
-  // platform assistant is reachable (operational-status covers it below).
+  // The probe only watches the lockfile-active local assistant's loopback
+  // gateway; a platform session's reachability is operational-status below.
   const localBackendSession =
     assistantState.kind === "active" && assistantState.isLocal;
   if (

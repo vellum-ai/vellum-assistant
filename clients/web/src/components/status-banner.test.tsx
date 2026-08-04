@@ -1064,8 +1064,6 @@ describe("StatusBanner", () => {
     });
 
     test("does not render backend-unreachable for a platform-hosted session", () => {
-      // The probe may be watching a stale local lockfile entry (e.g. a CLI
-      // experiment) while the platform assistant is fully reachable.
       isElectronMock = true;
       connectivityStateMock = "backend-unreachable";
       assistantStateMock = { kind: "active", isLocal: false };

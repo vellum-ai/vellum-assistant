@@ -78,11 +78,7 @@ export function resolveCloud(raw: {
 
 /**
  * Clouds whose gateway listens on a loopback port of this machine: the
- * on-machine daemon ("local") and local Docker instances ("docker"). Excludes
- * "apple-container" (macOS-app-managed, records no loopback gateway), the
- * remote self-hosted clouds, and platform ("vellum"). The one definition of
- * "locally reachable gateway" shared by the web client and the Electron main
- * process.
+ * on-machine daemon ("local") and local Docker instances ("docker").
  */
 export const LOOPBACK_GATEWAY_CLOUDS: readonly Cloud[] = ["local", "docker"];
 
@@ -91,12 +87,10 @@ export function isLoopbackGatewayCloud(cloud: Cloud): boolean {
 }
 
 /**
- * The loopback gateway port recorded for an assistant entry. Plain local
- * entries record it as `resources.gatewayPort`; Docker entries record the
- * published gateway address as a loopback `runtimeUrl`
- * (`http://localhost:<port>`) with no `resources` block, so the port is
- * recovered from that URL. A non-loopback `runtimeUrl` never yields a port: a
- * remote address is not a local gateway.
+ * The loopback gateway port recorded for an assistant entry:
+ * `resources.gatewayPort` when present, else the port of a loopback
+ * `runtimeUrl` (how docker hatch records its published gateway). A
+ * non-loopback `runtimeUrl` yields nothing.
  */
 export function getLoopbackGatewayPort(entry: {
   resources?: { gatewayPort?: number };
