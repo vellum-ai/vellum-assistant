@@ -1,6 +1,17 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
+
+// Same asset as the marketing app's /favicon.svg, served under this app's
+// /docs prefix so the icon resolves even when the marketing backend is not
+// in front (e.g. direct pod access or a preview environment).
+export const metadata: Metadata = {
+  icons: {
+    icon: "/docs/favicon.svg",
+    apple: "/docs/favicon.svg",
+  },
+};
 
 /* Pre-hydration theme bootstrap. Mirrors the key precedence of the assistant
  * SPA's clients/web/public/theme-init.js (`device:theme` first, then the
