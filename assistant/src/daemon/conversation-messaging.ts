@@ -702,6 +702,19 @@ export interface PersistMessageOptions {
    * thread it: the queue round-trips `metadata`, not these options.
    */
   scripted?: boolean;
+  /**
+   * OS surface this row's own request or transport reported, threaded by the
+   * ingress that built it (the send route's request body, a queued message's
+   * `transport`). Stamps `metadata.clientOsFromRequest` when it matches the
+   * `client.os` this row persists.
+   *
+   * `ctx.clientOs` alone is not that evidence: it is a live conversation
+   * field only a transport-carrying message refreshes, so a transport-less
+   * turn (surface action, signal ingress) inherits whatever an earlier send
+   * left there. Omitting this option therefore reads as "inherited", which is
+   * what a consumer that must not misattribute a turn to a surface needs.
+   */
+  requestClientOs?: string;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -810,6 +823,7 @@ export async function persistQueuedMessageBody(
     displayContent,
     clientMessageId,
     skipIndexing,
+    requestClientOs,
   } = options;
   const attachmentInputs: MessageAttachmentInput[] = attachments.map(
     (attachment) => ({
@@ -842,13 +856,19 @@ export async function persistQueuedMessageBody(
     // non-boolean through would be worse than dropping it: sqlite stores it
     // verbatim, and `turn-events-store` narrows anything that isn't 1 to
     // `false`, turning a junk string into a confident "the user typed this".
+    // `clientOsFromRequest` comes out for the same reason and a sharper one:
+    // it is derived below from what this persist can actually see, and a bag
+    // value surviving the spread would let a caller assert an origin the row
+    // never reported.
     const {
       slackInbound: rawSlackInbound,
       scripted: rawScriptedFromMetadata,
+      clientOsFromRequest: _rawClientOsFromRequest,
       ...metadataWithoutSlackInbound
     } = (metadata ?? {}) as Record<string, unknown> & {
       slackInbound?: SlackInboundMessageMetadata;
       scripted?: unknown;
+      clientOsFromRequest?: unknown;
     };
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: rawSlackInbound,
@@ -898,6 +918,22 @@ export async function persistQueuedMessageBody(
     const clientBag =
       Object.keys(clientEntries).length > 0 ? { client: clientEntries } : {};
 
+    // Per-row evidence for the `client.os` stamped just above, kept as a
+    // sibling of the bag so `TurnTelemetryEvent.client` stays exactly the
+    // forwarded `$.client`. Set only when this row itself reported the OS:
+    // through the caller's own client bag (the request's client-metadata
+    // headers, round-tripped through the queue) or through this row's
+    // transport, which `requestClientOs` carries. An inherited `ctx.clientOs`
+    // names the surface of an EARLIER turn, so it leaves the marker off and a
+    // consumer reading origin (the reply-push presence gate) treats the turn
+    // as coming from somewhere unknown.
+    const callerOs = callerClient?.os;
+    const resolvedRequestClientOs = parseClientOs(requestClientOs);
+    const clientOsFromRequest =
+      (typeof callerOs === "string" && callerOs.length > 0) ||
+      (resolvedRequestClientOs !== null &&
+        resolvedRequestClientOs === clientOs);
+
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,
       ...provenance,
@@ -914,6 +950,7 @@ export async function persistQueuedMessageBody(
           }
         : {}),
       ...clientBag,
+      ...(clientOsFromRequest ? { clientOsFromRequest: true } : {}),
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
       // Scripted-turn marker, forwarded by `turn-events-store` onto

@@ -167,7 +167,9 @@ function makeMessage(overrides: Partial<MessageRow> = {}): MessageRow {
 /**
  * A turn opened from the macOS app. The `client` bag's `os` entry is the only
  * per-platform attribution: the interface stamp is "web" for the macOS app,
- * the iOS app, and a desktop browser alike.
+ * the iOS app, and a desktop browser alike. `clientOsFromRequest` says the
+ * send itself reported that OS, which is what separates it from a row that
+ * inherited the conversation's live client state.
  */
 function makeMacOriginatedMessage(): MessageRow {
   return makeMessage({
@@ -175,6 +177,7 @@ function makeMacOriginatedMessage(): MessageRow {
       userMessageChannel: "vellum",
       userMessageInterface: "web",
       client: { os: "macos" },
+      clientOsFromRequest: true,
     }),
   });
 }
@@ -350,13 +353,37 @@ describe("emitAssistantReplyNotification", () => {
     // can send from the phone minutes after last touching the keyboard, which
     // is exactly the reply this producer exists to push.
     const NON_MAC_ORIGIN_CASES: Array<{ name: string; metadata: unknown }> = [
-      { name: "the iOS app", metadata: { client: { os: "ios" } } },
-      { name: "a browser", metadata: { client: { os: "web" } } },
-      { name: "a client that reports no OS", metadata: { client: {} } },
+      {
+        name: "the iOS app",
+        metadata: { client: { os: "ios" }, clientOsFromRequest: true },
+      },
+      {
+        name: "a browser",
+        metadata: { client: { os: "web" }, clientOsFromRequest: true },
+      },
+      {
+        name: "a client that reports no OS",
+        metadata: { client: {} },
+      },
       { name: "a row with no client bag", metadata: {} },
       {
         name: "a client reporting an unknown OS",
-        metadata: { client: { os: "bsd" } },
+        metadata: { client: { os: "bsd" }, clientOsFromRequest: true },
+      },
+      // The fail-closed shape this gate exists to refuse: a surface action
+      // tapped on the phone carries no transport, so persistence stamps the
+      // `macos` the conversation's live client state kept from an earlier
+      // desktop send. Without the marker that OS names an earlier turn, not
+      // this one, and the push the user is waiting for on their phone would
+      // be dropped by the attended Mac.
+      {
+        name: "a row whose macOS OS was inherited, not reported",
+        metadata: { userMessageInterface: "web", client: { os: "macos" } },
+      },
+      // A marker without a matching OS is not evidence of anything.
+      {
+        name: "a row marked request-reported with no client bag",
+        metadata: { clientOsFromRequest: true },
       },
     ];
 
@@ -394,6 +421,7 @@ describe("emitAssistantReplyNotification", () => {
         metadata: JSON.stringify({
           userMessageChannel: "not-a-channel",
           client: { os: "macos" },
+          clientOsFromRequest: true,
         }),
       });
 
