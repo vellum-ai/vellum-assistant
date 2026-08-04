@@ -22,6 +22,17 @@ const MIN_PREVIEW_LENGTH = 12;
 const MAX_PREVIEW_LENGTH = 280;
 
 /**
+ * Longest stretch of raw markdown worth parsing. A parse costs time linear in
+ * its input, so an unbounded summary makes every card in the feed and the bell
+ * pay to build a tree whose text the cap throws away.
+ *
+ * Roughly fourteen times the output cap, which leaves room for the syntax and
+ * the dropped blocks (fences, link destinations, front matter) that a summary
+ * can lead with and that contribute no preview text at all.
+ */
+const MAX_PARSE_LENGTH = 4096;
+
+/**
  * Sentence punctuation, ignored at the end of a comparison form and left
  * dangling once a title prefix is sliced away. Both sites read this one set,
  * so the slice can never strand a character the comparison already discounted.
@@ -89,8 +100,27 @@ function trimTrailingSentencePunctuation(value: string): string {
  * Turn multi-line markdown into a single line of plain text, dropping block
  * structure and code blocks and unwrapping every inline marker. A link
  * contributes its text and drops its destination.
+ *
+ * Only the first `MAX_PARSE_LENGTH` characters are parsed, since the result is
+ * capped far below that. A cut lands mid-construct often, and the one shape
+ * that loses text is a fenced block whose opener sits ahead of it: the fence
+ * reads as unterminated, so remark drops everything from the opener on. When
+ * that leaves nothing at all, the whole summary is parsed instead, which
+ * recovers the text past the block. Only that shape pays for a second parse.
  */
 function flattenMarkdownBlocks(summary: string): string {
+  if (summary.length <= MAX_PARSE_LENGTH) {
+    return parseToSingleLine(summary);
+  }
+  const flattened = parseToSingleLine(summary.slice(0, MAX_PARSE_LENGTH));
+  if (flattened.length > 0 || summary.trim().length === 0) {
+    return flattened;
+  }
+  return parseToSingleLine(summary);
+}
+
+/** Parse markdown and collapse the tree's text down to one line. */
+function parseToSingleLine(summary: string): string {
   const tree = markdownParser.parse(summary) as MarkdownNode;
   return flattenNode(tree).replace(/\s+/g, " ").trim();
 }

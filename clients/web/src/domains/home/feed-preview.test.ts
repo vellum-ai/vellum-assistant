@@ -13,6 +13,9 @@ const DERIVED_TITLE_MAX_LENGTH = 60;
 /** The module's `MAX_PREVIEW_LENGTH`, the cap it applies to flattened text. */
 const PREVIEW_MAX_LENGTH = 280;
 
+/** The module's `MAX_PARSE_LENGTH`, the bound it puts on the raw markdown. */
+const PARSE_MAX_LENGTH = 4096;
+
 /** A phrase whose repetition puts the cap in the middle of a word. */
 const CAP_STRADDLING_PHRASE = "lorem ipsum dolor sit amet consectetur ";
 
@@ -530,5 +533,59 @@ describe("flattenSummary", () => {
     const flattened = flattenSummary("x".repeat(PREVIEW_MAX_LENGTH + 40));
 
     expect(flattened).toBe("x".repeat(PREVIEW_MAX_LENGTH));
+  });
+});
+
+describe("summaries past the parse limit", () => {
+  /** A fenced block long enough that its closer sits past the parse limit. */
+  const LONG_CODE_BODY = "const secret = 1;\n".repeat(400);
+
+  test("caps prose the same way however far it runs past the limit", () => {
+    const summary = CAP_STRADDLING_PHRASE.repeat(400).trim();
+    expect(summary.length).toBeGreaterThan(PARSE_MAX_LENGTH);
+
+    const flattened = flattenSummary(summary);
+
+    expect(flattened).toBe(
+      flattenSummary(CAP_STRADDLING_PHRASE.repeat(20).trim()),
+    );
+    expect(flattened.length).toBeLessThanOrEqual(PREVIEW_MAX_LENGTH);
+    expect(summary.startsWith(flattened)).toBe(true);
+    expect(summary[flattened.length]).toBe(" ");
+  });
+
+  test("previews the prose a long summary opens with", () => {
+    const summary = `Deploy failed because the api worker never reported healthy. ${"Filler sentence. ".repeat(500)}`;
+    expect(summary.length).toBeGreaterThan(PARSE_MAX_LENGTH);
+
+    expect(resolvePreview("Deploy failed", summary)).toStartWith(
+      "because the api worker never reported healthy. Filler sentence.",
+    );
+  });
+
+  test("keeps the text ahead of a fence the limit cuts inside", () => {
+    const summary = `Compilation stopped early:\n\n\`\`\`ts\n${LONG_CODE_BODY}\`\`\`\n\nSee the job output.`;
+    expect(summary.indexOf("```")).toBeLessThan(PARSE_MAX_LENGTH);
+    expect(summary.lastIndexOf("```")).toBeGreaterThan(PARSE_MAX_LENGTH);
+
+    const preview = resolvePreview("Build log", summary);
+
+    expect(preview).toBe("Compilation stopped early:");
+    expect(preview).not.toContain("const secret");
+  });
+
+  test("reparses in full when a cut inside a fence empties the preview", () => {
+    const summary = `\`\`\`ts\n${LONG_CODE_BODY}\`\`\`\n\nSee the job output.`;
+    expect(summary.lastIndexOf("```")).toBeGreaterThan(PARSE_MAX_LENGTH);
+
+    expect(flattenSummary(summary)).toBe("See the job output.");
+  });
+
+  test("returns an empty string for a long summary of only code", () => {
+    expect(flattenSummary(`\`\`\`ts\n${LONG_CODE_BODY}\`\`\``)).toBe("");
+  });
+
+  test("returns an empty string for a long whitespace-only summary", () => {
+    expect(flattenSummary(" \n".repeat(PARSE_MAX_LENGTH))).toBe("");
   });
 });
