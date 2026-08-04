@@ -40,7 +40,8 @@ Examples:
       options: [
         {
           flags: "--json",
-          description: "Emit machine-readable JSON instead of a table",
+          description:
+            "Emit the tool array as machine-readable JSON instead of a table; a note about how --agent resolved goes to stderr so stdout stays pipeable",
         },
         {
           flags: "--conversation <id>",
