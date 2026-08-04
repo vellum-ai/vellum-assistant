@@ -254,6 +254,11 @@ $ assistant plugins publish --json`,
           flags: "--json",
           description: "Emit machine-readable JSON instead of a summary",
         },
+        {
+          flags: "--force",
+          description:
+            "Skip the confirmation prompt when the upgraded revision declares schedules",
+        },
       ],
       helpText: `
 A marketplace plugin upgrades to the curated pin. A plugin installed directly

@@ -525,6 +525,29 @@ const pluginSurfacesSchema = z
       .describe(
         "Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` \u2192 `create_issue`).",
       ),
+    schedules: z
+      .array(
+        z.object({
+          name: z
+            .string()
+            .describe(
+              "Schedule name: the flat file's basename or the declaration directory's name.",
+            ),
+          cadence: z
+            .string()
+            .describe(
+              "Raw schedule `expression` string from the declaration's config.",
+            ),
+          mode: z
+            .enum(["execute", "script"])
+            .describe(
+              "`execute` for a markdown prompt entrypoint, `script` for `index.sh`.",
+            ),
+        }),
+      )
+      .describe(
+        "Schedules declared under `schedules/`, in either loader form: a flat `<name>.md` with YAML frontmatter, or a `<name>/` directory with `config.json` plus one entrypoint. Display surface only; ambiguous or unsupported declarations are omitted.",
+      ),
   })
   .describe(
     "Surfaces the installed copy contributes, read from its on-disk tree.",
@@ -568,7 +591,7 @@ const pluginInspectResponseSchema = z.object({
   surfaces: pluginSurfacesSchema
     .nullable()
     .describe(
-      "Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.",
+      "Surfaces the installed copy contributes (skills, hooks, tools, schedules); null when the plugin is not installed.",
     ),
 });
 
@@ -1206,6 +1229,11 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
   // that introduced it through the plugin's reviewed pin history; an unreviewed
   // SHA is refused. Operators who need an unreviewed revision use the local
   // CLI's `assistant plugins install --pin <sha> --allow-unreviewed`.
+  //
+  // No `confirmStaged` consent gate: the daemon route is unattended by design
+  // (there is no interactive surface to prompt on). Declared schedules the
+  // install arms are surfaced to the user by the schedule reconciler's
+  // `schedule.declared` notification.
   try {
     // Validate the name up front — before any catalog/pin/network work — so a
     // malformed name (`../escape`) is a deterministic 400 rather than a 404/503
@@ -1429,6 +1457,10 @@ async function handleUpgradePlugin({
   let deactivated = false;
   try {
     const name = sanitizePluginName(rawName);
+    // No `confirmStaged` consent gate here: the daemon route is unattended by
+    // design (there is no interactive surface to prompt on). A schedule the
+    // upgraded revision adds is surfaced to the user by the schedule
+    // reconciler's `schedule.declared` notification when it arms.
     const result = await upgradePlugin(
       { name, dryRun, strategy },
       {

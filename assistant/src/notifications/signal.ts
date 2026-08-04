@@ -70,6 +70,10 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Plugin schedule declaration failed to parse or validate",
   },
   {
+    id: "schedule.declared",
+    description: "Plugin-declared schedule armed for the first time",
+  },
+  {
     id: "schedule.definition_changed",
     description: "Plugin upgrade changed an armed schedule's definition",
   },

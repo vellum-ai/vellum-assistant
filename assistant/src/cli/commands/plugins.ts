@@ -169,7 +169,7 @@ export function registerPluginsCommand(program: Command): void {
             // --force, must be confirmed before anything lands on disk that
             // the daemon's schedule reconciler could arm.
             const confirmStaged: ConfirmStagedInstall = (staged) =>
-              confirmDeclaredSchedules(staged, Boolean(opts.force));
+              confirmDeclaredSchedules(staged, Boolean(opts.force), "install");
 
             let result;
             let untrusted = false;
@@ -685,7 +685,12 @@ export function registerPluginsCommand(program: Command): void {
       subcommand(plugins, "upgrade").action(
         async (
           name: string,
-          opts: { dryRun?: boolean; strategy?: string; json?: boolean },
+          opts: {
+            dryRun?: boolean;
+            strategy?: string;
+            json?: boolean;
+            force?: boolean;
+          },
         ) => {
           const strategy = opts.strategy;
           if (
@@ -702,6 +707,9 @@ export function registerPluginsCommand(program: Command): void {
             // Prefer the daemon: when the upgrade re-materializes files it runs
             // the plugin's `shutdown` + `init` hooks in the main process —
             // symmetric to how install/uninstall run their lifecycle there.
+            // The daemon route is unattended (no staging prompt); a schedule
+            // the upgraded revision adds is surfaced by the reconciler's
+            // `schedule.declared` notification instead.
             // Fall back to a local upgrade only when the daemon is unreachable
             // (a transport error carries no `statusCode`); an operator can still
             // upgrade while it's stopped, and the new code is picked up on the
@@ -722,13 +730,22 @@ export function registerPluginsCommand(program: Command): void {
                 { name, error: daemon.error },
                 "upgrade could not reach the daemon; upgrading locally",
               );
+              // The local path stages in this process, so it gets the same
+              // consent gate as install: declared schedules are listed and
+              // confirmed (or --force) before the staged tree goes live.
+              const confirmStaged: ConfirmStagedInstall = (staged) =>
+                confirmDeclaredSchedules(
+                  staged,
+                  Boolean(opts.force),
+                  "upgrade",
+                );
               result = await libs.upgrade.upgradePlugin(
                 {
                   name,
                   dryRun: opts.dryRun,
                   strategy: strategy as PluginUpgradeStrategy | undefined,
                 },
-                { fetch: globalThis.fetch.bind(globalThis) },
+                { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
               );
             } else {
               console.error(daemon.error ?? "Plugin upgrade failed.");
@@ -757,6 +774,11 @@ export function registerPluginsCommand(program: Command): void {
               console.log(line);
             }
           } catch (err) {
+            if (err instanceof libs.installGitHub.PluginInstallDeclinedError) {
+              // The consent gate already printed the outcome and set the exit
+              // code; the upgrade was aborted with the live install untouched.
+              return;
+            }
             if (
               err instanceof libs.uninstall.PluginNotInstalledError ||
               err instanceof libs.upgrade.PluginNotUpgradableError ||
@@ -957,14 +979,16 @@ function printUntrustedPluginWarning(
 
 /**
  * List a staged plugin's declared schedules and ask for consent. Schedules run
- * automatically once armed, so an install may not add any silently: the user
- * either confirms the listing or passes --force. Returns whether the install
- * may proceed; a refusal's user-facing outcome (message + exit code) is fully
- * handled here, so the caller aborts without further output.
+ * automatically once armed, so neither an install nor an upgrade may add any
+ * silently: the user either confirms the listing or passes --force. Returns
+ * whether the operation may proceed; a refusal's user-facing outcome (message
+ * + exit code) is fully handled here, so the caller aborts without further
+ * output. `action` selects the install vs upgrade wording.
  */
 async function confirmDeclaredSchedules(
   staged: { name: string; stagingDir: string },
   force: boolean,
+  action: "install" | "upgrade",
 ): Promise<boolean> {
   const { schedules } = libs.surfaces.detectPluginSurfaces(staged.stagingDir);
   if (schedules.length === 0) {
@@ -982,17 +1006,18 @@ async function confirmDeclaredSchedules(
   if (force) {
     return true;
   }
+  const verb = action === "install" ? "Install" : "Upgrade";
   const result = await confirmPrompt({
-    question: `Install "${staged.name}" and allow these schedules? [y/N] `,
+    question: `${verb} "${staged.name}" and allow these schedules? [y/N] `,
     isTTY: Boolean(process.stdin.isTTY),
-    refuseNonInteractiveMessage: `Refusing to install "${staged.name}" non-interactively: it declares schedules. Pass --force to confirm.`,
+    refuseNonInteractiveMessage: `Refusing to ${action} "${staged.name}" non-interactively: it declares schedules. Pass --force to confirm.`,
   });
   if (result === "non-interactive") {
     process.exitCode = 1;
     return false;
   }
   if (result === "denied") {
-    console.log("Install cancelled.");
+    console.log(`${verb} cancelled.`);
     return false;
   }
   return true;
