@@ -135,6 +135,11 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
     case "no_new_messages":
       log.info("No new messages to review since the last retrospective.");
       break;
+    case "no_user_activity":
+      log.info(
+        "No user activity in the window since the last retrospective; skipping.",
+      );
+      break;
     case "source_dormant":
       log.info(
         "Source conversation is dormant beyond the sweep lookback; skipping.",
@@ -152,6 +157,15 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
       );
       process.exitCode = 1;
       break;
+    case "no_usable_output":
+      log.error(
+        `Run produced no usable output` +
+          `${outcome.reason ? `: ${outcome.reason}` : ""}` +
+          (outcome.conversationId ? ` (fork: ${outcome.conversationId})` : "") +
+          `. The window stays retryable.`,
+      );
+      process.exitCode = 1;
+      break;
     case "invoked":
       log.info(
         `Retrospective invoked.\n` +
@@ -163,5 +177,9 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
             : ""),
       );
       break;
+    default: {
+      const _exhaustive: never = outcome;
+      break;
+    }
   }
 }
