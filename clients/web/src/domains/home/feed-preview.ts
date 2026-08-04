@@ -7,8 +7,12 @@
 /** Shortest continuation worth showing after the title's prefix is removed. */
 const MIN_PREVIEW_LENGTH = 12;
 
-/** Opening fence of a code block, allowing up to 3 leading spaces. */
-const CODE_FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+/**
+ * Opening fence of a code block, allowing up to 3 leading spaces. The second
+ * group is the info string, which decides whether a backtick run really opens
+ * a block (see `matchFenceOpen`).
+ */
+const CODE_FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 
 /**
  * Closing fence of a code block. Nothing but whitespace may follow the fence
@@ -28,11 +32,24 @@ const STRUCTURAL_ROW_PATTERN = /^[\s|:-]*$/;
  */
 const INLINE_MARK_PUNCTUATION = "*_`~";
 
-/** Sentence punctuation left dangling once a title prefix is sliced away. */
-const SENTENCE_PUNCTUATION = ".,;:-";
+/**
+ * Sentence punctuation, ignored at the end of a comparison form and left
+ * dangling once a title prefix is sliced away. Both sites read this one set,
+ * so the slice can never strand a character the comparison already discounted.
+ */
+const SENTENCE_PUNCTUATION = ".,;:!?-";
 
-/** Sentence punctuation ignored at the end of a comparison. */
-const TRAILING_PUNCTUATION_PATTERN = /[.,;:!?-]+$/;
+function isSentencePunctuation(char: string): boolean {
+  return SENTENCE_PUNCTUATION.includes(char);
+}
+
+function trimTrailingSentencePunctuation(value: string): string {
+  let end = value.length;
+  while (end > 0 && isSentencePunctuation(value[end - 1])) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
 
 /**
  * Turn multi-line markdown into a single line, dropping block syntax while
@@ -49,8 +66,11 @@ function flattenMarkdownBlocks(summary: string): string {
   let openFence: string | null = null;
 
   for (const line of lines) {
+    // Container markers come off first so a fence nested in a blockquote or a
+    // list item is recognized the same way a top-level one is.
+    const stripped = stripBlockMarkers(line);
     if (openFence !== null) {
-      const close = CODE_FENCE_CLOSE_PATTERN.exec(line)?.[1];
+      const close = CODE_FENCE_CLOSE_PATTERN.exec(stripped)?.[1];
       if (
         close !== undefined &&
         close[0] === openFence[0] &&
@@ -61,12 +81,11 @@ function flattenMarkdownBlocks(summary: string): string {
       // A block that never closes swallows the rest of the summary.
       continue;
     }
-    const opener = CODE_FENCE_OPEN_PATTERN.exec(line)?.[1];
-    if (opener !== undefined) {
+    const opener = matchFenceOpen(stripped);
+    if (opener !== null) {
       openFence = opener;
       continue;
     }
-    const stripped = stripBlockMarkers(line);
     if (STRUCTURAL_ROW_PATTERN.test(stripped)) {
       continue;
     }
@@ -74,6 +93,26 @@ function flattenMarkdownBlocks(summary: string): string {
   }
 
   return kept.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The fence run that opens a code block on `line`, or `null` when the line is
+ * ordinary text.
+ *
+ * A backtick fence's info string may not itself contain a backtick, so a line
+ * that opens with a backtick run and carries another one later is prose around
+ * an inline code span. Tilde fences carry no such restriction.
+ */
+function matchFenceOpen(line: string): string | null {
+  const match = CODE_FENCE_OPEN_PATTERN.exec(line);
+  if (match === null) {
+    return null;
+  }
+  const [, fence, info] = match;
+  if (fence.startsWith("`") && info.includes("`")) {
+    return null;
+  }
+  return fence;
 }
 
 /** Peel leading block markers off a line, including nested ones like `> - x`. */
@@ -207,12 +246,11 @@ function matchInlineLink(value: string, start: number): InlineLinkSpan | null {
  * strings look different.
  */
 function normalizeForCompare(value: string): string {
-  return normalizedCharacters(value)
+  const flattened = normalizedCharacters(value)
     .map((entry) => entry.char)
     .join("")
-    .trimEnd()
-    .replace(TRAILING_PUNCTUATION_PATTERN, "")
     .trimEnd();
+  return trimTrailingSentencePunctuation(flattened).trimEnd();
 }
 
 /**
@@ -252,11 +290,7 @@ function stripSliceDebris(value: string): string {
     const isWhitespace = /\s/.test(char);
     const isClosingMark =
       !sawWhitespace && INLINE_MARK_PUNCTUATION.includes(char);
-    if (
-      !isWhitespace &&
-      !isClosingMark &&
-      !SENTENCE_PUNCTUATION.includes(char)
-    ) {
+    if (!isWhitespace && !isClosingMark && !isSentencePunctuation(char)) {
       break;
     }
     sawWhitespace = sawWhitespace || isWhitespace;

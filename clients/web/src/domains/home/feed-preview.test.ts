@@ -55,6 +55,24 @@ describe("resolvePreview", () => {
     ).toBe("The api worker never reported healthy.");
   });
 
+  test("drops an exclamation mark orphaned by the slice", () => {
+    expect(
+      resolvePreview(
+        "Deploy failed!",
+        "Deploy failed! The api worker never reported healthy.",
+      ),
+    ).toBe("The api worker never reported healthy.");
+  });
+
+  test("drops a question mark orphaned by the slice", () => {
+    expect(
+      resolvePreview(
+        "Deploy failed?",
+        "Deploy failed? The api worker never reported healthy.",
+      ),
+    ).toBe("The api worker never reported healthy.");
+  });
+
   test("keeps a code span that starts the continuation", () => {
     expect(
       resolvePreview("Deploy failed", "Deploy failed: `api` never came up."),
@@ -154,6 +172,39 @@ describe("resolvePreview", () => {
       resolvePreview(
         "Build log",
         "Two files changed.\n~~~\ndiff --git a b\n~~~\nRerun when ready.",
+      ),
+    ).toBe("Two files changed. Rerun when ready.");
+  });
+
+  test("drops a fenced code block nested in a blockquote", () => {
+    expect(
+      resolvePreview(
+        "Build log",
+        "Head of the log:\n\n> ```\n> secret payload\n> ```\n\nRerun the job.",
+      ),
+    ).toBe("Head of the log: Rerun the job.");
+  });
+
+  test("drops a fenced code block nested in a list item", () => {
+    expect(
+      resolvePreview(
+        "Runbook",
+        "Do this first:\n\n- ```\n  vellum run\n  ```\n\nThen check the log.",
+      ),
+    ).toBe("Do this first: Then check the log.");
+  });
+
+  test("treats a backtick run with a backticked info string as prose", () => {
+    expect(
+      resolvePreview("Status check", "```code``` is the reported value"),
+    ).toBe("```code``` is the reported value");
+  });
+
+  test("still opens a tilde fence whose info string holds a backtick", () => {
+    expect(
+      resolvePreview(
+        "Build log",
+        "Two files changed.\n~~~`js`\ndiff --git a b\n~~~\nRerun when ready.",
       ),
     ).toBe("Two files changed. Rerun when ready.");
   });
