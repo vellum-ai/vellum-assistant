@@ -97,6 +97,17 @@ export async function findExistingTunnel(
   return null;
 }
 
+/** Whether a tunnel public URL's host equals the given reserved domain. */
+function urlMatchesDomain(publicUrl: string, domain: string): boolean {
+  try {
+    return (
+      new URL(publicUrl).hostname.toLowerCase() === domain.trim().toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Start an ngrok process tunneling HTTP traffic to the given local port.
  *
@@ -226,9 +237,19 @@ export async function maybeStartNgrokTunnel(
   const version = getNgrokVersion();
   if (!version) return null;
 
+  const savedDomain = loadNgrokDomain(workspaceDir) ?? undefined;
+
   // Reuse an existing tunnel if one is already running
   const existingUrl = await findExistingTunnel(targetPort);
   if (existingUrl) {
+    if (savedDomain && !urlMatchesDomain(existingUrl, savedDomain)) {
+      // Spawning a second agent with --domain would not help: the local API
+      // polling would still surface the old tunnel. Adopt the working tunnel
+      // so webhooks keep flowing, but make the mismatch visible.
+      console.warn(
+        `   ⚠ Existing ngrok tunnel ${existingUrl} does not match the reserved domain '${savedDomain}'. Using it anyway — stop the running ngrok agent and run \`vellum tunnel --provider ngrok --domain ${savedDomain}\` to bind the reserved domain.`,
+      );
+    }
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl);
     return null;
@@ -243,7 +264,6 @@ export async function maybeStartNgrokTunnel(
   // Writing to a log file sidesteps both issues — the file descriptor is
   // inherited by the detached ngrok process and remains valid after CLI exit.
   const ngrokLogPath = join(workspaceDir, "data", "logs", "ngrok.log");
-  const savedDomain = loadNgrokDomain(workspaceDir) ?? undefined;
   const ngrokProcess = startNgrokProcess(targetPort, ngrokLogPath, savedDomain);
   ngrokProcess.unref();
 
@@ -315,6 +335,15 @@ export async function runNgrokTunnel(
   // Check for an existing ngrok tunnel pointing at the gateway
   const existingUrl = await findExistingTunnel(port);
   if (existingUrl) {
+    if (opts.domain && !urlMatchesDomain(existingUrl, opts.domain)) {
+      console.error(
+        `Error: an ngrok tunnel is already running on port ${port} at ${existingUrl}, which does not match the requested domain '${opts.domain}'.`,
+      );
+      console.error(
+        "Stop the existing ngrok agent first, then re-run this command to bind the reserved domain.",
+      );
+      process.exit(1);
+    }
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
     saveNgrokDomain(workspaceDir, opts.domain ?? null);

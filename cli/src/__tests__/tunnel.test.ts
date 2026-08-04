@@ -407,6 +407,126 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
   });
 
+  function mockTunnelListFetch(publicUrl: string, addr: string): void {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          tunnels: [{ public_url: publicUrl, config: { addr } }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as unknown as typeof globalThis.fetch;
+  }
+
+  test("runNgrokTunnel rejects an existing tunnel that mismatches the requested domain", async () => {
+    const ws = makeWorkspace({});
+    mockTunnelListFetch("https://other.ngrok-free.app", "localhost:7831");
+
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    try {
+      await expect(
+        realNgrok.runNgrokTunnel({
+          port: 7831,
+          workspaceDir: ws,
+          domain: "foo.ngrok.app",
+        }),
+      ).rejects.toThrow("exit:1");
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    const combined = errors.join("\n");
+    expect(combined).toContain("https://other.ngrok-free.app");
+    expect(combined).toContain(
+      "does not match the requested domain 'foo.ngrok.app'",
+    );
+    expect(combined).toContain("Stop the existing ngrok agent");
+    expect(spawnMock).not.toHaveBeenCalled();
+
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress?: { publicBaseUrl?: string; ngrok?: { domain?: string } } };
+    expect(config.ingress?.publicBaseUrl).toBeUndefined();
+    expect(config.ingress?.ngrok).toBeUndefined();
+  });
+
+  test("runNgrokTunnel adopts an existing tunnel that matches the requested domain", async () => {
+    const ws = makeWorkspace({});
+    mockTunnelListFetch("https://foo.ngrok.app", "localhost:7831");
+
+    const run = realNgrok.runNgrokTunnel({
+      port: 7831,
+      workspaceDir: ws,
+      domain: "foo.ngrok.app",
+    });
+    // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
+    // listener is registered and the promise settles. Earlier tests leak
+    // SIGINT handlers that call process.exit — no-op it while pumping.
+    const exitSpy = spyOn(process, "exit").mockImplementation((() =>
+      undefined) as never);
+    const pump = setInterval(() => process.emit("SIGINT"), 10);
+    try {
+      await run;
+    } finally {
+      clearInterval(pump);
+      exitSpy.mockRestore();
+    }
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress: { publicBaseUrl?: string; ngrok?: { domain?: string } } };
+    expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
+    expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
+  });
+
+  test("maybeStartNgrokTunnel warns and adopts a mismatched existing tunnel without spawning", async () => {
+    const ws = makeWorkspace({
+      telegram: { botUsername: "example_bot" },
+      ingress: { ngrok: { domain: "foo.ngrok.app" } },
+    });
+    mockTunnelListFetch("https://other.ngrok-free.app", "localhost:7830");
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation(
+      (...a: unknown[]) => {
+        warnings.push(a.join(" "));
+      },
+    );
+
+    let child: unknown;
+    try {
+      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(child).toBeNull();
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(warnings.join("\n")).toContain(
+      "does not match the reserved domain 'foo.ngrok.app'",
+    );
+
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress: { publicBaseUrl?: string; ngrok?: { domain?: string } } };
+    // The working tunnel is still adopted so webhooks keep flowing…
+    expect(config.ingress.publicBaseUrl).toBe("https://other.ngrok-free.app");
+    // …and the reserved domain stays saved as standing intent.
+    expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
+  });
+
   test("maybeStartNgrokTunnel passes the saved domain to the spawn args", async () => {
     const ws = makeWorkspace({
       telegram: { botUsername: "example_bot" },
