@@ -411,6 +411,8 @@ export function isIngressRunning(workspaceDir: string): boolean {
 
 interface IngressState {
   listenPort: number;
+  /** Edge mode: SPA + proxy (true) or webhooks-only proxy (false). */
+  includeWebApp: boolean;
 }
 
 function readIngressState(workspaceDir: string): IngressState | null {
@@ -419,13 +421,17 @@ function readIngressState(workspaceDir: string): IngressState | null {
   const nginx = ingress?.nginx as Record<string, unknown> | undefined;
   const listenPort = nginx?.listenPort;
   if (typeof listenPort !== "number") return null;
-  return { listenPort };
+  // A state record without includeWebApp represents an SPA edge.
+  return { listenPort, includeWebApp: nginx?.includeWebApp !== false };
 }
 
 function saveIngressState(workspaceDir: string, state: IngressState): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  ingress.nginx = { listenPort: state.listenPort };
+  ingress.nginx = {
+    listenPort: state.listenPort,
+    includeWebApp: state.includeWebApp,
+  };
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
 }
@@ -492,7 +498,10 @@ export function startIngressNginx(opts: {
   );
   closeSync(fd);
 
-  saveIngressState(opts.workspaceDir, { listenPort: opts.listenPort });
+  saveIngressState(opts.workspaceDir, {
+    listenPort: opts.listenPort,
+    includeWebApp: opts.remoteWebIngress !== undefined,
+  });
   return child;
 }
 
@@ -568,7 +577,8 @@ export type StartRemoteWebIngressResult =
   | {
       status: "started";
       listenPort: number;
-      webDistDir: string;
+      /** SPA dist directory served by the edge; null in webhooks-only mode. */
+      webDistDir: string | null;
       version: string;
     }
   | { status: "already-running"; listenPort: number }
@@ -582,6 +592,10 @@ export type StartRemoteWebIngressResult =
  * but unreachable nginx is rolled back so a failed attempt leaves no half-up
  * edge behind.
  *
+ * An edge already running in the requested mode short-circuits as
+ * `already-running`; one running in the other mode (SPA vs webhooks-only) is
+ * stopped and restarted with the requested config.
+ *
  * Pure mechanism: it performs no console output and never exits the process, so
  * both the `nginx-ingress up` command and the wake restore path can share one
  * implementation and map the returned result to their own UX.
@@ -592,31 +606,58 @@ export async function startRemoteWebIngress(opts: {
   listenPort?: number;
   readyTimeoutMs?: number;
   /**
+   * Serve the web SPA from the edge (default true). When false the web-dist
+   * preflight is skipped and the edge only proxies gateway traffic behind the
+   * sensitive-route denylist (webhooks-only mode).
+   */
+  includeWebApp?: boolean;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
-   * with the resolved version/dist/port. Never fires on a preflight bail-out
-   * (nginx-missing, already-running, web-dist-missing).
+   * with the resolved version/dist/port (webDistDir is null in webhooks-only
+   * mode). Never fires on a preflight bail-out (nginx-missing,
+   * already-running, web-dist-missing).
    */
   onStarting?: (info: {
     version: string;
-    webDistDir: string;
+    webDistDir: string | null;
     listenPort: number;
   }) => void;
 }): Promise<StartRemoteWebIngressResult> {
   const listenPort = opts.listenPort ?? getNginxIngressPort();
+  const includeWebApp = opts.includeWebApp ?? true;
 
   const version = getNginxVersion();
   if (!version) {
     return { status: "nginx-missing" };
   }
 
-  if (isIngressRunning(opts.workspaceDir)) {
-    return { status: "already-running", listenPort };
+  const running = isIngressRunning(opts.workspaceDir);
+  if (running) {
+    const recordedMode =
+      readIngressState(opts.workspaceDir)?.includeWebApp ?? true;
+    if (recordedMode === includeWebApp) {
+      return { status: "already-running", listenPort };
+    }
   }
 
-  const webDistDir = findWebDistDir();
-  if (!webDistDir) {
-    return { status: "web-dist-missing" };
+  let webDistDir: string | null = null;
+  if (includeWebApp) {
+    webDistDir = findWebDistDir();
+    if (!webDistDir) {
+      return { status: "web-dist-missing" };
+    }
+  }
+
+  // The running edge serves the other mode; restart it with the requested
+  // config. A false stop can mean the old edge exited on its own after the
+  // check above, so recheck liveness and only bail when it is still serving.
+  if (
+    running &&
+    !(await stopIngressNginx(opts.workspaceDir)) &&
+    isIngressRunning(opts.workspaceDir)
+  ) {
+    return { status: "already-running", listenPort };
   }
 
   opts.onStarting?.({ version, webDistDir, listenPort });
@@ -625,7 +666,7 @@ export async function startRemoteWebIngress(opts: {
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
     listenPort,
-    remoteWebIngress: { webDistDir },
+    remoteWebIngress: webDistDir ? { webDistDir } : undefined,
   });
   child.unref();
 

@@ -166,8 +166,9 @@ async function up(target: NginxIngressTarget): Promise<void> {
     gatewayPort,
     onStarting: ({ version, webDistDir, listenPort }) => {
       console.log(`Using ${version}`);
+      const webSegment = webDistDir ? `web ${webDistDir} + ` : "";
       console.log(
-        `Starting nginx ingress on 127.0.0.1:${listenPort} → web ${webDistDir} + gateway 127.0.0.1:${gatewayPort}...`,
+        `Starting nginx ingress on 127.0.0.1:${listenPort} → ${webSegment}gateway 127.0.0.1:${gatewayPort}...`,
       );
     },
   });
