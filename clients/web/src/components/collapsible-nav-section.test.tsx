@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { act, cleanup, render } from "@testing-library/react";
 import { Clock } from "lucide-react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -70,7 +71,7 @@ describe("CollapsibleNavSection", () => {
     const html = renderSingleSection({ value: "pinned", label: "Pinned" });
     // When no trailing is passed, the trailing wrapper span is not rendered
     const buttonCount = (html.match(/<button/g) ?? []).length;
-    expect(buttonCount).toBe(1); // Only the trigger button
+    expect(buttonCount).toBe(1); // Only the title trigger; the chevron is a span
   });
 
   test("trailing slot is rendered OUTSIDE the trigger button", () => {
@@ -111,10 +112,13 @@ describe("CollapsibleNavSection", () => {
     expect(html).not.toContain("lucide-clock");
   });
 
-  // Regression: the title used to be the whole clickable trigger. Now only
-  // the chevron toggles, so the title can be press-and-held to drag the
-  // section without also expanding or collapsing it.
-  test("only the chevron toggles; the title is a plain, non-button label", () => {
+  // Regression: a polish pass once made the title a plain drag-only label,
+  // leaving the small chevron as the sole toggle target. The whole title
+  // row must be the accordion trigger - click toggles,
+  // click-and-hold-and-move drags - and it must be the ONLY trigger:
+  // a second Radix trigger for the same item duplicates the trigger id
+  // and gives keyboard/screen-reader users two stops per section.
+  test("the title is the section's one accessible trigger; the chevron is decorative", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     const container = document.createElement("div");
     container.innerHTML = html;
@@ -123,16 +127,63 @@ describe("CollapsibleNavSection", () => {
       '[data-slot="collapsible-nav-section-title"]',
     );
     expect(title).not.toBeNull();
-    expect(title?.closest("button")).toBeNull();
-    expect(title?.querySelector("button")).toBeNull();
+    // A real accordion trigger, not a styled lookalike: the button carries
+    // Radix's expanded state, which is what wires the click to the toggle.
+    expect(title?.tagName).toBe("BUTTON");
+    expect(title?.getAttribute("aria-expanded")).toBe("false");
 
-    const chevronButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) => button.querySelector(".lucide-chevron-down"));
-    expect(chevronButton).toBeDefined();
-    expect(chevronButton?.getAttribute("aria-label")).toBe("Recents");
-    // Icon-only: the label text isn't duplicated inside the toggle button.
-    expect(chevronButton?.textContent?.trim()).toBe("");
+    // Exactly one element announces the expanded state.
+    expect(container.querySelectorAll("[aria-expanded]")).toHaveLength(1);
+
+    const chevron = container.querySelector(
+      '[data-slot="collapsible-nav-section-chevron"]',
+    );
+    expect(chevron).toBeDefined();
+    expect(chevron?.tagName).not.toBe("BUTTON");
+    expect(chevron?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  // The chevron isn't a trigger, so its toggling goes through the click it
+  // forwards to the title - which only a real DOM click can prove.
+  test("clicking the chevron toggles the section", () => {
+    const { container } = render(
+      createElement(
+        CollapsibleNavSection.Root,
+        { type: "multiple", defaultValue: [] },
+        createElement(
+          CollapsibleNavSection.Section,
+          { value: "recents", label: "Recents" },
+          createElement("div", null, "child-content"),
+        ),
+      ),
+    );
+    try {
+      const chevron = container.querySelector<HTMLElement>(
+        '[data-slot="collapsible-nav-section-chevron"]',
+      );
+      expect(chevron).not.toBeNull();
+
+      act(() => {
+        chevron?.click();
+      });
+      expect(
+        container
+          .querySelector('[data-slot="collapsible-nav-section-title"]')
+          ?.getAttribute("aria-expanded"),
+      ).toBe("true");
+      expect(container.textContent).toContain("child-content");
+
+      act(() => {
+        chevron?.click();
+      });
+      expect(
+        container
+          .querySelector('[data-slot="collapsible-nav-section-title"]')
+          ?.getAttribute("aria-expanded"),
+      ).toBe("false");
+    } finally {
+      cleanup();
+    }
   });
 
   // The chevron reveals only on hover (or focus-visible, natively via the

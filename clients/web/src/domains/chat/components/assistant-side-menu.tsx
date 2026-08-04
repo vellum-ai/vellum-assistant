@@ -695,14 +695,15 @@ export function AssistantSideMenu({
                 onValueChange={sidebar.onOpenSectionsChange}
               >
                 {/* Pinned and the custom groups: the user's own curation,
-                    identical in both views. A divider between each pair, so
-                    Pinned's own boundary reads the same as the curated
-                    block's outer one below. */}
+                    identical in both views. One divider under Pinned; the
+                    custom groups flow together with nothing between them,
+                    and the block's own rule below marks the boundary to
+                    Conversations. */}
                 {sidebar.sections
                   .slice(0, sidebar.curatedSectionCount)
-                  .map((section, index) => (
+                  .map((section, index, curated) => (
                     <Fragment key={section.key}>
-                      {index > 0 ? (
+                      {index > 0 && curated[index - 1]?.type === "pinned" ? (
                         // 2px closer to the section below than the
                         // separator's own default my-1 (4px) gives.
                         <SideMenu.Separator style={{ marginBottom: 2 }} />

@@ -1088,13 +1088,14 @@ describe("AssistantSideMenu · equal section treatment", () => {
     ).toHaveLength(0);
   });
 
-  // Regression: Pinned and Chats used to cap at SIDEBAR_SECTION_MAX_HEIGHT
-  // and scroll within themselves - Pinned's even had a drag handle on the
-  // rule below it to resize that cap. Both are gone: Pinned grows to fit its
-  // own rows, unbounded, and Chats scrolls against the sidebar body instead,
-  // same as the flat list in List view. A derived channel section (Slack
-  // here) is the one kind of section that still caps and scrolls.
-  test("Pinned and Chats don't cap/scroll internally; a channel section still does", () => {
+  // Pinned is the one section that doesn't cap: it grows to fit its own
+  // rows (user-curated, expected to stay short). Every derived section -
+  // Chats and each channel section - caps at SIDEBAR_SECTION_MAX_HEIGHT
+  // and scrolls within itself, so a busy section can never push its
+  // neighbours out of reach. Regression guard: a polish pass once unbound
+  // Chats onto the sidebar body, which parked the channel sections below
+  // hundreds of rows.
+  test("Chats and channel sections cap/scroll internally; Pinned doesn't", () => {
     // A real DOM render, not `parse`: `scrollParent` only takes effect once
     // the sidebar body's ref has mounted.
     const { container } = render(
@@ -1109,10 +1110,13 @@ describe("AssistantSideMenu · equal section treatment", () => {
     );
     try {
       // Channel sections default closed (only Pinned/Chats default open),
-      // so Slack's row list isn't mounted until its chevron opens it.
-      const slackTrigger = container.querySelector<HTMLElement>(
-        '[aria-label="Slack"]',
-      );
+      // so Slack's row list isn't mounted until its header opens it. Going
+      // through the title also exercises the whole-header toggle.
+      const slackTrigger = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          '[data-slot="collapsible-nav-section-title"]',
+        ),
+      ).find((el) => el.textContent?.includes("Slack"));
       act(() => {
         slackTrigger?.click();
       });
@@ -1127,7 +1131,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }
 
       expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
-      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+      expect(chats.querySelector(".overflow-y-auto")).not.toBeNull();
       expect(slack.querySelector(".overflow-y-auto")).not.toBeNull();
     } finally {
       cleanup();
