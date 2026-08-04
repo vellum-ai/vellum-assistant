@@ -1034,20 +1034,46 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return isAuthenticated(get().sessionStatus);
     }
     // A settled "no platform session" (401) ends the platform session, not the
-    // local gateway session. When the gateway is the auth source, demote an
-    // authenticated session to the local user and mark the platform session
-    // absent — dropping the now-stale platform user and offline snapshot so
-    // platform-gated surfaces stop treating it as signed in — while keeping
-    // `sessionStatus` "authenticated"; a 401 must not log a local-only user out.
-    // (The successful probe above still adopts the platform user, so provider
-    // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
-    // hatch — is left for the gateway to settle once its token mints.
+    // local one. Demote an authenticated session to the local user and mark the
+    // platform session absent — dropping the now-stale platform user and
+    // offline snapshot so platform-gated surfaces stop treating it as signed in
+    // — while keeping `sessionStatus` "authenticated"; a 401 must not log a
+    // local-only user out. (The successful probe above still adopts the platform
+    // user, so provider sign-in keeps working.) An unauthenticated session —
+    // e.g. mid cold-start hatch — is left for the gateway to settle once its
+    // token mints.
     //
     // Holding `sessionStatus` "authenticated" is load-bearing: in-app consumers
     // read `useIsAuthenticated()` directly to scope the QueryClient cache and
     // gate signed-in UI, so ending the session would drop them into the
     // anonymous cache scope and hide that UI.
-    if (isGatewayAuthEnabled()) {
+    //
+    // The predicate asks whether this client's session can stand on its own
+    // without the platform, and mirrors how `initSession` above branches: a
+    // local gateway is one way, and having no platform assistant to answer for
+    // is the other.
+    //
+    // Gateway auth alone was too narrow, because it additionally requires a
+    // local gateway URL — which does not exist until an assistant has been
+    // hatched. That left every brand-new desktop user out of the protection
+    // they need most: their platform account does not exist yet, so the first
+    // platform request legitimately answers 401/403, this branch was skipped,
+    // `sessionEnded()` logged them out of the local session they did have, and
+    // `platformAuthRecoveryInterceptor` sent them to
+    // `/account/login?returnTo=/assistant/welcome` — which bounces straight
+    // back once boot re-establishes the local session, looping the onboarding
+    // screen roughly twice a second and never leaving the Log In button on
+    // screen long enough to click (#39820).
+    //
+    // A local client whose assistants are platform-hosted is deliberately NOT
+    // covered: a managed assistant is unreachable without a platform session,
+    // so ending it and routing to login is the honest outcome there — demoting
+    // instead would strand the user in the app next to an assistant that can
+    // no longer answer. Remote-gateway mode returns at the top of this action.
+    const localSessionStandsAlone =
+      isLocalClient() &&
+      (isGatewayAuthEnabled() || getPlatformAssistants().length === 0);
+    if (localSessionStandsAlone) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {
         clearUserSnapshot();

@@ -516,9 +516,62 @@ export function localGatewayAuthRecoveryInterceptor(
 // permission-403 that left the session live is still caught later.
 let platformAuthRecoveryFired = false;
 
+/**
+ * Cross-page-load budget for the redirect below.
+ *
+ * The in-memory latch above only de-duplicates rejections within one page
+ * lifecycle, and the redirect is a full page load — so a destination that comes
+ * back and rejects again gets a fresh latch every time, and nothing counts the
+ * round trips. That is a loop with no floor, and #39820 rode it: the login page
+ * bounced straight back to the caller's `returnTo`, which rejected again, twice
+ * a second, indefinitely.
+ *
+ * The specific cause of that loop is fixed in `refreshSession` (a local session
+ * no longer ends on a platform rejection), so this is the structural backstop
+ * rather than the fix: whatever the reason a redirect fails to resolve the
+ * rejection, the app stops re-driving it after a few attempts and the normal
+ * error path surfaces the state instead.
+ *
+ * Mirrors the gateway budget above, including why elapsed time never restores
+ * it: only a platform request actually succeeding proves the session works, so
+ * only that clears it. Living in sessionStorage means a quit-and-reopen grants
+ * a fresh budget.
+ */
+const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
+const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAuthRecoveryFlag(): void {
   platformAuthRecoveryFired = false;
+}
+
+/**
+ * Spend one redirect from the budget. Returns false when it is exhausted (or
+ * when sessionStorage is unavailable, so an environment that cannot count fails
+ * closed rather than looping).
+ */
+function claimPlatformAuthRedirect(): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_AUTH_MAX_REDIRECTS) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_AUTH_REDIRECT_KEY, String(attempts + 1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearPlatformAuthRedirectBudget(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
 }
 
 async function recoverFromPlatformSessionRejection(): Promise<void> {
@@ -530,7 +583,10 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
-    if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+    if (
+      !isAuthenticated(useAuthStore.getState().sessionStatus) &&
+      claimPlatformAuthRedirect()
+    ) {
       hardNavigate(
         `${routes.account.login}?returnTo=${encodeURIComponent(
           window.location.pathname + window.location.search,
@@ -556,8 +612,24 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
  * {@link localGatewayAuthRecoveryInterceptor}.
+ *
+ * A platform request that succeeds restores the redirect budget: it is the only
+ * evidence the session is working again.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
+  const ingressUrl = getSelfHostedIngressUrl();
+  const fromSelfHostedGateway =
+    !!ingressUrl && response.url.startsWith(ingressUrl);
+
+  if (response.ok) {
+    // Scoped to platform responses — a working self-hosted gateway says nothing
+    // about the platform session the budget is counting redirects for.
+    if (!fromSelfHostedGateway) {
+      clearPlatformAuthRedirectBudget();
+    }
+    return response;
+  }
+
   if (
     !isSettledSessionRejection({ ok: response.ok, status: response.status })
   ) {
@@ -569,8 +641,7 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
     return response;
   }
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl && response.url.startsWith(ingressUrl)) {
+  if (fromSelfHostedGateway) {
     return response;
   }
 

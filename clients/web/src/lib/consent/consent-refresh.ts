@@ -24,15 +24,24 @@ const BACKSTOP_INTERVAL_MS = 30 * 60_000;
 let lastRefreshAt = 0;
 
 /**
- * When a user is authenticated, fetch the server consent and route it through
- * the diagnostics chokepoint. No-op when unauthenticated; a thrown fetch leaves
+ * When a platform account is signed in, fetch the server consent and route it
+ * through the diagnostics chokepoint. No-op otherwise; a thrown fetch leaves
  * state unchanged.
  */
 export async function refreshDiagnosticsConsent(): Promise<void> {
   // Capture the authenticated user BEFORE the await so we can detect a
   // logout/account-switch that races the in-flight fetch.
-  const userIdBefore = useAuthStore.getState().user?.id;
-  if (!userIdBefore) {
+  //
+  // Gated on `kind`, not merely on a truthy id: local mode signs in a synthetic
+  // `"local"` user (`id: "gateway-local"`) that has no platform account behind
+  // it, so an id check alone sent this fetch out for users the platform has
+  // never heard of. `/v1/user/consent/` then answers 401/403 — a settled
+  // rejection, which arms `platformAuthRecoveryInterceptor` — to ask a question
+  // that has no server-side answer to begin with. There is no consent record to
+  // read without a platform account (#39820).
+  const userBefore = useAuthStore.getState().user;
+  const userIdBefore = userBefore?.id;
+  if (!userIdBefore || userBefore?.kind !== "platform") {
     return;
   }
   try {

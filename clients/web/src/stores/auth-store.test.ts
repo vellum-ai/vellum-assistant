@@ -534,6 +534,69 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent"); // stale platform state cleared
   });
 
+  test("refreshSession keeps a pre-hatch local session alive on a settled 401 (#39820)", async () => {
+    // Brand-new desktop user: local mode, nothing hatched yet, so there is no
+    // local gateway URL and `isGatewayAuthEnabled()` is false. They have no
+    // platform account either, so the probe legitimately settles 401. Ending
+    // the local session here is what drove the onboarding reload loop — the
+    // recovery interceptor sent them to `/account/login?returnTo=…`, which
+    // bounced straight back once boot re-established the local session.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false; // nothing hatched → no local gateway URL
+    mockGatewayToken = null;
+    mockPlatformAssistants = []; // and no managed assistant to answer for
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "unknown",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("refreshSession still ends a local session whose assistants are platform-hosted", async () => {
+    // A managed assistant is unreachable without a platform session, so the
+    // demotion above deliberately does not cover this case — routing to login
+    // is the honest outcome rather than stranding the user beside an assistant
+    // that can no longer answer.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [{ assistantId: "managed-1", cloud: "vellum" }];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("refreshSession still ends the session for a platform-mode client on a settled 401", async () => {
+    // The web SPA has no local session to fall back on, so a settled rejection
+    // must still log out — the guard above is local-mode only.
+    mockIsLocalClient = false;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
   test("refreshSession leaves an unauthenticated session untouched in the gateway window", async () => {
     // Mid cold-start hatch: gateway enabled, token not minted, session not yet
     // established. A settled 401 must not promote to authenticated — the gateway
