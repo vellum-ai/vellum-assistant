@@ -5,17 +5,30 @@
  *   - Nothing is emitted without analytics consent.
  *   - `boot_id` appears only once a boot id has been registered.
  *   - A throwing transport never propagates to the caller.
+ *   - The page-load key is minted lazily and survives a runtime with no
+ *     `crypto.randomUUID` (non-secure contexts).
+ *   - Surface and os come from a single platform probe per emit.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ClientPerfCheckName } from "./client-perf";
+
 let consent = true;
+let nativeIOS = false;
+let nativeAndroid = false;
 const postTelemetryEventsMock = mock((_events: readonly object[]) => {});
+const detectClientOsMock = mock(() => "web");
 
 mock.module("@/lib/telemetry/consent", () => ({
   readAnalyticsConsent: () => consent,
 }));
 mock.module("@/lib/telemetry/ingest", () => ({
   postTelemetryEvents: postTelemetryEventsMock,
+}));
+mock.module("@/runtime/platform-detection", () => ({
+  detectClientOs: detectClientOsMock,
+  isNativeIOS: () => nativeIOS,
+  isNativeAndroid: () => nativeAndroid,
 }));
 
 const { __resetClientPerfForTests, emitClientPerfEvent, setClientPerfBootId } =
@@ -33,10 +46,22 @@ function lastDetail(): Record<string, unknown> {
   return lastEvent().detail as Record<string, unknown>;
 }
 
+/** Every member of the exported union, so a dropped name fails to compile. */
+const ALL_CHECK_NAMES: readonly ClientPerfCheckName[] = [
+  "client_switch.transcript_painted",
+  "client_switch.stalled",
+  "client_switch.abandoned",
+  "client_resume.request_count",
+  "client_list.drain",
+];
+
 beforeEach(() => {
   consent = true;
+  nativeIOS = false;
+  nativeAndroid = false;
   postTelemetryEventsMock.mockClear();
   postTelemetryEventsMock.mockImplementation(() => {});
+  detectClientOsMock.mockClear();
   __resetClientPerfForTests();
 });
 
@@ -59,9 +84,17 @@ describe("emitClientPerfEvent", () => {
     expect(typeof detail.os).toBe("string");
   });
 
+  test("accepts every check name in the exported union", () => {
+    for (const checkName of ALL_CHECK_NAMES) {
+      emitClientPerfEvent(checkName, 1);
+      expect(lastEvent().check_name).toBe(checkName);
+    }
+  });
+
   test("groups events from the same page load under one page_load_id", () => {
     emitClientPerfEvent("client_list.drain", 1);
     const first = lastDetail().page_load_id;
+    expect(typeof first).toBe("string");
     emitClientPerfEvent("client_list.drain", 2);
     expect(lastDetail().page_load_id).toBe(first);
   });
@@ -99,5 +132,51 @@ describe("emitClientPerfEvent", () => {
     expect(() => {
       emitClientPerfEvent("client_switch.stalled", 1);
     }).not.toThrow();
+  });
+
+  test("probes the client OS once per emit", () => {
+    emitClientPerfEvent("client_list.drain", 1);
+    expect(detectClientOsMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("labels the native shells from the platform predicates", () => {
+    emitClientPerfEvent("client_list.drain", 1);
+    expect(lastDetail().surface).toBe("web");
+
+    nativeIOS = true;
+    emitClientPerfEvent("client_list.drain", 1);
+    expect(lastDetail().surface).toBe("ios_native");
+
+    nativeIOS = false;
+    nativeAndroid = true;
+    emitClientPerfEvent("client_list.drain", 1);
+    expect(lastDetail().surface).toBe("android_native");
+  });
+
+  test("still emits when crypto.randomUUID is unavailable", () => {
+    const cryptoObject = globalThis.crypto as unknown as {
+      randomUUID?: () => string;
+    };
+    Object.defineProperty(cryptoObject, "randomUUID", {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+
+    try {
+      expect(() => {
+        emitClientPerfEvent("client_list.drain", 1);
+      }).not.toThrow();
+
+      const event = lastEvent();
+      expect(typeof event.daemon_event_id).toBe("string");
+      const pageLoadId = lastDetail().page_load_id;
+      expect(typeof pageLoadId).toBe("string");
+
+      emitClientPerfEvent("client_list.drain", 2);
+      expect(lastDetail().page_load_id).toBe(pageLoadId);
+    } finally {
+      delete cryptoObject.randomUUID;
+    }
   });
 });
