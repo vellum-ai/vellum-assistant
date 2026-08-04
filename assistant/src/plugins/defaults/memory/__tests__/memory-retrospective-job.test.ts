@@ -1003,6 +1003,100 @@ describe("memoryRetrospectiveJob", () => {
     expect(lastRunAtBumps).toHaveLength(1);
   });
 
+  test("explicit no-findings reply advances the cursor without fabricating a memory write", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Nothing new to save." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // A reviewed-and-no-findings pass is a legitimate success: the mandated
+    // exact reply is the positive persisted artifact, the cursor advances,
+    // and the remembered log gains nothing.
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(stateUpserts[0]!.rememberedLog).toEqual([]);
+  });
+
+  test("analysis prose that merely mentions the no-findings phrase does not advance", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "text",
+            text: "I reviewed the window. Nothing new to save. Here is my reasoning about why each item was already covered by prior passes.",
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
+  test("no-findings reply cannot advance a run that attempted a save and failed", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-mixed-1",
+            name: "remember",
+            input: { content: "fact that failed to land" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-mixed-1",
+            content: "write failed",
+            is_error: true,
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
+        metadata: null,
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Nothing new to save." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:02Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // The run demonstrably had findings (it attempted a save); the failed
+    // write must stay retryable rather than being papered over by a
+    // no-findings claim.
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
   test("a remember tool_use with NO persisted tool_result is not durable evidence", async () => {
     mockWakeResult = { invoked: true };
     messagesByConversationId["fork-conv-1"] = [

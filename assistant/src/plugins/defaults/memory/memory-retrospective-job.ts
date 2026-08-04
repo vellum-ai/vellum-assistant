@@ -88,6 +88,7 @@ import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+  MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT,
   MEMORY_RETROSPECTIVE_ORIGIN,
   MEMORY_RETROSPECTIVE_SOURCE,
   SKILL_MANAGEMENT_SKILL_ID,
@@ -572,25 +573,36 @@ export async function runForkBasedRetrospective(
     // provider rejections into a normal no-output return, an exhausted output
     // budget can stop a run before any visible text or tool call, and a
     // model may reply with analysis (or nothing) without saving. Advancement
-    // past the window therefore requires POSITIVE durable evidence from THIS
-    // run: at least one memory-writing tool call persisted on the fork's
-    // post-boundary tail. The evidence read is run-specific by construction
+    // past the window therefore requires POSITIVE evidence from THIS run,
+    // one of:
+    //   - a memory-writing tool call on the fork's post-boundary tail whose
+    //     execution verifiably succeeded (matching non-error tool_result), or
+    //   - the explicit no-findings reply the instruction mandates (an
+    //     assistant text block that is exactly the sentinel phrase), with no
+    //     memory-writing tool attempts at all; a run that attempted a save
+    //     and failed cannot advance by also claiming no findings.
+    // The evidence read is run-specific by construction
     // (`loadRetrospectiveRunMessages` scopes to rows after the fork
     // boundary), so a prior run's persisted saves can never satisfy it, and
     // it reads the DB rather than the returned history, so a checkpoint that
     // went live and persisted saves counts even when a later in-loop repair
-    // rebased the returned tail. A run with no durable evidence follows the
-    // wake-failure path: cursor, remembered log, and the prior retrospective
-    // (the dedup baseline) stay untouched and the window remains retryable.
+    // rebased the returned tail. A run with neither evidence kind follows
+    // the wake-failure path: cursor, remembered log, and the prior
+    // retrospective (the dedup baseline) stay untouched and the window
+    // remains retryable.
     const runEvidence = await collectRetrospectiveRunEvidence(forkId);
-    if (runEvidence.durableToolCallCount === 0) {
+    const reviewedNoFindings =
+      runEvidence.explicitNoFindings &&
+      runEvidence.durableToolAttemptCount === 0;
+    if (runEvidence.durableToolCallCount === 0 && !reviewedNoFindings) {
       log.warn(
         {
           sourceConversationId,
           forkId,
           newMessageCount: newMessages.length,
+          durableToolAttempts: runEvidence.durableToolAttemptCount,
         },
-        "memory-retrospective (fork): run produced no durable memory writes; leaving window retryable",
+        "memory-retrospective (fork): run produced neither a verified durable write nor an explicit no-findings reply; leaving window retryable",
       );
     } else {
       return await finalizeSuccessfulRetrospective({
@@ -606,6 +618,7 @@ export async function runForkBasedRetrospective(
           kind: "fork",
           windowStartTimestamp,
           durationMs: Date.now() - startedAtMs,
+          noFindings: reviewedNoFindings,
         },
       });
     }
@@ -1095,20 +1108,80 @@ const DURABLE_RETROSPECTIVE_TOOLS: ReadonlySet<string> = new Set([
  */
 async function collectRetrospectiveRunEvidence(
   conversationId: string,
-): Promise<{ remembers: string[]; durableToolCallCount: number }> {
+): Promise<{
+  remembers: string[];
+  /** Memory-writing tool calls whose execution verifiably succeeded. */
+  durableToolCallCount: number;
+  /** Memory-writing tool calls the run attempted, regardless of outcome. */
+  durableToolAttemptCount: number;
+  /**
+   * The run replied with exactly the mandated no-findings sentinel text
+   * ({@link MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}) in a persisted assistant
+   * text block. Strict whole-block equality: prose that merely mentions the
+   * phrase does not qualify, so an analysis-only reply stays unusable.
+   */
+  explicitNoFindings: boolean;
+}> {
   const conv = await getConversation(conversationId);
   const runMessages = await loadRetrospectiveRunMessages(
     conversationId,
     conv?.source ?? null,
   );
   if (runMessages == null) {
-    return { remembers: [], durableToolCallCount: 0 };
+    return {
+      remembers: [],
+      durableToolCallCount: 0,
+      durableToolAttemptCount: 0,
+      explicitNoFindings: false,
+    };
   }
   const succeededIds = collectSuccessfulToolResultIds(runMessages);
   return {
     remembers: extractRememberContents(runMessages, succeededIds),
     durableToolCallCount: countDurableToolUses(runMessages, succeededIds),
+    durableToolAttemptCount: countDurableToolUses(runMessages, null),
+    explicitNoFindings: hasExplicitNoFindingsReply(runMessages),
   };
+}
+
+/**
+ * Whether any persisted assistant row on the run's tail carries a text block
+ * that is exactly the no-findings sentinel (after trimming). The instruction
+ * template mandates this exact reply for a reviewed-and-nothing-to-save
+ * pass, making it the positive persisted artifact that distinguishes a
+ * legitimate no-findings review from an empty or unusable response.
+ */
+function hasExplicitNoFindingsReply(messages: MessageLike[]): boolean {
+  for (const msg of messages) {
+    if (msg.role !== "assistant") {
+      continue;
+    }
+    let blocks: unknown = msg.content;
+    if (typeof blocks === "string") {
+      try {
+        blocks = JSON.parse(blocks);
+      } catch {
+        continue;
+      }
+    }
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const b = block as Record<string, unknown>;
+      if (
+        b.type === "text" &&
+        typeof b.text === "string" &&
+        b.text.trim() === MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -1152,12 +1225,14 @@ function collectSuccessfulToolResultIds(messages: MessageLike[]): Set<string> {
 
 /**
  * Count persisted `tool_use` blocks whose `name` is in
- * {@link DURABLE_RETROSPECTIVE_TOOLS} across the run's assistant rows and
- * whose id has a matching successful `tool_result` in `succeededIds`.
+ * {@link DURABLE_RETROSPECTIVE_TOOLS} across the run's assistant rows.
+ * With a `succeededIds` set, only calls whose id has a matching successful
+ * `tool_result` count (verified executions); with `null`, every attempt
+ * counts regardless of outcome.
  */
 function countDurableToolUses(
   messages: MessageLike[],
-  succeededIds: ReadonlySet<string>,
+  succeededIds: ReadonlySet<string> | null,
 ): number {
   let count = 0;
   for (const msg of messages) {
@@ -1183,8 +1258,8 @@ function countDurableToolUses(
       if (
         b.type === "tool_use" &&
         DURABLE_RETROSPECTIVE_TOOLS.has(String(b.name)) &&
-        typeof b.id === "string" &&
-        succeededIds.has(b.id)
+        (succeededIds === null ||
+          (typeof b.id === "string" && succeededIds.has(b.id)))
       ) {
         count += 1;
       }
