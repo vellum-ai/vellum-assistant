@@ -19,7 +19,7 @@ export type SwitchOutcome = { ok: true } | { ok: false; error: string };
 
 /**
  * Switch to an assistant by id. A paired entry needs the paired connect flow
- * (guardian-token lease + gateway session seed) — the bare selection write
+ * (guardian-token lease + gateway session seed); the bare selection write
  * would record it active without credentials. Everything else goes through
  * the platform selection path; local assistants never reach this handler
  * (the tray and palette exclude them).
@@ -57,7 +57,13 @@ export async function removePairedAssistant(
   assistantId: string,
 ): Promise<RemovePairedOutcome> {
   const wasSelected = getSelectedAssistant()?.assistantId === assistantId;
-  const result = await removePairedAssistantFromLockfile(assistantId);
+  let result: Awaited<ReturnType<typeof removePairedAssistantFromLockfile>>;
+  try {
+    result = await removePairedAssistantFromLockfile(assistantId);
+  } catch (err) {
+    console.error("removePairedAssistant.removeFromLockfile failed", err);
+    return { ok: false, error: "Failed to remove assistant." };
+  }
   if (!result.ok) {
     return { ok: false, error: result.error ?? "Failed to remove assistant." };
   }

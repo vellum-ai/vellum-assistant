@@ -169,4 +169,20 @@ describe("removePairedAssistant", () => {
     }
     expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
   });
+
+  test("a rejected host removal resolves to an error outcome instead of throwing", async () => {
+    selectedAssistant = { assistantId: "pr1" };
+    activeAssistantId = "pr1";
+    removePairedFromLockfileMock.mockImplementationOnce(async () => {
+      throw new Error("ipc channel gone");
+    });
+
+    const outcome = await removePairedAssistant("pr1");
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toBe("Failed to remove assistant.");
+    }
+    expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
+  });
 });
