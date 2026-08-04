@@ -163,6 +163,27 @@ export const ROUTES: RouteDefinition[] = [
         );
       }
       const { state } = parseBody(PresenceBodySchema, body);
+
+      // Only the actor that opened the target client's SSE stream may report
+      // its presence, so a caller who learns another user's clientId cannot
+      // spoof that desktop. Clients with no stored `actorPrincipalId` (legacy
+      // SSE subscribers, service-gateway tokens) never match: fail-closed, the
+      // same posture as the listing filter above. Dev-bypass mode
+      // (DISABLE_HTTP_AUTH=true) skips the check for platform-managed
+      // deployments where the platform handles auth.
+      if (!isHttpAuthDisabled()) {
+        const callerPrincipalId = headers?.["x-vellum-actor-principal-id"];
+        const ownerPrincipalId =
+          assistantEventHub.getActorPrincipalIdForClient(clientId);
+        if (
+          ownerPrincipalId === undefined ||
+          ownerPrincipalId !== callerPrincipalId
+        ) {
+          // Answering like "no match" keeps the reply from probing client ids.
+          return { recorded: false };
+        }
+      }
+
       // A report racing an SSE reconnect matches nothing; normal, so not a 404.
       return { recorded: assistantEventHub.setClientPresence(clientId, state) };
     },
