@@ -202,12 +202,12 @@ export function stopDiskPressureGuard(): void {
   state.timer = null;
 }
 
-export async function evaluateDiskPressureNow(): Promise<DiskPressureStatus> {
+export function evaluateDiskPressureNow(): DiskPressureStatus {
   ensureEnabledStatus();
 
-  let usageInfo: Awaited<ReturnType<typeof getDiskUsageInfo>>;
+  let usageInfo: ReturnType<typeof getDiskUsageInfo>;
   try {
-    usageInfo = await getDiskUsageInfo();
+    usageInfo = getDiskUsageInfo();
   } catch (error) {
     return replaceStatus(sampleFailureStatus(error));
   }

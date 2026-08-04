@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -413,19 +413,18 @@ export class WorkspaceGitService {
    * open, we leave it alone. If no process holds it, it's stale (crashed
    * process) and safe to remove.
    */
-  private async cleanStaleLockFile(): Promise<void> {
+  private cleanStaleLockFile(): void {
     const lockPath = join(this.workspaceDir, ".git", "index.lock");
     if (!existsSync(lockPath)) {
       return;
     }
 
     try {
-      // lsof exits non-zero when no process holds the file, which rejects the
-      // promise and falls through to removal below.
-      const { stdout } = await execFileAsync("lsof", ["-t", lockPath], {
+      const result = spawnSync("lsof", ["-t", lockPath], {
         timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
       });
-      if (stdout.length > 0) {
+      if (result.status === 0 && result.stdout?.length > 0) {
         log.debug("index.lock held by an active process, skipping removal");
         return;
       }
@@ -491,7 +490,7 @@ export class WorkspaceGitService {
 
           // Clean up stale lock files before any git operations.
           if (existsSync(gitDir)) {
-            await this.cleanStaleLockFile();
+            this.cleanStaleLockFile();
           }
 
           if (existsSync(gitDir)) {
@@ -658,7 +657,7 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
 
     await this.mutex.withLock(async () => {
-      await this.cleanStaleLockFile();
+      this.cleanStaleLockFile();
 
       // Stage all changes (minus oversized files)
       await this.stageAllLocked();
@@ -735,7 +734,7 @@ export class WorkspaceGitService {
 
     try {
       const result = await this.mutex.withLock(async () => {
-        await this.cleanStaleLockFile();
+        this.cleanStaleLockFile();
 
         // Re-check breaker under lock: a queued call that started before the
         // breaker opened should not proceed with expensive git work now that
@@ -2004,7 +2003,7 @@ export class WorkspaceGitService {
   ): Promise<void> {
     await this.ensureInitialized();
     await this.mutex.withLock(async () => {
-      await this.cleanStaleLockFile();
+      this.cleanStaleLockFile();
       await fn((args) => {
         // Intercept commit commands to enforce hook hardening.
         if (args[0] === "commit") {

@@ -233,7 +233,7 @@ describe("reinjectAttachmentPathAnnotations", () => {
     );
   });
 
-  test("rebuilds the exact annotation block enrichMessageWithSourcePaths appends", async () => {
+  test("rebuilds the exact annotation block enrichMessageWithSourcePaths appends", () => {
     // Prefix-cache parity tripwire: the block appended at persist time (from
     // live attachment inputs) and the block rebuilt on history reload (from
     // persisted metadata) must be byte-identical.
@@ -253,7 +253,7 @@ describe("reinjectAttachmentPathAnnotations", () => {
       },
     ];
     const enriched = enrichMessageWithSourcePaths(
-      await createUserMessage("compare", attachments),
+      createUserMessage("compare", attachments),
       attachments,
     );
     const liveBlock = enriched.content.at(-1) as {

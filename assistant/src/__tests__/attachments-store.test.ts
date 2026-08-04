@@ -65,8 +65,8 @@ function getLegacyConversationDirPath(
 describe("uploadAttachment", () => {
   beforeEach(resetTables);
 
-  test("stores attachment and returns metadata", async () => {
-    const stored = await uploadAttachment("chart.png", "image/png", "iVBORw0K");
+  test("stores attachment and returns metadata", () => {
+    const stored = uploadAttachment("chart.png", "image/png", "iVBORw0K");
 
     expect(stored.id).toBeDefined();
     expect(stored.originalFilename).toBe("chart.png");
@@ -76,20 +76,16 @@ describe("uploadAttachment", () => {
     expect(stored.createdAt).toBeGreaterThan(0);
   });
 
-  test("keeps uploads staged until linked", async () => {
-    const stored = await uploadAttachment(
-      "small.txt",
-      "text/plain",
-      "aGVsbG8=",
-    );
+  test("keeps uploads staged until linked", () => {
+    const stored = uploadAttachment("small.txt", "text/plain", "aGVsbG8=");
     const filePath = getFilePathForAttachment(stored.id);
 
     expect(filePath).toBeNull();
     expect(getAttachmentContent(stored.id)?.toString()).toBe("hello");
   });
 
-  test("stores base64 in the DB row until linked", async () => {
-    const stored = await uploadAttachment("test.txt", "text/plain", "dGVzdA==");
+  test("stores base64 in the DB row until linked", () => {
+    const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
 
     // Staged uploads keep the payload inline until they are attached to a message.
     const rawRow = rawGet<{ data_base64: string }>(
@@ -104,43 +100,35 @@ describe("uploadAttachment", () => {
     expect(row!.dataBase64).toBe("dGVzdA==");
   });
 
-  test("classifies image MIME as image kind", async () => {
-    const stored = await uploadAttachment("pic.jpg", "image/jpeg", "AAAA");
+  test("classifies image MIME as image kind", () => {
+    const stored = uploadAttachment("pic.jpg", "image/jpeg", "AAAA");
     expect(stored.kind).toBe("image");
   });
 
-  test("classifies non-image MIME as document kind", async () => {
-    const stored = await uploadAttachment(
-      "doc.pdf",
-      "application/pdf",
-      "JVBER",
-    );
+  test("classifies non-image MIME as document kind", () => {
+    const stored = uploadAttachment("doc.pdf", "application/pdf", "JVBER");
     expect(stored.kind).toBe("document");
   });
 
-  test("generates unique IDs for each upload", async () => {
-    const a = await uploadAttachment("a.txt", "text/plain", "AA==");
-    const b = await uploadAttachment("b.txt", "text/plain", "QQ==");
+  test("generates unique IDs for each upload", () => {
+    const a = uploadAttachment("a.txt", "text/plain", "AA==");
+    const b = uploadAttachment("b.txt", "text/plain", "QQ==");
     expect(a.id).not.toBe(b.id);
   });
 
-  test("computes sizeBytes from base64 correctly", async () => {
+  test("computes sizeBytes from base64 correctly", () => {
     // "hello" = "aGVsbG8=" (8 chars, 1 pad -> 5 bytes)
-    const stored = await uploadAttachment(
-      "hello.txt",
-      "text/plain",
-      "aGVsbG8=",
-    );
+    const stored = uploadAttachment("hello.txt", "text/plain", "aGVsbG8=");
     expect(stored.sizeBytes).toBe(5);
   });
 
-  test("does not deduplicate identical uploads before linking", async () => {
-    const first = await uploadAttachment(
+  test("does not deduplicate identical uploads before linking", () => {
+    const first = uploadAttachment(
       "photo.png",
       "image/png",
       "iVBORw0KGgoAAAANSUh",
     );
-    const second = await uploadAttachment(
+    const second = uploadAttachment(
       "photo.png",
       "image/png",
       "iVBORw0KGgoAAAANSUh",
@@ -148,13 +136,13 @@ describe("uploadAttachment", () => {
     expect(second.id).not.toBe(first.id);
   });
 
-  test("does not deduplicate identical content when filenames differ", async () => {
-    const first = await uploadAttachment(
+  test("does not deduplicate identical content when filenames differ", () => {
+    const first = uploadAttachment(
       "original.png",
       "image/png",
       "DUPECONTENT123",
     );
-    const second = await uploadAttachment(
+    const second = uploadAttachment(
       "renamed.png",
       "image/png",
       "DUPECONTENT123",
@@ -162,9 +150,9 @@ describe("uploadAttachment", () => {
     expect(second.id).not.toBe(first.id);
   });
 
-  test("does not deduplicate different content", async () => {
-    const first = await uploadAttachment("a.txt", "text/plain", "CONTENTA");
-    const second = await uploadAttachment("b.txt", "text/plain", "CONTENTB");
+  test("does not deduplicate different content", () => {
+    const first = uploadAttachment("a.txt", "text/plain", "CONTENTA");
+    const second = uploadAttachment("b.txt", "text/plain", "CONTENTB");
     expect(second.id).not.toBe(first.id);
   });
 
@@ -211,12 +199,8 @@ describe("uploadAttachment", () => {
 describe("getAttachmentContent", () => {
   beforeEach(resetTables);
 
-  test("returns staged content before the attachment is linked", async () => {
-    const stored = await uploadAttachment(
-      "hello.txt",
-      "text/plain",
-      "aGVsbG8=",
-    );
+  test("returns staged content before the attachment is linked", () => {
+    const stored = uploadAttachment("hello.txt", "text/plain", "aGVsbG8=");
     const content = getAttachmentContent(stored.id);
 
     expect(content).not.toBeNull();
@@ -231,7 +215,7 @@ describe("getAttachmentContent", () => {
   test("returns null when a materialized on-disk file is missing (ENOENT)", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "File");
-    const stored = await uploadAttachment("test.txt", "text/plain", "dGVzdA==");
+    const stored = uploadAttachment("test.txt", "text/plain", "dGVzdA==");
     linkAttachmentToMessage(msg.id, stored.id, 0);
     const filePath = getFilePathForAttachment(stored.id);
 
@@ -275,8 +259,8 @@ describe("isValidBase64", () => {
 describe("deleteAttachment", () => {
   beforeEach(resetTables);
 
-  test("deletes existing attachment and returns deleted", async () => {
-    const stored = await uploadAttachment("file.txt", "text/plain", "dGVzdA==");
+  test("deletes existing attachment and returns deleted", () => {
+    const stored = uploadAttachment("file.txt", "text/plain", "dGVzdA==");
     const result = deleteAttachment(stored.id);
     expect(result).toBe("deleted");
 
@@ -287,11 +271,7 @@ describe("deleteAttachment", () => {
   test("cleans up on-disk file when deleting", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "cleanup");
-    const stored = await uploadAttachment(
-      "cleanup.txt",
-      "text/plain",
-      "dGVzdA==",
-    );
+    const stored = uploadAttachment("cleanup.txt", "text/plain", "dGVzdA==");
     linkAttachmentToMessage(msg.id, stored.id, 0);
     const filePath = getFilePathForAttachment(stored.id);
     expect(existsSync(filePath!)).toBe(true);
@@ -316,11 +296,7 @@ describe("deleteAttachment", () => {
     const msg1 = await addMessage(conv.id, "user", "First upload");
     const msg2 = await addMessage(conv.id, "user", "Duplicate upload");
 
-    const first = await uploadAttachment(
-      "photo.png",
-      "image/png",
-      "SHAREDCONTENT1",
-    );
+    const first = uploadAttachment("photo.png", "image/png", "SHAREDCONTENT1");
     linkAttachmentToMessage(msg1.id, first.id, 0);
     linkAttachmentToMessage(msg2.id, first.id, 0);
 
@@ -339,12 +315,8 @@ describe("deleteAttachment", () => {
     expect(linked2).toHaveLength(1);
   });
 
-  test("deletes attachment when no messages reference it", async () => {
-    const stored = await uploadAttachment(
-      "lonely.txt",
-      "text/plain",
-      "UNREFERENCED",
-    );
+  test("deletes attachment when no messages reference it", () => {
+    const stored = uploadAttachment("lonely.txt", "text/plain", "UNREFERENCED");
     // No linkAttachmentToMessage call -- zero references
     const result = deleteAttachment(stored.id);
     expect(result).toBe("deleted");
@@ -361,9 +333,9 @@ describe("deleteAttachment", () => {
 describe("getAttachmentsByIds", () => {
   beforeEach(resetTables);
 
-  test("returns matching attachments with hydrated dataBase64", async () => {
-    const a = await uploadAttachment("a.txt", "text/plain", "AAAA");
-    const b = await uploadAttachment("b.txt", "text/plain", "BBBB");
+  test("returns matching attachments with hydrated dataBase64", () => {
+    const a = uploadAttachment("a.txt", "text/plain", "AAAA");
+    const b = uploadAttachment("b.txt", "text/plain", "BBBB");
 
     const results = getAttachmentsByIds([a.id, b.id], {
       hydrateFileData: true,
@@ -378,8 +350,8 @@ describe("getAttachmentsByIds", () => {
     expect(results).toHaveLength(0);
   });
 
-  test("skips IDs that do not exist", async () => {
-    const a = await uploadAttachment("a.txt", "text/plain", "AAAA");
+  test("skips IDs that do not exist", () => {
+    const a = uploadAttachment("a.txt", "text/plain", "AAAA");
     const results = getAttachmentsByIds([a.id, "nonexistent"]);
     expect(results).toHaveLength(1);
   });
@@ -392,12 +364,8 @@ describe("getAttachmentsByIds", () => {
 describe("getAttachmentById", () => {
   beforeEach(resetTables);
 
-  test("returns attachment with hydrated dataBase64 when found", async () => {
-    const stored = await uploadAttachment(
-      "report.pdf",
-      "application/pdf",
-      "JVBER",
-    );
+  test("returns attachment with hydrated dataBase64 when found", () => {
+    const stored = uploadAttachment("report.pdf", "application/pdf", "JVBER");
     const result = getAttachmentById(stored.id, { hydrateFileData: true });
 
     expect(result).not.toBeNull();
@@ -424,7 +392,7 @@ describe("createInlineAttachment (workspace_ref persistence)", () => {
     const msg = await addMessage(conv.id, "user", "hi");
 
     // "aGVsbG8=" = "hello"
-    const stored = await createInlineAttachment(
+    const stored = createInlineAttachment(
       conv.id,
       conv.createdAt,
       "note.txt",
@@ -463,14 +431,14 @@ describe("attachInlineAttachmentToMessage filename collisions", () => {
     const msg2 = await addMessage(conv.id, "user", "re-upload after editing");
 
     // "aGVsbG8=" = "hello", "d29ybGQ=" = "world"
-    const first = await attachInlineAttachmentToMessage(
+    const first = attachInlineAttachmentToMessage(
       msg1.id,
       0,
       "report.csv",
       "text/csv",
       "aGVsbG8=",
     );
-    const second = await attachInlineAttachmentToMessage(
+    const second = attachInlineAttachmentToMessage(
       msg2.id,
       0,
       "report.csv",
@@ -495,7 +463,7 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
   test("links attachment and retrieves it by message", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "Here is a chart");
-    const stored = await uploadAttachment("chart.png", "image/png", "iVBORw0K");
+    const stored = uploadAttachment("chart.png", "image/png", "iVBORw0K");
 
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
@@ -514,11 +482,7 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     const legacyDir = getLegacyConversationDirPath(conv.id, conv.createdAt);
     rmSync(legacyDir, { recursive: true, force: true });
 
-    const stored = await uploadAttachment(
-      "repaired.png",
-      "image/png",
-      "iVBORw0K",
-    );
+    const stored = uploadAttachment("repaired.png", "image/png", "iVBORw0K");
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
     const filePath = getFilePathForAttachment(stored.id);
@@ -537,11 +501,7 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     rmSync(canonicalDir, { recursive: true, force: true });
     mkdirSync(legacyDir, { recursive: true });
 
-    const stored = await uploadAttachment(
-      "legacy.png",
-      "image/png",
-      "iVBORw0K",
-    );
+    const stored = uploadAttachment("legacy.png", "image/png", "iVBORw0K");
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
     const filePath = getFilePathForAttachment(stored.id);
@@ -554,8 +514,8 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
   test("returns attachments in position order", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "Multiple files");
-    const a = await uploadAttachment("first.txt", "text/plain", "AAAA");
-    const b = await uploadAttachment("second.txt", "text/plain", "BBBB");
+    const a = uploadAttachment("first.txt", "text/plain", "AAAA");
+    const b = uploadAttachment("second.txt", "text/plain", "BBBB");
 
     // Link in reverse order
     linkAttachmentToMessage(msg.id, b.id, 1);
@@ -583,12 +543,8 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
 describe("deleteOrphanAttachments", () => {
   beforeEach(resetTables);
 
-  test("removes candidate attachments with no message links", async () => {
-    const stored = await uploadAttachment(
-      "orphan.txt",
-      "text/plain",
-      "ZGF0YQ==",
-    );
+  test("removes candidate attachments with no message links", () => {
+    const stored = uploadAttachment("orphan.txt", "text/plain", "ZGF0YQ==");
 
     const removed = deleteOrphanAttachments([stored.id]);
     expect(removed).toBe(1);
@@ -597,11 +553,7 @@ describe("deleteOrphanAttachments", () => {
   test("cleans up on-disk files when removing orphaned materialized attachments", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "Orphan me");
-    const stored = await uploadAttachment(
-      "orphan.txt",
-      "text/plain",
-      "ZGF0YQ==",
-    );
+    const stored = uploadAttachment("orphan.txt", "text/plain", "ZGF0YQ==");
     linkAttachmentToMessage(msg.id, stored.id, 0);
     const filePath = getFilePathForAttachment(stored.id);
     expect(existsSync(filePath!)).toBe(true);
@@ -619,11 +571,7 @@ describe("deleteOrphanAttachments", () => {
   test("preserves attachments that are still linked", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "With attachment");
-    const stored = await uploadAttachment(
-      "linked.txt",
-      "text/plain",
-      "ZGF0YQ==",
-    );
+    const stored = uploadAttachment("linked.txt", "text/plain", "ZGF0YQ==");
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
     const removed = deleteOrphanAttachments([stored.id]);
@@ -636,8 +584,8 @@ describe("deleteOrphanAttachments", () => {
   test("removes only orphans when mixed candidates provided", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "Mixed");
-    const linked = await uploadAttachment("linked.txt", "text/plain", "AAAA");
-    const orphan = await uploadAttachment("orphan.txt", "text/plain", "BBBB");
+    const linked = uploadAttachment("linked.txt", "text/plain", "AAAA");
+    const orphan = uploadAttachment("orphan.txt", "text/plain", "BBBB");
     linkAttachmentToMessage(msg.id, linked.id, 0);
 
     const removed = deleteOrphanAttachments([linked.id, orphan.id]);
@@ -652,17 +600,9 @@ describe("deleteOrphanAttachments", () => {
     expect(removed).toBe(0);
   });
 
-  test("does not delete attachments outside the candidate set", async () => {
-    const unrelated = await uploadAttachment(
-      "unrelated.txt",
-      "text/plain",
-      "AAAA",
-    );
-    const candidate = await uploadAttachment(
-      "candidate.txt",
-      "text/plain",
-      "BBBB",
-    );
+  test("does not delete attachments outside the candidate set", () => {
+    const unrelated = uploadAttachment("unrelated.txt", "text/plain", "AAAA");
+    const candidate = uploadAttachment("candidate.txt", "text/plain", "BBBB");
 
     const removed = deleteOrphanAttachments([candidate.id]);
     expect(removed).toBe(1);

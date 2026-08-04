@@ -83,10 +83,10 @@ export function computeSampleDeltas(
  * Take a single point-in-time sample of memory + disk. When `prev` is given,
  * the sample carries counter deltas relative to it.
  */
-export async function takeSample(
+export function takeSample(
   now: number,
   prev: ResourceSample | null = null,
-): Promise<ResourceSample> {
+): ResourceSample {
   const currentBytes = getContainerMemoryUsageBytes();
   const limitBytes = getContainerMemoryLimitBytes();
   const memory: ResourceSampleMemory | null =
@@ -99,7 +99,7 @@ export async function takeSample(
         }
       : null;
 
-  const disk = await getDiskUsageInfo();
+  const disk = getDiskUsageInfo();
 
   // One read feeds both parsers so the breakdown and counters are coherent.
   const statRaw = readMemoryStatRaw();
@@ -236,11 +236,11 @@ export function startResourceSampler(
   // thread's kernel state mid-stall when the heartbeat goes stale.
   const stallCapture = createStallCaptureMonitor(dataDir);
 
-  const tick = async () => {
+  const tick = () => {
     const now = clock();
     let sample: ResourceSample;
     try {
-      sample = await takeSample(now, prevSample);
+      sample = takeSample(now, prevSample);
       prevSample = sample;
       buffer.append(sample);
     } catch (err) {

@@ -127,9 +127,7 @@ function handleGetRun({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-async function handleExportRun({
-  pathParams = {},
-}: RouteHandlerArgs): Promise<Uint8Array> {
+function handleExportRun({ pathParams = {} }: RouteHandlerArgs): Uint8Array {
   const runId = validateRunId(pathParams.runId);
 
   const runDir = getProfilerRunDir(runId);
@@ -142,7 +140,7 @@ async function handleExportRun({
   try {
     copyDirContents(runDir, staging);
 
-    const archiveBuf = await createTarGz(staging);
+    const archiveBuf = createTarGz(staging);
     if (!archiveBuf) {
       log.error(
         { runId },

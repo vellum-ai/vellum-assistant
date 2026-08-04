@@ -382,7 +382,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const coercedObjectKeys = new Map<string, string[]>();
 
     try {
-      const openaiMessages = await this.toOpenAIMessages(
+      const openaiMessages = this.toOpenAIMessages(
         messages,
         systemPrompt,
         modelSupportsAudioInput(modelOverride ?? this.model),
@@ -939,14 +939,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
   }
 
   /** Convert neutral messages + system prompt to OpenAI message format. */
-  private async toOpenAIMessages(
+  private toOpenAIMessages(
     messages: Message[],
     systemPrompt?: string,
     audioInputEnabled = false,
-  ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
+  ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
-    messages = await resolveMediaReferences(messages);
+    messages = resolveMediaReferences(messages);
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     if (systemPrompt) {

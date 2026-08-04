@@ -13,6 +13,7 @@
  * conversions of the same image (or daemon restarts) skip the sips call.
  */
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -100,10 +101,10 @@ export interface ConvertToJpegOptions {
   quality?: number;
 }
 
-async function runSips(
+function runSips(
   inputBytes: Uint8Array,
   options: ConvertToJpegOptions,
-): Promise<Buffer | null> {
+): Buffer | null {
   const stamp = `${Date.now()}-${uuid().slice(0, 8)}`;
   const srcPath = join(tmpdir(), `vellum-img-opt-${stamp}-src`);
   const outPath = join(tmpdir(), `vellum-img-opt-${stamp}-out.jpg`);
@@ -132,15 +133,7 @@ async function runSips(
       "--out",
       outPath,
     );
-    const proc = Bun.spawn(["sips", ...args], {
-      stdout: "ignore",
-      stderr: "ignore",
-      timeout: 15_000,
-    });
-    await proc.exited;
-    if (proc.exitCode !== 0) {
-      return null;
-    }
+    execFileSync("sips", args, { stdio: "pipe", timeout: 15_000 });
     return readFileSync(outPath) as Buffer;
   } catch {
     return null;
@@ -162,10 +155,10 @@ async function runSips(
  * Convert an image to JPEG, optionally downscaling. Returns null when
  * conversion is unavailable (non-macOS) or fails; callers keep the original.
  */
-export async function convertImageToJpeg(
+export function convertImageToJpeg(
   bytes: Uint8Array,
   options: ConvertToJpegOptions = {},
-): Promise<Buffer | null> {
+): Buffer | null {
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   // Options qualify the key so full-resolution storage conversions and
   // resized transport conversions of the same source never collide.
@@ -180,7 +173,7 @@ export async function convertImageToJpeg(
     return cached;
   }
 
-  const converted = await runSips(bytes, options);
+  const converted = runSips(bytes, options);
   if (!converted) {
     return null;
   }
@@ -353,12 +346,12 @@ export interface NormalizedImageBytes {
  * {@link jpegFilenameFor} when `converted` is true — a MIME-only correction
  * sets `converted: false` and keeps the filename.
  */
-export async function normalizeImageBytes(
+export function normalizeImageBytes(
   mimeType: string,
   bytes: Uint8Array,
-): Promise<NormalizedImageBytes> {
+): NormalizedImageBytes {
   if (isHeifImage(bytes)) {
-    const converted = await convertImageToJpeg(bytes, {
+    const converted = convertImageToJpeg(bytes, {
       quality: STORAGE_JPEG_QUALITY,
     });
     if (!converted) {
@@ -383,14 +376,14 @@ export interface NormalizedImageBase64 {
  * Base64 variant of {@link normalizeImageBytes}. Sniffs the decoded head
  * first so non-HEIF payloads skip the full decode.
  */
-export async function normalizeImageBase64(
+export function normalizeImageBase64(
   mimeType: string,
   dataBase64: string,
-): Promise<NormalizedImageBase64> {
+): NormalizedImageBase64 {
   // 16 base64 chars decode to the 12 bytes the ftyp/signature sniffs need.
   const head = Buffer.from(dataBase64.slice(0, 16), "base64");
   if (isHeifImage(head)) {
-    const normalized = await normalizeImageBytes(
+    const normalized = normalizeImageBytes(
       mimeType,
       Buffer.from(dataBase64, "base64"),
     );

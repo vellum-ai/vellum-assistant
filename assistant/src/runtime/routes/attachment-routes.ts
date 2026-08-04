@@ -238,7 +238,7 @@ async function handleMultipartUpload(
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
-  const attachment = await uploadAttachmentFromBytes(filename, mimeType, bytes);
+  const attachment = uploadAttachmentFromBytes(filename, mimeType, bytes);
   return attachmentPayload(attachment);
 }
 
@@ -248,7 +248,7 @@ async function handleMultipartUpload(
  *
  * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-async function handleOctetStreamUpload(
+function handleOctetStreamUpload(
   rawBody: Uint8Array,
   headers: Record<string, string>,
   queryParams: Record<string, string>,
@@ -287,11 +287,7 @@ async function handleOctetStreamUpload(
     throw new UnsupportedMediaTypeError(validation.error);
   }
 
-  const attachment = await uploadAttachmentFromBytes(
-    filename,
-    mimeType,
-    rawBody,
-  );
+  const attachment = uploadAttachmentFromBytes(filename, mimeType, rawBody);
   return attachmentPayload(attachment);
 }
 
@@ -300,7 +296,7 @@ async function handleOctetStreamUpload(
  *
  * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-async function handleJsonUpload(
+function handleJsonUpload(
   body: Record<string, unknown>,
   rawBody: Uint8Array | undefined,
   gatewayTrustedSource: boolean,
@@ -373,10 +369,7 @@ async function handleJsonUpload(
       // non-HEIF files (e.g. large videos) from being read into memory.
       try {
         if (isHeifImage(readFileHead(destPath, 12))) {
-          const norm = await normalizeImageBytes(
-            mimeType,
-            readFileSync(destPath),
-          );
+          const norm = normalizeImageBytes(mimeType, readFileSync(destPath));
           if (
             norm.converted &&
             norm.bytes.length <= MAX_FILE_BACKED_UPLOAD_BYTES
@@ -414,7 +407,7 @@ async function handleJsonUpload(
     }
 
     try {
-      attachment = await uploadAttachment(
+      attachment = uploadAttachment(
         filename,
         mimeType,
         data,

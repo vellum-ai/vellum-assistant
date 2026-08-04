@@ -28,8 +28,8 @@ mock.module("../agent/image-optimize.js", () => ({
   // oversized (never undersized), so the min-dimension gate never matches
   // and the rejection-path upscale is never reached.
   isBelowMinDimension: () => false,
-  upscaleImageToMinimum: async () => null,
-  optimizeImageForTransport: async () => ({
+  upscaleImageToMinimum: () => null,
+  optimizeImageForTransport: () => ({
     data: SHRUNK_DATA,
     mediaType: "image/jpeg",
   }),
@@ -133,7 +133,7 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = await persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistUnsendableImageDowngrades(conv.id);
 
     // THEN the nested block stays an image, rewritten to the downscaled payload
     expect(rewritten).toBe(1);
@@ -159,10 +159,10 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
       JSON.stringify([toolResultWithImage(oversizedPngBase64())]),
       { skipIndexing: true },
     );
-    expect(await persistUnsendableImageDowngrades(conv.id)).toBe(1);
+    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
 
     // WHEN the downgrade runs again
-    const secondRun = await persistUnsendableImageDowngrades(conv.id);
+    const secondRun = persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);

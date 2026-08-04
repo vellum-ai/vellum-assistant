@@ -163,7 +163,7 @@ export async function resolveAssistantAttachments(
       const draft = assistantAttachments[i];
       let stored;
       try {
-        stored = await attachInlineAttachmentToMessage(
+        stored = attachInlineAttachmentToMessage(
           lastAssistantMessageId,
           i,
           draft.filename,

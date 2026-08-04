@@ -96,7 +96,7 @@ export function resolveMediaSourceData(
   return { data: bytes.toString("base64"), media_type: source.media_type };
 }
 
-async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
+function resolveImageBlock(block: ImageContent): ContentBlock {
   if (block.source.type === "base64") {
     return block;
   }
@@ -113,7 +113,7 @@ async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
   }
   // Apply the same transport optimization the inline-base64 path used, so a
   // reloaded (reference) turn sends the model the same bytes a live turn would.
-  const { data, mediaType } = await optimizeImageForTransport(
+  const { data, mediaType } = optimizeImageForTransport(
     bytes.toString("base64"),
     block.source.media_type,
   );
@@ -161,7 +161,7 @@ function resolveFileBlock(block: FileContent): ContentBlock {
   };
 }
 
-async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
+function resolveBlock(block: ContentBlock): ContentBlock {
   switch (block.type) {
     case "image":
       return resolveImageBlock(block);
@@ -172,10 +172,7 @@ async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
       if (!block.contentBlocks?.length) {
         return block;
       }
-      return {
-        ...block,
-        contentBlocks: await Promise.all(block.contentBlocks.map(resolveBlock)),
-      };
+      return { ...block, contentBlocks: block.contentBlocks.map(resolveBlock) };
     }
     default:
       return block;
@@ -200,18 +197,11 @@ function contentHasReference(content: ContentBlock[]): boolean {
  * (same object reference) so the common all-base64 live turn does no allocation
  * or disk I/O.
  */
-export function resolveMediaReferences(
-  messages: Message[],
-): Promise<Message[]> {
-  return Promise.all(
-    messages.map(async (message) => {
-      if (!contentHasReference(message.content)) {
-        return message;
-      }
-      return {
-        ...message,
-        content: await Promise.all(message.content.map(resolveBlock)),
-      };
-    }),
-  );
+export function resolveMediaReferences(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (!contentHasReference(message.content)) {
+      return message;
+    }
+    return { ...message, content: message.content.map(resolveBlock) };
+  });
 }

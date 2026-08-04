@@ -75,9 +75,9 @@ export const UNSENDABLE_IMAGE_NOTE =
  * in context, so without it the original rejected block rehydrates and
  * re-rejects on every later turn.
  */
-export async function unsendableImageReplacement(
+export function unsendableImageReplacement(
   block: Extract<ContentBlock, { type: "image" }>,
-): Promise<ContentBlock | null> {
+): ContentBlock | null {
   // Resolve reference sources to their bytes so a reloaded (referenced) image
   // is gated on the same payload/dimension caps as an inline one. When the
   // attachment can no longer be read, leave the block untouched.
@@ -118,8 +118,8 @@ export async function unsendableImageReplacement(
   // pre-send — the upscale runs only here, in response to an actual
   // provider rejection. Oversized images reuse the transport downscale.
   const optimized = belowMinDimension
-    ? await upscaleImageToMinimum(resolved.data, effectiveMediaType)
-    : await optimizeImageForTransport(resolved.data, effectiveMediaType);
+    ? upscaleImageToMinimum(resolved.data, effectiveMediaType)
+    : optimizeImageForTransport(resolved.data, effectiveMediaType);
   if (optimized && optimized.data !== resolved.data) {
     return {
       type: "image",
@@ -145,9 +145,9 @@ export async function unsendableImageReplacement(
  * image, so neither matches on a second run. Returns the number of rewritten
  * messages.
  */
-export async function persistUnsendableImageDowngrades(
+export function persistUnsendableImageDowngrades(
   conversationId: string,
-): Promise<number> {
+): number {
   let rewritten = 0;
   for (const row of getMessages(conversationId)) {
     const hasImageBlock = row.content.some(
@@ -163,47 +163,39 @@ export async function persistUnsendableImageDowngrades(
     const parsed = row.content;
 
     let changed = false;
-    const next: ContentBlock[] = [];
-    for (const block of parsed as ContentBlock[]) {
+    const next = (parsed as ContentBlock[]).map((block): ContentBlock => {
       if (block.type === "image") {
-        const replacement = await unsendableImageReplacement(block);
+        const replacement = unsendableImageReplacement(block);
         if (!replacement) {
-          next.push(block);
-          continue;
+          return block;
         }
         changed = true;
-        next.push(replacement);
-        continue;
+        return replacement;
       }
       // Images returned by a tool (e.g. browser_screenshot) live inside the
       // tool_result's contentBlocks, not as top-level blocks. Downgrade them
       // in place so the tool_use/tool_result pairing stays intact.
       if (block.type === "tool_result" && block.contentBlocks?.length) {
         let nestedChanged = false;
-        const contentBlocks: ContentBlock[] = [];
-        for (const cb of block.contentBlocks) {
+        const contentBlocks = block.contentBlocks.map((cb): ContentBlock => {
           if (cb.type !== "image") {
-            contentBlocks.push(cb);
-            continue;
+            return cb;
           }
-          const replacement = await unsendableImageReplacement(cb);
+          const replacement = unsendableImageReplacement(cb);
           if (!replacement) {
-            contentBlocks.push(cb);
-            continue;
+            return cb;
           }
           nestedChanged = true;
-          contentBlocks.push(replacement);
-        }
+          return replacement;
+        });
         if (!nestedChanged) {
-          next.push(block);
-          continue;
+          return block;
         }
         changed = true;
-        next.push({ ...block, contentBlocks });
-        continue;
+        return { ...block, contentBlocks };
       }
-      next.push(block);
-    }
+      return block;
+    });
     if (!changed) {
       continue;
     }
@@ -248,52 +240,50 @@ function messageHasImageBlock(content: ReadonlyArray<ContentBlock>): boolean {
  * caller must not retry an unchanged history: it would resend the identical
  * rejected image and falsely report a correction.
  */
-export async function recoverUnsendableImages(
-  messages: ReadonlyArray<Message>,
-): Promise<{
+export function recoverUnsendableImages(messages: ReadonlyArray<Message>): {
   messages: Message[];
   changed: boolean;
-}> {
+} {
   let changed = false;
-  const recovered: Message[] = [];
-  for (const msg of messages) {
-    if (!Array.isArray(msg.content) || !messageHasImageBlock(msg.content)) {
-      recovered.push(msg);
-      continue;
+  const recovered = messages.map((msg) => {
+    if (!Array.isArray(msg.content)) {
+      return msg;
     }
-    const content: ContentBlock[] = [];
-    for (const b of msg.content) {
-      if (b.type === "image") {
-        const replacement = await unsendableImageReplacement(b);
-        if (replacement) {
-          changed = true;
-          content.push(replacement);
-        } else {
-          content.push(b);
-        }
-        continue;
-      }
-      if (b.type === "tool_result" && b.contentBlocks?.length) {
-        const contentBlocks: ContentBlock[] = [];
-        for (const cb of b.contentBlocks) {
-          if (cb.type !== "image") {
-            contentBlocks.push(cb);
-            continue;
-          }
-          const replacement = await unsendableImageReplacement(cb);
+    if (!messageHasImageBlock(msg.content)) {
+      return msg;
+    }
+    return {
+      ...msg,
+      content: msg.content.flatMap((b): ContentBlock[] => {
+        if (b.type === "image") {
+          const replacement = unsendableImageReplacement(b);
           if (replacement) {
             changed = true;
-            contentBlocks.push(replacement);
-          } else {
-            contentBlocks.push(cb);
+            return [replacement];
           }
+          return [b];
         }
-        content.push({ ...b, contentBlocks });
-        continue;
-      }
-      content.push(b);
-    }
-    recovered.push({ ...msg, content });
-  }
+        if (b.type === "tool_result" && b.contentBlocks?.length) {
+          return [
+            {
+              ...b,
+              contentBlocks: b.contentBlocks.map((cb) => {
+                if (cb.type !== "image") {
+                  return cb;
+                }
+                const replacement = unsendableImageReplacement(cb);
+                if (replacement) {
+                  changed = true;
+                  return replacement;
+                }
+                return cb;
+              }),
+            },
+          ];
+        }
+        return [b];
+      }),
+    };
+  });
   return { messages: recovered, changed };
 }

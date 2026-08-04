@@ -1,4 +1,3 @@
-import { promisify } from "node:util";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const MIB = 1024 * 1024;
@@ -28,25 +27,11 @@ mock.module("node:fs", () => ({
   statfsSync: () => statfsResult,
 }));
 
-// The module under test calls `promisify(execFile)`, so the mock only needs
-// to provide the promisified implementation via the promisify.custom symbol.
-const execFileMock = Object.assign(
-  () => {
-    throw new Error("callback-style execFile is not used by disk-usage");
-  },
-  {
-    [promisify.custom]: async (command: string, args: string[]) => {
-      spawnCalls.push({ command, args });
-      if (spawnResult.status !== 0) {
-        throw new Error(`Command failed with exit code ${spawnResult.status}`);
-      }
-      return { stdout: spawnResult.stdout, stderr: "" };
-    },
-  },
-);
-
 mock.module("node:child_process", () => ({
-  execFile: execFileMock,
+  spawnSync: (command: string, args: string[]) => {
+    spawnCalls.push({ command, args });
+    return spawnResult;
+  },
 }));
 
 mock.module("../config/env-registry.js", () => ({
@@ -82,8 +67,8 @@ describe("disk usage sampler", () => {
     __resetDiskUsageCacheForTests();
   });
 
-  test("reports regular statfs usage", async () => {
-    const usage = await getDiskUsageInfo();
+  test("reports regular statfs usage", () => {
+    const usage = getDiskUsageInfo();
 
     expect(usage).toEqual({
       path: "/workspace",
@@ -94,15 +79,15 @@ describe("disk usage sampler", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  test("falls back to root when the workspace path does not exist", async () => {
+  test("falls back to root when the workspace path does not exist", () => {
     existingPaths = new Set();
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     expect(usage?.path).toBe("/");
   });
 
-  test("uses PVC capacity and du usage when host filesystem is larger", async () => {
+  test("uses PVC capacity and du usage when host filesystem is larger", () => {
     minikubeStorageSize = "1Gi";
     statfsResult = statfsFor(10 * GIB, 8 * GIB);
     spawnResult = {
@@ -110,7 +95,7 @@ describe("disk usage sampler", () => {
       stdout: `${100 * MIB}\t/workspace\n`,
     };
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     expect(usage).toEqual({
       path: "/workspace",
@@ -123,7 +108,7 @@ describe("disk usage sampler", () => {
     ]);
   });
 
-  test("includes /data in PVC du usage when it exists separately", async () => {
+  test("includes /data in PVC du usage when it exists separately", () => {
     existingPaths = new Set([workspaceDir, "/data"]);
     minikubeStorageSize = "1Gi";
     statfsResult = statfsFor(10 * GIB, 8 * GIB);
@@ -132,7 +117,7 @@ describe("disk usage sampler", () => {
       stdout: `${100 * MIB}\t/workspace\n${20 * MIB}\t/data\n`,
     };
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     expect(usage?.usedMb).toBe(120);
     expect(spawnCalls).toEqual([
@@ -140,7 +125,7 @@ describe("disk usage sampler", () => {
     ]);
   });
 
-  test("measures workspace du usage on a local Docker hatch", async () => {
+  test("measures workspace du usage on a local Docker hatch", () => {
     isContainerized = true;
     isPlatform = false;
     statfsResult = statfsFor(100 * GIB, 40 * GIB);
@@ -149,7 +134,7 @@ describe("disk usage sampler", () => {
       stdout: `${2 * GIB}\t/workspace\n`,
     };
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     // Used reflects only the workspace (du), free reflects the host headroom
     // the volume can grow into, and total is their sum.
@@ -164,12 +149,12 @@ describe("disk usage sampler", () => {
     ]);
   });
 
-  test("does not use du for platform-managed containerized instances", async () => {
+  test("does not use du for platform-managed containerized instances", () => {
     isContainerized = true;
     isPlatform = true;
     statfsResult = statfsFor(10 * GIB, 6 * GIB);
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     expect(usage).toEqual({
       path: "/workspace",
@@ -180,13 +165,13 @@ describe("disk usage sampler", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  test("falls back to statfs when du fails on a local Docker hatch", async () => {
+  test("falls back to statfs when du fails on a local Docker hatch", () => {
     isContainerized = true;
     isPlatform = false;
     statfsResult = statfsFor(100 * GIB, 40 * GIB);
     spawnResult = { status: 1, stdout: "" };
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     expect(usage).toEqual({
       path: "/workspace",
@@ -207,7 +192,7 @@ describe("disk usage sampler", () => {
     expect(parseK8sMemoryBytes("0Gi")).toBeNull();
   });
 
-  test("falls back to statfs when du fails in PVC mode", async () => {
+  test("falls back to statfs when du fails in PVC mode", () => {
     minikubeStorageSize = "1Gi";
     statfsResult = statfsFor(10 * GIB, 8 * GIB);
     spawnResult = {
@@ -215,7 +200,7 @@ describe("disk usage sampler", () => {
       stdout: "",
     };
 
-    const usage = await getDiskUsageInfo();
+    const usage = getDiskUsageInfo();
 
     expect(usage).toEqual({
       path: "/workspace",

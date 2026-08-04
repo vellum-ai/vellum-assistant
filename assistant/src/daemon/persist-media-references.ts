@@ -43,11 +43,11 @@ function imageFilename(mediaType: string): string {
  * transport-optimized image (`resolveMediaReferences` applies the same
  * optimization at send time), so hint the optimized dimensions.
  */
-async function optimizedImageDimensions(
+function optimizedImageDimensions(
   dataBase64: string,
   mediaType: string,
-): Promise<{ width: number; height: number } | null> {
-  const optimized = await optimizeImageForTransport(dataBase64, mediaType);
+): { width: number; height: number } | null {
+  const optimized = optimizeImageForTransport(dataBase64, mediaType);
   return parseImageDimensions(optimized.data, optimized.mediaType);
 }
 
@@ -56,13 +56,13 @@ async function optimizedImageDimensions(
  * `messageId`, returning the block with a `workspace_ref` source — or null when
  * the store write fails (caller keeps the inline base64 block).
  */
-async function referenceMediaBlock(
+function referenceMediaBlock(
   conversationId: string,
   conversationCreatedAt: number,
   messageId: string,
   block: ImageContent | FileContent,
   position: number,
-): Promise<ContentBlock | null> {
+): ContentBlock | null {
   if (block.source.type !== "base64") {
     return block;
   }
@@ -73,7 +73,7 @@ async function referenceMediaBlock(
 
   let stored: { id: string; sizeBytes: number };
   try {
-    stored = await createInlineAttachment(
+    stored = createInlineAttachment(
       conversationId,
       conversationCreatedAt,
       filename,
@@ -99,7 +99,7 @@ async function referenceMediaBlock(
       : {}),
   };
   if (block.type === "image") {
-    const dims = await optimizedImageDimensions(data, media_type);
+    const dims = optimizedImageDimensions(data, media_type);
     if (dims) {
       source.width = dims.width;
       source.height = dims.height;
@@ -122,43 +122,34 @@ async function referenceMediaBlock(
  * `workspace_ref`. Blocks that are already references, carry no media, or fail
  * to store are returned unchanged.
  */
-export async function referenceMediaBlocksForPersist(
+export function referenceMediaBlocksForPersist(
   conversationId: string,
   conversationCreatedAt: number,
   messageId: string,
   blocks: ContentBlock[],
-): Promise<ContentBlock[]> {
+): ContentBlock[] {
   // A single link position counter across all attachments in the message so
   // their `message_attachments` rows keep content order.
   let position = 0;
-  const convert = async (block: ContentBlock): Promise<ContentBlock> => {
+  const convert = (block: ContentBlock): ContentBlock => {
     if (block.type === "image" || block.type === "file") {
       if (block.source.type !== "base64") {
         return block;
       }
       return (
-        (await referenceMediaBlock(
+        referenceMediaBlock(
           conversationId,
           conversationCreatedAt,
           messageId,
           block,
           position++,
-        )) ?? block
+        ) ?? block
       );
     }
     if (block.type === "tool_result" && block.contentBlocks?.length) {
-      const contentBlocks: ContentBlock[] = [];
-      for (const cb of block.contentBlocks) {
-        contentBlocks.push(await convert(cb));
-      }
-      return { ...block, contentBlocks };
+      return { ...block, contentBlocks: block.contentBlocks.map(convert) };
     }
     return block;
   };
-  // Sequential so the shared position counter keeps content order.
-  const result: ContentBlock[] = [];
-  for (const block of blocks) {
-    result.push(await convert(block));
-  }
-  return result;
+  return blocks.map(convert);
 }

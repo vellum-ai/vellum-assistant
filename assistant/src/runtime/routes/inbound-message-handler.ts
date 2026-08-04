@@ -1816,7 +1816,7 @@ async function persistBackfilledSlackMessage(params: {
             );
             continue;
           }
-          await attachInlineAttachmentToMessage(
+          attachInlineAttachmentToMessage(
             persisted.id,
             i,
             downloaded.filename,
@@ -1863,21 +1863,21 @@ async function persistBackfilledSlackMessage(params: {
     updateMessageContent(
       persisted.id,
       JSON.stringify(
-        await buildBackfilledSlackContentBlocks(rawText, hydratedAttachments),
+        buildBackfilledSlackContentBlocks(rawText, hydratedAttachments),
       ),
     );
   }
 }
 
-async function buildBackfilledSlackContentBlocks(
+function buildBackfilledSlackContentBlocks(
   text: string,
   attachments: MessageAttachmentInput[],
-): Promise<ContentBlock[]> {
+): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   if (text.trim().length > 0) {
     blocks.push({ type: "text", text });
   }
-  blocks.push(...(await attachmentsToContentBlocks(attachments)));
+  blocks.push(...attachmentsToContentBlocks(attachments));
   return blocks;
 }
 
