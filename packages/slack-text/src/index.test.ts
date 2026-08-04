@@ -52,6 +52,24 @@ describe("renderSlackTextForModel", () => {
     ).toBe("hello @unknown-user");
   });
 
+  test("prefers embedded pipe-form user labels over lookups", () => {
+    expect(renderSlackTextForModel("hi <@U123|jane>")).toBe("hi @jane");
+    expect(
+      renderSlackTextForModel("hi <@U123|jane>", {
+        userLabels: { U123: "Jane Doe" },
+      }),
+    ).toBe("hi @jane");
+  });
+
+  test("falls back past ID-shaped embedded user labels to resolved ones", () => {
+    expect(
+      renderSlackTextForModel("hi <@U123|U123>", {
+        userLabels: { U123: "Jane Doe" },
+      }),
+    ).toBe("hi @Jane Doe");
+    expect(renderSlackTextForModel("hi <@U123|U123>")).toBe("hi @unknown-user");
+  });
+
   test("renders channel references with labels and fallbacks", () => {
     expect(
       renderSlackTextForModel("<#C123|general> <#C456>", {

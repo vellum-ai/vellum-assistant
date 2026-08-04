@@ -175,17 +175,29 @@ function renderUserMention(
   content: string,
   options: RenderSlackTextOptions,
 ): string {
-  const id = content.slice(1);
+  const [idWithPrefix, label] = splitSlackLabel(content);
+  const id = idWithPrefix.slice(1);
   if (!isSlackUserId(id)) {
     return `<${content}>`;
   }
 
+  // Slack's legacy pipe form (`<@U123|username>`) carries its own label:
+  // prefer it over a lookup, mirroring renderChannelReference. The embedded
+  // label is Slack-sourced (part of the token), so entities decode before
+  // sanitization; the caller-resolved label below is not.
+  const embeddedLabel = sanitizeOptionalLabel(
+    label === undefined ? undefined : decodeSlackHtmlEntities(label),
+  );
+  if (embeddedLabel && embeddedLabel !== id) {
+    return `@${embeddedLabel}`;
+  }
+
   const fallback = sanitizeLabel(options.userFallbackLabel, "unknown-user");
-  const label = sanitizeLabel(options.userLabels?.[id], fallback);
-  if (label === id) {
+  const resolvedLabel = sanitizeLabel(options.userLabels?.[id], fallback);
+  if (resolvedLabel === id) {
     return `@${fallback}`;
   }
-  return `@${label}`;
+  return `@${resolvedLabel}`;
 }
 
 function renderChannelReference(

@@ -31,12 +31,13 @@ mock.module("../../../../contacts/contacts-write.js", () => ({
 }));
 
 import {
-  __resetSlackUserInfoCacheForTests,
+  __resetSlackMentionCachesForTests,
   slackProvider,
 } from "../adapter.js";
 
 const originalFetch = globalThis.fetch;
 let userInfoCalls: string[] = [];
+let channelInfoCalls: string[] = [];
 
 function installFetchStub() {
   globalThis.fetch = (async (
@@ -63,7 +64,49 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
   const parsed = new URL(url);
   const method = parsed.pathname.split("/").at(-1);
 
+  if (method === "conversations.info") {
+    const channelId = parsed.searchParams.get("channel") ?? "";
+    channelInfoCalls.push(channelId);
+    if (channelId === "CPRODMODELS1") {
+      return {
+        ok: true,
+        channel: { id: "CPRODMODELS1", name: "prod-models" },
+      };
+    }
+    return { ok: false, error: "channel_not_found" };
+  }
+
   if (method === "conversations.history") {
+    if (parsed.searchParams.get("channel") === "C_CHANNEL_MENTIONS") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            ts: "1700000009.001000",
+            user: "USENDER",
+            text: "post in <#CPRODMODELS1> and <#COTHER1|other-name> please",
+          },
+        ],
+      };
+    }
+
+    if (parsed.searchParams.get("channel") === "C_PRIVATE_MENTION") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            ts: "1700000010.001100",
+            user: "USENDER",
+            text: "see <#CINVISIBLE1> for details",
+          },
+        ],
+      };
+    }
+
     if (parsed.searchParams.get("channel") === "C_USERINFO_FAIL") {
       return {
         ok: true,
@@ -318,8 +361,9 @@ function makeOAuthConnection(
 
 describe("Slack adapter mention rendering", () => {
   beforeEach(async () => {
-    __resetSlackUserInfoCacheForTests();
+    __resetSlackMentionCachesForTests();
     userInfoCalls = [];
+    channelInfoCalls = [];
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) {
@@ -514,6 +558,44 @@ describe("Slack adapter mention rendering", () => {
       actorTimezoneLabel: "Greenwich Mean Time",
       actorTimezoneOffsetSeconds: 0,
     });
+  });
+
+  test("getHistory renders inline channel mentions without rebinding the message's own channel", async () => {
+    // A message read from channel A that mentions channels B and C: the
+    // message stays attributed to A while the inline mentions render B/C.
+    const messages = await slackProvider.getHistory(
+      undefined,
+      "C_CHANNEL_MENTIONS",
+    );
+
+    expect(messages).toHaveLength(1);
+    // Bare token resolves via conversations.info; pipe token uses its own
+    // embedded label with no lookup.
+    expect(messages[0].text).toBe(
+      "post in #prod-models and #other-name please",
+    );
+    expect(messages[0].conversationId).toBe("C_CHANNEL_MENTIONS");
+    expect(channelInfoCalls).toEqual(["CPRODMODELS1"]);
+  });
+
+  test("getHistory falls back to #unknown-channel for channels this auth cannot see, and caches the failure", async () => {
+    const first = await slackProvider.getHistory(
+      undefined,
+      "C_PRIVATE_MENTION",
+    );
+    const second = await slackProvider.getHistory(
+      undefined,
+      "C_PRIVATE_MENTION",
+    );
+
+    expect(first[0].text).toBe("see #unknown-channel for details");
+    expect(second[0].text).toBe("see #unknown-channel for details");
+    expect(first[0].text).not.toContain("CINVISIBLE1");
+    // channel_not_found is a definitive answer for this auth: one lookup,
+    // not one per history read.
+    expect(channelInfoCalls.filter((id) => id === "CINVISIBLE1")).toHaveLength(
+      1,
+    );
   });
 
   test("getThreadReplies renders Slack user mentions for model-facing text without changing sender identity", async () => {

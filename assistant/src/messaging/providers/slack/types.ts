@@ -45,6 +45,10 @@ export interface SlackConversation {
   is_user_deleted?: boolean;
 }
 
+export interface SlackConversationInfoResponse extends SlackApiResponse {
+  channel: SlackConversation;
+}
+
 export interface SlackConversationsListResponse extends SlackApiResponse {
   channels: SlackConversation[];
   response_metadata?: { next_cursor?: string };

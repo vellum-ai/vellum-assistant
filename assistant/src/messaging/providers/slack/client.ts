@@ -16,6 +16,7 @@ import type {
   SlackAuthTestResponse,
   SlackBotsInfoResponse,
   SlackConversationHistoryResponse,
+  SlackConversationInfoResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
   SlackConversationsListResponse,
@@ -151,6 +152,17 @@ export async function conversationsOpen(
     {
       users: userId,
     },
+  );
+}
+
+export async function conversationInfo(
+  connectionOrToken: OAuthConnection | string,
+  channel: string,
+): Promise<SlackConversationInfoResponse> {
+  return request<SlackConversationInfoResponse>(
+    connectionOrToken,
+    "conversations.info",
+    { channel },
   );
 }
 
