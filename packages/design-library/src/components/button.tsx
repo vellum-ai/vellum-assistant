@@ -266,6 +266,13 @@ export interface ButtonProps
   tooltip?: string;
   /** Side the tooltip is placed on. Defaults to Radix's "top". */
   tooltipSide?: "top" | "right" | "bottom" | "left";
+  /**
+   * Render as the child element (e.g. a `Link`) while keeping button
+   * styling and accessibility semantics. When combined with `leftIcon` /
+   * `rightIcon`, `children` must be a single React element: Radix's Slot
+   * re-parents the icons into it and throws (`Children.only`) on
+   * multi-node children.
+   */
   asChild?: boolean;
   children?: ReactNode;
 }

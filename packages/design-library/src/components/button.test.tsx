@@ -43,14 +43,13 @@ describe("Button rendering", () => {
   });
 
   test("asChild + leftIcon styles the slotted anchor and nests the icon inside it", () => {
-    // Regression (LUM-1680 follow-up): the icon branch used to wrap the icon
-    // and `<Slottable>` in a Fragment. Radix Slot only finds a Slottable among
-    // its DIRECT children (`Children.toArray` does not descend into
-    // Fragments), so Slot cloned the Fragment instead: every button prop
-    // (className, style, type) was silently dropped and the markup came out
-    // as a bare icon <span> next to a completely unstyled <a>. Presence
-    // checks alone pass against that broken output, so these assertions pin
-    // the invariant: the anchor is the root, it carries the button classes,
+    // Radix Slot locates its Slottable via `Children.toArray(...).find`,
+    // which does not descend into Fragments: a Fragment wrapped around the
+    // icon and `<Slottable>` makes Slot clone the Fragment instead, silently
+    // dropping every button prop (className, style, type) and emitting a
+    // bare icon <span> next to an unstyled <a>. Presence checks alone pass
+    // against that broken output, so these assertions pin the invariant
+    // (LUM-1680): the anchor is the root, it carries the button classes,
     // and the icon lives inside it.
     const html = renderToStaticMarkup(
       <Button asChild leftIcon={<svg data-testid="left-icon" aria-hidden />}>

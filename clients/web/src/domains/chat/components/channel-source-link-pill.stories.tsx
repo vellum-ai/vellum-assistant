@@ -8,10 +8,10 @@ import { ChannelSourceLinkPill } from "./channel-source-link-pill";
  * backdrop: the pill's active-ghost chrome is `--surface-lift`, so on the
  * default story canvas (white) it would read as an unstyled label.
  *
- * Regression context: the Button `asChild` + `leftIcon` path used to drop
- * every button class (LUM-1680 follow-up), which rendered this pill as a
- * bare icon next to plain anchor text. If this story shows anything other
- * than a rounded white pill, that seam has regressed.
+ * The pill's chrome comes entirely from Button's `asChild` + `leftIcon`
+ * path, so the story doubles as a visual check on that seam (LUM-1680):
+ * anything other than a rounded white pill means the button props are not
+ * reaching the anchor.
  */
 const meta = {
   title: "chat/ChannelSourceLinkPill",
