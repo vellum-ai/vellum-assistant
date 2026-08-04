@@ -11,12 +11,12 @@ import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import {
+  findAssistantCommand,
+  isRepoCheckoutPath,
+} from "@vellumai/install-layout";
 import { isValidReleaseVersion } from "@vellumai/local-mode";
 
-import {
-  assistantCommandPathDirs,
-  isRepoCheckoutEntry,
-} from "./assistant-command-path.js";
 import {
   getDaemonPidPath,
   type LocalInstanceResources,
@@ -687,7 +687,7 @@ async function startDaemonFromSource(
   // runtime the desktop app runs. Only the former is a dev run: marking an
   // installed runtime as dev suppresses its telemetry and skips the
   // `assistant` command install. An inherited VELLUM_DEV is left alone.
-  if (isRepoCheckoutEntry(assistantIndex)) {
+  if (isRepoCheckoutPath(assistantIndex)) {
     env.VELLUM_DEV = "1";
   }
   applyDaemonEnvOverrides(env, resources, options);
@@ -697,9 +697,10 @@ async function startDaemonFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const bunPath = resolveBunExecutable();
+  const assistantCommand = findAssistantCommand(assistantIndex);
   const spawnEnv = envWithBunPath(
     env,
-    assistantCommandPathDirs(assistantIndex),
+    assistantCommand ? [dirname(assistantCommand)] : [],
   );
   const child = foreground
     ? spawn(bunPath, ["run", daemonMainPath], {

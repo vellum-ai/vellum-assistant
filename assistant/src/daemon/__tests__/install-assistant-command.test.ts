@@ -4,7 +4,7 @@
  * The two layouts that matter are the compiled desktop bundle (a binary beside
  * the daemon) and the npm-installed runtime the desktop app actually ships (a
  * bun entry under `node_modules`, which needs a wrapper that pins bun). A repo
- * checkout must install nothing — developers own their PATH.
+ * checkout must install nothing: developers own their PATH.
  */
 
 import {

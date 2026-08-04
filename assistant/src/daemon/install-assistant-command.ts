@@ -24,6 +24,11 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 
+import {
+  findAssistantCommand,
+  isRepoCheckoutPath,
+} from "@vellumai/install-layout";
+
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("install-assistant-command");
@@ -31,12 +36,10 @@ const log = getLogger("install-assistant-command");
 /** Ownership marker embedded in every wrapper this module writes. */
 const WRAPPER_MARKER = "# vellum-assistant-command v1";
 
-const NODE_MODULES_SEGMENT = `${sep}node_modules${sep}`;
-
 /**
  * What to install as `assistant`:
- *   - `binary` — a compiled executable, installed as a symlink.
- *   - `bun-entry` — a script bun must interpret, installed as a wrapper that
+ *   - `binary`: a compiled executable, installed as a symlink.
+ *   - `bun-entry`: a script bun must interpret, installed as a wrapper that
  *     pins an absolute bun so the command works from any PATH.
  */
 export type AssistantCommandTarget =
@@ -50,30 +53,22 @@ function isBunRuntime(execPath: string): boolean {
 }
 
 /**
- * The `assistant` bin that ships with an npm-installed runtime, searching
- * innermost `node_modules` outward (a nested install shadows a hoisted one).
- * Falls back to the assistant package's own CLI entrypoint when the meta
- * package that declares the bin isn't part of the install.
+ * The entrypoint bun should run for `assistant` in an npm-installed runtime:
+ * the command the install ships, or the assistant package's own CLI
+ * entrypoint when the dependency graph omits the package declaring that bin.
+ * Null for a repo checkout, where developers manage their own PATH.
  */
 function resolveInstalledEntry(moduleDir: string): string | null {
-  let index = moduleDir.lastIndexOf(NODE_MODULES_SEGMENT);
-  if (index === -1) {
-    return null; // repo checkout — developers manage their own PATH
+  if (isRepoCheckoutPath(moduleDir)) {
+    return null;
   }
 
-  while (index !== -1) {
-    const nodeModulesDir = moduleDir.slice(
-      0,
-      index + NODE_MODULES_SEGMENT.length - 1,
-    );
-    const bin = join(nodeModulesDir, ".bin", "assistant");
-    if (existsSync(bin)) {
-      return bin;
-    }
-    index = moduleDir.lastIndexOf(NODE_MODULES_SEGMENT, index - 1);
+  const command = findAssistantCommand(moduleDir);
+  if (command !== null) {
+    return command;
   }
 
-  // `<pkg>/src/daemon` → `<pkg>/src/index.ts`
+  // `<pkg>/src/daemon` sits one level below `<pkg>/src/index.ts`.
   const packageEntry = join(moduleDir, "..", "index.ts");
   return existsSync(packageEntry) ? packageEntry : null;
 }
@@ -148,7 +143,7 @@ function claimCommandPath(commandPath: string): boolean {
   try {
     stats = lstatSync(commandPath);
   } catch (err) {
-    // Nothing there — free to create.
+    // Nothing there, so this is free to create.
     return (err as NodeJS.ErrnoException)?.code === "ENOENT";
   }
 
@@ -175,7 +170,7 @@ export function installCommandAt(
   target: AssistantCommandTarget,
 ): boolean {
   try {
-    // Already correct? Leave it alone — this runs on every daemon start.
+    // Already correct? Leave it alone: this runs on every daemon start.
     try {
       const stats = lstatSync(commandPath);
       if (target.kind === "binary" && stats.isSymbolicLink()) {
@@ -191,7 +186,7 @@ export function installCommandAt(
         }
       }
     } catch {
-      // Missing or unreadable — fall through to the write below.
+      // Missing or unreadable, so fall through to the write below.
     }
 
     if (!claimCommandPath(commandPath)) {
@@ -250,7 +245,7 @@ function ensureLocalBinInShellProfile(localBinDir: string): void {
       "Added ~/.local/bin to shell profile",
     );
   } catch {
-    // Not critical — user can add it manually
+    // Not critical: the user can add it manually
   }
 }
 
@@ -270,14 +265,14 @@ function commandResolvesElsewhere(
     }).trim();
     return resolved !== "" && !candidatePaths.has(resolved);
   } catch {
-    // `which` exited non-zero — command not found, safe to proceed
+    // `which` exited non-zero: command not found, safe to proceed
     return false;
   }
 }
 
 /**
  * Idempotent: installs (or verifies) the `assistant` command. Called on every
- * daemon startup, best-effort and self-contained — every step swallows its own
+ * daemon startup, best-effort and self-contained: every step swallows its own
  * errors, so a failure never affects startup.
  *
  * Tries `/usr/local/bin/assistant` first, then falls back to
@@ -303,7 +298,7 @@ export function installAssistantCommand(): void {
 
   if (commandResolvesElsewhere("assistant", candidatePaths)) {
     log.info(
-      "`assistant` already resolves to a non-managed path — skipping install",
+      "`assistant` already resolves to a non-managed path, skipping install",
     );
     return;
   }
@@ -319,7 +314,7 @@ export function installAssistantCommand(): void {
     }
     log.info(
       { commandPath },
-      "Could not install assistant command at candidate — trying next",
+      "Could not install assistant command at candidate, trying next",
     );
   }
 

@@ -9,7 +9,7 @@
  *
  * Two shapes are checked:
  *   1. `.pathname` read off a URL built from `import.meta.url`.
- *   2. `.pathname` passed inside a `cmd: [...]` spawn array — the sink that
+ *   2. `.pathname` passed inside a `cmd: [...]` spawn array, the sink that
  *      turns an encoded path into a "Module not found" at runtime.
  */
 
@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 
 const SRC_DIR = join(import.meta.dir, "..");
 
-/** This guard's own file — it necessarily contains the patterns it forbids. */
+/** This guard's own file, which necessarily contains the forbidden patterns. */
 const SELF = "__tests__/file-url-path-guard.test.ts";
 
 /** `.pathname` read off a URL derived from `import.meta.url`. */

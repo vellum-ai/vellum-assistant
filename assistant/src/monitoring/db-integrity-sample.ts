@@ -60,7 +60,7 @@ let activeChild: ReturnType<typeof Bun.spawn> | null = null;
 async function runCheckSubprocess(
   dbPath: string,
 ): Promise<IntegritySampleResult | null> {
-  // `fileURLToPath`, not `.pathname` — the latter percent-encodes, and an
+  // `fileURLToPath`, not `.pathname`: the latter percent-encodes, and an
   // install path with a space in it would not resolve. See worker-process.ts.
   const entry = fileURLToPath(
     new URL("./db-integrity-check.ts", import.meta.url),
