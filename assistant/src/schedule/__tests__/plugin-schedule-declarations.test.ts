@@ -148,7 +148,7 @@ describe("parsePluginScheduleDeclarations", () => {
     expect(decl.scriptInvocation).toBeNull();
   });
 
-  test("parses a directory declaration with index.sh as a path invocation", () => {
+  test("parses a directory declaration with index.sh as an sh path invocation", () => {
     const pluginDir = makePlugin({
       "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
       "backup/index.sh": "#!/bin/sh\necho backup\n",
@@ -161,8 +161,10 @@ describe("parsePluginScheduleDeclarations", () => {
     const decl = declarations[0]!;
     expect(decl.mode).toBe("script");
     expect(decl.message).toBeNull();
+    // Explicit interpreter: platform installs do not restore exec bits, so a
+    // bare path invocation would fail with exit 126.
     expect(decl.scriptInvocation).toBe(
-      `'${join(pluginDir, "schedules", "backup", "index.sh")}'`,
+      `sh '${join(pluginDir, "schedules", "backup", "index.sh")}'`,
     );
     expect(decl.scriptInvocation).not.toContain("echo backup");
   });
@@ -300,6 +302,43 @@ describe("parsePluginScheduleDeclarations", () => {
       });
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("invalid config");
+    });
+
+    test("timeout_ms below the script minimum errors", () => {
+      const pluginDir = makePlugin({
+        "fast.md": '---\nexpression: "0 9 * * *"\ntimeout_ms: 500\n---\nHi.',
+      });
+      const { declarations, errors } = parsePluginScheduleDeclarations(
+        pluginDir,
+        "p",
+      );
+      expect(declarations).toEqual([]);
+      expect(errors[0]!.reason).toContain("timeout_ms must be between");
+    });
+
+    test("timeout_ms above the script maximum errors", () => {
+      const pluginDir = makePlugin({
+        "slow.md":
+          '---\nexpression: "0 9 * * *"\ntimeout_ms: 1800001\n---\nHi.',
+      });
+      const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
+      expect(errors[0]!.reason).toContain("timeout_ms must be between");
+    });
+
+    test("single-fire RRULE (COUNT=1) errors; larger counts stay valid", () => {
+      const single = makePlugin({
+        "once.md":
+          '---\nexpression: "DTSTART:20260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=1"\nexpression_syntax: rrule\n---\nHi.',
+      });
+      const parsed = parsePluginScheduleDeclarations(single, "p");
+      expect(parsed.declarations).toEqual([]);
+      expect(parsed.errors[0]!.reason).toContain("must be recurring");
+
+      const thrice = makePlugin({
+        "thrice.md":
+          '---\nexpression: "DTSTART:20260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=3"\nexpression_syntax: rrule\n---\nHi.',
+      });
+      expect(parsePluginScheduleDeclarations(thrice, "p").errors).toEqual([]);
     });
 
     test("empty prompt body errors", () => {
