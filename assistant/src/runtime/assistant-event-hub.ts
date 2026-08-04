@@ -426,9 +426,9 @@ export class AssistantEventHub {
   }
 
   /**
-   * Yield every active client entry with the given clientId. A reconnecting
-   * client can briefly own more than one entry, so callers that mutate state
-   * must consume all of them.
+   * Yield every active client entry with the given clientId. `subscribe`
+   * disposes any prior entries for the same clientId, so at most one entry
+   * matches.
    */
   private *activeClientEntries(clientId: string): Generator<ClientEntry> {
     for (const entry of this.subscribers) {
