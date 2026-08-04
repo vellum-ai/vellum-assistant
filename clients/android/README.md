@@ -61,6 +61,10 @@ pairing, conversations, voice settings, OAuth completion, and billing pages.
 Other paths stay in the browser. Incoming links navigate the existing WebView
 with their query string and fragment intact.
 
+A shell paired to a self-hosted assistant keeps its current server when a
+Vellum Cloud App Link arrives. App Links do not interrupt pairing or switch a
+self-hosted WebView to Vellum Cloud.
+
 Android verifies a claim only after the matching host serves
 `/.well-known/assetlinks.json` with HTTP 200, `application/json`, and no
 redirect. Each statement must use the application ID in the Build Variants

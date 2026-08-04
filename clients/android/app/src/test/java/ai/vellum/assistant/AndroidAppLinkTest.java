@@ -50,4 +50,24 @@ public class AndroidAppLinkTest {
             AndroidAppLink.parse("https://dev-assistant.vellum.ai:444/assistant", HOST)
         );
     }
+
+    @Test
+    public void rejectsUnownedAndEncodedPaths() {
+        assertNull(AndroidAppLink.parse("https://dev-assistant.vellum.ai/assistant/logs", HOST));
+        assertNull(
+            AndroidAppLink.parse("https://dev-assistant.vellum.ai/assistant/pairing", HOST)
+        );
+        assertNull(
+            AndroidAppLink.parse(
+                "https://dev-assistant.vellum.ai/assistant/conversations/../logs",
+                HOST
+            )
+        );
+        assertNull(
+            AndroidAppLink.parse(
+                "https://dev-assistant.vellum.ai/assistant/conversations/%2e%2e/logs",
+                HOST
+            )
+        );
+    }
 }

@@ -44,8 +44,8 @@ public class MainActivity extends BridgeActivity {
         if (pendingConnect == null) {
             pendingConnect = consumeConnectIntent(getIntent());
         }
-        pendingAppLink = consumeAppLinkIntent(getIntent());
         configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
+        pendingAppLink = consumeAppLinkIntent(getIntent());
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
@@ -153,7 +153,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     private URI consumeAppLinkIntent(Intent intent) {
-        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) {
+        if (
+            intent == null
+                || !Intent.ACTION_VIEW.equals(intent.getAction())
+                || effectiveServer != null
+                || pendingConnect != null
+        ) {
             return null;
         }
         URI appLink = AndroidAppLink.parse(
@@ -183,6 +188,10 @@ public class MainActivity extends BridgeActivity {
 
     private void deliverPendingAppLink() {
         if (pendingAppLink == null || bridge == null) {
+            return;
+        }
+        if (effectiveServer != null || pendingConnect != null) {
+            pendingAppLink = null;
             return;
         }
         URI appLink = pendingAppLink;
