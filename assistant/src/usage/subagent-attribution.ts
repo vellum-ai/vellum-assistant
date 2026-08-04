@@ -37,7 +37,7 @@ const cache = new Map<string, SubagentAttribution>();
  * Resolve the delegated-work attribution for a conversation, for forwarding on
  * the runtime proxy's `X-Vellum-Subagent-*` headers.
  *
- * Reads the columns stamped at spawn time (migration 360) rather than the
+ * Reads the columns stamped at spawn time (migration 361) rather than the
  * `subagents` table: `subagents` rows are deleted on dispose, and the billing
  * path must not depend on a row that may already be gone.
  *

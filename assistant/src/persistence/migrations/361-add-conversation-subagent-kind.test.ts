@@ -51,7 +51,7 @@ function columnInfo(sqlite: Database) {
   }>;
 }
 
-describe("migration 360: conversations subagent role / spawn mode", () => {
+describe("migration 361: conversations subagent role / spawn mode", () => {
   test("adds both columns, nullable", () => {
     const { sqlite, db } = createTestDb();
     const before = columnInfo(sqlite).map((c) => c.name);

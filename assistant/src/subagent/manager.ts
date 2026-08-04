@@ -531,7 +531,7 @@ export class SubagentManager {
     // `subagentRole` / `subagentSpawnMode` are stamped on the conversation
     // row, not just the `subagents` row, because `subagents` rows are deleted
     // on dispose while usage telemetry flushes on a watermark that can trail
-    // far behind. See migration 360.
+    // far behind. See migration 361.
     const conversationRecord = await bootstrapConversation({
       conversationType: "background",
       source: "subagent",

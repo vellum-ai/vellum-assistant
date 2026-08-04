@@ -962,7 +962,7 @@ export function createConversation(
          * Role of the subagent that owns this conversation, and how it was
          * spawned. Persisted here (not only on the ephemeral `subagents` row)
          * so usage telemetry can decompose delegated spend by variety long
-         * after the subagent record is disposed. See migration 360.
+         * after the subagent record is disposed. See migration 361.
          */
         subagentRole?: string;
         subagentSpawnMode?: string;
