@@ -3,7 +3,8 @@
  * {@link BillingErrorBanner}. This file catalogs both layers:
  *
  *   1. the primitive's own variant matrix (icon / action / dismiss / detached),
- *   2. the four real walls built on it, each with its production copy and CTA.
+ *   2. the three composer walls built on it, each with its production copy and
+ *      CTA.
  *
  * Which of the composer banners is shown is decided by the pure resolver
  * `resolveComposerBillingBanner` (`utils/error-classification.ts:111`), whose
@@ -11,9 +12,15 @@
  * (which renders nothing here, since the transcript's credit wall owns it) >
  * low_balance. The credit wall itself lives in its own story file, since its
  * CTA is the one that forks between Add credits and View plans.
+ *
+ * Android consumption-only suppression applies to **purchase** surfaces only.
+ * Among these three that is just `LowBalanceBanner`; `DailyLimitBanner` (a
+ * settings deep-link) and `ProviderBillingBanner` (the user's own provider is
+ * out of funds, so there is nothing for Vellum to sell) keep their copy and CTA
+ * on every platform.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CalendarClock, KeyRound } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
@@ -65,15 +72,27 @@ export const WithDismiss: Story = {
 };
 
 /**
- * No CTA and no dismiss collapses the whole right-hand column. This is what
- * every purchase wall degrades to on native Android, which is
- * consumption-only.
+ * No CTA and no dismiss collapses the whole right-hand column. The credit wall
+ * on native Android is the surface that reaches this shape (see
+ * `Upsell Walls/Credit Wall`); it renders `detached` on top of it.
  */
 export const NoActionNoDismiss: Story = {
-  name: "No CTA (native Android)",
+  name: "No CTA and no dismiss",
+  args: { action: undefined, onDismiss: undefined },
+};
+
+/**
+ * The low-balance wall on native Android: the purchase CTA is suppressed and
+ * the subtitle points at the website, but the dismiss stays, because
+ * `LowBalanceBanner` passes `onDismiss` unconditionally. The other two composer
+ * walls are not purchase surfaces and are unaffected on Android.
+ */
+export const AndroidLowBalance: Story = {
+  name: "Low balance on native Android",
   args: {
+    ariaLabel: `Your credits are running low. ${ANDROID_BILLING_MESSAGE}`,
     action: undefined,
-    onDismiss: undefined,
+    onDismiss: () => {},
     subtitle: ANDROID_BILLING_MESSAGE,
   },
 };
@@ -118,7 +137,11 @@ export const RealLowBalanceBanner: Story = {
   render: () => <LowBalanceBanner />,
 };
 
-/** The three composer walls together, in resolver precedence order. */
+/**
+ * The three composer walls together, in resolver precedence order. Only one is
+ * ever mounted at a time in the app; they are stacked here to compare their
+ * CTAs.
+ */
 export const AllComposerWalls: Story = {
   name: "All composer walls",
   parameters: { controls: { disable: true } },
@@ -127,17 +150,6 @@ export const AllComposerWalls: Story = {
       <DailyLimitBanner onAdjustLimit={() => {}} />
       <ProviderBillingBanner onOpenSettings={() => {}} />
       <LowBalanceBanner />
-      <BillingErrorBanner
-        ariaLabel="Your API key needs credits"
-        icon={
-          <KeyRound
-            className="size-5"
-            style={{ color: "var(--content-tertiary)" }}
-          />
-        }
-        title="Your API key needs credits"
-        subtitle={ANDROID_BILLING_MESSAGE}
-      />
     </div>
   ),
 };
