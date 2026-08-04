@@ -4,7 +4,9 @@
  * Listens for lockfile changes and maintains an SSE + poster pair for each
  * assistant. Local assistants (with a gatewayPort) connect to the loopback
  * gateway; cloud/managed assistants connect to the platform via
- * assistant-scoped URLs with session-token auth.
+ * assistant-scoped URLs with session-token auth; paired assistants connect to
+ * the remote gateway at their runtimeUrl with the guardian access token as
+ * the bearer.
  *
  * Incoming SSE messages are dispatched to pluggable executors; unimplemented
  * executors post error results so daemon requests don't hang.
@@ -13,9 +15,10 @@
 import {
   getGuardianAccessToken,
   resolveConfigDir,
+  resolveEnvironmentName,
   type CliInvocation,
 } from "@vellumai/local-mode";
-import type { Lockfile } from "@vellumai/local-mode/contract";
+import { isUsableRuntimeUrl, type Lockfile } from "@vellumai/local-mode/contract";
 
 import { HostProxySseClient, type HostProxySseMessage } from "./host-proxy-sse";
 import { HostProxyPoster } from "./host-proxy-poster";
@@ -56,6 +59,18 @@ interface AssistantConnection {
 // ---------------------------------------------------------------------------
 
 const connections = new Map<string, AssistantConnection>();
+
+// Connects that are still awaiting token acquisition. Registered synchronously
+// before the first await so the lockfile reconcile pass can cancel them; a
+// connect whose entry is gone (or replaced) when the await resolves must abort
+// instead of opening SSE to a possibly stale target. Entries are compared by
+// identity so a cancel-then-reconnect with the same fingerprint can't be
+// completed by the superseded attempt.
+interface PendingConnect {
+  fingerprint: string;
+}
+const pendingConnects = new Map<string, PendingConnect>();
+
 const executors = new Map<string, HostProxyExecutor>();
 
 // Injected by installHostProxyBridge; kept at module scope so the
@@ -215,10 +230,7 @@ async function exchangeForGatewayToken(
   }
 }
 
-async function acquireGatewayToken(
-  assistantId: string,
-  gatewayPort: number,
-): Promise<string | null> {
+async function acquireGuardianToken(assistantId: string): Promise<string | null> {
   if (!resolveCliInvocation) return null;
 
   const configDir = resolveConfigDir(process.env);
@@ -231,11 +243,15 @@ async function acquireGatewayToken(
     return null;
   }
 
+  // Pin the environment the guardian-token CLI subprocess (refresh) sees to
+  // the same one `configDir` is resolved from, so the token is always read
+  // and written under the same env dir.
   const tokenResult = await getGuardianAccessToken(
     assistantId,
     configDir,
     invocation,
     true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
   );
 
   if (!tokenResult.ok) {
@@ -246,7 +262,17 @@ async function acquireGatewayToken(
     return null;
   }
 
-  const exchanged = await exchangeForGatewayToken(gatewayPort, tokenResult.accessToken);
+  return tokenResult.accessToken;
+}
+
+async function acquireGatewayToken(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<string | null> {
+  const guardianToken = await acquireGuardianToken(assistantId);
+  if (!guardianToken) return null;
+
+  const exchanged = await exchangeForGatewayToken(gatewayPort, guardianToken);
   if (!exchanged) return null;
 
   return exchanged.token;
@@ -259,6 +285,8 @@ async function acquireGatewayToken(
 const localFingerprint = (gatewayPort: number): string => `local:${gatewayPort}`;
 const cloudFingerprint = (runtimeUrl: string, organizationId?: string): string =>
   `cloud:${runtimeUrl}:${organizationId ?? ""}`;
+const pairedFingerprint = (runtimeUrl: string, assistantId: string): string =>
+  `paired:${runtimeUrl}:${assistantId}`;
 
 // -- Local assistant connection ---------------------------------------------
 
@@ -266,14 +294,35 @@ async function connectLocalAssistant(
   assistantId: string,
   gatewayPort: number,
 ): Promise<void> {
+  const fingerprint = localFingerprint(gatewayPort);
   if (connections.has(assistantId)) return;
+  if (pendingConnects.get(assistantId)?.fingerprint === fingerprint) return;
 
-  const gatewayToken = await acquireGatewayToken(assistantId, gatewayPort);
-  if (!gatewayToken) {
-    log.warn("[host-proxy-router] could not acquire gateway token, skipping connection", { assistantId });
-    return;
+  const pending: PendingConnect = { fingerprint };
+  pendingConnects.set(assistantId, pending);
+  try {
+    const gatewayToken = await acquireGatewayToken(assistantId, gatewayPort);
+    if (pendingConnects.get(assistantId) !== pending || connections.has(assistantId)) {
+      log.info("[host-proxy-router] lockfile changed during token acquisition, aborting stale connect", { assistantId });
+      return;
+    }
+    if (!gatewayToken) {
+      log.warn("[host-proxy-router] could not acquire gateway token, skipping connection", { assistantId });
+      return;
+    }
+
+    openLocalConnection(assistantId, gatewayPort, gatewayToken, fingerprint);
+  } finally {
+    if (pendingConnects.get(assistantId) === pending) pendingConnects.delete(assistantId);
   }
+}
 
+function openLocalConnection(
+  assistantId: string,
+  gatewayPort: number,
+  gatewayToken: string,
+  fingerprint: string,
+): void {
   let currentToken = gatewayToken;
   const authHeaders = () => ({ Authorization: `Bearer ${currentToken}` });
 
@@ -292,8 +341,73 @@ async function connectLocalAssistant(
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, { sse, poster, fingerprint: localFingerprint(gatewayPort) });
+  connections.set(assistantId, { sse, poster, fingerprint });
   log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
+}
+
+// -- Paired assistant connection --------------------------------------------
+
+async function connectPairedAssistant(
+  assistantId: string,
+  runtimeUrl: string,
+): Promise<void> {
+  const fingerprint = pairedFingerprint(runtimeUrl, assistantId);
+  if (connections.has(assistantId)) return;
+  if (pendingConnects.get(assistantId)?.fingerprint === fingerprint) return;
+
+  const pending: PendingConnect = { fingerprint };
+  pendingConnects.set(assistantId, pending);
+  try {
+    const guardianToken = await acquireGuardianToken(assistantId);
+    if (pendingConnects.get(assistantId) !== pending || connections.has(assistantId)) {
+      log.info("[host-proxy-router] lockfile changed during token acquisition, aborting stale connect", { assistantId, runtimeUrl });
+      return;
+    }
+    if (!guardianToken) {
+      log.warn("[host-proxy-router] could not acquire guardian token, skipping paired connection", { assistantId });
+      return;
+    }
+
+    openPairedConnection(assistantId, runtimeUrl, guardianToken, fingerprint);
+  } finally {
+    if (pendingConnects.get(assistantId) === pending) pendingConnects.delete(assistantId);
+  }
+}
+
+function openPairedConnection(
+  assistantId: string,
+  runtimeUrl: string,
+  guardianToken: string,
+  fingerprint: string,
+): void {
+  let currentToken = guardianToken;
+  // The guardian access token is the bearer on the remote hop; the
+  // /auth/token exchange is loopback-only and never runs for paired entries.
+  // Paired runtimeUrls are commonly ngrok tunnels; free-tier edges intercept
+  // requests lacking the skip header with an interstitial page.
+  const authHeaders = () => ({
+    Authorization: `Bearer ${currentToken}`,
+    "ngrok-skip-browser-warning": "true",
+  });
+
+  const onRefreshToken = async (): Promise<string | null> => {
+    const fresh = await acquireGuardianToken(assistantId);
+    if (fresh) currentToken = fresh;
+    return fresh;
+  };
+
+  const base = runtimeUrl.replace(/\/+$/, "");
+  const eventsUrl = `${base}/v1/events`;
+  const endpointBase = `${base}/v1`;
+
+  const sse = new HostProxySseClient({ eventsUrl, authHeaders, onRefreshToken });
+  const poster = new HostProxyPoster({ endpointBase, authHeaders });
+
+  sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
+  sse.connect();
+
+  connections.set(assistantId, { sse, poster, fingerprint });
+  log.info("[host-proxy-router] connected to paired assistant", { assistantId, runtimeUrl });
 }
 
 // -- Cloud assistant connection ---------------------------------------------
@@ -341,6 +455,9 @@ function connectCloudAssistant(
 // -- Disconnect -------------------------------------------------------------
 
 function disconnectAssistant(assistantId: string): void {
+  if (pendingConnects.delete(assistantId)) {
+    log.info("[host-proxy-router] cancelled pending connection", { assistantId });
+  }
   const conn = connections.get(assistantId);
   if (!conn) return;
   conn.sse.disconnect();
@@ -358,18 +475,23 @@ function handleLockfileChange(lockfile: Lockfile): void {
   for (const assistant of lockfile.assistants) {
     const port = assistant.resources?.gatewayPort;
     const isCloud = !port && assistant.cloud === "vellum" && assistant.runtimeUrl;
-    if (!port && !isCloud) continue;
+    const isPaired =
+      !port && assistant.cloud === "paired" && isUsableRuntimeUrl(assistant.runtimeUrl);
+    if (!port && !isCloud && !isPaired) continue;
 
     activeIds.add(assistant.assistantId);
     const fp = port
       ? localFingerprint(port)
-      : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
+      : isPaired
+        ? pairedFingerprint(assistant.runtimeUrl!, assistant.assistantId)
+        : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
 
     const existing = connections.get(assistant.assistantId);
-    if (existing && existing.fingerprint !== fp) {
+    const pending = pendingConnects.get(assistant.assistantId);
+    if ((existing && existing.fingerprint !== fp) || (pending && pending.fingerprint !== fp)) {
       log.info("[host-proxy-router] connection config changed, reconnecting", {
         assistantId: assistant.assistantId,
-        oldFingerprint: existing.fingerprint,
+        oldFingerprint: existing?.fingerprint ?? pending?.fingerprint,
         newFingerprint: fp,
       });
       disconnectAssistant(assistant.assistantId);
@@ -377,6 +499,8 @@ function handleLockfileChange(lockfile: Lockfile): void {
     if (!connections.has(assistant.assistantId)) {
       if (port) {
         void connectLocalAssistant(assistant.assistantId, port);
+      } else if (isPaired) {
+        void connectPairedAssistant(assistant.assistantId, assistant.runtimeUrl!);
       } else {
         connectCloudAssistant(
           assistant.assistantId,
@@ -387,8 +511,8 @@ function handleLockfileChange(lockfile: Lockfile): void {
     }
   }
 
-  // Disconnect assistants that are no longer in the lockfile
-  for (const assistantId of connections.keys()) {
+  // Disconnect assistants (including in-flight connects) no longer in the lockfile
+  for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
     if (!activeIds.has(assistantId)) {
       disconnectAssistant(assistantId);
     }
@@ -431,7 +555,7 @@ export function installHostProxyBridge(
   return () => {
     unsubscribe?.();
     unsubscribe = null;
-    for (const assistantId of [...connections.keys()]) {
+    for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
       disconnectAssistant(assistantId);
     }
     browserExecutor.destroy();
@@ -451,16 +575,20 @@ export const __testing = {
   get connections() {
     return connections;
   },
+  get pendingConnects() {
+    return pendingConnects;
+  },
   get executors() {
     return executors;
   },
   dispatchMessage,
   connectLocalAssistant,
   connectCloudAssistant,
+  connectPairedAssistant,
   disconnectAssistant,
   handleLockfileChange,
   reset() {
-    for (const assistantId of [...connections.keys()]) {
+    for (const assistantId of new Set([...connections.keys(), ...pendingConnects.keys()])) {
       disconnectAssistant(assistantId);
     }
     executors.clear();
