@@ -52,7 +52,9 @@ import {
   isPlatformAssistant,
   isRemoteGatewayMode,
   loadLockfile,
+  LOCAL_GATEWAY_STARTUP_RETRY,
   primeLocalGatewayConnection,
+  primeLocalGatewayConnectionWithStartupRetry,
   reconcileSelectedAssistant,
   removePlatformAssistantFromLockfile,
   saveManagedLockfileAssistant,
@@ -757,6 +759,43 @@ describe("primeLocalGatewayConnection", () => {
 
     expect(getGatewayToken()).toBe(jwt);
     expect(localStorage.getItem("vellum:gw:expiresAt")).toBe("2000000000");
+  });
+});
+
+describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
+  // The startup ride-out exists for the LOCAL gateway's reboot window and only
+  // retries GatewayTokenErrors, which the paired prime never throws. A paired
+  // failure (failed guardian lease, remote transport error) must fall through
+  // promptly to the chooser instead of stalling the 8x1s retry budget on a
+  // machine that waiting cannot fix.
+  test("a failing paired guardian lease is not ridden out: one attempt, prompt rejection", async () => {
+    enableLocalMode();
+    fetchGuardianTokenHost.mockImplementationOnce(async () => {
+      throw new localModeHost.GuardianTokenError(404, "guardian token missing");
+    });
+
+    const start = Date.now();
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(pairedEntry),
+    ).rejects.toBeInstanceOf(localModeHost.GuardianTokenError);
+
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
+    expect(Date.now() - start).toBeLessThan(
+      LOCAL_GATEWAY_STARTUP_RETRY.intervalMs,
+    );
+  });
+
+  test("a remote transport failure is not ridden out either", async () => {
+    enableLocalMode();
+    fetchGuardianTokenHost.mockImplementationOnce(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(pairedEntry),
+    ).rejects.toThrow("Failed to fetch");
+
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -46,8 +46,12 @@ import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   isLocalClient,
   isRemoteGatewayMode,
+  getLockfileAssistant,
   getPlatformAssistants,
   getLocalAssistants,
+  getSelectedAssistant,
+  isPairedAssistant,
+  primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
   syncPlatformAssistantsToLockfile,
@@ -151,6 +155,7 @@ interface AuthState {
 interface AuthActions {
   initSession: () => Promise<void>;
   connectLocalAssistant: (assistantId: string) => Promise<void>;
+  connectPairedAssistant: (assistantId: string) => Promise<void>;
   connectPlatformAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
@@ -751,6 +756,21 @@ function probePlatformSessionIfReachable(
   }
 }
 
+/**
+ * Shared tail of the interactive connect actions, run after the target's
+ * gateway connection is primed: select the assistant, mark the session logged
+ * in, and drive `checkAssistant()` so the active id republishes even when the
+ * selection is unchanged (the selection subscription only fires on a change).
+ */
+async function establishLocalUserSession(
+  set: AuthSet,
+  assistantId: string,
+): Promise<void> {
+  await setSelectedAssistant(assistantId);
+  set(authenticatedLocalUser());
+  await lifecycleService.checkAssistant();
+}
+
 async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
   try {
     if (await refreshRemoteGatewaySession()) {
@@ -943,9 +963,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       (a) => a.assistantId === assistantId,
     );
     await primeLocalGatewayConnectionWithRepair(target);
-    await setSelectedAssistant(assistantId);
-    set(authenticatedLocalUser());
-    await lifecycleService.checkAssistant();
+    await establishLocalUserSession(set, assistantId);
     if (
       isConfirmedPlatformSession(
         get().platformSession,
@@ -954,6 +972,28 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     ) {
       bootstrapLocalAssistantPlatformIdentity(assistantId);
     }
+    probePlatformSessionIfReachable(set);
+  },
+
+  /**
+   * Connect to a paired assistant: a remote machine's assistant imported via
+   * `vellum connect import`. Primes the connection (leasing the guardian
+   * bearer from the host), selects the assistant, and marks the session
+   * logged in, mirroring {@link AuthActions.connectLocalAssistant} with two
+   * deliberate differences: it primes through the plain
+   * `primeLocalGatewayConnection` because `wake` cannot start or repair an
+   * assistant on a remote machine, and it skips
+   * `bootstrapLocalAssistantPlatformIdentity` because that registers a LOCAL
+   * assistant with the platform while a paired entry is only a client-side
+   * pairing record.
+   */
+  connectPairedAssistant: async (assistantId: string) => {
+    const target = getLockfileAssistant(assistantId);
+    if (!target || !isPairedAssistant(target)) {
+      throw new Error("Not a paired assistant");
+    }
+    await primeLocalGatewayConnection(target);
+    await establishLocalUserSession(set, assistantId);
     probePlatformSessionIfReachable(set);
   },
 
@@ -982,7 +1022,19 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthMode()) {
       try {
-        await ensureGatewayToken(getLocalTokenUrl());
+        const selected = getSelectedAssistant();
+        if (selected && isPairedAssistant(selected)) {
+          // A paired selection has no local `/auth/token` mint: the guardian
+          // access token leased from the host is the bearer itself, and
+          // `getLocalTokenUrl()` is undefined for it, so `ensureGatewayToken`
+          // would fall back to the SPA origin's own `/auth/token` (wrong
+          // host) and clear the seeded token via the source-mismatch check.
+          // Re-leasing is cheap: the host returns its cached access token
+          // unless a refresh is due.
+          await primeLocalGatewayConnection(selected);
+        } else {
+          await ensureGatewayToken(getLocalTokenUrl());
+        }
         set({ sessionStatus: "authenticated" });
       } catch {
         set(sessionEnded());
