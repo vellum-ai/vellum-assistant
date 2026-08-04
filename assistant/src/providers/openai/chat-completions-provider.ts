@@ -46,6 +46,7 @@ import {
   OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES,
   openAIInputAudioFormat,
 } from "./input-audio.js";
+import { serializeToolResult } from "./orphaned-tool-result.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -991,44 +992,32 @@ export class OpenAIChatCompletionsProvider implements Provider {
         const toolResultMedia: ContentBlock[] = [];
         const orphanedResultBlocks: ContentBlock[] = [];
         for (const tr of toolResults) {
-          let textContent = tr.content;
-          if (tr.contentBlocks && tr.contentBlocks.length > 0) {
-            const extraText = tr.contentBlocks
-              .filter(
-                (cb): cb is Extract<ContentBlock, { type: "text" }> =>
-                  cb.type === "text",
+          // Media this transport can carry: images always, plus inline audio
+          // when the model accepts it. The text payload and the orphan
+          // decision are the shared cross-transport rule.
+          for (const cb of tr.contentBlocks ?? []) {
+            if (cb.type === "image") {
+              toolResultMedia.push(cb);
+            } else if (
+              audioInputEnabled &&
+              cb.type === "file" &&
+              isOpenAICompatInlineAudio(
+                cb.source.media_type,
+                mediaSourceByteLength(cb.source),
               )
-              .map((cb) => cb.text);
-            if (extraText.length > 0) {
-              textContent = textContent + "\n" + extraText.join("\n");
-            }
-            for (const cb of tr.contentBlocks) {
-              if (cb.type === "image") {
-                toolResultMedia.push(cb);
-              } else if (
-                audioInputEnabled &&
-                cb.type === "file" &&
-                isOpenAICompatInlineAudio(
-                  cb.source.media_type,
-                  mediaSourceByteLength(cb.source),
-                )
-              ) {
-                toolResultMedia.push(cb);
-              }
+            ) {
+              toolResultMedia.push(cb);
             }
           }
-          const content = tr.is_error ? `[ERROR] ${textContent}` : textContent;
-          if (!emittedToolCallIds.has(tr.tool_use_id)) {
-            orphanedResultBlocks.push({
-              type: "text",
-              text: `[orphaned tool result] ${content}`,
-            });
+          const serialized = serializeToolResult(tr, emittedToolCallIds);
+          if (serialized.kind === "orphaned") {
+            orphanedResultBlocks.push(serialized.block);
             continue;
           }
           result.push({
             role: "tool",
             tool_call_id: tr.tool_use_id,
-            content,
+            content: serialized.payload,
           });
         }
 

@@ -26,6 +26,7 @@ import {
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+import { serializeToolResult } from "./orphaned-tool-result.js";
 
 const log = getLogger("openai-responses");
 
@@ -974,35 +975,22 @@ export class OpenAIResponsesProvider implements Provider {
     const toolResultImages: ContentBlock[] = [];
     const orphanedResultBlocks: ContentBlock[] = [];
     for (const tr of toolResults) {
-      let textContent = tr.content;
-      if (tr.contentBlocks && tr.contentBlocks.length > 0) {
-        const extraText = tr.contentBlocks
-          .filter(
-            (cb): cb is Extract<ContentBlock, { type: "text" }> =>
-              cb.type === "text",
-          )
-          .map((cb) => cb.text);
-        if (extraText.length > 0) {
-          textContent = textContent + "\n" + extraText.join("\n");
-        }
-        for (const cb of tr.contentBlocks) {
-          if (cb.type === "image") {
-            toolResultImages.push(cb);
-          }
+      // This transport carries images only; the text payload and the orphan
+      // decision are the shared cross-transport rule.
+      for (const cb of tr.contentBlocks ?? []) {
+        if (cb.type === "image") {
+          toolResultImages.push(cb);
         }
       }
-      const output = tr.is_error ? `[ERROR] ${textContent}` : textContent;
-      if (!emittedCallIds.has(tr.tool_use_id)) {
-        orphanedResultBlocks.push({
-          type: "text",
-          text: `[orphaned tool result] ${output}`,
-        });
+      const serialized = serializeToolResult(tr, emittedCallIds);
+      if (serialized.kind === "orphaned") {
+        orphanedResultBlocks.push(serialized.block);
         continue;
       }
       result.push({
         type: "function_call_output",
         call_id: tr.tool_use_id,
-        output,
+        output: serialized.payload,
       });
     }
 

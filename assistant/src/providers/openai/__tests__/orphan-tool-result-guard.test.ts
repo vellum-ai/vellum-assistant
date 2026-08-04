@@ -384,3 +384,95 @@ describe("OpenAIChatCompletionsProvider orphan tool_result guard", () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cross-transport agreement
+// ---------------------------------------------------------------------------
+
+describe("orphan degradation agrees across both OpenAI transports", () => {
+  /** Every degraded orphan text a request carried, in request order. */
+  async function responsesOrphanTexts(history: Message[]): Promise<string[]> {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-5.2");
+    const stub = stubResponsesCreate(provider);
+    await provider.sendMessage(history);
+    const input = stub.input() as Array<Record<string, unknown>>;
+    return input
+      .flatMap((item) =>
+        Array.isArray(item.content) ? (item.content as unknown[]) : [],
+      )
+      .map((part) => (part as { text?: string }).text ?? "")
+      .filter((text) => text.startsWith("[orphaned"));
+  }
+
+  async function chatOrphanTexts(history: Message[]): Promise<string[]> {
+    const provider = new OpenAIChatCompletionsProvider(
+      "sk-test",
+      "test-model",
+      {
+        providerName: "openai",
+        providerLabel: "OpenAI",
+      },
+    );
+    const stub = stubChatCreate(provider);
+    await provider.sendMessage(history);
+    return (
+      stub
+        .messages()
+        // A user message carrying a single text part serializes as a plain
+        // string on this transport rather than a one-element array.
+        .flatMap((message) =>
+          Array.isArray(message.content)
+            ? (message.content as unknown[]).map(
+                (part) => (part as { text?: string }).text ?? "",
+              )
+            : [String(message.content ?? "")],
+        )
+        .filter((text) => text.startsWith("[orphaned"))
+    );
+  }
+
+  // The detection rule and the degraded wording live in one shared helper
+  // (`serializeToolResult`), so the two transports cannot drift into
+  // different markers for the same input. Byte equality is the assertion:
+  // re-inlining the rule in one converter and editing it there fails here,
+  // which is the regression this pins.
+  test("both transports degrade the same orphan to byte-identical text", async () => {
+    const history = orphanHistory("call_orphan");
+
+    const [fromResponses, fromChat] = await Promise.all([
+      responsesOrphanTexts(history),
+      chatOrphanTexts(history),
+    ]);
+
+    expect(fromResponses).toEqual(["[orphaned tool result] stranded output"]);
+    expect(fromChat).toEqual(fromResponses);
+  });
+
+  test("both transports carry an executor failure into the same degraded text", async () => {
+    // `is_error` prefixing is part of the shared payload rule, so it must
+    // survive degradation identically on both transports.
+    const history: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_orphan",
+            content: "boom",
+            is_error: true,
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "continuing" }] },
+      { role: "user", content: [{ type: "text", text: "thanks" }] },
+    ];
+
+    const [fromResponses, fromChat] = await Promise.all([
+      responsesOrphanTexts(history),
+      chatOrphanTexts(history),
+    ]);
+
+    expect(fromResponses).toEqual(["[orphaned tool result] [ERROR] boom"]);
+    expect(fromChat).toEqual(fromResponses);
+  });
+});
