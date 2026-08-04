@@ -4,15 +4,23 @@
  *  - saving a new value PUTs the two-decimal limit body
  *  - turning the toggle off PUTs `daily_credit_limit_usd: null` to clear it
  *  - below-minimum input shows an inline error and does NOT call the API
- *  - the toggle is locked (with explanatory copy) while auto top-up is enabled
+ *  - the toggle is locked (with explanatory copy) while a saved limit is what
+ *    enabled auto top-ups depend on
+ *  - an org with auto top-up on but no saved limit can still take back an
+ *    unsaved enable
  *  - a server-rejected clear renders the DRF field error, not the generic copy
- *  - a failed auto top-up query fails open so the toggle still clears the limit
+ *  - an errored auto top-up query fails open so the toggle still clears the
+ *    limit, including when the error lands on top of stale cached data
  *  - `validateDailyLimit` bounds checks (pure)
  *  - the exported anchor id stays in sync with the deep-link route constant
  *
- * The GET is seeded directly into the React Query cache so `useQuery` resolves
- * synchronously; the PUT and the auto top-up GET are mocked at the SDK boundary
- * to capture the request body and to drive the auto top-up dependency.
+ * Every response the card reads is seeded into the React Query cache so the
+ * first render resolves synchronously, and *every* SDK call the card makes is
+ * mocked at the SDK boundary. Both halves are load-bearing: React Query
+ * refetches seeded entries on mount, so an unmocked endpoint would reach the
+ * real network, and a failed refetch flips the query to `error` (keeping the
+ * stale data), which renders the card's load-failure notice and breaks any
+ * assertion that waits.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -22,11 +30,14 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   AutoTopUpConfigResponse,
+  BillingSummaryResponse,
   DailyCreditLimitResponse,
 } from "@/generated/api/types.gen";
 
 let updateCalls: Array<Record<string, unknown>> = [];
 let updateError: unknown = null;
+let limitResponse: DailyCreditLimitResponse;
+let summaryResponse: BillingSummaryResponse;
 let autoTopUpResponse: AutoTopUpConfigResponse;
 let autoTopUpShouldFail = false;
 
@@ -55,11 +66,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
     }
     return Promise.resolve({ data: autoTopUpResponse, response: { ok: true } });
   },
+  organizationsBillingDailyCreditLimitRetrieve: () =>
+    Promise.resolve({ data: limitResponse, response: { ok: true } }),
+  organizationsBillingSummaryRetrieve: () =>
+    Promise.resolve({ data: summaryResponse, response: { ok: true } }),
 }));
 
 import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingDailyCreditLimitRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 
 import { routes } from "@/utils/routes";
@@ -95,6 +111,33 @@ const AUTO_TOP_UP_ON: AutoTopUpConfigResponse = {
   has_payment_method: true,
 };
 
+/**
+ * The card reads only `daily_spend_usd` / `daily_limit_reached` off the billing
+ * summary, but the endpoint returns the whole balance payload, so the fixture
+ * carries it.
+ */
+const SUMMARY: BillingSummaryResponse = {
+  settled_balance: "20.00",
+  minimum_top_up: "5.00",
+  maximum_top_up: "100.00",
+  maximum_balance: "500.00",
+  allowed_top_up_amounts: ["5.00", "10.00", "25.00"],
+  settled_balance_usd: "20.00",
+  minimum_top_up_usd: "5.00",
+  maximum_top_up_usd: "100.00",
+  maximum_balance_usd: "500.00",
+  pending_compute: "0.00",
+  pending_compute_usd: "0.00",
+  effective_balance: "20.00",
+  effective_balance_usd: "20.00",
+  is_degraded: false,
+  daily_credit_limit_usd: null,
+  daily_spend_usd: "0.00",
+  daily_limit_reached: false,
+  low_balance_threshold_usd: "5.00",
+  low_balance_warning: false,
+};
+
 function makeClient(
   config: DailyCreditLimitResponse,
   autoTopUp?: AutoTopUpConfigResponse,
@@ -106,6 +149,10 @@ function makeClient(
     organizationsBillingDailyCreditLimitRetrieveQueryKey(),
     config,
   );
+  client.setQueryData(
+    organizationsBillingSummaryRetrieveQueryKey(),
+    summaryResponse,
+  );
   if (autoTopUp) {
     client.setQueryData(
       organizationsBillingAutoTopUpRetrieveQueryKey(),
@@ -116,14 +163,15 @@ function makeClient(
 }
 
 /**
- * Render the card with the daily-limit GET pre-seeded. `autoTopUp` seeds the
- * auto top-up GET too (and backs its refetch). Omit it to leave that query
- * unresolved, which is the fail-open path.
+ * Render the card with the daily-limit and billing-summary GETs pre-seeded.
+ * `autoTopUp` seeds the auto top-up GET too (and backs its refetch). Omit it to
+ * leave that query unseeded, so the mocked GET drives it from scratch.
  */
 function renderCard(
   config: DailyCreditLimitResponse,
   autoTopUp?: AutoTopUpConfigResponse,
 ): ReturnType<typeof render> & { client: QueryClient } {
+  limitResponse = config;
   if (autoTopUp) {
     autoTopUpResponse = autoTopUp;
   }
@@ -136,6 +184,23 @@ function renderCard(
       </QueryClientProvider>,
     ),
   };
+}
+
+/** Let queued promise callbacks (a fired mutation) run before asserting. */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Wait for the mocked auto top-up GET to reject and settle the query. */
+function settleAutoTopUpError(client: QueryClient): Promise<void> {
+  return waitFor(() => {
+    const state = client.getQueryState(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+    );
+    if (state?.status !== "error") {
+      throw new Error("auto top-up query not settled");
+    }
+  });
 }
 
 const OFF: DailyCreditLimitResponse = {
@@ -152,6 +217,8 @@ const ON: DailyCreditLimitResponse = {
 beforeEach(() => {
   updateCalls = [];
   updateError = null;
+  limitResponse = { ...OFF };
+  summaryResponse = { ...SUMMARY };
   autoTopUpResponse = { ...AUTO_TOP_UP_OFF };
   autoTopUpShouldFail = false;
 });
@@ -259,6 +326,27 @@ describe("DailyCreditLimitCard auto top-up dependency", () => {
     expect(updateCalls.length).toBe(0);
   });
 
+  test("lets an org with no saved limit take back an unsaved enable", async () => {
+    // Predates the backend default: auto top-ups are on, but no limit was ever
+    // persisted, so nothing the backend depends on is at stake yet.
+    const { getByRole, queryByTestId } = renderCard(OFF, AUTO_TOP_UP_ON);
+
+    const toggle = getByRole("switch") as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(queryByTestId("daily-credit-limit-input")).not.toBeNull();
+    expect(toggle.disabled).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(queryByTestId("daily-credit-limit-input")).toBeNull();
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+    // There was no saved limit to clear, so the off-flip is local only.
+    await flushMicrotasks();
+    expect(updateCalls.length).toBe(0);
+  });
+
   test("leaves the toggle usable and the note hidden while auto top-up is off", () => {
     const { getByRole, queryByTestId } = renderCard(ON, AUTO_TOP_UP_OFF);
 
@@ -301,17 +389,37 @@ describe("DailyCreditLimitCard auto top-up dependency", () => {
     autoTopUpShouldFail = true;
     const { client, getByRole, queryByTestId } = renderCard(ON);
 
-    await waitFor(() => {
-      const state = client.getQueryState(
-        organizationsBillingAutoTopUpRetrieveQueryKey(),
-      );
-      if (state?.status !== "error") {
-        throw new Error("auto top-up query not settled");
-      }
-    });
+    await settleAutoTopUpError(client);
 
     // The server still enforces the invariant, so an unknown auto top-up state
     // must not strand the user with a toggle they cannot turn off.
+    expect(queryByTestId("daily-credit-limit-required-note")).toBeNull();
+    const toggle = getByRole("switch") as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      if (updateCalls.length === 0) {
+        throw new Error("PUT not called");
+      }
+    });
+    expect(updateCalls[0]!.body).toEqual({ daily_credit_limit_usd: null });
+  });
+
+  test("fails open when an errored refetch lands on top of stale enabled data", async () => {
+    // React Query keeps serving the cached config alongside the error, so
+    // reading `data.enabled` alone would keep enforcing an auto top-up the
+    // user may have already disabled from another client.
+    autoTopUpShouldFail = true;
+    const { client, getByRole, queryByTestId } = renderCard(ON, AUTO_TOP_UP_ON);
+
+    await settleAutoTopUpError(client);
+    expect(
+      client.getQueryState(organizationsBillingAutoTopUpRetrieveQueryKey())
+        ?.data,
+    ).toEqual(AUTO_TOP_UP_ON);
+
     expect(queryByTestId("daily-credit-limit-required-note")).toBeNull();
     const toggle = getByRole("switch") as HTMLButtonElement;
     expect(toggle.disabled).toBe(false);
