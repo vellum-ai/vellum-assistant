@@ -19,11 +19,11 @@
  *   - **Every non-credit upsell in the app routes to `routes.plans`**, the
  *     plans takeover. There is no second upsell destination.
  */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CalendarClock, KeyRound } from "lucide-react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
-import { Button, Notice } from "@vellumai/design-library";
 
 import { DiskPressureBanner } from "@/components/disk-pressure-banner";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
@@ -31,10 +31,38 @@ import {
   ADD_CREDITS_COPY,
   UPGRADE_COPY,
 } from "@/domains/chat/components/credits-upsell-card";
+import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
 import { PlanPromoCard } from "@/domains/settings/billing/plan-promo-card";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { makeSuperPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+
+/**
+ * The entitlement wall is the real `EmailManagedContent`, not a rebuild of it,
+ * so the catalog cannot drift from the icon, copy and Android CTA suppression
+ * the production component owns. Only the subscription read is faked; one
+ * instance mounts here, and the component writes no global store, so unlike the
+ * credit wall it is safe to co-mount with the rest of the page.
+ */
+const NOT_ENTITLED: SubscriptionResponse = {
+  plan_id: "base",
+  status: "active",
+  renewal_date: null,
+  current_period_end: null,
+  cancel_at_period_end: false,
+  cancel_at: null,
+  entitlements: { managed_email: false, phone_number: false },
+};
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+});
+queryClient.setQueryData(
+  organizationsBillingSubscriptionRetrieveOptions().queryKey,
+  NOT_ENTITLED,
+);
 
 const DISK_STATUS: DiskPressureStatus = {
   enabled: true,
@@ -224,122 +252,123 @@ export const CreditWalls: Story = {
 /** Storage, entitlement and plan walls, all of which route to the takeover. */
 export const ResourceAndEntitlementWalls: Story = {
   render: () => (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10 py-4">
-      <Group heading="Storage wall">
-        <WallCase
-          wall="Storage almost full"
-          trigger="Disk usage crosses the warn threshold on a platform-hosted assistant."
-          cta="Manage Storage + Upgrade"
-          destination="/workspace?sort=size · /assistant/plans"
-        >
-          <DiskPressureBanner
-            status={DISK_STATUS}
-            mode="warning"
-            onAcknowledge={() => {}}
-            onDismissWarning={() => {}}
-            onReviewWorkspaceData={() => {}}
-            onUpgradeStorage={() => {}}
-          />
-        </WallCase>
-
-        <WallCase
-          wall="Storage almost full (no upgrade path)"
-          trigger="Same, but self-hosted or native Android. The Upgrade CTA is dropped and the copy stops offering more storage."
-          cta="Manage Storage"
-          destination="/workspace?sort=size"
-        >
-          <DiskPressureBanner
-            status={DISK_STATUS}
-            mode="warning"
-            onAcknowledge={() => {}}
-            onDismissWarning={() => {}}
-            onReviewWorkspaceData={() => {}}
-            onUpgradeStorage={null}
-          />
-        </WallCase>
-
-        <WallCase
-          wall="Storage critically low"
-          trigger="Disk usage crosses the critical threshold; the assistant will lock if it runs out."
-          cta="Review (the Upgrade CTA lives in the modal it opens)"
-          destination="/assistant/plans"
-        >
-          <DiskPressureBanner
-            status={{ ...DISK_STATUS, state: "critical", usagePercent: 99 }}
-            mode="acknowledgement-required"
-            onAcknowledge={() => {}}
-            onUpgradeStorage={() => {}}
-          />
-        </WallCase>
-      </Group>
-
-      <Group heading="Entitlement wall">
-        <WallCase
-          wall="Managed email not included"
-          trigger="entitlements.managed_email is false on the subscription. Read off the entitlement, not the plan. An admin override can grant it to a Base org."
-          cta="Upgrade"
-          destination="/assistant/plans"
-        >
-          <Notice
-            tone="info"
-            title="Give your assistant its own email address"
-            actions={<Button size="compact">Upgrade</Button>}
+    // The seeded client is only for the entitlement wall's subscription read;
+    // every other case on this page is pure props.
+    <QueryClientProvider client={queryClient}>
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10 py-4">
+        <Group heading="Storage wall">
+          <WallCase
+            wall="Storage almost full"
+            trigger="Disk usage crosses the warn threshold on a platform-hosted assistant."
+            cta="Manage Storage + Upgrade"
+            destination="/workspace?sort=size · /assistant/plans"
           >
-            Upgrade to a plan that includes an email address for your assistant.
-            No provider setup required.
-          </Notice>
-        </WallCase>
-      </Group>
-
-      <Group heading="Plan management upsell">
-        <WallCase
-          wall="Recommended package"
-          trigger="A higher package exists in the catalog and the relation is not a lateral switch."
-          cta="Upgrade"
-          destination="Stripe checkout (base) or package-switch confirm (pro)"
-        >
-          <div className="w-[360px]">
-            <PlanPromoCard
-              title="Upgrade to Super"
-              specs={packageSpecs(makeSuperPackage())}
-              ctaLabel="Upgrade"
-              onCtaClick={() => {}}
+            <DiskPressureBanner
+              status={DISK_STATUS}
+              mode="warning"
+              onAcknowledge={() => {}}
+              onDismissWarning={() => {}}
+              onReviewWorkspaceData={() => {}}
+              onUpgradeStorage={() => {}}
             />
-          </div>
-        </WallCase>
+          </WallCase>
 
-        <WallCase
-          wall="Top of catalog"
-          trigger="A Pro user already at the top of the catalog, or whose tiers match no package."
-          cta="Customize"
-          destination="Custom plan modal (in-place tier change)"
-        >
-          <div className="w-[360px]">
-            <PlanPromoCard
-              title="Create a custom plan"
-              ctaLabel="Customize"
-              onCtaClick={() => {}}
+          <WallCase
+            wall="Storage almost full (no upgrade path)"
+            trigger="Same, but self-hosted or native Android. The Upgrade CTA is dropped and the copy stops offering more storage."
+            cta="Manage Storage"
+            destination="/workspace?sort=size"
+          >
+            <DiskPressureBanner
+              status={DISK_STATUS}
+              mode="warning"
+              onAcknowledge={() => {}}
+              onDismissWarning={() => {}}
+              onReviewWorkspaceData={() => {}}
+              onUpgradeStorage={null}
             />
-          </div>
-        </WallCase>
-      </Group>
+          </WallCase>
 
-      <Group heading="Native Android (consumption only)">
-        <WallCase
-          wall="Any purchase wall on native Android"
-          trigger="useIsNativeAndroid(). Every purchase entry point app-wide is suppressed and the copy points at the website."
-          cta="none"
-          destination="n/a"
-        >
-          <BillingErrorBanner
-            ariaLabel={`${ADD_CREDITS_COPY.title}. ${ANDROID_BILLING_MESSAGE}`}
-            icon={<span className="text-lg opacity-80">💰</span>}
-            title={ADD_CREDITS_COPY.title}
-            subtitle={ANDROID_BILLING_MESSAGE}
-            detached
-          />
-        </WallCase>
-      </Group>
-    </div>
+          <WallCase
+            wall="Storage critically low"
+            trigger="Disk usage crosses the critical threshold; the assistant will lock if it runs out."
+            cta="Review (the Upgrade CTA lives in the modal it opens)"
+            destination="/assistant/plans"
+          >
+            <DiskPressureBanner
+              status={{ ...DISK_STATUS, state: "critical", usagePercent: 99 }}
+              mode="acknowledgement-required"
+              onAcknowledge={() => {}}
+              onUpgradeStorage={() => {}}
+            />
+          </WallCase>
+        </Group>
+
+        <Group heading="Entitlement wall">
+          <WallCase
+            wall="Managed email not included"
+            trigger="entitlements.managed_email is false on the subscription. Read off the entitlement, not the plan. An admin override can grant it to a Base org."
+            cta="Upgrade"
+            destination="/assistant/plans"
+          >
+            <EmailManagedContent
+              assistantId="story-assistant"
+              assistantHandle="ada"
+              emailRootDomain="vellum.ai"
+            />
+          </WallCase>
+        </Group>
+
+        <Group heading="Plan management upsell">
+          <WallCase
+            wall="Recommended package"
+            trigger="A higher package exists in the catalog and the relation is not a lateral switch."
+            cta="Upgrade"
+            destination="Stripe checkout (base) or package-switch confirm (pro)"
+          >
+            <div className="w-[360px]">
+              <PlanPromoCard
+                title="Upgrade to Super"
+                specs={packageSpecs(makeSuperPackage())}
+                ctaLabel="Upgrade"
+                onCtaClick={() => {}}
+              />
+            </div>
+          </WallCase>
+
+          <WallCase
+            wall="Top of catalog"
+            trigger="A Pro user already at the top of the catalog, or whose tiers match no package."
+            cta="Customize"
+            destination="Custom plan modal (in-place tier change)"
+          >
+            <div className="w-[360px]">
+              <PlanPromoCard
+                title="Create a custom plan"
+                ctaLabel="Customize"
+                onCtaClick={() => {}}
+              />
+            </div>
+          </WallCase>
+        </Group>
+
+        <Group heading="Native Android (consumption only)">
+          <WallCase
+            wall="Any purchase wall on native Android"
+            trigger="useIsNativeAndroid(). Every purchase entry point app-wide is suppressed and the copy points at the website."
+            cta="none"
+            destination="n/a"
+          >
+            <BillingErrorBanner
+              ariaLabel={`${ADD_CREDITS_COPY.title}. ${ANDROID_BILLING_MESSAGE}`}
+              icon={<span className="text-lg opacity-80">💰</span>}
+              title={ADD_CREDITS_COPY.title}
+              subtitle={ANDROID_BILLING_MESSAGE}
+              detached
+            />
+          </WallCase>
+        </Group>
+      </div>
+    </QueryClientProvider>
   ),
 };
