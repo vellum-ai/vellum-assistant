@@ -117,6 +117,31 @@ function gatewayProxyBlock(gatewayPort: number): string {
       proxy_set_header Connection $connection_upgrade;`;
 }
 
+/**
+ * Sensitive local-only routes the edge must never expose to the internet,
+ * regardless of whether the SPA is being served.
+ */
+function denylistLocations(): string {
+  return `    location = /auth/token { return 404; }
+    location = /auth/token/ { return 404; }
+    location = /v1/pair { return 404; }
+    location = /v1/pair/ { return 404; }
+    location = /v1/pair/web-init { return 404; }
+    location = /v1/pair/web-init/ { return 404; }
+    location = /v1/devices { return 404; }
+    location = /v1/devices/ { return 404; }
+    location = /v1/devices/revoke { return 404; }
+    location = /v1/devices/revoke/ { return 404; }
+    location = /v1/guardian/init { return 404; }
+    location = /v1/guardian/init/ { return 404; }
+    location = /v1/guardian/reset-bootstrap { return 404; }
+    location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location = /v1/remote-web/pairing-verification { return 404; }
+    location = /v1/remote-web/pairing-verification/ { return 404; }
+    location ^~ /assistant/__local/ { return 404; }
+    location ^~ /assistant/__gateway/ { return 404; }`;
+}
+
 export interface RemoteWebIngressOptions {
   webDistDir: string;
   indexHtmlPath?: string;
@@ -169,7 +194,9 @@ export function buildIngressNginxConfig(opts: {
         indexHtmlPath: remoteWebIngress.indexHtmlPath,
         config: remoteWebIngressConfig(remoteWebIngress.config),
       })
-    : `    location / {
+    : `${denylistLocations()}
+
+    location / {
 ${proxyBlock}
     }`;
 
@@ -236,30 +263,17 @@ function buildRemoteWebIngressLocations(opts: {
     opts.indexHtmlPath ?? join(opts.webDistDir, "index.html");
   const configJson = JSON.stringify(opts.config);
 
-  return `    location = /auth/token { return 404; }
-    location = /auth/token/ { return 404; }
-    location = /v1/pair { return 404; }
-    location = /v1/pair/ { return 404; }
-    location = /v1/pair/web-init { return 404; }
-    location = /v1/pair/web-init/ { return 404; }
-    location = /v1/devices { return 404; }
-    location = /v1/devices/ { return 404; }
-    location = /v1/devices/revoke { return 404; }
-    location = /v1/devices/revoke/ { return 404; }
-    location = /v1/guardian/init { return 404; }
-    location = /v1/guardian/init/ { return 404; }
-    location = /v1/guardian/reset-bootstrap { return 404; }
-    location = /v1/guardian/reset-bootstrap/ { return 404; }
-    location = /v1/remote-web/pairing-verification { return 404; }
-    location = /v1/remote-web/pairing-verification/ { return 404; }
-    location ^~ /assistant/__local/ { return 404; }
-    location ^~ /assistant/__gateway/ { return 404; }
+  return `${denylistLocations()}
 
     location = /healthz {
 ${proxyBlock}
     }
 
     location ^~ /v1/ {
+${proxyBlock}
+    }
+
+    location ^~ /webhooks/ {
 ${proxyBlock}
     }
 

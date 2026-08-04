@@ -70,10 +70,21 @@ describe("buildIngressNginxConfig", () => {
     expect(conf).toContain("location / {");
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect(conf).toContain('proxy_set_header X-Vellum-Edge-Forwarded "1";');
-    expect(conf).not.toContain("return 404;");
-    expect(conf).not.toContain("return 403;");
-    expect(conf).not.toContain("location =");
-    expect(conf).not.toContain("location ~");
+  });
+
+  test("blocks local-only bootstrap helpers before the catch-all proxy", () => {
+    const catchAll = conf.indexOf("location / {");
+    expect(catchAll).toBeGreaterThan(-1);
+    const deniedLocations = [
+      "location = /auth/token { return 404; }",
+      "location = /v1/pair { return 404; }",
+      "location = /v1/guardian/init { return 404; }",
+      "location = /v1/remote-web/pairing-verification { return 404; }",
+    ];
+    for (const location of deniedLocations) {
+      expect(conf).toContain(location);
+      expect(conf.indexOf(location)).toBeLessThan(catchAll);
+    }
   });
 
   test("declares static MIME types needed by the SPA", () => {
@@ -131,6 +142,26 @@ describe("buildIngressNginxConfig", () => {
     expect(remoteConf).toContain(
       'proxy_set_header X-Vellum-Edge-Forwarded "1";',
     );
+  });
+
+  test("proxies webhook callbacks to the gateway in remote web mode", () => {
+    const webhooksStart = remoteConf.indexOf("location ^~ /webhooks/ {");
+    expect(webhooksStart).toBeGreaterThan(-1);
+    const webhooksBlock = remoteConf.slice(
+      webhooksStart,
+      remoteConf.indexOf("}", webhooksStart),
+    );
+    expect(webhooksBlock).toContain("proxy_pass http://127.0.0.1:7830;");
+    expect(webhooksBlock).toContain("proxy_set_header Upgrade $http_upgrade;");
+  });
+
+  test("proxies /healthz in both modes", () => {
+    expect(remoteConf).toContain("location = /healthz {");
+    // The plain-proxy mode has no /healthz denylist entry, so the catch-all
+    // proxy serves it.
+    expect(conf).not.toContain("/healthz { return 404; }");
+    expect(conf).toContain("location / {");
+    expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
   });
 
   test("blocks local-only bootstrap helpers before generic API proxying", () => {
