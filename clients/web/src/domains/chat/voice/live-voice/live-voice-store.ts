@@ -253,6 +253,34 @@ export interface LiveVoiceState {
    * registered.
    */
   starter: LiveVoiceSessionStarter | null;
+  /**
+   * One short line describing what the current turn is doing ("Reading a
+   * file"), or `""` when it is doing nothing nameable.
+   *
+   * **The wording is the daemon's**, delivered by the `activity` frame, not
+   * composed here. The iOS Live Activity is driven both by that socket and by
+   * an APNs push the daemon dispatches when this web layer is suspended; the
+   * two must carry identical content state, and only one of them can run web
+   * code. See `assistant/src/live-voice/activity-label.ts`.
+   *
+   * Turn-scoped: the daemon sends `""` when a turn stops working, and
+   * `reset()` clears it with everything else.
+   */
+  activityLabel: string;
+  /**
+   * The confirmation the current turn is blocked on, or `null` when it is not
+   * blocked on one.
+   *
+   * Delivered alongside {@link activityLabel} by the `activity` frame, because
+   * a wait is a thing the turn is "doing" and the two are one fact. It exists
+   * for surfaces outside the app — the iOS Live Activity's Approve/Deny
+   * buttons — which need an id to answer rather than a card to render; in the
+   * app the approval card is already on screen and owns its own request.
+   *
+   * Turn-scoped, and cleared the moment the decision stops being the user's to
+   * make, however it was made.
+   */
+  pendingApprovalRequestId: string | null;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -337,6 +365,19 @@ export interface LiveVoiceActions {
   setState: (state: LiveVoiceSessionState) => void;
   /** Record whether assistant TTS audio is currently queued/playing. */
   setAssistantAudioActive: (active: boolean) => void;
+  /**
+   * Record what the current turn is doing, as the daemon worded it, and which
+   * confirmation it is blocked on if it is blocked on one.
+   *
+   * One setter for both because they arrive on one frame and describe one
+   * state: a turn that is waiting is not also running something, and letting
+   * the id be set independently would allow exactly the pair that cannot be
+   * true (a wait with no line, a line with a stale wait).
+   */
+  setActivityLabel: (
+    activityLabel: string,
+    pendingApprovalRequestId?: string | null,
+  ) => void;
   /** Set whether the controller is retrying a dropped connection. */
   setReconnecting: (reconnecting: boolean) => void;
   /**
@@ -492,6 +533,8 @@ export function isLiveVoiceSessionOwnedBy(
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
   assistantAudioActive: false,
+  activityLabel: "",
+  pendingApprovalRequestId: null,
   reconnecting: false,
   assistantId: null,
   conversationId: null,
@@ -519,6 +562,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
     set({ assistantAudioActive }),
+  setActivityLabel: (activityLabel, pendingApprovalRequestId = null) =>
+    set({ activityLabel, pendingApprovalRequestId }),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
     // A fresh session always opens with the mic live, even if the controller

@@ -67,6 +67,7 @@ describe("getModelProfiles", () => {
       "balanced",
       "quality-optimized",
       "cost-optimized",
+      "latency-optimized",
     ]);
   });
 
@@ -85,6 +86,7 @@ describe("getModelProfiles", () => {
       "balanced",
       "cost-optimized",
       "disabled",
+      "latency-optimized",
       "quality-optimized",
     ]);
     const disabled = result.find((p) => p.key === "disabled");
@@ -122,6 +124,7 @@ describe("getModelProfiles", () => {
       "mix",
       "balanced",
       "cost-optimized",
+      "latency-optimized",
       "quality-optimized",
     ]);
   });
@@ -131,6 +134,7 @@ describe("getModelProfiles", () => {
     expect(result.map((p) => p.key).sort()).toEqual([
       "balanced",
       "cost-optimized",
+      "latency-optimized",
       "quality-optimized",
     ]);
     for (const profile of result) {
@@ -150,7 +154,7 @@ describe("getModelProfiles", () => {
       "Best results with the most capable model",
     );
     expect(result.find((p) => p.key === "cost-optimized")?.description).toBe(
-      "Fastest responses at lower cost",
+      "Cheapest responses, for high-volume work",
     );
   });
 
@@ -162,7 +166,7 @@ describe("getModelProfiles", () => {
     // Tier descriptions are intent-only (no model names - LUM-2881), so the
     // managed and BYOK columns read the same for this tier.
     expect(result.find((p) => p.key === "cost-optimized")?.description).toBe(
-      "Fastest responses at lower cost",
+      "Cheapest responses, for high-volume work",
     );
   });
 

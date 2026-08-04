@@ -186,15 +186,29 @@ export function seedInferenceProfiles(
     }
   }
 
-  // Profile ordering — ensure all seeded profiles appear in the order array.
+  // Profile ordering: ensure all seeded profiles appear in the order array.
+  // A managed key absent from a workspace's order is placed next to the
+  // sibling that precedes it in the catalog rather than appended, so the
+  // managed profiles stay grouped in catalog order even on a workspace whose
+  // order already lists custom profiles. Entries already in the order keep
+  // their relative positions, so a user arrangement survives.
   const profileOrder = Array.isArray(llm.profileOrder)
     ? (llm.profileOrder as string[])
     : [];
-  const orderSet = new Set(profileOrder);
-  for (const name of Object.keys(MANAGED_PROFILE_TEMPLATES)) {
-    if (!orderSet.has(name)) {
+  const managedNames = Object.keys(MANAGED_PROFILE_TEMPLATES);
+  for (const [index, name] of managedNames.entries()) {
+    if (profileOrder.includes(name)) {
+      continue;
+    }
+    const anchor = managedNames
+      .slice(0, index)
+      .reverse()
+      .map((sibling) => profileOrder.indexOf(sibling))
+      .find((position) => position >= 0);
+    if (anchor === undefined) {
       profileOrder.push(name);
-      orderSet.add(name);
+    } else {
+      profileOrder.splice(anchor + 1, 0, name);
     }
   }
   llm.profileOrder = profileOrder;

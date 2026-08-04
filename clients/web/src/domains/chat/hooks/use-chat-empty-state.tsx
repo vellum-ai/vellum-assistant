@@ -13,6 +13,7 @@ import { type ReactNode, useMemo } from "react";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { ComposerPeek } from "@/domains/chat/components/composer-peek";
+import { CreditsUpsellCard } from "@/domains/chat/components/credits-upsell-card";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import {
   SuggestionFeaturedRow,
@@ -50,6 +51,15 @@ export interface UseChatEmptyStateParams {
   /** Opened app state from viewer-store (non-null when editing an app). */
   openedAppState: { name: string; dirName?: string } | null;
   isAssistantBusy: boolean;
+  /**
+   * Whether the org's credit balance is exhausted (from the shared
+   * `useBillingBalanceStatus()` read in `chat-route-content`). While true,
+   * the plain empty state mounts the credits upsell card above the starters
+   * so a fresh conversation shows the credit wall before the first send.
+   * Inert while the billing query is loading or gated off (self-hosted, no
+   * platform session), so the card never flashes.
+   */
+  showCreditsUpsell: boolean;
   onSelectStarter: (starter: ConversationStarter) => void;
   /**
    * Behind the new-thread-suggestions flag, clicking a library card invokes
@@ -97,6 +107,7 @@ export function useChatEmptyState({
   mainView,
   openedAppState,
   isAssistantBusy,
+  showCreditsUpsell,
   onSelectStarter,
   onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
@@ -125,6 +136,11 @@ export function useChatEmptyState({
       ? { name: openedAppState.name, dirName: openedAppState.dirName }
       : null;
 
+  // The plain chat empty state: a fresh conversation outside the app-editing
+  // side panel. Gates the suggestions library, the starters dock, and the
+  // proactive credits upsell card.
+  const isPlainEmptyState = isEmptyConversation && !editingApp;
+
   // The avatar's presence on the empty state lives entirely in
   // `ComposerPeek` (hanging from the top of the screen while idle in the
   // browser, saying hello from under the input on iOS, peeking behind the
@@ -139,7 +155,7 @@ export function useChatEmptyState({
   // header.
   const liveVoiceState = useLiveVoiceStore.use.state();
   const actsEnabled =
-    isEmptyConversation && !editingApp && !isLiveVoiceSessionActive(liveVoiceState);
+    isPlainEmptyState && !isLiveVoiceSessionActive(liveVoiceState);
 
   // Behind the flag, the new suggestions library replaces the starter chips
   // on a fresh thread. The app-editing override keeps its bespoke chips
@@ -148,8 +164,7 @@ export function useChatEmptyState({
   // back to the chip grid.
   const showSuggestionLibrary =
     newThreadSuggestionsEnabled &&
-    isEmptyConversation &&
-    !editingApp &&
+    isPlainEmptyState &&
     onSelectSuggestion != null;
 
   // Gate the daemon fetch by `isEmptyConversation` so non-empty chats stop
@@ -218,6 +233,23 @@ export function useChatEmptyState({
     }
   }
 
+  // Proactive credit wall for a fresh conversation: the card rides the
+  // starters slot, ahead of whatever occupies it (or alone when there are no
+  // starters yet), so it lands above the starters dock. The empty state
+  // suppresses `bannerSlot` (see `chat-body.tsx`), which is why the card
+  // mounts here rather than as a banner. The app-editing side panel is
+  // excluded; a send there still fails into the in-transcript card.
+  if (showCreditsUpsell && isPlainEmptyState) {
+    startersSlot = (
+      <>
+        <div className="mb-3">
+          <CreditsUpsellCard />
+        </div>
+        {startersSlot}
+      </>
+    );
+  }
+
   // Stable callback so the latest-turn avatar slot isn't rebuilt on every
   // transcript render. Paired with `memo(ChatAvatar)`, the avatar
   // re-renders only when its inputs actually change.
@@ -242,9 +274,10 @@ export function useChatEmptyState({
     [avatarComponents, avatarImageUrl, avatarTraits, isAssistantBusy],
   );
 
-  // Portal component — mounting location doesn't matter, but it only runs
+  // Portal component: mounting location doesn't matter, but it only runs
   // on the plain empty state (never over the app-editing side panel, whose
-  // composer shares the same DOM anchor).
+  // composer shares the same DOM anchor) and never during a live-voice
+  // session (see `actsEnabled` above).
   const composerPeekSlot = actsEnabled ? (
     <ComposerPeek
       components={avatarComponents}
@@ -262,7 +295,7 @@ export function useChatEmptyState({
     // side panel keeps them inline under the composer.
     dockStartersToBottom:
       showSuggestionLibrary ||
-      (isEmptyConversation && !editingApp && emptyStateStarters.length > 0),
+      (isPlainEmptyState && emptyStateStarters.length > 0),
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,

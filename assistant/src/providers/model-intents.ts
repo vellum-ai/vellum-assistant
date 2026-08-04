@@ -9,45 +9,55 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = Object.fromEntries(
   PROVIDER_CATALOG.map((entry) => [entry.id, entry.defaultModel]),
 );
 
+// `cost-optimized` is the cheapest model a provider serves, `latency-optimized`
+// the fastest to first token. On anthropic, ollama and fireworks the same model
+// is both, so those columns repeat by construction rather than by oversight.
 const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
     balanced: "claude-sonnet-4-6",
+    "cost-optimized": "claude-haiku-4-5-20251001",
     "latency-optimized": "claude-haiku-4-5-20251001",
     "quality-optimized": "claude-fable-5",
     "vision-optimized": "claude-opus-4-6",
   },
   openai: {
     balanced: "gpt-5.4-mini",
+    "cost-optimized": "gpt-5.4-nano",
     "latency-optimized": "gpt-5.6-luna",
     "quality-optimized": "gpt-5.4",
     "vision-optimized": "gpt-5.4",
   },
   gemini: {
     balanced: "gemini-3-flash-preview",
+    "cost-optimized": "gemini-2.5-flash-lite",
     "latency-optimized": "gemini-3.1-flash-lite",
     "quality-optimized": "gemini-3.1-pro-preview",
     "vision-optimized": "gemini-3-flash-preview",
   },
   ollama: {
     balanced: "llama3.2",
+    "cost-optimized": "llama3.2",
     "latency-optimized": "llama3.2",
     "quality-optimized": "llama3.2",
     "vision-optimized": "llama3.2",
   },
   fireworks: {
     balanced: "accounts/fireworks/models/minimax-m3",
+    "cost-optimized": "accounts/fireworks/models/deepseek-v4-flash",
     "latency-optimized": "accounts/fireworks/models/deepseek-v4-flash",
     "quality-optimized": "accounts/fireworks/models/kimi-k2p6",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p6",
   },
   openrouter: {
     balanced: "anthropic/claude-sonnet-4.6",
+    "cost-optimized": "deepseek/deepseek-v4-flash",
     "latency-optimized": "anthropic/claude-haiku-4.5",
     "quality-optimized": "anthropic/claude-fable-5",
     "vision-optimized": "anthropic/claude-opus-4.6",
   },
   "vercel-ai-gateway": {
     balanced: "anthropic/claude-sonnet-4.6",
+    "cost-optimized": "deepseek/deepseek-v4-flash",
     "latency-optimized": "anthropic/claude-haiku-4.5",
     "quality-optimized": "anthropic/claude-fable-5",
     "vision-optimized": "anthropic/claude-opus-4.6",
@@ -58,6 +68,7 @@ const FALLBACK_DEFAULT_MODEL = "claude-opus-4-8";
 
 const MODEL_INTENTS = new Set<ModelIntent>([
   "balanced",
+  "cost-optimized",
   "latency-optimized",
   "quality-optimized",
   "vision-optimized",

@@ -1624,6 +1624,54 @@ describe("sparse services.stt patch provider seeding", () => {
   });
 });
 
+describe("config_patch tier-override clears", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  beforeEach(() => {
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          mine: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-haiku-4-5",
+          },
+        },
+        defaultProfileOverrides: { balanced: "mine", "cost-optimized": "mine" },
+      },
+    };
+    seedRawConfig();
+  });
+
+  const savedTierOverrides = () =>
+    (loadRawConfig().llm as Record<string, unknown>).defaultProfileOverrides;
+
+  test("a null tier value deletes the key instead of persisting null", async () => {
+    // Tier values are strings, so the deep-merge null sentinel would assign
+    // null (deletion covers only object-valued keys); a persisted null
+    // fails LLMSchema and only loader recovery would clear it. The scrub
+    // makes the wire contract's "null clears" a real delete.
+    await configPatchRoute.handler({
+      body: { llm: { defaultProfileOverrides: { "cost-optimized": null } } },
+    });
+    expect(savedTierOverrides()).toEqual({ balanced: "mine" });
+  });
+
+  test("a remap write and an untouched tier survive a patch", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: { defaultProfileOverrides: { balanced: "cost-optimized" } },
+      },
+    });
+    expect(savedTierOverrides()).toEqual({
+      balanced: "cost-optimized",
+      "cost-optimized": "mine",
+    });
+  });
+});
+
 describe("config invariant flag enrichment", () => {
   const configGetRoute = ROUTES.find((r) => r.operationId === "config_get")!;
   const configPatchRoute = ROUTES.find(
@@ -1679,6 +1727,17 @@ describe("config invariant flag enrichment", () => {
     expect(profiles["os-beta"]!.invariant).toBe(true);
     expect(profiles["cost-optimized"]!).not.toHaveProperty("invariant");
     expect(profiles.custom!).not.toHaveProperty("invariant");
+  });
+
+  test("every managed default is invariant on the wire, Speed included", async () => {
+    // The clients drive their read-only lock off this flag, so a default that
+    // resolves from the catalog with no workspace stub must still carry it.
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    for (const name of ["balanced", "quality-optimized", "latency-optimized"]) {
+      expect(profiles[name]!.invariant).toBe(true);
+    }
   });
 
   test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {

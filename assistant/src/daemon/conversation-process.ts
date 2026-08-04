@@ -291,6 +291,12 @@ async function buildPassthroughBatch(
     if (candidate.transport?.clientOs !== head.transport?.clientOs) {
       break;
     }
+    // Same head-wins problem for the app on screen: batching a message sent
+    // while a different app was open would run it against the head's
+    // `visible_app`, pointing "the app" at the wrong one.
+    if (candidate.transport?.visibleAppId !== head.transport?.visibleAppId) {
+      break;
+    }
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
       break;
     }
@@ -318,10 +324,11 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
-// ── Steer repair ────────────────────────────────────────────────────
+// ── Steer / interrupt repair ────────────────────────────────────────
 
 /**
- * When a steer-to-message abort interrupts an in-flight tool call, the
+ * When a steer-to-message abort (or a user interrupt with messages still
+ * queued behind the stopped turn) cuts off an in-flight tool call, the
  * conversation history may end with an assistant message containing one
  * or more `tool_use` blocks that have no corresponding `tool_result`.
  * LLM providers reject this sequence. This helper scans the tail of the
@@ -329,10 +336,12 @@ async function buildPassthroughBatch(
  * unmatched `tool_use` blocks.
  */
 function repairPendingToolUseBlocks(conversation: Conversation): void {
-  if (!conversation.pendingSteerRepair) {
+  const steered = conversation.pendingSteerRepair;
+  if (!steered && !conversation.pendingInterruptRepair) {
     return;
   }
   conversation.pendingSteerRepair = false;
+  conversation.pendingInterruptRepair = false;
 
   const messages = conversation.messages;
   if (messages.length === 0) {
@@ -375,15 +384,18 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
     {
       conversationId: conversation.conversationId,
       pendingToolUseCount: pendingToolUseIds.length,
+      trigger: steered ? "steer" : "interrupt",
     },
-    "Injecting synthetic tool_result for pending tool_use blocks after steer",
+    "Injecting synthetic tool_result for pending tool_use blocks",
   );
 
   // Build a single user message with tool_result blocks for all pending IDs.
   const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
     type: "tool_result" as const,
     tool_use_id: toolUseId,
-    content: "Tool execution was interrupted by user steering.",
+    content: steered
+      ? "Tool execution was interrupted by user steering."
+      : "Tool execution was interrupted by the user.",
     is_error: true,
   }));
   conversation.messages.push({
@@ -729,6 +741,7 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
     conversation.applyClientOsFromTransport(next.transport);
+    conversation.applyVisibleAppFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -923,7 +936,11 @@ async function drainSingleMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId: next.requestId,
       });
-      const result = await conversation.forceCompact();
+      // Push the usage refresh to the queued item's own sink, the one the
+      // result card below streams on. `sendToClient` is reset to a no-op once
+      // an interactive turn finishes, so a `/compact` draining behind one
+      // would otherwise refresh nothing.
+      const result = await conversation.forceCompact(next.onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -1305,6 +1322,7 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
     conversation.applyClientOsFromTransport(head.transport);
+    conversation.applyVisibleAppFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;
@@ -1737,6 +1755,19 @@ export interface ProcessMessageOptions {
   /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
   sourceActorPrincipalId?: string;
   /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * (see `PersistMessageOptions.scripted`). Forwarded to persistence so the
+   * turn is excluded from activation counts. Defaults to false. A caller
+   * sending machine-authored content into a `standard` conversation must set
+   * it explicitly.
+   *
+   * Related to `metadata.automated` below but not the same knob: `automated`
+   * implies scripted (machine-authored is by definition not typed), while
+   * `scripted` carries no memory-indexing side effect. A caller that wants a
+   * turn excluded from activation but still indexed sets this, not that.
+   */
+  scripted?: boolean;
+  /**
    * Extra metadata stamped onto the persisted user row alongside the channel
    * and provenance fields the turn derives. Callers that drive a turn on
    * someone's behalf use it to mark the row's provenance (e.g. the plugin-api
@@ -1767,6 +1798,7 @@ export async function processMessage(
     overrideProfile,
     displayContent,
     sourceActorPrincipalId,
+    scripted,
     metadata: callerMetadata,
   } = options;
   await conversation.ensureActorScopedHistory();
@@ -2040,7 +2072,8 @@ export async function processMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
       });
-      const result = await conversation.forceCompact();
+      // Same sink the result card below streams on (see the drain branch).
+      const result = await conversation.forceCompact(onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -2179,6 +2212,7 @@ export async function processMessage(
       attachments,
       requestId,
       displayContent,
+      scripted,
       ...(callerMetadata ? { metadata: callerMetadata } : {}),
     });
     publishConversationMessagesChanged(conversation.conversationId);

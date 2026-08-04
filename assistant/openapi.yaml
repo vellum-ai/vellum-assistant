@@ -4737,6 +4737,8 @@ paths:
                           type: string
                         defaultProfile:
                           type: string
+                        shippedDefaultProfile:
+                          type: string
                       required:
                         - id
                         - displayName
@@ -10711,6 +10713,11 @@ paths:
                     type: number
                   updatedAt:
                     type: number
+                  workspacePath:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Workspace-relative file this document is bound to, or null
                 required:
                   - success
                   - surfaceId
@@ -10720,6 +10727,7 @@ paths:
                   - wordCount
                   - createdAt
                   - updatedAt
+                  - workspacePath
                 additionalProperties: false
   /v1/documents/{id}/comments:
     get:
@@ -11137,6 +11145,74 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/documents/for-workspace-file:
+    post:
+      operationId: documents_forworkspacefile_post
+      summary: Get or create the document for a workspace markdown file
+      description:
+        "Return the document bound to a workspace markdown file, creating it on first open. The file is the source
+        of truth at open time: stored content that has drifted from the file is refreshed from disk before the document
+        is returned."
+      tags:
+        - documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Workspace-relative path to a .md/.markdown file
+                conversationId:
+                  type: string
+                  description: Conversation the document is opened from
+              required:
+                - path
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  surfaceId:
+                    type: string
+                  conversationId:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  wordCount:
+                    type: number
+                  createdAt:
+                    type: number
+                  updatedAt:
+                    type: number
+                  workspacePath:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Workspace-relative file this document is bound to, or null
+                required:
+                  - success
+                  - surfaceId
+                  - conversationId
+                  - title
+                  - content
+                  - wordCount
+                  - createdAt
+                  - updatedAt
+                  - workspacePath
+                additionalProperties: false
+        "422":
+          description: Path is not a markdown file
   /v1/domain/register:
     post:
       operationId: domain_register_post
@@ -14563,7 +14639,9 @@ paths:
         "404":
           description: Profile not found
         "409":
-          description: Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm
+          description:
+            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a
+            mix arm
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile
@@ -14679,8 +14757,9 @@ paths:
       summary: Create a provider connection
       description:
         Create a new named provider connection. When auth is omitted it is derived from the provider (keyless
-        providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if
-        a connection with this name already exists.
+        providers get none, vellum gets platform, everything else needs credential for api_key auth). An explicit auth
+        object must agree with the provider; platform auth belongs to vellum and only to vellum. Fails with 409 if a
+        connection with this name already exists.
       tags:
         - inference
       requestBody:
@@ -14789,8 +14868,9 @@ paths:
       summary: Update a provider connection
       description:
         Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth;
-        passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection
-        (vellum) the auth is locked to platform; label remains editable.
+        passing credential alone rotates the key via provider-derived api_key auth. An explicit auth object must agree
+        with the connection's provider; platform auth belongs to vellum and only to vellum. For the Vellum-managed
+        connection (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
       parameters:
@@ -19589,6 +19669,14 @@ paths:
                           additionalProperties: false
                         systemCard:
                           type: boolean
+                        providerError:
+                          type: object
+                          properties:
+                            code:
+                              type: string
+                            category:
+                              type: string
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -19755,6 +19843,13 @@ paths:
                     Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the
                     per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
                   type: string
+                visibleAppId:
+                  description:
+                    'Id of the app the client currently has open on screen (app viewer or the app-editing split). Drives the
+                    per-turn `visible_app:` context line so the assistant can resolve "the app" to what the user is
+                    looking at. View state only: it never affects transport, routing, or tool gating, and is omitted
+                    whenever no app is in view.'
+                  type: string
                 clientMessageId:
                   type: string
                   description:
@@ -19797,6 +19892,16 @@ paths:
                     lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued
                     snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
                     path only — slash-command content bypasses it."
+                  type: boolean
+                scripted:
+                  description:
+                    "When true, this turn was auto-sent on the user's behalf rather than typed by them: onboarding research
+                    prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy
+                    pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where
+                    activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the
+                    client genuinely cannot tell, since absent means UNKNOWN and a wrong false is trusted downstream.
+                    Independent of `hidden`: a turn can be visible and scripted (the research prompt) or hidden and
+                    scripted (the kickoff greeting)."
                   type: boolean
                 onboarding:
                   type: object
@@ -21418,6 +21523,7 @@ paths:
                   minLength: 1
                   description: Feed item id (notif:<uuid>) or bare uuid
                 title:
+                  description: New title. An empty value is ignored, never cleared.
                   type: string
                 body:
                   type: string
@@ -27184,10 +27290,13 @@ paths:
                     type: string
                   name:
                     type: string
+                  error:
+                    description:
+                      Why the secret was not stored (e.g. provider-side API key validation failed). Present only when success is
+                      false.
+                    type: string
                 required:
                   - success
-                  - type
-                  - name
                 additionalProperties: false
   /v1/secrets/read:
     post:
@@ -33198,6 +33307,14 @@ components:
                 anyOf:
                   - $ref: "#/components/schemas/CallSiteOverrideDraft"
                   - type: "null"
+            defaultProfileOverrides:
+              type: object
+              propertyNames:
+                type: string
+              additionalProperties:
+                anyOf:
+                  - type: string
+                  - type: "null"
             profileSession:
               anyOf:
                 - type: object
@@ -34025,6 +34142,12 @@ components:
                         type: string
                     additionalProperties: false
                   - type: "null"
+            defaultProfileOverrides:
+              type: object
+              propertyNames:
+                type: string
+              additionalProperties:
+                type: string
             profileSession:
               type: object
               properties:

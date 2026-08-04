@@ -106,7 +106,7 @@ export function ComposerSecretNotice({
         tone="warning"
         title={
           sendBlocked
-            ? "Message not sent — it looks like it contains an API key"
+            ? "Message not sent. It looks like it contains an API key."
             : "This looks like an API key"
         }
         onDismiss={sendBlocked ? undefined : onDismiss}
@@ -128,7 +128,7 @@ export function ComposerSecretNotice({
       >
         <span className="font-mono">{maskSecretValue(first.value)}</span>
         <p>
-          Credentials sent in chat are visible in the transcript — store it
+          Credentials sent in chat are visible in the transcript. Store it
           securely instead.
         </p>
       </Notice>

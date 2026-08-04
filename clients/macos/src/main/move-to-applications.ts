@@ -1,6 +1,12 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
 
+import {
+  getInstallLocation,
+  isStrandedOutsideApplications,
+  recordInstallLocation,
+} from "./install-location";
 import log from "./logger";
+import { readSetting, writeSetting } from "./settings";
 
 // Build-time define (see electron.vite.config.ts) — the same VELLUM_ENVIRONMENT
 // that electron-builder.config.cjs derives `productName` from.
@@ -105,8 +111,14 @@ function createInstallSplash(): BrowserWindow {
  * @see https://www.electronjs.org/docs/latest/api/app#appmovetoapplicationsfolderoptions-macos
  */
 export async function relocateToApplicationsFolder(): Promise<boolean> {
-  if (!app.isPackaged) return false;
-  if (app.isInApplicationsFolder()) return false;
+  if (!app.isPackaged) {
+    recordInstallLocation("unpackaged");
+    return false;
+  }
+  if (app.isInApplicationsFolder()) {
+    recordInstallLocation("applications");
+    return false;
+  }
 
   let splash: BrowserWindow | null = null;
   try {
@@ -136,12 +148,14 @@ export async function relocateToApplicationsFolder(): Promise<boolean> {
   };
 
   try {
+    let conflictedWithRunningCopy = false;
     const moved = app.moveToApplicationsFolder({
       conflictHandler: (conflictType) => {
         if (conflictType === "existsAndRunning") {
           // Another copy is already installed and running. Leave it be and
           // keep running from the current location for this session rather
           // than nagging — the user clearly already has Vellum installed.
+          conflictedWithRunningCopy = true;
           log.info(
             "[move-to-applications] /Applications copy already running; skipping move",
           );
@@ -151,13 +165,110 @@ export async function relocateToApplicationsFolder(): Promise<boolean> {
         return true;
       },
     });
+    // A `false` return is the user's own doing (the conflict handler above, or
+    // a cancelled authorization prompt); anything else throws.
+    recordInstallLocation(
+      moved
+        ? "relocating"
+        : conflictedWithRunningCopy
+          ? "conflict-exists-and-running"
+          : "declined",
+    );
     // On success the process is already quitting/relaunching, so the splash
     // is torn down with it; only close it if we're staying put.
     if (!moved) closeSplash();
     return moved;
   } catch (err) {
+    recordInstallLocation("failed");
     log.error("[move-to-applications] moveToApplicationsFolder failed:", err);
     closeSplash();
     return false;
   }
 }
+
+/**
+ * Offer a way out when the app is running as a packaged build from somewhere
+ * other than /Applications.
+ *
+ * Every branch that leaves the app there converges on the same broken state:
+ * `electron-updater` refuses to run from a read-only location, so the install
+ * can never take an update, and nothing tells the user. Under macOS app
+ * translocation it cannot self-correct either, because each launch gets a
+ * fresh randomized read-only path.
+ *
+ * The remedy does not depend on which branch got us here, so this checks the
+ * state rather than the cause: offer the move again with the user present
+ * (which also clears the transient causes, an authorization prompt dismissed
+ * the first time or a copy that has since quit), and fall back to pointing at
+ * Finder when even that fails. Declining is remembered so this asks at most
+ * once per install for a user who wants to run from where they are.
+ *
+ * Silent on a launch that a `.vellum` file or a deep link triggered: accepting
+ * the offer relaunches, and those events live only in this process's pending
+ * buffers until the renderer drains them, so the relaunch would drop the file
+ * or link the user actually opened. Such a launch is the one case where being
+ * outside /Applications is a deliberate deferral rather than a failure, and
+ * the deferral is only good for this launch. The next plain launch runs the
+ * relocation unguarded, and this prompt follows it if the app is still
+ * stranded afterwards.
+ */
+export async function promptToRelocateIfStranded(): Promise<void> {
+  if (!isStrandedOutsideApplications()) {
+    return;
+  }
+  if (getInstallLocation() === "skipped-pending-open") {
+    return;
+  }
+  if (readSetting("suppressRelocationPrompt") === true) {
+    return;
+  }
+
+  const name = productDisplayName();
+  const { response, checkboxChecked } = await dialog.showMessageBox({
+    type: "warning",
+    buttons: ["Move to Applications", "Not Now"],
+    defaultId: 0,
+    cancelId: 1,
+    message: `${name} can't install updates`,
+    detail:
+      `${name} is running from a read-only location, so it can't update ` +
+      `itself and will stay on this version. Moving it to your Applications ` +
+      `folder fixes that. ${name} will restart.`,
+    checkboxLabel: "Don't remind me again",
+    checkboxChecked: false,
+  });
+
+  if (checkboxChecked) {
+    writeSetting("suppressRelocationPrompt", true);
+  }
+  if (response !== 0) {
+    return;
+  }
+
+  // A second attempt with the user watching: the authorization prompt is
+  // answerable now, and a conflicting copy may have quit since launch.
+  if (await relocateToApplicationsFolder()) {
+    return;
+  }
+
+  await dialog.showMessageBox({
+    type: "error",
+    buttons: ["Show Me", "Close"],
+    defaultId: 0,
+    cancelId: 1,
+    message: `${name} couldn't move itself`,
+    detail:
+      `Drag ${name} into your Applications folder in Finder, then open it ` +
+      `from there.`,
+  }).then(({ response: fallbackResponse }) => {
+    if (fallbackResponse === 0) {
+      shell.showItemInFolder(app.getPath("exe"));
+    }
+  });
+}
+
+// Test seam, exported only for unit-test setup. Production code never
+// resets the recorded location.
+export const __resetForTesting = (): void => {
+  recordInstallLocation("unpackaged");
+};

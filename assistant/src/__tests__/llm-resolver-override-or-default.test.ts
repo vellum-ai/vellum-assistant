@@ -530,3 +530,82 @@ describe("user shadows of default keys keep their intent", () => {
     expect(pinned.provider).toBe("openai");
   });
 });
+
+describe("defaultProfileOverrides tier remap", () => {
+  test("a tier remap redirects every call site on that tier, and only that tier", () => {
+    const llm = LLMSchema.parse({
+      profiles: { mine: completeCustom },
+      defaultProfileOverrides: { "cost-optimized": "mine" },
+      ...anthropicDp,
+    });
+    // conversationSummarization ships on the cost-optimized tier.
+    const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.provider).toBe("openai");
+    const selection = selectWinningProfile("conversationSummarization", llm);
+    expect(selection.profileName).toBe("mine");
+    expect(selection.source).toBe("default");
+    // A balanced-tier site is untouched by a cost-optimized remap.
+    expect(resolveCallSiteConfig("subagentSpawn", llm).provider).toBe(
+      "anthropic",
+    );
+  });
+
+  test("a per-call-site pin still beats the tier remap", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        mine: completeCustom,
+        pinned: { ...completeCustom, model: "gpt-5.4" },
+      },
+      defaultProfileOverrides: { "cost-optimized": "mine" },
+      callSites: { conversationSummarization: { profile: "pinned" } },
+      ...anthropicDp,
+    });
+    expect(resolveCallSiteConfig("conversationSummarization", llm).model).toBe(
+      "gpt-5.4",
+    );
+  });
+
+  test("an unusable remap target reports and falls through to the stock tier", () => {
+    const llm = LLMSchema.parse({
+      profiles: { partial: { source: "user", model: "gpt-5.5" } },
+      defaultProfileOverrides: { "cost-optimized": "partial" },
+      ...anthropicDp,
+    });
+    const { fallbacks, opts } = collect();
+    const resolved = resolveCallSiteConfig(
+      "conversationSummarization",
+      llm,
+      opts,
+    );
+    expect(resolved.provider).toBe("anthropic");
+    expect(fallbacks).toContainEqual({
+      callSite: "conversationSummarization",
+      requested: "partial",
+      reason: "incomplete",
+    });
+  });
+
+  test("the anchor consults the balanced remap for profileless call sites", () => {
+    const llm = LLMSchema.parse({
+      profiles: { mine: completeCustom },
+      defaultProfileOverrides: { balanced: "mine" },
+      ...anthropicDp,
+    });
+    // `vision` has no shipped profile; it resolves through the anchor.
+    expect(resolveCallSiteConfig("vision", llm).model).toBe("gpt-5.5");
+    expect(selectWinningProfile("vision", llm).profileName).toBe("mine");
+  });
+
+  test("a self-referential remap is a no-op", () => {
+    const llm = LLMSchema.parse({
+      defaultProfileOverrides: { balanced: "balanced" },
+      ...anthropicDp,
+    });
+    const { fallbacks, opts } = collect();
+    expect(resolveCallSiteConfig("subagentSpawn", llm, opts).provider).toBe(
+      "anthropic",
+    );
+    expect(fallbacks).toEqual([]);
+  });
+});

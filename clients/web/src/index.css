@@ -669,6 +669,23 @@ body {
   background-clip: padding-box;
 }
 
+/* Sidebar menu scrollbar: hidden permanently, not just at rest. A native
+ * scrollbar can't both take zero layout space at every moment (hover
+ * included) and be visible on hover: toggling its width to reveal it
+ * shifts row content on hover, and reserving its width at a constant
+ * non-zero size to avoid that shift instead leaves a permanent one-sided
+ * inset. Neither keeps row width truly constant and symmetric, so there's
+ * no visible thumb at all here: trackpad/wheel/touch scrolling is
+ * unaffected. Scoped to the menu's own scroll container rather than
+ * changed globally. */
+[data-slot="side-menu-body"] {
+  scrollbar-width: none;
+}
+[data-slot="side-menu-body"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 /* Capacitor iOS shell: hide scrollbars entirely. Styling
  * ::-webkit-scrollbar above replaces WKWebView's auto-hiding overlay
  * indicator with an always-visible bar, which reads as broken on iOS.

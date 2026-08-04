@@ -46,6 +46,22 @@ export function createAbortReason(
   };
 }
 
+/**
+ * True when the abort came from a person stopping the turn they are watching
+ * (the Stop button, Esc, or the CLI's cancel signal file) rather than from the
+ * conversation going away or another subsystem seizing it.
+ *
+ * The distinction matters for the message queue. A user interrupt ends the
+ * turn in flight; it says nothing about the messages the same user queued
+ * behind it, so those survive the abort and run on the interrupted turn's
+ * drain. Every other kind (dispose, eviction, voice supersession, subagent
+ * teardown) is the conversation or its owner disappearing, where a queued
+ * message has nothing left to run on and is discarded.
+ */
+export function isUserInterruptAbort(reason: AbortReason | undefined): boolean {
+  return reason?.kind === "user_cancel" || reason?.kind === "signal_cancel";
+}
+
 export function isAbortReason(value: unknown): value is AbortReason {
   if (typeof value !== "object" || value === null) {
     return false;

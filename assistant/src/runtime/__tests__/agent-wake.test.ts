@@ -1624,6 +1624,187 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
   });
 
+  test("reports run_error when the loop swallows a provider rejection into a no-output stop", async () => {
+    // The loop's catch does not rethrow provider rejections: it emits
+    // `error` + `agent_loop_exit(reason: "error")` and returns the history
+    // unchanged. Without the exit-reason gate this read as a successful
+    // silent no-op, so state-advancing callers (the memory retrospective
+    // watermark) permanently consumed their trigger on a pass that never
+    // ran.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-swallowed-rejection",
+      runImpl: async (input, onEvent) => {
+        await onEvent({
+          type: "error",
+          error: new Error("provider 400: image input not supported"),
+        });
+        await onEvent({ type: "agent_loop_exit", reason: "error" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-swallowed-rejection", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+    // Nothing pushed, persisted, or emitted: the failed run left no trace.
+    expect(conversation.pushedMessages).toEqual([]);
+    expect(conversation.persistedTailCalls).toEqual([]);
+    expect(conversation.emittedEvents).toHaveLength(0);
+  });
+
+  test("reports run_error when a no-output run was aborted", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-aborted-no-output",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "aborted_pre_call" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-aborted-no-output", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+  });
+
+  test("reports run_error when a no-output run exhausted its output budget (max_tokens_reached)", async () => {
+    // Hidden thinking can consume the whole output budget before any
+    // visible text or executable tool call lands. That is "no usable
+    // output", not a clean silent no-op: state-advancing callers must see
+    // a retryable failure. A truncated response that produced SOME output
+    // takes the normal produced-output path and never reaches this check.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-max-tokens-no-output",
+      runImpl: async (input, onEvent) => {
+        await onEvent({
+          type: "agent_loop_exit",
+          reason: "max_tokens_reached",
+        });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-max-tokens-no-output",
+        hint: "boom",
+        source: "t",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+  });
+
+  test("keeps invoked true on a non-clean exit when a checkpoint already went live", async () => {
+    // Mirror of the throw path's went-live guard: once a checkpoint fired,
+    // side effects (e.g. `remember` calls) have already landed, so even a
+    // rebased history whose tail slice reads empty must not report the run
+    // as skipped: callers would re-run a pass whose side effects fired.
+    const assistantToolMsg: Message = {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "tu-1", name: "remember", input: {} }],
+    };
+    const toolResultMsg: Message = {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "saved" }],
+    };
+    const conversation = makeWakeConversation({
+      conversationId: "conv-live-then-error",
+      runImpl: async (input, onEvent, runOptions) => {
+        const history = [...input, assistantToolMsg, toolResultMsg];
+        await runOptions?.onCheckpoint?.({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history,
+        });
+        await onEvent({ type: "agent_loop_exit", reason: "error" });
+        // Return a history rebased below the wake's tail boundary, as the
+        // loop's deep-repair / recovery-hook paths can produce.
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-live-then-error", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The checkpoint's flush pushed + persisted the partial tail.
+    expect(conversation.pushedMessages.length).toBeGreaterThan(0);
+    expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
+  });
+
+  test("keeps the silent no-op on a clean no_tool_calls exit with no output", async () => {
+    // A clean model-driven stop that produced nothing stays `invoked: true`:
+    // the pass really ran, the model just had nothing to say.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-clean-empty",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "no_tool_calls" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-clean-empty", hint: "hi", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+  });
+
+  test("reports no_output on a clean empty reply when the caller requires usable output", async () => {
+    // Same clean no_tool_calls empty run as above, but the caller consumes
+    // its trigger on success (memory retrospective): the empty reply must
+    // read as a retryable failure, not a silent success.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-clean-empty-required",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "no_tool_calls" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-clean-empty-required",
+        hint: "hi",
+        source: "t",
+        requireUsableOutput: true,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "no_output",
+    });
+    // Nothing persisted or emitted by the failed pass.
+    expect(conversation.persistedTailCalls).toEqual([]);
+    expect(conversation.emittedEvents).toHaveLength(0);
+  });
+
   test("elevates the turn's trust context before the agent loop runs", async () => {
     // Background system jobs (e.g. memory consolidation) need guardian trust to
     // clear the side-effect approval gate. The wake must set

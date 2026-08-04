@@ -193,6 +193,93 @@ describe("handleListMessages attachments", () => {
     expect(docAtt!.data).toBeUndefined();
   });
 
+  test("contentBlocks attachment blocks are metadata-only references", async () => {
+    // The flat `attachments` array is the sole payload carrier. An inline
+    // file-block ref places an `attachment` block in `contentBlocks`, but
+    // that block must reference the row by id without repeating its base64:
+    // duplicating it doubles every image in the response and in client
+    // memory.
+    const conv = createConversation();
+    const stored = uploadAttachment("photo.png", "image/png", IMAGE_BASE64);
+    const msg = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "check this image" },
+        {
+          type: "file",
+          source: { type: "workspace_ref", attachmentId: stored.id },
+          filename: "photo.png",
+          media_type: "image/png",
+        },
+      ]),
+    );
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as {
+      messages: {
+        attachments?: AttachmentPayload[];
+        contentBlocks?: Array<{
+          type: string;
+          attachment?: {
+            id: string;
+            data?: string;
+            thumbnailData?: string;
+          };
+        }>;
+      }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    const row = body.messages[0];
+
+    // Payload ships on the flat array.
+    expect(row.attachments).toHaveLength(1);
+    expect(row.attachments![0].data).toBe(IMAGE_BASE64);
+
+    // The inline block references the same row without the payload.
+    const blocks = (row.contentBlocks ?? []).filter(
+      (b) => b.type === "attachment",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].attachment!.id).toBe(stored.id);
+    expect(blocks[0].attachment!.data).toBeUndefined();
+    expect(blocks[0].attachment!.thumbnailData).toBeUndefined();
+  });
+
+  test("synthesized attachment blocks are metadata-only references", async () => {
+    // Directive attachments take the appendix path (no file-block ref), which
+    // must strip the payload the same way the inline path does.
+    const conv = createConversation();
+    const msg = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "" }]),
+    );
+    const stored = uploadAttachment("output.png", "image/png", IMAGE_BASE64);
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as {
+      messages: {
+        attachments?: AttachmentPayload[];
+        contentBlocks?: Array<{
+          type: string;
+          attachment?: { id: string; data?: string };
+        }>;
+      }[];
+    };
+
+    const row = body.messages[0];
+    expect(row.attachments![0].data).toBe(IMAGE_BASE64);
+    const blocks = (row.contentBlocks ?? []).filter(
+      (b) => b.type === "attachment",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].attachment!.data).toBeUndefined();
+  });
+
   test("attachment-only assistant message synthesizes contentBlocks", async () => {
     // When the assistant's entire response was a <vellum-attachment/> tag,
     // parseDirectives strips it → cleanText is empty → renderHistoryContent

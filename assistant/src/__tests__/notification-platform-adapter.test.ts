@@ -94,6 +94,7 @@ function makePayload(
 ): ChannelDeliveryPayload {
   return {
     deliveryId: "delivery-uuid-1",
+    correlationId: "signal-1",
     sourceEventName: "schedule.notify",
     copy: { title: "Reminder", body: "Check the oven!" },
     deepLinkTarget: { type: "conversation", id: "conv-1" },
@@ -136,7 +137,7 @@ describe("PlatformPushAdapter", () => {
     const call = fetchCalls[0]!;
     expect(call.path).toBe("/v1/assistants/test-assistant-id/push/dispatch/");
     expect(call.method).toBe("POST");
-    expect(call.body.delivery_id).toBe("delivery-uuid-1");
+    expect(call.body.delivery_id).toBe("signal-1");
     expect(call.body.source_event_name).toBe("schedule.notify");
     expect(call.body.title).toBe("Reminder");
     expect(call.body.body).toBe("Check the oven!");
@@ -247,17 +248,43 @@ describe("PlatformPushAdapter", () => {
     expect(fetchCalls).toHaveLength(1);
   });
 
-  test("reports remotePushAccepted: true on 200 with tokens_sent > 0", async () => {
+  test("preserves an explicit empty platform list with legacy acceptance", async () => {
     fetchResponses.push({
       ok: true,
       status: 200,
-      body: '{"idempotent": false, "tokens_sent": 2}',
+      body: '{"tokens_sent":2,"accepted_platforms":[]}',
     });
     const adapter = new PlatformPushAdapter();
     const result = await adapter.send(makePayload(), makeDestination());
 
     expect(result.success).toBe(true);
     expect(result.remotePushAccepted).toBe(true);
+    expect(result.remotePushPlatforms).toEqual([]);
+  });
+
+  test("preserves a successful provider from the final partial 503", async () => {
+    fetchResponses.push(
+      {
+        ok: false,
+        status: 503,
+        body: '{"accepted_platforms":["ios"]}',
+      },
+      { ok: false, status: 503, body: "{}" },
+      { ok: false, status: 503, body: "{}" },
+      {
+        ok: false,
+        status: 503,
+        body: '{"accepted_platforms":["android"]}',
+      },
+    );
+
+    const result = await new PlatformPushAdapter().send(
+      makePayload(),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushPlatforms).toEqual(["ios", "android"]);
   });
 
   test("reports remotePushAccepted: false on 202 skipped (flag off)", async () => {

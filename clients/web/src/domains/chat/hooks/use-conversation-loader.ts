@@ -81,8 +81,8 @@ interface UseConversationLoaderParams {
  * polling for new messages.
  *
  * Owns the primary data-fetching lifecycle for the chat sidebar and
- * transcript. Returns `switchConversation`, `startNewConversation`,
- * and `refreshConversations` for use by sibling hooks.
+ * transcript. Returns `startNewConversation` and `refreshConversations` for
+ * use by sibling hooks.
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
@@ -416,26 +416,6 @@ export function useConversationLoader({
   });
 
   // -------------------------------------------------------------------------
-  // switchConversation
-  // -------------------------------------------------------------------------
-  const switchConversation = useCallback(
-    (key: string) => {
-      useViewerStore.getState().setMainView("chat");
-      // Same-conversation reselect: return to the chat view but keep the
-      // per-conversation process stores — wiping them kills the inline
-      // cards of still-running subagents, which only repopulate from live
-      // SSE events (LUM-2875).
-      if (key === useConversationStore.getState().activeConversationId) {
-        return;
-      }
-      useSubagentStore.getState().reset();
-      useWorkflowStore.getState().reset();
-      void navigate(routes.conversation(key));
-    },
-    [navigate],
-  );
-
-  // -------------------------------------------------------------------------
   // startNewConversation
   // -------------------------------------------------------------------------
   const startNewConversation = useCallback(
@@ -445,6 +425,7 @@ export function useConversationLoader({
       }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
+      useViewerStore.getState().clearTranscriptPanelPayloads();
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
       useConversationStore
@@ -458,7 +439,6 @@ export function useConversationLoader({
 
   return {
     refreshConversations,
-    switchConversation,
     startNewConversation,
     conversationExistsOnServer,
     historyResult,

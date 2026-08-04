@@ -120,6 +120,7 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
+  type ConversationErrorAttribution,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
@@ -224,6 +225,13 @@ export interface EventHandlerState {
    * path.
    */
   providerErrorCode: string | null;
+  /**
+   * Classified category of the most recent provider error
+   * (`classifyConversationError(...).errorCategory`). Stamped onto the
+   * synthetic error row's metadata alongside {@link providerErrorCode} when
+   * the loop persists the failure as an assistant message.
+   */
+  providerErrorCategory: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -548,6 +556,8 @@ export interface EventHandlerDeps {
    * degrades gracefully when it's absent.
    */
   readonly latencyTracker?: TurnLatencyTracker;
+  /** Best-effort resolved route metadata for provider error classification. */
+  readonly errorAttribution?: () => ConversationErrorAttribution;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -568,6 +578,7 @@ export function createEventHandlerState(): EventHandlerState {
     model: "",
     providerErrorUserMessage: null,
     providerErrorCode: null,
+    providerErrorCategory: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -826,6 +837,12 @@ export function buildPersistedAssistantContent(
       display: surface.display,
       ...(surface.persistent ? { persistent: true } : {}),
       ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
+      // A surface answered before this write lands owns no persisted block for
+      // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+      ...(surface.completed ? { completed: true } : {}),
+      ...(surface.completionSummary
+        ? { completionSummary: surface.completionSummary }
+        : {}),
     } as unknown as ContentBlock);
   }
   return withSurfaces.map((block) => {
@@ -2597,6 +2614,12 @@ function annotatePersistedAssistantMessage(
         ...(surface.activationMoment
           ? { activationMoment: surface.activationMoment }
           : {}),
+        // A surface answered before this write lands owns no persisted block for
+        // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+        ...(surface.completed ? { completed: true } : {}),
+        ...(surface.completionSummary
+          ? { completionSummary: surface.completionSummary }
+          : {}),
       } as unknown as ContentBlock);
     }
     modified = true;
@@ -2620,9 +2643,7 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (classified.errorCategory === "provider_api_error") {
     log.error(
       {
@@ -2647,6 +2668,7 @@ function handleError(
   );
   state.providerErrorUserMessage = classified.userMessage;
   state.providerErrorCode = classified.code;
+  state.providerErrorCategory = classified.errorCategory;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }
@@ -3131,9 +3153,7 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
     return;
   }
@@ -3153,6 +3173,16 @@ function handleProviderError(
       "Failed to persist provider-error LLM request log (non-fatal)",
     );
   }
+}
+
+function classifyAgentLoopError(
+  error: Error,
+  deps: EventHandlerDeps,
+): ReturnType<typeof classifyConversationError> {
+  return classifyConversationError(error, {
+    phase: "agent_loop",
+    ...deps.errorAttribution?.(),
+  });
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────

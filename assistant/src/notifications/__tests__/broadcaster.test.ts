@@ -11,6 +11,7 @@ import type { PairingResult } from "../conversation-pairing.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
   ChannelAdapter,
+  ChannelDeliveryObserver,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
@@ -344,6 +345,9 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
     expect(vellum.sends.length).toBe(1);
     expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(true);
     expect(platform.sends.length).toBe(1);
+    expect(platform.sends[0]?.payload.correlationId).toBe(
+      vellum.sends[0]?.payload.correlationId,
+    );
     expect(platform.sends[0]?.payload.remotePushDispatched).toBeUndefined();
   });
 
@@ -364,6 +368,25 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
 
     expect(vellum.sends.length).toBe(1);
     expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+
+  test("vellum payload carries platforms accepted before a partial failure", async () => {
+    bothChannelsCopy();
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform", {
+      success: false,
+      error: "FCM failed",
+      remotePushPlatforms: ["ios"],
+    });
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(makeSignal(), bothChannelsDecision());
+
+    expect(vellum.sends[0]?.payload.remotePushPlatforms).toEqual(["ios"]);
   });
 
   test("vellum payload carries false when the platform reports no accepted push (skipped or zero tokens)", async () => {
@@ -461,8 +484,10 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
       send(
         payload: ChannelDeliveryPayload,
         destination: ChannelDestination,
+        observer?: ChannelDeliveryObserver,
       ): Promise<DeliveryResult> {
         platformSends.push({ payload, destination });
+        observer?.onRemotePushPlatforms(["ios"]);
         return new Promise<DeliveryResult>((resolve) => {
           resolvePlatform = resolve;
         });
@@ -480,6 +505,7 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
     expect(platformSends.length).toBe(1);
     expect(vellum.sends.length).toBe(1);
     expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+    expect(vellum.sends[0]?.payload.remotePushPlatforms).toEqual(["ios"]);
     expect(results.find((r) => r.channel === "platform")?.status).toBe(
       "pending",
     );

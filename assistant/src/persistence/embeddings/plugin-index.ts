@@ -29,6 +29,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -36,6 +37,7 @@ import { embedWithRetry } from "./embed.js";
 import {
   generateSparseEmbedding,
   getMemoryBackendStatus,
+  selectEmbeddingBackend,
 } from "./embedding-backend.js";
 import {
   type EmbeddingInput,
@@ -43,7 +45,12 @@ import {
   type SparseEmbedding,
 } from "./embedding-types.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
-import { getQdrantClient } from "./qdrant-client.js";
+import {
+  getQdrantClient,
+  initQdrantClient,
+  resolveQdrantUrl,
+  type VellumQdrantClient,
+} from "./qdrant-client.js";
 
 const log = getLogger("plugin-index");
 
@@ -124,13 +131,78 @@ export interface IndexedDocument {
 
 // ── Internal helpers ───────────────────────────────────────────────────────
 
-/** The initialized Qdrant client, as a retryable unavailability if it is not up. */
-function requireQdrant(): ReturnType<typeof getQdrantClient> {
-  try {
-    return getQdrantClient();
-  } catch {
-    throw new BackendUnavailableError("Qdrant client not initialized");
+/**
+ * Config fingerprint of the client {@link resolveQdrant} last built, so a live
+ * config change is not served by a stale client. `VellumQdrantClient` captures
+ * its collection, dimension, and model identity at construction, so a client
+ * built before the change would keep writing at the old dimension (rejected by
+ * a resized collection) or quietly mix vectors from two models into one
+ * collection without triggering the sentinel migration.
+ */
+let clientConfigIdentity: string | null = null;
+
+/**
+ * The Qdrant client for the shared collection, initializing it from the live
+ * workspace config when this process has not.
+ *
+ * The eager `initQdrantClient` in `runMemoryStartup`
+ * (`plugins/defaults/memory/startup.ts`) cannot be relied on here: it runs in
+ * the daemon process only, and only while memory v1 is the live tier — on a
+ * default workspace (`memory.v2.enabled`, or `memory.v3.live`) it is skipped
+ * entirely, because no v1 lane reads or writes the collection in that state.
+ * The plugin index is not a memory tier: it is plugin-owned search that must
+ * work on every tier and in any process that runs plugin code, so it resolves
+ * the client itself rather than depending on a memory-tier decision. Mirrors
+ * `resolveLexicalIndex` in `persistence/job-handlers/message-lexical.ts`.
+ *
+ * Cheap: `initQdrantClient` only constructs a client — the collection is
+ * created lazily inside each operation — and the steady-state path is a
+ * fingerprint comparison, with the embedding-backend lookup reached only when
+ * the config it derives from has actually changed.
+ *
+ * The dense embedding identity is passed through so a collection created or
+ * reused from here keeps the same model-sentinel semantics as the v1 path: a
+ * model or dimension change recreates the collection, which is the durability
+ * contract documented at the top of this file.
+ */
+async function resolveQdrant(): Promise<VellumQdrantClient> {
+  const config = getConfig();
+  const url = resolveQdrantUrl(config);
+  const { collection, vectorSize, onDisk, quantization } = config.memory.qdrant;
+  // `memory.embeddings` rather than the resolved backend: it is what the
+  // resolution below reads, and comparing it keeps that lookup off the hot
+  // path. Over-sensitive by a field or two (a `required` flip re-inits), which
+  // costs one redundant construction and never a wrong client.
+  const identity = JSON.stringify([
+    url,
+    collection,
+    vectorSize,
+    onDisk,
+    quantization,
+    config.memory.embeddings,
+  ]);
+
+  if (identity === clientConfigIdentity) {
+    try {
+      return getQdrantClient();
+    } catch {
+      // Fingerprint outlived the singleton (another module reset it) — rebuild.
+    }
   }
+
+  const selection = await selectEmbeddingBackend(config);
+  const client = initQdrantClient({
+    url,
+    collection,
+    vectorSize,
+    onDisk,
+    quantization,
+    embeddingModel: selection.backend
+      ? `${selection.backend.provider}:${selection.backend.model}`
+      : undefined,
+  });
+  clientConfigIdentity = identity;
+  return client;
 }
 
 /** Embed a single input to a dense vector, failing loudly if no backend is up. */
@@ -208,7 +280,7 @@ export async function indexDocument(
   const normalized = normalizeEmbeddingInput(input);
   const documentId = opts?.documentId ?? randomUUID();
   const now = opts?.createdAt ?? Date.now();
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant();
 
   await withQdrantBreaker(() =>
     qdrant.upsert(
@@ -249,7 +321,7 @@ export async function queryIndex(
   const embedding = await embedDense(config, query);
   const sparseVector = sparseFor(query);
   const limit = opts?.limit ?? 10;
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant();
 
   const filter = {
     must: [
@@ -290,7 +362,7 @@ export async function getDocument(
   plugin: string,
   documentId: string,
 ): Promise<IndexedDocument | null> {
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant();
   const found = await withQdrantBreaker(() =>
     qdrant.getByTarget(
       PLUGIN_INDEX_TARGET_TYPE,
@@ -315,7 +387,7 @@ export async function removeDocument(
   plugin: string,
   documentId: string,
 ): Promise<void> {
-  const qdrant = requireQdrant();
+  const qdrant = await resolveQdrant();
   await withQdrantBreaker(() =>
     qdrant.deleteByTargetAndPlugin(
       PLUGIN_INDEX_TARGET_TYPE,
@@ -333,7 +405,7 @@ export async function removeDocument(
  */
 export async function purgeEmbeddingsForPlugin(plugin: string): Promise<void> {
   try {
-    const qdrant = requireQdrant();
+    const qdrant = await resolveQdrant();
     await withQdrantBreaker(() => qdrant.deleteByPlugin(plugin));
   } catch (err) {
     log.warn({ err, plugin }, "Failed to purge plugin embeddings");

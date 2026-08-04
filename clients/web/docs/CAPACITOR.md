@@ -143,7 +143,7 @@ References:
 
 ## Native voice bridge
 
-Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus. Its status surface is not implemented, so `VoiceLiveActivity` remains iOS-only.
+Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus and an ongoing status notification.
 
 The shell registers **five** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose):
 
@@ -152,7 +152,7 @@ The shell registers **five** Capacitor plugins in [`MyViewController.capacitorDi
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
 | `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android foreground audio focus. See the background-audio contract below |
-| `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | The one ActivityKit activity mirroring a session |
+| `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
@@ -171,7 +171,7 @@ Three things follow from the rule:
 - **Fire and forget at the call site.** A bare `void` is enough: because every export in these modules goes through `callNativeVoice`, none of them can reject, so there is no rejection for a call site to handle. A hung or failed bridge call must never delay a voice session.
 - **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
 
-**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: off-iOS, an older shell, and the user having switched Live Activities off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
+**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: outside a native mobile shell, an older shell, or a disabled platform status surface. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
 ### The background-audio contract
 

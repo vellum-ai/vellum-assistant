@@ -516,11 +516,10 @@ function ComposerBarScene(args: SceneArgs) {
         getAmplitude={getAmplitude}
         micError={micError}
       />
-      {/* Judged inside the surface it ships in, not on a bare background. */}
-      <div
-        className="mx-auto max-w-3xl rounded-xl border border-white/10 bg-[#1b1e22]"
-        style={{ ["--avatar-accent" as string]: accent }}
-      >
+      {/* Judged where it ships: above a composer card, not on a bare
+          background. The bar paints itself, so the scene hands it the same
+          paint the session assistant's avatar would resolve to. */}
+      <div className="mx-auto max-w-3xl">
         <VoiceComposerBar
           state={state}
           getAmplitude={getAmplitude}
@@ -529,11 +528,13 @@ function ComposerBarScene(args: SceneArgs) {
           onToggleMute={() => {}}
           outputMuted={false}
           onToggleOutputMute={() => {}}
-          fillIsLight={false}
           onEnd={() => {}}
           onExpand={() => {}}
-          standalone
+          paint={{ bgHex: accent, tone: toneForBg(accent) }}
         />
+        <div className="mt-2 rounded-xl border border-white/10 bg-[#1b1e22] px-4 py-3 text-sm text-white/40">
+          Message…
+        </div>
       </div>
     </div>
   );

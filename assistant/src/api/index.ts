@@ -25,6 +25,7 @@ import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ContextCompactedEventSchema } from "./events/context-compacted.js";
+import { ContextWindowUsageEventSchema } from "./events/context-window-usage.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
@@ -271,6 +272,10 @@ export {
   type ContextCompactedEvent,
   ContextCompactedEventSchema,
 } from "./events/context-compacted.js";
+export {
+  type ContextWindowUsageEvent,
+  ContextWindowUsageEventSchema,
+} from "./events/context-window-usage.js";
 export {
   type ConversationErrorCode,
   ConversationErrorCodeSchema,
@@ -902,6 +907,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
   ContextCompactedEventSchema,
+  ContextWindowUsageEventSchema,
   ConversationErrorEventSchema,
   ConversationInferenceProfileUpdatedEventSchema,
   ConversationListInvalidatedEventSchema,

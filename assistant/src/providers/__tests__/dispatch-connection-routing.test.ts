@@ -407,7 +407,14 @@ describe("routing identities", () => {
       "claude-opus-4-8",
     );
 
-    expect(provider).toEqual({ name: "anthropic", tag: "managed" } as never);
+    expect(provider).toEqual({
+      name: "anthropic",
+      tag: "managed",
+      routeAttribution: {
+        connectionName: "vellum",
+        isManagedRoute: true,
+      },
+    } as never);
     expect(resolveProviderCalls[0]?.name).toBe("vellum");
     expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
   });
@@ -433,11 +440,45 @@ describe("routing identities", () => {
       "gpt-5.5",
     );
 
-    expect(provider).toEqual({ name: "openai", tag: "subscription" } as never);
+    expect(provider).toEqual({
+      name: "openai",
+      tag: "subscription",
+      routeAttribution: {
+        connectionName: "chatgpt-subscription",
+        isManagedRoute: false,
+      },
+    } as never);
     expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
     // No override needed: the subscription row itself carries provider
     // "openai", so the adapter resolves from the row.
     expect(resolveProviderCalls[0]?.provider).toBe("openai");
+  });
+
+  // A second managed row is creatable under any non-reserved name: only the
+  // canonical name is refused at the create route, and `provider: "vellum"`
+  // derives platform auth. Managed-ness is the row, never its name.
+  test("a managed row under a non-canonical name carries managed route attribution", async () => {
+    fakeConnections.set("managed-openai", {
+      name: "managed-openai",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    fakeProviders.set("conn:managed-openai", {
+      name: "openai",
+      tag: "managed",
+    });
+
+    const provider = await tryResolveProviderForConnectionName(
+      "managed-openai",
+      { llm: {} } as never,
+      "openai",
+      "gpt-5.5",
+    );
+
+    expect(provider?.routeAttribution).toEqual({
+      connectionName: "managed-openai",
+      isManagedRoute: true,
+    });
   });
 
   test("chatgpt identity with no subscription row throws not_found (never a silent fallback)", async () => {

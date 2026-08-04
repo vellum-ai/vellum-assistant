@@ -37,6 +37,7 @@ const {
   applyPendingProviderKey,
   consumePendingProviderKey,
   peekPendingProviderKey,
+  ProviderKeyRejectedError,
   setPendingProviderKey,
 } = await import("@/domains/onboarding/provider-key");
 
@@ -336,6 +337,73 @@ describe("pending provider key", () => {
       body: { llm: { activeProfile: "custom-balanced" } },
       throwOnError: false,
     });
+  });
+
+  test("a provider-rejected key throws, re-stages the selection, and writes nothing downstream", async () => {
+    // The daemon reports provider-side key validation failure as a 200 with
+    // success:false (the key is NOT stored).
+    secretsPostMock.mockImplementationOnce(async () => ({
+      data: { success: false, error: "API key is invalid or expired." },
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-bad" });
+
+    const attempt = applyPendingProviderKey("local-8");
+
+    await expect(attempt).rejects.toBeInstanceOf(ProviderKeyRejectedError);
+    await attempt.catch((err: unknown) => {
+      expect(err).toEqual(
+        expect.objectContaining({
+          provider: "anthropic",
+          reason: "API key is invalid or expired.",
+        }),
+      );
+    });
+    // The full selection survives for the API-key screen to prefill. The
+    // rejected key is kept so a reload re-applies it and re-surfaces the
+    // rejection instead of proceeding with no provider key at all.
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "anthropic",
+      key: "sk-ant-bad",
+    });
+    // Nothing downstream may reference the never-stored credential.
+    expect(inferenceProviderconnectionsPostMock).not.toHaveBeenCalled();
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
+    expect(configLlmProfilesByNamePutMock).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
+  });
+
+  test("a success:false response without a reason still throws ProviderKeyRejectedError", async () => {
+    secretsPostMock.mockImplementationOnce(async () => ({
+      data: { success: false },
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "openai", key: "sk-proj-bad" });
+
+    await expect(applyPendingProviderKey("local-9")).rejects.toBeInstanceOf(
+      ProviderKeyRejectedError,
+    );
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "openai",
+      key: "sk-proj-bad",
+    });
+  });
+
+  test("a success:true response with a body proceeds normally", async () => {
+    secretsPostMock.mockImplementationOnce(async () => ({
+      data: { success: true, type: "api_key", name: "anthropic" },
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-good" });
+
+    await applyPendingProviderKey("local-10");
+
+    expect(configLlmDefaultproviderPutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-10" },
+      body: { provider: "anthropic" },
+      throwOnError: false,
+    });
+    expect(peekPendingProviderKey()).toBeNull();
   });
 
   test("a dev build on the gate's base version takes the new path", async () => {
