@@ -1086,6 +1086,23 @@ describe("ResearchOnboardingRoute claim-credits skip", () => {
     );
   });
 
+  test("a probe settling absent moves an on-screen claim-credits step to the reveal", async () => {
+    adoptExistingAssistant = true;
+    hasPlatformSession = false;
+    platformSessionSettled = false;
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "integration" }));
+
+    const { rerender } = render(<ResearchOnboardingRoute />);
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-step")).toBeTruthy(),
+    );
+
+    platformSessionSettled = true;
+    rerender(<ResearchOnboardingRoute />);
+
+    await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
+  });
+
   test("a snapshot resuming onto the skipped claim-credits step remaps to the research reveal", async () => {
     adoptExistingAssistant = true;
     hasPlatformSession = false;

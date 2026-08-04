@@ -324,6 +324,15 @@ export function ResearchOnboardingRoute() {
   const stepAfterPersonality: ResearchStep = skipClaimCreditsStep
     ? "looking"
     : "integration";
+  // The skip verdict can land while the credits step is already on screen:
+  // the pre-settle window kept the step (or restored a snapshot onto it) and
+  // the probe then settled absent. Move along to the reveal so the empty
+  // promise can't be claimed.
+  useEffect(() => {
+    if (skipClaimCreditsStep && step === "integration") {
+      setStep("looking");
+    }
+  }, [skipClaimCreditsStep, step]);
   const {
     start: startHatch,
     retry: retryHatch,
