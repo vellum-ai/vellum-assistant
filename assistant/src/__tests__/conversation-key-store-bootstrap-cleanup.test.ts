@@ -3,8 +3,8 @@
  * bookkeeper: the first standard conversation is the onboarding one (keep
  * BOOTSTRAP.md), and the second means onboarding is over (delete it).
  *
- * Onboarding also mints internal side threads — research, personality rewrite,
- * identity rewrite — as `conversationType: "background"` rows that the user
+ * Onboarding also mints internal side threads (research, personality rewrite,
+ * identity rewrite) as `conversationType: "background"` rows that the user
  * never opens. Those must be completely inert with respect to this bookkeeping:
  * if a hidden side thread consumed the first-conversation slot, the user's
  * FIRST visible chat would look like the second conversation and lose
@@ -14,6 +14,8 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
+
+import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
@@ -45,6 +47,7 @@ beforeEach(() => {
   db.delete(conversationKeys).run();
   db.delete(conversations).run();
 
+  assertNotLiveDb(conversationsDir);
   rmSync(conversationsDir, { recursive: true, force: true });
   mkdirSync(conversationsDir, { recursive: true });
 

@@ -224,6 +224,15 @@ describe("POST /v1/conversations (createConversation)", () => {
     expect(readConversation(result.id)?.conversationType).toBe("standard");
   });
 
+  test("explicit conversationType: null behaves exactly like an omitted one", async () => {
+    const result = (await createHandler({
+      body: { conversationType: null, title: "Visible thread" },
+    })) as { id: string; conversationType: string };
+
+    expect(result.conversationType).toBe("standard");
+    expect(readConversation(result.id)?.conversationType).toBe("standard");
+  });
+
   test.each(["scheduled", "nonsense"])(
     "conversationType: %p → BadRequestError, no row created",
     (conversationType) => {
