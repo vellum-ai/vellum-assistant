@@ -7,8 +7,14 @@
 /** Shortest continuation worth showing after the title's prefix is removed. */
 const MIN_PREVIEW_LENGTH = 12;
 
-/** Opening or closing fence of a code block, allowing up to 3 leading spaces. */
-const CODE_FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+/** Opening fence of a code block, allowing up to 3 leading spaces. */
+const CODE_FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Closing fence of a code block. Nothing but whitespace may follow the fence
+ * run, so a line that carries trailing text is code rather than a close.
+ */
+const CODE_FENCE_CLOSE_PATTERN = /^ {0,3}(`{3,}|~{3,})\s*$/;
 
 /** ATX heading, blockquote, or list bullet at the start of a line. */
 const BLOCK_MARKER_PATTERN = /^ {0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/;
@@ -17,15 +23,10 @@ const BLOCK_MARKER_PATTERN = /^ {0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/;
 const STRUCTURAL_ROW_PATTERN = /^[\s|:-]*$/;
 
 /**
- * Inline emphasis punctuation ignored when comparing a preview to a title.
- * The set and the pattern share one source so the comparison and the
- * character walk that maps back into the original string cannot drift.
+ * Inline punctuation ignored when comparing a preview to a title: emphasis,
+ * code span, and strikethrough markers.
  */
-const EMPHASIS_PUNCTUATION = "*_`";
-const EMPHASIS_PUNCTUATION_PATTERN = new RegExp(
-  `[${EMPHASIS_PUNCTUATION}]`,
-  "g",
-);
+const INLINE_MARK_PUNCTUATION = "*_`~";
 
 /** Sentence punctuation left dangling once a title prefix is sliced away. */
 const SENTENCE_PUNCTUATION = ".,;:-";
@@ -48,19 +49,21 @@ function flattenMarkdownBlocks(summary: string): string {
   let openFence: string | null = null;
 
   for (const line of lines) {
-    const fence = CODE_FENCE_PATTERN.exec(line)?.[1];
     if (openFence !== null) {
+      const close = CODE_FENCE_CLOSE_PATTERN.exec(line)?.[1];
       if (
-        fence !== undefined &&
-        fence[0] === openFence[0] &&
-        fence.length >= openFence.length
+        close !== undefined &&
+        close[0] === openFence[0] &&
+        close.length >= openFence.length
       ) {
         openFence = null;
       }
+      // A block that never closes swallows the rest of the summary.
       continue;
     }
-    if (fence !== undefined) {
-      openFence = fence;
+    const opener = CODE_FENCE_OPEN_PATTERN.exec(line)?.[1];
+    if (opener !== undefined) {
+      openFence = opener;
       continue;
     }
     const stripped = stripBlockMarkers(line);
@@ -84,64 +87,160 @@ function stripBlockMarkers(line: string): string {
   return result;
 }
 
-/**
- * Reduce a string to the form used for title-versus-preview comparison, so
- * that emphasis, spacing, and a trailing period never make two equivalent
- * strings look different.
- */
-function normalizeForCompare(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(EMPHASIS_PUNCTUATION_PATTERN, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(TRAILING_PUNCTUATION_PATTERN, "")
-    .trim();
+/** One character of the comparison form and where it ends in the source. */
+interface NormalizedCharacter {
+  char: string;
+  /** Offset in the source string just past the text this character came from. */
+  end: number;
+}
+
+/** Text range of an inline link and the end of the whole `[text](url)` run. */
+interface InlineLinkSpan {
+  textStart: number;
+  textEnd: number;
+  end: number;
 }
 
 /**
- * Drop the first `normalizedLength` normalized characters from `original` and
+ * Emit the comparison form of `value` one character at a time, recording where
+ * each character ends in the source. Emphasis, code span, and strikethrough
+ * punctuation is dropped, a link is reduced to its text, whitespace runs
+ * collapse to a single space, and leading whitespace is skipped.
+ *
+ * Comparison and slicing both read this one walk, so the offset a slice cuts
+ * at can never drift from what the comparison removed. Every character of a
+ * link's text reports the end of the whole link, which keeps a cut inside that
+ * text from stranding the destination in the output.
+ */
+function normalizedCharacters(value: string): NormalizedCharacter[] {
+  const characters: NormalizedCharacter[] = [];
+  let index = 0;
+  let previousWasSpace = false;
+  let linkTextEnd = -1;
+  let linkEnd = -1;
+
+  while (index < value.length) {
+    if (index === linkTextEnd) {
+      index = linkEnd;
+      linkTextEnd = -1;
+      linkEnd = -1;
+      continue;
+    }
+    if (linkEnd === -1) {
+      const link = matchInlineLink(value, index);
+      if (link !== null) {
+        linkTextEnd = link.textEnd;
+        linkEnd = link.end;
+        index = link.textStart;
+        continue;
+      }
+    }
+
+    const char = value[index];
+    index += 1;
+    if (INLINE_MARK_PUNCTUATION.includes(char)) {
+      continue;
+    }
+    const end = linkEnd === -1 ? index : linkEnd;
+    if (/\s/.test(char)) {
+      if (previousWasSpace || characters.length === 0) {
+        continue;
+      }
+      previousWasSpace = true;
+      characters.push({ char: " ", end });
+      continue;
+    }
+    previousWasSpace = false;
+    // A case fold that changes length would break the one-to-one mapping.
+    const lowered = char.toLowerCase();
+    characters.push({ char: lowered.length === 1 ? lowered : char, end });
+  }
+
+  return characters;
+}
+
+/**
+ * Match an inline link `[text](destination)` at `start`, or return `null` when
+ * the brackets never close into one.
+ */
+function matchInlineLink(value: string, start: number): InlineLinkSpan | null {
+  if (value[start] !== "[") {
+    return null;
+  }
+
+  let bracketDepth = 0;
+  let textEnd = -1;
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "[") {
+      bracketDepth += 1;
+    } else if (char === "]") {
+      bracketDepth -= 1;
+      if (bracketDepth === 0) {
+        textEnd = index;
+        break;
+      }
+    }
+  }
+  if (textEnd === -1 || value[textEnd + 1] !== "(") {
+    return null;
+  }
+
+  let parenDepth = 0;
+  for (let index = textEnd + 1; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(") {
+      parenDepth += 1;
+    } else if (char === ")") {
+      parenDepth -= 1;
+      if (parenDepth === 0) {
+        return { textStart: start + 1, textEnd, end: index + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Reduce a string to the form used for title-versus-preview comparison, so
+ * that inline markup, spacing, and a trailing period never make two equivalent
+ * strings look different.
+ */
+function normalizeForCompare(value: string): string {
+  return normalizedCharacters(value)
+    .map((entry) => entry.char)
+    .join("")
+    .trimEnd()
+    .replace(TRAILING_PUNCTUATION_PATTERN, "")
+    .trimEnd();
+}
+
+/**
+ * Drop the first `normalizedLength` comparison characters from `original` and
  * return what is left of the untouched string.
  *
  * Normalization changes length, so the offset cannot be reused directly. The
- * two strings are walked in parallel instead: every original character is
- * consumed in turn, and the normalized counter only advances for characters
- * that survive normalization.
+ * walk that produced those characters recorded where each one ends, and the
+ * cut is taken from that record.
  */
 function sliceAfterNormalizedPrefix(
   original: string,
   normalizedLength: number,
 ): string {
-  let consumed = 0;
-  let index = 0;
-  let previousWasSpace = false;
-
-  while (index < original.length && consumed < normalizedLength) {
-    const char = original[index];
-    index += 1;
-    if (EMPHASIS_PUNCTUATION.includes(char)) {
-      continue;
-    }
-    if (/\s/.test(char)) {
-      // Runs of whitespace collapse to one space, and leading whitespace is
-      // trimmed away entirely, so neither advances the normalized counter.
-      if (previousWasSpace || consumed === 0) {
-        continue;
-      }
-      previousWasSpace = true;
-    } else {
-      previousWasSpace = false;
-    }
-    consumed += 1;
+  if (normalizedLength <= 0) {
+    return original;
   }
-
-  return original.slice(index);
+  const characters = normalizedCharacters(original);
+  if (normalizedLength > characters.length) {
+    return "";
+  }
+  return original.slice(characters[normalizedLength - 1].end);
 }
 
 /**
  * Clean up the join between a sliced-off title and the text that follows it:
- * leading whitespace, sentence punctuation, and any emphasis markers left
- * closing a run whose opener went with the title. Emphasis is only debris
+ * leading whitespace, sentence punctuation, and any inline markers left
+ * closing a run whose opener went with the title. A marker is only debris
  * while it abuts the cut, so a backtick after a space (the start of a real
  * inline code span) is kept.
  */
@@ -151,11 +250,11 @@ function stripSliceDebris(value: string): string {
   while (index < value.length) {
     const char = value[index];
     const isWhitespace = /\s/.test(char);
-    const isClosingEmphasis =
-      !sawWhitespace && EMPHASIS_PUNCTUATION.includes(char);
+    const isClosingMark =
+      !sawWhitespace && INLINE_MARK_PUNCTUATION.includes(char);
     if (
       !isWhitespace &&
-      !isClosingEmphasis &&
+      !isClosingMark &&
       !SENTENCE_PUNCTUATION.includes(char)
     ) {
       break;

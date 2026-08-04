@@ -61,6 +61,61 @@ describe("resolvePreview", () => {
     ).toBe("`api` never came up.");
   });
 
+  test("returns null when the summary only links the title text", () => {
+    expect(
+      resolvePreview("Read docs", "Read [docs](https://example.com)"),
+    ).toBeNull();
+  });
+
+  test("returns the continuation after a linked title prefix", () => {
+    expect(
+      resolvePreview(
+        "Read the docs",
+        "Read the [docs](https://example.com) before rerunning the deploy.",
+      ),
+    ).toBe("before rerunning the deploy.");
+  });
+
+  test("cuts past a whole link when the title ends inside its text", () => {
+    expect(
+      resolvePreview(
+        "Read docs",
+        "Read [docs and specs](https://example.com) before the next deploy.",
+      ),
+    ).toBe("before the next deploy.");
+  });
+
+  test("keeps a link the title does not cover", () => {
+    expect(
+      resolvePreview(
+        "Nightly backup",
+        "See [the report](https://example.com) for volume details.",
+      ),
+    ).toBe("See [the report](https://example.com) for volume details.");
+  });
+
+  test("returns null when strikethrough wraps the whole title", () => {
+    expect(resolvePreview("Deploy failed", "~~Deploy failed~~")).toBeNull();
+  });
+
+  test("returns the continuation after a struck-through title prefix", () => {
+    expect(
+      resolvePreview(
+        "Deploy failed",
+        "~~Deploy failed~~ because the api worker never reported healthy.",
+      ),
+    ).toBe("because the api worker never reported healthy.");
+  });
+
+  test("handles single-tilde strikethrough in the prefix", () => {
+    expect(
+      resolvePreview(
+        "Deploy failed",
+        "~Deploy failed~ and the pods stayed down.",
+      ),
+    ).toBe("and the pods stayed down.");
+  });
+
   test("returns null when the continuation is too short", () => {
     expect(resolvePreview("Deploy failed", "Deploy failed on api.")).toBeNull();
   });
@@ -103,9 +158,36 @@ describe("resolvePreview", () => {
     ).toBe("Two files changed. Rerun when ready.");
   });
 
+  test("keeps a fenced line with trailing text inside the block", () => {
+    expect(
+      resolvePreview(
+        "Build log",
+        "Compilation stopped early:\n```ts\n```not-a-close\nconst secret = 1;\n```\n\nSee the job output.",
+      ),
+    ).toBe("Compilation stopped early: See the job output.");
+  });
+
+  test("closes a fenced code block on a fence with trailing spaces", () => {
+    expect(
+      resolvePreview(
+        "Build log",
+        "Head of the log:\n```\nstack trace\n```   \nRerun the job.",
+      ),
+    ).toBe("Head of the log: Rerun the job.");
+  });
+
   test("drops an unterminated fenced code block", () => {
     expect(
       resolvePreview("Build log", "Head of the log:\n```\nstack trace here"),
+    ).toBe("Head of the log:");
+  });
+
+  test("drops an unterminated block holding a fence-like line", () => {
+    expect(
+      resolvePreview(
+        "Build log",
+        "Head of the log:\n```\n```not-a-close\nstack trace here",
+      ),
     ).toBe("Head of the log:");
   });
 
