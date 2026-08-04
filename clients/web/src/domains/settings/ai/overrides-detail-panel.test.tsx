@@ -625,6 +625,37 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     expect("heartbeatAgent" in body.llm.callSites).toBe(false);
   });
 
+  test("toggling on a ghost row pins the displayed profile, not the persisted winner", async () => {
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+    // Remap Balanced without saving, then flip the Workflow Leaf toggle on:
+    // the pin must seed from the remap target the ghost dropdown shows, not
+    // from the catalog's persisted `defaultProfile` ("balanced").
+    pickOption(tierTrigger("Balanced (default)"), "My BYOK");
+    const toggle = rowCard("Workflow Leaf").querySelector<HTMLElement>(
+      '[role="switch"]',
+    );
+    if (!toggle) {
+      throw new Error("expected the Workflow Leaf toggle");
+    }
+    fireEvent.click(toggle);
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, unknown> };
+    };
+    expect(body.llm.callSites.workflowLeaf).toEqual({
+      profile: "my-byok",
+      provider: null,
+      model: null,
+    });
+  });
+
   test("untouched ghost rows serialize no per-action pins", async () => {
     renderTierPanel({
       llm: {

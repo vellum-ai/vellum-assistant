@@ -389,9 +389,19 @@ export function OverridesDetailPanel({
         return;
       }
       const cs = gatedCallSites.find((c) => c.id === id);
+      // Seed from the effective default the row is displaying, not the
+      // catalog's persisted winner: with an unsaved tier remap pending the
+      // ghost dropdown shows the remap target, and pinning must match what
+      // the user sees (`cs.defaultProfile` is computed daemon-side from the
+      // persisted config only).
+      const shippedTier = cs?.shippedDefaultProfile;
+      const displayedDefault =
+        (supportsTierOverrides && shippedTier
+          ? effectiveTierRemap(shippedTier)
+          : null) ?? cs?.defaultProfile;
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
-        cs?.defaultProfile,
+        displayedDefault,
       );
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
@@ -405,7 +415,13 @@ export function OverridesDetailPanel({
         }));
       }
     },
-    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
+    [
+      gatedCallSites,
+      orderedProfiles,
+      selectableInferenceProviders,
+      supportsTierOverrides,
+      effectiveTierRemap,
+    ],
   );
 
   // ---------------------------------------------------------------------------
