@@ -1,5 +1,16 @@
 import { Cron } from "croner";
-import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -89,6 +100,24 @@ export interface ScheduleJob {
   groupId: string | null;
   createdFromConversationId: string | null;
   createdBy: string;
+  /**
+   * Plugin declaration this row was reconciled from
+   * (`plugin:<pluginName>/<scheduleName>`); null = imperative schedule.
+   * Sourced rows are read-only through {@link updateSchedule} and
+   * {@link deleteSchedule}: the declaration file is the source of truth for
+   * definition columns, and the reconciler is their only writer.
+   */
+  sourceKey: string | null;
+  /**
+   * Reconciler change detector over the plugin's declaration files; null on
+   * imperative rows.
+   */
+  definitionHash: string | null;
+  /**
+   * User enable/disable override for a sourced row; null = the declaration's
+   * own enabled value applies. Always null on imperative rows.
+   */
+  userEnabled: boolean | null;
   mode: ScheduleMode;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
@@ -156,6 +185,8 @@ interface InsertScheduleParams {
   inferenceProfile?: string | null;
   groupId?: string | null;
   createdFromConversationId?: string | null;
+  sourceKey?: string | null;
+  definitionHash?: string | null;
 }
 
 /**
@@ -172,10 +203,35 @@ export type OrdinaryScheduleCreator =
   | "user"
   | typeof LEGACY_DEFER_CREATED_BY;
 
-/** Parameters for ordinary schedule creation. */
-export type CreateScheduleParams = Omit<InsertScheduleParams, "createdBy"> & {
+/**
+ * Parameters for ordinary schedule creation. `sourceKey` and `definitionHash`
+ * are excluded for the same structural reason `createdBy` is constrained:
+ * plugin-declaration provenance is minted only by
+ * {@link upsertDeclaredSchedule}, so an ordinary create cannot produce a row
+ * the reconciler believes it owns.
+ */
+export type CreateScheduleParams = Omit<
+  InsertScheduleParams,
+  "createdBy" | "sourceKey" | "definitionHash"
+> & {
   createdBy?: OrdinaryScheduleCreator;
 };
+
+/**
+ * Timezone stored for a recurring schedule. A wall-clock expression with no
+ * zone otherwise evaluates in the host clock (UTC on managed containers), so
+ * it defaults to the user's configured/detected zone; expressions that carry
+ * their own zone keep the caller's value verbatim.
+ */
+function resolveStoredTimezone(
+  syntax: ScheduleSyntax,
+  expression: string | null,
+  timezone: string | null | undefined,
+): string | null {
+  return expressionCarriesOwnTimezone(syntax, expression)
+    ? (timezone ?? null)
+    : resolveScheduleTimezone(timezone);
+}
 
 async function insertSchedule(
   params: InsertScheduleParams,
@@ -206,14 +262,10 @@ async function insertSchedule(
   const id = uuid();
   const now = Date.now();
   const enabled = params.enabled ?? true;
-  // A recurring wall-clock schedule with no zone otherwise evaluates in the host
-  // clock (UTC on managed containers). Default it to the user's configured/detected
-  // zone so it fires at the intended local hour. One-shot schedules (absolute epoch)
-  // and expressions that carry their own zone keep the caller's value verbatim.
-  const timezone =
-    isOneShot || expressionCarriesOwnTimezone(syntax, expression)
-      ? (params.timezone ?? null)
-      : resolveScheduleTimezone(params.timezone);
+  // One-shot schedules (absolute epoch) keep the caller's value verbatim.
+  const timezone = isOneShot
+    ? (params.timezone ?? null)
+    : resolveStoredTimezone(syntax, expression, params.timezone);
   const mode = params.mode ?? "execute";
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
@@ -268,6 +320,9 @@ async function insertSchedule(
     groupId,
     createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
+    sourceKey: params.sourceKey ?? null,
+    definitionHash: params.definitionHash ?? null,
+    userEnabled: null as boolean | null,
     mode,
     routingIntent,
     routingHintsJson: JSON.stringify(routingHints),
@@ -478,6 +533,16 @@ export async function updateSchedule(
     return null;
   }
 
+  // Plugin-sourced rows are read-only here: the plugin's schedule file is the
+  // source of truth for every definition column, and the reconciler would
+  // overwrite any edit on its next pass. Enable/disable goes through
+  // `setUserEnabled`; every other change is an edit to the declaration file.
+  if (existing.sourceKey != null) {
+    throw new UserError(
+      "This schedule is managed by a plugin. Edit the plugin's schedule file instead.",
+    );
+  }
+
   // Owner-defer provenance certifies that the assistant's owner chose both the
   // conversation this wake resumes and the text it carries. Rewriting either
   // would leave the marker standing over content it does not describe, so on
@@ -644,6 +709,20 @@ export async function updateSchedule(
 
 export async function deleteSchedule(id: string): Promise<boolean> {
   const db = getDb();
+  // Plugin-sourced rows keep their identity and run history: deleting one
+  // would just have the reconciler recreate it from the declaration on its
+  // next pass. Disable is the supported action; removal means removing the
+  // plugin's schedule file.
+  const target = db
+    .select({ sourceKey: scheduleJobs.sourceKey })
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
+    .get();
+  if (target?.sourceKey != null) {
+    throw new UserError(
+      "This schedule is managed by a plugin and cannot be deleted. Disable it instead, or remove the plugin's schedule file.",
+    );
+  }
   // Capture rawChanges() inside the awaited closure: reading it after the
   // await would race other async DB work on the shared connection.
   const deleted = await withSqliteRetry(
@@ -657,6 +736,277 @@ export async function deleteSchedule(id: string): Promise<boolean> {
     notifySchedulesChanged();
   }
   return deleted;
+}
+
+// ── Plugin-declared schedules ───────────────────────────────────────
+//
+// Rows with a non-null `source_key` mirror a declaration in a plugin's
+// `schedules/` directory. The reconciler owns their definition columns (via
+// the functions below, the only writers of `source_key`, `definition_hash`,
+// and the definition side of `enabled`), the engine owns the runtime columns,
+// and the user owns `user_enabled`. Rows with a null `source_key` are
+// imperative schedules and none of this section touches them.
+
+/**
+ * Definition of a plugin-declared schedule, as parsed from the plugin's
+ * declaration files. `enabled` is the declaration's own value; the stored
+ * row's `enabled` is the effective value, `user_enabled ?? enabled`.
+ */
+export interface DeclaredScheduleDefinition {
+  name: string;
+  description?: string;
+  syntax: ScheduleSyntax;
+  expression: string;
+  timezone?: string | null;
+  message: string;
+  script?: string | null;
+  mode: ScheduleMode;
+  maxRetries?: number;
+  retryBackoffMs?: number;
+  quiet?: boolean;
+  inferenceProfile?: string | null;
+  timeoutMs?: number | null;
+  enabled: boolean;
+  definitionHash: string;
+}
+
+/** All plugin-sourced schedule rows, including disarmed ones. */
+export function listDeclaredSchedules(): ScheduleJob[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(scheduleJobs)
+    .where(isNotNull(scheduleJobs.sourceKey))
+    .orderBy(asc(scheduleJobs.nextRunAt))
+    .all();
+  return rows.map(parseJobRow);
+}
+
+/**
+ * True when the engine has latched the row: a fired or cancelled one-shot, or
+ * a recurrence the claim path exhausted. The exhaust path stamps `lastRunAt`
+ * as it writes `nextRunAt = 0` and disables the row, so `nextRunAt = 0` with
+ * a null `lastRunAt` is a declared schedule inserted disabled, not an engine
+ * latch, and stays re-armable.
+ */
+function isEngineLatched(row: {
+  status: string;
+  nextRunAt: number;
+  lastRunAt: number | null;
+}): boolean {
+  return (
+    row.status === "fired" ||
+    row.status === "cancelled" ||
+    (row.nextRunAt === 0 && row.lastRunAt != null)
+  );
+}
+
+/**
+ * Insert or update the row for a plugin declaration, keyed by `sourceKey`.
+ *
+ * Effective `enabled` (`user_enabled ?? definition.enabled`) is recomputed on
+ * every call, so a row disarmed while its plugin was disabled re-arms once
+ * the declaration is back in the desired set. `nextRunAt` is recomputed only
+ * when the timing changed or the row transitions to enabled; a matching hash
+ * with matching effective `enabled` is a no-op. Rows the engine has latched
+ * are returned untouched.
+ */
+export async function upsertDeclaredSchedule(
+  sourceKey: string,
+  definition: DeclaredScheduleDefinition,
+): Promise<ScheduleJob> {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.sourceKey, sourceKey))
+    .get();
+
+  if (!existing) {
+    return insertSchedule({ ...definition, createdBy: "agent", sourceKey });
+  }
+
+  if (isEngineLatched(existing)) {
+    return parseJobRow(existing);
+  }
+
+  // Same timezone defaulting as insert, so change detection compares the
+  // value that would actually be stored.
+  const timezone = resolveStoredTimezone(
+    definition.syntax,
+    definition.expression,
+    definition.timezone,
+  );
+
+  const definitionChanged =
+    existing.definitionHash !== definition.definitionHash;
+  const effectiveEnabled = existing.userEnabled ?? definition.enabled;
+  if (!definitionChanged && effectiveEnabled === existing.enabled) {
+    return parseJobRow(existing);
+  }
+
+  const spec = {
+    syntax: definition.syntax,
+    expression: definition.expression,
+    timezone,
+  };
+  if (definitionChanged && !isValidScheduleExpression(spec)) {
+    throw new Error(
+      `Invalid ${definition.syntax} expression: "${definition.expression}"`,
+    );
+  }
+
+  const timingChanged =
+    definition.expression !== existing.cronExpression ||
+    definition.syntax !== existing.scheduleSyntax ||
+    timezone !== existing.timezone;
+
+  const set: Record<string, unknown> = {
+    enabled: effectiveEnabled,
+    updatedAt: Date.now(),
+  };
+  if (definitionChanged) {
+    set.name = definition.name;
+    set.description = normalizeDescription(
+      definition.description,
+      definition.name,
+    );
+    set.cronExpression = definition.expression;
+    set.scheduleSyntax = definition.syntax;
+    set.timezone = timezone;
+    set.message = definition.message;
+    set.script = definition.script ?? null;
+    set.mode = definition.mode;
+    set.maxRetries = definition.maxRetries ?? 3;
+    set.retryBackoffMs = definition.retryBackoffMs ?? 60000;
+    set.quiet = definition.quiet ?? false;
+    set.inferenceProfile = definition.inferenceProfile ?? null;
+    set.timeoutMs = definition.timeoutMs ?? null;
+    set.definitionHash = definition.definitionHash;
+  }
+  // While disabled, `nextRunAt` is left alone so a stale value never reads as
+  // the engine's exhaust latch (`nextRunAt = 0` with `lastRunAt` set).
+  if (
+    effectiveEnabled &&
+    (timingChanged || !existing.enabled || existing.nextRunAt === 0)
+  ) {
+    set.nextRunAt = computeNextRunAtEngine(spec);
+  }
+
+  await withSqliteRetry(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set(set)
+        .where(eq(scheduleJobs.id, existing.id))
+        .run(),
+    { op: "upsertDeclaredSchedule", context: { scheduleId: existing.id } },
+  );
+  notifySchedulesChanged();
+
+  const updated = getSchedule(existing.id);
+  if (!updated) {
+    throw new Error(`Declared schedule ${existing.id} vanished during upsert`);
+  }
+  return updated;
+}
+
+/**
+ * Pause a sourced row whose declaration is gone or whose plugin is disabled.
+ * The row and its runs are kept so a reinstall re-links by `source_key` and
+ * `user_enabled` survives. `nextRunAt` is left alone: a disabled row never
+ * fires, and `nextRunAt = 0` is reserved for the engine's exhaust latch.
+ */
+export async function disarmDeclaredSchedule(id: string): Promise<void> {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
+    .get();
+  if (!existing) {
+    return;
+  }
+  if (existing.sourceKey == null) {
+    throw new Error(
+      "disarmDeclaredSchedule applies only to plugin-sourced schedules",
+    );
+  }
+  if (!existing.enabled) {
+    return;
+  }
+  await withSqliteRetry(
+    () =>
+      db
+        .update(scheduleJobs)
+        .set({ enabled: false, updatedAt: Date.now() })
+        .where(eq(scheduleJobs.id, id))
+        .run(),
+    { op: "disarmDeclaredSchedule", context: { scheduleId: id } },
+  );
+  notifySchedulesChanged();
+}
+
+/**
+ * The user's side of the enabled toggle.
+ *
+ * On an imperative row this is exactly the existing toggle
+ * (`updateSchedule(id, { enabled })`) and `user_enabled` stays null. On a
+ * plugin-sourced row it records the override in `user_enabled` and applies a
+ * boolean to the effective `enabled` on the spot; null clears the override,
+ * and the next reconcile pass restores the declaration's own value, which the
+ * store does not persist separately. Engine-latched rows record the override
+ * without being re-armed.
+ */
+export async function setUserEnabled(
+  id: string,
+  value: boolean | null,
+): Promise<ScheduleJob | null> {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
+    .get();
+  if (!existing) {
+    return null;
+  }
+  if (existing.sourceKey == null) {
+    if (value == null) {
+      throw new UserError(
+        "Only plugin-managed schedules support clearing the enabled override",
+      );
+    }
+    return updateSchedule(id, { enabled: value });
+  }
+
+  const set: Record<string, unknown> = {
+    userEnabled: value,
+    updatedAt: Date.now(),
+  };
+  if (
+    value != null &&
+    value !== existing.enabled &&
+    !isEngineLatched(existing)
+  ) {
+    set.enabled = value;
+    // Re-arming needs a fresh occurrence: the stored one went stale while the
+    // row was disabled. Disabling keeps `nextRunAt`; see the disarm note.
+    if (value && existing.cronExpression != null) {
+      set.nextRunAt = computeNextRunAtEngine({
+        syntax: existing.scheduleSyntax as ScheduleSyntax,
+        expression: existing.cronExpression,
+        timezone: existing.timezone,
+      });
+    }
+  }
+
+  await withSqliteRetry(
+    () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
+    { op: "setUserEnabled", context: { scheduleId: id } },
+  );
+  notifySchedulesChanged();
+  return getSchedule(id);
 }
 
 /**
@@ -1537,6 +1887,9 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     groupId: row.groupId ?? null,
     createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
+    sourceKey: row.sourceKey ?? null,
+    definitionHash: row.definitionHash ?? null,
+    userEnabled: row.userEnabled ?? null,
     mode: (row.mode ?? "execute") as ScheduleMode,
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,
     routingHints: safeParseJson(row.routingHintsJson),

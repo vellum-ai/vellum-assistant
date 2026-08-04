@@ -22,6 +22,7 @@ import {
   LEGACY_DEFER_CREATED_BY,
   OWNER_DEFER_CREATED_BY,
 } from "../schedule/defer-provenance.js";
+import type { DeclaredScheduleDefinition } from "../schedule/schedule-store.js";
 import {
   cancelSchedule,
   claimDueSchedules,
@@ -32,10 +33,14 @@ import {
   createScheduleRun,
   deleteSchedule,
   describeCronExpression,
+  disarmDeclaredSchedule,
   failOneShot,
   getSchedule,
+  listDeclaredSchedules,
   listSchedules,
+  setUserEnabled,
   updateSchedule,
+  upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
 import { UserError } from "../util/errors.js";
 
@@ -1504,5 +1509,284 @@ describe("owner-defer provenance", () => {
     expect(updated!.message).toBe("something else");
     expect(updated!.wakeConversationId).toBe("conv-elsewhere");
     expect(hasOwnerDeferProvenance(updated!.createdBy)).toBe(false);
+  });
+});
+
+// ── Plugin-declared schedules ───────────────────────────────────────
+
+describe("declared schedules", () => {
+  beforeEach(() => {
+    getDb().run("DELETE FROM cron_runs");
+    getDb().run("DELETE FROM cron_jobs");
+  });
+
+  const SOURCE_KEY = "plugin:example/daily";
+
+  function makeDefinition(
+    overrides: Partial<DeclaredScheduleDefinition> = {},
+  ): DeclaredScheduleDefinition {
+    return {
+      name: "Daily digest",
+      description: "Summarize the day",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      message: "produce the digest",
+      mode: "execute",
+      enabled: true,
+      definitionHash: "hash-1",
+      ...overrides,
+    };
+  }
+
+  function rawJob(id: string): Record<string, unknown> {
+    return getRawDb()
+      .query("SELECT * FROM cron_jobs WHERE id = ?")
+      .get(id) as Record<string, unknown>;
+  }
+
+  test("upsert inserts a sourced row with declared enabled state", async () => {
+    const job = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+
+    expect(job.sourceKey).toBe(SOURCE_KEY);
+    expect(job.definitionHash).toBe("hash-1");
+    expect(job.userEnabled).toBeNull();
+    expect(job.enabled).toBe(true);
+    expect(job.expression).toBe("0 9 * * *");
+    expect(job.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  test("listDeclaredSchedules returns only sourced rows", async () => {
+    await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    const imperative = await createSchedule({
+      name: "Mine",
+      cronExpression: "0 8 * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+
+    const declared = listDeclaredSchedules();
+    expect(declared).toHaveLength(1);
+    expect(declared[0].sourceKey).toBe(SOURCE_KEY);
+    expect(imperative.sourceKey).toBeNull();
+    expect(imperative.definitionHash).toBeNull();
+    expect(imperative.userEnabled).toBeNull();
+  });
+
+  test("upsert with an unchanged hash is a no-op", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    const before = rawJob(created.id);
+
+    const again = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+
+    expect(again.id).toBe(created.id);
+    expect(rawJob(created.id)).toEqual(before);
+  });
+
+  test("upsert with a changed hash updates definition columns without moving nextRunAt", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+
+    const updated = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({
+        message: "produce a longer digest",
+        definitionHash: "hash-2",
+      }),
+    );
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.message).toBe("produce a longer digest");
+    expect(updated.definitionHash).toBe("hash-2");
+    expect(updated.nextRunAt).toBe(created.nextRunAt);
+  });
+
+  test("upsert recomputes nextRunAt when the expression changes", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+
+    const updated = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({ expression: "0 15 * * *", definitionHash: "hash-2" }),
+    );
+
+    expect(updated.expression).toBe("0 15 * * *");
+    expect(updated.nextRunAt).not.toBe(created.nextRunAt);
+    expect(updated.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  test("upsert leaves engine-latched rows untouched", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    // Recurrence exhaustion latch: the claim path disables the row, zeroes
+    // nextRunAt, and stamps lastRunAt in one write.
+    getRawDb().run(
+      "UPDATE cron_jobs SET enabled = 0, next_run_at = 0, last_run_at = ? WHERE id = ?",
+      [Date.now(), created.id],
+    );
+    const latched = rawJob(created.id);
+
+    await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({ definitionHash: "hash-2" }),
+    );
+
+    expect(rawJob(created.id)).toEqual(latched);
+  });
+
+  test("a declaration shipped disabled inserts disarmed and is not treated as latched", async () => {
+    const created = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({ enabled: false }),
+    );
+    expect(created.enabled).toBe(false);
+    expect(created.nextRunAt).toBe(0);
+    expect(created.lastRunAt).toBeNull();
+
+    const armed = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({ enabled: true, definitionHash: "hash-2" }),
+    );
+    expect(armed.enabled).toBe(true);
+    expect(armed.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  test("disarm keeps the row and its runs; a later pass re-arms it", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    const runId = await createScheduleRun(created.id, "conv-123");
+    await completeScheduleRun(runId, { status: "ok" });
+
+    await disarmDeclaredSchedule(created.id);
+
+    const disarmed = getSchedule(created.id);
+    expect(disarmed!.enabled).toBe(false);
+    const runs = getRawDb()
+      .query("SELECT COUNT(*) AS n FROM cron_runs WHERE job_id = ?")
+      .get(created.id) as { n: number };
+    expect(runs.n).toBe(1);
+
+    // Same declaration back in the desired set (e.g. plugin re-enabled):
+    // effective enabled is recomputed even though the hash matches.
+    const rearmed = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    expect(rearmed.enabled).toBe(true);
+    expect(rearmed.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  test("disarm refuses imperative rows", async () => {
+    const imperative = await createSchedule({
+      name: "Mine",
+      cronExpression: "0 8 * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+
+    await expect(disarmDeclaredSchedule(imperative.id)).rejects.toThrow(
+      /plugin-sourced/,
+    );
+    expect(getSchedule(imperative.id)!.enabled).toBe(true);
+  });
+
+  test("user override wins over the declared value in both directions", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+
+    const off = await setUserEnabled(created.id, false);
+    expect(off!.userEnabled).toBe(false);
+    expect(off!.enabled).toBe(false);
+
+    // A reconcile pass with the declaration still enabled must not undo the
+    // user's override.
+    const afterPass = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition(),
+    );
+    expect(afterPass.enabled).toBe(false);
+    expect(afterPass.userEnabled).toBe(false);
+
+    const on = await setUserEnabled(created.id, true);
+    expect(on!.userEnabled).toBe(true);
+    expect(on!.enabled).toBe(true);
+    expect(on!.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  test("clearing the override falls back to the declared value on the next pass", async () => {
+    const created = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({ enabled: false }),
+    );
+    await setUserEnabled(created.id, true);
+    expect(getSchedule(created.id)!.enabled).toBe(true);
+
+    const cleared = await setUserEnabled(created.id, null);
+    expect(cleared!.userEnabled).toBeNull();
+
+    const afterPass = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({ enabled: false }),
+    );
+    expect(afterPass.enabled).toBe(false);
+  });
+
+  test("setUserEnabled on an imperative row behaves like the existing toggle", async () => {
+    const imperative = await createSchedule({
+      name: "Mine",
+      cronExpression: "0 8 * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+
+    const off = await setUserEnabled(imperative.id, false);
+    expect(off!.enabled).toBe(false);
+    expect(off!.userEnabled).toBeNull();
+    expect(off!.nextRunAt).toBe(0);
+
+    const on = await setUserEnabled(imperative.id, true);
+    expect(on!.enabled).toBe(true);
+    expect(on!.userEnabled).toBeNull();
+    expect(on!.nextRunAt).toBeGreaterThan(Date.now());
+
+    await expect(setUserEnabled(imperative.id, null)).rejects.toThrow(
+      UserError,
+    );
+  });
+
+  test("updateSchedule refuses sourced rows", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    const before = rawJob(created.id);
+
+    await expect(
+      updateSchedule(created.id, { name: "renamed" }),
+    ).rejects.toThrow(UserError);
+    await expect(
+      updateSchedule(created.id, { name: "renamed" }),
+    ).rejects.toThrow(/managed by a plugin/);
+    expect(rawJob(created.id)).toEqual(before);
+  });
+
+  test("deleteSchedule refuses sourced rows and keeps runs", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    const runId = await createScheduleRun(created.id, "conv-123");
+    await completeScheduleRun(runId, { status: "ok" });
+
+    await expect(deleteSchedule(created.id)).rejects.toThrow(UserError);
+    await expect(deleteSchedule(created.id)).rejects.toThrow(
+      /managed by a plugin/,
+    );
+
+    expect(getSchedule(created.id)).not.toBeNull();
+    const runs = getRawDb()
+      .query("SELECT COUNT(*) AS n FROM cron_runs WHERE job_id = ?")
+      .get(created.id) as { n: number };
+    expect(runs.n).toBe(1);
+  });
+
+  test("update and delete on imperative rows are unchanged", async () => {
+    const imperative = await createSchedule({
+      name: "Mine",
+      cronExpression: "0 8 * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+
+    const renamed = await updateSchedule(imperative.id, { name: "Renamed" });
+    expect(renamed!.name).toBe("Renamed");
+
+    expect(await deleteSchedule(imperative.id)).toBe(true);
+    expect(getSchedule(imperative.id)).toBeNull();
   });
 });
