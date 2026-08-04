@@ -13,6 +13,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
+import { TourButtonLanding } from "./tour-button-landing";
 import { TourMenuFlood } from "./tour-menu-flood";
 import {
   FLOOD_EXIT_MS,
@@ -26,6 +27,7 @@ import {
   TOUR_INTRO,
   TOUR_SIDEBAR,
   TOUR_STEPS,
+  TOUR_VOICE,
   type TourStep,
 } from "./tour-steps";
 
@@ -52,7 +54,8 @@ type TourBeat =
   | { kind: "intro" }
   | { kind: "menu"; rect: TourTargetRect }
   | { kind: "row"; step: TourStep; rect: TourTargetRect; label: string }
-  | { kind: "composer" };
+  | { kind: "composer" }
+  | { kind: "voice" };
 
 interface LandedStop {
   step: TourStep;
@@ -144,6 +147,31 @@ function measureComposerRect(): TourTargetRect | null {
   };
 }
 
+/** Viewport rect of the composer's live-voice button, or null when the
+ *  assistant serves no live voice (the button is the entry point, so where it
+ *  is absent the beat has nothing to land on and is dropped). Prefers the tour
+ *  overlay's scenery composer over the app's, and is measured at beat entry,
+ *  for the same reasons as {@link measureComposerRect}. */
+function measureVoiceRect(): TourTargetRect | null {
+  const el =
+    document.querySelector<HTMLElement>(
+      '[data-tour-composer] [data-tour-id="voice-mode"]',
+    ) ?? document.querySelector<HTMLElement>('[data-tour-id="voice-mode"]');
+  if (!el) {
+    return null;
+  }
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return null;
+  }
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -189,7 +217,8 @@ export function AvatarTour({
   onDone,
   ref,
 }: AvatarTourProps) {
-  const { components, traits } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
   const setNavTourActive = useInChatOnboardingStore.use.setNavTourActive();
   const setTourSidebarRevealed =
     useInChatOnboardingStore.use.setTourSidebarRevealed();
@@ -203,6 +232,10 @@ export function AvatarTour({
     null,
   );
   const [composerPhase, setComposerPhase] = useState<TourFloodPhase>("enter");
+  const [buttonLanding, setButtonLanding] = useState<TourTargetRect | null>(
+    null,
+  );
+  const [buttonPhase, setButtonPhase] = useState<TourFloodPhase>("enter");
   const [beatIndex, setBeatIndex] = useState(-1);
   const [beatCount, setBeatCount] = useState(0);
 
@@ -211,9 +244,9 @@ export function AvatarTour({
    *  await and bail when superseded. */
   const epochRef = useRef(0);
   /** Which overlay is currently on screen, for the exit leg of a jump. */
-  const visualRef = useRef<"none" | "page" | "menu" | "row" | "composer">(
-    "none",
-  );
+  const visualRef = useRef<
+    "none" | "page" | "menu" | "row" | "composer" | "voice"
+  >("none");
   const activeRef = useRef(false);
 
   const accent =
@@ -298,6 +331,13 @@ export function AvatarTour({
           return;
         }
         setComposerFlood(null);
+      } else if (visual === "voice") {
+        setButtonPhase("exit");
+        await sleep(FLOOD_EXIT_MS);
+        if (superseded()) {
+          return;
+        }
+        setButtonLanding(null);
       }
       visualRef.current = "none";
 
@@ -351,6 +391,19 @@ export function AvatarTour({
         setComposerPhase("enter");
         visualRef.current = "composer";
         onStepChange(TOUR_COMPOSER);
+      } else if (beat.kind === "voice") {
+        setTourSidebarRevealed(true);
+        const rect = measureVoiceRect();
+        if (!rect) {
+          // Voice button gone (an assistant swap mid-tour dropped live-voice
+          // support), so end past the finale.
+          onDone();
+          return;
+        }
+        setButtonLanding(rect);
+        setButtonPhase("enter");
+        visualRef.current = "voice";
+        onStepChange(TOUR_VOICE);
       } else {
         setTourSidebarRevealed(true);
         setLanded({ step: beat.step, rect: beat.rect, label: beat.label });
@@ -393,10 +446,17 @@ export function AvatarTour({
           beats.push({ kind: "row", step, ...placement });
         }
       }
-      // The finale — the composer's rect is measured at entry, since the
+      // The chat beat, whose composer rect is measured at entry, since the
       // sidebar reveal reflows the main column under it.
       if (measureComposerRect()) {
         beats.push({ kind: "composer" });
+      }
+      // The finale, on the voice button inside that composer. Presence is
+      // probed here against the app's own composer (the scenery one is not
+      // mounted until the first beat lands), so an assistant without live
+      // voice never gets the beat and the tour ends on the chat beat.
+      if (measureVoiceRect()) {
+        beats.push({ kind: "voice" });
       }
       beatsRef.current = beats;
       setBeatCount(beats.length);
@@ -473,6 +533,15 @@ export function AvatarTour({
           phase={composerPhase}
           eyesWidthFraction={COMPOSER_EYES_WIDTH_FRACTION}
           eyesBottomCutFraction={COMPOSER_EYES_BOTTOM_CUT_FRACTION}
+        />
+      ) : null}
+      {buttonLanding ? (
+        <TourButtonLanding
+          rect={buttonLanding}
+          components={components}
+          traits={traits}
+          customImageUrl={customImageUrl}
+          phase={buttonPhase}
         />
       ) : null}
     </>,
