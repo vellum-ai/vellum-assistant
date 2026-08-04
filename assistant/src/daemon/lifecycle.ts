@@ -49,6 +49,7 @@ import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
+import { reconcilePluginSchedules } from "../schedule/plugin-schedule-reconciler.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -696,6 +697,16 @@ export async function runDaemon(): Promise<void> {
     await recoverStaleSchedules();
   } catch (err) {
     log.error({ err }, "Schedule recovery failed — continuing startup");
+  }
+
+  // Converge plugin-declared schedules into cron_jobs rows before the
+  // scheduler starts claiming. The reconciler contains its own failures and
+  // checks DB migration readiness itself; the catch is startup insurance in
+  // the same shape as schedule recovery above.
+  try {
+    await reconcilePluginSchedules();
+  } catch (err) {
+    log.error({ err }, "Plugin schedule reconcile failed, continuing startup");
   }
 
   // Reconcile workflow runs orphaned by a crash: any row still `running` was
