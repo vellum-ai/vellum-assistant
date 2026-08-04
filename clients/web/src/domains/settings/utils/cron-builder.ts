@@ -60,7 +60,9 @@ export const WEEKDAYS: readonly WeekdayMeta[] = [
 const MONDAY_TO_FRIDAY = [1, 2, 3, 4, 5];
 
 function clampInt(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
+  if (!Number.isFinite(value)) {
+    return min;
+  }
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
@@ -68,9 +70,7 @@ function clampInt(value: number, min: number, max: number): number {
 export function normalizeWeekdays(weekdays: readonly number[]): number[] {
   const unique = Array.from(
     new Set(
-      weekdays
-        .map((d) => clampInt(d, 0, 6))
-        .filter((d) => Number.isInteger(d)),
+      weekdays.map((d) => clampInt(d, 0, 6)).filter((d) => Number.isInteger(d)),
     ),
   ).sort((a, b) => a - b);
   return unique.length > 0 ? unique : [1];
@@ -118,11 +118,15 @@ function describeWeekdays(weekdays: readonly number[]): string {
   const days = normalizeWeekdays(weekdays);
   const set = new Set(days);
 
-  if (days.length === 7) return "every day";
+  if (days.length === 7) {
+    return "every day";
+  }
   if (days.length === 5 && MONDAY_TO_FRIDAY.every((d) => set.has(d))) {
     return "every weekday";
   }
-  if (days.length === 2 && set.has(0) && set.has(6)) return "every weekend";
+  if (days.length === 2 && set.has(0) && set.has(6)) {
+    return "every weekend";
+  }
   if (days.length === 1) {
     return `every ${WEEKDAYS[days[0]]?.full ?? "day"}`;
   }

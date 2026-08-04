@@ -60,7 +60,9 @@ export function ApiKeyScreen() {
       (baseUrl.trim().length > 0 && customModels.trim().length > 0));
 
   const onContinue = () => {
-    if (!canContinue) return;
+    if (!canContinue) {
+      return;
+    }
     const selectedModel =
       model.trim() || defaultModelForOnboardingProvider(provider);
     setPendingProviderKey({

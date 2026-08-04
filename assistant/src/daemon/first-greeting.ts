@@ -24,8 +24,12 @@ export function isWakeUpGreeting(
   content: string,
   conversationMessageCount: number,
 ): boolean {
-  if (conversationMessageCount !== 0) return false;
-  if (!existsSync(getWorkspacePromptPath("BOOTSTRAP.md"))) return false;
+  if (conversationMessageCount !== 0) {
+    return false;
+  }
+  if (!existsSync(getWorkspacePromptPath("BOOTSTRAP.md"))) {
+    return false;
+  }
   return (
     content
       .trim()
@@ -59,7 +63,9 @@ export function buildSelfIntroMessage(
 ): string | undefined {
   const assistant = onboarding?.assistantName?.trim();
   const user = onboarding?.userName?.trim();
-  if (!assistant && !user) return undefined;
+  if (!assistant && !user) {
+    return undefined;
+  }
   const hi = assistant ? `Hi ${assistant}` : "Hi";
   const intro = user ? `, I'm ${user}` : "";
   return `${hi}${intro}. Nice to meet you.`;

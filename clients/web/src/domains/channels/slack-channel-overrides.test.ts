@@ -24,8 +24,9 @@ describe("tier ↔ preset parity", () => {
   // stays available for the global picker and for when that set grows.
   test("a channel offers Strict and Conservative, in preset order", () => {
     expect(CHANNEL_TIER_VALUES).toEqual(["none", "low"]);
-    expect(CHANNEL_TIER_VALUES.every((t) => CAPABILITY_TIER_VALUES.includes(t)))
-      .toBe(true);
+    expect(
+      CHANNEL_TIER_VALUES.every((t) => CAPABILITY_TIER_VALUES.includes(t)),
+    ).toBe(true);
   });
 
   test("labels come from the matching global preset — no redefined names", () => {
@@ -169,7 +170,11 @@ describe("bucketDefaultFromCells", () => {
     const cells: ChannelTierCell[] = [
       adapterCell("telegram", "high"),
       {
-        selector: { scope: "channel_type", adapter: "slack", channelType: "private" },
+        selector: {
+          scope: "channel_type",
+          adapter: "slack",
+          channelType: "private",
+        },
         contactType: "trusted_contact",
         threshold: "high",
       },

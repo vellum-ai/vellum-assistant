@@ -157,6 +157,14 @@ export {
   type ContextMenuTriggerProps,
 } from "./components/context-menu";
 export {
+  Select,
+  type SelectOption,
+  type SelectProps,
+  type SelectMenuAlign,
+  type SelectSize,
+} from "./components/select";
+/** @deprecated Use `Select`. */
+export {
   Dropdown,
   resolveDropdownMenuPosition,
   type DropdownOption,

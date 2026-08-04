@@ -93,7 +93,9 @@ export class ConversationEvictor {
 
   /** Start the periodic sweep timer. */
   start(): void {
-    if (this.sweepTimer) return;
+    if (this.sweepTimer) {
+      return;
+    }
     this.sweepTimer = setInterval(() => {
       try {
         const result = this.sweep();
@@ -138,7 +140,9 @@ export class ConversationEvictor {
     // messages.
     for (const [id, conversation] of this.conversations) {
       const lastAccessTime = this.lastAccess.get(id) ?? 0;
-      if (now - lastAccessTime < this.ttlMs) continue;
+      if (now - lastAccessTime < this.ttlMs) {
+        continue;
+      }
       if (
         conversation.isProcessing() ||
         conversation.hasQueuedMessages() ||
@@ -155,7 +159,9 @@ export class ConversationEvictor {
     if (this.conversations.size > this.maxConversations) {
       const sorted = this.idleConversationsByLru();
       for (const [id, conversation] of sorted) {
-        if (this.conversations.size <= this.maxConversations) break;
+        if (this.conversations.size <= this.maxConversations) {
+          break;
+        }
         this.evict(id, conversation);
         result.lruEvicted++;
       }
@@ -177,7 +183,9 @@ export class ConversationEvictor {
           "Memory pressure detected, evicting idle conversations",
         );
         for (const [id, conversation] of sorted) {
-          if (process.memoryUsage.rss() <= this.memoryThresholdBytes) break;
+          if (process.memoryUsage.rss() <= this.memoryThresholdBytes) {
+            break;
+          }
           this.evict(id, conversation);
           result.memoryEvicted++;
         }

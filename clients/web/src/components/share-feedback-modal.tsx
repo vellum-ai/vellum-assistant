@@ -1,36 +1,39 @@
 import { Capacitor } from "@capacitor/core";
 import { useMutation } from "@tanstack/react-query";
 import {
-    Bug,
-    Download,
-    Info,
-    Lightbulb,
-    Loader2,
-    type LucideIcon,
-    Mail,
-    MessageCircle,
-    Paperclip,
-    Send,
-    X,
+  Bug,
+  Download,
+  Info,
+  Lightbulb,
+  Loader2,
+  type LucideIcon,
+  Mail,
+  MessageCircle,
+  Paperclip,
+  Send,
+  X,
 } from "lucide-react";
 import {
-    type ChangeEvent,
-    type DragEvent,
-    type KeyboardEvent,
-    type MouseEvent,
-    useCallback,
-    useEffect,
-    useId,
-    useMemo,
-    useRef,
-    useState,
+  type ChangeEvent,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 import { createPortal } from "react-dom";
 
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import type { ClassificationEnum } from "@/generated/api/types.gen";
+import type {
+  ClassificationEnum,
+  ClientEnum,
+} from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -40,8 +43,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-    Dropdown,
-    type DropdownOption,
+  Dropdown,
+  type DropdownOption,
 } from "@vellumai/design-library/components/dropdown";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -128,7 +131,20 @@ const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
   other: "other",
 };
 
-function getFeedbackClient(): "electron" | "ios" | "web" {
+/**
+ * Which client this feedback is being sent from.
+ *
+ * Typed as the API's own `ClientEnum` rather than a restated union, so a value
+ * the platform stops accepting is a compile error here instead of a rejected
+ * submission at runtime — which is exactly how `android` got here: it was
+ * removed from the enum server-side, and nothing on this side noticed.
+ *
+ * Android reports as `web` deliberately. No native Capacitor Android shell
+ * ships (see `runtime/push-registration.ts`), so an Android device reaching
+ * this is in a browser and *is* a web client. This field is triage metadata,
+ * and failing the whole submission over it would cost the report itself.
+ */
+function getFeedbackClient(): ClientEnum {
   if (isElectron()) {
     return "electron";
   }
@@ -238,6 +254,31 @@ async function fetchPlatformLogs(
   }
 }
 
+/**
+ * Native shell identity, or `null` off a Capacitor shell.
+ *
+ * Pins which store/TestFlight build hosted this report. It also settles native
+ * shell versus home-screen PWA, which the user agent cannot: `WKWebView` drops
+ * the `Version/` and `Safari/` tokens in both cases, so the two are
+ * indistinguishable from the UA string alone.
+ *
+ * `@capacitor/app` is a plugin Proxy, so it is destructured inline per
+ * `docs/CAPACITOR.md` § "Capacitor plugins must be destructured inline".
+ */
+async function collectNativeAppInfo(): Promise<Record<string, unknown> | null> {
+  if (!Capacitor.isNativePlatform()) {
+    return null;
+  }
+  try {
+    const { App } = await import("@capacitor/app");
+    const { id, name, version, build } = await App.getInfo();
+    return { id, name, version, build };
+  } catch {
+    // Diagnostics are best-effort and must never block a support submission.
+    return null;
+  }
+}
+
 async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
@@ -275,6 +316,14 @@ async function buildClientLogsFile(
     assistant_id: assistantId,
     active_conversation_id: activeConversationId,
     doctor_session_id: doctorSessionId ?? null,
+    // Which web bundle produced this report. The archive already carries the
+    // assistant's version, but the two ship on entirely separate cadences: the
+    // native shells load this bundle over the network at runtime, so a report
+    // can pair an arbitrarily new assistant with an arbitrarily old (or cached)
+    // client, and without this there is no way to tell which client fix was
+    // actually present.
+    client_version: import.meta.env.VITE_APP_VERSION ?? null,
+    native_app: await collectNativeAppInfo(),
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
@@ -420,7 +469,9 @@ async function buildClientLogsFile(
         JSON.stringify(electronDiagnostics, null, 2),
       );
       tarParts.push(buildTarEntry("electron-diagnostics.json", diagBytes));
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
 
     try {
       const redactedLogs = await window.vellum.feedback.logs();
@@ -428,7 +479,9 @@ async function buildClientLogsFile(
         const logBytes = new TextEncoder().encode(redactedLogs);
         tarParts.push(buildTarEntry("electron-main-logs.txt", logBytes));
       }
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   if (assistantId) {
@@ -586,7 +639,8 @@ export function ShareFeedbackModal({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSubmitting) {
+      if (e.key === "Escape" && !e.defaultPrevented && !isSubmitting) {
+        e.preventDefault();
         onClose();
       }
     },
@@ -670,7 +724,11 @@ export function ShareFeedbackModal({
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
-              isElectron() ? (includeConversation ? (activeConversationId ?? null) : null) : (activeConversationId ?? null),
+              isElectron()
+                ? includeConversation
+                  ? (activeConversationId ?? null)
+                  : null
+                : (activeConversationId ?? null),
               {
                 diagnosticsProvider: getDiagnosticsSnapshot,
                 doctorSessionId,
@@ -753,9 +811,7 @@ export function ShareFeedbackModal({
         },
       );
       if (!logsFile) {
-        setSubmitError(
-          "Diagnostics export isn't supported in this browser.",
-        );
+        setSubmitError("Diagnostics export isn't supported in this browser.");
         return;
       }
       const url = URL.createObjectURL(logsFile);
@@ -840,8 +896,7 @@ export function ShareFeedbackModal({
               </label>
               <span className="text-body-small-default text-[var(--content-secondary)]">
                 Admin only — builds the diagnostics archive locally and
-                downloads it instead of submitting feedback or notifying
-                Slack.
+                downloads it instead of submitting feedback or notifying Slack.
               </span>
             </div>
           )}
@@ -859,184 +914,186 @@ export function ShareFeedbackModal({
               />
             </div>
           ) : (
-          <>
-          {shouldShowEmail && (
-            <Input
-              id={`${titleId}-email`}
-              ref={emailRef}
-              label="Email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              leftIcon={<Mail className="h-4 w-4" aria-hidden />}
-              fullWidth
-            />
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <span className="text-body-small-default text-[var(--content-secondary)]">
-              Category
-            </span>
-            <div className="flex gap-2">
-              {REASON_OPTIONS.map((option) => (
-                <ReasonChip
-                  key={option.value}
-                  option={option}
-                  isSelected={selectedReason === option.value}
-                  onSelect={() => handleSelectReason(option.value)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <hr className="border-[var(--border-subtle)]" />
-
-          {selectedReason === "bug_report" && (
-            <Notice tone="info">
-              Tip: Get faster support by posting in our{" "}
-              <a
-                href={VELLUM_COMMUNITY_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline text-[var(--content-default)]"
-              >
-                Discord community
-              </a>
-            </Notice>
-          )}
-
-          {selectedReason === "feature_request" && (
-            <Notice tone="info">
-              Tip: Vote on features on our{" "}
-              <a
-                href="https://vellum.ai/roadmap"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline text-[var(--content-default)]"
-              >
-                public roadmap
-              </a>
-            </Notice>
-          )}
-
-          <Textarea
-            id={`${titleId}-message`}
-            ref={messageRef}
-            label={
-              selectedReason === "bug_report"
-                ? "What went wrong?"
-                : selectedReason === "feature_request"
-                  ? "Describe your idea"
-                  : "What's on your mind?"
-            }
-            rows={3}
-            placeholder={
-              selectedReason === "bug_report"
-                ? "What did you expect to happen, and what happened instead?"
-                : selectedReason === "feature_request"
-                  ? "What problem would this solve for you?"
-                  : "Share your thoughts..."
-            }
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            fullWidth
-          />
-
-          {selectedReason !== "feature_request" && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <Toggle
-                    checked={includeLogs}
-                    onChange={handleToggleLogs}
-                    aria-label="Include browser diagnostics"
-                  />
-                  <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
-                    Include diagnostics
-                  </span>
-                </label>
-                <Tooltip content="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials.">
-                  <button
-                    type="button"
-                    aria-label="About diagnostics"
-                    className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
-                  >
-                    <Info className="h-3.5 w-3.5" />
-                  </button>
-                </Tooltip>
-              </div>
-              {includeLogs && (
-                <Dropdown
-                  options={TIME_RANGE_OPTIONS}
-                  value={logTimeRange}
-                  onChange={setLogTimeRange}
-                  aria-label="Diagnostics time range"
+            <>
+              {shouldShowEmail && (
+                <Input
+                  id={`${titleId}-email`}
+                  ref={emailRef}
+                  label="Email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  leftIcon={<Mail className="h-4 w-4" aria-hidden />}
+                  fullWidth
                 />
               )}
-            </div>
-          )}
 
-          {isElectron() && activeConversationId && selectedReason !== "feature_request" && (
-            <label className="flex cursor-pointer items-center gap-2.5">
-              <Toggle
-                checked={includeConversation}
-                onChange={() => setIncludeConversation((v) => !v)}
-                aria-label="Include the most recent conversation"
-              />
-              <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
-                Include the most recent conversation
-              </span>
-            </label>
-          )}
-
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-body-small-default text-[var(--content-secondary)]">
-                Attachments
-                {attachments.length > 0 && (
-                  <span className="text-[var(--content-tertiary)]">
-                    {" · "}
-                    {attachments.length}/{MAX_ATTACHMENTS}
-                  </span>
-                )}
-              </span>
-              <Button
-                variant="outlined"
-                size="compact"
-                leftIcon={<Paperclip />}
-                onClick={() => fileInputRef.current?.click()}
-                disabled={attachments.length >= MAX_ATTACHMENTS}
-              >
-                Add files
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
-                onChange={onFileInputChange}
-                className="hidden"
-              />
-            </div>
-            {attachments.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto">
-                {attachments.map((file, idx) => (
-                  <AttachmentThumbnail
-                    key={`${file.name}-${idx}`}
-                    file={file}
-                    onRemove={() => removeAttachment(idx)}
-                  />
-                ))}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-body-small-default text-[var(--content-secondary)]">
+                  Category
+                </span>
+                <div className="flex gap-2">
+                  {REASON_OPTIONS.map((option) => (
+                    <ReasonChip
+                      key={option.value}
+                      option={option}
+                      isSelected={selectedReason === option.value}
+                      onSelect={() => handleSelectReason(option.value)}
+                    />
+                  ))}
+                </div>
               </div>
-            )}
-            {isDragging && (
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
-                Drop files to attach…
-              </p>
-            )}
-          </div>
-          </>
+
+              <hr className="border-[var(--border-subtle)]" />
+
+              {selectedReason === "bug_report" && (
+                <Notice tone="info">
+                  Tip: Get faster support by posting in our{" "}
+                  <a
+                    href={VELLUM_COMMUNITY_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-[var(--content-default)]"
+                  >
+                    Discord community
+                  </a>
+                </Notice>
+              )}
+
+              {selectedReason === "feature_request" && (
+                <Notice tone="info">
+                  Tip: Vote on features on our{" "}
+                  <a
+                    href="https://vellum.ai/roadmap"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-[var(--content-default)]"
+                  >
+                    public roadmap
+                  </a>
+                </Notice>
+              )}
+
+              <Textarea
+                id={`${titleId}-message`}
+                ref={messageRef}
+                label={
+                  selectedReason === "bug_report"
+                    ? "What went wrong?"
+                    : selectedReason === "feature_request"
+                      ? "Describe your idea"
+                      : "What's on your mind?"
+                }
+                rows={3}
+                placeholder={
+                  selectedReason === "bug_report"
+                    ? "What did you expect to happen, and what happened instead?"
+                    : selectedReason === "feature_request"
+                      ? "What problem would this solve for you?"
+                      : "Share your thoughts..."
+                }
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                fullWidth
+              />
+
+              {selectedReason !== "feature_request" && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <label className="flex cursor-pointer items-center gap-2.5">
+                      <Toggle
+                        checked={includeLogs}
+                        onChange={handleToggleLogs}
+                        aria-label="Include browser diagnostics"
+                      />
+                      <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                        Include diagnostics
+                      </span>
+                    </label>
+                    <Tooltip content="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials.">
+                      <button
+                        type="button"
+                        aria-label="About diagnostics"
+                        className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </button>
+                    </Tooltip>
+                  </div>
+                  {includeLogs && (
+                    <Dropdown
+                      options={TIME_RANGE_OPTIONS}
+                      value={logTimeRange}
+                      onChange={setLogTimeRange}
+                      aria-label="Diagnostics time range"
+                    />
+                  )}
+                </div>
+              )}
+
+              {isElectron() &&
+                activeConversationId &&
+                selectedReason !== "feature_request" && (
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <Toggle
+                      checked={includeConversation}
+                      onChange={() => setIncludeConversation((v) => !v)}
+                      aria-label="Include the most recent conversation"
+                    />
+                    <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                      Include the most recent conversation
+                    </span>
+                  </label>
+                )}
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-body-small-default text-[var(--content-secondary)]">
+                    Attachments
+                    {attachments.length > 0 && (
+                      <span className="text-[var(--content-tertiary)]">
+                        {" · "}
+                        {attachments.length}/{MAX_ATTACHMENTS}
+                      </span>
+                    )}
+                  </span>
+                  <Button
+                    variant="outlined"
+                    size="compact"
+                    leftIcon={<Paperclip />}
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={attachments.length >= MAX_ATTACHMENTS}
+                  >
+                    Add files
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                    onChange={onFileInputChange}
+                    className="hidden"
+                  />
+                </div>
+                {attachments.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto">
+                    {attachments.map((file, idx) => (
+                      <AttachmentThumbnail
+                        key={`${file.name}-${idx}`}
+                        file={file}
+                        onRemove={() => removeAttachment(idx)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {isDragging && (
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    Drop files to attach…
+                  </p>
+                )}
+              </div>
+            </>
           )}
 
           {submitError && (
@@ -1053,7 +1110,9 @@ export function ShareFeedbackModal({
           {isSubmitting ? (
             <span className="inline-flex items-center gap-2 text-body-medium-lighter text-[var(--content-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              {adminDownloadMode ? "Preparing diagnostics…" : "Sending feedback…"}
+              {adminDownloadMode
+                ? "Preparing diagnostics…"
+                : "Sending feedback…"}
             </span>
           ) : (
             <>

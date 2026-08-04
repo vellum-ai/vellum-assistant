@@ -98,14 +98,14 @@ describe("useAssistantFeatureFlagStore", () => {
   });
 
   test("is a no-op for an assistant flag when there is no assistant id", async () => {
-    store().setFlag("voiceDuplexHandoff", true, null);
+    store().setFlag("backwardReleases", true, null);
     await Promise.resolve();
 
     // No assistant id => nowhere to persist => true no-op. It must not apply an
     // optimistic value or fake a "confirmed" one: a local-only write is exactly
     // what masked the silent persistence failure (the toggle looked saved while
     // the gateway, and therefore the daemon, never received it).
-    expect(store().voiceDuplexHandoff).toBe(false);
+    expect(store().backwardReleases).toBe(false);
     expect(patchMock).not.toHaveBeenCalled();
     expect(toastErrorMock).not.toHaveBeenCalled();
   });

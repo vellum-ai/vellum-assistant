@@ -1,0 +1,93 @@
+// Extension-Base.xcconfig — shared build settings for the three
+// VoiceActivity widget extension targets. Per-target xcconfigs #include
+// this file, then override the one key that differs: the bundle ID,
+// which iOS requires to be prefixed by its containing app's ID. That
+// prefix rule is the whole reason there are three extension targets
+// rather than one shared appex.
+//
+// This deliberately does NOT #include Base.xcconfig. That file carries
+// app-only settings — CODE_SIGN_ENTITLEMENTS, the app's INFOPLIST_FILE,
+// ASSOCIATED_DOMAIN — that are wrong or actively harmful on an appex.
+// The cost is that the handful of genuinely shared values below are
+// restated: keep DEVELOPMENT_TEAM, SWIFT_VERSION,
+// TARGETED_DEVICE_FAMILY and especially IPHONEOS_DEPLOYMENT_TARGET in
+// sync with Base.xcconfig. An extension whose deployment target is
+// higher than its host app's fails to install on the OS versions the
+// app still claims to support.
+//
+// BUNDLE_URL_SCHEME and BUNDLE_DISPLAY_NAME are the two app-target
+// variables each per-environment extension xcconfig does restate, and
+// both must be copied verbatim from the matching App*.xcconfig.
+//
+// BUNDLE_URL_SCHEME: the Live Activity's widgetURL has to deep-link into
+// its *own* containing app — a mismatch sends a Dev build's island tap
+// into the production app. It reaches Swift as the VellumURLScheme
+// Info.plist key, never as CFBundleURLTypes: an appex must not register
+// a URL type.
+//
+// BUNDLE_DISPLAY_NAME: App Store Connect requires CFBundleDisplayName on
+// a widget extension and rejects the entire upload without it. Nothing
+// catches that locally — the archive builds and signs clean, and the
+// failure surfaces at the altool step in release-ios.yaml.
+//
+// The extension ships no entitlements file at all: no App Group
+// (ContentState carries only primitives across the ActivityKit
+// boundary, so there is nothing to share through a container) and no
+// push. An unused entitlement is a provisioning failure waiting to
+// happen.
+//
+// MARKETING_VERSION and CURRENT_PROJECT_VERSION are local-build
+// placeholders, for the same reason as in Base.xcconfig: release builds
+// inject them as xcodebuild CLI overrides at archive time (see
+// .github/workflows/release-ios.yaml). Because that override applies to
+// every target in the archive, the extension's CFBundleVersion always
+// matches its containing app's — which App Store validation requires.
+//
+// The placeholders must stay in lockstep with Base.xcconfig's for the same
+// reason: locally there is no CLI override to unify them. Empty values here
+// make the app uninstallable outright — iOS rejects an embedded appex whose
+// CFBundleVersion is missing.
+MARKETING_VERSION = 0.0.0
+CURRENT_PROJECT_VERSION = 1
+
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = 7FZDXZR8P5
+INFOPLIST_FILE = VoiceActivity/Info.plist
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+
+// PRODUCT_NAME is deliberately left at XcodeGen's $(TARGET_NAME)
+// default, matching the app targets (which already ship "App
+// Staging.app"). Do not pin it to a fixed name: XcodeGen derives each
+// product file reference from the target name, and the app's embed
+// phase looks the appex up by that reference — a PRODUCT_NAME that
+// disagrees with the target name makes the copy fail on a missing file.
+
+// Manual-signing provisioning profile, resolved per target. Restated here
+// rather than inherited, for the same reason as the settings above: this
+// file deliberately does not #include Base.xcconfig. Each per-target
+// xcconfig sets PROVISIONING_PROFILE_SPECIFIER_Manual to the extension
+// profile for its environment — the appex has its own bundle ID, so the
+// app's profile does not cover it. See the comment in Base.xcconfig for why
+// the value is keyed off CODE_SIGN_STYLE.
+PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
+
+// Turns extension-unsafe API — `UIApplication.shared` above all — into a
+// compile error rather than an App Store validation rejection ("linked
+// against non-extension-safe API"). That error is the backstop the
+// `#if VOICE_ACTIVITY_EXTENSION` guard in `App/Shared/VoiceModeDeepLink.swift`
+// relies on, and `clients/ios/docs/NATIVE_VOICE.md` asserts as an invariant.
+//
+// Redundant on Xcode 26.6, which already derives YES from PRODUCT_TYPE =
+// app-extension — and stated anyway, because nothing else in the repo
+// does. XcodeGen's `app-extension` preset contributes only
+// LD_RUNPATH_SEARCH_PATHS and the generated pbxproj carries no value, so
+// without this line an invariant the docs promise would be owned
+// entirely by an Xcode default. Same reasoning as SKIP_INSTALL below.
+APPLICATION_EXTENSION_API_ONLY = YES
+
+// Required for an embedded extension: the appex is copied into the app
+// bundle by the embed phase, and must not also be installed at the
+// archive root.
+SKIP_INSTALL = YES
+SWIFT_VERSION = 5.0
+TARGETED_DEVICE_FAMILY = 1,2

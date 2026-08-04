@@ -1374,7 +1374,7 @@ describe("wake mode in schedule routes", () => {
     clearTables();
   });
 
-  test("PATCH accepts 'wake' as a valid mode", async () => {
+  test("PATCH accepts 'wake' as a valid mode for an owner", async () => {
     const schedule = await createSchedule({
       name: "Wake test",
       cronExpression: "* * * * *",
@@ -1383,9 +1383,11 @@ describe("wake mode in schedule routes", () => {
     });
 
     const route = findRoute("schedules/:id", "PATCH");
+    // Wake mutations are owner-gated; a local IPC caller is the owner.
     const result = (await route.handler({
       pathParams: { id: schedule.id },
       body: { mode: "wake", wakeConversationId: "conv-xyz" },
+      headers: { "x-vellum-principal-type": "local" },
     })) as {
       schedules: Array<{
         id: string;

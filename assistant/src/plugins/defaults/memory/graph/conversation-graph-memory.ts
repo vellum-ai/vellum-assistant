@@ -15,7 +15,7 @@ import type {
   ImageContent,
   Message,
 } from "@vellumai/plugin-api";
-import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -24,7 +24,7 @@ import {
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getDb, getMemoryDb } from "../../../../persistence/db-connection.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
@@ -72,6 +72,15 @@ import type { RetrievalMetrics } from "./types.js";
 const log = getLogger("graph-conversation-memory");
 
 const ESTIMATED_IMAGE_TOKENS = 1000;
+
+/**
+ * Page size for {@link ConversationGraphMemory.fetchRecentSummaries}. It reads
+ * candidate summary keys a page at a time and stops once three user summaries
+ * are found, so the common case (recent conversations are user ones) touches a
+ * single page regardless of history size. Also bounds the per-page conversation
+ * lookup below SQLite's bound-parameter limit.
+ */
+const RECENT_SUMMARY_PAGE_SIZE = 200;
 
 // ---------------------------------------------------------------------------
 // Per-conversation state
@@ -225,59 +234,122 @@ export class ConversationGraphMemory {
   private fetchRecentSummaries(): string[] {
     try {
       const db = getDb();
-      const baseWhere = and(
-        eq(memorySummaries.scope, "conversation"),
-        ne(memorySummaries.scopeKey, this.conversationId),
-      );
-
-      // Fetch user conversations first (up to 3)
-      const userRows = db
-        .select({ summary: memorySummaries.summary })
-        .from(memorySummaries)
-        .innerJoin(
-          conversations,
-          eq(memorySummaries.scopeKey, conversations.id),
-        )
-        .where(
-          and(
-            baseWhere,
-            notInArray(conversations.conversationType, [
-              "background",
-              "scheduled",
-            ]),
-          ),
-        )
-        .orderBy(desc(memorySummaries.updatedAt))
-        .limit(3)
-        .all();
-
-      if (userRows.length >= 3) {
-        return userRows.map((r) => r.summary);
+      const memoryDb = getMemoryDb();
+      if (!memoryDb) {
+        return [];
       }
 
-      // Fill remaining slots with at most 1 background/scheduled conversation
-      const remaining = Math.min(1, 3 - userRows.length);
-      const bgRows = db
-        .select({ summary: memorySummaries.summary })
+      // Page through candidate summary keys most-recent first from the memory
+      // connection (which holds memory_summaries), resolving each page's
+      // conversation types on the main connection before moving on, and stop as
+      // soon as 3 user summaries are found. Only keys are read here so the full
+      // text is fetched for just the rows returned. conversationType is a
+      // separate lookup rather than a JOIN, since the two tables do not share
+      // a database file; keeping it per-page bounds the scan to the pages
+      // actually needed. A summary whose conversation row is gone is skipped, and
+      // at most 1 background/scheduled summary fills a remaining slot.
+      const selectedKeys: string[] = [];
+      let backgroundKey: string | null = null;
+      // Keyset cursor over (updatedAt, scopeKey), most-recent first. Written as a
+      // row-value comparison so SQLite seeks on the (scope, updated_at) index and
+      // resumes past the last row instead of re-walking every prior page as a
+      // growing OFFSET would. scopeKey is unique per conversation summary, so the
+      // pair is a stable tiebreaker across the (near-never) equal updatedAt.
+      let cursor: { updatedAt: number; scopeKey: string } | null = null;
+      while (selectedKeys.length < 3) {
+        const beyondCursor: SQL | undefined = cursor
+          ? sql`(${memorySummaries.updatedAt}, ${memorySummaries.scopeKey}) < (${cursor.updatedAt}, ${cursor.scopeKey})`
+          : undefined;
+        const page: Array<{ scopeKey: string; updatedAt: number }> = memoryDb
+          .select({
+            scopeKey: memorySummaries.scopeKey,
+            updatedAt: memorySummaries.updatedAt,
+          })
+          .from(memorySummaries)
+          .where(
+            and(
+              eq(memorySummaries.scope, "conversation"),
+              ne(memorySummaries.scopeKey, this.conversationId),
+              beyondCursor,
+            ),
+          )
+          .orderBy(
+            desc(memorySummaries.updatedAt),
+            desc(memorySummaries.scopeKey),
+          )
+          .limit(RECENT_SUMMARY_PAGE_SIZE)
+          .all();
+        if (page.length === 0) {
+          break;
+        }
+        const lastRow = page[page.length - 1]!;
+        cursor = { updatedAt: lastRow.updatedAt, scopeKey: lastRow.scopeKey };
+        const pageKeys = page.map((r) => r.scopeKey);
+
+        const typeByConversation = new Map<string, string>();
+        const rows = db
+          .select({
+            id: conversations.id,
+            type: conversations.conversationType,
+          })
+          .from(conversations)
+          .where(inArray(conversations.id, pageKeys))
+          .all();
+        for (const r of rows) {
+          typeByConversation.set(r.id, r.type);
+        }
+
+        for (const scopeKey of pageKeys) {
+          const type = typeByConversation.get(scopeKey);
+          if (type === undefined) {
+            continue; // its conversation row is gone, skip it
+          }
+          if (type === "background" || type === "scheduled") {
+            if (backgroundKey === null) {
+              backgroundKey = scopeKey;
+            }
+          } else if (selectedKeys.length < 3) {
+            selectedKeys.push(scopeKey);
+            if (selectedKeys.length >= 3) {
+              break;
+            }
+          }
+        }
+
+        if (page.length < RECENT_SUMMARY_PAGE_SIZE) {
+          break; // last page reached
+        }
+      }
+      if (selectedKeys.length < 3 && backgroundKey !== null) {
+        selectedKeys.push(backgroundKey);
+      }
+      if (selectedKeys.length === 0) {
+        return [];
+      }
+
+      // Fetch the summary text for the selected rows only, then return them in
+      // the selection order (user summaries most-recent first, then the one
+      // background summary).
+      const textByKey = new Map<string, string>();
+      const selectedRows = memoryDb
+        .select({
+          scopeKey: memorySummaries.scopeKey,
+          summary: memorySummaries.summary,
+        })
         .from(memorySummaries)
-        .innerJoin(
-          conversations,
-          eq(memorySummaries.scopeKey, conversations.id),
-        )
         .where(
           and(
-            baseWhere,
-            inArray(conversations.conversationType, [
-              "background",
-              "scheduled",
-            ]),
+            eq(memorySummaries.scope, "conversation"),
+            inArray(memorySummaries.scopeKey, selectedKeys),
           ),
         )
-        .orderBy(desc(memorySummaries.updatedAt))
-        .limit(remaining)
         .all();
-
-      return [...userRows, ...bgRows].map((r) => r.summary);
+      for (const r of selectedRows) {
+        textByKey.set(r.scopeKey, r.summary);
+      }
+      return selectedKeys
+        .map((k) => textByKey.get(k))
+        .filter((s): s is string => s !== undefined);
     } catch (err) {
       log.warn({ err }, "Failed to fetch recent conversation summaries");
       return [];

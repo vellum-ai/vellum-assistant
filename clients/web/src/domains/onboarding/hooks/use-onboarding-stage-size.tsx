@@ -52,7 +52,9 @@ export function useOnboardingStageSize(): StageSize {
   const ctx = useContext(OnboardingStageSizeContext);
   const [fallback, setFallback] = useState<StageSize>(() => windowSize());
   useEffect(() => {
-    if (ctx) return; // a provider supplies the size; no need to track the window
+    if (ctx) {
+      return;
+    } // a provider supplies the size; no need to track the window
     const onResize = () => setFallback(windowSize());
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);

@@ -1,9 +1,9 @@
 import {
-    AddressElement,
-    Elements,
-    PaymentElement,
-    useElements,
-    useStripe,
+  AddressElement,
+  Elements,
+  PaymentElement,
+  useElements,
+  useStripe,
 } from "@stripe/react-stripe-js";
 import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
@@ -98,7 +98,9 @@ export function AutoTopUpPaymentMethodModal({
   // would just spawn orphan SetupIntents the user can never complete.
   useEffect(() => {
     if (open) {
-      if (!STRIPE_PK) return;
+      if (!STRIPE_PK) {
+        return;
+      }
       createSetupIntent({});
     } else {
       resetSetupIntent();
@@ -115,7 +117,9 @@ export function AutoTopUpPaymentMethodModal({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) {
+          onClose();
+        }
       }}
     >
       <Modal.Content size="sm">
@@ -129,7 +133,8 @@ export function AutoTopUpPaymentMethodModal({
             // pending-or-no-client-secret branch below would otherwise
             // render a perpetual spinner. Render the notice directly.
             <MissingStripeKeyNotice />
-          ) : setupIntentMutation.isPending || (!clientSecret && !setupIntentMutation.isError) ? (
+          ) : setupIntentMutation.isPending ||
+            (!clientSecret && !setupIntentMutation.isError) ? (
             <div
               className="flex min-h-[260px] items-center justify-center"
               data-testid="auto-top-up-pm-modal-spinner"
@@ -142,10 +147,7 @@ export function AutoTopUpPaymentMethodModal({
                 Failed to start card setup. Please try again.
               </Notice>
               <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  onClick={() => createSetupIntent({})}
-                >
+                <Button variant="primary" onClick={() => createSetupIntent({})}>
                   Try again
                 </Button>
               </div>
@@ -218,7 +220,9 @@ function SetupCardForm({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!stripe || !elements || !ready) return;
+    if (!stripe || !elements || !ready) {
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -309,7 +313,9 @@ function SetupCardForm({
           type="submit"
           data-testid="auto-top-up-pm-save-button"
           disabled={submitting || !stripe || !elements || !ready}
-          leftIcon={submitting ? <Loader2 className="animate-spin" /> : undefined}
+          leftIcon={
+            submitting ? <Loader2 className="animate-spin" /> : undefined
+          }
         >
           Save
         </Button>

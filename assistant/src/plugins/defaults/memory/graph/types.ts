@@ -118,10 +118,13 @@ export interface MemoryNode {
  * and consolidation — organic procedural nodes participate normally.
  */
 export function isCapabilityNode(node: MemoryNode): boolean {
-  if (node.type !== "procedural") return false;
+  if (node.type !== "procedural") {
+    return false;
+  }
   // Old seeding systems: content starts with "skill:{id}\n" or "cli:{name}\n"
-  if (node.content.startsWith("skill:") || node.content.startsWith("cli:"))
+  if (node.content.startsWith("skill:") || node.content.startsWith("cli:")) {
     return true;
+  }
   // New seeding system (capability-seed.ts): content matches
   // 'The "{name}" skill ({id}) is available.' or
   // 'The "assistant {name}" CLI command is available.'
@@ -156,15 +159,25 @@ export type CapabilityKind = "skill" | "cli";
  * `extractCapabilityId` recognize.
  */
 export function capabilityKind(node: MemoryNode): CapabilityKind | null {
-  if (node.type !== "procedural") return null;
+  if (node.type !== "procedural") {
+    return null;
+  }
 
   const source = node.sourceConversations[0];
-  if (source?.startsWith(CAPABILITY_SKILL_SOURCE_PREFIX)) return "skill";
-  if (source?.startsWith(CAPABILITY_CLI_SOURCE_PREFIX)) return "cli";
+  if (source?.startsWith(CAPABILITY_SKILL_SOURCE_PREFIX)) {
+    return "skill";
+  }
+  if (source?.startsWith(CAPABILITY_CLI_SOURCE_PREFIX)) {
+    return "cli";
+  }
 
   // Fallback: classify by seeded content shape when the source key is absent.
-  if (node.content.startsWith("cli:")) return "cli";
-  if (node.content.startsWith("skill:")) return "skill";
+  if (node.content.startsWith("cli:")) {
+    return "cli";
+  }
+  if (node.content.startsWith("skill:")) {
+    return "skill";
+  }
   if (
     node.content.startsWith('The "assistant ') &&
     node.content.includes(" CLI command")

@@ -21,9 +21,15 @@ interface CachedSound {
 }
 
 function clampVolume(v: number): number {
-  if (!Number.isFinite(v)) return 0.7;
-  if (v < 0) return 0;
-  if (v > 1) return 1;
+  if (!Number.isFinite(v)) {
+    return 0.7;
+  }
+  if (v < 0) {
+    return 0;
+  }
+  if (v > 1) {
+    return 1;
+  }
   return v;
 }
 
@@ -36,7 +42,9 @@ class SoundManager {
   private audioContext: AudioContext | null = null;
 
   setAssistantId(assistantId: string | null): void {
-    if (assistantId === this.assistantId) return;
+    if (assistantId === this.assistantId) {
+      return;
+    }
     this.assistantId = assistantId;
     this.clearCache();
   }
@@ -50,12 +58,18 @@ class SoundManager {
   }
 
   async play(event: SoundEventId): Promise<void> {
-    if (!this.featureEnabled) return;
+    if (!this.featureEnabled) {
+      return;
+    }
     const config = this.config;
-    if (!config || !config.globalEnabled) return;
+    if (!config || !config.globalEnabled) {
+      return;
+    }
 
     const eventConfig = config.events[event];
-    if (!eventConfig?.enabled) return;
+    if (!eventConfig?.enabled) {
+      return;
+    }
 
     const volume = clampVolume(config.volume);
     const pool = eventConfig.sounds.filter(validateSoundFilename);
@@ -77,7 +91,9 @@ class SoundManager {
   }
 
   async previewSound(filename: string, volumeOverride?: number): Promise<void> {
-    if (!this.featureEnabled) return;
+    if (!this.featureEnabled) {
+      return;
+    }
     const volume = clampVolume(volumeOverride ?? this.config?.volume ?? 0.7);
     const ok = await this.playFile(filename, volume);
     if (!ok) {
@@ -86,7 +102,9 @@ class SoundManager {
   }
 
   async previewFallbackBlip(volumeOverride?: number): Promise<void> {
-    if (!this.featureEnabled) return;
+    if (!this.featureEnabled) {
+      return;
+    }
     const volume = clampVolume(volumeOverride ?? this.config?.volume ?? 0.7);
     this.playFallbackBlip(volume);
   }
@@ -100,9 +118,13 @@ class SoundManager {
   }
 
   private async playFile(filename: string, volume: number): Promise<boolean> {
-    if (!validateSoundFilename(filename)) return false;
+    if (!validateSoundFilename(filename)) {
+      return false;
+    }
     const cached = await this.getOrFetch(filename);
-    if (!cached) return false;
+    if (!cached) {
+      return false;
+    }
     try {
       const audio = new Audio(cached.url);
       audio.volume = volume;
@@ -115,18 +137,26 @@ class SoundManager {
 
   private async getOrFetch(filename: string): Promise<CachedSound | null> {
     const hit = this.cache.get(filename);
-    if (hit) return hit;
+    if (hit) {
+      return hit;
+    }
 
     const inFlight = this.pendingFetches.get(filename);
-    if (inFlight) return inFlight;
+    if (inFlight) {
+      return inFlight;
+    }
 
     const assistantId = this.assistantId;
-    if (!assistantId) return null;
+    if (!assistantId) {
+      return null;
+    }
 
     const promise = (async () => {
       try {
         const blob = await fetchSoundFile(assistantId, filename);
-        if (!blob) return null;
+        if (!blob) {
+          return null;
+        }
         const url = URL.createObjectURL(blob);
         const entry: CachedSound = { url };
         this.cache.set(filename, entry);
@@ -140,13 +170,17 @@ class SoundManager {
   }
 
   private playFallbackBlip(volume: number): void {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      return;
+    }
     try {
       const AudioContextCtor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext })
           .webkitAudioContext;
-      if (!AudioContextCtor) return;
+      if (!AudioContextCtor) {
+        return;
+      }
       if (!this.audioContext) {
         this.audioContext = new AudioContextCtor();
       }

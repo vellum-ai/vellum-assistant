@@ -17,14 +17,7 @@
  *     rather than silently returning an `events: []` trail.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { client } from "@/generated/daemon/client.gen";
 import type { ConversationsByIdCompactionGetResponse } from "@/generated/daemon/types.gen";
@@ -89,12 +82,7 @@ afterEach(() => {
 
 describe("fetchCompactionTrail", () => {
   test("calls the assistant route with the platform path + query params", async () => {
-    await fetchCompactionTrail(
-      "assistant-1",
-      "conv-abc",
-      "call-32",
-      undefined,
-    );
+    await fetchCompactionTrail("assistant-1", "conv-abc", "call-32", undefined);
 
     expect(captured).not.toBeNull();
     expect(captured!.url).toBe(

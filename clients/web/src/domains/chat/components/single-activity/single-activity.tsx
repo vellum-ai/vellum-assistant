@@ -34,12 +34,7 @@
  * contiguous run of interleaved thinking + tool steps as one combined card.
  */
 
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  Globe,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Globe } from "lucide-react";
 import { useMemo } from "react";
 
 import { cn } from "@/utils/misc";
@@ -87,7 +82,10 @@ export type SingleActivityProps =
       /** Card-level state: while `loading` the "Web Search" label shimmers. */
       state: "loading" | "complete" | "error";
       /** The single web step to render when expanded (favicon chips / error). Null during the brief loading window before metadata arrives. */
-      step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }> | null;
+      step: Extract<
+        ToolCallCardStep,
+        { kind: "web_search" | "web_search_error" }
+      > | null;
       /** Controlled expand state + change handler (owned by the caller). */
       expanded: boolean;
       onExpandChange: (next: boolean) => void;
@@ -186,8 +184,7 @@ export function SingleActivity(props: SingleActivityProps) {
             <span className="inline-flex w-[220px] min-w-0 items-center">
               {carouselNode}
             </span>
-          ) : latest &&
-            (latest.faviconUrl || latest.domain || latest.title) ? (
+          ) : latest && (latest.faviconUrl || latest.domain || latest.title) ? (
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <SiteFavicon
                 faviconUrl={latest.faviconUrl}
@@ -229,7 +226,9 @@ export function SingleActivity(props: SingleActivityProps) {
     // While streaming, render even before any reasoning text has landed so this
     // link can be the single thinking affordance from the start of the turn.
     // Once settled, an empty thought process has nothing to show, so collapse it.
-    if (!content && !isStreaming) return null;
+    if (!content && !isStreaming) {
+      return null;
+    }
     view = {
       dataTestId: "thought-process-link",
       ariaLabel: "View thinking",

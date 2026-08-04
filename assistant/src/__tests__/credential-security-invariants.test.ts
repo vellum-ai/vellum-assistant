@@ -248,7 +248,9 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     function collectTsFiles(dir: string, files: string[] = []): string[] {
       for (const entry of readdirSync(dir)) {
         const full = join(dir, entry);
-        if (entry === "__tests__" || entry === "node_modules") continue;
+        if (entry === "__tests__" || entry === "node_modules") {
+          continue;
+        }
         const s = statSync(full);
         if (s.isDirectory()) {
           collectTsFiles(full, files);

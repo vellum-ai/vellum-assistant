@@ -22,9 +22,13 @@ export function parseIdentityFields(content: string): IdentityFields {
     const trimmed = line.trim();
     const lower = trimmed.toLowerCase();
     const extract = (prefix: string): string | null => {
-      if (!lower.startsWith(prefix)) return null;
+      if (!lower.startsWith(prefix)) {
+        return null;
+      }
       const value = trimmed.split(":**").pop()?.trim() ?? null;
-      if (value && isTemplatePlaceholder(value)) return null;
+      if (value && isTemplatePlaceholder(value)) {
+        return null;
+      }
       return value;
     };
 

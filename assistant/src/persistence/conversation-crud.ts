@@ -74,12 +74,14 @@ import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete
 import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
+  isHiddenMessageMetadata,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
   getDb,
   getLogsDb,
+  getMemoryDb,
   getSqliteFrom,
   getTelemetryDb,
 } from "./db-connection.js";
@@ -116,6 +118,7 @@ import {
   toolInvocations,
 } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
+import { deleteSubagentRecordsByParent } from "./subagent-store.js";
 
 const log = getLogger("conversation-store");
 
@@ -296,13 +299,34 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
+     * Test with {@link isVoiceSessionUserMessage}, which documents why the
+     * channel/interface fields cannot stand in for it.
+     */
+    voiceSessionTurn: z.boolean().optional(),
+    /**
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
-     * Kept as a plain string so unknown future kinds never fail metadata
-     * validation.
+     * `"provider_error"` marks the synthetic assistant row the agent loop
+     * persists when a turn dies on the provider-error path; see
+     * {@link PROVIDER_ERROR_MESSAGE_KIND}. Kept as a plain string so unknown
+     * future kinds never fail metadata validation.
      */
     messageKind: z.string().optional(),
+    /**
+     * Stable classified error code (`ClassifiedConversationError.code`, e.g.
+     * `"PROVIDER_BILLING"`) stamped alongside
+     * `messageKind: "provider_error"` on persisted provider-failure rows.
+     */
+    providerErrorCode: z.string().optional(),
+    /**
+     * Classified error category (`ClassifiedConversationError.errorCategory`,
+     * e.g. `"credits_exhausted"`) stamped alongside
+     * `messageKind: "provider_error"`. Clients switch on this to pick a
+     * themed rendering for the row.
+     */
+    providerErrorCategory: z.string().optional(),
     /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
@@ -346,17 +370,17 @@ export const messageMetadataSchema = z
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
- * Shared predicate for the transcript-suppression flag on user-message
- * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
- * definition so the sites that must agree — echo suppression, list-messages
- * filtering, queued-snapshot filtering, indexing exclusion, and downstream
- * consumers of message text — cannot drift.
+ * Pure predicates over the `metadata` record above. They live in the
+ * `conversation-types` leaf so a caller that only classifies a row does not
+ * pull in this module's DB graph, and are re-exported here alongside the
+ * schema they read.
  */
-export function isHiddenMessageMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.hidden === true;
-}
+export {
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
+  isVoiceSessionUserMessage,
+} from "./conversation-types.js";
 
 /**
  * `messageKind` value marking a daemon-authored system card — a pre-composed
@@ -366,6 +390,16 @@ export function isHiddenMessageMetadata(
  * display turns.
  */
 export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * `messageKind` value marking the synthetic assistant row the agent loop
+ * persists when a turn terminates on the provider-error path (see the
+ * `persistProviderErrorAsAssistantMessage` branch). The row's text stays in
+ * LLM history like any assistant message; the marker (plus the
+ * `providerErrorCode`/`providerErrorCategory` fields stamped next to it) lets
+ * clients render the row as a themed notice instead of persona speech.
+ */
+export const PROVIDER_ERROR_MESSAGE_KIND = "provider_error";
 
 /**
  * Shared predicate for the system-card marker on assistant-message metadata
@@ -380,11 +414,24 @@ export function isSystemCardMetadata(
 }
 
 /**
- * Row-level variant of {@link isSystemCardMetadata} for callers holding the
- * raw persisted `metadata` JSON string. The single place the parse lives so
- * display merging and turn grouping agree on what a card is.
+ * Shared predicate for the provider-error marker on assistant-message
+ * metadata (see the `messageKind` field on {@link messageMetadataSchema}).
+ * One definition so persistence stamping and wire projection cannot drift.
  */
-export function isSystemCardMessage(
+export function isProviderErrorMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === PROVIDER_ERROR_MESSAGE_KIND;
+}
+
+/**
+ * True when an assistant row is a standalone display turn: a system card or
+ * a provider-error notice. Standalone rows never merge with adjacent
+ * assistant rows, and turn grouping closes on them, so display merging and
+ * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
+ * JSON string; malformed JSON and non-assistant roles are never standalone.
+ */
+export function isStandaloneAssistantMessage(
   role: string,
   metadata: string | null,
 ): boolean {
@@ -392,9 +439,8 @@ export function isSystemCardMessage(
     return false;
   }
   try {
-    return isSystemCardMetadata(
-      JSON.parse(metadata) as Record<string, unknown>,
-    );
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
   } catch {
     return false;
   }
@@ -1836,51 +1882,46 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   deleteRequestLogsForConversation(id);
   deletePendingTelemetryEventsForConversation(id);
 
-  db.transaction((tx) => {
-    // Collect all message IDs for this conversation.
-    const messageRows = tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversationId, id))
-      .all();
-    const messageIds = messageRows.map((r) => r.id);
-
-    if (messageIds.length > 0) {
-      // Collect memory segment IDs linked to these messages before cascade.
-      const linkedSegments = tx
+  // Collect the conversation's segment ids from the memory connection BEFORE the
+  // delete: the startup orphan sweep purges memory_segments whose conversation_id
+  // does not exist, so reading after the conversation row is gone could race
+  // it and return nothing (losing the Qdrant purge). Best-effort: a missing or
+  // locked memory database yields no ids and must not abort the delete.
+  const memoryDb = getMemoryDb();
+  if (memoryDb) {
+    try {
+      result.segmentIds = memoryDb
         .select({ id: memorySegments.id })
         .from(memorySegments)
-        .where(inArray(memorySegments.messageId, messageIds))
-        .all();
-      result.segmentIds = linkedSegments.map((r) => r.id);
-
-      // Delete non-cascading tables first.
-      tx.delete(toolInvocations)
-        .where(eq(toolInvocations.conversationId, id))
-        .run();
-      // Cascade deletes memory_segments, message_attachments.
-      tx.delete(messages).where(eq(messages.conversationId, id)).run();
-
-      // Clean up segment embeddings.
-      if (result.segmentIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds),
-            ),
-          )
-          .run();
-      }
-    } else {
-      // No messages — just clean up non-message tables.
-      tx.delete(toolInvocations)
-        .where(eq(toolInvocations.conversationId, id))
-        .run();
+        .where(eq(memorySegments.conversationId, id))
+        .all()
+        .map((r) => r.id);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to read memory segments for deleted conversation; continuing",
+      );
     }
+  }
 
+  db.transaction((tx) => {
+    // memory_segments does not cascade from messages/conversations; it lives on
+    // the memory connection and is purged directly below. The main-DB cascade
+    // still removes message_attachments.
+    tx.delete(toolInvocations)
+      .where(eq(toolInvocations.conversationId, id))
+      .run();
+    tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
+    // commit or roll back with the conversation row they describe.
+    deleteSubagentRecordsByParent(id);
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  // Purge the conversation's segments and their embeddings on the memory
+  // connection after the main delete, unioning the pre-delete snapshot so the
+  // returned Qdrant cleanup list is complete.
+  result.segmentIds = purgeConversationSegments(id, result.segmentIds);
 
   // Remove the conversation's disk-view directory after the DB transaction
   if (createdAtForDiskCleanup != null) {
@@ -1943,14 +1984,27 @@ export async function deleteConversationGently(
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
-  // Collect the linked memory segment ids before the message cascade removes
-  // them, so the caller can clean up the matching Qdrant vector entries.
-  result.segmentIds = db
-    .select({ id: memorySegments.id })
-    .from(memorySegments)
-    .where(eq(memorySegments.conversationId, id))
-    .all()
-    .map((r) => r.id);
+  // Collect the conversation's memory segment ids from the memory connection
+  // (memory_segments is on the memory connection) so the caller can clean up the
+  // matching Qdrant vectors. The segment rows are purged by the
+  // conversation-deleted hook; their embeddings are deleted after the main
+  // delete below. Best-effort: a missing memory database yields no ids.
+  const memoryDb = getMemoryDb();
+  if (memoryDb) {
+    try {
+      result.segmentIds = memoryDb
+        .select({ id: memorySegments.id })
+        .from(memorySegments)
+        .where(eq(memorySegments.conversationId, id))
+        .all()
+        .map((r) => r.id);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to read memory segments for deleted conversation; continuing",
+      );
+    }
+  }
 
   // Pending telemetry_events rows live in the dedicated telemetry connection;
   // delete them (by conversation_id, regardless of event name) before ANY
@@ -1987,7 +2041,8 @@ export async function deleteConversationGently(
   }
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
-  // to memory_segments, message_attachments, bookmarks, channel_inbound_events.
+  // to message_attachments, bookmarks, channel_inbound_events (memory_segments
+  // is on the memory connection and is purged directly below).
   const del = await deleteConversationRowsInBatches({
     conversationId: id,
     table: "messages",
@@ -2005,23 +2060,18 @@ export async function deleteConversationGently(
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
       .run();
-
-    // Clean up segment embeddings (not FK-linked to segments, so the message
-    // cascade above did not remove them).
-    if (result.segmentIds.length > 0) {
-      tx.delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
-        .run();
-    }
-
+    // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
+    // commit or roll back with the conversation row they describe.
+    deleteSubagentRecordsByParent(id);
     // Conversation row deletion cascades to remaining dependent tables.
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  // Purge the conversation's segments and their embeddings on the memory
+  // connection after the batched delete, re-reading and unioning the pre-delete
+  // snapshot so a segment written during the awaited drain is still cleaned up
+  // and returned for Qdrant cleanup.
+  result.segmentIds = purgeConversationSegments(id, result.segmentIds);
 
   // Remove the conversation's disk-view directory after the DB transaction.
   if (createdAtForDiskCleanup != null) {
@@ -3229,16 +3279,27 @@ export async function clearAll(): Promise<{
     "DELETE FROM telemetry_events WHERE name = 'skill_loaded'",
   );
 
-  // Delete in dependency order. Cascades handle memory_segments and
-  // tool_invocations, but we explicitly clear non-cascading memory
-  // tables too.
-  await runOrThrow("DELETE FROM memory_segments");
-  await runOrThrow("DELETE FROM memory_summaries");
-  await runOrThrow("DELETE FROM memory_embeddings");
-  // memory_jobs and llm_request_logs each live in their own dedicated
-  // connection; clear them directly on those connections rather than through
-  // a sqlite3 subprocess.
+  // Delete in dependency order. The cascade handles tool_invocations. memory_jobs,
+  // memory_segments, memory_embeddings, and memory_summaries each live on a
+  // dedicated connection; clear them there rather than through a main-DB sqlite3
+  // subprocess. Clear all four directly rather than routing memory_segments
+  // through the CONVERSATIONS_CLEARED hook below: that hook is a no-op when the
+  // memory plugin is disabled, which would keep memory_segments' deleted message
+  // text searchable until the next startup sweep. memory_embeddings and
+  // memory_summaries are not conversation-keyed, so the hook never covered them.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
+  rawMemoryRun(
+    "conversation:clearAll:memorySegments",
+    "DELETE FROM memory_segments",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memoryEmbeddings",
+    "DELETE FROM memory_embeddings",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memorySummaries",
+    "DELETE FROM memory_summaries",
+  );
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
@@ -3312,6 +3373,138 @@ export async function clearAll(): Promise<{
   return { conversations: convCount, messages: msgCount };
 }
 
+/**
+ * Delete every memory_segment, and its segment embeddings, for the given
+ * message ids on the memory connection, returning the deleted segment ids.
+ * memory_segments has no cross-file FK to messages, so a message delete never
+ * cascades to it, and the conversation-keyed purge does not apply while the
+ * conversation survives. Callers run this before removing the message rows and
+ * again after; the second pass catches segments a concurrent backfill writes in
+ * the gap between the two. Best-effort: a missing or locked memory database is
+ * logged and treated as a no-op so it never aborts the delete.
+ */
+function purgeMessageSegments(messageIds: string[], context: string): string[] {
+  const memoryDb = getMemoryDb();
+  if (!memoryDb || messageIds.length === 0) {
+    return [];
+  }
+  let ids: string[] = [];
+  try {
+    ids = memoryDb
+      .select({ id: memorySegments.id })
+      .from(memorySegments)
+      .where(inArray(memorySegments.messageId, messageIds))
+      .all()
+      .map((r) => r.id);
+  } catch (err) {
+    log.warn(
+      { err, context },
+      "Failed to read memory segments for deleted messages; continuing",
+    );
+  }
+  if (ids.length > 0) {
+    try {
+      memoryDb
+        .delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, ids),
+          ),
+        )
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, context },
+        "Failed to delete segment embeddings for deleted messages; continuing",
+      );
+    }
+  }
+  // Independent of the embedding delete above: a missing or partially migrated
+  // embedding cache must not leave the plaintext segment rows behind.
+  try {
+    memoryDb
+      .delete(memorySegments)
+      .where(inArray(memorySegments.messageId, messageIds))
+      .run();
+  } catch (err) {
+    log.warn(
+      { err, context },
+      "Failed to delete memory segments for deleted messages; continuing",
+    );
+  }
+  return ids;
+}
+
+/**
+ * Delete a conversation's memory_segments and their segment embeddings on the
+ * memory connection, returning the deleted segment ids for Qdrant cleanup.
+ * memory_segments has no cross-file FK to conversations, so a conversation
+ * delete does not cascade to it and the conversation-deleted hook is a no-op
+ * when the memory plugin is disabled; this purge runs regardless. It re-reads
+ * the ids and unions them with any already known, capturing rows a concurrent
+ * index wrote during an awaited batch delete while preserving ids the boot
+ * orphan sweep may have removed once the conversation row went away. Embeddings
+ * and segments are deleted under independent guards so a missing or broken
+ * embedding cache (such as a partial migration) cannot block deletion of the
+ * plaintext segment rows. Best-effort throughout.
+ */
+export function purgeConversationSegments(
+  conversationId: string,
+  knownSegmentIds: string[] = [],
+): string[] {
+  const memoryDb = getMemoryDb();
+  if (!memoryDb) {
+    return knownSegmentIds;
+  }
+  const ids = new Set(knownSegmentIds);
+  try {
+    for (const row of memoryDb
+      .select({ id: memorySegments.id })
+      .from(memorySegments)
+      .where(eq(memorySegments.conversationId, conversationId))
+      .all()) {
+      ids.add(row.id);
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to read memory segments for deleted conversation; continuing",
+    );
+  }
+  const segmentIds = [...ids];
+  if (segmentIds.length > 0) {
+    try {
+      memoryDb
+        .delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, segmentIds),
+          ),
+        )
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to delete segment embeddings for deleted conversation; continuing",
+      );
+    }
+  }
+  try {
+    memoryDb
+      .delete(memorySegments)
+      .where(eq(memorySegments.conversationId, conversationId))
+      .run();
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to delete memory segments for deleted conversation; continuing",
+    );
+  }
+  return segmentIds;
+}
+
 export function deleteLastExchange(conversationId: string): number {
   const db = getDb();
 
@@ -3370,6 +3563,10 @@ export function deleteLastExchange(conversationId: string): number {
           .filter((id): id is string => id != null)
       : [];
 
+  // Purge the undone messages' segments before removing their rows so a crash
+  // between the two re-indexes live messages rather than orphaning segments.
+  purgeMessageSegments(messageIds, "deleteLastExchange");
+
   db.transaction((tx) => {
     tx.delete(messages).where(condition).run();
     const maxResult = tx
@@ -3385,6 +3582,10 @@ export function deleteLastExchange(conversationId: string): number {
       .where(eq(conversations.id, conversationId))
       .run();
   });
+
+  // Second purge now the message rows are gone, catching any segments a backfill
+  // wrote in the gap between the purge above and the delete.
+  purgeMessageSegments(messageIds, "deleteLastExchange:post-delete");
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
@@ -3633,23 +3834,19 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .where(eq(messages.id, messageId))
     .get();
 
-  db.transaction((tx) => {
-    // Collect memory segment IDs linked to this message before cascade.
-    const linkedSegments = tx
-      .select({ id: memorySegments.id })
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all();
-    result.segmentIds = linkedSegments.map((r) => r.id);
+  // Purge the message's segments before removing its row so a crash between the
+  // two re-indexes a live message rather than orphaning segments for a gone one.
+  result.segmentIds = purgeMessageSegments([messageId], "deleteMessageById");
 
+  db.transaction((tx) => {
     // Detach nullable FK references so the cascade doesn't destroy them.
     tx.update(channelInboundEvents)
       .set({ messageId: null })
       .where(eq(channelInboundEvents.messageId, messageId))
       .run();
 
-    // Now safe to delete — NOT NULL cascades remove memory_segments
-    // and message_attachments.
+    // NOT NULL cascades remove message_attachments. memory_segments is on the
+    // memory connection and was purged above.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
 
     // Recalculate lastMessageAt after deletion.
@@ -3666,19 +3863,14 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
         .where(eq(conversations.id, msgRow.conversationId))
         .run();
     }
-
-    // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
-    if (result.segmentIds.length > 0) {
-      tx.delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
-        .run();
-    }
   });
+
+  // Second purge now the message row is gone: a backfill racing this delete can
+  // write segments after the purge above while its own existence check still
+  // sees the message present, so re-run the cleanup to remove any it added.
+  result.segmentIds.push(
+    ...purgeMessageSegments([messageId], "deleteMessageById:post-delete"),
+  );
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
@@ -4061,8 +4253,10 @@ export function getTurnTimeBounds(
 /**
  * Resolve all assistant message IDs that belong to the same agent turn
  * as the given `messageId`. A "turn" is bounded by:
- *   - The start of the conversation, or
- *   - A user message whose content is NOT a tool_result array.
+ *   - The start of the conversation,
+ *   - A user message whose content is NOT a tool_result array, or
+ *   - A standalone assistant row (see {@link isStandaloneAssistantMessage}),
+ *     which always forms its own single-row turn.
  *
  * Within a multi-step agent loop, the pattern is:
  *   user msg → assistant A1 → user (tool_result) → assistant A2 → ...
@@ -4081,9 +4275,10 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     return [messageId];
   }
 
-  // A system card is its own single-row group — its linked calls (e.g. the
-  // summarize-up-to compaction call) never mix into a neighbouring turn.
-  if (isSystemCardMessage(target.role, target.metadata)) {
+  // A standalone row (system card or provider-error notice) is its own
+  // single-row group: its linked calls (e.g. the summarize-up-to compaction
+  // call) never mix into a neighbouring turn.
+  if (isStandaloneAssistantMessage(target.role, target.metadata)) {
     return [target.id];
   }
 
@@ -4113,9 +4308,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of backwardRows) {
     if (row.role === "assistant") {
-      if (isSystemCardMessage(row.role, row.metadata)) {
-        // A system card closes the groups on either side of it — rows
-        // before the card belong to an earlier display group.
+      if (isStandaloneAssistantMessage(row.role, row.metadata)) {
+        // A standalone row closes the groups on either side of it: rows
+        // before it belong to an earlier display group.
         boundaryCreatedAt = row.createdAt;
         break;
       }
@@ -4155,10 +4350,10 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of forwardRows) {
     if (row.role === "assistant") {
-      if (isSystemCardMessage(row.role, row.metadata)) {
-        // A card that is the queried user message's only reply (e.g. the
-        // /compact result) IS the turn's response; otherwise the card
-        // closes the group.
+      if (isStandaloneAssistantMessage(row.role, row.metadata)) {
+        // A standalone row that is the queried user message's only reply
+        // (e.g. the /compact result card, or a provider-error notice) IS
+        // the turn's response; otherwise it closes the group.
         if (assistantIds.length === 0) {
           assistantIds.push(row.id);
         }
@@ -4202,7 +4397,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     for (const row of gapRows) {
       if (
         row.role === "assistant" &&
-        !isSystemCardMessage(row.role, row.metadata) &&
+        !isStandaloneAssistantMessage(row.role, row.metadata) &&
         !assistantIds.includes(row.id)
       ) {
         assistantIds.push(row.id);

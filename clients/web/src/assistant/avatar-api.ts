@@ -184,7 +184,9 @@ export async function fetchAvatarImageUrl(
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch avatar image");
-    if (!response.ok || !data) return null;
+    if (!response.ok || !data) {
+      return null;
+    }
     return URL.createObjectURL(data);
   } catch {
     return null;

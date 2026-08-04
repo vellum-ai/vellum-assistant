@@ -3,9 +3,9 @@ import { type ReactNode, useState } from "react";
 
 import { formatRelativeDate } from "@/utils/format-date";
 import type {
-    FeedItem,
-    FeedItemCategory,
-    FeedItemStatus,
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
 } from "@vellumai/assistant-api";
 import { cn, Tooltip } from "@vellumai/design-library";
 import { CATEGORY_STYLES } from "./home-feed-filter-bar";

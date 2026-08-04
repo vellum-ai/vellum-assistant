@@ -27,7 +27,9 @@ export function checkpointKey(base: string): string {
 }
 
 export function parseCheckpointInt(value: string | undefined): number | null {
-  if (value == null) return null;
+  if (value == null) {
+    return null;
+  }
   const n = parseInt(value, 10);
   return Number.isNaN(n) ? null : n;
 }

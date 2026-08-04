@@ -14,21 +14,10 @@ import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 
-/**
- * Normalize a Slack DM (`message` with `channel_type: "im"`) into the
- * gateway's canonical inbound event shape. Used for guardian verification
- * code replies and direct conversations with the bot.
- *
- * Returns null if the event cannot be routed or should be ignored
- * (e.g. subtypes like message_changed, missing user).
- *
- * Bot's own messages are dropped by `processEventPayload` before
- * normalization.
- */
 /** The per-event-type differences across the plain-message normalizers. */
 type SlackMessageShape = {
   /** `source.chatType`; omitted for `app_mention`. */
-  chatType?: "im" | "channel";
+  chatType?: "im" | "channel" | "mpim";
   /** Stamp the sender's workspace id onto the actor (channel + app_mention). */
   stampTeam: boolean;
   /** Reply in the message's own ts when it has no `thread_ts` (channel + app_mention). */
@@ -128,6 +117,18 @@ function buildNormalizedSlackMessage(
   };
 }
 
+/**
+ * Normalize a Slack 1:1 DM (`message` with `channel_type: "im"`) into the
+ * gateway's canonical inbound event shape. Used for guardian verification
+ * code replies and direct conversations with the bot. Group DMs have their own
+ * normalizer, see {@link normalizeSlackGroupDirectMessage}.
+ *
+ * Returns null if the event cannot be routed or should be ignored
+ * (e.g. subtypes like message_changed, missing user).
+ *
+ * Bot's own messages are dropped by `processEventPayload` before
+ * normalization.
+ */
 export function normalizeSlackDirectMessage(
   event: unknown,
   eventId: string,
@@ -144,16 +145,7 @@ export function normalizeSlackDirectMessage(
   if (msg.subtype && msg.subtype !== "file_share") return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  // DMs are always directed at the bot, so fall back to the default assistant
-  // even when the DM channel id isn't in the routing table — otherwise guardian
-  // verification replies would be silently dropped.
-  let routing = resolveAssistant(config, msg.channel, msg.user);
-  if (isRejection(routing) && config.defaultAssistantId) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing)) return null;
 
   return buildNormalizedSlackMessage(
@@ -164,6 +156,60 @@ export function normalizeSlackDirectMessage(
     msg.channel,
     msg.user,
     { chatType: "im", stampTeam: false, fallbackThreadToTs: false },
+    botToken,
+    renderContext,
+  );
+}
+
+/**
+ * Normalize a Slack multi-person IM (`message` with `channel_type: "mpim"`)
+ * into the gateway's canonical inbound event shape.
+ *
+ * Shares the DM family's admission semantics (every message in a group DM is
+ * addressed to its participants, so no @-mention or tracked thread is needed)
+ * but forwards `chatType: "mpim"` rather than collapsing it to `im`. The
+ * daemon reads that value directly: `isGroupChatType` injects group-chat
+ * etiquette for it, and `mapChatTypeToConversationType` resolves it to the
+ * `private` permission-matrix cell. Reporting `im` for a multi-party room
+ * would suppress the etiquette and select the looser `dm` cell.
+ *
+ * `fallbackThreadToTs` is false, matching DMs and not channels: an MPIM is one
+ * continuous conversation, so top-level messages must share a conversation
+ * rather than each minting a thread-scoped one.
+ *
+ * `stampTeam` is true, matching channels and not DMs: an MPIM is multi-party
+ * and can include Slack Connect participants from another workspace, so the
+ * sender's team is a real trust signal here in a way it is not in a 1:1 IM
+ * with a known contact.
+ *
+ * Bot's own messages are dropped by `processEventPayload` before
+ * normalization.
+ */
+export function normalizeSlackGroupDirectMessage(
+  event: unknown,
+  eventId: string,
+  config: GatewayConfig,
+  botToken?: string,
+  renderContext?: SlackTextRenderContext,
+): NormalizedSlackEvent | null {
+  const parsed = slackMessageEventSchema.safeParse(event);
+  if (!parsed.success) return null;
+  const msg = parsed.data;
+
+  if (msg.subtype && msg.subtype !== "file_share") return null;
+  if (!msg.user || !msg.channel || !msg.ts) return null;
+
+  const routing = resolveAssistant(config, msg.channel, msg.user);
+  if (isRejection(routing)) return null;
+
+  return buildNormalizedSlackMessage(
+    msg,
+    event as Record<string, unknown>,
+    eventId,
+    routing,
+    msg.channel,
+    msg.user,
+    { chatType: "mpim", stampTeam: true, fallbackThreadToTs: false },
     botToken,
     renderContext,
   );

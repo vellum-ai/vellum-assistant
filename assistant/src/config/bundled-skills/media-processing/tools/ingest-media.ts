@@ -67,9 +67,15 @@ function detectMimeType(filePath: string): string | null {
 }
 
 function classifyMediaType(mimeType: string): MediaType | null {
-  if (mimeType.startsWith("video/")) return "video";
-  if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) {
+    return "video";
+  }
+  if (mimeType.startsWith("audio/")) {
+    return "audio";
+  }
+  if (mimeType.startsWith("image/")) {
+    return "image";
+  }
   return null;
 }
 
@@ -92,7 +98,9 @@ async function extractDuration(filePath: string): Promise<number | null> {
       ],
       FFPROBE_TIMEOUT_MS,
     );
-    if (result.exitCode !== 0) return null;
+    if (result.exitCode !== 0) {
+      return null;
+    }
     const duration = parseFloat(result.stdout.trim());
     return Number.isFinite(duration) ? duration : null;
   } catch {

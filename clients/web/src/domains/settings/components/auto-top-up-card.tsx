@@ -4,12 +4,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
 import {
-    organizationsBillingAutoTopUpDisableCreateMutation,
-    organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
-    organizationsBillingAutoTopUpRetrieveOptions,
-    organizationsBillingAutoTopUpRetrieveQueryKey,
-    organizationsBillingAutoTopUpRetrieveSetQueryData,
-    organizationsBillingAutoTopUpUpdateMutation,
+  organizationsBillingAutoTopUpDisableCreateMutation,
+  organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
+  organizationsBillingAutoTopUpRetrieveOptions,
+  organizationsBillingAutoTopUpRetrieveQueryKey,
+  organizationsBillingAutoTopUpRetrieveSetQueryData,
+  organizationsBillingAutoTopUpUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -20,8 +20,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
 import {
-    AutoTopUpForm,
-    type AutoTopUpFormValues,
+  AutoTopUpForm,
+  type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
@@ -30,7 +30,9 @@ type Mode = "view" | "form";
 
 /** Convert API-format decimal string (e.g. "25.00") to integer string ("25") for form display. */
 function apiToIntStr(v: string | null | undefined): string {
-  if (!v) return "";
+  if (!v) {
+    return "";
+  }
   const n = parseFloat(v);
   return Number.isFinite(n) ? String(Math.trunc(n)) : "";
 }
@@ -41,9 +43,13 @@ function apiToIntStr(v: string | null | undefined): string {
  * ("Add $200 when the balance falls under $50").
  */
 function formatUsdShort(value: string | null | undefined): string {
-  if (!value) return "$0";
+  if (!value) {
+    return "$0";
+  }
   const n = parseFloat(value);
-  if (!Number.isFinite(n)) return "$0";
+  if (!Number.isFinite(n)) {
+    return "$0";
+  }
   const abs = Math.abs(n);
   const formatted = abs.toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -88,8 +94,12 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
  * per field. Exported so unit tests can exercise the parsing without
  * rendering the card.
  */
-export function extractAutoTopUpServerErrors(err: unknown): Record<string, string> {
-  if (!err || typeof err !== "object" || Array.isArray(err)) return {};
+export function extractAutoTopUpServerErrors(
+  err: unknown,
+): Record<string, string> {
+  if (!err || typeof err !== "object" || Array.isArray(err)) {
+    return {};
+  }
   const out: Record<string, string> = {};
   for (const [key, messages] of Object.entries(err)) {
     if (Array.isArray(messages) && typeof messages[0] === "string") {
@@ -140,7 +150,9 @@ function SummaryChip({
 export function AutoTopUpCard() {
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
-  const updateMutation = useMutation(organizationsBillingAutoTopUpUpdateMutation());
+  const updateMutation = useMutation(
+    organizationsBillingAutoTopUpUpdateMutation(),
+  );
   const disableMutation = useMutation(
     organizationsBillingAutoTopUpDisableCreateMutation(),
   );
@@ -212,8 +224,7 @@ export function AutoTopUpCard() {
   // loading/error guards below (rules-of-hooks), so it reads through
   // `configQuery.data` and reuses `beginEnableFlow` (the same flow the toggle
   // runs) rather than the post-guard `config`/handlers.
-  const configureTopUpRequested =
-    searchParams.get("configure_top_up") === "1";
+  const configureTopUpRequested = searchParams.get("configure_top_up") === "1";
   useEffect(() => {
     if (!configureTopUpRequested || configQuery.data == null) {
       return;
@@ -557,7 +568,9 @@ export function AutoTopUpCard() {
                 className="truncate text-[var(--content-default)]"
               >
                 <span>
-                  {formatUsdShort(config.current_month_credits_purchased_usd)}{" "}
+                  {formatUsdShort(
+                    config.current_month_credits_purchased_usd,
+                  )}{" "}
                 </span>
                 <span className="text-[var(--content-tertiary)]">
                   / {formatUsdShort(config.monthly_cap_usd)} this month
@@ -599,8 +612,7 @@ export function AutoTopUpCard() {
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-in-out"
         style={{
-          gridTemplateRows:
-            showAddPm && !disabledAfterDeclines ? "1fr" : "0fr",
+          gridTemplateRows: showAddPm && !disabledAfterDeclines ? "1fr" : "0fr",
         }}
       >
         <div className="overflow-hidden">
@@ -625,7 +637,11 @@ export function AutoTopUpCard() {
                   onClick={() => setBannerDismissed(true)}
                   className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[var(--system-mid-strong)] opacity-70 transition-opacity hover:opacity-100"
                 >
-                  <X className="h-2.5 w-2.5" strokeWidth={2} aria-hidden="true" />
+                  <X
+                    className="h-2.5 w-2.5"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />
                 </button>
               </div>
             )}

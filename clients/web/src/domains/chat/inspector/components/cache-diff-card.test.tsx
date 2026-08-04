@@ -130,10 +130,7 @@ describe("CacheDiffCard", () => {
   });
 
   test("reports an unchanged prefix when only messages were appended", () => {
-    const previous = entry("call-1", [
-      system("a"),
-      message("user", "one"),
-    ]);
+    const previous = entry("call-1", [system("a"), message("user", "one")]);
     const current = entry("call-2", [
       system("a"),
       message("user", "one"),

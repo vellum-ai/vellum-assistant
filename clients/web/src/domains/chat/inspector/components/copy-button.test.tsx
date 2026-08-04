@@ -20,7 +20,11 @@ describe("CopyButton", () => {
 
   test("applies the caller's positioning className", () => {
     const html = renderToStaticMarkup(
-      <CopyButton text="x" ariaLabel="Copy" className="absolute right-2 top-3" />,
+      <CopyButton
+        text="x"
+        ariaLabel="Copy"
+        className="absolute right-2 top-3"
+      />,
     );
     expect(html).toContain("absolute right-2 top-3");
   });

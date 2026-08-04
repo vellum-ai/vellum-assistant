@@ -21,7 +21,9 @@ export function createTarGz(
     maxBuffer: maxBytes,
     timeout: 30_000,
   });
-  if (proc.status !== 0) return undefined;
+  if (proc.status !== 0) {
+    return undefined;
+  }
   const buf = Buffer.isBuffer(proc.stdout)
     ? proc.stdout
     : Buffer.from(proc.stdout);

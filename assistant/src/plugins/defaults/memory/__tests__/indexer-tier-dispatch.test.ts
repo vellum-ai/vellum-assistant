@@ -28,8 +28,15 @@ import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import { getConfig } from "../../../../config/loader.js";
 import type { MemoryConfig } from "../../../../config/types.js";
 import { getMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
-import { getMemorySqlite } from "../../../../persistence/db-connection.js";
+import {
+  getDb,
+  getMemorySqlite,
+} from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
+import {
+  conversations,
+  messages,
+} from "../../../../persistence/schema/index.js";
 import { indexMessageNow } from "../indexer.js";
 
 await initializeDb();
@@ -53,13 +60,39 @@ function seedMemory(memory: Record<string, unknown>): MemoryConfig {
   return getConfig().memory;
 }
 
+/**
+ * Seed the conversation and message rows the dispatch indexes. indexMessageNow
+ * skips messages with no main-DB row (it has no cross-file FK to fall back on),
+ * so the source message must exist for the tier triggers to fire.
+ */
+function seedMessage(conversationId: string): string {
+  const messageId = `${conversationId}:m1`;
+  const db = getDb();
+  db.insert(conversations)
+    .values({ id: conversationId, createdAt: 0, updatedAt: 0 })
+    .onConflictDoNothing()
+    .run();
+  db.insert(messages)
+    .values({
+      id: messageId,
+      conversationId,
+      role: "user",
+      content: MESSAGE_TEXT,
+      createdAt: 0,
+    })
+    .onConflictDoNothing()
+    .run();
+  return messageId;
+}
+
 async function indexOneMessage(
   conversationId: string,
   slice: MemoryConfig,
 ): Promise<void> {
+  const messageId = seedMessage(conversationId);
   await indexMessageNow(
     {
-      messageId: `${conversationId}:m1`,
+      messageId,
       conversationId,
       role: "user",
       content: MESSAGE_TEXT,
@@ -125,5 +158,32 @@ describe("indexMessageNow tier dispatch", () => {
     expect(enqueuedJobTypes()).toContain("memory_v2_sweep");
     expect(enqueuedJobTypes()).not.toContain("build_conversation_summary");
     expect(graphExtractPendingCount(conversationId)).toBeNull();
+  });
+
+  test("skips a message with no source row instead of resurrecting it", async () => {
+    const conversationId = nextConversationId();
+    const slice = seedMemory({ enabled: true, v2: { enabled: false } });
+
+    // A body long enough to segment, but no seedMessage: the source row is
+    // absent, as it is for a delete that raced a queued v1 backfill. The
+    // dispatch must write no segments and enqueue no triggers rather than
+    // resurrect deleted text as searchable segments.
+    const messageId = `${conversationId}:m1`;
+    await indexMessageNow(
+      {
+        messageId,
+        conversationId,
+        role: "user",
+        content: "resurrect me please ".repeat(20),
+        createdAt: Date.now(),
+      },
+      slice,
+    );
+
+    const segmentRow = getMemorySqlite()!
+      .query("SELECT COUNT(*) AS n FROM memory_segments WHERE message_id = ?")
+      .get(messageId) as { n: number };
+    expect(segmentRow.n).toBe(0);
+    expect(enqueuedJobTypes()).toHaveLength(0);
   });
 });

@@ -28,7 +28,9 @@ const EMAIL_SERVICES = new Set(["google"]);
  * the feed writer's warn-log contract absorbs persistence failures.
  */
 export async function emitPostConnectNudge(service: string): Promise<void> {
-  if (!EMAIL_SERVICES.has(service)) return;
+  if (!EMAIL_SERVICES.has(service)) {
+    return;
+  }
 
   const now = new Date();
   const expiresAt = new Date(

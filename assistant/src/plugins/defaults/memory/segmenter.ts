@@ -15,7 +15,9 @@ export function segmentText(
   overlapTokens: number,
 ): SegmentedText[] {
   const normalized = normalizeInput(text);
-  if (normalized.length === 0) return [];
+  if (normalized.length === 0) {
+    return [];
+  }
 
   const maxChars = Math.max(
     MIN_SEGMENT_CHARS,
@@ -60,7 +62,9 @@ export function segmentText(
       index += 1;
     }
 
-    if (end >= normalized.length) break;
+    if (end >= normalized.length) {
+      break;
+    }
     start = Math.max(start + 1, end - overlapChars);
   }
 

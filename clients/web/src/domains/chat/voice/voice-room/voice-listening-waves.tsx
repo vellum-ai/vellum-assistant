@@ -27,7 +27,11 @@ const VIEW_W = 1200;
 const VIEW_H = 200;
 
 /** Sample points along a sine wave spanning two viewBox widths. */
-function wavePoints(amplitude: number, cyclesOverDoubleWidth: number, phase: number): string {
+function wavePoints(
+  amplitude: number,
+  cyclesOverDoubleWidth: number,
+  phase: number,
+): string {
   const width = VIEW_W * 2;
   const steps = 120;
   const baseline = VIEW_H - amplitude - 4;
@@ -36,19 +40,28 @@ function wavePoints(amplitude: number, cyclesOverDoubleWidth: number, phase: num
     const x = (i / steps) * width;
     const y =
       baseline -
-      amplitude * Math.sin((i / steps) * cyclesOverDoubleWidth * 2 * Math.PI + phase);
+      amplitude *
+        Math.sin((i / steps) * cyclesOverDoubleWidth * 2 * Math.PI + phase);
     d += `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
   }
   return d;
 }
 
 /** Filled variant: the sine curve closed down to the bottom edge (a water fill). */
-function wavePathFill(amplitude: number, cycles: number, phase: number): string {
+function wavePathFill(
+  amplitude: number,
+  cycles: number,
+  phase: number,
+): string {
   return `${wavePoints(amplitude, cycles, phase)}L${VIEW_W * 2},${VIEW_H} L0,${VIEW_H} Z`;
 }
 
 /** Line variant: just the open sine curve, stroked (a luminous ribbon). */
-function wavePathLine(amplitude: number, cycles: number, phase: number): string {
+function wavePathLine(
+  amplitude: number,
+  cycles: number,
+  phase: number,
+): string {
   return wavePoints(amplitude, cycles, phase).trimEnd();
 }
 

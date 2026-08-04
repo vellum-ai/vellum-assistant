@@ -39,7 +39,9 @@ export function useEditApp(): (app: OpenedAppState) => void {
 
   return useCallback(
     (app) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       const convId =
         getEditChatConversationId(assistantId, app.appId) ??
         crypto.randomUUID();

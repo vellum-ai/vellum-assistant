@@ -4,18 +4,11 @@
  * pending-interactions snapshot.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -33,9 +26,8 @@ mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => conversationsImpl,
 }));
 
-const { reconcileAttentionKeys } = await import(
-  "@/domains/chat/utils/reconcile-attention-keys"
-);
+const { reconcileAttentionKeys } =
+  await import("@/domains/chat/utils/reconcile-attention-keys");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -156,7 +148,7 @@ describe("reconcileAttentionKeys", () => {
 
     await reconcileAttentionKeys("asst-1", queryClient);
 
-    expect(useSidebarCollapseStore.getState().backgroundActivated).toBe(true);
+    expect(useSidebarLayoutStore.getState().backgroundActivated).toBe(true);
   });
 
   test("silently no-ops when the fetch throws", async () => {

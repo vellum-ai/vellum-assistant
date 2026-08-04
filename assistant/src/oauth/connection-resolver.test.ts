@@ -26,8 +26,12 @@ mock.module("./oauth-store.js", () => ({
     // Default to the single mockConnection unless a test sets an explicit list.
     const rows = mockConnections ?? (mockConnection ? [mockConnection] : []);
     return rows.filter((row) => {
-      if (opts?.clientId && row.clientId !== opts.clientId) return false;
-      if (opts?.account && row.accountInfo !== opts.account) return false;
+      if (opts?.clientId && row.clientId !== opts.clientId) {
+        return false;
+      }
+      if (opts?.account && row.accountInfo !== opts.account) {
+        return false;
+      }
       return true;
     });
   },

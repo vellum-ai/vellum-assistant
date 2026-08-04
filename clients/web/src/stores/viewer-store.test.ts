@@ -19,8 +19,18 @@ beforeEach(() => {
   getState().reset();
 });
 
-const SAMPLE_APP = { appId: "app-1", dirName: "my-app", name: "My App", html: "<h1>App</h1>" };
-const SAMPLE_DOC = { surfaceId: "surf-1", conversationId: "conv-1", documentName: "README.md", content: "# Hello" };
+const SAMPLE_APP = {
+  appId: "app-1",
+  dirName: "my-app",
+  name: "My App",
+  html: "<h1>App</h1>",
+};
+const SAMPLE_DOC = {
+  surfaceId: "surf-1",
+  conversationId: "conv-1",
+  documentName: "README.md",
+  content: "# Hello",
+};
 const SAMPLE_TOOL: ToolDetailPayload = {
   toolCallId: "tc-1",
   toolName: "spawn_subagent",
@@ -65,7 +75,10 @@ describe("setIntelligenceTab", () => {
 
 describe("openApp", () => {
   it("sets activeAppId, clears openedAppState, switches to app view, resets minimized", () => {
-    useViewerStore.setState({ openedAppState: SAMPLE_APP, isAppMinimized: true });
+    useViewerStore.setState({
+      openedAppState: SAMPLE_APP,
+      isAppMinimized: true,
+    });
     getState().openApp("app-2");
     const state = getState();
     expect(state.mainView).toBe("app");
@@ -84,7 +97,11 @@ describe("setLoadedApp", () => {
 
 describe("handleAppLoadFailed", () => {
   it("resets to chat view and clears app state", () => {
-    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP });
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+    });
     getState().handleAppLoadFailed();
     const state = getState();
     expect(state.mainView).toBe("chat");
@@ -95,7 +112,12 @@ describe("handleAppLoadFailed", () => {
 
 describe("closeApp", () => {
   it("resets to chat view, clears app state, and resets minimized", () => {
-    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP, isAppMinimized: true });
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+      isAppMinimized: true,
+    });
     getState().closeApp();
     const state = getState();
     expect(state.mainView).toBe("chat");
@@ -120,7 +142,11 @@ describe("toggleAppMinimized", () => {
 
 describe("handleAppUnpinned", () => {
   it("resets to chat when the pinned app matches the active app in 'app' view", () => {
-    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP });
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+    });
     const didClose = getState().handleAppUnpinned("app-1");
     const state = getState();
     expect(didClose).toBe(true);
@@ -519,54 +545,29 @@ describe("openProcessDetail", () => {
   });
 });
 
-describe("closeActiveDetail", () => {
-  it("closes an open subagent-detail and restores the prior view", () => {
-    useViewerStore.setState({ mainView: "app" });
-    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.activeSubagentId).toBeNull();
-  });
-
-  it("closes an open workflow-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeWorkflowRunId).toBeNull();
-  });
-
-  it("closes an open acp-run-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeAcpRunId).toBeNull();
-  });
-
-  it("closes an open background-task-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeBackgroundTaskId).toBeNull();
-  });
-
-  it("is a no-op when no process-detail view is open", () => {
-    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.activeAppId).toBe("app-1");
-  });
-
-  it("does not close tool-detail (out of scope for the process facade)", () => {
+describe("closeActiveOverlay", () => {
+  it("closes a tool detail overlay and restores its prior view", () => {
     getState().openToolDetail(SAMPLE_TOOL);
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("tool-detail");
-    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeToolDetail).toBeNull();
+  });
+
+  it("closes a process detail overlay through its specific action", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeWorkflowRunId).toBeNull();
+  });
+
+  it("returns false without changing a non-overlay view", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(false);
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeAppId).toBe("app-1");
   });
 });
 

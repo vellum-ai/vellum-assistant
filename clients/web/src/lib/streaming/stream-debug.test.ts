@@ -213,7 +213,9 @@ describe("markClientEstablished", () => {
 
     // wait a tick so timestamps would differ
     const start = Date.now();
-    while (Date.now() - start < 2) { /* busy wait */ }
+    while (Date.now() - start < 2) {
+      /* busy wait */
+    }
 
     markClientEstablished(id);
     const second = getSseClients().find((c) => c.id === id)!.establishedAt;
@@ -281,14 +283,28 @@ describe("getSseEnvelopesSince", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
     // Two conversations interleaved with sparse, non-consecutive global seqs.
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a3"), { seq: 3, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("b4"), { seq: 4, conversationId: "B" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a9"), { seq: 9, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a7"), { seq: 7, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a3"), { seq: 3, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("b4"), { seq: 4, conversationId: "B" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a9"), { seq: 9, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a7"), { seq: 7, conversationId: "A" }),
+    );
 
     const tail = getSseEnvelopesSince("A", 3);
     expect(tail?.map((e) => e.seq)).toEqual([7, 9]); // > 3, A only, seq-ordered
-    expect(tail![0]!.message as AssistantEvent).toEqual(makeTextDeltaEvent("a7"));
+    expect(tail![0]!.message as AssistantEvent).toEqual(
+      makeTextDeltaEvent("a7"),
+    );
     expect(tail![0]!.emittedAt).toBe(new Date(1000).toISOString());
   });
 
@@ -297,22 +313,34 @@ describe("getSseEnvelopesSince", () => {
     const id = registerSseClient(ctrl.signal);
     // Oldest retained seq (50) is well past sinceSeq+1 — seqs 4..49 were
     // evicted, so a replay would be a partial tail. Signal a gap instead.
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", 3)).toBeNull();
   });
 
   test("returns null without a version anchor (snapshot must stand alone)", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("x"), { seq: 5, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("x"), { seq: 5, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", null)).toBeNull();
   });
 
   test("returns [] when covered but the conversation has no newer events", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("b6"), { seq: 6, conversationId: "B" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("b6"), { seq: 6, conversationId: "B" }),
+    );
     expect(getSseEnvelopesSince("A", 5)).toEqual([]); // oldest 6 <= 5+1, covered
   });
 
@@ -326,7 +354,10 @@ describe("getSseEnvelopesSince", () => {
       emittedAt: new Date(1000).toISOString(),
       message: makeTextDeltaEvent("x"),
     } as AssistantEventEnvelope);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("y"), { seq: 6, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("y"), { seq: 6, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", 5)?.map((e) => e.seq)).toEqual([6]);
   });
 });
@@ -384,8 +415,14 @@ describe("ingestReplayedEnvelopes", () => {
     // "no safe replay"
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", 3)).toBeNull();
 
     // WHEN the server-fetched tail above the anchor is ingested
@@ -397,19 +434,33 @@ describe("ingestReplayedEnvelopes", () => {
     // THEN the replay bridges from the anchor through the live events
     const tail = getSseEnvelopesSince("A", 3);
     expect(tail?.map((e) => e.seq)).toEqual([4, 20, 50, 60]);
-    expect(tail?.[0]?.message as AssistantEvent).toEqual(makeTextDeltaEvent("a4"));
+    expect(tail?.[0]?.message as AssistantEvent).toEqual(
+      makeTextDeltaEvent("a4"),
+    );
   });
 
   test("skips envelopes whose seq the ring already retains", () => {
     // GIVEN a live buffer holding seq 5
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("live-5"), { seq: 5, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("live-5"), {
+        seq: 5,
+        conversationId: "A",
+      }),
+    );
 
     // WHEN a tail overlapping that seq is ingested
     ingestReplayedEnvelopes([
-      makeEnvelope(makeTextDeltaEvent("tail-5"), { seq: 5, conversationId: "A" }),
-      makeEnvelope(makeTextDeltaEvent("tail-6"), { seq: 6, conversationId: "A" }),
+      makeEnvelope(makeTextDeltaEvent("tail-5"), {
+        seq: 5,
+        conversationId: "A",
+      }),
+      makeEnvelope(makeTextDeltaEvent("tail-6"), {
+        seq: 6,
+        conversationId: "A",
+      }),
     ]);
 
     // THEN the overlap is deduplicated and the live copy kept

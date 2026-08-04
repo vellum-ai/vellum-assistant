@@ -68,7 +68,9 @@ export function getHomeFeedPath(): string {
  * Read the on-disk feed file, applying the stateless TTL filter.
  *
  * Returns an empty `HomeFeedFile` when the file is missing, unreadable,
- * or fails Zod validation — callers never see a throw from this path.
+ * or has an invalid envelope. Callers never see a throw from this path.
+ * Individual items that fail validation are dropped and warn-logged
+ * while the rest of the feed survives.
  * Items whose `expiresAt` is in the past are dropped from the returned
  * `items` array but are NOT rewritten to disk; the next append cycle
  * will persist the post-filter view naturally.
@@ -93,7 +95,7 @@ export function readHomeFeed(): HomeFeedFile {
     return empty;
   }
 
-  let parsed: HomeFeedFile;
+  let parsed: ReturnType<typeof parseFeedFile>;
   try {
     parsed = parseFeedFile(raw);
   } catch (err) {
@@ -102,6 +104,13 @@ export function readHomeFeed(): HomeFeedFile {
       "home-feed.json failed schema validation; returning empty",
     );
     return empty;
+  }
+
+  if (parsed.droppedCount > 0) {
+    log.warn(
+      { path, droppedCount: parsed.droppedCount },
+      "Dropped invalid items from home-feed.json",
+    );
   }
 
   const now = Date.now();
@@ -165,7 +174,8 @@ export async function patchFeedItemStatus(
  *
  * Only fields explicitly present on `patch` are touched. Pass an empty
  * object and the call is a no-op that returns the existing item (or
- * `null` if the id isn't on disk).
+ * `null` if the id isn't on disk). A `title` that trims to empty is
+ * ignored, so no edit path can strip a title off an existing item.
  */
 export interface FeedItemContentPatch {
   title?: string;
@@ -363,9 +373,8 @@ async function runWrite(): Promise<void> {
     const updated: FeedItem = { ...existing };
     if (patch.title !== undefined) {
       const trimmed = patch.title.trim();
-      if (trimmed.length === 0) {
-        delete updated.title;
-      } else {
+      // Blank titles are ignored: an item keeps its title once it has one.
+      if (trimmed.length > 0) {
         updated.title = trimmed;
       }
     }
@@ -413,9 +422,15 @@ async function runWrite(): Promise<void> {
     let count = 0;
     for (let i = 0; i < items.length; i++) {
       const current = items[i]!;
-      if (current.status === op.to) continue;
-      if (!fromSet.has(current.status)) continue;
-      if (idSet && !idSet.has(current.id)) continue;
+      if (current.status === op.to) {
+        continue;
+      }
+      if (!fromSet.has(current.status)) {
+        continue;
+      }
+      if (idSet && !idSet.has(current.id)) {
+        continue;
+      }
       items[i] = { ...current, status: op.to };
       count++;
     }
@@ -495,9 +510,13 @@ function mergeIncoming(items: FeedItem[], incoming: FeedItem): FeedItem[] {
  * expired (fail-open).
  */
 function isExpired(item: FeedItem, nowMs: number): boolean {
-  if (!item.expiresAt) return false;
+  if (!item.expiresAt) {
+    return false;
+  }
   const expiresMs = Date.parse(item.expiresAt);
-  if (Number.isNaN(expiresMs)) return false;
+  if (Number.isNaN(expiresMs)) {
+    return false;
+  }
   return expiresMs <= nowMs;
 }
 
@@ -507,12 +526,20 @@ function isExpired(item: FeedItem, nowMs: number): boolean {
  * items sort to the top of the feed.
  */
 function compareFeedItems(a: FeedItem, b: FeedItem): number {
-  if (a.priority !== b.priority) return b.priority - a.priority;
+  if (a.priority !== b.priority) {
+    return b.priority - a.priority;
+  }
   const aMs = Date.parse(a.createdAt);
   const bMs = Date.parse(b.createdAt);
-  if (Number.isNaN(aMs) && Number.isNaN(bMs)) return 0;
-  if (Number.isNaN(aMs)) return 1;
-  if (Number.isNaN(bMs)) return -1;
+  if (Number.isNaN(aMs) && Number.isNaN(bMs)) {
+    return 0;
+  }
+  if (Number.isNaN(aMs)) {
+    return 1;
+  }
+  if (Number.isNaN(bMs)) {
+    return -1;
+  }
   return bMs - aMs;
 }
 

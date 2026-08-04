@@ -776,8 +776,11 @@ describe("016-extract-feature-flags-to-protected down()", () => {
   });
 
   afterEach(() => {
-    if (savedWorkspaceDir === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
-    else process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
+    if (savedWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
+    }
   });
 
   test("moves feature flags from protected dir back to config.json", () => {

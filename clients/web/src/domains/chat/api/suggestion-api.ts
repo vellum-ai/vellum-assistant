@@ -23,7 +23,9 @@ export async function fetchSuggestion(
       throwOnError: false,
       signal,
     });
-    if (!response || !response.ok || !data) return EMPTY;
+    if (!response || !response.ok || !data) {
+      return EMPTY;
+    }
     return data;
   } catch {
     return EMPTY;

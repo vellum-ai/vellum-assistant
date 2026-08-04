@@ -638,3 +638,25 @@ export const credentialRequests = sqliteTable(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Plugin ingress approvals (guardian grants for plugin-declared public routes)
+// ---------------------------------------------------------------------------
+
+export const pluginIngressApprovals = sqliteTable(
+  "plugin_ingress_approvals",
+  {
+    // One row per plugin: the declaration it is currently approved for.
+    // Approving again replaces the row, so a plugin is never approved for
+    // two different declarations at once.
+    plugin: text("plugin").primaryKey(),
+    // Digest of the approved routes. A declaration whose digest differs is
+    // unapproved, so editing a manifest requires a fresh decision.
+    digest: text("digest").notNull(),
+    approvedAt: integer("approved_at").notNull(),
+    // Guardian principal that granted it; null for grants made out of band
+    // (CLI, ops) rather than through a guardian decision.
+    approvedBy: text("approved_by"),
+  },
+  (table) => [index("idx_plugin_ingress_approvals_digest").on(table.digest)],
+);

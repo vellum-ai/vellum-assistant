@@ -47,7 +47,9 @@ export function RiskToleranceSettings() {
   const pendingFlushRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!thresholds || hasUserInteracted.current) return;
+    if (!thresholds || hasUserInteracted.current) {
+      return;
+    }
     setInteractivePresetId(presetFromThreshold(thresholds.interactive).id);
     setAutonomousPresetId(presetFromThreshold(thresholds.autonomous).id);
     setHeadlessPresetId(presetFromThreshold(thresholds.headless).id);
@@ -67,7 +69,9 @@ export function RiskToleranceSettings() {
 
   const persistThresholds = useCallback(
     (interactiveId: string, autonomousId: string, headlessId: string) => {
-      if (!assistantId || !hasLoadedInitial) return;
+      if (!assistantId || !hasLoadedInitial) {
+        return;
+      }
       const interactive = THRESHOLD_PRESETS.find(
         (p) => p.id === interactiveId,
       )?.riskThreshold;
@@ -77,7 +81,9 @@ export function RiskToleranceSettings() {
       const headless = THRESHOLD_PRESETS.find(
         (p) => p.id === headlessId,
       )?.riskThreshold;
-      if (!interactive || !autonomous || !headless) return;
+      if (!interactive || !autonomous || !headless) {
+        return;
+      }
       setGlobalThresholds(assistantId, { interactive, autonomous, headless })
         .then(() => {
           queryClient.invalidateQueries({

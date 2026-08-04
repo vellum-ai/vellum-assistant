@@ -19,7 +19,9 @@ let updateCalls: Array<Record<string, unknown>> = [];
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingLowBalanceAlertUpdate: (opts: Record<string, unknown>) => {
+  organizationsBillingLowBalanceAlertUpdate: (
+    opts: Record<string, unknown>,
+  ) => {
     updateCalls.push(opts);
     const body = (opts.body ?? {}) as { threshold_usd: string | null };
     return Promise.resolve({
@@ -49,7 +51,9 @@ function makeClient(config: LowBalanceAlertResponse): QueryClient {
   return client;
 }
 
-function renderCard(config: LowBalanceAlertResponse): ReturnType<typeof render> {
+function renderCard(
+  config: LowBalanceAlertResponse,
+): ReturnType<typeof render> {
   return render(
     <QueryClientProvider client={makeClient(config)}>
       <LowBalanceAlertCard />

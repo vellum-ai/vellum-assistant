@@ -10,11 +10,17 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock local-settings so we can observe localStorage reads/writes without
 // touching the real localStorage (happy-dom doesn't persist across tests).
 const localSettingsStore = new Map<string, string>();
+// Spread the real module rather than enumerating its exports: `mock.module`
+// replaces the whole module, so a hand-listed set breaks every importer the
+// moment local-settings grows an export it does not name.
+const actualLocalSettings = await import("@/utils/local-settings");
 mock.module("@/utils/local-settings", () => ({
+  ...actualLocalSettings,
   getLocalSetting: (key: string, fallback: string) =>
     localSettingsStore.get(key) ?? fallback,
   setLocalSetting: (key: string, value: string) => {
     localSettingsStore.set(key, value);
+    return true;
   },
 }));
 
@@ -463,7 +469,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.filename).toBe("IMG_5487.jpg");
     expect(att.mimeType).toBe("image/jpeg");
     expect(att.sizeBytes).toBe(111);
@@ -489,7 +497,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.mimeType).toBe("image/png");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
   });
@@ -511,7 +521,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.filename).toBe("IMG_1.jpg");
     expect(att.mimeType).toBe("image/jpeg");
   });
@@ -526,7 +538,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.filename).toBe("IMG_2.HEIC");
     expect(att.mimeType).toBe("image/heic");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();

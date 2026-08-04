@@ -4,8 +4,8 @@ import { DetailCard } from "@/components/detail-card";
 import { SettingRow } from "@/components/setting-row";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import {
-    useShareAnalytics,
-    useShareDiagnostics,
+  useShareAnalytics,
+  useShareDiagnostics,
 } from "@/domains/onboarding/prefs";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
@@ -17,10 +17,7 @@ import {
   useAuthStore,
   useHasConfirmedPlatformSession,
 } from "@/stores/auth-store";
-import {
-    getDeviceSetting,
-    setDeviceSetting,
-} from "@/utils/device-settings";
+import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
 import { savePreferenceToggle } from "@/lib/consent/consent-persistence";
 import { legalUrl, routes } from "@/utils/routes";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";

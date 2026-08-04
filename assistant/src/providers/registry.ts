@@ -265,6 +265,14 @@ export async function initializeProviders(
       entry.id,
       new RetryProvider(adapter, {
         forwardUsageAttributionHeaders: source === "managed-proxy",
+        // A keyless provider booted without a key has no credential to blame,
+        // so don't let its rejections render as "update your personal key".
+        credentialSource:
+          source === "managed-proxy"
+            ? "vellum-managed"
+            : isKeyless && !apiKey
+              ? "no-auth"
+              : "byok",
       }),
     );
     routingSources.set(entry.id, source);

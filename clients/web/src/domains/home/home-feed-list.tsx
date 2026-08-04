@@ -4,20 +4,20 @@ import { useState } from "react";
 import { PageEmptyState } from "@/components/page-empty-state";
 
 import type {
-    FeedItem,
-    FeedItemCategory,
-    FeedItemStatus,
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
 } from "@vellumai/assistant-api";
 import { Collapsible, Typography } from "@vellumai/design-library";
 import { HomeFeedFilterBar } from "./home-feed-filter-bar";
 import { HomeRecapRow } from "./home-recap-row";
 import type { FeedTimeGroup } from "./utils";
 import {
-    excludeHighUrgency,
-    filterByCategory,
-    getPresentCategories,
-    groupByTime,
-    sortFeedItems,
+  excludeHighUrgency,
+  filterByCategory,
+  getPresentCategories,
+  groupByTime,
+  sortFeedItems,
 } from "./utils";
 
 const TIME_GROUP_LABELS: Record<FeedTimeGroup, string> = {
@@ -34,7 +34,9 @@ const READ_ARCHIVE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * so the live feed stays focused on recent and unread activity.
  */
 function isArchivedRead(item: FeedItem, now: number): boolean {
-  if (item.status === "new" || item.status === "dismissed") return false;
+  if (item.status === "new" || item.status === "dismissed") {
+    return false;
+  }
   return now - new Date(item.createdAt).getTime() > READ_ARCHIVE_AGE_MS;
 }
 

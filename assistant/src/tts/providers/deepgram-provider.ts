@@ -201,7 +201,9 @@ async function performTtsRequest(
       signal: request.signal,
     });
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") throw err;
+    if (err instanceof Error && err.name === "AbortError") {
+      throw err;
+    }
     throw new DeepgramTtsError(
       "DEEPGRAM_TTS_REQUEST_FAILED",
       `Deepgram TTS request failed: ${err instanceof Error ? err.message : String(err)}`,

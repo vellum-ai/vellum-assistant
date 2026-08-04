@@ -44,7 +44,9 @@ describe("approval-primitive / mintGrantFromDecision", () => {
       mintParams({ scopeMode: "request_id", requestId: "req-1" }),
     );
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.status).toBe("active");
     expect(result.grant.requestId).toBe("req-1");
     expect(result.grant.scopeMode).toBe("request_id");
@@ -60,7 +62,9 @@ describe("approval-primitive / mintGrantFromDecision", () => {
       }),
     );
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.toolName).toBe("shell");
     expect(result.grant.inputDigest).toBe(digest);
     expect(result.grant.scopeMode).toBe("tool_signature");
@@ -71,7 +75,9 @@ describe("approval-primitive / mintGrantFromDecision", () => {
       mintParams({ scopeMode: "request_id", requestId: null }),
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("missing_request_id");
   });
 
@@ -84,7 +90,9 @@ describe("approval-primitive / mintGrantFromDecision", () => {
       }),
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("missing_tool_fields");
   });
 
@@ -97,7 +105,9 @@ describe("approval-primitive / mintGrantFromDecision", () => {
       }),
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("missing_tool_fields");
   });
 
@@ -114,7 +124,9 @@ describe("approval-primitive / mintGrantFromDecision", () => {
       }),
     );
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.conversationId).toBe("conv-1");
     expect(result.grant.callSessionId).toBe("call-1");
     expect(result.grant.requesterExternalUserId).toBe("user-1");
@@ -143,7 +155,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.status).toBe("consumed");
     expect(result.grant.consumedByRequestId).toBe("consumer-1");
   });
@@ -165,7 +179,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.status).toBe("consumed");
   });
 
@@ -188,7 +204,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.scopeMode).toBe("tool_signature");
   });
 
@@ -207,7 +225,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
   });
 
@@ -231,7 +251,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
   });
 
@@ -256,7 +278,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
   });
 
@@ -281,7 +305,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
   });
 
@@ -312,7 +338,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       { maxWaitMs: 0 },
     );
     expect(second.ok).toBe(false);
-    if (second.ok) return;
+    if (second.ok) {
+      return;
+    }
     expect(second.reason).toBe("no_match");
   });
 
@@ -342,7 +370,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       { maxWaitMs: 0 },
     );
     expect(second.ok).toBe(false);
-    if (second.ok) return;
+    if (second.ok) {
+      return;
+    }
     expect(second.reason).toBe("no_match");
   });
 
@@ -395,7 +425,9 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
   });
 });
@@ -426,7 +458,9 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     const elapsed = Date.now() - start;
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.status).toBe("consumed");
     // Should return nearly instantly — well under the retry interval
     expect(elapsed).toBeLessThan(200);
@@ -458,7 +492,9 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     const elapsed = Date.now() - start;
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.grant.status).toBe("consumed");
     // Should have taken at least ~300ms (the delay) but less than the max wait
     expect(elapsed).toBeGreaterThanOrEqual(250);
@@ -482,7 +518,9 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     const elapsed = Date.now() - start;
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
     // Should have waited approximately the max wait time
     expect(elapsed).toBeGreaterThanOrEqual(450);
@@ -508,7 +546,9 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     const elapsed = Date.now() - start;
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("aborted");
     // Should have exited shortly after the abort (200ms), not waited the full 2s
     expect(elapsed).toBeLessThan(1_000);
@@ -533,7 +573,9 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     const elapsed = Date.now() - start;
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("aborted");
     // Should return nearly instantly since signal was already aborted
     expect(elapsed).toBeLessThan(200);
@@ -554,7 +596,9 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     const elapsed = Date.now() - start;
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("no_match");
     // Should return nearly instantly — no retry loop
     expect(elapsed).toBeLessThan(100);

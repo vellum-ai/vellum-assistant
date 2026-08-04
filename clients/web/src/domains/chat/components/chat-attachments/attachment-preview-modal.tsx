@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Download, FileIcon, Loader2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileIcon,
+  Loader2,
+  X,
+} from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -42,7 +49,9 @@ const TEXT_PREVIEW_APPLICATION_MIMES = new Set([
 
 const getExtension = (filename: string): string => {
   const dot = filename.lastIndexOf(".");
-  if (dot === -1 || dot === filename.length - 1) return "";
+  if (dot === -1 || dot === filename.length - 1) {
+    return "";
+  }
   return filename.slice(dot + 1).toLowerCase();
 };
 
@@ -96,9 +105,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   // half of the viewport would fire goToPrev *and* open the sidebar. The
   // arbiter is the same single-owner mechanism back-swipe pages use.
   const registerBackOwner = useEdgeSwipeArbiterStore.use.registerBackOwner();
-  const unregisterBackOwner = useEdgeSwipeArbiterStore.use.unregisterBackOwner();
+  const unregisterBackOwner =
+    useEdgeSwipeArbiterStore.use.unregisterBackOwner();
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     registerBackOwner();
     return () => unregisterBackOwner();
   }, [open, registerBackOwner, unregisterBackOwner]);
@@ -124,7 +136,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     // the same attachment reuses the fetched blob instead of refetching.
     queryKey: ["attachmentContent", assistantId, attachment.id],
     queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id);
+      const data = await fetchAttachmentContentBlob(
+        assistantId!,
+        attachment.id,
+      );
       if (!data) {
         throw new Error("Failed to load file");
       }
@@ -169,20 +184,31 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       : null;
 
   const currentIndex = useMemo(() => {
-    if (!siblingAttachments || siblingAttachments.length <= 1) return -1;
+    if (!siblingAttachments || siblingAttachments.length <= 1) {
+      return -1;
+    }
     return siblingAttachments.findIndex((a) => a.id === attachment.id);
   }, [siblingAttachments, attachment.id]);
 
-  const hasGallery = currentIndex !== -1 && siblingAttachments != null && siblingAttachments.length > 1;
+  const hasGallery =
+    currentIndex !== -1 &&
+    siblingAttachments != null &&
+    siblingAttachments.length > 1;
 
   const goToPrev = useCallback(() => {
-    if (!hasGallery || !siblingAttachments || !onNavigate) return;
-    const prevIndex = (currentIndex - 1 + siblingAttachments.length) % siblingAttachments.length;
+    if (!hasGallery || !siblingAttachments || !onNavigate) {
+      return;
+    }
+    const prevIndex =
+      (currentIndex - 1 + siblingAttachments.length) %
+      siblingAttachments.length;
     onNavigate(siblingAttachments[prevIndex]!);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const goToNext = useCallback(() => {
-    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    if (!hasGallery || !siblingAttachments || !onNavigate) {
+      return;
+    }
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
     onNavigate(siblingAttachments[nextIndex]!);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
@@ -199,7 +225,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     onTouchMove,
     onTouchEnd,
     onTouchCancel,
-  } = useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
+  } = useGallerySwipe({
+    enabled: hasGallery,
+    onPrev: goToPrev,
+    onNext: goToNext,
+  });
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -227,7 +257,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   );
 
   const handleDownload = useCallback(async () => {
-    if (!effectiveUrl) return;
+    if (!effectiveUrl) {
+      return;
+    }
     const { saveFile } = await import("@/runtime/native-file");
     await saveFile(effectiveUrl, attachment.filename);
   }, [effectiveUrl, attachment.filename]);

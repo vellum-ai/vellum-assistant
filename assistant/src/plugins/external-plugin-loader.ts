@@ -197,7 +197,9 @@ export interface SurfaceFile {
  * subdirectory recursion today, so this stays flat on purpose.
  */
 export function listSurfaceDir(dir: string): SurfaceFile[] {
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    return [];
+  }
   const entries = readdirSync(dir);
   const byBase = new Map<string, string>();
   for (const entry of entries) {
@@ -205,12 +207,16 @@ export function listSurfaceDir(dir: string): SurfaceFile[] {
     // alongside compiled `.js`. They have no default-exported runtime
     // function and would crash `importDefault`, so the walker filters
     // them out before the `.js`/`.ts` extension check.
-    if (entry.endsWith(".d.ts")) continue;
+    if (entry.endsWith(".d.ts")) {
+      continue;
+    }
     const base =
       entry.endsWith(".js") || entry.endsWith(".ts")
         ? entry.slice(0, -3)
         : null;
-    if (base === null) continue;
+    if (base === null) {
+      continue;
+    }
     const existing = byBase.get(base);
     if (
       existing === undefined ||
@@ -236,7 +242,9 @@ async function loadHooks(
   pluginName: string,
 ): Promise<PluginHooks | undefined> {
   const files = listSurfaceDir(join(pluginDir, "hooks"));
-  if (files.length === 0) return undefined;
+  if (files.length === 0) {
+    return undefined;
+  }
   const hooks: PluginHooks = {};
   for (const { name, path } of files) {
     const fn = await importDefault<HookFunction>(path);
@@ -337,7 +345,9 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const plugin: Plugin = { manifest };
 
   const hooks = await loadHooks(pluginDir, name);
-  if (hooks !== undefined) plugin.hooks = hooks;
+  if (hooks !== undefined) {
+    plugin.hooks = hooks;
+  }
 
   const tools: Tool[] = [];
   for (const { name: toolName, path: toolPath } of listSurfaceDir(
@@ -351,7 +361,9 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
     }
     tools.push(finalizeTool(tool, deriveToolName(toolName)));
   }
-  if (tools.length > 0) plugin.tools = tools;
+  if (tools.length > 0) {
+    plugin.tools = tools;
+  }
 
   return plugin;
 }
@@ -405,7 +417,9 @@ export async function buildExternalPlugin(
     );
     return undefined;
   } finally {
-    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 

@@ -85,7 +85,9 @@ interface DirSizeBudget {
  * directories purely to discover their type.
  */
 function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
-  if (budget.remaining <= 0) return null;
+  if (budget.remaining <= 0) {
+    return null;
+  }
 
   let total = 0;
   const stack: string[] = [absPath];
@@ -101,7 +103,9 @@ function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
     }
 
     for (const entry of dirents) {
-      if (budget.remaining <= 0) return null;
+      if (budget.remaining <= 0) {
+        return null;
+      }
       budget.remaining -= 1;
 
       if (entry.isDirectory()) {
@@ -196,7 +200,9 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
 
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
-      if (!showHidden && entry.name.startsWith(".")) continue;
+      if (!showHidden && entry.name.startsWith(".")) {
+        continue;
+      }
 
       const fullPath = join(resolved, entry.name);
 
@@ -316,7 +322,9 @@ function handleWorkspaceFileContent({
       throw new BadRequestError("Path is not a file");
     }
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     throw new NotFoundError("File not found");
   }
 

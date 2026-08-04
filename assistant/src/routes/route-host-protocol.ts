@@ -1,6 +1,6 @@
 /**
  * Wire contract between the daemon (client) and the route host subprocess
- * (server), carried over the shared IPC framing (`ipc/ipc-framing.ts`) on the
+ * (server), carried over the shared IPC framing (`@vellumai/ipc-server-utils`) on the
  * Unix socket at `$VELLUM_WORKSPACE_DIR/procs/routes/routes.sock`.
  *
  * One request/response pair per route invocation, correlated by the envelope

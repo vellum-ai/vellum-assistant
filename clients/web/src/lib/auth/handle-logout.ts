@@ -5,7 +5,7 @@ import { hardNavigate } from "@/lib/auth/hard-navigate";
 import {
   getActiveAssistant,
   isLocalAssistant,
-  isLocalMode,
+  isLocalClient,
 } from "@/lib/local-mode";
 import { setAssistantName } from "@/runtime/identity";
 import { setMenuPlatformSession } from "@/runtime/menu";
@@ -13,7 +13,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 export async function handleLogout(navigate: NavigateFunction): Promise<void> {
-  if (isLocalMode()) {
+  if (isLocalClient()) {
     const active = getActiveAssistant();
     if (active && isLocalAssistant(active)) {
       await setMenuPlatformSession(false);

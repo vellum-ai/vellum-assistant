@@ -46,7 +46,9 @@ function getCacheDir(): string {
 function readFromCache(key: string): Buffer | null {
   try {
     const cachePath = join(getCacheDir(), `${key}.jpg`);
-    if (!existsSync(cachePath)) return null;
+    if (!existsSync(cachePath)) {
+      return null;
+    }
     return readFileSync(cachePath) as Buffer;
   } catch {
     return null;
@@ -167,10 +169,14 @@ export function convertImageToJpeg(
   const cacheKey = `${hash}-${sizeKey}-q${options.quality ?? DEFAULT_JPEG_QUALITY}`;
 
   const cached = readFromCache(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const converted = runSips(bytes, options);
-  if (!converted) return null;
+  if (!converted) {
+    return null;
+  }
 
   writeToCache(cacheKey, converted);
   return converted;
@@ -199,7 +205,9 @@ const HEIF_FTYP_BRANDS = new Set([
  * `application/octet-stream`.
  */
 export function isHeifImage(bytes: Uint8Array): boolean {
-  if (bytes.length < 12) return false;
+  if (bytes.length < 12) {
+    return false;
+  }
   // ISO BMFF layout: bytes 4-8 are "ftyp", bytes 8-12 the major brand.
   if (
     bytes[4] !== 0x66 || // f
@@ -317,7 +325,9 @@ export function isHeicFilename(filename: string): boolean {
 export function jpegFilenameFor(filename: string): string {
   const fallback = "attachment";
   const trimmed = filename.trim() || fallback;
-  if (/\.jpe?g$/i.test(trimmed)) return trimmed;
+  if (/\.jpe?g$/i.test(trimmed)) {
+    return trimmed;
+  }
   const withoutExtension = trimmed.replace(/\.[^./\\]+$/, "") || fallback;
   return `${withoutExtension}.jpg`;
 }

@@ -47,7 +47,7 @@ const queryClientMock = {
 const writeSelectedVersionMock = mock(() => {});
 const connectLocalAssistantMock = mock(async (_assistantId: string) => {});
 
-let isLocalModeValue = false;
+let isLocalClientValue = false;
 let localGatewayUrlValue: string | undefined = undefined;
 let platformSessionValue: PlatformSessionStatus = "absent";
 
@@ -151,7 +151,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
 
 mock.module("@/lib/navigation/build-state", () => ({
   buildNavigationState: (overrides: Record<string, unknown> = {}) => ({
-    isLocalMode: isLocalModeValue,
+    isLocalClient: isLocalClientValue,
     isGatewayAuth: false,
     hasAssistants: false,
     sessionSettled: true,
@@ -169,7 +169,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => isLocalModeValue,
+  isLocalClient: () => isLocalClientValue,
   isRemoteGatewayMode: () => false,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
@@ -182,6 +182,7 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
+  saveManagedLockfileAssistant: async () => {},
   updateLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
@@ -300,7 +301,7 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   fetchTraitsImpl = async () => null;
   getAssistantImpl = async () => assistantResult("active");
-  isLocalModeValue = false;
+  isLocalClientValue = false;
   localGatewayUrlValue = undefined;
   platformSessionValue = "absent";
   sessionStorage.clear();
@@ -353,7 +354,7 @@ describe("onboarding lifecycle sync", () => {
   // full reload. The hatch flow must drive the same `connectLocalAssistant`
   // primitive the returning-user connect path uses.
   test("local hatch establishes the authenticated session via connectLocalAssistant", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     localGatewayUrlValue = "http://127.0.0.1:7821";
     searchParams = new URLSearchParams("hosting=local");
 
@@ -436,7 +437,9 @@ describe("onboarding lifecycle sync", () => {
     let assistantCalls = 0;
     getAssistantImpl = async () => {
       assistantCalls += 1;
-      if (assistantCalls === 1) throw new Error("transient pre-flight failure");
+      if (assistantCalls === 1) {
+        throw new Error("transient pre-flight failure");
+      }
       return assistantResult("active");
     };
     hatchAssistantMock.mockResolvedValueOnce(assistantResult("active"));
@@ -459,7 +462,9 @@ describe("onboarding lifecycle sync", () => {
     let assistantCalls = 0;
     getAssistantImpl = async () => {
       assistantCalls += 1;
-      if (assistantCalls === 1) return { ok: false, status: 404, error: {} };
+      if (assistantCalls === 1) {
+        return { ok: false, status: 404, error: {} };
+      }
       return assistantResult("active");
     };
     hatchAssistantMock.mockImplementationOnce(async () => {

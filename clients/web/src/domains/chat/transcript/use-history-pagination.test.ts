@@ -12,7 +12,11 @@ function notif(
   subagentId: string,
   status: string,
 ): RuntimeSubagentNotification {
-  return { subagentId, label: subagentId, status } as RuntimeSubagentNotification;
+  return {
+    subagentId,
+    label: subagentId,
+    status,
+  } as RuntimeSubagentNotification;
 }
 
 function completion(id: string): BackgroundTaskEntry {
@@ -51,7 +55,9 @@ describe("aggregateSubagentNotifications", () => {
   });
 
   test("returns a single page's notifications", () => {
-    const result = aggregateSubagentNotifications([page([notif("a", "completed")])]);
+    const result = aggregateSubagentNotifications([
+      page([notif("a", "completed")]),
+    ]);
     expect(result?.map((n) => n.subagentId)).toEqual(["a"]);
   });
 

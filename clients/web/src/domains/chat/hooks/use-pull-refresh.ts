@@ -51,7 +51,9 @@ export function usePullRefresh({
   invalidateHistory,
   onRefreshEpoch,
 }: UsePullRefreshParams): UsePullRefreshReturn {
-  const [refreshFeedback, setRefreshFeedback] = useState<RefreshOutcome | null>(null);
+  const [refreshFeedback, setRefreshFeedback] = useState<RefreshOutcome | null>(
+    null,
+  );
   const abortRef = useRef(false);
 
   // Mirror the rendered transcript count into a ref so the async refresh handler
@@ -132,7 +134,9 @@ export function usePullRefresh({
       setRefreshFeedback(outcome);
       return outcome;
     } finally {
-      if (timer != null) clearTimeout(timer);
+      if (timer != null) {
+        clearTimeout(timer);
+      }
     }
   }, [activeConversationId, invalidateHistory, onRefreshEpoch]);
 

@@ -6,7 +6,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { bucketMessagesAdded, recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
+import {
+  bucketMessagesAdded,
+  recordDiagnostic,
+  resolvePlatformTag,
+} from "@/lib/diagnostics";
 import { summarizeRuntimeMessages } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
@@ -71,7 +75,9 @@ interface UseMessageReconciliationReturn {
 export function useMessageReconciliation({
   latestPageOldestTimestamp,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
-  const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
+  const initialPageOldestTsRef = useRef<number | null>(
+    latestPageOldestTimestamp,
+  );
   useLayoutEffect(() => {
     initialPageOldestTsRef.current = latestPageOldestTimestamp;
   }, [latestPageOldestTimestamp]);
@@ -82,7 +88,9 @@ export function useMessageReconciliation({
     // Below-floor only. The poll loop is the sole thing that arms a timer,
     // and it runs only below the events-tail floor. At/above the floor
     // there is no loop, so the cancel is fully off.
-    if (supportsEventsTail()) return;
+    if (supportsEventsTail()) {
+      return;
+    }
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = null;
@@ -140,7 +148,9 @@ export function useMessageReconciliation({
       // rescue breadcrumb, not control flow).
       const localIds = new Set<string>();
       for (const m of localView) {
-        if (m.id) localIds.add(m.id);
+        if (m.id) {
+          localIds.add(m.id);
+        }
       }
       const messagesAdded = serverView.reduce(
         (count, sm) => (sm.id && !localIds.has(sm.id) ? count + 1 : count),
@@ -328,7 +338,9 @@ export function useMessageReconciliation({
       };
       const streamState = useStreamStore.getState();
       const ctx = streamState.streamContext;
-      if (!ctx) return empty;
+      if (!ctx) {
+        return empty;
+      }
 
       // Snapshot the turn identity before the async fetch so the
       // POLL_RECONCILED dispatch is scoped to THIS turn. If the user
@@ -351,10 +363,17 @@ export function useMessageReconciliation({
         const serverMessages = snapshot?.messages ?? [];
         const serverSeq = snapshot?.seq ?? null;
         const serverProcessing = snapshot?.processing;
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
+        if (
+          useConversationStore.getState().activeConversationId !==
+          ctx.conversationId
+        ) {
+          return empty;
+        }
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) {
+          return empty;
+        }
         // Pair the snapshot with the daemon's buffered event tail above its
         // anchor BEFORE reconciling: the reconcile invalidates history, and
         // the reseed replay reads the client event ring — priming it first
@@ -366,8 +385,15 @@ export function useMessageReconciliation({
           ctx.conversationId,
           serverSeq,
         );
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        if (
+          useConversationStore.getState().activeConversationId !==
+          ctx.conversationId
+        ) {
+          return empty;
+        }
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) {
+          return empty;
+        }
         recordDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
@@ -397,9 +423,8 @@ export function useMessageReconciliation({
         throw err;
       }
     },
-    [
-    reconcileFetchedMessages,
-  ]);
+    [reconcileFetchedMessages],
+  );
 
   const startReconciliationLoop = useCallback(
     (epoch: number) => {
@@ -411,7 +436,9 @@ export function useMessageReconciliation({
       // and the callers' invocations become no-ops there. Below the floor
       // the daemon doesn't serve the endpoint, so the poll-until-stable
       // loop is retained to wait out the partial-persist debounce.
-      if (supportsEventsTail()) return;
+      if (supportsEventsTail()) {
+        return;
+      }
 
       cancelReconciliation();
       recordDiagnostic("reconciliation_loop_start", { epoch });
@@ -449,7 +476,9 @@ export function useMessageReconciliation({
           latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
         })
           .then((snapshot) => {
-            if (epoch !== useStreamStore.getState().streamEpoch) return;
+            if (epoch !== useStreamStore.getState().streamEpoch) {
+              return;
+            }
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
             const serverProcessing = snapshot?.processing;

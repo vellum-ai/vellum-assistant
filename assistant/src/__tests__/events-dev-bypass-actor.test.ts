@@ -33,7 +33,9 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   resolveActorPrincipalIdForLocalGuardianSync: (
     rawHeader: string | undefined,
   ) => {
-    if (rawHeader !== "dev-bypass" || !fakeHttpAuthDisabled) return rawHeader;
+    if (rawHeader !== "dev-bypass" || !fakeHttpAuthDisabled) {
+      return rawHeader;
+    }
     return fakeGuardianPrincipalId;
   },
 }));

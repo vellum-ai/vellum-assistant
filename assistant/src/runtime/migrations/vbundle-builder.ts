@@ -163,7 +163,9 @@ const BLOCK_SIZE = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const remainder = data.length % BLOCK_SIZE;
-  if (remainder === 0) return data;
+  if (remainder === 0) {
+    return data;
+  }
   const padded = new Uint8Array(data.length + (BLOCK_SIZE - remainder));
   padded.set(data);
   return padded;
@@ -610,7 +612,9 @@ export function walkDirectory(
         walk(fullPath);
       } else if (stat.isFile()) {
         // Skip files by basename (e.g. backup key)
-        if (skipFiles.includes(entry.name)) continue;
+        if (skipFiles.includes(entry.name)) {
+          continue;
+        }
 
         // Skip SQLite auxiliary files — these are ephemeral and race-prone
         // with the live DB connection. The WAL is checkpointed before the
@@ -635,7 +639,9 @@ export function walkDirectory(
               break;
             }
           }
-          if (isBinary) continue;
+          if (isBinary) {
+            continue;
+          }
         }
 
         const relativePath = relative(dir, fullPath);
@@ -836,7 +842,9 @@ export function walkDirectoryForMetadata(
         walk(fullPath);
       } else if (fileStat.isFile()) {
         // Skip files by basename (e.g. backup key)
-        if (skipFiles.includes(entry.name)) continue;
+        if (skipFiles.includes(entry.name)) {
+          continue;
+        }
 
         // Skip SQLite auxiliary files — these are ephemeral and race-prone
         if (
@@ -866,7 +874,9 @@ export function walkDirectoryForMetadata(
                 break;
               }
             }
-            if (isBinary) continue;
+            if (isBinary) {
+              continue;
+            }
           }
         }
 
@@ -895,7 +905,9 @@ async function computeFileSha256(
   size?: number,
 ): Promise<string> {
   const hash = createHash("sha256");
-  if (size === 0) return hash.digest("hex");
+  if (size === 0) {
+    return hash.digest("hex");
+  }
 
   // Read through an explicitly-managed FileHandle so the descriptor is
   // always released in `finally`. This pass opens every file in the
@@ -909,10 +921,14 @@ async function computeFileSha256(
     let position = 0;
     for (;;) {
       const remaining = size !== undefined ? size - position : Infinity;
-      if (remaining <= 0) break;
+      if (remaining <= 0) {
+        break;
+      }
       const toRead = Math.min(chunk.length, remaining);
       const { bytesRead } = await handle.read(chunk, 0, toRead, position);
-      if (bytesRead === 0) break;
+      if (bytesRead === 0) {
+        break;
+      }
       hash.update(chunk.subarray(0, bytesRead));
       position += bytesRead;
     }
@@ -1028,7 +1044,9 @@ function createPaxAndHeaderBlocks(
  */
 function tarPaddingBytes(dataSize: number): Uint8Array {
   const remainder = dataSize % BLOCK_SIZE;
-  if (remainder === 0) return new Uint8Array(0);
+  if (remainder === 0) {
+    return new Uint8Array(0);
+  }
   return new Uint8Array(BLOCK_SIZE - remainder);
 }
 
@@ -1091,7 +1109,9 @@ async function* generateTarStream(
               toRead,
               bytesWritten,
             );
-            if (bytesRead === 0) break;
+            if (bytesRead === 0) {
+              break;
+            }
             bytesWritten += bytesRead;
             yield bytesRead === buf.length ? buf : buf.subarray(0, bytesRead);
           }
@@ -1099,7 +1119,9 @@ async function* generateTarStream(
           // File was deleted or rotated between passes — emit zeros for
           // the full declared size so the tar structure stays valid
         } finally {
-          if (handle) await handle.close();
+          if (handle) {
+            await handle.close();
+          }
         }
       }
 

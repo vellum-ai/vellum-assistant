@@ -29,9 +29,7 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
     queryKey: SUBSCRIPTION_KEY,
     queryFn: () => {
       subscriptionFetches += 1;
-      return subscriptionHangs
-        ? new Promise(() => {})
-        : subscriptionFixture;
+      return subscriptionHangs ? new Promise(() => {}) : subscriptionFixture;
     },
   }),
 }));

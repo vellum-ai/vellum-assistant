@@ -1,8 +1,11 @@
-import { useHasPlatformSession } from "@/stores/auth-store";
+import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
+  getActiveOrganizationIdForRequests,
   useOrganizationStore,
   useRequestOrganizationId,
+  type OrganizationStatus,
 } from "@/stores/organization-store";
+import { hasLivePlatformSession } from "@/stores/session-status";
 
 /**
  * How close the `Vellum-Organization-Id` header source is to producing an id.
@@ -24,10 +27,19 @@ import {
  */
 export type OrgHeaderReadiness = "ready" | "resolving" | "unavailable";
 
-export function useOrgHeaderReadiness(): OrgHeaderReadiness {
-  const requestOrganizationId = useRequestOrganizationId();
-  const status = useOrganizationStore.use.status();
-  const hasPlatformSession = useHasPlatformSession();
+/**
+ * How long an imperative caller gives `"resolving"` to settle before treating
+ * the header source as unavailable. Matches the auth middleware's hydration
+ * ceiling: org resolution is a single round trip, so waiting longer only
+ * postpones the retry the user has to take anyway.
+ */
+export const ORG_HEADER_SETTLE_TIMEOUT_MS = 5_000;
+
+function resolveOrgHeaderReadiness(
+  requestOrganizationId: string | null,
+  status: OrganizationStatus,
+  hasPlatformSession: boolean,
+): OrgHeaderReadiness {
   if (!hasPlatformSession) {
     return "ready";
   }
@@ -35,6 +47,28 @@ export function useOrgHeaderReadiness(): OrgHeaderReadiness {
     return "ready";
   }
   return status === "error" ? "unavailable" : "resolving";
+}
+
+export function useOrgHeaderReadiness(): OrgHeaderReadiness {
+  return resolveOrgHeaderReadiness(
+    useRequestOrganizationId(),
+    useOrganizationStore.use.status(),
+    useHasPlatformSession(),
+  );
+}
+
+/**
+ * Imperative read of {@link useOrgHeaderReadiness}, for async sequences outside
+ * the render cycle that must not fire a header-less platform request while the
+ * org store is still hydrating. Same derivation the hook and the interceptor
+ * share, so a gate built on it moves with the header rather than trailing it.
+ */
+export function getOrgHeaderReadiness(): OrgHeaderReadiness {
+  return resolveOrgHeaderReadiness(
+    getActiveOrganizationIdForRequests(),
+    useOrganizationStore.getState().status,
+    hasLivePlatformSession(useAuthStore.getState().platformSession),
+  );
 }
 
 /**

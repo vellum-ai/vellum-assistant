@@ -13,8 +13,9 @@ Resolves a stable callback URL that external services (Telegram, Twilio,
 email providers, OAuth) should use to reach this assistant.
 
 On platform-managed assistants, this registers a callback route with the
-platform gateway. On self-hosted assistants, it uses the configured
-ingress.publicBaseUrl.
+platform gateway. Otherwise it uses the configured ingress.publicBaseUrl,
+falling back to the platform gateway when no ingress is configured and the
+assistant is connected to the platform.
 
 The webhook path is derived from the type: underscores become path
 separators, prefixed with webhooks/.
@@ -49,8 +50,12 @@ Examples:
       helpText: `
 Resolves a callback URL for the given webhook type. On platform-managed
 assistants (IS_PLATFORM=true), registers a callback route with the platform
-gateway and returns the stable external URL. On self-hosted assistants,
-reads ingress.publicBaseUrl from config and appends the webhook path.
+gateway and returns the stable external URL. Otherwise it reads
+ingress.publicBaseUrl from config and appends the webhook path. That URL is
+either your own tunnel or the Velay tunnel URL the gateway publishes. If no
+ingress is configured and the assistant is connected to the platform
+(via 'assistant platform connect'), it registers a callback route with the
+platform gateway instead of failing.
 
 Arguments:
   type   The webhook type to register. The path is derived automatically:

@@ -28,6 +28,8 @@ export function diagnosticsConsentGranted(): boolean {
     return false;
   }
   const stored = getDeviceSetting("diagnosticsReporting", "");
-  if (stored !== "") return stored === "true";
+  if (stored !== "") {
+    return stored === "true";
+  }
   return readConsentHydrated();
 }

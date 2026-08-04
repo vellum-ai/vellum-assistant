@@ -29,7 +29,9 @@ export async function embedPkbFileJob(
 ): Promise<void> {
   const pkbRoot = asString(job.payload.pkbRoot);
   const absPath = asString(job.payload.absPath);
-  if (!pkbRoot || !absPath) return;
+  if (!pkbRoot || !absPath) {
+    return;
+  }
 
   try {
     await indexPkbFile(pkbRoot, absPath);
@@ -56,8 +58,12 @@ export async function embedPkbFileJob(
  * the index via the startup reconcile.
  */
 export function enqueuePkbIndexJob(input: EmbedPkbFileJobInput): string {
-  if (!isMemoryEnabled()) return "";
-  if (usesConceptPageMemory(getMemoryConfig())) return "";
+  if (!isMemoryEnabled()) {
+    return "";
+  }
+  if (usesConceptPageMemory(getMemoryConfig())) {
+    return "";
+  }
   return enqueueMemoryJob("embed_pkb_file", {
     pkbRoot: input.pkbRoot,
     absPath: input.absPath,

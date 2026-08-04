@@ -10,8 +10,7 @@ export function formatFriendlyDate(
     day: "numeric",
     month: "short",
     year:
-      opts?.alwaysShowYear ||
-      date.getFullYear() !== new Date().getFullYear()
+      opts?.alwaysShowYear || date.getFullYear() !== new Date().getFullYear()
         ? "numeric"
         : undefined,
   });
@@ -21,9 +20,7 @@ export function formatFriendlyDate(
  * Compact relative-time label for inline metadata ("just now", "2h ago").
  * Mirrors the macOS client's `Date.relativeShortString()`.
  */
-export function formatRelativeDate(
-  dateStr: string | null | undefined,
-): string {
+export function formatRelativeDate(dateStr: string | null | undefined): string {
   if (!dateStr) {
     return "—";
   }

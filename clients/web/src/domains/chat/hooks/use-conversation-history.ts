@@ -25,6 +25,8 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
+import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { useBillingBalanceQueryEnabled } from "@/hooks/use-billing-balance-status";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   extractWirePendingAcpConnect,
@@ -86,7 +88,9 @@ type HistoryCache = InfiniteData<PaginatedHistoryResult>;
  * otherwise re-trigger the `dataUpdatedAt`-keyed snapshot effect and loop.
  */
 function surfaceContentEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
+  if (a === b) {
+    return true;
+  }
   try {
     return JSON.stringify(a) === JSON.stringify(b);
   } catch {
@@ -108,18 +112,26 @@ export function useConversationHistory({
   const pagination = useHistoryPagination({
     assistantId,
     conversationId: activeConversationId,
-    enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationId,
+    enabled:
+      assistantStateKind === "active" &&
+      !!assistantId &&
+      !!activeConversationId,
   });
 
   const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
-  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
+  const setTranscriptPagination =
+    useChatSessionStore.use.setTranscriptPagination();
   const setError = useChatSessionStore.use.setError();
 
   // -------------------------------------------------------------------------
   // Conversation-switch reset — delegated to the store action.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (assistantStateKind !== "active" || !assistantId || !activeConversationId) {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationId
+    ) {
       return;
     }
     useChatSessionStore.getState().switchToConversation({
@@ -143,11 +155,15 @@ export function useConversationHistory({
     const key = conversationHistoryQueryKey(assistantId, activeConversationId);
     registerHistoryCachePatcher((updater: MessagesUpdater) => {
       queryClient.setQueryData<HistoryCache>(key, (old) => {
-        if (!old) return old;
+        if (!old) {
+          return old;
+        }
         let changed = false;
         const pages = old.pages.map((page) => {
           const next = updater(page.messages);
-          if (next === page.messages) return page;
+          if (next === page.messages) {
+            return page;
+          }
           changed = true;
           return { ...page, messages: next };
         });
@@ -239,7 +255,10 @@ export function useConversationHistory({
     // Restore an in-flight ask_question prompt the snapshot carries (same cold
     // reconnect path). Skipped when a prompt is already active.
     const wirePendingQuestion = extractWirePendingQuestion(pagination.messages);
-    if (wirePendingQuestion && !useInteractionStore.getState().pendingQuestion) {
+    if (
+      wirePendingQuestion &&
+      !useInteractionStore.getState().pendingQuestion
+    ) {
       useInteractionStore.getState().showQuestion(wirePendingQuestion);
     }
 
@@ -262,14 +281,18 @@ export function useConversationHistory({
     // Refresh embedded surface content into the history cache.
     const requestedConversationForSurfaces = activeConversationId;
     for (const msg of pagination.messages) {
-      if (!msg.surfaces) continue;
+      if (!msg.surfaces) {
+        continue;
+      }
       for (const surface of msg.surfaces) {
         fetchSurfaceContent(
           assistantId,
           surface.surfaceId,
           activeConversationId,
         ).then((fresh) => {
-          if (!fresh) return;
+          if (!fresh) {
+            return;
+          }
           if (
             useConversationStore.getState().activeConversationId !==
             requestedConversationForSurfaces
@@ -282,7 +305,9 @@ export function useConversationHistory({
               requestedConversationForSurfaces,
             ),
             (old) => {
-              if (!old) return old;
+              if (!old) {
+                return old;
+              }
               // Only write when the fetched content actually differs from what
               // the cache already holds. `setQueryData` bumps the query's
               // `dataUpdatedAt` unconditionally (even for deep-equal data), and
@@ -300,7 +325,9 @@ export function useConversationHistory({
                     return m;
                   }
                   return mapMessageSurfaces(m, (s) => {
-                    if (s.surfaceId !== fresh.surfaceId) return s;
+                    if (s.surfaceId !== fresh.surfaceId) {
+                      return s;
+                    }
                     const nextTitle = fresh.title ?? s.title;
                     if (
                       surfaceContentEqual(s.data, fresh.data) &&
@@ -341,6 +368,7 @@ export function useConversationHistory({
       reconcileSubagentStoreFromNotifications(
         useSubagentStore.getState(),
         deduped.values(),
+        activeConversationId,
         Date.now(),
       );
     }
@@ -408,11 +436,30 @@ export function useConversationHistory({
   // turn). The monotonic seq baseline makes the reseed a no-op when nothing new
   // landed, and the buffered event tail is replayed so anything that raced the
   // fetch isn't lost.
+  //
   // -------------------------------------------------------------------------
   const refetchHistoryOnTurnEnd = useCallback(() => {
-    if (!assistantId || !activeConversationId) return;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     void pagination.invalidate();
   }, [assistantId, activeConversationId, pagination]);
+
+  // The billing summary is invalidated on its own falling edge below: every
+  // turn in ANY conversation (including a background turn run from an
+  // external channel or another client, and one that fails on exhausted
+  // credits) can move the org-wide credit balance, and the balance surfaces
+  // should reflect it without waiting for the staleTime window. Gated exactly
+  // like `useBillingBalanceStatus` so self-hosted / org-not-ready contexts,
+  // where the query never runs, skip it.
+  const billingSummaryEnabled = useBillingBalanceQueryEnabled();
+  const invalidateBillingSummary = useCallback(() => {
+    if (billingSummaryEnabled) {
+      void queryClient.invalidateQueries({
+        queryKey: organizationsBillingSummaryRetrieveQueryKey(),
+      });
+    }
+  }, [billingSummaryEnabled, queryClient]);
 
   // A turn is in progress for the active conversation when either the local
   // turn store is sending (a `useSendMessage` turn this client started) or the
@@ -432,8 +479,60 @@ export function useConversationHistory({
   useEffect(() => {
     const justFinished = wasInProgressRef.current && !activeInProgress;
     wasInProgressRef.current = activeInProgress;
-    if (justFinished) refetchHistoryOnTurnEnd();
+    if (justFinished) {
+      refetchHistoryOnTurnEnd();
+    }
   }, [activeInProgress, refetchHistoryOnTurnEnd]);
+
+  // Billing tracks turn ends across ALL conversations, not just the active
+  // one: a background turn (external channel, other client) spends the same
+  // org-wide balance. Each conversation leaving the processing set fires its
+  // own invalidation, so one turn's spend is never masked by another turn
+  // still running (a turn parked at `awaiting_user_input` can hold a
+  // combined signal for minutes). The local-send falling edge is the
+  // fallback for a send whose conversation never got flagged processing;
+  // when the flag did appear, the set departure owns the invalidation and
+  // the send edge stays quiet, so a local turn fires exactly once.
+  const sendingNow = isSending(turnPhase);
+  const prevProcessingRef = useRef(processingConversationIds);
+  const wasSendingRef = useRef(false);
+  const activeSendTrackedRef = useRef(false);
+  useEffect(() => {
+    const prevProcessing = prevProcessingRef.current;
+    prevProcessingRef.current = processingConversationIds;
+    const sendJustEnded = wasSendingRef.current && !sendingNow;
+    wasSendingRef.current = sendingNow;
+
+    if (
+      sendingNow &&
+      !!activeConversationId &&
+      processingConversationIds.has(activeConversationId)
+    ) {
+      activeSendTrackedRef.current = true;
+    }
+
+    let anyTurnDeparted = false;
+    for (const id of prevProcessing) {
+      if (!processingConversationIds.has(id)) {
+        anyTurnDeparted = true;
+        break;
+      }
+    }
+
+    if (anyTurnDeparted) {
+      invalidateBillingSummary();
+    } else if (sendJustEnded && !activeSendTrackedRef.current) {
+      invalidateBillingSummary();
+    }
+    if (sendJustEnded) {
+      activeSendTrackedRef.current = false;
+    }
+  }, [
+    processingConversationIds,
+    sendingNow,
+    activeConversationId,
+    invalidateBillingSummary,
+  ]);
 
   // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.
@@ -445,25 +544,32 @@ export function useConversationHistory({
   // `"fresh"`/`"anchor"` reopens are skipped: the first connect's
   // `refetchOnMount` already loaded the snapshot.
   // -------------------------------------------------------------------------
-  useBusSubscription("sse.opened", ({ assistantId: openedAssistantId, cause }) => {
-    if (cause === "fresh" || cause === "anchor") return;
-    if (
-      assistantStateKind !== "active" ||
-      !assistantId ||
-      !activeConversationId ||
-      openedAssistantId !== assistantId
-    ) {
-      return;
-    }
-    void pagination.invalidate();
-  });
+  useBusSubscription(
+    "sse.opened",
+    ({ assistantId: openedAssistantId, cause }) => {
+      if (cause === "fresh" || cause === "anchor") {
+        return;
+      }
+      if (
+        assistantStateKind !== "active" ||
+        !assistantId ||
+        !activeConversationId ||
+        openedAssistantId !== assistantId
+      ) {
+        return;
+      }
+      void pagination.invalidate();
+    },
+  );
 
   // -------------------------------------------------------------------------
   // Sync older-page loading state into the pagination mirror.
   // -------------------------------------------------------------------------
   useEffect(() => {
     setTranscriptPagination((prev) => {
-      if (prev.isLoadingOlder === pagination.isFetchingOlderPages) return prev;
+      if (prev.isLoadingOlder === pagination.isFetchingOlderPages) {
+        return prev;
+      }
       return { ...prev, isLoadingOlder: pagination.isFetchingOlderPages };
     });
   }, [pagination.isFetchingOlderPages, setTranscriptPagination]);
@@ -472,7 +578,9 @@ export function useConversationHistory({
   // Surface TanStack Query errors.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!pagination.isError || !pagination.error) return;
+    if (!pagination.isError || !pagination.error) {
+      return;
+    }
 
     const isOlderPageError = pagination.isSuccess;
     captureError(pagination.error, {
@@ -487,7 +595,13 @@ export function useConversationHistory({
         message: "Failed to load conversation history. Please try again.",
       });
     }
-  }, [pagination.isError, pagination.isSuccess, pagination.error, setIsLoadingHistory, setError]);
+  }, [
+    pagination.isError,
+    pagination.isSuccess,
+    pagination.error,
+    setIsLoadingHistory,
+    setError,
+  ]);
 
   return { pagination };
 }

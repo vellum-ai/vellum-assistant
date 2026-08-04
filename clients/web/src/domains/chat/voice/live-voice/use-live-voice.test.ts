@@ -82,12 +82,16 @@ function renderController(
   const player = new FakePlayer();
   let capture!: FakeCapture;
   let renderCount = 0;
+  let playerCreateCount = 0;
 
   const view = renderHook(() => {
     renderCount++;
     return useLiveVoice({
       createClient: () => client as unknown as LiveVoiceChannelClient,
-      createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
+      createPlayer: () => {
+        playerCreateCount += 1;
+        return player as unknown as LiveVoiceAudioPlayer;
+      },
       createCapture: (options) => {
         capture = new FakeCapture(options);
         onCaptureCreated?.(capture);
@@ -102,6 +106,7 @@ function renderController(
     client,
     player,
     getCapture: () => capture,
+    getPlayerCreateCount: () => playerCreateCount,
     getRenderCount: () => renderCount,
   };
 }
@@ -146,6 +151,38 @@ afterEach(() => {
   // so without this the store/session would leak into the next test.
   cleanup();
   useLiveVoiceStore.getState().reset();
+});
+
+describe("playback prewarm", () => {
+  test("reserves playback before start and reuses it for the session", async () => {
+    const h = renderController();
+
+    act(() => {
+      h.view.result.current.prewarmPlayback();
+    });
+
+    expect(h.getPlayerCreateCount()).toBe(1);
+    expect(h.player.prewarmCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(h.getPlayerCreateCount()).toBe(1);
+    expect(h.player.prewarmCount).toBe(2);
+  });
+
+  test("canceling a prewarm releases the reserved player", () => {
+    const h = renderController();
+    act(() => {
+      h.view.result.current.prewarmPlayback();
+      h.view.result.current.cancelPrewarmedPlayback();
+    });
+
+    expect(h.player.disposeCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1190,6 +1227,42 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     });
     expect(h.view.result.current.state).toBe("listening");
     expect(useLiveVoiceStore.getState().muted).toBe(true);
+  });
+
+  test("the assistant mute is re-applied to the graph a reconnect builds", async () => {
+    // The mute lives in the player's gain stage, which a reconnect replaces
+    // along with the rest of the graph. The store keeps the user's answer, so
+    // whatever player comes back has to be told it before audio flows again —
+    // otherwise the assistant is audible after a blip the user never asked to
+    // end the mute.
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    act(() => controls().setOutputMuted(true));
+    expect(h.player.outputMuted).toBe(true);
+    // Stand in for the fresh graph a reconnect brings: an unmuted gain stage.
+    h.player.outputMuted = false;
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().outputMuted).toBe(true);
+    expect(h.player.outputMuted).toBe(true);
   });
 
   test("a minimized room stays minimized across a retryable reconnect", async () => {
@@ -2600,12 +2673,16 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     // the user can still bail during the gap.
     expect(h.view.result.current.state).toBe("connecting");
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
+    expect(h.player.disposeCount).toBe(0);
 
     // Backoff elapses → a fresh connect to the SAME conversation (no turn-taking
-    // overrides, since none were set).
+    // overrides, since none were set). The player remains the one prewarmed by
+    // the original user gesture, so its iOS MediaStream route stays active.
     await act(async () => {
       await sleep(80);
     });
+    expect(h.getPlayerCreateCount()).toBe(1);
+    expect(h.player.disposeCount).toBe(0);
     expect(h.client.connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: "conv-1",
@@ -2670,6 +2747,7 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
       await h.view.result.current.stop();
     });
     expect(h.view.result.current.state).toBe("idle");
+    expect(h.player.disposeCount).toBe(1);
 
     // The backoff would have elapsed by now — but the timer was cancelled, so
     // no reconnect connect fires.
@@ -2697,6 +2775,7 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     });
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(useLiveVoiceStore.getState().controls).toBeNull();
+    expect(h.player.disposeCount).toBe(1);
 
     // The pending reconnect was cancelled — nothing reconnects after the gap.
     await act(async () => {
@@ -2889,6 +2968,8 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     await act(async () => {
       await sleep(30);
     });
+    expect(h.getPlayerCreateCount()).toBe(1);
+    expect(h.player.disposeCount).toBe(0);
     expect(h.client.connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: "conv-1",
@@ -3013,5 +3094,43 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     });
     expect(h.view.result.current.state).toBe("idle");
     expect(h.client.connectArgs).toBe(connectArgsBeforeStop);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Echo-cancelling output route
+// ---------------------------------------------------------------------------
+
+describe("echo-cancelling output route", () => {
+  async function reachListening(h: ReturnType<typeof renderController>) {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+  }
+
+  test("re-renders the output route once the microphone is live", async () => {
+    const h = renderController();
+    expect(h.player.restartOutputRouteCount).toBe(0);
+
+    await reachListening(h);
+
+    // The player is unlocked in the entry gesture, before getUserMedia exists.
+    // WebKit binds a MediaStream renderer to whichever capture unit is running
+    // when it starts, so the rebind has to happen after capture comes up or the
+    // renderer can hold no echo reference at all.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.player.restartOutputRouteCount).toBe(1);
   });
 });

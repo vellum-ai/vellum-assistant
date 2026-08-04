@@ -441,7 +441,9 @@ export class CredentialBroker {
     const now = Date.now();
     let count = 0;
     for (const token of this.tokens.values()) {
-      if (!token.consumed && now - token.createdAt <= TOKEN_TTL_MS) count++;
+      if (!token.consumed && now - token.createdAt <= TOKEN_TTL_MS) {
+        count++;
+      }
     }
     return count;
   }

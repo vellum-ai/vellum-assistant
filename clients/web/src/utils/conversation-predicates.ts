@@ -12,7 +12,9 @@ export function isBackgroundConversation(conversation: Conversation): boolean {
   // into the Recents grouping, so they get full foreground treatment —
   // unread badges, mark read/unread, next-conversation selection — even
   // though their underlying type is still background/scheduled.
-  if (conversation.surfacedAt != null) return false;
+  if (conversation.surfacedAt != null) {
+    return false;
+  }
   return (
     conversation.conversationType === "background" ||
     conversation.conversationType === "scheduled" ||

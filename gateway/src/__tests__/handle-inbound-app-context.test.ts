@@ -75,7 +75,6 @@ const APP_CONTEXT = {
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: { default: 50 * 1024 * 1024 },
@@ -88,7 +87,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
   } as unknown as GatewayConfig;
 }

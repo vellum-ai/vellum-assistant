@@ -28,7 +28,6 @@ interface TourNarrationProps {
   controls?: ReactNode;
 }
 
-
 /**
  * The tour's takeover of the main chat area: while the tour sits on a beat,
  * that beat's description typewrites here. Deliberately ephemeral — the

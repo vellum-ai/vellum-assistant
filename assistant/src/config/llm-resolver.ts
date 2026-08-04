@@ -11,7 +11,6 @@ import {
 } from "../providers/vellum-model-routing.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
-  getEffectiveProfile,
   isMatrixProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
@@ -57,7 +56,9 @@ import {
  * sits at the top of the chain for every call site.
  *
  * Profile names are resolved against the effective profile catalog
- * (code-defined defaults + workspace `llm.profiles`; see `getEffectiveProfile`).
+ * (code-defined defaults + workspace `llm.profiles`), with default profile
+ * keys resolved through `llm.defaultProvider`'s column of the intent ×
+ * provider matrix (see `resolveDefaultProfileForProvider`).
  * A "mix" profile is expanded to one of its arms by a seeded weighted pick (see
  * `resolveProfileFragment` and `opts.selectionSeed`), uniformly wherever a name
  * is dereferenced. Missing references silently fall through (no throw) so the
@@ -113,12 +114,29 @@ export interface ResolveCallSiteOpts {
 
 export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
 
+export interface ResolvedCallSiteConfig {
+  config: z.infer<typeof LLMConfigBase>;
+  profileName?: string;
+}
+
+export function resolveCallSiteConfigWithProfile(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): ResolvedCallSiteConfig {
+  const selection = selectWinningProfile(callSite, llm, opts);
+  return {
+    config: resolveOverrideOrDefault(callSite, llm, selection),
+    ...(selection.profileName ? { profileName: selection.profileName } : {}),
+  };
+}
+
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts = {},
 ): z.infer<typeof LLMConfigBase> {
-  return resolveOverrideOrDefault(callSite, llm, opts);
+  return resolveCallSiteConfigWithProfile(callSite, llm, opts).config;
 }
 
 // ─── Single-winner profile resolution ───────────────────────────────────────
@@ -357,9 +375,8 @@ const CODE_DEFAULT_BASE: z.infer<typeof LLMConfigBase> = LLMConfigBase.parse(
 function resolveOverrideOrDefault(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
-  opts: ResolveCallSiteOpts,
+  selection: ProfileWinnerSelection,
 ): z.infer<typeof LLMConfigBase> {
-  const selection = selectWinningProfile(callSite, llm, opts);
   const winnerFragment: Mergeable =
     selection.entry == null ? {} : winnerConfigFragment(selection.entry);
 
@@ -514,8 +531,7 @@ function resolveProfileFragment(
   name: string | undefined,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts,
-  lookupEntry: (name: string) => ProfileEntry | undefined = (n) =>
-    getEffectiveProfile(llm.profiles, n),
+  lookupEntry: (name: string) => ProfileEntry | undefined,
 ): ProfileEntry | undefined {
   if (name == null) {
     return undefined;

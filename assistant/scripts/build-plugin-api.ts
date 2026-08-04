@@ -69,8 +69,11 @@ function parseArgs(argv: string[]): Args {
   let buildDir = join(ASSISTANT_DIR, ".plugin-api-build");
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--version") version = argv[++i] ?? "";
-    else if (arg === "--out") buildDir = resolve(argv[++i] ?? "");
+    if (arg === "--version") {
+      version = argv[++i] ?? "";
+    } else if (arg === "--out") {
+      buildDir = resolve(argv[++i] ?? "");
+    }
   }
   if (!version) {
     throw new Error(
@@ -184,8 +187,12 @@ function main(): void {
   const bundled: string[] = [];
   for (const name of readdirSync(vellumDir)) {
     const dir = join(vellumDir, name);
-    if (!existsSync(join(dir, "tsconfig.json"))) continue;
-    if (!existsSync(join(dir, "src"))) continue;
+    if (!existsSync(join(dir, "tsconfig.json"))) {
+      continue;
+    }
+    if (!existsSync(join(dir, "src"))) {
+      continue;
+    }
     const dest = join(vellumOverlay, name);
     if (emitContract(dir, dest)) {
       writeContractManifest(join(dir, "package.json"), dest);

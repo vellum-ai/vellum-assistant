@@ -62,10 +62,7 @@ describe("reachability burst-limiter", () => {
 
     expect(onReady).toHaveBeenCalledTimes(1);
     expect(onClearError).toHaveBeenCalledTimes(1);
-    expect(publishSpy).toHaveBeenCalledWith(
-      "reachability.retry-requested",
-      {},
-    );
+    expect(publishSpy).toHaveBeenCalledWith("reachability.retry-requested", {});
     expect(onReset).not.toHaveBeenCalled();
   });
 
@@ -126,10 +123,7 @@ describe("reachability burst-limiter", () => {
     publishSpy.mockClear();
     limiter.handleReachabilityPhase("ready");
 
-    expect(publishSpy).toHaveBeenCalledWith(
-      "reachability.retry-requested",
-      {},
-    );
+    expect(publishSpy).toHaveBeenCalledWith("reachability.retry-requested", {});
     expect(onExhausted).not.toHaveBeenCalled();
   });
 });

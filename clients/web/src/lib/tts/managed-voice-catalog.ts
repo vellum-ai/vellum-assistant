@@ -36,7 +36,9 @@ export function splitVoiceDescription(description: string): {
 } {
   const separator = " · ";
   const index = description.indexOf(separator);
-  if (index === -1) return { traits: description, accent: "" };
+  if (index === -1) {
+    return { traits: description, accent: "" };
+  }
   return {
     accent: description.slice(0, index),
     traits: description.slice(index + separator.length),
@@ -67,8 +69,11 @@ export function groupVoicesByAccent<T extends { description: string }>(
     const { accent } = splitVoiceDescription(voice.description);
     const key = accent || "Other";
     const list = byAccent.get(key);
-    if (list) list.push(voice);
-    else byAccent.set(key, [voice]);
+    if (list) {
+      list.push(voice);
+    } else {
+      byAccent.set(key, [voice]);
+    }
   }
   return [...byAccent.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))

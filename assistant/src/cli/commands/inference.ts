@@ -25,6 +25,23 @@ import { attachSessionSubcommand } from "./inference-session.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
+/**
+ * Runtime-observed evidence for one inference request: the endpoint the live
+ * client resolved to, the URL actually requested (credentials redacted), the
+ * model and connection used, the HTTP status, and the verbatim upstream error
+ * body. Reported for failures as well as successes.
+ */
+interface InferenceEvidence {
+  resolved_endpoint?: string;
+  resolved_url?: string;
+  model_id?: string;
+  connection_name?: string;
+  http_status?: number;
+  upstream_error_body?: string;
+  upstream_error_body_state?: string;
+  upstream_error_body_bytes?: number;
+}
+
 interface InferenceSendResult {
   response: string;
   model: string;
@@ -32,9 +49,20 @@ interface InferenceSendResult {
     inputTokens: number;
     outputTokens: number;
   };
-  evidence?: {
-    resolved_endpoint?: string;
-  };
+  evidence?: InferenceEvidence;
+}
+
+/** `RouteError.details` payload of a failed `inference_send`. */
+interface InferenceSendErrorDetails {
+  error_class?: string;
+  error_stack_head?: string;
+  evidence?: InferenceEvidence;
+}
+
+function asErrorDetails(value: unknown): InferenceSendErrorDetails {
+  return value && typeof value === "object"
+    ? (value as InferenceSendErrorDetails)
+    : {};
 }
 
 const DEFAULT_INFERENCE_IPC_TIMEOUT_MS = 32 * 60 * 1000;
@@ -76,9 +104,15 @@ function parsePositiveIntegerOption(
   return { ok: true, value };
 }
 
-function writeCliError(message: string, jsonOutput?: boolean): void {
+function writeCliError(
+  message: string,
+  jsonOutput?: boolean,
+  details?: InferenceSendErrorDetails,
+): void {
   if (jsonOutput) {
-    process.stdout.write(JSON.stringify({ ok: false, error: message }) + "\n");
+    process.stdout.write(
+      JSON.stringify({ ok: false, error: message, ...details }) + "\n",
+    );
   } else {
     log.error(message);
   }
@@ -171,7 +205,11 @@ function attachSendSubcommand(group: Command): void {
       );
 
       if (!ipcResult.ok) {
-        writeCliError(ipcResult.error ?? "Unknown error occurred", jsonOutput);
+        writeCliError(
+          ipcResult.error ?? "Unknown error occurred",
+          jsonOutput,
+          asErrorDetails(ipcResult.errorDetails),
+        );
         return;
       }
 

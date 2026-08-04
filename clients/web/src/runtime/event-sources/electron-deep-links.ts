@@ -60,7 +60,9 @@ export function publishElectronDeepLinksSource(): () => void {
 
   void drainPendingDeepLinks()
     .then((pending) => {
-      for (const link of pending) publishDeepLink(link);
+      for (const link of pending) {
+        publishDeepLink(link);
+      }
     })
     .catch((err) => {
       captureError(err, { context: "deep_link_drain", level: "warning" });

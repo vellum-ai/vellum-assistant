@@ -3,10 +3,7 @@ import registry from "./feature-flag-registry.json" with { type: "json" };
 export type FlagScope = "client" | "assistant" | "both";
 export type SingleScope = Exclude<FlagScope, "both">;
 
-export function scopeIncludes(
-  scope: FlagScope,
-  target: SingleScope,
-): boolean {
+export function scopeIncludes(scope: FlagScope, target: SingleScope): boolean {
   return scope === target || scope === "both";
 }
 
@@ -26,12 +23,18 @@ const STORE_KEY_OVERRIDES: Record<string, string> = {};
 
 function kebabToStoreKey(kebabKey: string): string {
   const override = STORE_KEY_OVERRIDES[kebabKey];
-  if (override) return override;
+  if (override) {
+    return override;
+  }
   const parts = kebabKey.split("-");
   return parts
     .map((part, i) => {
-      if (part === "ui") return "UI";
-      if (i === 0) return part;
+      if (part === "ui") {
+        return "UI";
+      }
+      if (i === 0) {
+        return part;
+      }
       return part[0].toUpperCase() + part.slice(1);
     })
     .join("");
@@ -40,7 +43,9 @@ function kebabToStoreKey(kebabKey: string): string {
 function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
   const defaults: Record<string, boolean> = {};
   for (const flag of flags) {
-    if (typeof flag.defaultEnabled !== "boolean") continue;
+    if (typeof flag.defaultEnabled !== "boolean") {
+      continue;
+    }
     if (scopeIncludes(flag.scope, scope)) {
       defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
     }
@@ -51,7 +56,9 @@ function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
 function buildStringScopeDefaults(scope: SingleScope): Record<string, string> {
   const defaults: Record<string, string> = {};
   for (const flag of flags) {
-    if (typeof flag.defaultEnabled !== "string") continue;
+    if (typeof flag.defaultEnabled !== "string") {
+      continue;
+    }
     if (scopeIncludes(flag.scope, scope)) {
       defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
     }
@@ -62,7 +69,8 @@ function buildStringScopeDefaults(scope: SingleScope): Record<string, string> {
 export const CLIENT_FLAG_DEFAULTS = buildScopeDefaults("client");
 export const ASSISTANT_FLAG_DEFAULTS = buildScopeDefaults("assistant");
 export const CLIENT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("client");
-export const ASSISTANT_STRING_FLAG_DEFAULTS = buildStringScopeDefaults("assistant");
+export const ASSISTANT_STRING_FLAG_DEFAULTS =
+  buildStringScopeDefaults("assistant");
 
 export type ClientFeatureFlags = Record<string, boolean>;
 export type AssistantFeatureFlags = Record<string, boolean>;
@@ -85,7 +93,9 @@ export function storeKeyToFlagKey(storeKey: string): string | undefined {
   return STORE_KEY_TO_FLAG_KEY.get(storeKey);
 }
 
-export function getFlagDefinition(storeKey: string): FlagDefinition | undefined {
+export function getFlagDefinition(
+  storeKey: string,
+): FlagDefinition | undefined {
   return STORE_KEY_TO_FLAG.get(storeKey);
 }
 
@@ -172,9 +182,10 @@ export function resetEnvOverridesCache(): void {
   cachedOverrides = null;
 }
 
-export function getEnvFlagOverridesForScope(
-  scope: SingleScope,
-): { bool: Record<string, boolean>; str: Record<string, string> } {
+export function getEnvFlagOverridesForScope(scope: SingleScope): {
+  bool: Record<string, boolean>;
+  str: Record<string, string>;
+} {
   const overrides = readEnvFlagOverrides();
   const bool: Record<string, boolean> = {};
   const str: Record<string, string> = {};

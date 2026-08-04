@@ -48,7 +48,9 @@ async function isProviderConnectedOnPlatform(
   try {
     const { VellumPlatformClient } = await import("../platform/client.js");
     const client = await VellumPlatformClient.create();
-    if (!client?.platformAssistantId) return false;
+    if (!client?.platformAssistantId) {
+      return false;
+    }
 
     const params = new URLSearchParams();
     params.set("provider", provider);
@@ -57,7 +59,9 @@ async function isProviderConnectedOnPlatform(
     const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;
     const response = await client.fetch(path);
 
-    if (!response.ok) return false;
+    if (!response.ok) {
+      return false;
+    }
 
     const body = (await response.json()) as unknown;
     const connections = Array.isArray(body)

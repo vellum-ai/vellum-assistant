@@ -153,9 +153,7 @@ declare global {
       };
       permissions?: {
         getState(): Promise<SystemPermissionsState>;
-        request(
-          kind: SystemPermissionKind,
-        ): Promise<SystemPermissionStateItem>;
+        request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
         openSettings(
           kind: SystemPermissionKind,
         ): Promise<SystemPermissionStateItem>;
@@ -184,7 +182,10 @@ declare global {
         setPlatformSession(has: boolean): Promise<void>;
       };
       localMode: {
-        hatch(species: string, remote?: string): Promise<{
+        hatch(
+          species: string,
+          remote?: string,
+        ): Promise<{
           ok: boolean;
           assistantId?: string;
           error?: string;
@@ -199,9 +200,7 @@ declare global {
           organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
-        sleep?(
-          assistantId: string,
-        ): Promise<{ ok: boolean; error?: string }>;
+        sleep?(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,
           options?: LocalWakeOptions,
@@ -210,9 +209,7 @@ declare global {
           assistantId: string,
           options?: LocalUpgradeOptions,
         ): Promise<{ ok: boolean; version?: string; error?: string }>;
-        status?(
-          assistantId: string,
-        ): Promise<LocalAssistantStatusResult>;
+        status?(assistantId: string): Promise<LocalAssistantStatusResult>;
         guardianToken(
           assistantId: string,
         ): Promise<
@@ -234,9 +231,7 @@ declare global {
         setOnboarding(active: boolean): Promise<void>;
       };
       power: {
-        onEvent(
-          callback: (event: PowerEvent) => void,
-        ): () => void;
+        onEvent(callback: (event: PowerEvent) => void): () => void;
       };
       deepLinks: {
         drain(): Promise<DeepLink[]>;
@@ -254,9 +249,7 @@ declare global {
         logs(): Promise<string>;
       };
       connectivity?: {
-        onState(
-          callback: (state: ConnectivityState) => void,
-        ): () => void;
+        onState(callback: (state: ConnectivityState) => void): () => void;
         get(): Promise<ConnectivityState>;
         setDevice(online: boolean): void;
         retry(): Promise<ConnectivityState>;
@@ -272,9 +265,7 @@ declare global {
       };
       dictationOverlay?: {
         setState(state: DictationOverlayMessage): void;
-        onState(
-          callback: (state: DictationOverlayState) => void,
-        ): () => void;
+        onState(callback: (state: DictationOverlayState) => void): () => void;
         getState(): Promise<DictationOverlayState | null>;
         requestStop(): void;
         onStopRequested(callback: () => void): () => void;
@@ -315,5 +306,7 @@ declare global {
  * use `isNativePlatform` from `@/runtime/native-auth.js` instead.
  */
 export function isElectron(): boolean {
-  return typeof window !== "undefined" && window.vellum?.platform === "electron";
+  return (
+    typeof window !== "undefined" && window.vellum?.platform === "electron"
+  );
 }

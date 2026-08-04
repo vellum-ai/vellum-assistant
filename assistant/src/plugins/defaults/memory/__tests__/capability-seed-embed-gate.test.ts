@@ -74,7 +74,7 @@ mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
 const { setConfig } =
   await import("../../../../__tests__/helpers/set-config.js");
 const { getConfig } = await import("../../../../config/loader.js");
-const { getDb, getMemoryDb } =
+const { getMemoryDb } =
   await import("../../../../persistence/db-connection.js");
 const { initializeDb } = await import("../../../../persistence/db-init.js");
 const { _resetQdrantBreaker: resetQdrantBreaker } =
@@ -101,7 +101,7 @@ function countCapabilityNodes(): number {
 }
 
 function countEmbeddingRows(targetId: string): number {
-  return getDb()
+  return getMemoryDb()!
     .select()
     .from(memoryEmbeddings)
     .where(
@@ -131,7 +131,7 @@ describe("capability seeding embed_graph_node gate", () => {
   beforeEach(() => {
     getMemoryDb()!.run("DELETE FROM memory_jobs");
     getMemoryDb()!.run("DELETE FROM memory_graph_nodes");
-    getDb().delete(memoryEmbeddings).run();
+    getMemoryDb()!.delete(memoryEmbeddings).run();
   });
 
   test("v3-live config: nodes are upserted but no embed_graph_node rows are enqueued", async () => {
@@ -158,7 +158,7 @@ describe("embedAndUpsert embedding-cache row", () => {
   beforeEach(() => {
     upsertShouldFail = false;
     upsertedTargetIds.length = 0;
-    getDb().delete(memoryEmbeddings).run();
+    getMemoryDb()!.delete(memoryEmbeddings).run();
     resetQdrantBreaker();
   });
 

@@ -98,10 +98,16 @@ function normalizeDrainDueBody(body: Record<string, unknown>) {
 }
 
 function normalizeTimestamp(value: unknown): unknown {
-  if (typeof value === "number") return value;
-  if (typeof value !== "string") return value;
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return value;
+  }
   const numeric = Number(value);
-  if (Number.isFinite(numeric)) return numeric;
+  if (Number.isFinite(numeric)) {
+    return numeric;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : value;
 }
@@ -202,7 +208,9 @@ async function runDrainDueLease(
       nextIntent: computeWakeIntent(),
     });
   } finally {
-    if (renewTimer) clearInterval(renewTimer);
+    if (renewTimer) {
+      clearInterval(renewTimer);
+    }
     activeDrainLeases.delete(request.leaseId);
   }
 }

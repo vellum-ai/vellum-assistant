@@ -1,12 +1,5 @@
 import * as Sentry from "@sentry/react";
-import {
-    AlertTriangle,
-    Bug,
-    Flame,
-    Info,
-    Timer,
-    XCircle,
-} from "lucide-react";
+import { AlertTriangle, Bug, Flame, Info, Timer, XCircle } from "lucide-react";
 import { type ReactNode, useCallback } from "react";
 
 import { DetailCard } from "@/components/detail-card";
@@ -75,9 +68,7 @@ export function SentryTestingPanel() {
           onClick={handleCaptureWarning}
         />
         <SentryTestRow
-          icon={
-            <Info className="h-4 w-4 text-[var(--content-tertiary)]" />
-          }
+          icon={<Info className="h-4 w-4 text-[var(--content-tertiary)]" />}
           label="Info Event"
           description="Send an info-level message."
           onClick={handleCaptureInfo}

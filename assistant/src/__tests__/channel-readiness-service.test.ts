@@ -6,6 +6,8 @@ import { setConfig } from "./helpers/set-config.js";
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
 let mockGetIsPlatform: boolean;
+/** Platform credentials present: base URL + assistant ID + assistant API key. */
+let mockPlatformConnected: boolean;
 
 mock.module("../calls/twilio-rest.js", () => ({
   getPhoneNumberSid: async () => null,
@@ -24,7 +26,22 @@ mock.module("../config/env-registry.js", () => ({
   getIsPlatform: () => mockGetIsPlatform,
 }));
 
-mock.module("../inbound/platform-callback-registration.js", () => ({}));
+// Spread the real module: replacing it wholesale drops the exports peer test
+// files import from it, which breaks their named-import validation whenever
+// this mock wins evaluation in a combined run.
+const actualRegistration =
+  await import("../inbound/platform-callback-registration.js");
+mock.module("../inbound/platform-callback-registration.js", () => ({
+  ...actualRegistration,
+  resolvePlatformCallbackRegistrationContext: async () => ({
+    isPlatform: mockGetIsPlatform,
+    platformBaseUrl: "https://api.vellum.ai",
+    assistantId: mockPlatformConnected ? "assistant-123" : "",
+    hasAssistantApiKey: mockPlatformConnected,
+    authHeader: mockPlatformConnected ? "Api-Key secret" : null,
+    enabled: mockPlatformConnected,
+  }),
+}));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
@@ -85,6 +102,7 @@ describe("ChannelReadinessService", () => {
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
     mockGetIsPlatform = false;
+    mockPlatformConnected = false;
   });
 
   test("local checks run on every call (no caching of local results)", async () => {
@@ -275,6 +293,94 @@ describe("ChannelReadinessService", () => {
       name: "ingress",
       passed: true,
       message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("telegram readiness accepts a platform-connected assistant with no ingress", async () => {
+    // LUM-2882: `webhooks register telegram` resolves a platform callback URL
+    // in this configuration, so reporting missing ingress here would hide a
+    // registration that is really in place (or really broken).
+    mockPlatformConnected = true;
+    mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
+    mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("telegram");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("phone readiness accepts a platform-connected assistant with no ingress", async () => {
+    mockPlatformConnected = true;
+    mockHasTwilioCredentials = true;
+    setConfig("twilio", { phoneNumber: "+15550123" });
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("phone");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("configured ingress beats the platform-connected fallback", async () => {
+    // Any logged-in local assistant holds platform credentials for the LLM
+    // proxy. Reporting managed routing here would mislabel a webhook that
+    // `webhooks register` resolves to the self-hosted URL.
+    mockPlatformConnected = true;
+    mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
+    mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
+    setConfig("ingress", { publicBaseUrl: "https://tunnel.example.com" });
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("telegram");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Public ingress URL is configured",
+    });
+  });
+
+  test("explicit ingress opt-out blocks the platform-connected fallback", async () => {
+    // Switching ingress off is a decision not to accept inbound webhooks, not
+    // an invitation to route them through the platform instead.
+    mockPlatformConnected = true;
+    mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
+    mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
+    setConfig("ingress", { enabled: false });
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("telegram");
+
+    expect(snapshot.ready).toBe(false);
+    expect(snapshot.reasons).toContainEqual({
+      code: "ingress",
+      text: "No public ingress URL or managed callback route is configured",
+    });
+  });
+
+  test("email readiness ignores platform connectivity", async () => {
+    // Email passes `allowManagedCallbacks: false`, so the managed tiers are
+    // not offered to it and only a real ingress URL counts.
+    mockPlatformConnected = true;
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("email");
+
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: false,
+      message: "Public ingress URL is not configured or disabled",
     });
   });
 

@@ -83,11 +83,15 @@ function collectFileContents(
   prefix = "",
 ): Array<{ relPath: string; content: Buffer }> {
   const results: Array<{ relPath: string; content: Buffer }> = [];
-  if (!existsSync(dir)) return results;
+  if (!existsSync(dir)) {
+    return results;
+  }
 
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (!prefix && METADATA_FILENAMES.has(entry.name)) continue;
+    if (!prefix && METADATA_FILENAMES.has(entry.name)) {
+      continue;
+    }
 
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = join(dir, entry.name);
@@ -105,10 +109,14 @@ function collectFileContents(
  * Returns format: "v2:sha256hex".
  */
 function computeSkillHash(skillDir: string): string | null {
-  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
+  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) {
+    return null;
+  }
 
   const files = collectFileContents(skillDir);
-  if (files.length === 0) return null;
+  if (files.length === 0) {
+    return null;
+  }
 
   const hasher = new Bun.CryptoHasher("sha256");
   for (const file of files) {
@@ -134,7 +142,9 @@ type IntegrityManifest = Record<string, IntegrityRecord>;
 
 function loadIntegrityManifest(skillsDir: string): IntegrityManifest {
   const path = join(skillsDir, INTEGRITY_JSON_FILENAME);
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) {
+    return {};
+  }
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as IntegrityManifest;
   } catch {
@@ -255,7 +265,9 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const skillsDir = join(workspaceDir, "skills");
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     // Load the integrity manifest once — shared across all skills
     const integrityManifest = loadIntegrityManifest(skillsDir);
@@ -276,10 +288,14 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
       const installMetaPath = join(skillDir, INSTALL_META_FILENAME);
 
       // Only process directories that contain SKILL.md
-      if (!existsSync(skillMdPath)) continue;
+      if (!existsSync(skillMdPath)) {
+        continue;
+      }
 
       // Skip if install-meta.json already exists (idempotency)
-      if (existsSync(installMetaPath)) continue;
+      if (existsSync(installMetaPath)) {
+        continue;
+      }
 
       const meta = inferInstallMeta(skillDir, name, integrityManifest);
 
@@ -291,7 +307,9 @@ export const backfillInstallMetaMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const skillsDir = join(workspaceDir, "skills");
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     let dirNames: string[];
     try {

@@ -22,7 +22,9 @@ export function sampleSerendipity(
   sortedCandidates: ScoredNode[],
   reserveSlots: number,
 ): ScoredNode[] {
-  if (reserveSlots <= 0 || sortedCandidates.length === 0) return [];
+  if (reserveSlots <= 0 || sortedCandidates.length === 0) {
+    return [];
+  }
 
   // Percentile boundaries
   const p30 = Math.floor(sortedCandidates.length * 0.3);
@@ -30,7 +32,9 @@ export function sampleSerendipity(
 
   // Mid-tier band — skip the top (already selected) and bottom (noise)
   const midTier = sortedCandidates.slice(p30, p70);
-  if (midTier.length === 0) return [];
+  if (midTier.length === 0) {
+    return [];
+  }
 
   const slots = Math.min(reserveSlots, midTier.length);
 
@@ -40,7 +44,9 @@ export function sampleSerendipity(
   const pool = [...midTier];
 
   for (let i = 0; i < slots; i++) {
-    if (pool.length === 0) break;
+    if (pool.length === 0) {
+      break;
+    }
 
     const totalWeight = pool.reduce(
       (sum, c) => sum + Math.max(c.score, 0.01),

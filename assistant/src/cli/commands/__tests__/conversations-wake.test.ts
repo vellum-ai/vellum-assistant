@@ -81,7 +81,9 @@ async function runWake(args: string[]): Promise<number> {
 function lastBody(): Record<string, unknown> {
   const body = (lastIpcCall?.params as { body?: Record<string, unknown> })
     ?.body;
-  if (!body) throw new Error("no wake_conversation body captured");
+  if (!body) {
+    throw new Error("no wake_conversation body captured");
+  }
   return body;
 }
 
@@ -134,7 +136,13 @@ describe("conversations wake untrusted-content input", () => {
   });
 
   test("no untrusted content and no --persist sends neither field", async () => {
-    const code = await runWake(["wake", "conv-5", "--hint", "wake up", "--json"]);
+    const code = await runWake([
+      "wake",
+      "conv-5",
+      "--hint",
+      "wake up",
+      "--json",
+    ]);
     expect(code).toBe(0);
     expect(lastBody().persist).toBeUndefined();
     expect(lastBody().externalContent).toBeUndefined();
@@ -142,6 +150,8 @@ describe("conversations wake untrusted-content input", () => {
 });
 
 afterEach(() => {
-  if (savedRunId !== undefined) process.env.__SCHEDULE_RUN_ID = savedRunId;
+  if (savedRunId !== undefined) {
+    process.env.__SCHEDULE_RUN_ID = savedRunId;
+  }
   process.exitCode = 0;
 });

@@ -133,7 +133,12 @@ export function AppNavBar({
             className="md:hidden"
           />
         )}
-        <Button variant="outlined" iconOnly={<X />} onClick={onClose} tooltip="Close" />
+        <Button
+          variant="outlined"
+          iconOnly={<X />}
+          onClick={onClose}
+          tooltip="Close"
+        />
       </div>
     </div>
   );
@@ -165,11 +170,7 @@ function ShareDeployMenuTrigger({
 }: ShareDeployMenuTriggerProps) {
   const [open, setOpen] = useState(false);
   const isBusy = isSharing || isDeploying;
-  const triggerIcon = isBusy ? (
-    <Loader2 className="animate-spin" />
-  ) : (
-    <Share />
-  );
+  const triggerIcon = isBusy ? <Loader2 className="animate-spin" /> : <Share />;
   const triggerTooltip = isSharing
     ? "Sharing…"
     : isDeploying

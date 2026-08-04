@@ -11,7 +11,9 @@ const LS_PREFIX = "vellum:ff:";
 const LS_STRING_PREFIX = "vellum:ff-str:";
 
 function readOverrides(): Record<string, boolean> {
-  if (typeof window === "undefined") return {};
+  if (typeof window === "undefined") {
+    return {};
+  }
   const overrides: Record<string, boolean> = {};
   try {
     for (const key of Object.keys(CLIENT_FLAG_DEFAULTS)) {
@@ -27,7 +29,9 @@ function readOverrides(): Record<string, boolean> {
 }
 
 function readStringOverrides(): Record<string, string> {
-  if (typeof window === "undefined") return {};
+  if (typeof window === "undefined") {
+    return {};
+  }
   const overrides: Record<string, string> = {};
   try {
     for (const key of Object.keys(CLIENT_STRING_FLAG_DEFAULTS)) {
@@ -116,7 +120,10 @@ interface ClientFeatureFlagActions {
  * A `null` on either side is an unclaimed store or an unscoped write, which
  * nothing contradicts.
  */
-function answersScope(claimed: string | null, scopeKey: string | null): boolean {
+function answersScope(
+  claimed: string | null,
+  scopeKey: string | null,
+): boolean {
   return claimed === null || scopeKey === null || claimed === scopeKey;
 }
 
@@ -134,151 +141,156 @@ type ClientFeatureFlagPartial = Partial<ClientFeatureFlagMeta> & {
   [key: string]: boolean | string | null | Record<string, string> | undefined;
 };
 
-const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
-  (set) => {
-    const setMeta = set as unknown as (
-      partial:
-        | ClientFeatureFlagPartial
-        | ((state: ClientFeatureFlagStore) => ClientFeatureFlagPartial | ClientFeatureFlagStore),
-    ) => void;
+const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()((
+  set,
+) => {
+  const setMeta = set as unknown as (
+    partial:
+      | ClientFeatureFlagPartial
+      | ((
+          state: ClientFeatureFlagStore,
+        ) => ClientFeatureFlagPartial | ClientFeatureFlagStore),
+  ) => void;
 
-    return ({
-      ...CLIENT_FLAG_DEFAULTS,
-      ...localOverrides,
-      ...envOverrides.bool,
-      stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides, ...envOverrides.str },
-      hydrated: false,
-      scopeKey: null,
+  return {
+    ...CLIENT_FLAG_DEFAULTS,
+    ...localOverrides,
+    ...envOverrides.bool,
+    stringFlags: {
+      ...CLIENT_STRING_FLAG_DEFAULTS,
+      ...localStringOverrides,
+      ...envOverrides.str,
+    },
+    hydrated: false,
+    scopeKey: null,
 
-      setFlags: (flags: Record<string, boolean>, scopeKey: string | null) =>
-        set((prev) => {
-          if (!answersScope(prev.scopeKey, scopeKey)) {
-            return prev;
-          }
-          const overrides = readOverrides();
-          const merged = { ...flags, ...overrides, ...envOverrides.bool };
-          const changed = Object.keys(merged).some(
-            (k) => merged[k] !== prev[k],
-          );
-          // Always flip `hydrated` on the first server response, even when the
-          // merged values match the current defaults (nothing "changed"), so
-          // redirect-on-flag routes know the real value has landed.
-          if (!changed) {
-            return prev.hydrated ? prev : { hydrated: true };
-          }
-          return { ...merged, hydrated: true };
-        }),
-
-      /**
-       * Claim `scopeKey` as the identity the next server values belong to.
-       *
-       * A different identity means the values in hand answer a question nobody
-       * asked: an anonymous evaluation says nothing about the signed-in one, in
-       * either direction. So a scope change drops the previous identity's
-       * server values and re-opens the pre-hydration window, leaving surfaces
-       * that gate on `hydrated` waiting for the new identity's response rather
-       * than acting on the old one's.
-       */
-      beginScope: (scopeKey: string) =>
-        setMeta((prev) => {
-          if (prev.scopeKey === scopeKey) {
-            return prev;
-          }
-          return {
-            ...flagsWithoutServerValues(),
-            stringFlags: stringFlagsWithoutServerValues(),
-            hydrated: false,
-            scopeKey,
-          };
-        }),
-
-      /**
-       * Settle hydration when no server values are coming. Two situations
-       * reach here and they want different answers:
-       *
-       * - Nothing has landed for this scope — the fetch is off for this mode,
-       *   or the first attempt failed. Registry defaults are the honest answer,
-       *   and settling stops surfaces that wait on `hydrated` from hanging.
-       * - A refresh failed after an earlier success in the same scope. The last
-       *   values the server gave for this identity remain the best answer;
-       *   falling back to defaults would switch a legitimately-enabled feature
-       *   off mid-session over one failed request. Hydration is already
-       *   settled, so nothing needs to change.
-       */
-      settleWithoutServerValues: (scopeKey: string | null) =>
-        set((prev) => {
-          if (prev.hydrated || !answersScope(prev.scopeKey, scopeKey)) {
-            return prev;
-          }
-          return { ...flagsWithoutServerValues(), hydrated: true };
-        }),
-
-      setFlag: (key: string, value: boolean) => {
-        try {
-          localStorage.setItem(LS_PREFIX + key, String(value));
-        } catch {
-          // localStorage unavailable
+    setFlags: (flags: Record<string, boolean>, scopeKey: string | null) =>
+      set((prev) => {
+        if (!answersScope(prev.scopeKey, scopeKey)) {
+          return prev;
         }
-        set({ [key]: envOverrides.bool[key] ?? value });
-      },
-
-      clearOverride: (key: string) => {
-        try {
-          localStorage.removeItem(LS_PREFIX + key);
-        } catch {
-          // localStorage unavailable
+        const overrides = readOverrides();
+        const merged = { ...flags, ...overrides, ...envOverrides.bool };
+        const changed = Object.keys(merged).some((k) => merged[k] !== prev[k]);
+        // Always flip `hydrated` on the first server response, even when the
+        // merged values match the current defaults (nothing "changed"), so
+        // redirect-on-flag routes know the real value has landed.
+        if (!changed) {
+          return prev.hydrated ? prev : { hydrated: true };
         }
-        const defaultValue = envOverrides.bool[key] ?? CLIENT_FLAG_DEFAULTS[key];
-        if (defaultValue !== undefined) {
-          set({ [key]: defaultValue });
-        }
-      },
+        return { ...merged, hydrated: true };
+      }),
 
-      setStringFlags: (
-        flags: Record<string, string>,
-        scopeKey: string | null,
-      ) =>
-        setMeta((prev) => {
-          if (!answersScope(prev.scopeKey, scopeKey)) {
-            return prev;
-          }
-          const overrides = readStringOverrides();
-          const merged = { ...flags, ...overrides, ...envOverrides.str };
-          const prevStr = prev.stringFlags;
-          const changed = Object.keys(merged).some(
-            (k) => merged[k] !== prevStr[k],
-          );
-          return changed ? { stringFlags: merged } : prev;
-        }),
-
-      setStringFlag: (key: string, value: string) => {
-        try {
-          localStorage.setItem(LS_STRING_PREFIX + key, value);
-        } catch {
-          // localStorage unavailable
+    /**
+     * Claim `scopeKey` as the identity the next server values belong to.
+     *
+     * A different identity means the values in hand answer a question nobody
+     * asked: an anonymous evaluation says nothing about the signed-in one, in
+     * either direction. So a scope change drops the previous identity's
+     * server values and re-opens the pre-hydration window, leaving surfaces
+     * that gate on `hydrated` waiting for the new identity's response rather
+     * than acting on the old one's.
+     */
+    beginScope: (scopeKey: string) =>
+      setMeta((prev) => {
+        if (prev.scopeKey === scopeKey) {
+          return prev;
         }
-        setMeta((prev) => ({
-          stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
-        }));
-      },
+        return {
+          ...flagsWithoutServerValues(),
+          stringFlags: stringFlagsWithoutServerValues(),
+          hydrated: false,
+          scopeKey,
+        };
+      }),
 
-      clearStringOverride: (key: string) => {
-        try {
-          localStorage.removeItem(LS_STRING_PREFIX + key);
-        } catch {
-          // localStorage unavailable
+    /**
+     * Settle hydration when no server values are coming. Two situations
+     * reach here and they want different answers:
+     *
+     * - Nothing has landed for this scope — the fetch is off for this mode,
+     *   or the first attempt failed. Registry defaults are the honest answer,
+     *   and settling stops surfaces that wait on `hydrated` from hanging.
+     * - A refresh failed after an earlier success in the same scope. The last
+     *   values the server gave for this identity remain the best answer;
+     *   falling back to defaults would switch a legitimately-enabled feature
+     *   off mid-session over one failed request. Hydration is already
+     *   settled, so nothing needs to change.
+     */
+    settleWithoutServerValues: (scopeKey: string | null) =>
+      set((prev) => {
+        if (prev.hydrated || !answersScope(prev.scopeKey, scopeKey)) {
+          return prev;
         }
-        const defaultValue = envOverrides.str[key] ?? CLIENT_STRING_FLAG_DEFAULTS[key];
-        setMeta((prev) => ({
-          stringFlags: {
-            ...prev.stringFlags,
-            [key]: defaultValue ?? "",
-          },
-        }));
-      },
-    }) as ClientFeatureFlagStore;
-  },
-);
+        return { ...flagsWithoutServerValues(), hydrated: true };
+      }),
+
+    setFlag: (key: string, value: boolean) => {
+      try {
+        localStorage.setItem(LS_PREFIX + key, String(value));
+      } catch {
+        // localStorage unavailable
+      }
+      set({ [key]: envOverrides.bool[key] ?? value });
+    },
+
+    clearOverride: (key: string) => {
+      try {
+        localStorage.removeItem(LS_PREFIX + key);
+      } catch {
+        // localStorage unavailable
+      }
+      const defaultValue = envOverrides.bool[key] ?? CLIENT_FLAG_DEFAULTS[key];
+      if (defaultValue !== undefined) {
+        set({ [key]: defaultValue });
+      }
+    },
+
+    setStringFlags: (flags: Record<string, string>, scopeKey: string | null) =>
+      setMeta((prev) => {
+        if (!answersScope(prev.scopeKey, scopeKey)) {
+          return prev;
+        }
+        const overrides = readStringOverrides();
+        const merged = { ...flags, ...overrides, ...envOverrides.str };
+        const prevStr = prev.stringFlags;
+        const changed = Object.keys(merged).some(
+          (k) => merged[k] !== prevStr[k],
+        );
+        return changed ? { stringFlags: merged } : prev;
+      }),
+
+    setStringFlag: (key: string, value: string) => {
+      try {
+        localStorage.setItem(LS_STRING_PREFIX + key, value);
+      } catch {
+        // localStorage unavailable
+      }
+      setMeta((prev) => ({
+        stringFlags: {
+          ...prev.stringFlags,
+          [key]: envOverrides.str[key] ?? value,
+        },
+      }));
+    },
+
+    clearStringOverride: (key: string) => {
+      try {
+        localStorage.removeItem(LS_STRING_PREFIX + key);
+      } catch {
+        // localStorage unavailable
+      }
+      const defaultValue =
+        envOverrides.str[key] ?? CLIENT_STRING_FLAG_DEFAULTS[key];
+      setMeta((prev) => ({
+        stringFlags: {
+          ...prev.stringFlags,
+          [key]: defaultValue ?? "",
+        },
+      }));
+    },
+  } as ClientFeatureFlagStore;
+});
 
 export const useClientFeatureFlagStore = createSelectors(
   useClientFeatureFlagStoreBase,

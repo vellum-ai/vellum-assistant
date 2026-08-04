@@ -57,7 +57,9 @@ export function useChatLayoutShortcuts({
     const openCommandPalette = () => {
       void openCommandPaletteWindow()
         .then((opened) => {
-          if (!opened) toggle();
+          if (!opened) {
+            toggle();
+          }
         })
         .catch(() => {
           toggle();
@@ -90,8 +92,11 @@ export function useChatLayoutShortcuts({
       }
       if (shouldHandleShortcut(event, document.activeElement, ["[", "]"])) {
         event.preventDefault();
-        if (event.key === "[") onGoBack();
-        else if (event.key === "]") onGoForward();
+        if (event.key === "[") {
+          onGoBack();
+        } else if (event.key === "]") {
+          onGoForward();
+        }
       }
     };
 

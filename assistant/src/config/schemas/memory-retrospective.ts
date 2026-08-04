@@ -39,6 +39,15 @@ export const MemoryRetrospectiveConfigSchema = z
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
       ),
 
+    requireUserActivity: z
+      .boolean({
+        error: "memory.retrospective.requireUserActivity must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "When true (default), a retrospective fires only when the unprocessed tail contains at least one user message carrying non-tool_result content. Tool results ride on user-role rows, so bare tool-result carriers do not count as user activity. Assistant-only stretches (proactive sends, broadcast recaps) are skipped with the cursor left in place, so the first retrospective after real user activity reviews the whole deferred stretch. Set false to run retrospectives over assistant-only activity as well.",
+      ),
+
     sweepIntervalMs: z
       .number({
         error: "memory.retrospective.sweepIntervalMs must be a number",

@@ -110,7 +110,9 @@ describe("AppProviders cache scope", () => {
       });
     });
 
-    expect(observedClient!.getQueryData<string>(PROBE_KEY)).toBe("answer-for-org-abc");
+    expect(observedClient!.getQueryData<string>(PROBE_KEY)).toBe(
+      "answer-for-org-abc",
+    );
   });
 
   test("drops them when the org list resolves a different org", () => {

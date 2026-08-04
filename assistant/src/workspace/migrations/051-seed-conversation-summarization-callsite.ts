@@ -38,7 +38,9 @@ export const seedConversationSummarizationCallsiteMigration: WorkspaceMigration 
     description:
       "Seed conversationSummarization LLM call-site defaults so summary runs stay inside the agent-loop budget",
     run(workspaceDir: string): void {
-      if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+      if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+        return;
+      }
 
       const configPath = join(workspaceDir, "config.json");
       const configExisted = existsSync(configPath);
@@ -47,7 +49,9 @@ export const seedConversationSummarizationCallsiteMigration: WorkspaceMigration 
       if (configExisted) {
         try {
           const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-          if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+            return;
+          }
           config = raw as Record<string, unknown>;
         } catch {
           return;
@@ -67,7 +71,9 @@ export const seedConversationSummarizationCallsiteMigration: WorkspaceMigration 
       }
       const provider = explicitProvider ?? "anthropic";
       const qualityModel = resolveQualityModel(provider);
-      if (qualityModel === undefined) return;
+      if (qualityModel === undefined) {
+        return;
+      }
 
       const callSites = readObject(llm.callSites) ?? {};
       const existing = readObject(callSites.conversationSummarization) ?? {};
@@ -89,7 +95,9 @@ export const seedConversationSummarizationCallsiteMigration: WorkspaceMigration 
         changed = true;
       }
 
-      if (!changed) return;
+      if (!changed) {
+        return;
+      }
 
       callSites.conversationSummarization = seeded;
       llm.callSites = callSites;

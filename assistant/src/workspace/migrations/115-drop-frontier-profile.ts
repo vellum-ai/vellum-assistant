@@ -22,26 +22,34 @@ export const dropFrontierProfileMigration: WorkspaceMigration = {
     "Remove the managed Frontier profile and repoint its references to Quality",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
     const frontier = profiles !== null ? readObject(profiles[FRONTIER]) : null;
 
     // A user-owned profile that happens to use this name keeps everything,
     // references included — only the managed profile is reclaimed.
-    if (frontier !== null && frontier.source !== "managed") return;
+    if (frontier !== null && frontier.source !== "managed") {
+      return;
+    }
 
     let changed = false;
 
@@ -77,7 +85,9 @@ export const dropFrontierProfileMigration: WorkspaceMigration = {
     if (profiles !== null) {
       for (const value of Object.values(profiles)) {
         const entry = readObject(value);
-        if (entry === null || !Array.isArray(entry.mix)) continue;
+        if (entry === null || !Array.isArray(entry.mix)) {
+          continue;
+        }
         for (const arm of entry.mix) {
           const armObj = readObject(arm);
           if (armObj !== null && armObj.profile === FRONTIER) {
@@ -111,7 +121,9 @@ export const dropFrontierProfileMigration: WorkspaceMigration = {
       changed = true;
     }
 
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     config.llm = llm;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

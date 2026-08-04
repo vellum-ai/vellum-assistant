@@ -48,6 +48,7 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -64,9 +65,7 @@ import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
-import type {
-  UserMessageAttachment,
-} from "./message-protocol.js";
+import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
 
@@ -187,10 +186,14 @@ function resolveIngressSecretTarget(
   for (const detectedType of detectedTypes) {
     const normalizedType = normalizeIngressSecretTypeLabel(detectedType);
     const mapped = INGRESS_SECRET_TARGETS[normalizedType];
-    if (!mapped) {continue;}
+    if (!mapped) {
+      continue;
+    }
     mappedTargets.set(`${mapped.service}:${mapped.field}`, mapped);
   }
-  if (mappedTargets.size === 1) {return mappedTargets.values().next().value!;}
+  if (mappedTargets.size === 1) {
+    return mappedTargets.values().next().value!;
+  }
 
   return {
     service: "detected",
@@ -275,7 +278,9 @@ function computeReferenceImageDimensions(
   mediaType: string,
 ): { width: number; height: number } | null {
   const bytes = getAttachmentContent(attachmentId);
-  if (!bytes) {return null;}
+  if (!bytes) {
+    return null;
+  }
   const optimized = optimizeImageForTransport(
     bytes.toString("base64"),
     mediaType,
@@ -330,7 +335,9 @@ function materializeUserAttachment(
       );
       return stored ? { kind: "stored", stored } : { kind: "transient" };
     }
-    if (!a.data) {return { kind: "rejected" };}
+    if (!a.data) {
+      return { kind: "rejected" };
+    }
     const validation = validateAttachmentUpload(a.filename, a.mimeType);
     if (!validation.ok) {
       log.warn(
@@ -395,7 +402,9 @@ function referenceBlockForAttachment(
 function inlineBlockForAttachment(
   a: MessageAttachmentInput,
 ): ContentBlock | null {
-  if (!a.data) {return null;}
+  if (!a.data) {
+    return null;
+  }
   return attachmentsToContentBlocks([a])[0] ?? null;
 }
 
@@ -431,7 +440,9 @@ function prepareUserAttachmentReferences(
       });
       continue;
     }
-    if (outcome.kind === "rejected") {continue;}
+    if (outcome.kind === "rejected") {
+      continue;
+    }
     // transient: keep the upload by inlining its bytes (dropped only when the
     // recoverable failure left us with no bytes to inline).
     const inline = inlineBlockForAttachment(a);
@@ -450,24 +461,32 @@ function prepareUserAttachmentReferences(
 function extractTurnChannelContext(
   metadata?: Record<string, unknown>,
 ): TurnChannelContext | null {
-  if (!metadata) {return null;}
+  if (!metadata) {
+    return null;
+  }
   const userMessageChannel = parseChannelId(metadata.userMessageChannel);
   const assistantMessageChannel = parseChannelId(
     metadata.assistantMessageChannel,
   );
-  if (!userMessageChannel || !assistantMessageChannel) {return null;}
+  if (!userMessageChannel || !assistantMessageChannel) {
+    return null;
+  }
   return { userMessageChannel, assistantMessageChannel };
 }
 
 function extractTurnInterfaceContext(
   metadata?: Record<string, unknown>,
 ): TurnInterfaceContext | null {
-  if (!metadata) {return null;}
+  if (!metadata) {
+    return null;
+  }
   const userMessageInterface = parseInterfaceId(metadata.userMessageInterface);
   const assistantMessageInterface = parseInterfaceId(
     metadata.assistantMessageInterface,
   );
-  if (!userMessageInterface || !assistantMessageInterface) {return null;}
+  if (!userMessageInterface || !assistantMessageInterface) {
+    return null;
+  }
   return { userMessageInterface, assistantMessageInterface };
 }
 
@@ -612,6 +631,26 @@ export function enqueueMessage(
     });
     return { queued: false, requestId, rejected: true };
   }
+  // Ack the accepted enqueue on the sender's event sink. Emitting here,
+  // rather than at each ingress call site, is what guarantees every path
+  // that queues (HTTP send, surface actions, agent wake, subagent
+  // notifications) surfaces the queued row live. Hidden sends are
+  // suppressed from the transcript at every stage, including this ack,
+  // and `position` counts visible items only: both mirror the
+  // list-messages queued-snapshot filter so a live ack and a cold reload
+  // render the same row at the same position.
+  if (!isHiddenMessageMetadata(metadata)) {
+    const position = ctx.queue
+      .snapshot()
+      .filter((item) => !isHiddenMessageMetadata(item.metadata)).length;
+    onEvent?.({
+      type: "message_queued",
+      conversationId: ctx.conversationId,
+      requestId,
+      position,
+      ...(clientMessageId ? { clientMessageId } : {}),
+    });
+  }
   return { queued: true, requestId };
 }
 
@@ -631,6 +670,35 @@ export interface PersistMessageOptions {
    * memory or search; see `ProcessMessageOptions.skipUserMessageIndexing`.
    */
   skipIndexing?: boolean;
+  /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * by them: onboarding research prompts, the personality `<system-message>`,
+   * research corrections, hidden kickoff greetings, the legacy pre-chat
+   * bootstrap, and `[User action on ...]` surface synthetics.
+   *
+   * Stamped onto `messages.metadata.scripted` and forwarded to
+   * `TurnTelemetryEvent.scripted`, where activation metrics exclude it. This
+   * is the consent-independent replacement for classifying turns by
+   * text-matching their content in diagnostics-gated traces. That classifier
+   * can only see owners who opted into diagnostics, so it silently counted
+   * scripted turns as real messages for everyone else (ANT-10).
+   *
+   * Defaults to `false`: a daemon that knows about the field asserts "the user
+   * typed this" for ordinary sends, which is what makes a user's activation
+   * measurable. This is only safe because every auto-send path is marked at
+   * its source. See the merged-metadata note below for the list.
+   *
+   * Callers persisting machine-authored content into a `standard` conversation
+   * MUST pass `true`. A wrong `false` is trusted downstream and re-inflates
+   * activation. (Machine-authored turns in `background` / `scheduled`
+   * conversations are already excluded from activation by conversation type,
+   * and the `assert_scripted_signals_agree` dbt test catches any straggler
+   * whose text matches a known template.)
+   *
+   * May also be carried in the `metadata` bag, which is how queued sends
+   * thread it: the queue round-trips `metadata`, not these options.
+   */
+  scripted?: boolean;
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -766,14 +834,45 @@ export async function persistQueuedMessageBody(
     // The caller-supplied metadata may include it (channel ingress threads it
     // through `Server.processMessage`); we materialize it into the typed
     // `slackMeta` sub-key below when the turn channel is Slack.
-    const { slackInbound: rawSlackInbound, ...metadataWithoutSlackInbound } =
-      (metadata ?? {}) as Record<string, unknown> & {
-        slackInbound?: SlackInboundMessageMetadata;
-      };
+    // `scripted` is pulled out of the raw bag alongside `slackInbound` so the
+    // spread below can never re-introduce an unvalidated value. Letting a
+    // non-boolean through would be worse than dropping it: sqlite stores it
+    // verbatim, and `turn-events-store` narrows anything that isn't 1 to
+    // `false`, turning a junk string into a confident "the user typed this".
+    const {
+      slackInbound: rawSlackInbound,
+      scripted: rawScriptedFromMetadata,
+      ...metadataWithoutSlackInbound
+    } = (metadata ?? {}) as Record<string, unknown> & {
+      slackInbound?: SlackInboundMessageMetadata;
+      scripted?: unknown;
+    };
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: rawSlackInbound,
       turnChannel: turnCtx?.userMessageChannel,
     });
+
+    // See the `scripted` note on the merged metadata below. Only a real
+    // boolean in the bag counts: a stray truthy string must not be read as a
+    // scripted assertion.
+    const scriptedFromMetadata =
+      typeof rawScriptedFromMetadata === "boolean"
+        ? rawScriptedFromMetadata
+        : undefined;
+    // `automated` (machine-authored, set by the messaging skill and the memory
+    // skill-card) implies scripted: it is by definition not a turn the user
+    // typed. Only a DEFAULT: an explicit `scripted` wins, so a caller can
+    // mark an automated message as a real turn if that is ever right. Note the
+    // two flags are not interchangeable in the other direction: `automated`
+    // also suppresses memory extraction, so scripted onboarding turns that
+    // should still be indexed must not be marked automated to get counted out.
+    const scriptedFromAutomated =
+      metadataWithoutSlackInbound.automated === true ? true : undefined;
+    const resolvedScripted =
+      options.scripted ??
+      scriptedFromMetadata ??
+      scriptedFromAutomated ??
+      false;
 
     // Client attribution for turn telemetry, stored under the `client`
     // metadata bag which `turn-events-store` forwards onto
@@ -814,6 +913,29 @@ export async function persistQueuedMessageBody(
       ...clientBag,
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
+      // Scripted-turn marker, forwarded by `turn-events-store` onto
+      // `TurnTelemetryEvent.scripted`. Written LAST so it cannot be
+      // half-overwritten by the raw metadata spread above.
+      //
+      // Resolved from the typed option first, then the metadata bag. The bag
+      // is how queued sends carry it, since the queue round-trips `metadata`
+      // but not `PersistMessageOptions` (same carrier as the `hidden` flag).
+      //
+      // Always stamped, including the `false` default: a daemon that knows
+      // about the field asserts "the user typed this" for ordinary sends, and
+      // that assertion is what makes a user's activation MEASURABLE
+      // downstream. Absent would mean "unknown", which is strictly worse
+      // information than a truthful false.
+      //
+      // Defaulting to false is only safe because every auto-send path is now
+      // marked at its source: the web onboarding flows (research prompt,
+      // kickoff, personality, corrections, legacy bootstrap), `[User action
+      // on ...]` surface synthetics, and anything flagged `automated`. A new
+      // auto-send path that forgets to mark itself lands here as a false and
+      // is believed. The `assert_scripted_signals_agree` dbt test is the
+      // backstop: it fires when a turn claiming `false` matches a known
+      // scripted template.
+      scripted: resolvedScripted,
     };
 
     // Materialize each attachment into an attachment-store row up front so the
@@ -890,7 +1012,9 @@ export async function persistQueuedMessageBody(
     // though the store anchor was lost, then persist the corrected content.
     let repairedBlocks: ContentBlock[] | null = null;
     preparedAttachments.forEach((p, idx) => {
-      if (!p.link) {return;}
+      if (!p.link) {
+        return;
+      }
       try {
         const scopedAttachmentId = linkAttachmentToMessage(
           persistedUserMessage.id,
@@ -982,7 +1106,9 @@ export function redirectToSecurePrompt(
       conversationId,
     )
     .then(async (result): Promise<void> => {
-      if (!result.value) {return;}
+      if (!result.value) {
+        return;
+      }
 
       const { setSecureKeyAsync } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =

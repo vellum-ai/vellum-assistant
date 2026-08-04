@@ -6,8 +6,8 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { TerminalPanel } from "@/components/terminal-panel";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import {
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library";
@@ -76,11 +76,15 @@ export function AssistantTerminalPanel() {
   // When disabled we render the panel chrome plus a Notice without
   // firing the fetch.
   useEffect(() => {
-    if (platformGate !== "full") return;
+    if (platformGate !== "full") {
+      return;
+    }
     fetchAssistant();
   }, [fetchAssistant, platformGate]);
 
-  if (platformGate === "gated") return null;
+  if (platformGate === "gated") {
+    return null;
+  }
 
   // Treat ONLY the genuine lifecycle-loading window as still-resolving.
   // Already-resolved non-hosted kinds (`retired`, `error`) must

@@ -51,16 +51,8 @@ export function normalizeSlackMessageEdit(
   if (!changed.channel || !edited.user || !edited.ts) return null;
   const channel = changed.channel;
 
-  // Try channel routing, fall back to default for DMs so edits in DMs still
-  // take the defaultAssistantId routing branch.
   const isDm = isSlackDmChannel(channel, changed.channel_type);
-  let routing = resolveAssistant(config, channel, edited.user);
-  if (isRejection(routing) && isDm && config.defaultAssistantId) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const routing = resolveAssistant(config, channel, edited.user);
   if (isRejection(routing)) return null;
 
   const content = renderSlackInboundText(edited.text ?? "", renderContext);
@@ -137,16 +129,8 @@ export function normalizeSlackMessageDelete(
   // back to a synthetic identifier so routing/trust still has something to key on.
   const actorId = deleted.previous_message?.user ?? "slack-system";
 
-  // Fall back to the default assistant for DMs so deletes from DMs still take
-  // the defaultAssistantId routing branch.
   const isDm = isSlackDmChannel(channel, deleted.channel_type);
-  let routing = resolveAssistant(config, channel, actorId);
-  if (isRejection(routing) && isDm && config.defaultAssistantId) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const routing = resolveAssistant(config, channel, actorId);
   if (isRejection(routing)) return null;
 
   const previousThreadTs = deleted.previous_message?.thread_ts;

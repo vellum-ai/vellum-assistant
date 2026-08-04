@@ -70,12 +70,12 @@ describe("deriveProviderDefaults", () => {
   });
 
   test("dedupes the key against existing connection names", () => {
-    expect(
-      deriveProviderDefaults("anthropic", ["anthropic-personal"]),
-    ).toEqual({
-      name: "Anthropic",
-      key: "anthropic-personal-2",
-    });
+    expect(deriveProviderDefaults("anthropic", ["anthropic-personal"])).toEqual(
+      {
+        name: "Anthropic",
+        key: "anthropic-personal-2",
+      },
+    );
   });
 
   test("falls back to the provider type when no display name exists", () => {

@@ -59,7 +59,9 @@ export function getHttpRetryDelay(
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter) {
     const parsed = parseRetryAfterMs(retryAfter);
-    if (parsed !== undefined) return parsed;
+    if (parsed !== undefined) {
+      return parsed;
+    }
   }
   // For attempt 0, double the base so jitter range [baseDelayMs, 2*baseDelayMs) stays above the floor.
   // For attempt >= 1, use the original base — jitter is already above baseDelayMs.
@@ -89,7 +91,9 @@ const RETRYABLE_NETWORK_MESSAGE_PATTERNS = [
  * back to message-based detection for runtime-specific errors (e.g. Bun fetch).
  */
 export function isRetryableNetworkError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
+  if (!(error instanceof Error)) {
+    return false;
+  }
 
   const retryableCodes = new Set([
     "ECONNRESET",
@@ -99,11 +103,15 @@ export function isRetryableNetworkError(error: unknown): boolean {
   ]);
 
   const code = (error as NodeJS.ErrnoException).code;
-  if (code && retryableCodes.has(code)) return true;
+  if (code && retryableCodes.has(code)) {
+    return true;
+  }
 
   if (error.cause instanceof Error) {
     const causeCode = (error.cause as NodeJS.ErrnoException).code;
-    if (causeCode && retryableCodes.has(causeCode)) return true;
+    if (causeCode && retryableCodes.has(causeCode)) {
+      return true;
+    }
   }
 
   // Fall back to message-based detection for errors without errno codes
@@ -138,8 +146,12 @@ export function abortableSleep(
   ms: number,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (!signal) return sleep(ms);
-  if (signal.aborted) return Promise.resolve();
+  if (!signal) {
+    return sleep(ms);
+  }
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     const timer = setTimeout(onDone, ms);
     signal.addEventListener("abort", onDone, { once: true });
@@ -157,7 +169,9 @@ export function abortableSleep(
  * (Anthropic: Record<string, string>) header shapes.
  */
 export function extractRetryAfterMs(headers: unknown): number | undefined {
-  if (!headers) return undefined;
+  if (!headers) {
+    return undefined;
+  }
 
   let raw: string | null | undefined;
   if (typeof (headers as { get?: unknown }).get === "function") {

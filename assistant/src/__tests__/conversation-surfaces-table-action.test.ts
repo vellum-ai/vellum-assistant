@@ -6,9 +6,7 @@ import {
   handleSurfaceAction,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 /**
  * Build a minimal SurfaceConversationContext for testing table surface actions.

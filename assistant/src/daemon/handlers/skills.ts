@@ -117,12 +117,18 @@ async function resolveSkillFiles(skillId: string): Promise<{
   files: SkillFileEntry[] | null;
 }> {
   for (const provider of getFileProviders()) {
-    if (!provider.canHandle(skillId)) continue;
+    if (!provider.canHandle(skillId)) {
+      continue;
+    }
     // Commit to this provider — don't fall through to subsequent providers.
     const files = await provider.listFiles(skillId);
-    if (files === null) return { handled: true, skill: null, files: null };
+    if (files === null) {
+      return { handled: true, skill: null, files: null };
+    }
     const skill = await provider.toSlimSkill(skillId);
-    if (skill === null) return { handled: true, skill: null, files: null };
+    if (skill === null) {
+      return { handled: true, skill: null, files: null };
+    }
     files.sort((a, b) => a.path.localeCompare(b.path));
     return { handled: true, skill, files };
   }
@@ -134,7 +140,9 @@ async function resolveSkillFileContent(
   sanitizedPath: string,
 ): Promise<{ handled: boolean; result: SkillFileEntry | null }> {
   for (const provider of getFileProviders()) {
-    if (!provider.canHandle(skillId)) continue;
+    if (!provider.canHandle(skillId)) {
+      continue;
+    }
     // Commit to this provider — don't fall through to subsequent providers.
     const result = await provider.readFileContent(skillId, sanitizedPath);
     return { handled: true, result };
@@ -156,7 +164,9 @@ interface ParsedFrontmatter {
 
 function parseFrontmatter(sourceText: string): ParsedFrontmatter {
   const match = FRONTMATTER_RE.exec(sourceText);
-  if (!match) return { body: sourceText };
+  if (!match) {
+    return { body: sourceText };
+  }
 
   const yamlBlock = match[1];
   const body = match[2].replace(/\r\n/g, "\n");
@@ -166,7 +176,9 @@ function parseFrontmatter(sourceText: string): ParsedFrontmatter {
   // Simple YAML key-value extraction (handles quoted and unquoted values)
   for (const line of yamlBlock.split(/\r?\n/)) {
     const kvMatch = /^(\w[\w-]*):\s*(.+)$/.exec(line.trim());
-    if (!kvMatch) continue;
+    if (!kvMatch) {
+      continue;
+    }
     const key = kvMatch[1];
     // Strip surrounding quotes
     let value = kvMatch[2].trim();
@@ -300,7 +312,9 @@ function getCatalogCategoryMap(): Map<string, string> {
   _catalogCategoryMap = new Map();
   for (const s of catalog) {
     const cat = s.metadata?.vellum?.category;
-    if (cat) _catalogCategoryMap.set(s.id, cat);
+    if (cat) {
+      _catalogCategoryMap.set(s.id, cat);
+    }
   }
   _catalogCategoryRef = catalog;
   return _catalogCategoryMap;
@@ -312,13 +326,19 @@ function getCatalogCategoryMap(): Map<string, string> {
 function deriveKind(
   source: "bundled" | "managed" | "workspace" | "extra" | "catalog" | "plugin",
 ): SlimSkillResponse["kind"] {
-  if (source === "bundled") return "bundled";
-  if (source === "catalog") return "catalog";
+  if (source === "bundled") {
+    return "bundled";
+  }
+  if (source === "catalog") {
+    return "catalog";
+  }
   // Plugin-resident skills are framework-provided like bundled skills —
   // expose them under the same "bundled" kind so the UI doesn't invent a
   // new category that existing clients don't know how to render. Attribution
   // to the owning plugin rides on the separate `owner` descriptor.
-  if (source === "plugin") return "bundled";
+  if (source === "plugin") {
+    return "bundled";
+  }
   return "installed"; // managed, workspace, extra
 }
 
@@ -328,8 +348,12 @@ function deriveOrigin(
   directoryPath: string,
   installMeta?: SkillInstallMeta | null,
 ): SlimSkillResponse["origin"] {
-  if (kind === "bundled") return "vellum";
-  if (kind === "catalog") return "vellum";
+  if (kind === "bundled") {
+    return "vellum";
+  }
+  if (kind === "catalog") {
+    return "vellum";
+  }
   // For installed skills, use provided install-meta or read from disk.
   // null means "already read, nothing found" — don't re-read.
   const meta =
@@ -337,7 +361,9 @@ function deriveOrigin(
   // Skills authored by the assistant's retrospective report a distinct origin
   // so the UI badges them as "Assistant's Memory". They stay managed/deletable
   // because that is driven by `kind === "installed"`, not the origin label.
-  if (meta?.author === "assistant") return "assistant-memory";
+  if (meta?.author === "assistant") {
+    return "assistant-memory";
+  }
   return meta?.origin ?? "custom";
 }
 
@@ -492,7 +518,9 @@ function originDisplayLabel(origin: string): string {
 /** Check if a skill's origin matches a text query (matching Swift logic). */
 function originMatchesQuery(origin: string, query: string): boolean {
   const label = originDisplayLabel(origin).toLowerCase();
-  if (label.includes(query)) return true;
+  if (label.includes(query)) {
+    return true;
+  }
   // "community" umbrella matches clawhub and skillssh
   if (
     (origin === "clawhub" || origin === "skillssh") &&
@@ -544,10 +572,18 @@ export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
     const query = filter.q.trim().toLowerCase();
     if (query) {
       skills = skills.filter((s) => {
-        if (s.name.toLowerCase().includes(query)) return true;
-        if (s.description.toLowerCase().includes(query)) return true;
-        if (s.id.toLowerCase().includes(query)) return true;
-        if (originMatchesQuery(s.origin, query)) return true;
+        if (s.name.toLowerCase().includes(query)) {
+          return true;
+        }
+        if (s.description.toLowerCase().includes(query)) {
+          return true;
+        }
+        if (s.id.toLowerCase().includes(query)) {
+          return true;
+        }
+        if (originMatchesQuery(s.origin, query)) {
+          return true;
+        }
         return false;
       });
     }
@@ -571,7 +607,9 @@ export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
     // Installed (bundled + installed) before catalog (available)
     const aInstalled = a.kind === "installed" || a.kind === "bundled" ? 0 : 1;
     const bInstalled = b.kind === "installed" || b.kind === "bundled" ? 0 : 1;
-    if (aInstalled !== bInstalled) return aInstalled - bInstalled;
+    if (aInstalled !== bInstalled) {
+      return aInstalled - bInstalled;
+    }
 
     // Within installed, community origins (clawhub, skillssh) before core (vellum)
     if (aInstalled === 0 && bInstalled === 0) {
@@ -579,7 +617,9 @@ export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
         a.origin === "clawhub" || a.origin === "skillssh" ? 0 : 1;
       const bCommunity =
         b.origin === "clawhub" || b.origin === "skillssh" ? 0 : 1;
-      if (aCommunity !== bCommunity) return aCommunity - bCommunity;
+      if (aCommunity !== bCommunity) {
+        return aCommunity - bCommunity;
+      }
     }
 
     // Alphabetical by name
@@ -597,7 +637,9 @@ function findSkillById(
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
   const match = resolved.find((r) => r.summary.id === skillId);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
 
   const r = match;
   const item = toSlimSkillResponse(r.summary, r.state);
@@ -611,7 +653,9 @@ export async function getSkill(
   if (!found) {
     // Fallback: skill is not installed. Try all file providers.
     for (const provider of getFileProviders()) {
-      if (!provider.canHandle(skillId)) continue;
+      if (!provider.canHandle(skillId)) {
+        continue;
+      }
       // Commit to this provider — don't fall through to subsequent providers.
       const slim = await provider.toSlimSkill(skillId);
       if (slim) {
@@ -840,7 +884,9 @@ export function getSkillLocalDetail(skillId: string):
  */
 function isEscapingSymlink(filePath: string, rootDir: string): boolean {
   try {
-    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    if (!lstatSync(filePath).isSymbolicLink()) {
+      return false;
+    }
     const real = realpathSync(filePath);
     const normalizedRoot = realpathSync(rootDir);
     return (
@@ -863,16 +909,24 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
     return entries;
   }
   for (const dirent of dirents) {
-    if (dirent.name.startsWith(".")) continue;
+    if (dirent.name.startsWith(".")) {
+      continue;
+    }
     const fullPath = join(dir, dirent.name);
     // Skip symlinks that escape the skill directory root
-    if (isEscapingSymlink(fullPath, rootDir)) continue;
+    if (isEscapingSymlink(fullPath, rootDir)) {
+      continue;
+    }
     if (dirent.isDirectory()) {
-      if (SKIP_DIRS.has(dirent.name)) continue;
+      if (SKIP_DIRS.has(dirent.name)) {
+        continue;
+      }
       entries.push(...readDirRecursive(fullPath, rootDir));
       continue;
     }
-    if (!dirent.isFile()) continue;
+    if (!dirent.isFile()) {
+      continue;
+    }
     try {
       const stat = statSync(fullPath);
       const mimeType = Bun.file(fullPath).type;
@@ -1123,9 +1177,15 @@ export function configureSkill(
   try {
     const raw = loadRawConfig();
     const entry = ensureSkillEntry(raw, skillId);
-    if (config.env) entry.env = config.env;
-    if (config.apiKey !== undefined) entry.apiKey = config.apiKey;
-    if (config.config) entry.config = config.config;
+    if (config.env) {
+      entry.env = config.env;
+    }
+    if (config.apiKey !== undefined) {
+      entry.apiKey = config.apiKey;
+    }
+    if (config.config) {
+      entry.config = config.config;
+    }
     saveConfigWithSuppression(raw);
     return { success: true };
   } catch (err) {
@@ -1202,7 +1262,7 @@ export async function installSkill(spec: {
     // Skip when the caller explicitly specified a community origin — this
     // prevents slug collisions where a catalog skill shadows a community
     // skill the user selected from search results.
-    if (spec.origin !== "clawhub" && spec.origin !== "skillssh")
+    if (spec.origin !== "clawhub" && spec.origin !== "skillssh") {
       try {
         const vellumCatalog = await getCatalog();
         const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
@@ -1233,6 +1293,7 @@ export async function installSkill(spec: {
           "Vellum catalog install failed, falling back to community registry",
         );
       }
+    }
 
     if (spec.catalogOnly) {
       return {
@@ -1504,7 +1565,9 @@ export async function searchSkills(
           // Build a lookup map keyed by full skill ID (e.g. "owner/repo/skill-name")
           const auditMap = new Map<string, SkillAuditData>();
           for (const result of auditResults) {
-            if (result.status !== "fulfilled") continue;
+            if (result.status !== "fulfilled") {
+              continue;
+            }
             const { source, audits } = result.value;
             for (const [skillSlug, auditData] of Object.entries(audits)) {
               auditMap.set(`${source}/${skillSlug}`, auditData);
@@ -1513,9 +1576,13 @@ export async function searchSkills(
 
           // Enrich each skills.sh skill with audit data
           skillsshSkills = skillsshSkills.map((skill) => {
-            if (skill.origin !== "skillssh") return skill;
+            if (skill.origin !== "skillssh") {
+              return skill;
+            }
             const audit = auditMap.get(skill.id);
-            if (!audit) return skill;
+            if (!audit) {
+              return skill;
+            }
             return { ...skill, audit };
           });
         }
@@ -1536,13 +1603,17 @@ export async function searchSkills(
     const seenSlugs = new Set(catalogItems.map((s) => s.id));
 
     const dedupedClawhub = clawhubSkills.filter((s) => {
-      if (seenSlugs.has(s.id)) return false;
+      if (seenSlugs.has(s.id)) {
+        return false;
+      }
       seenSlugs.add(s.id);
       return true;
     });
 
     const dedupedSkillssh = skillsshSkills.filter((s) => {
-      if (seenSlugs.has(s.id)) return false;
+      if (seenSlugs.has(s.id)) {
+        return false;
+      }
       seenSlugs.add(s.id);
       return true;
     });
@@ -1600,10 +1671,18 @@ export async function draftSkill(params: {
 
     // Determine which fields still need filling
     const missing: string[] = [];
-    if (!skillId) missing.push("skillId");
-    if (!name) missing.push("name");
-    if (!description) missing.push("description");
-    if (!emoji) missing.push("emoji");
+    if (!skillId) {
+      missing.push("skillId");
+    }
+    if (!name) {
+      missing.push("name");
+    }
+    if (!description) {
+      missing.push("description");
+    }
+    if (!emoji) {
+      missing.push("emoji");
+    }
 
     // Attempt LLM generation for missing fields
     if (missing.length > 0) {
@@ -1641,14 +1720,18 @@ export async function draftSkill(params: {
             if (jsonMatch) {
               const generated = JSON.parse(jsonMatch[0]);
               if (typeof generated === "object" && generated) {
-                if (!skillId && typeof generated.skillId === "string")
+                if (!skillId && typeof generated.skillId === "string") {
                   skillId = generated.skillId;
-                if (!name && typeof generated.name === "string")
+                }
+                if (!name && typeof generated.name === "string") {
                   name = generated.name;
-                if (!description && typeof generated.description === "string")
+                }
+                if (!description && typeof generated.description === "string") {
                   description = generated.description;
-                if (!emoji && typeof generated.emoji === "string")
+                }
+                if (!emoji && typeof generated.emoji === "string") {
                   emoji = generated.emoji;
+                }
                 llmGenerated = true;
               }
             }
@@ -1675,16 +1758,21 @@ export async function draftSkill(params: {
         const heuristic = heuristicDraft(body);
         if (!skillId) {
           skillId = heuristic.skillId;
-          if (!llmGenerated) warnings.push("skillId derived from heuristic");
+          if (!llmGenerated) {
+            warnings.push("skillId derived from heuristic");
+          }
         }
         if (!name) {
           name = heuristic.name;
-          if (!llmGenerated) warnings.push("name derived from heuristic");
+          if (!llmGenerated) {
+            warnings.push("name derived from heuristic");
+          }
         }
         if (!description) {
           description = heuristic.description;
-          if (!llmGenerated)
+          if (!llmGenerated) {
             warnings.push("description derived from heuristic");
+          }
         }
         if (!emoji) {
           emoji = heuristic.emoji;
@@ -1695,7 +1783,9 @@ export async function draftSkill(params: {
     // Normalize skillId to valid managed-skill slug format
     const originalId = skillId!;
     skillId = toSkillSlug(originalId);
-    if (!skillId) skillId = "untitled-skill";
+    if (!skillId) {
+      skillId = "untitled-skill";
+    }
     if (skillId !== originalId) {
       warnings.push(`skillId normalized from "${originalId}" to "${skillId}"`);
     }

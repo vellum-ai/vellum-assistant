@@ -107,7 +107,9 @@ export async function* parseVBundleStream(
   }
 
   function pushError(err: Error): void {
-    if (pipelineError) return;
+    if (pipelineError) {
+      return;
+    }
     pipelineError = err;
     if (waiter) {
       const w = waiter;
@@ -177,13 +179,17 @@ export async function* parseVBundleStream(
   }
 
   function nextEntry(): Promise<PendingEntry | null> {
-    if (pipelineError) return Promise.reject(pipelineError);
+    if (pipelineError) {
+      return Promise.reject(pipelineError);
+    }
     if (pending) {
       const p = pending;
       pending = null;
       return Promise.resolve(p);
     }
-    if (finished) return Promise.resolve(null);
+    if (finished) {
+      return Promise.resolve(null);
+    }
     return new Promise<PendingEntry | null>((resolve, reject) => {
       waiter = { resolve, reject };
     });
@@ -192,11 +198,15 @@ export async function* parseVBundleStream(
   try {
     while (true) {
       const entry = await nextEntry();
-      if (entry === null) return;
+      if (entry === null) {
+        return;
+      }
 
       let advanced = false;
       const advance = (err?: Error | null): void => {
-        if (advanced) return;
+        if (advanced) {
+          return;
+        }
         advanced = true;
         entry.next(err ?? null);
       };

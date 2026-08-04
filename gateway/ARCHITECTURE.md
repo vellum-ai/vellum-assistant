@@ -675,14 +675,20 @@ On startup, the gateway automatically reconciles the Telegram webhook registrati
 
 This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change, invalidates the `ConfigFileCache`, and triggers webhook reconciliation directly — no daemon involvement is needed. Manual webhook registration is no longer required.
 
-### Routing Auto-Configuration
+### Routing
 
-In single-assistant mode (the default local deployment), routing is automatically configured by the CLI via workspace config:
+A gateway process fronts exactly one daemon, so routing needs no configuration:
+any inbound event carrying a routable identity resolves to the local assistant
+(`LOCAL_ASSISTANT_ID`). The only event routing drops is one with neither a
+conversation nor an actor id, which has nothing to route on.
 
-- The unmapped policy is set to `default` so all inbound messages are forwarded
-- The default assistant ID is set to the current assistant's ID
+Whether a resolved event is _admitted_ is a separate decision, made against the
+channel's admission policy floor — see "Channel Trust Classification &
+Admission Policy" in `gateway/CLAUDE.md`. Routing answers "which assistant",
+admission answers "is this sender allowed".
 
-In multi-assistant mode, the operator must configure the assistant routing map in workspace config to map specific chat/user IDs to assistant IDs.
+Optional `routingEntries` in workspace config still map specific
+conversation/actor ids to explicit assistant ids, ahead of the local fallback.
 
 ### Slack Channel (Socket Mode)
 
@@ -864,11 +870,7 @@ sequenceDiagram
         Gateway->>Gateway: assistantId resolved
     else No phone number match
         Gateway->>Gateway: resolveAssistant(From, From) — fallback routing chain
-        alt Unmapped policy = reject
-            Gateway-->>TwilioAPI: TwiML <Reject reason="rejected"/>
-        else Unmapped policy = default
-            Gateway->>Gateway: use defaultAssistantId
-        end
+        Gateway->>Gateway: use LOCAL_ASSISTANT_ID
     end
 
     Gateway->>Routes: forward to runtime /v1/internal/twilio/voice-webhook (+ params, originalUrl, assistantId)

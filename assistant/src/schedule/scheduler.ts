@@ -38,12 +38,14 @@ import {
   failOneShotPermanently,
   getLastScheduleConversationId,
   resetRetryCount,
+  resolveScheduleConversationGroupId,
   retryOneShot,
   type RoutingIntent,
   type ScheduleJob,
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
+import { buildWakeScheduleOptions } from "./wake-schedule-options.js";
 import {
   isScheduleWorkerAdministrativelyStopped,
   probeScheduleWorker,
@@ -107,6 +109,7 @@ async function emitScheduleNotifySignal(payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
+  groupId: string;
   deepLinkConversationId?: string;
 }): Promise<void> {
   await emitNotificationSignal({
@@ -130,7 +133,7 @@ async function emitScheduleNotifySignal(payload: {
     routingIntent: payload.routingIntent,
     routingHints: payload.routingHints,
     conversationMetadata: {
-      groupId: "system:scheduled",
+      groupId: payload.groupId,
       scheduleJobId: payload.id,
       source: "schedule",
     },
@@ -536,6 +539,7 @@ export async function runDueSchedulesOnce(
           message: job.message,
           routingIntent: job.routingIntent,
           routingHints: job.routingHints,
+          groupId: resolveScheduleConversationGroupId(job),
           ...(job.createdFromConversationId
             ? { deepLinkConversationId: job.createdFromConversationId }
             : {}),
@@ -646,15 +650,9 @@ export async function runDueSchedulesOnce(
           { jobId: job.id, name: job.name, wakeConversationId, isOneShot },
           "Executing wake schedule",
         );
-        const result = await wakeAgentForOpportunity({
-          conversationId: wakeConversationId,
-          hint: job.message,
-          source: "defer",
-          persistTriggerAsEvent: true,
-          ...(job.inferenceProfile
-            ? { forceOverrideProfile: job.inferenceProfile }
-            : {}),
-        });
+        const result = await wakeAgentForOpportunity(
+          buildWakeScheduleOptions(job, wakeConversationId),
+        );
 
         if (result.reason === "timeout" && isOneShot) {
           // The conversation is busy processing a tool call. Retry on
@@ -918,7 +916,7 @@ export async function runDueSchedulesOnce(
         // timeouts.scheduleTurnTimeoutSec (default 1800s).
         timeoutMs: getConfig().timeouts.scheduleTurnTimeoutSec * 1000,
         origin: "schedule",
-        groupId: "system:scheduled",
+        groupId: resolveScheduleConversationGroupId(job),
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,

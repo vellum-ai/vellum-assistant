@@ -7,50 +7,40 @@
  * app's workspace panel.
  */
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    useMutation,
-    useQuery,
-    useQueryClient,
-} from "@tanstack/react-query";
-import {
-    ArrowDownAZ,
-    ArrowDownWideNarrow,
-    ChevronDown,
-    ChevronRight,
-    Eye,
-    EyeOff,
-    FilePlus,
-    FileText,
-    Folder,
-    FolderPlus,
-    Image as ImageIcon,
-    Pencil,
-    Plus,
-    Search,
-    Trash2,
-    Video,
-    X,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FileText,
+  Folder,
+  FolderPlus,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Video,
+  X,
 } from "lucide-react";
-import {
-    type FormEvent,
-    useCallback,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
+import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
 
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
-    sortEntries,
-    type WorkspaceSortMode,
+  sortEntries,
+  type WorkspaceSortMode,
 } from "@/domains/workspace/utils/sort-entries";
 import {
-    workspaceDeletePost,
-    workspaceMkdirPost,
-    workspaceRenamePost,
-    workspaceTreeGet,
-    workspaceWritePost,
+  workspaceDeletePost,
+  workspaceMkdirPost,
+  workspaceRenamePost,
+  workspaceTreeGet,
+  workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
 import {
@@ -84,7 +74,6 @@ interface EntryTarget {
 type TreeDialog =
   | { type: "create"; kind: "file" | "folder"; parentPath: string }
   | { type: "rename"; path: string; name: string };
-
 
 /**
  * The daemon's write and rename endpoints overwrite existing entries
@@ -305,7 +294,11 @@ function TreeNode({
             <ContextMenu.Item
               leftIcon={<Trash2 className="h-3.5 w-3.5" />}
               onSelect={() =>
-                onRequestDelete({ path: entryPath, name: entryName, isDirectory })
+                onRequestDelete({
+                  path: entryPath,
+                  name: entryName,
+                  isDirectory,
+                })
               }
             >
               Delete
@@ -313,7 +306,11 @@ function TreeNode({
             <ContextMenu.Item
               leftIcon={<Pencil className="h-3.5 w-3.5" />}
               onSelect={() =>
-                onRequestRename({ path: entryPath, name: entryName, isDirectory })
+                onRequestRename({
+                  path: entryPath,
+                  name: entryName,
+                  isDirectory,
+                })
               }
             >
               Rename
@@ -389,14 +386,18 @@ function NameItemDialog({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (canSubmit) onConfirm(trimmed);
+    if (canSubmit) {
+      onConfirm(trimmed);
+    }
   };
 
   return (
     <Modal.Root
       open
       onOpenChange={(next) => {
-        if (!next && !pending) onCancel();
+        if (!next && !pending) {
+          onCancel();
+        }
       }}
     >
       <Modal.Content
@@ -419,7 +420,9 @@ function NameItemDialog({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (!pending) onCancel();
+          if (!pending) {
+            onCancel();
+          }
         }}
       >
         <form onSubmit={handleSubmit}>
@@ -590,7 +593,12 @@ export function WorkspaceTree({
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
-      await assertNameAvailable(assistantId, parentPath, input.newName, oldName);
+      await assertNameAvailable(
+        assistantId,
+        parentPath,
+        input.newName,
+        oldName,
+      );
       const { error, response } = await workspaceRenamePost({
         path: { assistant_id: assistantId },
         body: { oldPath: input.oldPath, newPath },
@@ -853,7 +861,9 @@ export function WorkspaceTree({
         destructive
         isPending={deleteMutation.isPending}
         onConfirm={() => {
-          if (deleteTarget) deleteMutation.mutate(deleteTarget);
+          if (deleteTarget) {
+            deleteMutation.mutate(deleteTarget);
+          }
         }}
         onCancel={() => setDeleteTarget(null)}
       />

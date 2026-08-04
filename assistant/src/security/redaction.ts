@@ -63,7 +63,9 @@ function isSensitiveKey(key: string): boolean {
  * key buried under array nesting can't bypass field-name redaction.
  */
 function redactValue(val: unknown): unknown {
-  if (Array.isArray(val)) return val.map(redactValue);
+  if (Array.isArray(val)) {
+    return val.map(redactValue);
+  }
   if (val != null && typeof val === "object") {
     return redactSensitiveFields(val as Record<string, unknown>);
   }

@@ -1,5 +1,5 @@
 import {
-  isLocalMode,
+  isLocalClient,
   getLocalGatewayUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -57,8 +57,10 @@ let remoteGatewayToken: string | null = null;
 let remoteGatewayExpiresAt: number = 0;
 
 export function isGatewayAuthEnabled(): boolean {
-  if (isRemoteGatewayMode()) return true;
-  return isLocalMode() && getLocalGatewayUrl() != null;
+  if (isRemoteGatewayMode()) {
+    return true;
+  }
+  return isLocalClient() && getLocalGatewayUrl() != null;
 }
 
 export function isGatewayAuthMode(): boolean {
@@ -166,7 +168,9 @@ export async function ensureGatewayToken(
     clearGatewayToken();
   }
   const existing = getGatewayToken();
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
@@ -174,7 +178,9 @@ export function getLocalTokenUrl(
   assistant?: LockfileAssistant,
 ): string | undefined {
   const gatewayUrl = getLocalGatewayUrl(assistant);
-  if (!gatewayUrl) return undefined;
+  if (!gatewayUrl) {
+    return undefined;
+  }
   return `${gatewayUrl}/auth/token`;
 }
 

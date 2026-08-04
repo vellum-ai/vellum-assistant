@@ -61,6 +61,8 @@ export function handleToolResult(
   // field the reducer folds) is what keeps the affordance from vanishing when
   // the routine post-turn resync reseeds the transcript from persisted history.
   if (event.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && event.toolUseId) {
-    useInteractionStore.getState().showAcpConnect({ toolUseId: event.toolUseId });
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: event.toolUseId });
   }
 }

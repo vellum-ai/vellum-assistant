@@ -4,49 +4,51 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
 import {
-    assistantsOperationalStatusDetailRead,
-    organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate,
-    organizationsBillingSubscriptionOnboardingRetrieve,
-    organizationsBillingSubscriptionRetrieve,
-} from "@/generated/api/sdk.gen";
-import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
-import {
-    isEntitlementRaceVerdict,
-    isResizeOperationInFlight,
-    targetsMet,
-    type ProvisioningDimensions,
-} from "@/lib/billing/provisioning-targets";
+  getAssistant,
+  getAssistantHealthz,
+  hatchAssistant,
+  type Assistant,
+} from "@/assistant/api";
 import { seedHatchAvatar } from "@/assistant/seed-hatch-avatar";
 import {
-    isPlatformHostedDisabled,
-    PLATFORM_HOSTED_DISABLED_MESSAGE,
-    resolveAssistantLifecycleState,
-    shouldRecoverFromHatchFailure,
+  isPlatformHostedDisabled,
+  PLATFORM_HOSTED_DISABLED_MESSAGE,
+  resolveAssistantLifecycleState,
+  shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-    readSelectedVersion,
-    writeSelectedVersion,
+  readSelectedVersion,
+  writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
-import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
+import {
+  awaitPurchasedProvisioning,
+  MAX_HATCH_WAIT_MS,
+  POLL_INTERVAL_MS,
+} from "@/domains/onboarding/purchased-provisioning";
+import {
+  isLocalClient,
+  loadLockfile,
+  primeLocalGatewayConnection,
+  probeLocalGatewayReady,
+  saveManagedLockfileAssistant,
+} from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import {
-    POST_CHECKOUT_HATCH_PARAM,
-    resolveNavigation,
+  POST_CHECKOUT_HATCH_PARAM,
+  resolveNavigation,
 } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
-import { isNativePlatform } from "@/runtime/native-auth";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isSessionSettled } from "@/stores/session-status";
 import type { CharacterTraits } from "@/types/avatar";
@@ -58,13 +60,7 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
-const MAX_HATCH_WAIT_MS = 300_000;
-// Hard cap on the post-payment resize wait, mirroring PROVISION_STALL_MS in the
-// pro-onboarding takeover. On expiry the assistant completes at baseline and the
-// server reconciles the purchased specs later — the user is never trapped.
-const RESIZE_WAIT_MAX_MS = 90_000;
 
 // Module-level state so HMR remounts, StrictMode double-mounts, and — critically
 // — the auth-driven provider remount survive without spawning duplicate hatches.
@@ -76,8 +72,12 @@ const RESIZE_WAIT_MAX_MS = 90_000;
 // start over. These guards are released only on failure (so retry re-hatches)
 // and on genuine completion (so a later onboarding hatches fresh), never in the
 // window between the hatch resolving and the screen navigating away.
-let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
-let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
+let localHatchPromise: Promise<
+  import("@/runtime/local-mode-host").LocalHatchResult
+> | null = null;
+let platformHatchPromise: Promise<
+  import("@/assistant/api").HatchResult
+> | null = null;
 let hatchTraitsCache: CharacterTraits | null = null;
 
 function releaseHatchGuards(): void {
@@ -87,16 +87,7 @@ function releaseHatchGuards(): void {
 }
 
 type HatchPhase =
-  | "initializing"
-  | "provisioning"
-  | "connecting"
-  | "resizing"
-  | "ready";
-
-// How the purchased-provisioning wait ended. `health_timeout` means the
-// assistant never answered healthz within MAX_HATCH_WAIT_MS after the resize,
-// so the hatch must be failed rather than completed onto an unreachable pod.
-type HatchProvisioningOutcome = "ready" | "health_timeout";
+  "initializing" | "provisioning" | "connecting" | "resizing" | "ready";
 
 const PHASE_TARGET: Record<HatchPhase, number> = {
   initializing: 0,
@@ -121,24 +112,27 @@ export function interpolateSegmentProgress(
   target: number,
   elapsedMs: number,
 ): number {
-  if (segmentStart >= target) return target;
+  if (segmentStart >= target) {
+    return target;
+  }
   const t = Math.min(1.0, elapsedMs / SEGMENT_DURATION_MS);
   const eased = 1.0 - Math.pow(1.0 - t, 3.0);
   return segmentStart + (target - segmentStart) * eased;
 }
 
 export type HatchGateDecision =
-  | { kind: "proceed" }
-  | { kind: "wait" }
-  | { kind: "redirect"; to: string };
+  { kind: "proceed" } | { kind: "wait" } | { kind: "redirect"; to: string };
 
 export function decideHatchGate(): HatchGateDecision {
-  const decision = resolveNavigation(
-    buildNavigationState(),
-    { kind: "hatch-gate" },
-  );
-  if (decision.action === "redirect") return { kind: "redirect", to: decision.to };
-  if (decision.action === "wait") return { kind: "wait" };
+  const decision = resolveNavigation(buildNavigationState(), {
+    kind: "hatch-gate",
+  });
+  if (decision.action === "redirect") {
+    return { kind: "redirect", to: decision.to };
+  }
+  if (decision.action === "wait") {
+    return { kind: "wait" };
+  }
   return { kind: "proceed" };
 }
 
@@ -153,7 +147,8 @@ export function HatchingScreen() {
   // (see `plugin-attribution`) — otherwise a local/Docker onboarding drops it.
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
-  const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  const useLocalHatch =
+    isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
   // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
   // (see `adopt-existing-assistant`): the assistant is provisioned on the
   // platform, so its purchased machine and storage are waited for.
@@ -196,9 +191,6 @@ export function HatchingScreen() {
   const segmentStartRef = useRef(0);
   const segmentStartTimeRef = useRef(0);
   const displayProgressRef = useRef(0);
-  // Fire-once guard for the idempotent post-payment provisioning reconcile, so a
-  // remount or an extra poll can't re-trigger it within a single hatch.
-  const provisioningReconcileFiredRef = useRef(false);
 
   const transitionPhase = useCallback((next: HatchPhase) => {
     segmentStartRef.current = displayProgressRef.current;
@@ -207,7 +199,6 @@ export function HatchingScreen() {
     setPhase(next);
     setAnimationEpoch((n) => n + 1);
   }, []);
-
 
   useEffect(() => {
     // Developer "Replay Hatch Failure" tool: when opened with `?fail`, skip the
@@ -224,7 +215,9 @@ export function HatchingScreen() {
       void navigate(decision.to, { replace: true });
       return;
     }
-    if (decision.kind === "wait") return;
+    if (decision.kind === "wait") {
+      return;
+    }
 
     // A managed hatch in a local-mode build must address the platform, not the
     // machine's own gateway: `getAssistant()` answers from the selected
@@ -232,7 +225,7 @@ export function HatchingScreen() {
     // healthz probes below) rewrite to the local gateway while a self-hosted
     // connection is primed. Dropping both is the same handoff the hosting
     // screen performs for its Vellum Cloud choice.
-    if (managedHatch && isLocalMode()) {
+    if (managedHatch && isLocalClient()) {
       clearGatewayToken();
       setSelfHostedConnection(null);
     }
@@ -273,7 +266,9 @@ export function HatchingScreen() {
       setPhase("ready");
       phaseRef.current = "ready";
       navigateTimer = setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         // The hatch succeeded and we're leaving this screen for good. Release
         // the module-level guards so a later onboarding session (e.g. after
         // retiring this assistant) hatches a brand-new one instead of reusing
@@ -281,16 +276,7 @@ export function HatchingScreen() {
         releaseHatchGuards();
         void (async () => {
           await lifecycleService.checkAssistant();
-          if (cancelled) return;
-          if (isNativePlatform()) {
-            // Native flow skips the pre-chat screen, so there's no
-            // typed message to drive the auto-greet gate. Mark the
-            // lifecycle one-shot so the destination chat mount shows
-            // the loading gate until the server greeting arrives.
-            lifecycleService.markExpectingFirstMessage();
-            void navigate(`${routes.assistant}?onboarding=1`, {
-              replace: true,
-            });
+          if (cancelled) {
             return;
           }
           // A local hatch feeds the research/personality flow. The assistant is
@@ -321,10 +307,7 @@ export function HatchingScreen() {
             );
             return;
           }
-          void navigate(
-            routes.onboarding.research,
-            { replace: true },
-          );
+          void navigate(routes.onboarding.research, { replace: true });
         })();
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
@@ -346,16 +329,12 @@ export function HatchingScreen() {
           const existing = await getAssistant();
           const preflightState = resolveAssistantLifecycleState(existing);
           if (!cancelled && existing.ok && preflightState.kind === "active") {
-            if (isLocalMode()) {
-              void saveLockfileAssistant({
-                assistantId: existing.data.id,
-                name: existing.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              });
+            if (isLocalClient()) {
+              void saveManagedLockfileAssistant(
+                existing.data.id,
+                existing.data.name,
+                getActiveOrganizationIdForRequests() ?? undefined,
+              );
             }
             // Route the reload path through the same provisioning wait as the
             // polled-active path so a purchased resize is never skipped.
@@ -371,7 +350,9 @@ export function HatchingScreen() {
         } catch {
           // Fall through to normal hatch
         }
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
       }
 
       // Local/Docker hatch lifecycle:
@@ -392,7 +373,9 @@ export function HatchingScreen() {
           // resolved promise instead of starting a second hatch. Released only
           // on failure (below / catch) and on completion (handleHatchReady).
           const result = await localHatchPromise;
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
           if (!result.ok) {
             releaseHatchGuards();
             setError(result.error ?? "Failed to hatch local assistant.");
@@ -427,15 +410,19 @@ export function HatchingScreen() {
               // reached connectLocalAssistant(), so no remount occurred — release
               // the guards so "Try again" runs a genuinely fresh hatch.
               releaseHatchGuards();
-              setError("Your assistant is taking longer than expected. Please try again.");
+              setError(
+                "Your assistant is taking longer than expected. Please try again.",
+              );
               return;
             }
-            await new Promise<void>(resolve => {
+            await new Promise<void>((resolve) => {
               readyPollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
             });
             readyPollTimer = null;
           }
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
 
           // Apply the model-provider key collected on the API-key step to
           // the freshly hatched assistant. Runs BEFORE connectLocalAssistant
@@ -477,8 +464,12 @@ export function HatchingScreen() {
           handleHatchReady(result.assistantId);
         } catch {
           releaseHatchGuards();
-          if (cancelled) return;
-          setError("Failed to hatch local assistant. Check CLI logs for details.");
+          if (cancelled) {
+            return;
+          }
+          setError(
+            "Failed to hatch local assistant. Check CLI logs for details.",
+          );
         }
         return;
       }
@@ -491,7 +482,9 @@ export function HatchingScreen() {
         }
         const result = await platformHatchPromise;
         platformHatchPromise = null;
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         if (result.ok) {
           hatchedAssistantId = result.data.id;
         }
@@ -523,262 +516,19 @@ export function HatchingScreen() {
       } catch (err) {
         platformHatchPromise = null;
         captureError(err, { context: "onboarding_hatch_assistant" });
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
       }
 
       scheduleNextPoll(0);
     };
 
     const scheduleNextPoll = (delay: number) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       pollTimer = setTimeout(runPoll, delay);
-    };
-
-    // Platform-only: once the assistant is active and healthz-ready, hold the
-    // hatching screen until the server-side resize to the purchased machine and
-    // storage specs converges, then re-probe healthz (the resize restarts the
-    // pod). The reconcile is idempotent and fire-and-forget; a genuinely free
-    // org, and the RESIZE_WAIT_MAX_MS cap, fall through to completion at
-    // baseline, so a Pro hatch emerges at the right size without ever trapping
-    // the user. Every wait that entered the provisioning phase leaves through
-    // the healthz probe, and the caller must honour a `health_timeout` outcome.
-    const awaitPurchasedProvisioning = async (
-      assistantId: string,
-    ): Promise<HatchProvisioningOutcome> => {
-      // Purchased specs live on the platform, so only a managed hatch reads
-      // them. A local-mode run without the managed marker can reach here off a
-      // preflight that resolved the lockfile assistant, which has no billing
-      // surface — short-circuit there.
-      if (isLocalMode() && !managedHatch) {
-        return "ready";
-      }
-      // Fire the idempotent grow-only reconcile — the same resize the subscribe
-      // webhook triggers — covering a webhook that never fired or whose resize
-      // was lost. It is marked done only when it RECONCILES: a 503 ("nothing
-      // queued"), a network error, a pre-org-hydration mount, or a race reply
-      // leaves the guard unset so a later poll iteration re-fires the nudge. It
-      // never blocks completion (which keys off targets + op-status); the
-      // re-fires stay bounded by the RESIZE_WAIT_MAX_MS cap below.
-      const fireProvisioningReconcile = (): void => {
-        if (provisioningReconcileFiredRef.current) {
-          return;
-        }
-        void organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate({
-          throwOnError: false,
-        })
-          .then((result) => {
-            // Success carries a body; a 503/5xx resolves with no data under
-            // throwOnError:false. A race body — the entitlement not yet
-            // visible, or no settled assistant to provision, which is the
-            // common case this early in a hatch — is not an answer: nothing was
-            // queued, so it must not consume the guard or the nudge is lost for
-            // the whole hatch.
-            if (
-              result.data != null &&
-              !isEntitlementRaceVerdict(result.data)
-            ) {
-              provisioningReconcileFiredRef.current = true;
-            }
-          })
-          .catch(() => {
-            // Network/thrown error: leave the guard unset to re-fire on a later poll.
-          });
-      };
-
-      // A reconciled resize restarts the pod, so every exit from the waits below
-      // ends here before the hatch completes — otherwise the screen navigates
-      // onto a mid-restart daemon. Bounded by MAX_HATCH_WAIT_MS measured from
-      // the poll start, past which the assistant is not coming back and the
-      // hatch is a failure.
-      const waitForPostResizeHealth =
-        async (): Promise<HatchProvisioningOutcome> => {
-          while (!cancelled) {
-            try {
-              const health = await getAssistantHealthz(assistantId);
-              if (health.ok) {
-                return "ready";
-              }
-            } catch {
-              // Daemon not reachable yet during the post-resize restart.
-            }
-            if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
-              return "health_timeout";
-            }
-            await new Promise<void>((resolve) => {
-              pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-            });
-            pollTimer = null;
-          }
-          return "ready";
-        };
-
-      // The cap covers both waits below — the entitlement/targets confirmation
-      // and the resize itself — so a lagging subscription can never hold the
-      // user past RESIZE_WAIT_MAX_MS.
-      const resizeDeadline = Date.now() + RESIZE_WAIT_MAX_MS;
-
-      // Confirm the entitlement before concluding "free". A paid checkout can
-      // return before the onboarding targets are visible, so gate the no-wait
-      // completion on the actual subscription plan rather than on the first null
-      // targets. While the plan reads Pro but the targets aren't provisioned yet
-      // (the entitlement race), keep polling the subscription and targets within
-      // the cap instead of completing at baseline.
-      let targets: ProvisioningDimensions | null = null;
-      while (!cancelled) {
-        // Re-fire the reconcile until it succeeds (or the cap): a failed first
-        // attempt must not permanently consume the guard.
-        fireProvisioningReconcile();
-        // Tri-state entitlement read. Only a CONFIRMED non-Pro plan — a
-        // successful response whose plan_id is definitively not "pro" —
-        // completes early. An unknown result (a thrown error, or a 5xx that
-        // resolves with no data under throwOnError:false) must not be mistaken
-        // for "free"; it behaves like "Pro but targets not yet provisioned" and
-        // keeps polling within the cap so a purchased resize is never skipped.
-        let subscriptionState: "pro" | "non_pro" | "unknown" = "unknown";
-        try {
-          const subscription = await organizationsBillingSubscriptionRetrieve({
-            throwOnError: false,
-          });
-          if (cancelled) {
-            return "ready";
-          }
-          if (subscription.data) {
-            subscriptionState =
-              subscription.data.plan_id === "pro" ? "pro" : "non_pro";
-          }
-        } catch {
-          // Subscription endpoint blip: stay "unknown" and keep polling to the cap.
-        }
-
-        try {
-          const onboarding =
-            await organizationsBillingSubscriptionOnboardingRetrieve({
-              throwOnError: false,
-            });
-          if (cancelled) {
-            return "ready";
-          }
-          const data = onboarding.data;
-          if (data) {
-            targets = {
-              machineSize:
-                allowedMachineSizesForTier(data.max_machine_tier).at(-1) ?? null,
-              storageGib: data.selected_storage_gib ?? null,
-            };
-          }
-        } catch {
-          // Targets fetch blip; keep polling to the cap.
-        }
-
-        const hasTargets =
-          targets != null &&
-          (targets.machineSize != null || targets.storageGib != null);
-
-        // Confirmed non-Pro on an ordinary hatch — genuinely free. Complete
-        // exactly as a non-provisioned hatch does today, with no added poll.
-        // On a post-checkout return the same read is not an answer: Stripe
-        // redirects before the subscribe webhook updates the org, so the plan
-        // still reads at its pre-checkout base. That case falls through to the
-        // capped wait below.
-        if (subscriptionState === "non_pro" && !postCheckoutReturn) {
-          return "ready";
-        }
-        // Confirmed Pro with a purchased ceiling to wait on: hold for the resize
-        // below.
-        if (subscriptionState === "pro" && hasTargets) {
-          break;
-        }
-        // Pro with targets not yet visible, a still-base read on a paid return,
-        // or an unknown/errored subscription read: keep polling within the cap
-        // rather than completing at baseline onto an unprovisioned assistant.
-        // The cap is the ultimate escape, so a subscription that never flips —
-        // a persistently-erroring endpoint, a lost webhook — still completes.
-        if (Date.now() >= resizeDeadline) {
-          // Nothing was confirmed, but the reconcile has been nudged on every
-          // iteration, so a resize may already have restarted the pod. Health
-          // check before completing rather than returning straight to the
-          // caller.
-          return waitForPostResizeHealth();
-        }
-        await new Promise<void>((resolve) => {
-          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-        });
-        pollTimer = null;
-      }
-      if (cancelled) {
-        return "ready";
-      }
-
-      // Hold in an in-progress phase while the resize lands.
-      transitionPhase("resizing");
-
-      while (!cancelled) {
-        // Keep nudging the resize in case the reconcile hasn't landed yet; the
-        // guard stops the re-fire once it succeeds.
-        fireProvisioningReconcile();
-        let actuals: ProvisioningDimensions | null = null;
-        try {
-          const actualsResult = await getAssistant(assistantId);
-          if (cancelled) {
-            return "ready";
-          }
-          if (actualsResult.ok) {
-            actuals = {
-              machineSize: actualsResult.data.machine_size ?? null,
-              storageGib: actualsResult.data.provisioned_storage_gib ?? null,
-            };
-          }
-        } catch {
-          // Assistant endpoint unreachable mid-resize; keep polling to the cap.
-        }
-
-        // Default to in-flight so an uncertain status read withholds completion.
-        // Under throwOnError:false a 5xx resolves with no data rather than
-        // throwing, and isResizeOperationInFlight(undefined) is false — so only
-        // a successful read (data present) may downgrade to "not in flight".
-        // Otherwise the screen could navigate onto a pod that is still restarting.
-        let operationInFlight = true;
-        try {
-          const opStatus = await assistantsOperationalStatusDetailRead({
-            path: { id: assistantId },
-            throwOnError: false,
-          });
-          if (cancelled) {
-            return "ready";
-          }
-          if (opStatus.data) {
-            operationInFlight = isResizeOperationInFlight(opStatus.data);
-          }
-        } catch {
-          // Operational-status endpoint unreachable mid-resize: retain the
-          // conservative in-flight value and keep polling to the cap.
-          operationInFlight = true;
-        }
-
-        // The platform persists the effective sizes before the pod finishes
-        // restarting, so completion requires the resize operation to have
-        // cleared — not just targets-met — to avoid landing on a soon-dead pod.
-        if (targetsMet(targets, actuals) && !operationInFlight) {
-          break;
-        }
-        if (Date.now() >= resizeDeadline) {
-          // Cap reached: stop waiting for the resize but still fall through to
-          // the healthz probe below, so completion never routes onto a pod
-          // mid-restart. The server reconciles the remaining resize later.
-          break;
-        }
-        await new Promise<void>((resolve) => {
-          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-        });
-        pollTimer = null;
-      }
-      if (cancelled) {
-        return "ready";
-      }
-
-      // Both the converged and the cap-expiry exit above land on a pod the
-      // resize may still be restarting.
-      return waitForPostResizeHealth();
     };
 
     // Both the preflight-active path (a reload onto an already-active assistant)
@@ -813,7 +563,17 @@ export function HatchingScreen() {
         return;
       }
 
-      const outcome = await awaitPurchasedProvisioning(assistantId);
+      const outcome = await awaitPurchasedProvisioning({
+        assistantId,
+        postCheckoutReturn,
+        managedHatch,
+        hatchStartMs: pollStartMs,
+        isCancelled: () => cancelled,
+        onResizeWait: () => transitionPhase("resizing"),
+        registerTimer: (timer) => {
+          pollTimer = timer;
+        },
+      });
       if (cancelled) {
         return;
       }
@@ -835,7 +595,9 @@ export function HatchingScreen() {
     };
 
     const runPoll = async () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
         Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
           level: "warning",
@@ -848,13 +610,17 @@ export function HatchingScreen() {
       }
       try {
         let result = await getAssistant(hatchedAssistantId);
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         // If the hatched ID 404s (e.g. stale after refresh, or backend
         // assigned a different ID), fall back to list-based discovery.
         if (hatchedAssistantId && !result.ok && result.status === 404) {
           hatchedAssistantId = undefined;
           result = await getAssistant();
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
         }
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
@@ -865,16 +631,12 @@ export function HatchingScreen() {
             if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }
-            if (isLocalMode()) {
-              void saveLockfileAssistant({
+            if (isLocalClient()) {
+              void saveManagedLockfileAssistant(
                 assistantId,
-                name: result.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              });
+                result.data.name,
+                getActiveOrganizationIdForRequests() ?? undefined,
+              );
             }
 
             // Wait for healthz, then hold for the purchased resize before
@@ -897,7 +659,9 @@ export function HatchingScreen() {
         scheduleNextPoll(POLL_INTERVAL_MS);
       } catch (err) {
         captureError(err, { context: "onboarding_poll_assistant" });
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         scheduleNextPoll(POLL_INTERVAL_MS);
       }
     };
@@ -906,9 +670,15 @@ export function HatchingScreen() {
 
     return () => {
       cancelled = true;
-      if (pollTimer) clearTimeout(pollTimer);
-      if (navigateTimer) clearTimeout(navigateTimer);
-      if (readyPollTimer) clearTimeout(readyPollTimer);
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+      }
+      if (navigateTimer) {
+        clearTimeout(navigateTimer);
+      }
+      if (readyPollTimer) {
+        clearTimeout(readyPollTimer);
+      }
     };
   }, [
     attempt,
@@ -953,10 +723,18 @@ export function HatchingScreen() {
           role="alert"
           className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
         >
-          <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
+          <h1
+            className={
+              electron
+                ? "text-title-large"
+                : "text-3xl font-semibold tracking-tight"
+            }
+          >
             Something went wrong
           </h1>
-          <p className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}>
+          <p
+            className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
+          >
             {error}
           </p>
           {platformHostedDisabled && (
@@ -984,7 +762,9 @@ export function HatchingScreen() {
             height={160}
             className={`${electron ? "my-auto py-8" : "my-16"} onboarding-avatar-failed`}
           />
-          <div className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}>
+          <div
+            className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}
+          >
             <Button
               variant="primary"
               size="regular"
@@ -1035,12 +815,22 @@ export function HatchingScreen() {
           it clear of the fixed CreatureFooter art below the progress bar. The
           bar caps at 200px with a 10px label. Web/iOS keep the centered
           layout. */}
-      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}>
-        <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
+      <div
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
+      >
+        <h1
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
+        >
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
         {phase !== "ready" && (
-          <p className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}>
+          <p
+            className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
+          >
             Hang tight — your assistant will have a few questions for you once
             it&apos;s up.
           </p>
@@ -1058,7 +848,9 @@ export function HatchingScreen() {
           className={`w-full ${electron ? "max-w-[200px]" : "max-w-sm"}`}
           aria-label="Assistant startup progress"
         />
-        <p className={`text-[var(--content-tertiary)] ${electron ? "mt-4 text-label-small-default" : "mt-3 text-body-small-default"}`}>
+        <p
+          className={`text-[var(--content-tertiary)] ${electron ? "mt-4 text-label-small-default" : "mt-3 text-body-small-default"}`}
+        >
           {PHASE_LABEL[phase]}
         </p>
       </div>

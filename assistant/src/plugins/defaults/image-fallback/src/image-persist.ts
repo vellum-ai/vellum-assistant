@@ -46,7 +46,9 @@ export function persistImage(data: string, mediaType: string): string | null {
     const filepath = join(ATTACHMENTS_DIR, filename);
 
     // Skip if already saved (content-hash dedup).
-    if (existsSync(filepath)) return filepath;
+    if (existsSync(filepath)) {
+      return filepath;
+    }
 
     writeFileSync(filepath, Buffer.from(data, "base64"));
     return filepath;

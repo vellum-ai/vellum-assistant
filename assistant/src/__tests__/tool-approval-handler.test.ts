@@ -968,6 +968,10 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
       ["its identity", "IDENTITY.md"],
       ["a per-user context file", "users/someone.md"],
       ["a per-channel context file", "channels/general.md"],
+      [
+        "a system-section override",
+        "prompts/system/10a-non-guardian-boundary.md",
+      ],
     ])("a write to %s — %s", async (_label, path) => {
       await expectFloored("file_write", { path, content: "x" });
     });

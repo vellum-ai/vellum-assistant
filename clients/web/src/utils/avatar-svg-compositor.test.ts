@@ -61,10 +61,7 @@ describe("composeSvg eye style handling", () => {
   test("keeps the body path byte-identical whether or not eyes are drawn", () => {
     const withEyes = composeSvg(components, "blob", "grumpy", "green", 64);
     const bodyOnly = composeSvg(components, "blob", null, "green", 64);
-    const bodyPath = bodyOnly.replace(
-      /^<svg[^>]*>|<\/svg>$/g,
-      "",
-    );
+    const bodyPath = bodyOnly.replace(/^<svg[^>]*>|<\/svg>$/g, "");
     // The eyed SVG contains exactly the same body path element.
     expect(withEyes).toContain(bodyPath);
   });

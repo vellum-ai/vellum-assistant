@@ -21,7 +21,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -60,14 +62,18 @@ function baseLlm(callSites: Record<string, unknown>): unknown {
 describe("config recovery prunes call-site overrides emptied by a strip", () => {
   beforeEach(() => {
     ensureTestDir();
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
   });
 
   afterEach(() => {
     delete process.env.IS_PLATFORM;
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     invalidateConfigCache();
   });
 

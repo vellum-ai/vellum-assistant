@@ -718,7 +718,9 @@ function fakeNavCdp(opts: {
       }
       if (expr.includes("readyState") && expr.includes("href")) {
         const res = opts.poll(pollCalls++);
-        if ("throwError" in res) throw res.throwError;
+        if ("throwError" in res) {
+          throw res.throwError;
+        }
         return { result: { value: res } };
       }
     }
@@ -832,7 +834,9 @@ describe("navigateAndWait", () => {
     // `document.location.href` read is allowed before the navigate
     // attempt).
     const pollEvals = cdp.calls.filter((c) => {
-      if (c.method !== "Runtime.evaluate") return false;
+      if (c.method !== "Runtime.evaluate") {
+        return false;
+      }
       const expr = (c.params as { expression?: string } | undefined)
         ?.expression;
       return typeof expr === "string" && expr.includes("readyState");
@@ -948,7 +952,9 @@ describe("navigateAndWait", () => {
     // fall back to readyState-only.
     let sawPreNavRead = false;
     const cdp = fakeCdp((method, params) => {
-      if (method === "Page.navigate") return {};
+      if (method === "Page.navigate") {
+        return {};
+      }
       if (method === "Runtime.evaluate") {
         const expr = (params as { expression: string }).expression;
         if (expr === "document.location.href" && !sawPreNavRead) {
@@ -1032,10 +1038,15 @@ describe("waitForSelector", () => {
         // First poll: not present. Second poll: present.
         return { result: { value: evalCount >= 2 } };
       }
-      if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
-      if (method === "DOM.querySelector") return { nodeId: 9 };
-      if (method === "DOM.describeNode")
+      if (method === "DOM.getDocument") {
+        return { root: { nodeId: 1 } };
+      }
+      if (method === "DOM.querySelector") {
+        return { nodeId: 9 };
+      }
+      if (method === "DOM.describeNode") {
         return { node: { backendNodeId: 321 } };
+      }
       throw new Error(`unexpected: ${method}`);
     });
 
@@ -1058,10 +1069,15 @@ describe("waitForSelector", () => {
         lastExpression = (params as { expression: string }).expression;
         return { result: { value: true } };
       }
-      if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
-      if (method === "DOM.querySelector") return { nodeId: 9 };
-      if (method === "DOM.describeNode")
+      if (method === "DOM.getDocument") {
+        return { root: { nodeId: 1 } };
+      }
+      if (method === "DOM.querySelector") {
+        return { nodeId: 9 };
+      }
+      if (method === "DOM.describeNode") {
         return { node: { backendNodeId: 555 } };
+      }
       throw new Error(`unexpected: ${method}`);
     });
 
@@ -1093,10 +1109,15 @@ describe("waitForSelector", () => {
         // poll.
         return { result: { value: evalCount >= 3 } };
       }
-      if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
-      if (method === "DOM.querySelector") return { nodeId: 9 };
-      if (method === "DOM.describeNode")
+      if (method === "DOM.getDocument") {
+        return { root: { nodeId: 1 } };
+      }
+      if (method === "DOM.querySelector") {
+        return { nodeId: 9 };
+      }
+      if (method === "DOM.describeNode") {
         return { node: { backendNodeId: 999 } };
+      }
       throw new Error(`unexpected: ${method}`);
     });
 
@@ -1107,7 +1128,9 @@ describe("waitForSelector", () => {
 
   test("throws CdpError on timeout", async () => {
     const cdp = fakeCdp((method) => {
-      if (method === "Runtime.evaluate") return { result: { value: false } };
+      if (method === "Runtime.evaluate") {
+        return { result: { value: false } };
+      }
       throw new Error(`unexpected: ${method}`);
     });
 
@@ -1150,7 +1173,9 @@ describe("waitForText", () => {
 
   test("throws CdpError on timeout", async () => {
     const cdp = fakeCdp((method) => {
-      if (method === "Runtime.evaluate") return { result: { value: false } };
+      if (method === "Runtime.evaluate") {
+        return { result: { value: false } };
+      }
       throw new Error(`unexpected: ${method}`);
     });
 

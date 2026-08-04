@@ -3512,6 +3512,73 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/channel-ingress/{source}/approve": {
+        post: {
+          summary: "Approve an ingress declaration",
+          description:
+            "Guardian-only gateway endpoint that records approval of the declaration identified by the body's digest, after which the gateway serves its routes. The digest must match what the source currently declares, so an approval is always a decision about routes the guardian has seen; a stale digest returns 409 naming the current one. A POST verb path because a grant has no id of its own until a guardian creates one.",
+          operationId: "channelIngressApprove",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "source",
+              in: "path",
+              required: true,
+              description:
+                "The declaring ingress source (today, a plugin name).",
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Ingress declaration approved" },
+            "400": { description: "Invalid request payload or digest" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Forbidden — caller is not the guardian" },
+            "404": { description: "Source declares no ingress routes" },
+            "409": {
+              description: "Digest is not what the source currently declares",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-ingress/{source}/revoke": {
+        post: {
+          summary: "Revoke an ingress approval",
+          description:
+            "Guardian-only gateway endpoint that withdraws a source's grant, after which its routes stop being served, and reports whether there was a grant to withdraw. Does not consult the declaration, so a grant stays withdrawable even when the manifest that justified it has become unreadable.",
+          operationId: "channelIngressRevoke",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "source",
+              in: "path",
+              required: true,
+              description:
+                "The declaring ingress source (today, a plugin name).",
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Ingress approval removal reported" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Forbidden — caller is not the guardian" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",

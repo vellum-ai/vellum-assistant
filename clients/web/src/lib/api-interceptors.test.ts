@@ -24,7 +24,7 @@ import {
   test,
 } from "bun:test";
 
-const isLocalModeMock = mock(() => !process.env.VITE_PLATFORM_MODE);
+const isLocalClientMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
@@ -39,7 +39,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => undefined,
   hasAssistants: () => false,
   isLocalAssistant: () => false,
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   isPlatformDisabled: isPlatformDisabledMock,
   isPlatformAssistant: () => false,
   isRemoteGatewayMode: isRemoteGatewayModeMock,
@@ -108,7 +108,10 @@ function clearCsrfCookie(): void {
   document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
 }
 
-async function intercept(method: string, url = "https://example.test/v1/probe") {
+async function intercept(
+  method: string,
+  url = "https://example.test/v1/probe",
+) {
   const request = new Request(url, { method });
   const result = await requestInterceptor(request);
   return result.headers;
@@ -170,7 +173,9 @@ describe("api-interceptors / requestInterceptor", () => {
   });
 
   test("returns a new Request, leaving the input headers untouched", async () => {
-    const input = new Request("https://example.test/v1/probe", { method: "POST" });
+    const input = new Request("https://example.test/v1/probe", {
+      method: "POST",
+    });
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
 
     const output = await requestInterceptor(input);
@@ -279,7 +284,9 @@ describe("api-interceptors / self-hosted rewriting", () => {
 
   test("rewrites the URL origin to the configured ingress", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`);
+    const input = new Request(
+      `https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`,
+    );
     const output = await requestInterceptor(input);
     const outUrl = new URL(output.url);
     expect(outUrl.origin).toBe(INGRESS);
@@ -522,7 +529,11 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
 
   test("rewrites daemon paths that are NOT in the platform allowlist", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const path of [DAEMON_SKILLS_PATH, DAEMON_PLUGINS_PATH, DAEMON_MEMORY_PATH]) {
+    for (const path of [
+      DAEMON_SKILLS_PATH,
+      DAEMON_PLUGINS_PATH,
+      DAEMON_MEMORY_PATH,
+    ]) {
       const input = new Request(`https://platform.test${path}`);
       const output = await daemonRequestInterceptor(input);
       const outUrl = new URL(output.url);
@@ -743,10 +754,9 @@ describe("api-interceptors / remote gateway direct requests", () => {
       url: window.location.origin,
       token: ACTOR_TOKEN,
     });
-    const input = new Request(
-      `${window.location.origin}/v1/feature-flags`,
-      { headers: { "Vellum-Organization-Id": TEST_ORG_ID } },
-    );
+    const input = new Request(`${window.location.origin}/v1/feature-flags`, {
+      headers: { "Vellum-Organization-Id": TEST_ORG_ID },
+    });
 
     const output = await daemonRequestInterceptor(input);
 
@@ -795,9 +805,7 @@ describe("api-interceptors / remote gateway direct requests", () => {
       url: `${window.location.origin}/assistant-123`,
       token: ACTOR_TOKEN,
     });
-    const input = new Request(
-      `${window.location.origin}/v1/feature-flags`,
-    );
+    const input = new Request(`${window.location.origin}/v1/feature-flags`);
 
     expect(authorizeRemoteGatewayRequest(input)).toBeNull();
   });
@@ -811,7 +819,7 @@ describe("api-interceptors / remote gateway direct requests", () => {
 // must NOT kill requests already rewritten to the self-hosted gateway.
 //
 // The test preload sets VITE_PLATFORM_MODE=true (platform mode).
-// These tests temporarily clear it so isLocalMode() returns true.
+// These tests temporarily clear it so isLocalClient() returns true.
 
 describe("api-interceptors / platform features gate", () => {
   let savedPlatformMode: string | undefined;
@@ -907,13 +915,23 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
   test("passes through existing ApiError instances unchanged", () => {
     const existing = new ApiError(401, "Unauthorized");
     const response = new Response(null, { status: 401 });
-    const result = daemonErrorInterceptor(existing, response, undefined, throwing);
+    const result = daemonErrorInterceptor(
+      existing,
+      response,
+      undefined,
+      throwing,
+    );
     expect(result).toBe(existing);
   });
 
   test("passes through errors with no response (network failures)", () => {
     const networkError = new TypeError("fetch failed");
-    const result = daemonErrorInterceptor(networkError, undefined, undefined, throwing);
+    const result = daemonErrorInterceptor(
+      networkError,
+      undefined,
+      undefined,
+      throwing,
+    );
     expect(result).toBe(networkError);
   });
 
@@ -930,13 +948,24 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
     const result = daemonErrorInterceptor(body, response, undefined, throwing);
     expect(result).toBeInstanceOf(ApiError);
     expect((result as ApiError).status).toBe(400);
-    expect((result as ApiError).message).toBe("Organization-Id header is required");
+    expect((result as ApiError).message).toBe(
+      "Organization-Id header is required",
+    );
   });
 
   test("preserves raw error body when throwOnError is false", () => {
-    const body = { accepted: false, error: "secret_blocked", message: "Missing API key" };
+    const body = {
+      accepted: false,
+      error: "secret_blocked",
+      message: "Missing API key",
+    };
     const response = new Response(null, { status: 422 });
-    const result = daemonErrorInterceptor(body, response, undefined, nonThrowing);
+    const result = daemonErrorInterceptor(
+      body,
+      response,
+      undefined,
+      nonThrowing,
+    );
     expect(result).toBe(body);
     expect(result).not.toBeInstanceOf(ApiError);
   });
@@ -999,7 +1028,10 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   }
 
   function gatewayResponse(status: number): Response {
-    return makeResponse(status, GATEWAY_URL + "/v1/assistants/123/conversations");
+    return makeResponse(
+      status,
+      GATEWAY_URL + "/v1/assistants/123/conversations",
+    );
   }
 
   let originalReload: typeof window.location.reload;
@@ -1014,7 +1046,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
         reloadCalls += 1;
       }),
     });
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
     clearGatewayTokenStorage();
@@ -1026,7 +1058,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       configurable: true,
       value: originalReload,
     });
-    isLocalModeMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
+    isLocalClientMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
     setSelfHostedConnection(null);
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
     clearGatewayTokenStorage();
@@ -1079,7 +1111,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
      */
 
     // GIVEN platform mode is active
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
 
     // WHEN the daemon receives a 401
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
@@ -1222,7 +1254,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 // being image/file uploads above ~1.5 MB hanging on "Stalled". A Blob is
 // passed by reference (blob handle), so there is no renderer-side data pipe to
 // block on. The preload sets VITE_PLATFORM_MODE=true; these tests clear it so
-// isLocalMode() returns true and the buffering path runs.
+// isLocalClient() returns true and the buffering path runs.
 
 describe("api-interceptors / local-mode body buffering", () => {
   let savedPlatformMode: string | undefined;
@@ -1249,10 +1281,13 @@ describe("api-interceptors / local-mode body buffering", () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     const blobSpy = spyOn(Request.prototype, "blob");
     try {
-      const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`, {
-        method: "POST",
-        body: "upload-payload",
-      });
+      const input = new Request(
+        `https://platform.test${RUNTIME_PROXIED_PATH}`,
+        {
+          method: "POST",
+          body: "upload-payload",
+        },
+      );
       await daemonRequestInterceptor(input);
       expect(blobSpy).toHaveBeenCalled();
     } finally {

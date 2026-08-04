@@ -169,7 +169,9 @@ function defaultCdpHandler(
   method: string,
   params?: Record<string, unknown>,
 ): unknown {
-  if (method === "Page.navigate") return { frameId: "f1" };
+  if (method === "Page.navigate") {
+    return { frameId: "f1" };
+  }
   if (method === "Runtime.evaluate") {
     const expression = String(params?.["expression"] ?? "");
     if (expression === "document.location.href") {
@@ -193,7 +195,9 @@ function defaultCdpHandler(
     }
     return { result: { value: null } };
   }
-  if (method === "Accessibility.enable") return {};
+  if (method === "Accessibility.enable") {
+    return {};
+  }
   if (method === "Accessibility.getFullAXTree") {
     return { nodes: [] };
   }

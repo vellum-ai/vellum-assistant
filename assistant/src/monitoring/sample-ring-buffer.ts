@@ -73,13 +73,19 @@ export class SampleRingBuffer<T> {
 }
 
 function countLines(path: string): number {
-  if (!existsSync(path)) return 0;
+  if (!existsSync(path)) {
+    return 0;
+  }
   try {
     const raw = readFileSync(path, "utf-8");
-    if (raw.length === 0) return 0;
+    if (raw.length === 0) {
+      return 0;
+    }
     let count = 0;
     for (let i = 0; i < raw.length; i++) {
-      if (raw[i] === "\n") count += 1;
+      if (raw[i] === "\n") {
+        count += 1;
+      }
     }
     return count;
   } catch {
@@ -88,7 +94,9 @@ function countLines(path: string): number {
 }
 
 function parseJsonl<T>(path: string): T[] {
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) {
+    return [];
+  }
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
@@ -97,7 +105,9 @@ function parseJsonl<T>(path: string): T[] {
   }
   const out: T[] = [];
   for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
+    if (!line.trim()) {
+      continue;
+    }
     try {
       out.push(JSON.parse(line) as T);
     } catch {

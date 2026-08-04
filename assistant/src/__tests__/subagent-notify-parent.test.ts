@@ -116,6 +116,7 @@ function seedSubagent(
     role: "general",
     isFork: false,
     sendResultToUser: null,
+    parentToolUseId: null,
     status: "running",
     error: null,
     createdAt: 0,

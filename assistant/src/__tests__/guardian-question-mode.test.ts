@@ -30,7 +30,9 @@ describe("guardian-question-mode", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.requestKind).toBe("pending_question");
-    if (!parsed || parsed.requestKind !== "pending_question") return;
+    if (!parsed || parsed.requestKind !== "pending_question") {
+      return;
+    }
     expect(parsed.callSessionId).toBe("call-1");
     expect(parsed.activeGuardianRequestCount).toBe(2);
   });
@@ -46,7 +48,9 @@ describe("guardian-question-mode", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.requestKind).toBe("tool_grant_request");
-    if (!parsed || parsed.requestKind !== "tool_grant_request") return;
+    if (!parsed || parsed.requestKind !== "tool_grant_request") {
+      return;
+    }
     expect(parsed.toolName).toBe("host_bash");
   });
 
@@ -63,7 +67,9 @@ describe("guardian-question-mode", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.requestKind).toBe("pending_question");
-    if (!parsed || parsed.requestKind !== "pending_question") return;
+    if (!parsed || parsed.requestKind !== "pending_question") {
+      return;
+    }
     expect(parsed.toolName).toBe("send_email");
   });
 
@@ -81,7 +87,9 @@ describe("guardian-question-mode", () => {
       ],
     });
     expect(parsed).not.toBeNull();
-    if (!parsed || parsed.requestKind !== "pending_question") return;
+    if (!parsed || parsed.requestKind !== "pending_question") {
+      return;
+    }
     expect(parsed.options?.map((o) => o.id)).toEqual(["apple", "banana"]);
   });
 

@@ -1,4 +1,3 @@
-
 import { useCallback, useMemo, useState } from "react";
 import type { FC } from "react";
 
@@ -33,7 +32,9 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   // Ids whose previewUrl the browser failed to decode (e.g. a HEIC blob on a
   // Chromium renderer). Those fall back to the chip instead of the browser's
   // broken-image glyph.
-  const [failedImageIds, setFailedImageIds] = useState<ReadonlySet<string>>(new Set());
+  const [failedImageIds, setFailedImageIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const markImageFailed = useCallback((id: string) => {
     setFailedImageIds((prev) => new Set(prev).add(id));
   }, []);

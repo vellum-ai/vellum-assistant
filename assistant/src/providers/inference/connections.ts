@@ -7,6 +7,7 @@ import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
 import {
+  isVellumManagedConnection,
   VELLUM_MANAGED_CONNECTION_NAME,
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
@@ -26,6 +27,23 @@ import {
 
 const log = getLogger("providers/inference/connections");
 
+/**
+ * Whether a row is one of the managed connections, judged by the row and not
+ * by its name alone. Boot seeding leaves a user-owned row claiming a canonical
+ * name in place, and that row is an ordinary connection: routing ignores it,
+ * the route layer lets it be edited and deleted, and clients must render it
+ * that way or the collision becomes unrecoverable from the UI.
+ */
+function isManagedRow(row: {
+  name: string;
+  provider: string;
+  auth: { type: string };
+}): boolean {
+  return (
+    MANAGED_CONNECTION_NAMES.has(row.name) && isVellumManagedConnection(row)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -38,7 +56,9 @@ const log = getLogger("providers/inference/connections");
  */
 function parseAuth(raw: unknown): Auth | null {
   const parsed = AuthSchema.safeParse(raw);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   const auth = parsed.data;
   return "credential" in auth
     ? { ...auth, credential: normalizeCredentialRef(auth.credential) }
@@ -46,7 +66,9 @@ function parseAuth(raw: unknown): Auth | null {
 }
 
 function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
-  if (raw === null || raw === "") return null;
+  if (raw === null || raw === "") {
+    return null;
+  }
   try {
     const parsed = z.array(ConnectionModelSchema).safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
@@ -73,9 +95,13 @@ export function listConnections(
 
   return rows.flatMap((row) => {
     const auth = parseAuth(JSON.parse(row.auth));
-    if (!auth) return [];
+    if (!auth) {
+      return [];
+    }
     const provider = ConnectionProviderSchema.safeParse(row.provider);
-    if (!provider.success) return [];
+    if (!provider.success) {
+      return [];
+    }
     return [
       {
         ...row,
@@ -84,7 +110,7 @@ export function listConnections(
         label: row.label ?? null,
         baseUrl: row.baseUrl ?? null,
         models: parseModelsColumn(row.models),
-        isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+        isManaged: isManagedRow({ ...row, provider: provider.data, auth }),
       },
     ];
   });
@@ -100,11 +126,17 @@ export function getConnection(
     .where(eq(providerConnections.name, name))
     .get();
 
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   const auth = parseAuth(JSON.parse(row.auth));
-  if (!auth) return null;
+  if (!auth) {
+    return null;
+  }
   const provider = ConnectionProviderSchema.safeParse(row.provider);
-  if (!provider.success) return null;
+  if (!provider.success) {
+    return null;
+  }
   return {
     ...row,
     auth,
@@ -112,7 +144,7 @@ export function getConnection(
     label: row.label ?? null,
     baseUrl: row.baseUrl ?? null,
     models: parseModelsColumn(row.models),
-    isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+    isManaged: isManagedRow({ ...row, provider: provider.data, auth }),
   };
 }
 
@@ -187,7 +219,9 @@ export function createConnection(
   const models = input.models ?? null;
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
-    if (!baseUrl) return { ok: false, error: { code: "base_url_required" } };
+    if (!baseUrl) {
+      return { ok: false, error: { code: "base_url_required" } };
+    }
     if (!models || models.length === 0) {
       return { ok: false, error: { code: "models_required" } };
     }
@@ -222,7 +256,7 @@ export function createConnection(
       models,
       createdAt: now,
       updatedAt: now,
-      isManaged: MANAGED_CONNECTION_NAMES.has(input.name),
+      isManaged: isManagedRow({ name: input.name, provider, auth }),
     },
   };
 }
@@ -250,8 +284,9 @@ export function updateConnection(
     input.models !== undefined ? input.models : existing.models;
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(existing.provider)) {
-    if (!nextBaseUrl)
+    if (!nextBaseUrl) {
       return { ok: false, error: { code: "base_url_required" } };
+    }
     if (!nextModels || nextModels.length === 0) {
       return { ok: false, error: { code: "models_required" } };
     }
@@ -265,11 +300,16 @@ export function updateConnection(
     baseUrl?: string | null;
     models?: string | null;
   } = { auth: JSON.stringify(auth), updatedAt: now };
-  if (input.label !== undefined) setClause.label = input.label;
-  if (input.baseUrl !== undefined) setClause.baseUrl = input.baseUrl;
-  if (input.models !== undefined)
+  if (input.label !== undefined) {
+    setClause.label = input.label;
+  }
+  if (input.baseUrl !== undefined) {
+    setClause.baseUrl = input.baseUrl;
+  }
+  if (input.models !== undefined) {
     setClause.models =
       input.models === null ? null : JSON.stringify(input.models);
+  }
 
   db.update(providerConnections)
     .set(setClause)
@@ -367,6 +407,29 @@ const CANONICAL_CONNECTIONS: Array<{
     label: "Vellum",
   },
 ];
+
+/**
+ * The Vellum-managed connection as boot seeding defines it, built without a DB
+ * read. Dispatch uses this when the `vellum` name is occupied by a user-owned
+ * row: seeding refuses to overwrite such a row, so the canonical row can be
+ * absent from the DB while managed routing still has to work. Platform auth
+ * needs no row of its own, only this shape.
+ */
+export function canonicalVellumConnection(): ProviderConnection {
+  const now = Date.now();
+  const canonical = CANONICAL_CONNECTIONS[0];
+  return {
+    name: canonical.name,
+    provider: canonical.provider,
+    auth: canonical.auth,
+    label: canonical.label,
+    baseUrl: null,
+    models: null,
+    createdAt: now,
+    updatedAt: now,
+    isManaged: true,
+  };
+}
 
 /**
  * Names of the canonical Vellum-managed connections. Seeded on every daemon

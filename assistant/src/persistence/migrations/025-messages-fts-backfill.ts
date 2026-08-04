@@ -10,7 +10,9 @@ export function migrateMessagesFtsBackfill(database: DrizzleDb): void {
     .query(`SELECT COUNT(*) AS c FROM messages_fts`)
     .get() as { c: number } | null;
   const ftsCount = ftsCountRow?.c ?? 0;
-  if (ftsCount > 0) return;
+  if (ftsCount > 0) {
+    return;
+  }
 
   try {
     raw.exec("BEGIN");

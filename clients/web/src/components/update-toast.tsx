@@ -96,7 +96,9 @@ export function UpdateToast(): null {
   const dismissedForStatusRef = useRef<UpdateStatus | null>(null);
 
   useEffect(() => {
-    if (!isElectron()) return;
+    if (!isElectron()) {
+      return;
+    }
 
     function handleState(state: UpdateState) {
       if (
@@ -109,22 +111,21 @@ export function UpdateToast(): null {
         return;
       }
 
-      if (dismissedForStatusRef.current === state.status) return;
+      if (dismissedForStatusRef.current === state.status) {
+        return;
+      }
 
       if (dismissedForStatusRef.current !== null) {
         dismissedForStatusRef.current = null;
       }
 
-      toast.custom(
-        (id) => <UpdateToastContent state={state} toastId={id} />,
-        {
-          id: TOAST_ID,
-          duration: Infinity,
-          onDismiss: () => {
-            dismissedForStatusRef.current = state.status;
-          },
+      toast.custom((id) => <UpdateToastContent state={state} toastId={id} />, {
+        id: TOAST_ID,
+        duration: Infinity,
+        onDismiss: () => {
+          dismissedForStatusRef.current = state.status;
         },
-      );
+      });
     }
 
     void getUpdateState().then(handleState);

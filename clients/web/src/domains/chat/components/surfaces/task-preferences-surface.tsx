@@ -76,7 +76,9 @@ export function TaskPreferencesSurface({
     selectedTasks.size > 0 || (otherSelected && otherText.trim().length > 0);
 
   const handleSubmit = async () => {
-    if (!canSubmit || isSubmitting) return;
+    if (!canSubmit || isSubmitting) {
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onAction(surface.surfaceId, "submit", {

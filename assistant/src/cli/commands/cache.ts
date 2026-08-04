@@ -38,7 +38,9 @@ const TTL_MULTIPLIERS: Record<string, number> = {
  * surface actionable errors.
  */
 function parseTtl(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   if (!raw.trim()) {
     throw new Error(
       `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "1000ms", "30s", "5m", "2h"). Minimum 1s.`,
@@ -221,8 +223,12 @@ export function registerCacheCommand(program: Command): void {
           }
 
           const params: Record<string, unknown> = { data };
-          if (ttl_ms !== undefined) params.ttl_ms = ttl_ms;
-          if (opts.key) params.key = opts.key;
+          if (ttl_ms !== undefined) {
+            params.ttl_ms = ttl_ms;
+          }
+          if (opts.key) {
+            params.key = opts.key;
+          }
 
           const result = await cliIpcCall<{ key: string }>("cache_set", {
             body: params,

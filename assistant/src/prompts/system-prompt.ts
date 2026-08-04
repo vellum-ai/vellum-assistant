@@ -39,7 +39,9 @@ const PROMPT_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 function hasPopulatedUsersDir(): boolean {
   try {
     const usersDir = join(getWorkspaceDir(), "users");
-    if (!existsSync(usersDir)) return false;
+    if (!existsSync(usersDir)) {
+      return false;
+    }
     return readdirSync(usersDir).length > 0;
   } catch {
     return false;
@@ -49,7 +51,9 @@ function hasPopulatedUsersDir(): boolean {
 function hasExistingConversations(): boolean {
   try {
     const convDir = getConversationsDir();
-    if (!existsSync(convDir)) return false;
+    if (!existsSync(convDir)) {
+      return false;
+    }
     return readdirSync(convDir).length > 0;
   } catch {
     return false;
@@ -85,7 +89,9 @@ export function ensurePromptFiles(): void {
 
   for (const file of PROMPT_FILES) {
     const dest = getWorkspacePromptPath(file);
-    if (existsSync(dest)) continue;
+    if (existsSync(dest)) {
+      continue;
+    }
 
     const src = join(templatesDir, file);
     try {
@@ -227,7 +233,9 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
   }
 
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-  if (!existsSync(bootstrapPath)) return false;
+  if (!existsSync(bootstrapPath)) {
+    return false;
+  }
 
   const currentContent = readPromptFile(bootstrapPath);
   // Compare against the GENERIC "BOOTSTRAP.md" template, not the specified
@@ -235,7 +243,9 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
   // template, so this guard returns false on subsequent calls — making the
   // swap idempotent.  Do NOT change the comparison target to the provided
   // template filename; that would re-swap on every prompt build.
-  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return false;
+  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) {
+    return false;
+  }
 
   const templatesDir = resolveBundledDir(
     import.meta.dirname ?? __dirname,
@@ -452,11 +462,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 export { stripCommentLines } from "../util/strip-comment-lines.js";
 
 export function readPromptFile(path: string): string | null {
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
 
   try {
     const content = stripCommentLines(readFileSync(path, "utf-8"));
-    if (content.length === 0) return null;
+    if (content.length === 0) {
+      return null;
+    }
     log.debug({ path }, "Loaded prompt file");
     return content;
   } catch (err) {
@@ -481,14 +495,20 @@ export function buildCoreIdentityContext(): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
-    if (!content) continue;
+    if (!content) {
+      continue;
+    }
     // SOUL.md is always included — it provides personality defaults even
     // before onboarding completes.  Only skip IDENTITY.md when it is still
     // an unmodified template (matching buildSystemPrompt).
-    if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
+    if (file !== "SOUL.md" && isTemplateContent(content, file)) {
+      continue;
+    }
     parts.push(content);
   }
   const guardianPersona = resolveGuardianPersona();
-  if (guardianPersona) parts.push(guardianPersona);
+  if (guardianPersona) {
+    parts.push(guardianPersona);
+  }
   return parts.length > 0 ? parts.join("\n\n") : null;
 }

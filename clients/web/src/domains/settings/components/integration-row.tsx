@@ -3,9 +3,9 @@ import { ChevronDown, Loader2, Pencil, XCircle } from "lucide-react";
 import { useState } from "react";
 
 import {
-    assistantsOauthConnectionsListQueryKey,
-    assistantsOauthConnectionsListSetQueryData,
-    useAssistantsOauthDisconnectByConnectionCreateMutation,
+  assistantsOauthConnectionsListQueryKey,
+  assistantsOauthConnectionsListSetQueryData,
+  useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -65,26 +65,27 @@ export function IntegrationRow({
 
   const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
-  const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
-    onSuccess(_data, variables) {
-      toast.success(`${displayName} account disconnected.`);
-      const connectionId = variables.path.connection_id;
-      assistantsOauthConnectionsListSetQueryData(
-        queryClient,
-        connectionsOpts,
-        (old) => old?.filter((c) => c.id !== connectionId),
-      );
-      queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
-    },
-    onError(error) {
-      const detail = extractErrorMessage(
-        error,
-        undefined,
-        `Failed to disconnect ${displayName} account.`,
-      );
-      toast.error(detail);
-    },
-  });
+  const disconnectOAuth =
+    useAssistantsOauthDisconnectByConnectionCreateMutation({
+      onSuccess(_data, variables) {
+        toast.success(`${displayName} account disconnected.`);
+        const connectionId = variables.path.connection_id;
+        assistantsOauthConnectionsListSetQueryData(
+          queryClient,
+          connectionsOpts,
+          (old) => old?.filter((c) => c.id !== connectionId),
+        );
+        queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
+      },
+      onError(error) {
+        const detail = extractErrorMessage(
+          error,
+          undefined,
+          `Failed to disconnect ${displayName} account.`,
+        );
+        toast.error(detail);
+      },
+    });
 
   const handleDisable = () => {
     if (!connection?.id) {
@@ -220,7 +221,9 @@ export function IntegrationConfigureMenu({
               icon={disablePending ? Loader2 : XCircle}
               label="Disable"
               onSelect={() => {
-                if (disablePending) return;
+                if (disablePending) {
+                  return;
+                }
                 onDisable();
               }}
             />

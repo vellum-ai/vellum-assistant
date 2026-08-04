@@ -9,7 +9,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
 | Browser extension                            | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                                               |
-| Clients (web, iOS, macOS/Electron)           | [`clients/README.md`](clients/README.md)                                                           |
+| Clients (web, iOS, Android, macOS, Windows)  | [`clients/README.md`](clients/README.md)                                                           |
+| Public docs site (`clients/docs`)            | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
@@ -336,11 +337,8 @@ subgraph "Text Q&A Session"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
-            DB_SEG["memory_segments"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
-            DB_SUM["memory_summaries"]
-            DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
@@ -351,6 +349,12 @@ subgraph "Text Q&A Session"
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
+        end
+
+        subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db)"
+            DB_SEG["memory_segments"]
+            DB_SUM["memory_summaries"]
+            DB_EMB["memory_embeddings"]
         end
 
         subgraph "Skill Tool System"

@@ -18,6 +18,9 @@ export function BillingRedirectPage() {
   const query = searchParams.toString();
 
   return (
-    <Navigate replace to={`${routes.settings.usage}${query ? `?${query}` : ""}`} />
+    <Navigate
+      replace
+      to={`${routes.settings.usage}${query ? `?${query}` : ""}`}
+    />
   );
 }

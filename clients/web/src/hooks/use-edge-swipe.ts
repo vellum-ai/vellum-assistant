@@ -125,15 +125,23 @@ export type DirectionDecision = "pending" | "cancel" | "confirm";
  * gesture to abandon (`"cancel"`), or a left-edge swipe (`"confirm"`).
  */
 export function decideDirection(dx: number, dy: number): DirectionDecision {
-  if (Math.abs(dx) < DEADZONE_PX && Math.abs(dy) < DEADZONE_PX) {return "pending";}
-  if (isVerticalEscape(dx, dy)) {return "cancel";}
-  if (dx <= 0) {return "cancel";}
+  if (Math.abs(dx) < DEADZONE_PX && Math.abs(dy) < DEADZONE_PX) {
+    return "pending";
+  }
+  if (isVerticalEscape(dx, dy)) {
+    return "cancel";
+  }
+  if (dx <= 0) {
+    return "cancel";
+  }
   return "confirm";
 }
 
 /** Visual translateX for a horizontal delta, damped once past the threshold. */
 export function computeVisualOffset(dx: number, threshold: number): number {
-  if (dx <= threshold) {return dx;}
+  if (dx <= threshold) {
+    return dx;
+  }
   return threshold + (dx - threshold) * OVERDRAG_DAMPING;
 }
 
@@ -201,7 +209,9 @@ interface DragState {
 function findTouch(list: TouchList, id: number): Touch | null {
   for (let i = 0; i < list.length; i += 1) {
     const t = list[i];
-    if (t && t.identifier === id) {return t;}
+    if (t && t.identifier === id) {
+      return t;
+    }
   }
   return null;
 }
@@ -248,7 +258,9 @@ export function useEdgeSwipe({
   });
 
   useEffect(() => {
-    if (!isPointerCoarse()) {return;}
+    if (!isPointerCoarse()) {
+      return;
+    }
 
     const commitThreshold = () => commitThresholdPx(window.innerWidth);
 
@@ -258,11 +270,19 @@ export function useEdgeSwipe({
     };
 
     const handleTouchStart = (event: TouchEvent) => {
-      if (!enabledRef.current) {return;}
-      if (dragRef.current) {return;}
-      if (event.touches.length !== 1) {return;}
+      if (!enabledRef.current) {
+        return;
+      }
+      if (dragRef.current) {
+        return;
+      }
+      if (event.touches.length !== 1) {
+        return;
+      }
       const touch = event.touches[0];
-      if (!touch) {return;}
+      if (!touch) {
+        return;
+      }
       if (
         !shouldArmAt(
           touch.clientX,
@@ -284,21 +304,27 @@ export function useEdgeSwipe({
 
     const handleTouchMove = (event: TouchEvent) => {
       const drag = dragRef.current;
-      if (!drag) {return;}
+      if (!drag) {
+        return;
+      }
       if (event.touches.length > 1) {
         cancel(false);
         return;
       }
 
       const touch = findTouch(event.touches, drag.touchId);
-      if (!touch) {return;}
+      if (!touch) {
+        return;
+      }
 
       const dx = touch.clientX - drag.startX;
       const dy = touch.clientY - drag.startY;
 
       if (!drag.confirmed) {
         const decision = decideDirection(dx, dy);
-        if (decision === "pending") {return;}
+        if (decision === "pending") {
+          return;
+        }
         if (decision === "cancel") {
           cancel(false);
           return;
@@ -326,7 +352,9 @@ export function useEdgeSwipe({
 
     const handleTouchEnd = (event: TouchEvent) => {
       const drag = dragRef.current;
-      if (!drag) {return;}
+      if (!drag) {
+        return;
+      }
 
       const touch = findTouch(event.changedTouches, drag.touchId);
       const finalDx = touch ? touch.clientX - drag.startX : 0;
@@ -347,7 +375,9 @@ export function useEdgeSwipe({
       cancel(confirmed);
     };
 
-    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    document.addEventListener("touchstart", handleTouchStart, {
+      passive: true,
+    });
     document.addEventListener("touchmove", handleTouchMove, { passive: true });
     document.addEventListener("touchend", handleTouchEnd, { passive: true });
     document.addEventListener("touchcancel", handleTouchCancel, {

@@ -94,9 +94,28 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
         fontSize="58"
         textAnchor="middle"
       >
-        <text x="50" y="50" dy="0.355em" fill="#C88E16" transform="translate(1.3 1.6)">$</text>
-        <text x="50" y="50" dy="0.355em" fill="#FFF6CF" opacity="0.7" transform="translate(-1.3 -1.5)">$</text>
-        <text x="50" y="50" dy="0.355em" fill="#F4C12A">$</text>
+        <text
+          x="50"
+          y="50"
+          dy="0.355em"
+          fill="#C88E16"
+          transform="translate(1.3 1.6)"
+        >
+          $
+        </text>
+        <text
+          x="50"
+          y="50"
+          dy="0.355em"
+          fill="#FFF6CF"
+          opacity="0.7"
+          transform="translate(-1.3 -1.5)"
+        >
+          $
+        </text>
+        <text x="50" y="50" dy="0.355em" fill="#F4C12A">
+          $
+        </text>
       </g>
 
       {/* Gloss + hot-spot */}

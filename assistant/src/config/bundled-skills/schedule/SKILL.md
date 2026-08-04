@@ -104,6 +104,8 @@ Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execut
 
 Script commands run with the workspace root as the working directory. The assistant injects `__SCHEDULE_ID` (stable across runs of one schedule) and `__SCHEDULE_RUN_ID` (unique per firing) into the environment; `VELLUM_WORKSPACE_DIR` is also set. There is no schedule-name variable — the id is how a command finds anything keyed to its schedule.
 
+**Check for an existing skill before writing one.** An installed skill may already do the work the script is about to reimplement. Search the installed skills first, and follow that skill's own instructions for using it from a schedule. Where it gives none, `assistant skills inspect <id> --json` reports where it is installed — resolve that when the schedule runs rather than baking the path in, since a skill's directory varies by source and moves when a workspace is restored elsewhere.
+
 **Files on disk.** A self-contained command can live directly in the `script` field. A schedule that needs files on disk — a script too large to inline, or state that carries across runs — has a conventional home at `$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID/`. The assistant does not create or manage this directory. Because it is keyed by the schedule id, create the schedule first, read the id from the result, then create and populate `schedules/<id>/`: script files at the top level, run-managed state under `state/`, and a `.gitignore` covering `state/`. At runtime the command may reference the directory by absolute path or `cd` into it — either works. Deleting a schedule does not remove its directory; clean it up separately.
 
 **Handing off to the agent loop.** A script can wake the assistant when it finds something worth acting on:
@@ -120,6 +122,10 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 ## Inference Profile
 
 Execute-mode runs use the default `mainAgent` model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). Pin a profile when a recurring task should run on a specific model — e.g. a cost-optimized profile for a high-frequency digest. Pass `inference_profile: null` on update to revert to the default. The pinned profile is shown on the schedule's details page in settings.
+
+## Conversation Group
+
+Conversations created by a schedule's runs land in the sidebar's Scheduled section by default. Pass `group` (a group name or id) on create or update to file them into a custom sidebar group instead, e.g. a "Briefs" group for a morning digest. The group must already exist (create it with the conversation-groups skill); pass `group: null` on update to revert to the default. If the group is later deleted, runs fall back to the Scheduled section. Changing the group affects future runs only; move an existing conversation with `conversation_move_to_group`.
 
 ## Conversation Reuse
 

@@ -60,11 +60,17 @@ function deriveToolName(basename: string): string {
  * turn a `hooks/`/`tools/` directory into loadable surfaces.
  */
 function listModuleBasenames(dir: string): string[] {
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    return [];
+  }
   const bases = new Set<string>();
   for (const entry of readdirSync(dir)) {
-    if (entry.endsWith(".d.ts")) continue;
-    if (!entry.endsWith(".ts") && !entry.endsWith(".js")) continue;
+    if (entry.endsWith(".d.ts")) {
+      continue;
+    }
+    if (!entry.endsWith(".ts") && !entry.endsWith(".js")) {
+      continue;
+    }
     bases.add(entry.slice(0, -3));
   }
   return [...bases].sort();
@@ -76,10 +82,14 @@ function listModuleBasenames(dir: string): string[] {
  * discovery so inspect reports the same set the runtime would surface.
  */
 function listSkillIds(skillsDir: string): string[] {
-  if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
+  if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) {
+    return [];
+  }
   const ids: string[] = [];
   for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+      continue;
+    }
     if (existsSync(join(skillsDir, entry.name, "SKILL.md"))) {
       ids.push(entry.name);
     }

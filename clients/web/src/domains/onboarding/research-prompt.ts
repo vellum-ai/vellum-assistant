@@ -68,7 +68,9 @@ function renderCapabilitiesBlock(
     .slice(0, MAX_INJECTED_CAPABILITIES)
     .map((c) => `- ${c.name} — ${c.description}`)
     .join("\n");
-  if (!lines) return "";
+  if (!lines) {
+    return "";
+  }
   // The downstream keys this array precedes depend on whether suggestions are
   // requested, so the "before …" hint and the "don't reference setup" reminder
   // only name `suggestions` when that array is part of the shape.

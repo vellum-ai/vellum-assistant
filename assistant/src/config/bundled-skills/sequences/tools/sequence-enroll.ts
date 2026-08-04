@@ -13,12 +13,18 @@ export async function run(
   const emails = input.emails as string | string[];
   const context = input.context as Record<string, unknown> | undefined;
 
-  if (!sequenceId) return err("sequence_id is required.");
-  if (!emails) return err("emails is required (string or array).");
+  if (!sequenceId) {
+    return err("sequence_id is required.");
+  }
+  if (!emails) {
+    return err("emails is required (string or array).");
+  }
 
   try {
     const seq = getSequence(sequenceId);
-    if (!seq) return err(`Sequence not found: ${sequenceId}`);
+    if (!seq) {
+      return err(`Sequence not found: ${sequenceId}`);
+    }
 
     // Support comma-separated string or array
     const emailList = Array.isArray(emails)
@@ -28,7 +34,9 @@ export async function run(
           .map((e) => e.trim())
           .filter(Boolean);
 
-    if (emailList.length === 0) return err("No valid emails provided.");
+    if (emailList.length === 0) {
+      return err("No valid emails provided.");
+    }
 
     const results: string[] = [];
     let successCount = 0;

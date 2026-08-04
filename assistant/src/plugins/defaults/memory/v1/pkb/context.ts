@@ -20,7 +20,9 @@ const MAX_BUFFER_LINES = 50;
  */
 export function readPkbContext(): string | null {
   const pkbDir = join(getWorkspaceDir(), "pkb");
-  if (!existsSync(pkbDir)) return null;
+  if (!existsSync(pkbDir)) {
+    return null;
+  }
 
   const filesToInject = getPkbAutoInjectList(pkbDir);
 
@@ -28,9 +30,13 @@ export function readPkbContext(): string | null {
   for (const file of filesToInject) {
     // Path traversal guard: reject entries that escape the pkb directory
     const filePath = resolve(pkbDir, file);
-    if (!filePath.startsWith(pkbDir + "/")) continue;
+    if (!filePath.startsWith(pkbDir + "/")) {
+      continue;
+    }
 
-    if (!existsSync(filePath)) continue;
+    if (!existsSync(filePath)) {
+      continue;
+    }
     try {
       let content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
       if (file === "buffer.md" && content.length > 0) {
@@ -40,7 +46,9 @@ export function readPkbContext(): string | null {
           content = lines.slice(-MAX_BUFFER_LINES).join("\n");
         }
       }
-      if (content.length > 0) parts.push(content);
+      if (content.length > 0) {
+        parts.push(content);
+      }
     } catch {
       // Skip unreadable files
     }

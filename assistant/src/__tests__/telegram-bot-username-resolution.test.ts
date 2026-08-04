@@ -66,7 +66,9 @@ beforeEach(() => {
 
   globalThis.fetch = (async (..._args: unknown[]) => {
     fetchCallCount++;
-    if (mockFetchThrows) throw mockFetchThrows;
+    if (mockFetchThrows) {
+      throw mockFetchThrows;
+    }
     return mockFetchResponse;
   }) as typeof globalThis.fetch;
 });

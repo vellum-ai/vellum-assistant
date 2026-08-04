@@ -81,10 +81,14 @@ export function appendToRememberedLog(
 }
 
 function parseRememberedLog(raw: string | null): string[] {
-  if (!raw) return [];
+  if (!raw) {
+    return [];
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
     return parsed.filter((entry): entry is string => typeof entry === "string");
   } catch {
     return [];
@@ -102,7 +106,9 @@ export function listRetrospectiveStates(
   limit: number,
 ): MemoryRetrospectiveState[] {
   const mdb = memoryDbOrNull("listRetrospectiveStates");
-  if (!mdb) return [];
+  if (!mdb) {
+    return [];
+  }
   const rows = mdb
     .select({
       conversationId: memoryRetrospectiveState.conversationId,
@@ -129,7 +135,9 @@ export function getRetrospectiveState(
   conversationId: string,
 ): MemoryRetrospectiveState | null {
   const mdb = memoryDbOrNull("getRetrospectiveState");
-  if (!mdb) return null;
+  if (!mdb) {
+    return null;
+  }
   const row = mdb
     .select({
       conversationId: memoryRetrospectiveState.conversationId,
@@ -140,7 +148,9 @@ export function getRetrospectiveState(
     .from(memoryRetrospectiveState)
     .where(eq(memoryRetrospectiveState.conversationId, conversationId))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     conversationId: row.conversationId,
     lastProcessedMessageId: row.lastProcessedMessageId,
@@ -163,7 +173,9 @@ export async function upsertRetrospectiveState(
   },
 ): Promise<void> {
   const mdb = memoryDbOrNull("upsertRetrospectiveState");
-  if (!mdb) return;
+  if (!mdb) {
+    return;
+  }
   const serializedLog =
     args.rememberedLog === undefined
       ? undefined
@@ -179,7 +191,9 @@ export async function upsertRetrospectiveState(
     lastProcessedMessageId: args.lastProcessedMessageId,
     lastRunAt: args.lastRunAt,
   };
-  if (serializedLog !== undefined) set.rememberedLog = serializedLog;
+  if (serializedLog !== undefined) {
+    set.rememberedLog = serializedLog;
+  }
   await withSqliteRetry(
     () =>
       mdb
@@ -244,7 +258,9 @@ export function forkRetrospectiveState(args: {
 
   try {
     const mdb = memoryDbOrNull("forkRetrospectiveState");
-    if (!mdb) return;
+    if (!mdb) {
+      return;
+    }
 
     const sourceRow = mdb
       .select({
@@ -255,7 +271,9 @@ export function forkRetrospectiveState(args: {
       .from(memoryRetrospectiveState)
       .where(eq(memoryRetrospectiveState.conversationId, sourceConversationId))
       .get();
-    if (!sourceRow) return;
+    if (!sourceRow) {
+      return;
+    }
 
     let forkedPointer = "";
     if (sourceRow.lastProcessedMessageId !== "") {
@@ -306,7 +324,9 @@ export async function bumpRetrospectiveLastRunAt(
   lastRunAt: number,
 ): Promise<void> {
   const mdb = memoryDbOrNull("bumpRetrospectiveLastRunAt");
-  if (!mdb) return;
+  if (!mdb) {
+    return;
+  }
   await withSqliteRetry(
     () =>
       mdb

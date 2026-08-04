@@ -79,7 +79,9 @@ export function getRepoSkillsDir(): string | undefined {
     return undefined;
   }
 
-  if (!process.env.VELLUM_DEV) return undefined;
+  if (!process.env.VELLUM_DEV) {
+    return undefined;
+  }
 
   // assistant/src/skills/catalog-install.ts -> ../../../skills/
   const candidate = join(importDir, "..", "..", "..", "skills");
@@ -127,11 +129,15 @@ function asStr(value: unknown): string | undefined {
  * so a future API change to the nested shape keeps working.
  */
 function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
-  if (typeof raw !== "object" || raw === null) return null;
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
   const entry = raw as RawCatalogEntry;
 
   const id = asStr(entry.id);
-  if (!id) return null;
+  if (!id) {
+    return null;
+  }
 
   const nested = entry.metadata?.vellum;
   const category = nested?.category ?? asStr(entry.category);
@@ -186,7 +192,9 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
   try {
     const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
     const manifest = JSON.parse(raw) as { skills?: unknown };
-    if (!Array.isArray(manifest.skills)) return [];
+    if (!Array.isArray(manifest.skills)) {
+      return [];
+    }
     return manifest.skills
       .map((s) => normalizeCatalogEntry(s))
       .filter((s): s is CatalogSkill => s !== null);
@@ -227,7 +235,9 @@ function safeResolveSkillInstallPath(
   const insideDestination =
     destPath === resolvedDestRoot ||
     destPath.startsWith(resolvedDestRoot + sep);
-  if (!insideDestination) return null;
+  if (!insideDestination) {
+    return null;
+  }
 
   return { normalizedPath, destPath };
 }
@@ -239,7 +249,9 @@ export function writeSkillFilesToDir(
   let foundSkillMd = false;
   for (const [relativePath, content] of Object.entries(files)) {
     const resolved = safeResolveSkillInstallPath(destDir, relativePath);
-    if (!resolved) continue;
+    if (!resolved) {
+      continue;
+    }
 
     mkdirSync(dirname(resolved.destPath), { recursive: true });
     writeFileSync(resolved.destPath, content);
@@ -262,7 +274,9 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
     const header = tarBuffer.subarray(offset, offset + 512);
 
     // End-of-archive (two consecutive zero blocks)
-    if (header.every((b) => b === 0)) break;
+    if (header.every((b) => b === 0)) {
+      break;
+    }
 
     // Filename (bytes 0-99, null-terminated)
     const nameEnd = header.indexOf(0, 0);
@@ -289,7 +303,9 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
           tarBuffer.subarray(offset, offset + size),
         );
 
-        if (resolved.normalizedPath === "SKILL.md") foundSkillMd = true;
+        if (resolved.normalizedPath === "SKILL.md") {
+          foundSkillMd = true;
+        }
       }
     }
 
@@ -336,7 +352,9 @@ function assertInstalledSkillDiscoverable(
   }
 
   const discovered = loadSkillCatalog().some((skill) => {
-    if (skill.id !== skillId) return false;
+    if (skill.id !== skillId) {
+      return false;
+    }
     try {
       return realpathSync(skill.directoryPath) === realpathSync(skillDir);
     } catch {
@@ -407,7 +425,9 @@ function discardSkillInstallBackup(backupDir: string | null): void {
 
 function snapshotExistingSkillDir(skillId: string): string | null {
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
-  if (!existsSync(skillDir)) return null;
+  if (!existsSync(skillDir)) {
+    return null;
+  }
 
   const backupDir = createSkillInstallBackupPath();
   renameSync(skillDir, backupDir);

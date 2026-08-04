@@ -122,7 +122,9 @@ export function buildBatchEntries(
   }
 
   const byId = new Map<string, QuestionBatchSubmission>();
-  for (const s of submissions) byId.set(s.questionId, s);
+  for (const s of submissions) {
+    byId.set(s.questionId, s);
+  }
 
   return orderedIds.map((id) => {
     const s = byId.get(id)!;
@@ -219,7 +221,9 @@ export class QuestionPrompter {
       let settled = false;
       let onAbort: (() => void) | undefined;
       const finish = (fn: () => void): void => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         if (signal && onAbort) {

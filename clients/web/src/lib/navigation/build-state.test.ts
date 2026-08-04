@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Spread the real `@/lib/local-mode` so every other export the dependency graph
 // pulls in stays available; override only the hosting-mode flags build-state
 // branches on.
-let mockIsLocalMode = true;
+let mockIsLocalClient = true;
 let mockIsRemoteGatewayMode = false;
 
 const localModeActual = await import("@/lib/local-mode");
 mock.module("@/lib/local-mode", () => ({
   ...localModeActual,
-  isLocalMode: () => mockIsLocalMode,
+  isLocalClient: () => mockIsLocalClient,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
 }));
 
@@ -31,14 +31,13 @@ mock.module("@/domains/onboarding/prefs", () => ({
 const { buildNavigationState } = await import("./build-state");
 const { useAuthStore } = await import("@/stores/auth-store");
 const { useOrganizationStore } = await import("@/stores/organization-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 const initialAuthState = useAuthStore.getState();
 
 beforeEach(() => {
-  mockIsLocalMode = true;
+  mockIsLocalClient = true;
   mockIsRemoteGatewayMode = false;
   useAuthStore.setState(initialAuthState, true);
   useOrganizationStore.setState({

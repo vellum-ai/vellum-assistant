@@ -9,10 +9,7 @@
  * @see useSendMessage — the orchestrator that composes this hook
  */
 
-import {
-  useCallback,
-  useMemo,
-} from "react";
+import { useCallback, useMemo } from "react";
 
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -21,7 +18,6 @@ import {
   clearQueueStatus,
   markMessageQueued,
 } from "@/domains/chat/utils/stream-updaters/shared";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { steerToMessage } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
@@ -47,8 +43,7 @@ function requestIdForQueuedMessage(messageId: string): string | undefined {
   }
   return snapshot?.messages.find(
     (message) =>
-      message.queueStatus === "queued" &&
-      messageMatchesKey(message, messageId),
+      message.queueStatus === "queued" && messageMatchesKey(message, messageId),
   )?.id;
 }
 
@@ -98,7 +93,6 @@ export function useMessageQueue({
           setOptimisticSends,
           onDeleted: () => {
             useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
-            useTurnStore.getState().deleteQueuedMessage();
           },
         });
       } else {

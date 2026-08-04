@@ -55,7 +55,9 @@ export function LibraryAppCard({
     [assistantId, app.id],
   );
   const handleShare = useCallback(async () => {
-    if (isSharing) return;
+    if (isSharing) {
+      return;
+    }
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.id, app.name);

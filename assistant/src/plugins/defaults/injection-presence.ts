@@ -34,7 +34,9 @@ export function hasInjectedUserTextBlock(
   runMessages: Message[] | undefined,
   matchers: readonly InjectionMatcher[],
 ): boolean {
-  if (!runMessages) return false;
+  if (!runMessages) {
+    return false;
+  }
   return runMessages.some(
     (message) =>
       message.role === "user" &&

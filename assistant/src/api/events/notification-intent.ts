@@ -26,6 +26,11 @@ export const NotificationIntentEventSchema = z.object({
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
   targetGuardianPrincipalId: z.string().optional(),
   silent: z.boolean().optional(),
+  /**
+   * True when the platform (APNs) channel accepted a remote push for
+   * this delivery, so native clients can avoid double-bannering.
+   */
+  remotePushDispatched: z.boolean().optional(),
 });
 
 export type NotificationIntentEvent = z.infer<

@@ -45,8 +45,12 @@ export function evaluateTemporalTriggers(
   const dateStr = `${currentMonth}-${currentDate}`;
 
   for (const trigger of triggers) {
-    if (trigger.type !== "temporal" || !trigger.schedule) continue;
-    if (!passesCooldown(trigger, now)) continue;
+    if (trigger.type !== "temporal" || !trigger.schedule) {
+      continue;
+    }
+    if (!passesCooldown(trigger, now)) {
+      continue;
+    }
 
     const schedule = trigger.schedule.toLowerCase();
     let fired = false;
@@ -103,10 +107,18 @@ export function evaluateSemanticTriggers(
   const results: TriggeredResult[] = [];
 
   for (const trigger of triggers) {
-    if (trigger.type !== "semantic") continue;
-    if (!trigger.conditionEmbedding || trigger.threshold == null) continue;
-    if (trigger.consumed) continue;
-    if (!passesCooldown(trigger, new Date())) continue;
+    if (trigger.type !== "semantic") {
+      continue;
+    }
+    if (!trigger.conditionEmbedding || trigger.threshold == null) {
+      continue;
+    }
+    if (trigger.consumed) {
+      continue;
+    }
+    if (!passesCooldown(trigger, new Date())) {
+      continue;
+    }
 
     const similarity = cosineSimilarity(
       queryEmbedding,
@@ -132,7 +144,9 @@ function cosineSimilarity(
   a: number[] | Float32Array,
   b: number[] | Float32Array,
 ): number {
-  if (a.length !== b.length) return 0;
+  if (a.length !== b.length) {
+    return 0;
+  }
   let dot = 0;
   let normA = 0;
   let normB = 0;
@@ -163,7 +177,9 @@ export function evaluateEventTriggers(
   const nowMs = now.getTime();
 
   for (const trigger of triggers) {
-    if (trigger.type !== "event" || trigger.eventDate == null) continue;
+    if (trigger.type !== "event" || trigger.eventDate == null) {
+      continue;
+    }
 
     const boost = computeEventRelevance(
       trigger.eventDate,
@@ -217,7 +233,11 @@ function computeEventRelevance(
 // ---------------------------------------------------------------------------
 
 function passesCooldown(trigger: MemoryTrigger, now: Date): boolean {
-  if (!trigger.recurring) return true;
-  if (!trigger.lastFired || !trigger.cooldownMs) return true;
+  if (!trigger.recurring) {
+    return true;
+  }
+  if (!trigger.lastFired || !trigger.cooldownMs) {
+    return true;
+  }
   return now.getTime() - trigger.lastFired >= trigger.cooldownMs;
 }

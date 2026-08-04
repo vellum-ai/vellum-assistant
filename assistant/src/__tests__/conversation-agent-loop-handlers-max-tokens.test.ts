@@ -40,7 +40,9 @@ describe("max tokens reached handler", () => {
 
     const show = sent.find((msg) => msg.type === "ui_surface_show");
     expect(show).toBeDefined();
-    if (!show || show.type !== "ui_surface_show") {return;}
+    if (!show || show.type !== "ui_surface_show") {
+      return;
+    }
 
     expect(show.surfaceType).toBe("card");
     expect((show.data as { title?: unknown }).title).toBe(

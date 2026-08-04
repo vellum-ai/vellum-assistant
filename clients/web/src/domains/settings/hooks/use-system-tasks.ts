@@ -34,7 +34,10 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import type { ScheduleRun, SystemTaskKind } from "@/domains/settings/types/schedules";
+import type {
+  ScheduleRun,
+  SystemTaskKind,
+} from "@/domains/settings/types/schedules";
 
 const STALE_TIME = 10_000;
 
@@ -45,9 +48,16 @@ function deriveUsage(
   runs: ScheduleRun[] | undefined,
   range: ScheduleUsageWindow,
 ): ScheduleRowUsage {
-  if (isLoading) return { status: "loading" };
-  if (isError) return { status: "error" };
-  return { status: "ready", summary: summarizeRunsForUsage(urlId, runs, range) };
+  if (isLoading) {
+    return { status: "loading" };
+  }
+  if (isError) {
+    return { status: "error" };
+  }
+  return {
+    status: "ready",
+    summary: summarizeRunsForUsage(urlId, runs, range),
+  };
 }
 
 /**
@@ -145,24 +155,57 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   // Derived usage stats
   // ---------------------------------------------------------------------------
 
-  const systemStatsRange = useMemo(
-    () => resolveScheduleUsageWindow(tz),
-    [tz],
-  );
+  const systemStatsRange = useMemo(() => resolveScheduleUsageWindow(tz), [tz]);
 
   const heartbeatUsage: ScheduleRowUsage = useMemo(
-    () => deriveUsage(isHeartbeatStatsLoading, isHeartbeatStatsError, SYSTEM_TASK_URL_IDS.heartbeat, heartbeatRunsForStats, systemStatsRange),
-    [heartbeatRunsForStats, isHeartbeatStatsError, isHeartbeatStatsLoading, systemStatsRange],
+    () =>
+      deriveUsage(
+        isHeartbeatStatsLoading,
+        isHeartbeatStatsError,
+        SYSTEM_TASK_URL_IDS.heartbeat,
+        heartbeatRunsForStats,
+        systemStatsRange,
+      ),
+    [
+      heartbeatRunsForStats,
+      isHeartbeatStatsError,
+      isHeartbeatStatsLoading,
+      systemStatsRange,
+    ],
   );
 
   const consolidationUsage: ScheduleRowUsage = useMemo(
-    () => deriveUsage(isConsolidationStatsLoading, isConsolidationStatsError, SYSTEM_TASK_URL_IDS.consolidation, consolidationRunsForStats, systemStatsRange),
-    [consolidationRunsForStats, isConsolidationStatsError, isConsolidationStatsLoading, systemStatsRange],
+    () =>
+      deriveUsage(
+        isConsolidationStatsLoading,
+        isConsolidationStatsError,
+        SYSTEM_TASK_URL_IDS.consolidation,
+        consolidationRunsForStats,
+        systemStatsRange,
+      ),
+    [
+      consolidationRunsForStats,
+      isConsolidationStatsError,
+      isConsolidationStatsLoading,
+      systemStatsRange,
+    ],
   );
 
   const retrospectiveUsage: ScheduleRowUsage = useMemo(
-    () => deriveUsage(isRetrospectiveStatsLoading, isRetrospectiveStatsError, SYSTEM_TASK_URL_IDS.retrospective, retrospectiveRunsForStats, systemStatsRange),
-    [retrospectiveRunsForStats, isRetrospectiveStatsError, isRetrospectiveStatsLoading, systemStatsRange],
+    () =>
+      deriveUsage(
+        isRetrospectiveStatsLoading,
+        isRetrospectiveStatsError,
+        SYSTEM_TASK_URL_IDS.retrospective,
+        retrospectiveRunsForStats,
+        systemStatsRange,
+      ),
+    [
+      retrospectiveRunsForStats,
+      isRetrospectiveStatsError,
+      isRetrospectiveStatsLoading,
+      systemStatsRange,
+    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -170,7 +213,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   // ---------------------------------------------------------------------------
 
   const invalidateSystemTaskQueries = (kind: SystemTaskKind) => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     const keysForKind = {
       heartbeat: {
         config: heartbeatConfigGetOptions(pathOpts).queryKey,
@@ -226,7 +271,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const heartbeatToggle = useHeartbeatConfigPutMutation({
     onSuccess: (data) => {
       heartbeatConfigGetSetQueryData(queryClient, pathOpts, data);
-      toast.success(data.enabled ? "Heartbeat enabled." : "Heartbeat disabled.");
+      toast.success(
+        data.enabled ? "Heartbeat enabled." : "Heartbeat disabled.",
+      );
     },
     onError: (error) => {
       captureError(error, { context: "heartbeat_toggle" });
@@ -239,17 +286,23 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   // ---------------------------------------------------------------------------
 
   const runHeartbeatNow = () => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     heartbeatRunNow.mutate({ path: { assistant_id: assistantId } });
   };
 
   const runConsolidationNow = () => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     consolidationRunNow.mutate({ path: { assistant_id: assistantId } });
   };
 
   const toggleHeartbeat = (enabled: boolean) => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     heartbeatToggle.mutate({
       body: { enabled },
       path: { assistant_id: assistantId },

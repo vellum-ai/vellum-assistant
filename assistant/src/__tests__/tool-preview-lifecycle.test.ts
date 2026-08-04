@@ -73,12 +73,9 @@ mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module(
-  "../plugins/defaults/memory/v2/activation-log-store.js",
-  () => ({
-    backfillMemoryV2ActivationMessageId: () => {},
-  }),
-);
+mock.module("../plugins/defaults/memory/v2/activation-log-store.js", () => ({
+  backfillMemoryV2ActivationMessageId: () => {},
+}));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";
@@ -340,6 +337,64 @@ describe("tool preview lifecycle", () => {
       expect((emitted as any).toolName).toBe("app_create");
       expect((emitted as any).content).toBe('{"command": "ls"}');
       expect((emitted as any).conversationId).toBe("test-session-id");
+    });
+
+    test("a streaming ui_show visual announces its surface exactly once", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({ onEvent: collector.onEvent });
+
+      for (const accumulatedJson of [
+        '{"surface_type": "vis',
+        '{"surface_type": "visual", "data": {"html": "<sv',
+        '{"surface_type": "visual", "data": {"html": "<svg viewBox=',
+      ]) {
+        handleInputJsonDelta(state, deps, {
+          type: "input_json_delta",
+          toolName: "ui_show",
+          toolUseId: "toolu_visual",
+          accumulatedJson,
+        });
+      }
+
+      expect(collector.events).toHaveLength(1);
+      const emitted = collector.events[0] as any;
+      expect(emitted.type).toBe("ui_surface_pending");
+      expect(emitted.surfaceType).toBe("visual");
+      expect(emitted.toolUseId).toBe("toolu_visual");
+      expect(emitted.conversationId).toBe("test-session-id");
+    });
+
+    test("a ui_show for any other surface type announces nothing", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({ onEvent: collector.onEvent });
+
+      handleInputJsonDelta(state, deps, {
+        type: "input_json_delta",
+        toolName: "ui_show",
+        toolUseId: "toolu_card",
+        accumulatedJson:
+          '{"surface_type": "card", "data": {"title": "Deploy", "body": "' +
+          "x".repeat(600) +
+          '"}}',
+      });
+
+      expect(collector.events).toEqual([]);
+    });
+
+    test("a ui_show never streams its input to the client", () => {
+      const collector = createEventCollector();
+      const deps = createMockDeps({ onEvent: collector.onEvent });
+
+      handleInputJsonDelta(state, deps, {
+        type: "input_json_delta",
+        toolName: "ui_show",
+        toolUseId: "toolu_visual_input",
+        accumulatedJson: '{"surface_type": "visual", "data": {"html": "<svg"}}',
+      });
+
+      expect(collector.events.some((e) => e.type === "tool_input_delta")).toBe(
+        false,
+      );
     });
 
     test("handleToolResult includes toolUseId", async () => {

@@ -15,8 +15,12 @@ export function optsToQueryParams(opts: Record<string, unknown>): {
 } {
   const queryParams: Record<string, string> = {};
   for (const [k, v] of Object.entries(opts)) {
-    if (CLI_ONLY_KEYS.has(k)) continue;
-    if (typeof v === "string") queryParams[k] = v;
+    if (CLI_ONLY_KEYS.has(k)) {
+      continue;
+    }
+    if (typeof v === "string") {
+      queryParams[k] = v;
+    }
   }
   return { queryParams };
 }

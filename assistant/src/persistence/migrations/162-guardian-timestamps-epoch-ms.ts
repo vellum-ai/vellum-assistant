@@ -88,13 +88,16 @@ function hasIntegerAffinity(
       `SELECT type FROM pragma_table_info('${table}') WHERE name = '${column}'`,
     )
     .get() as { type: string } | null;
-  if (!row) return true; // column doesn't exist — nothing to fix
+  if (!row) {
+    return true;
+  } // column doesn't exist — nothing to fix
   return row.type.toUpperCase() === "INTEGER";
 }
 
 function rebuildCanonicalGuardianRequests(raw: RawDb): void {
-  if (hasIntegerAffinity(raw, "canonical_guardian_requests", "created_at"))
+  if (hasIntegerAffinity(raw, "canonical_guardian_requests", "created_at")) {
     return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -162,8 +165,9 @@ function rebuildCanonicalGuardianRequests(raw: RawDb): void {
 }
 
 function rebuildCanonicalGuardianDeliveries(raw: RawDb): void {
-  if (hasIntegerAffinity(raw, "canonical_guardian_deliveries", "created_at"))
+  if (hasIntegerAffinity(raw, "canonical_guardian_deliveries", "created_at")) {
     return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -210,7 +214,9 @@ function rebuildCanonicalGuardianDeliveries(raw: RawDb): void {
 }
 
 function rebuildScopedApprovalGrants(raw: RawDb): void {
-  if (hasIntegerAffinity(raw, "scoped_approval_grants", "created_at")) return;
+  if (hasIntegerAffinity(raw, "scoped_approval_grants", "created_at")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -343,12 +349,16 @@ function hasTextAffinity(raw: RawDb, table: string, column: string): boolean {
       `SELECT type FROM pragma_table_info('${table}') WHERE name = '${column}'`,
     )
     .get() as { type: string } | null;
-  if (!row) return true; // column doesn't exist — nothing to fix
+  if (!row) {
+    return true;
+  } // column doesn't exist — nothing to fix
   return row.type.toUpperCase() === "TEXT";
 }
 
 function rebuildCanonicalGuardianRequestsToText(raw: RawDb): void {
-  if (hasTextAffinity(raw, "canonical_guardian_requests", "created_at")) return;
+  if (hasTextAffinity(raw, "canonical_guardian_requests", "created_at")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -432,8 +442,9 @@ function rebuildCanonicalGuardianRequestsToText(raw: RawDb): void {
 }
 
 function rebuildCanonicalGuardianDeliveriesToText(raw: RawDb): void {
-  if (hasTextAffinity(raw, "canonical_guardian_deliveries", "created_at"))
+  if (hasTextAffinity(raw, "canonical_guardian_deliveries", "created_at")) {
     return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -490,7 +501,9 @@ function rebuildCanonicalGuardianDeliveriesToText(raw: RawDb): void {
 }
 
 function rebuildScopedApprovalGrantsToText(raw: RawDb): void {
-  if (hasTextAffinity(raw, "scoped_approval_grants", "created_at")) return;
+  if (hasTextAffinity(raw, "scoped_approval_grants", "created_at")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

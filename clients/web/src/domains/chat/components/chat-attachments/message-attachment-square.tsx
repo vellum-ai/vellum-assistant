@@ -1,15 +1,14 @@
-
 import {
-    Archive,
-    Code2,
-    Download,
-    FileAudio,
-    File as FileIcon,
-    FileImage,
-    FileSpreadsheet,
-    FileText,
-    FileType2,
-    FileVideo,
+  Archive,
+  Code2,
+  Download,
+  FileAudio,
+  File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideo,
 } from "lucide-react";
 import type { FC, MouseEvent, ReactNode } from "react";
 import { useCallback } from "react";
@@ -17,10 +16,10 @@ import { useCallback } from "react";
 import { Tooltip, Typography } from "@vellumai/design-library";
 
 import {
-    classifyAttachment,
-    formatAttachmentSize,
-    middleTruncate,
-    type AttachmentIconKind,
+  classifyAttachment,
+  formatAttachmentSize,
+  middleTruncate,
+  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 
@@ -112,7 +111,9 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
           className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
           style={
             backgroundImageUrl
-              ? { backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})` }
+              ? {
+                  backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})`,
+                }
               : undefined
           }
         >

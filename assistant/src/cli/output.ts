@@ -3,7 +3,9 @@ import type { Command } from "commander";
 export function shouldOutputJson(cmd: Command): boolean {
   let current: Command | null = cmd;
   while (current) {
-    if ((current.opts() as { json?: boolean }).json) return true;
+    if ((current.opts() as { json?: boolean }).json) {
+      return true;
+    }
     current = current.parent;
   }
   return false;

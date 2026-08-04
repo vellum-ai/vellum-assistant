@@ -1,7 +1,9 @@
-
 import { Fragment, memo, type ReactNode } from "react";
 
-import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";
+import type {
+  MessageItem,
+  TranscriptItem,
+} from "@/domains/chat/transcript/types";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -51,7 +53,9 @@ export interface LatestTurnRowProps {
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   assistantId?: string | null;

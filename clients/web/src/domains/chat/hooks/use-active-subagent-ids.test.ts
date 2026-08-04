@@ -88,10 +88,11 @@ describe("useActiveSubagentIds", () => {
 });
 
 describe("useActiveSubagentIds — conversation scoping", () => {
+  /** Seed an entry scoped to `parentConversationId` (the viewed conversation). */
   function seedIn(
     subagentId: string,
     status: SubagentStatus,
-    conversationId?: string,
+    parentConversationId?: string,
   ) {
     const store = useSubagentStore.getState();
     store.spawnSubagent({
@@ -101,7 +102,9 @@ describe("useActiveSubagentIds — conversation scoping", () => {
       timestamp: Date.now(),
     });
     store.changeStatus({ subagentId, status });
-    if (conversationId) store.setConversationId(subagentId, conversationId);
+    if (parentConversationId) {
+      store.setParentConversationId(subagentId, parentConversationId);
+    }
   }
 
   test("excludes an active subagent from a different conversation", () => {
@@ -117,7 +120,7 @@ describe("useActiveSubagentIds — conversation scoping", () => {
 
   test("keeps a subagent whose conversation isn't known yet (set post-spawn)", () => {
     act(() => {
-      seedIn("unknown", "running"); // conversationId not assigned yet
+      seedIn("unknown", "running"); // parentConversationId not assigned yet
       seedIn("elsewhere", "running", "conv-2");
     });
 
@@ -126,5 +129,25 @@ describe("useActiveSubagentIds — conversation scoping", () => {
     // The unknown-conversation entry stays visible; the one known to belong to
     // another conversation is filtered out.
     expect(result.current).toEqual(["unknown"]);
+  });
+
+  test("keeps an entry whose child conversationId differs from the active one", () => {
+    // A subagent's own conversation id never equals the viewed conversation, so
+    // scoping on it would hide every entry rebuilt from history.
+    act(() => {
+      useSubagentStore.getState().spawnSubagent({
+        subagentId: "rebuilt",
+        label: "rebuilt",
+        objective: "",
+        status: "running",
+        conversationId: "conv-child",
+        parentConversationId: "conv-1",
+        timestamp: Date.now(),
+      });
+    });
+
+    const { result } = renderHook(() => useActiveSubagentIds("conv-1"));
+
+    expect(result.current).toEqual(["rebuilt"]);
   });
 });

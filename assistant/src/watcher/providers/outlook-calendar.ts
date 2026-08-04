@@ -305,6 +305,7 @@ export const outlookCalendarProvider: WatcherProvider = {
   id: "outlook-calendar",
   displayName: "Outlook Calendar",
   requiredCredentialService: CREDENTIAL_SERVICE,
+  untrustedContentSource: "calendar",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);
@@ -339,7 +340,9 @@ export const outlookCalendarProvider: WatcherProvider = {
       // Filter out cancelled events and convert to watcher items
       const items: WatcherItem[] = [];
       for (const event of events) {
-        if (event.isCancelled) continue;
+        if (event.isCancelled) {
+          continue;
+        }
 
         const eventType =
           event.createdDateTime === event.lastModifiedDateTime

@@ -185,11 +185,7 @@ export function updateArchivedConversationsCache(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  updateCache(
-    queryClient,
-    archivedConversationsQueryKey(assistantId),
-    updater,
-  );
+  updateCache(queryClient, archivedConversationsQueryKey(assistantId), updater);
 }
 
 /**
@@ -208,12 +204,16 @@ export function updateAllConversationCaches(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  if (!assistantId) return;
+  if (!assistantId) {
+    return;
+  }
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [queryKey, data] of entries) {
-    if (!data) continue;
+    if (!data) {
+      continue;
+    }
     const next = updater(data);
     if (next !== data) {
       queryClient.setQueryData<Conversation[]>(queryKey, next);
@@ -232,13 +232,17 @@ export function findConversation(
   assistantId: string | null,
   key: string,
 ): Conversation | undefined {
-  if (!assistantId) return undefined;
+  if (!assistantId) {
+    return undefined;
+  }
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [, data] of entries) {
     const match = data?.find((c) => c.conversationId === key);
-    if (match) return match;
+    if (match) {
+      return match;
+    }
   }
   return undefined;
 }
@@ -278,7 +282,9 @@ export function getConversations(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Conversation[] {
-  if (!assistantId) return [];
+  if (!assistantId) {
+    return [];
+  }
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: conversationListPrefix(assistantId),
   });

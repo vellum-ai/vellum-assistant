@@ -69,7 +69,9 @@ export function HomeFeedFilterBar({
     categories.includes(c),
   );
 
-  if (presentCategories.length <= 1) return null;
+  if (presentCategories.length <= 1) {
+    return null;
+  }
 
   const items: SegmentControlItem<FilterValue>[] = [
     { value: ALL_FILTER, label: "All", icon: <List className="h-4 w-4" /> },

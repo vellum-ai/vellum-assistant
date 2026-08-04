@@ -56,7 +56,9 @@ export const slackTransport: ChannelTransport = {
 
   async sendReaction(_ctx, payload) {
     const reaction = payload.reaction;
-    if (!reaction) return { ok: true };
+    if (!reaction) {
+      return { ok: true };
+    }
     await sendSlackReaction(
       payload.chatId,
       reaction.name,
@@ -68,7 +70,9 @@ export const slackTransport: ChannelTransport = {
 
   async setThreadStatus(_ctx, payload) {
     const status = payload.assistantThreadStatus;
-    if (!status) return { ok: true };
+    if (!status) {
+      return { ok: true };
+    }
     await sendSlackAssistantThreadStatus(
       status.channel,
       status.threadTs,
@@ -80,7 +84,9 @@ export const slackTransport: ChannelTransport = {
 
   async streamReply(_ctx, payload) {
     const op = payload.slackStream;
-    if (!op) return { ok: true };
+    if (!op) {
+      return { ok: true };
+    }
     return sendSlackStreamOp(payload.chatId, op);
   },
 };

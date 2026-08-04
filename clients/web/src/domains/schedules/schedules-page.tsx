@@ -129,7 +129,9 @@ export function SchedulesPage() {
     (kind: SystemTaskKind) => {
       // Clear the focused schedule from the URL only when one is set, so
       // selecting a system task doesn't push a redundant history entry.
-      if (selectedScheduleId) handleSelectScheduleId(null);
+      if (selectedScheduleId) {
+        handleSelectScheduleId(null);
+      }
       setSelectedSystemTaskKind(kind);
     },
     [handleSelectScheduleId, selectedScheduleId],

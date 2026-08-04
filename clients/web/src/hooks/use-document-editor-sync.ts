@@ -23,7 +23,9 @@ import { useViewerStore } from "@/stores/viewer-store";
 export function useDocumentEditorSync(): void {
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
-    if (event.type !== "document_editor_update") return;
+    if (event.type !== "document_editor_update") {
+      return;
+    }
     useViewerStore
       .getState()
       .updateDocumentContent(event.surfaceId, event.markdown, event.mode);

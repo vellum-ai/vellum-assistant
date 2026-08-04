@@ -16,9 +16,13 @@ export function useDeepLinkApp(
   const consumedRef = useRef(false);
 
   useEffect(() => {
-    if (consumedRef.current) return;
+    if (consumedRef.current) {
+      return;
+    }
     const appId = searchParams.get("app");
-    if (!appId || !assistantId) return;
+    if (!appId || !assistantId) {
+      return;
+    }
     consumedRef.current = true;
     void useViewerStore.getState().loadApp(assistantId, appId);
     const params = new URLSearchParams(searchParams.toString());

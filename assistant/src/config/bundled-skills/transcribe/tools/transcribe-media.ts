@@ -64,7 +64,9 @@ async function getAudioDuration(audioPath: string): Promise<number> {
     ],
     FFPROBE_TIMEOUT_MS,
   );
-  if (result.exitCode !== 0) return 0;
+  if (result.exitCode !== 0) {
+    return 0;
+  }
   return parseFloat(result.stdout.trim()) || 0;
 }
 
@@ -141,7 +143,9 @@ async function resolveSource(
 async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
   const wavPath = join(tmpdir(), `vellum-transcribe-${randomUUID()}.wav`);
   const args = ["ffmpeg", "-y", "-i", inputPath];
-  if (isVideo) args.push("-vn");
+  if (isVideo) {
+    args.push("-vn");
+  }
   args.push("-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wavPath);
   const result = await spawnWithTimeout(args, FFMPEG_TRANSCODE_TIMEOUT_MS);
   if (result.exitCode !== 0) {
@@ -187,7 +191,9 @@ async function transcribeWithProvider(
     const parts: string[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
-      if (context.signal?.aborted) throw new Error("Cancelled");
+      if (context.signal?.aborted) {
+        throw new Error("Cancelled");
+      }
       context.onOutput?.(`  Transcribing chunk ${i + 1}/${chunks.length}...\n`);
       const audioBuffer = await readFile(chunks[i]);
       const result = await transcriber.transcribe({
@@ -195,7 +201,9 @@ async function transcribeWithProvider(
         mimeType: "audio/wav",
         signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
       });
-      if (result.text) parts.push(result.text);
+      if (result.text) {
+        parts.push(result.text);
+      }
     }
 
     return parts.join(" ");
@@ -237,7 +245,9 @@ export async function run(
   }
 
   const source = await resolveSource(input);
-  if ("isError" in source) return source;
+  if ("isError" in source) {
+    return source;
+  }
 
   const { inputPath, isVideo } = source;
   let wavPath: string | null = null;

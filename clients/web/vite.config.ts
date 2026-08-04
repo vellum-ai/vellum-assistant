@@ -43,7 +43,9 @@ function injectPlatformToken(apiMode: boolean) {
     proxy.on("proxyReq", (...args: unknown[]) => {
       const proxyReq = args[0] as http.ClientRequest;
       const req = args[1] as http.IncomingMessage;
-      if (!isSameOriginProxyRequest(req)) return;
+      if (!isSameOriginProxyRequest(req)) {
+        return;
+      }
       const token = getDevPlatformToken();
       if (apiMode) {
         // Header-only auth; drop any browser cookie so it can't re-engage the
@@ -51,8 +53,10 @@ function injectPlatformToken(apiMode: boolean) {
         proxyReq.removeHeader("Cookie");
         // Server-side proxy injection of the loopback token, not browser auth —
         // the centralized interceptor can't reach this Node proxy hook.
-        // eslint-disable-next-line no-restricted-syntax
-        if (token) proxyReq.setHeader("X-Session-Token", token);
+        if (token) {
+          // eslint-disable-next-line no-restricted-syntax
+          proxyReq.setHeader("X-Session-Token", token);
+        }
         return;
       }
       if (token) {

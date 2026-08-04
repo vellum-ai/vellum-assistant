@@ -60,7 +60,9 @@ export function readIOSAssistantTurnsSeen(): number {
 }
 
 export function incrementIOSAssistantTurnsSeen(delta = 1): void {
-  if (delta <= 0) return;
+  if (delta <= 0) {
+    return;
+  }
   const nextValue = readIOSAssistantTurnsSeen() + delta;
   setLocalNumber(KEY_IOS_APP_ASSISTANT_TURNS_SEEN, nextValue);
 }

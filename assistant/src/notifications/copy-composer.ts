@@ -9,6 +9,7 @@
  * values from the context payload.
  */
 
+import { normalizeTitle } from "../util/short-title.js";
 import {
   accessRequestCardTitle,
   buildAccessRequestContractText,
@@ -26,6 +27,7 @@ import {
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
+  NOTIFICATION_TITLE_MAX_LENGTH,
   readPayloadString,
   sanitizeIdentityField,
 } from "./notification-utils.js";
@@ -39,22 +41,42 @@ import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 
 function str(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
   return fallback;
 }
 
 /**
  * Derive a short notification title from a message body. Trims to the
  * first sentence terminator when present, then caps the result at
- * 60 characters with an ellipsis.
+ * `NOTIFICATION_TITLE_MAX_LENGTH` characters with an ellipsis.
  */
 export function deriveTitle(body: string): string {
   const firstSentenceEnd = body.search(/[.!?](\s|$)/);
   const candidate =
     firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
-  return candidate.length > 60
-    ? candidate.slice(0, 60).trim() + "\u2026"
+  return candidate.length > NOTIFICATION_TITLE_MAX_LENGTH
+    ? candidate.slice(0, NOTIFICATION_TITLE_MAX_LENGTH).trim() + "\u2026"
     : candidate.trim();
+}
+
+/**
+ * Clean a producer-authored title, falling back to one derived from the body
+ * when `normalizeTitle` returns its empty-string rejection signal.
+ *
+ * The decision engine's pass-through path applies the same clamp, so a signal
+ * carrying `requestedTitle` renders the same headline whether or not the LLM
+ * classifier was reachable.
+ *
+ * The two branches carry different budgets. An accepted authored title is
+ * bounded by `normalizeTitle` at 40 characters. A rejected one falls through to
+ * `deriveTitle`, which never sees the normalizer and applies
+ * `NOTIFICATION_TITLE_MAX_LENGTH` (60) plus a trailing ellipsis, so a derived
+ * title can reach 61 characters.
+ */
+export function resolveTitle(raw: string | undefined, body: string): string {
+  return normalizeTitle(raw ?? "") || deriveTitle(body);
 }
 
 /**
@@ -288,9 +310,10 @@ export function composeFallbackCopy(
     readPayloadString(signal.contextPayload, "requestedMessage"),
   );
   if (msg) {
-    const title =
-      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-      deriveTitle(msg);
+    const title = resolveTitle(
+      readPayloadString(signal.contextPayload, "requestedTitle"),
+      msg,
+    );
     const baseCopy: RenderedChannelCopy = {
       title,
       body: msg,
@@ -335,13 +358,19 @@ function buildChatSurfaceFallbackDeliveryText(
   baseCopy: RenderedChannelCopy,
 ): string {
   const explicit = nonEmpty(baseCopy.deliveryText);
-  if (explicit) return explicit;
+  if (explicit) {
+    return explicit;
+  }
 
   const body = nonEmpty(baseCopy.body);
-  if (body) return body;
+  if (body) {
+    return body;
+  }
 
   const title = nonEmpty(baseCopy.title);
-  if (title) return title;
+  if (title) {
+    return title;
+  }
 
   // No usable text: return empty string. The broadcaster's empty-body skip in
   // `broadcaster.ts` suppresses fallback-derived empty bodies; the

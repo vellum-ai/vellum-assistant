@@ -47,11 +47,14 @@ describe("EMOJI_CATALOG", () => {
     ["left_facing_fist", "🤛"],
     ["right_facing_fist", "🤜"],
     ["red_flag", "🚩"],
-  ])("preserves legacy web shortcode :%s as a catalog row", (shortcode, emoji) => {
-    const entry = EMOJI_CATALOG.find((e) => e.shortcode === shortcode);
-    expect(entry).toBeDefined();
-    expect(entry!.emoji).toBe(emoji);
-  });
+  ])(
+    "preserves legacy web shortcode :%s as a catalog row",
+    (shortcode, emoji) => {
+      const entry = EMOJI_CATALOG.find((e) => e.shortcode === shortcode);
+      expect(entry).toBeDefined();
+      expect(entry!.emoji).toBe(emoji);
+    },
+  );
 });
 
 describe("searchEmoji", () => {
@@ -73,7 +76,9 @@ describe("searchEmoji", () => {
   test("ranks shortcode prefix matches above alias matches", () => {
     // :steam → steam_locomotive (shortcode prefix) ranks above triumph (alias only).
     const results = searchEmoji("steam", 20);
-    const locoIdx = results.findIndex((e) => e.shortcode === "steam_locomotive");
+    const locoIdx = results.findIndex(
+      (e) => e.shortcode === "steam_locomotive",
+    );
     const triumphIdx = results.findIndex((e) => e.shortcode === "triumph");
     expect(locoIdx).toBeGreaterThanOrEqual(0);
     expect(triumphIdx).toBeGreaterThanOrEqual(0);

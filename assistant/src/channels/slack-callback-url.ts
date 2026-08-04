@@ -15,7 +15,9 @@
 export function extractThreadTsFromCallbackUrl(
   callbackUrl: string | undefined,
 ): string | null {
-  if (!callbackUrl) return null;
+  if (!callbackUrl) {
+    return null;
+  }
   try {
     const url = new URL(callbackUrl);
     return url.searchParams.get("threadTs");
@@ -32,7 +34,9 @@ export function extractThreadTsFromCallbackUrl(
 export function extractMessageTsFromCallbackUrl(
   callbackUrl: string | undefined,
 ): string | null {
-  if (!callbackUrl) return null;
+  if (!callbackUrl) {
+    return null;
+  }
   try {
     const url = new URL(callbackUrl);
     return url.searchParams.get("messageTs");
@@ -45,7 +49,9 @@ export function extractMessageTsFromCallbackUrl(
  * Whether a reply callback URL targets the Slack delivery endpoint.
  */
 export function isSlackDeliveryCallbackUrl(callbackUrl?: string): boolean {
-  if (!callbackUrl) return false;
+  if (!callbackUrl) {
+    return false;
+  }
   try {
     return new URL(callbackUrl).pathname.endsWith("/deliver/slack");
   } catch {

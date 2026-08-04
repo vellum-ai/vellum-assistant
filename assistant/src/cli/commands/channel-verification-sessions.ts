@@ -95,7 +95,9 @@ export function registerChannelVerificationSessionsCommand(
           cmd: Command,
         ) => {
           const channel = validateChannelOpt(opts.channel, cmd);
-          if (channel === false) return;
+          if (channel === false) {
+            return;
+          }
 
           const r = await cliIpcCall("channel_verification_sessions_create", {
             body: {
@@ -108,11 +110,12 @@ export function registerChannelVerificationSessionsCommand(
               contactChannelId: opts.contactChannelId,
             },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           writeOutput(cmd, r.result);
         },
       );
@@ -124,16 +127,19 @@ export function registerChannelVerificationSessionsCommand(
       subcommand(cvs, "status").action(
         async (opts: { channel?: string }, cmd: Command) => {
           const channel = validateChannelOpt(opts.channel, cmd);
-          if (channel === false) return;
+          if (channel === false) {
+            return;
+          }
 
           const r = await cliIpcCall("channel_verification_sessions_status", {
             body: { channel },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           writeOutput(cmd, r.result);
         },
       );
@@ -148,7 +154,9 @@ export function registerChannelVerificationSessionsCommand(
           cmd: Command,
         ) => {
           const channel = validateChannelOpt(opts.channel, cmd, true);
-          if (channel === false) return;
+          if (channel === false) {
+            return;
+          }
 
           const r = await cliIpcCall("channel_verification_sessions_resend", {
             body: {
@@ -156,11 +164,12 @@ export function registerChannelVerificationSessionsCommand(
               originConversationId: opts.originConversationId,
             },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           writeOutput(cmd, r.result);
         },
       );
@@ -172,16 +181,19 @@ export function registerChannelVerificationSessionsCommand(
       subcommand(cvs, "cancel").action(
         async (opts: { channel: string }, cmd: Command) => {
           const channel = validateChannelOpt(opts.channel, cmd, true);
-          if (channel === false) return;
+          if (channel === false) {
+            return;
+          }
 
           const r = await cliIpcCall("channel_verification_sessions_cancel", {
             body: { channel },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           writeOutput(cmd, r.result);
         },
       );
@@ -193,16 +205,19 @@ export function registerChannelVerificationSessionsCommand(
       subcommand(cvs, "revoke").action(
         async (opts: { channel?: string }, cmd: Command) => {
           const channel = validateChannelOpt(opts.channel, cmd);
-          if (channel === false) return;
+          if (channel === false) {
+            return;
+          }
 
           const r = await cliIpcCall("channel_verification_sessions_revoke", {
             body: { channel },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           writeOutput(cmd, r.result);
         },
       );

@@ -30,7 +30,9 @@ export function computeDecayedIntensity(
   charge: EmotionalCharge,
   elapsedDays: number,
 ): number {
-  if (elapsedDays <= 0) return charge.intensity;
+  if (elapsedDays <= 0) {
+    return charge.intensity;
+  }
 
   switch (charge.decayCurve) {
     case "permanent":
@@ -138,7 +140,9 @@ export function runDecayTick(): DecayTickResult {
     fidelityDowngrades: 0,
   };
   const db = memoryDbOrNull("runDecayTick");
-  if (!db) return result;
+  if (!db) {
+    return result;
+  }
 
   const rows = db
     .select()

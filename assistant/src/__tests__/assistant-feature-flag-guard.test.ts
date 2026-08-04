@@ -115,8 +115,12 @@ describe("assistant feature flag guard", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (LEGACY_KEY_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (LEGACY_KEY_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 

@@ -132,9 +132,12 @@ function handleMcpAuthStatus({
     throw new NotFoundError(`No active OAuth flow for server "${serverId}"`);
   }
 
-  if (state.status === "pending")
+  if (state.status === "pending") {
     return { status: "pending", auth_url: state.authUrl };
-  if (state.status === "complete") return { status: "complete" };
+  }
+  if (state.status === "complete") {
+    return { status: "complete" };
+  }
   return { status: "error", error: state.error };
 }
 
@@ -175,7 +178,9 @@ async function checkMachineReadableHealth(
       client.connect(config.transport),
       new Promise<never>((_, reject) => {
         const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-        if (typeof t === "object" && "unref" in t) t.unref();
+        if (typeof t === "object" && "unref" in t) {
+          t.unref();
+        }
       }),
     ]);
 
@@ -223,7 +228,9 @@ interface McpServerEntry {
 
 function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
   const authValue = headers["Authorization"] ?? headers["authorization"];
-  if (authValue?.startsWith("Bearer ")) return "bearer";
+  if (authValue?.startsWith("Bearer ")) {
+    return "bearer";
+  }
   return "api-key";
 }
 
@@ -379,7 +386,9 @@ async function handleMcpUpdate({
 
   const server = serverMap[name];
 
-  if (enabled !== undefined) server.enabled = enabled;
+  if (enabled !== undefined) {
+    server.enabled = enabled;
+  }
   if (defaultRiskLevel !== undefined) {
     if (!["low", "medium", "high"].includes(defaultRiskLevel)) {
       throw new BadRequestError(
@@ -388,7 +397,9 @@ async function handleMcpUpdate({
     }
     server.defaultRiskLevel = defaultRiskLevel;
   }
-  if (maxTools !== undefined) server.maxTools = maxTools;
+  if (maxTools !== undefined) {
+    server.maxTools = maxTools;
+  }
   if (allowedTools !== undefined) {
     if (allowedTools === null) {
       delete server.allowedTools;
@@ -480,9 +491,13 @@ async function handleMcpAdd({
   }
 
   const raw = loadRawConfig();
-  if (!raw.mcp) raw.mcp = { servers: {} };
+  if (!raw.mcp) {
+    raw.mcp = { servers: {} };
+  }
   const mcpConfig = raw.mcp as Record<string, unknown>;
-  if (!mcpConfig.servers) mcpConfig.servers = {};
+  if (!mcpConfig.servers) {
+    mcpConfig.servers = {};
+  }
   const serverMap = mcpConfig.servers as Record<string, unknown>;
 
   if (serverMap[name]) {

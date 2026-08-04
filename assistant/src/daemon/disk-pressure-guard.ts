@@ -104,7 +104,9 @@ function statusFingerprint(status: DiskPressureStatus): string {
 }
 
 function publishStatusChangedIfNeeded(previous: DiskPressureStatus): void {
-  if (statusFingerprint(previous) === statusFingerprint(state.status)) return;
+  if (statusFingerprint(previous) === statusFingerprint(state.status)) {
+    return;
+  }
   const status = cloneStatus(state.status);
   broadcastMessage({
     type: "disk_pressure_status_changed",
@@ -162,7 +164,9 @@ function cancelTerminalBackgroundToolsForLock(): void {
     (tool) => tool.toolName === "bash" || tool.toolName === "host_bash",
     "disk_pressure",
   );
-  if (cancelled.length === 0) return;
+  if (cancelled.length === 0) {
+    return;
+  }
   log.info(
     { count: cancelled.length, ids: cancelled.map((tool) => tool.id) },
     "Cancelled background terminal tools during disk pressure lock",
@@ -191,7 +195,9 @@ export function startDiskPressureGuard(): DiskPressureStatus {
 }
 
 export function stopDiskPressureGuard(): void {
-  if (!state.timer) return;
+  if (!state.timer) {
+    return;
+  }
   clearInterval(state.timer);
   state.timer = null;
 }
@@ -285,7 +291,9 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
 }
 
 export function getDiskPressureStatus(): DiskPressureStatus {
-  if (!state.status.enabled) return cloneStatus(OPEN_STATUS);
+  if (!state.status.enabled) {
+    return cloneStatus(OPEN_STATUS);
+  }
   return cloneStatus(state.status);
 }
 

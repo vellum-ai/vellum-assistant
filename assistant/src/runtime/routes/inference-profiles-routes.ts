@@ -19,7 +19,6 @@
 import { z } from "zod";
 
 import {
-  getEffectiveProfile,
   getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   resolveDefaultProfileForProvider,
@@ -507,8 +506,11 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   return {
     ok: true as const,
     name,
-    entry: (getEffectiveProfile(getConfig().llm.profiles, name) ??
-      entry) as Record<string, unknown>,
+    entry: (resolveDefaultProfileForProvider(
+      getConfig().llm.profiles,
+      name,
+      getConfig().llm.defaultProvider ?? null,
+    ) ?? entry) as Record<string, unknown>,
     warnings,
     verify: verifyProfileCommand(name),
   };
@@ -618,8 +620,11 @@ async function handleUpdateProfile({
   return {
     ok: true as const,
     name,
-    entry: (getEffectiveProfile(getConfig().llm.profiles, name) ??
-      merged) as Record<string, unknown>,
+    entry: (resolveDefaultProfileForProvider(
+      getConfig().llm.profiles,
+      name,
+      getConfig().llm.defaultProvider ?? null,
+    ) ?? merged) as Record<string, unknown>,
     warnings,
     verify: verifyProfileCommand(name),
   };

@@ -40,7 +40,9 @@ export function InlineProcessCardRow({
   testId,
 }: InlineProcessCardRowProps) {
   const summary = descriptor.useCardSummary(id);
-  if (!summary) return null;
+  if (!summary) {
+    return null;
+  }
   return (
     <InlineProcessCard
       summary={summary}

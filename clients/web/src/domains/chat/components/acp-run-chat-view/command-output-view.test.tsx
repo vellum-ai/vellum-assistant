@@ -8,7 +8,10 @@ afterEach(cleanup);
 describe("CommandOutputView", () => {
   test("renders content output through the markdown renderer", () => {
     const content = JSON.stringify([
-      { type: "content", content: { type: "text", text: "file contents here" } },
+      {
+        type: "content",
+        content: { type: "text", text: "file contents here" },
+      },
     ]);
     render(<CommandOutputView content={content} />);
     const out = screen.getByTestId("acp-chat-command-output");

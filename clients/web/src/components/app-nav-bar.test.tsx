@@ -93,7 +93,11 @@ const BottomSheetMock = {
 };
 
 const PanelItemMock = ({ label, ...rest }: Record<string, unknown>) =>
-  createElement("div", { "data-testid": "panel-item", ...rest }, label as ReactNode);
+  createElement(
+    "div",
+    { "data-testid": "panel-item", ...rest },
+    label as ReactNode,
+  );
 
 const ButtonMock = ({
   children,
@@ -104,7 +108,12 @@ const ButtonMock = ({
 }: Record<string, unknown>) =>
   createElement(
     "button",
-    { "data-testid": "button", disabled: disabled || undefined, ...rest, onClick },
+    {
+      "data-testid": "button",
+      disabled: disabled || undefined,
+      ...rest,
+      onClick,
+    },
     (iconOnly ?? children) as ReactNode,
   );
 
@@ -173,11 +182,7 @@ describe("AppNavBar fullscreen toggle", () => {
 describe("AppNavBar share + deploy", () => {
   test("renders a single Share button when only onShare is provided", () => {
     const html = renderToStaticMarkup(
-      <AppNavBar
-        appName="My App"
-        onClose={() => {}}
-        onShare={() => {}}
-      />,
+      <AppNavBar appName="My App" onClose={() => {}} onShare={() => {}} />,
     );
     // One button rendered with the Share icon.
     expect(html).toContain("lucide-share");
@@ -186,11 +191,7 @@ describe("AppNavBar share + deploy", () => {
 
   test("renders a single Deploy button when only onDeploy is provided", () => {
     const html = renderToStaticMarkup(
-      <AppNavBar
-        appName="My App"
-        onClose={() => {}}
-        onDeploy={() => {}}
-      />,
+      <AppNavBar appName="My App" onClose={() => {}} onDeploy={() => {}} />,
     );
     expect(html).toContain("lucide-globe");
     expect(html).not.toContain("lucide-share");

@@ -164,7 +164,9 @@ async function injectOptionalCredential(
   envVar: string,
   usageDescription: string,
 ): Promise<void> {
-  if (env[envVar]) return;
+  if (env[envVar]) {
+    return;
+  }
   const missReason = await injectCredential(
     env,
     field,

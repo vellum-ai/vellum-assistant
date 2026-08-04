@@ -37,7 +37,7 @@ import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
-  isLocalMode,
+  isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -120,8 +120,7 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   "config",
 ]);
 
-const ASSISTANT_PATH_RE =
-  /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
 
 /**
  * First segments whose `/v1/assistants/{id}/` prefix is stripped before
@@ -160,12 +159,16 @@ export async function rewriteForSelfHostedIngress(
   { skipSegmentAllowlist = false } = {},
 ): Promise<Request | null> {
   const ingressUrl = getSelfHostedIngressUrl();
-  if (!ingressUrl) return null;
+  if (!ingressUrl) {
+    return null;
+  }
 
   const url = new URL(request.url);
 
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const [, subPath, firstSegment] = match;
   if (
     !skipSegmentAllowlist &&
@@ -221,8 +224,10 @@ export async function rewriteForSelfHostedIngress(
   // reference (blob handle) and read directly, with no renderer-side data
   // pipe to block on. Platform self-hosted uses TLS, so keep the streaming
   // body there to avoid buffering large uploads.
-  const body = isLocalMode()
-    ? (request.body ? await request.blob() : null)
+  const body = isLocalClient()
+    ? request.body
+      ? await request.blob()
+      : null
     : request.body;
 
   const init: RequestInit = {
@@ -235,7 +240,7 @@ export async function rewriteForSelfHostedIngress(
     redirect: request.redirect,
     signal: request.signal,
   };
-  if (!isLocalMode() && request.body) {
+  if (!isLocalClient() && request.body) {
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
   return new Request(rewrittenUrl.toString(), init);
@@ -251,16 +256,24 @@ export async function rewriteForSelfHostedIngress(
 export function authorizeRemoteGatewayRequest(
   request: Request,
 ): Request | null {
-  if (!isRemoteGatewayMode()) return null;
+  if (!isRemoteGatewayMode()) {
+    return null;
+  }
 
   const ingressUrl = getSelfHostedIngressUrl();
-  if (!ingressUrl) return null;
+  if (!ingressUrl) {
+    return null;
+  }
 
   const url = new URL(request.url);
   const ingress = new URL(ingressUrl);
   const prefix = ingress.pathname.replace(/\/$/, "");
-  if (url.origin !== ingress.origin) return null;
-  if (!url.pathname.startsWith(`${prefix}/v1/`)) return null;
+  if (url.origin !== ingress.origin) {
+    return null;
+  }
+  if (!url.pathname.startsWith(`${prefix}/v1/`)) {
+    return null;
+  }
 
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
@@ -408,14 +421,16 @@ export function resetGw401RecoveryFlag(): void {
   gw401RecoveryFired = false;
 }
 
-export function localGatewayAuthRecoveryInterceptor(response: Response): Response {
+export function localGatewayAuthRecoveryInterceptor(
+  response: Response,
+): Response {
   if (response.status !== 401) {
     return response;
   }
   if (gw401RecoveryFired) {
     return response;
   }
-  if (!isLocalMode()) {
+  if (!isLocalClient()) {
     return response;
   }
   const ingressUrl = getSelfHostedIngressUrl();
@@ -496,7 +511,9 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * {@link localGatewayAuthRecoveryInterceptor}.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
-  if (!isSettledSessionRejection({ ok: response.ok, status: response.status })) {
+  if (
+    !isSettledSessionRejection({ ok: response.ok, status: response.status })
+  ) {
     return response;
   }
   if (platformAuthRecoveryFired) {
@@ -541,9 +558,15 @@ export function daemonErrorInterceptor(
   _request: Request | undefined,
   options: { throwOnError?: boolean },
 ): unknown {
-  if (!options.throwOnError) return error;
-  if (error instanceof ApiError) return error;
-  if (!response || response.ok) return error;
+  if (!options.throwOnError) {
+    return error;
+  }
+  if (error instanceof ApiError) {
+    return error;
+  }
+  if (!response || response.ok) {
+    return error;
+  }
   return toApiError(error, response);
 }
 
@@ -571,7 +594,12 @@ gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 // sites (blob downloads) explicitly override `parseAs` per-request.
 //
 // Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
-for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient]) {
+for (const apiClient of [
+  daemonClient,
+  gatewayClient,
+  platformClient,
+  authClient,
+]) {
   apiClient.setConfig({ parseAs: "json" });
 }
 
@@ -602,10 +630,7 @@ function arePlatformFeaturesEnabled(): boolean {
 export function platformFeaturesGate(request: Request): Request {
   if (isRemoteGatewayMode()) {
     if (
-      request.headers
-        .get("Authorization")
-        ?.toLowerCase()
-        .startsWith("bearer ")
+      request.headers.get("Authorization")?.toLowerCase().startsWith("bearer ")
     ) {
       return request;
     }
@@ -623,14 +648,20 @@ export function platformFeaturesGate(request: Request): Request {
     return new Request(request.url, { signal: aborted.signal });
   }
 
-  if (!isLocalMode()) return request;
-  if (arePlatformFeaturesEnabled()) return request;
+  if (!isLocalClient()) {
+    return request;
+  }
+  if (arePlatformFeaturesEnabled()) {
+    return request;
+  }
 
   const ingressUrl = getSelfHostedIngressUrl();
   if (ingressUrl) {
     const requestOrigin = new URL(request.url).origin;
     const gatewayOrigin = new URL(ingressUrl).origin;
-    if (requestOrigin === gatewayOrigin) return request;
+    if (requestOrigin === gatewayOrigin) {
+      return request;
+    }
   }
 
   console.debug(

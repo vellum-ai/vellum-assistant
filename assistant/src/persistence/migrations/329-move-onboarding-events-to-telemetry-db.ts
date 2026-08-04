@@ -115,5 +115,7 @@ export async function migrateMoveOnboardingEventsToTelemetryDb(
     ONBOARDING_EVENTS_RELOCATION.table,
   );
 
-  if (needsDrain) await drainStagedTable(raw, ONBOARDING_EVENTS_RELOCATION);
+  if (needsDrain) {
+    await drainStagedTable(raw, ONBOARDING_EVENTS_RELOCATION);
+  }
 }

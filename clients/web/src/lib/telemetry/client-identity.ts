@@ -24,7 +24,9 @@ let cached: string | null = null;
  * initialization.
  */
 export function getClientId(): string {
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   cached = crypto.randomUUID();
   return cached;
 }

@@ -1,4 +1,3 @@
-
 import { type RefObject, useEffect, useState } from "react";
 
 import { recordUpdate } from "@/lib/commit-pressure";
@@ -40,14 +39,18 @@ export function useViewportMinHeight(
 
     const observer = new ResizeObserver(() => {
       const current = scrollContainerRef.current;
-      if (!current) return;
+      if (!current) {
+        return;
+      }
       const next = current.clientHeight;
       // The observer fires on width changes too, and the scroll container is
       // resized by anything that reflows the chat pane. Only the height feeds
       // `minHeight`, so bail before scheduling an update React would discard
       // anyway — every queued update is one more commit that can finish with
       // work still pending (see `lib/commit-pressure.ts`).
-      if (next === lastHeight) return;
+      if (next === lastHeight) {
+        return;
+      }
       lastHeight = next;
       recordUpdate("viewport-min-height");
       setHeight(next);

@@ -22,7 +22,9 @@ function appReference(app: EditAppContext): string {
   return app.dirName ? `${app.name} (${app.dirName})` : app.name;
 }
 
-export function buildEditAppStarters(app: EditAppContext): ConversationStarter[] {
+export function buildEditAppStarters(
+  app: EditAppContext,
+): ConversationStarter[] {
   const ref = appReference(app);
   return [
     {

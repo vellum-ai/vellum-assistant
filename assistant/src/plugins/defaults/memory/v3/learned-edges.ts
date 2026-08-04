@@ -90,7 +90,9 @@ export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
     hubs: new Set(),
     slugs: opts.knownSlugs,
   };
-  if (maxPerPage <= 0) return empty;
+  if (maxPerPage <= 0) {
+    return empty;
+  }
 
   const raw = memorySqliteOrNull("computeLearnedEdgeGraph");
   if (!raw) {
@@ -105,12 +107,16 @@ export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
     `,
     )
     .all(now - windowMs) as SelectionRow[];
-  if (rows.length === 0) return empty;
+  if (rows.length === 0) {
+    return empty;
+  }
 
   // Group into selector calls; one decayed weight per call.
   const calls = new Map<string, { weight: number; slugs: Set<Slug> }>();
   for (const row of rows) {
-    if (!opts.knownSlugs.has(row.slug)) continue;
+    if (!opts.knownSlugs.has(row.slug)) {
+      continue;
+    }
     const key = `${row.conversation_id}|${row.created_at}`;
     let call = calls.get(key);
     if (!call) {
@@ -129,7 +135,9 @@ export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
   for (const { weight, slugs } of calls.values()) {
     total += weight;
     const arr = [...slugs];
-    for (const slug of arr) uni.set(slug, (uni.get(slug) ?? 0) + weight);
+    for (const slug of arr) {
+      uni.set(slug, (uni.get(slug) ?? 0) + weight);
+    }
     for (let i = 0; i < arr.length; i++) {
       for (let j = i + 1; j < arr.length; j++) {
         const key =
@@ -138,7 +146,9 @@ export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
       }
     }
   }
-  if (total <= 0) return empty;
+  if (total <= 0) {
+    return empty;
+  }
 
   // Score pairs and collect each endpoint's qualifying neighbors.
   const neighbors = new Map<Slug, Array<{ peer: Slug; npmi: number }>>();
@@ -151,7 +161,9 @@ export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
     list.push({ peer, npmi });
   };
   for (const [key, mass] of pair) {
-    if (mass < minCount) continue;
+    if (mass < minCount) {
+      continue;
+    }
     const [a, b] = key.split("\t") as [Slug, Slug];
     const pab = mass / total;
     const pa = uni.get(a)! / total;
@@ -173,7 +185,9 @@ export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
   for (const [slug, list] of neighbors) {
     list.sort((x, y) => y.npmi - x.npmi || (x.peer < y.peer ? -1 : 1));
     const out = new Map<Slug, string | undefined>();
-    for (const { peer } of list.slice(0, maxPerPage)) out.set(peer, undefined);
+    for (const { peer } of list.slice(0, maxPerPage)) {
+      out.set(peer, undefined);
+    }
     adjacency.set(slug, out);
   }
 

@@ -51,7 +51,9 @@ function parsePaginatedResponse(
   let lastAssistantMessageId: string | undefined;
   for (let i = 0; i < rows.length; i++) {
     const m = rows[i];
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     if (m.role === "assistant" && !m.subagentNotification) {
       lastAssistantMessageId = m.id;
     }

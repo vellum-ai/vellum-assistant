@@ -52,7 +52,8 @@ export function ConceptGraphLegend({
       data-graph-control
       className="pointer-events-none absolute bottom-4 left-4 flex flex-col gap-1.5 rounded-lg px-3 py-2"
       style={{
-        backgroundColor: "color-mix(in srgb, var(--surface-base) 78%, transparent)",
+        backgroundColor:
+          "color-mix(in srgb, var(--surface-base) 78%, transparent)",
         border: "1px solid var(--border-base)",
       }}
     >

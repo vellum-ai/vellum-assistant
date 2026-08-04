@@ -61,7 +61,9 @@ function getCachedDirPath(
 ): string | null {
   const key = cacheKey(owner, repo, skillSlug);
   const entry = dirPathCache.get(key);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (Date.now() > entry.expiresAt) {
     dirPathCache.delete(key);
     return null;
@@ -110,7 +112,9 @@ async function resolveSkillDir(
 ): Promise<string | null> {
   // Check cache first
   const cached = getCachedDirPath(owner, repo, skillSlug);
-  if (cached !== null) return cached;
+  if (cached !== null) {
+    return cached;
+  }
 
   const headers = githubHeaders();
   const conventionalPath = `skills/${encodeURIComponent(skillSlug)}`;
@@ -185,19 +189,25 @@ async function listGitHubDir(
   }
 
   const entries = (await response.json()) as GitHubContentsEntry[];
-  if (!Array.isArray(entries)) return [];
+  if (!Array.isArray(entries)) {
+    return [];
+  }
 
   const result: SkillFileEntry[] = [];
 
   for (const entry of entries) {
     // Skip hidden files/dirs (same as walkSkillDir)
-    if (entry.name.startsWith(".")) continue;
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
 
     const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
     if (entry.type === "dir") {
       // Skip well-known heavyweight directories
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (SKIP_DIRS.has(entry.name)) {
+        continue;
+      }
 
       const subEntries = await listGitHubDir(
         owner,
@@ -211,7 +221,9 @@ async function listGitHubDir(
       continue;
     }
 
-    if (entry.type !== "file") continue;
+    if (entry.type !== "file") {
+      continue;
+    }
 
     result.push({
       path: relativePath,
@@ -249,7 +261,9 @@ export function createSkillsShProvider(): SkillFileProvider {
           source.skillSlug,
           source.ref,
         );
-        if (!dirPath) return null;
+        if (!dirPath) {
+          return null;
+        }
 
         const headers = githubHeaders();
         const entries = await listGitHubDir(
@@ -274,8 +288,12 @@ export function createSkillsShProvider(): SkillFileProvider {
     ): Promise<SkillFileEntry | null> {
       // Re-validate the path even though the caller should have sanitized
       const safe = sanitizeRelativePath(sanitizedPath);
-      if (!safe) return null;
-      if (hasHiddenOrSkippedSegment(safe)) return null;
+      if (!safe) {
+        return null;
+      }
+      if (hasHiddenOrSkippedSegment(safe)) {
+        return null;
+      }
 
       let source;
       try {
@@ -291,7 +309,9 @@ export function createSkillsShProvider(): SkillFileProvider {
           source.skillSlug,
           source.ref,
         );
-        if (!dirPath) return null;
+        if (!dirPath) {
+          return null;
+        }
 
         const headers = githubHeaders();
         const filePath = `${dirPath}/${safe}`;
@@ -307,14 +327,18 @@ export function createSkillsShProvider(): SkillFileProvider {
           signal: AbortSignal.timeout(15_000),
         });
 
-        if (!response.ok) return null;
+        if (!response.ok) {
+          return null;
+        }
 
         const entry = (await response.json()) as GitHubContentsEntry & {
           size?: number;
         };
 
         // Ensure it's a file, not a directory
-        if (entry.type !== "file") return null;
+        if (entry.type !== "file") {
+          return null;
+        }
 
         const name = basename(safe);
         const isBinary = classifyByName(name);
@@ -345,14 +369,18 @@ export function createSkillsShProvider(): SkillFileProvider {
         }
 
         // Fetch the actual file content via download_url
-        if (!entry.download_url) return null;
+        if (!entry.download_url) {
+          return null;
+        }
 
         const contentResponse = await fetch(entry.download_url, {
           headers,
           signal: AbortSignal.timeout(10_000),
         });
 
-        if (!contentResponse.ok) return null;
+        if (!contentResponse.ok) {
+          return null;
+        }
 
         const content = await contentResponse.text();
 

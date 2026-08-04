@@ -41,8 +41,12 @@ describe("useInteractionStore", () => {
     });
 
     it("showSecret replaces fresh when requestId differs", () => {
-      useInteractionStore.getState().showSecret({ requestId: "r1", label: "First" });
-      useInteractionStore.getState().showSecret({ requestId: "r2", label: "Second" });
+      useInteractionStore
+        .getState()
+        .showSecret({ requestId: "r1", label: "First" });
+      useInteractionStore
+        .getState()
+        .showSecret({ requestId: "r2", label: "Second" });
       const s = useInteractionStore.getState();
       expect(s.pendingSecret).toEqual({ requestId: "r2", label: "Second" });
       expect(s.isSubmittingSecret).toBe(false);
@@ -50,7 +54,9 @@ describe("useInteractionStore", () => {
     });
 
     it("showSecret same-requestId merge preserves submit/saved flags", () => {
-      useInteractionStore.getState().showSecret({ requestId: "r1", label: "API Key" });
+      useInteractionStore
+        .getState()
+        .showSecret({ requestId: "r1", label: "API Key" });
       useInteractionStore.getState().submitSecretStart();
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       const s = useInteractionStore.getState();
@@ -83,13 +89,17 @@ describe("useInteractionStore", () => {
     });
 
     it("updateSecret applies patch when requestId matches", () => {
-      useInteractionStore.getState().showSecret({ requestId: "r1", label: "old" });
+      useInteractionStore
+        .getState()
+        .showSecret({ requestId: "r1", label: "old" });
       useInteractionStore.getState().updateSecret("r1", { label: "new" });
       expect(useInteractionStore.getState().pendingSecret?.label).toBe("new");
     });
 
     it("updateSecret is a no-op when requestId does not match", () => {
-      useInteractionStore.getState().showSecret({ requestId: "r1", label: "old" });
+      useInteractionStore
+        .getState()
+        .showSecret({ requestId: "r1", label: "old" });
       useInteractionStore.getState().updateSecret("r2", { label: "new" });
       expect(useInteractionStore.getState().pendingSecret?.label).toBe("old");
     });
@@ -113,9 +123,13 @@ describe("useInteractionStore", () => {
     it("submitConfirmationStart/End cycle", () => {
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
       useInteractionStore.getState().submitConfirmationStart();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(true);
+      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(
+        true,
+      );
       useInteractionStore.getState().submitConfirmationEnd();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(false);
+      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(
+        false,
+      );
     });
 
     it("dismissConfirmation clears state", () => {
@@ -140,22 +154,34 @@ describe("useInteractionStore", () => {
     });
 
     it("updateConfirmation applies patch when requestId matches", () => {
-      useInteractionStore.getState().showConfirmation({ requestId: "c1", title: "old" });
+      useInteractionStore
+        .getState()
+        .showConfirmation({ requestId: "c1", title: "old" });
       useInteractionStore.getState().updateConfirmation("c1", { title: "new" });
-      expect(useInteractionStore.getState().pendingConfirmation?.title).toBe("new");
+      expect(useInteractionStore.getState().pendingConfirmation?.title).toBe(
+        "new",
+      );
     });
 
     it("updateConfirmation is a no-op when requestId does not match", () => {
-      useInteractionStore.getState().showConfirmation({ requestId: "c1", title: "old" });
+      useInteractionStore
+        .getState()
+        .showConfirmation({ requestId: "c1", title: "old" });
       useInteractionStore.getState().updateConfirmation("c2", { title: "new" });
-      expect(useInteractionStore.getState().pendingConfirmation?.title).toBe("old");
+      expect(useInteractionStore.getState().pendingConfirmation?.title).toBe(
+        "old",
+      );
     });
 
     it("setInlineConfirmationToolCallId sets the value", () => {
       useInteractionStore.getState().setInlineConfirmationToolCallId("tc-1");
-      expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe("tc-1");
+      expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe(
+        "tc-1",
+      );
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBeNull();
+      expect(
+        useInteractionStore.getState().inlineConfirmationToolCallId,
+      ).toBeNull();
     });
   });
 
@@ -173,9 +199,13 @@ describe("useInteractionStore", () => {
     it("submitContactRequestStart/End cycle", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
       useInteractionStore.getState().submitContactRequestStart();
-      expect(useInteractionStore.getState().isSubmittingContactRequest).toBe(true);
+      expect(useInteractionStore.getState().isSubmittingContactRequest).toBe(
+        true,
+      );
       useInteractionStore.getState().submitContactRequestEnd();
-      expect(useInteractionStore.getState().isSubmittingContactRequest).toBe(false);
+      expect(useInteractionStore.getState().isSubmittingContactRequest).toBe(
+        false,
+      );
     });
 
     it("dismissContactRequest clears state", () => {
@@ -205,7 +235,9 @@ describe("useInteractionStore", () => {
     });
 
     it("submitQuestionStart/End cycle", () => {
-      useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().submitQuestionStart();
       expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
       useInteractionStore.getState().submitQuestionEnd();
@@ -213,7 +245,9 @@ describe("useInteractionStore", () => {
     });
 
     it("dismissQuestion clears all question state", () => {
-      useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().dismissQuestionCard();
       useInteractionStore.getState().dismissQuestion();
       const s = useInteractionStore.getState();
@@ -223,7 +257,9 @@ describe("useInteractionStore", () => {
     });
 
     it("dismissQuestionCard hides card but keeps pendingQuestion", () => {
-      useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().dismissQuestionCard();
       const s = useInteractionStore.getState();
       expect(s.pendingQuestion).not.toBeNull();
@@ -236,7 +272,9 @@ describe("useInteractionStore", () => {
     it("resetSecretAndConfirmation clears secret+confirmation but preserves question", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().setInlineConfirmationToolCallId("tc-1");
 
       useInteractionStore.getState().resetSecretAndConfirmation();
@@ -251,7 +289,9 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q1", entries: [] });
 
       useInteractionStore.getState().resetAll();
       const s = useInteractionStore.getState();

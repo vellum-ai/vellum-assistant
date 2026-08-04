@@ -138,7 +138,7 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../../../config/defaults.js");
-const { getDb, getMemoryDb } =
+const { getMemoryDb } =
   await import("../../../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../../../__tests__/db-test-helpers.js");
@@ -248,7 +248,7 @@ describe("embedConceptPageJob — happy path", () => {
 
     await embedConceptPageJob(makeJob({ slug: "bob-uses-zsh" }), TEST_CONFIG);
 
-    const row = getDb()
+    const row = getMemoryDb()!
       .select()
       .from(memoryEmbeddings)
       .all()

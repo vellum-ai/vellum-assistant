@@ -32,6 +32,7 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
+import { type MemoryTier, memoryTier } from "../../../../config/memory-tier.js";
 import {
   isV3TierActive,
   usesConceptPageMemory,
@@ -523,13 +524,24 @@ function handleGetMemoryItem(id: string) {
  * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
  * is a cheap config read (no page I/O), so glanceable surfaces can gate the
  * graph entry point on real availability without triggering the graph build.
+ *
+ * `tier` reports WHY the graph is or isn't available, so a client can say
+ * something true instead of a bare "not available": `"off"` is the user's own
+ * Memory opt-out (fixed in Settings), while `"v1"`/`"v2"` are legacy engines
+ * (fixed by migrating to v3). Both bits derive from the same gate predicates —
+ * `graph_supported` is exactly `tier === "v3"` (see `memory-tier.ts`) — so the
+ * capability and its explanation can never disagree.
  */
 async function handleGetMemoryStats(
   config: AssistantConfig,
-): Promise<{ concepts: number; graph_supported: boolean }> {
+): Promise<{ concepts: number; graph_supported: boolean; tier: MemoryTier }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts, graph_supported: isV3TierActive(config) };
+  return {
+    concepts,
+    graph_supported: isV3TierActive(config),
+    tier: memoryTier(config),
+  };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -864,7 +876,9 @@ export const ROUTES: RouteDefinition[] = [
       "concept pages only and never builds the memory-concept graph. Also " +
       "reports graph_supported: whether the memory-concept graph is available " +
       "for this assistant (memory enabled and v3 live), so callers can gate " +
-      "the graph entry point without building the graph.",
+      "the graph entry point without building the graph, plus tier: the coarse " +
+      "memory tier explaining why the graph is unavailable (off = the user's " +
+      "Memory opt-out, v1/v2 = a legacy engine that has not migrated to v3).",
     tags: ["memory"],
     responseBody: z.object({
       concepts: z.number().describe("Number of concept pages in memory"),
@@ -872,6 +886,11 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe(
           "Whether the memory-concept graph is available (memory enabled and v3 live)",
+        ),
+      tier: z
+        .enum(["off", "v1", "v2", "v3"])
+        .describe(
+          "Coarse memory tier for this assistant; graph_supported is exactly tier === 'v3'",
         ),
     }),
     handler: () => handleGetMemoryStats(getConfig()),

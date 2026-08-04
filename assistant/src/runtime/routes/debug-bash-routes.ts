@@ -85,7 +85,9 @@ function handleDebugBash({ body }: RouteHandlerArgs): Promise<DebugBashResult> {
     let settled = false;
 
     const finish = (result: DebugBashResult) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       resolve(result);
     };

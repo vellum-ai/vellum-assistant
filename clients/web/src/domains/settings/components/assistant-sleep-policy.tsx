@@ -3,9 +3,9 @@ import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-    assistantsSleepPolicyDetailReadOptions,
-    assistantsSleepPolicyDetailReadQueryKey,
-    useAssistantsSleepPolicyDetailPartialUpdateMutation,
+  assistantsSleepPolicyDetailReadOptions,
+  assistantsSleepPolicyDetailReadQueryKey,
+  useAssistantsSleepPolicyDetailPartialUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
@@ -29,14 +29,24 @@ const PRESET_OPTIONS: ReadonlyArray<{
 ];
 
 function formatDuration(seconds: number): string {
-  if (seconds === 0) return "Never (sleep disabled)";
+  if (seconds === 0) {
+    return "Never (sleep disabled)";
+  }
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
-  if (days > 0 && hours > 0) return `${days}d ${hours}h`;
-  if (days > 0) return `${days} day${days !== 1 ? "s" : ""}`;
-  if (hours > 0) return `${hours} hour${hours !== 1 ? "s" : ""}`;
+  if (days > 0 && hours > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (days > 0) {
+    return `${days} day${days !== 1 ? "s" : ""}`;
+  }
+  if (hours > 0) {
+    return `${hours} hour${hours !== 1 ? "s" : ""}`;
+  }
   const minutes = Math.floor(seconds / 60);
-  if (minutes > 0) return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
+  if (minutes > 0) {
+    return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
+  }
   return `${seconds}s`;
 }
 

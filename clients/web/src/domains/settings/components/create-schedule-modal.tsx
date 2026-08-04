@@ -122,7 +122,9 @@ export function CreateScheduleModal({
     <Modal.Root
       open={isOpen}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) {
+          onClose();
+        }
       }}
     >
       {isOpen ? (
@@ -167,7 +169,9 @@ function CreateScheduleModalInner({
   );
 
   const summary = useMemo(() => {
-    if (mode === "simple") return describeCadence(cadence);
+    if (mode === "simple") {
+      return describeCadence(cadence);
+    }
     return trimmedRaw ? trimmedRaw : "Enter a cron expression to continue.";
   }, [mode, cadence, trimmedRaw]);
 
@@ -182,7 +186,9 @@ function CreateScheduleModalInner({
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -353,7 +359,11 @@ function CadenceBuilder({
         <SubField label="On day">
           <Dropdown
             options={DAY_OF_MONTH_OPTIONS}
-            value={cadence.dayOfMonth === "last" ? "last" : String(cadence.dayOfMonth)}
+            value={
+              cadence.dayOfMonth === "last"
+                ? "last"
+                : String(cadence.dayOfMonth)
+            }
             onChange={(value) =>
               onChange({
                 ...cadence,
@@ -439,7 +449,9 @@ function WeekdayPicker({
     const next = new Set(selected);
     if (next.has(day)) {
       // Keep at least one day selected — an empty set can't be scheduled.
-      if (next.size > 1) next.delete(day);
+      if (next.size > 1) {
+        next.delete(day);
+      }
     } else {
       next.add(day);
     }

@@ -69,10 +69,16 @@ export function stripUserTextBlocksByPrefix(
 ): Message[] {
   return messages
     .map((message) => {
-      if (message.role !== "user") return message;
+      if (message.role !== "user") {
+        return message;
+      }
       const nextContent = filterInjectionBlocks(message.content, matchers);
-      if (nextContent.length === message.content.length) return message;
-      if (nextContent.length === 0) return null;
+      if (nextContent.length === message.content.length) {
+        return message;
+      }
+      if (nextContent.length === 0) {
+        return null;
+      }
       return { ...message, content: nextContent };
     })
     .filter(
@@ -98,9 +104,13 @@ export function stripTailUserTextBlocksByPrefix(
   matchers: InjectionMatcher[],
 ): Message[] {
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
+  if (!last || last.role !== "user") {
+    return messages;
+  }
   const nextContent = filterInjectionBlocks(last.content, matchers);
-  if (nextContent.length === last.content.length) return messages;
+  if (nextContent.length === last.content.length) {
+    return messages;
+  }
   return [...messages.slice(0, -1), { ...last, content: nextContent }];
 }
 

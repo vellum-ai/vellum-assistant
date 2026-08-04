@@ -172,9 +172,7 @@ describe("extractSpeakableSegments", () => {
       );
 
       expect(segments).toEqual(["Sure, I can help with that,"]);
-      expect(remainder).toBe(
-        " and after that we can keep going, with more",
-      );
+      expect(remainder).toBe(" and after that we can keep going, with more");
     });
 
     test("non-eager extraction ignores clause punctuation", () => {
@@ -293,7 +291,9 @@ describe("extractSpeakableSegments", () => {
         false,
       );
 
-      expect(segments).toEqual(["This is _very important. Please listen_ now."]);
+      expect(segments).toEqual([
+        "This is _very important. Please listen_ now.",
+      ]);
       expect(remainder).toBe("");
     });
 

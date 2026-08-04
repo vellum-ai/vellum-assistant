@@ -22,13 +22,19 @@ const RETRY_DELAY_MS = 3000;
 let retryScheduled = false;
 
 function loadBundledComponents(): Promise<CharacterComponents> {
-  if (cached) return Promise.resolve(cached);
-  if (loadPromise) return loadPromise;
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+  if (loadPromise) {
+    return loadPromise;
+  }
   loadPromise = import("@/utils/avatar-bundled-components")
     .then((m) => {
       cached = m.BUNDLED_COMPONENTS;
       loadPromise = null;
-      for (const cb of subscribers) cb();
+      for (const cb of subscribers) {
+        cb();
+      }
       return cached;
     })
     .catch((err) => {
@@ -91,10 +97,14 @@ export function useBundledAvatarComponents(): CharacterComponents | null {
   const [, forceRender] = useState(0);
 
   useEffect(() => {
-    if (cached) return;
+    if (cached) {
+      return;
+    }
     let cancelled = false;
     const onLoaded = () => {
-      if (!cancelled) forceRender((n) => n + 1);
+      if (!cancelled) {
+        forceRender((n) => n + 1);
+      }
     };
     subscribers.add(onLoaded);
     void loadBundledComponents().catch(() => {

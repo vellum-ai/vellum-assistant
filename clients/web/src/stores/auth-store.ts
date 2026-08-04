@@ -44,17 +44,18 @@ import {
 } from "@/lib/auth/gateway-session";
 import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
-  isLocalMode,
+  isLocalClient,
   isRemoteGatewayMode,
   getPlatformAssistants,
   getLocalAssistants,
-  primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
+  primeLocalGatewayConnectionWithStartupRetry,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { unregisterLiveActivityPushToken } from "@/domains/chat/voice/live-voice/live-activity-push-registration";
 import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import {
   fetchConsent,
@@ -123,7 +124,9 @@ function resolveUserId(user: RawSessionUser | null): string | null {
 }
 
 function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   return {
     kind: "platform",
     id: resolveUserId(raw),
@@ -250,9 +253,13 @@ const isInconclusiveProbe = (
  * through the normal path.
  */
 async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
-  if (!getElectronSessionToken()) return false;
+  if (!getElectronSessionToken()) {
+    return false;
+  }
   const cached = readUserSnapshot();
-  if (!cached) return false;
+  if (!cached) {
+    return false;
+  }
   // Consent/org sync falls back to device-cached keys when the server
   // fetch fails (it will, offline) — same continuity as an online boot.
   await syncUserScopedState(cached.id);
@@ -610,14 +617,18 @@ function probePlatformSession(
   const isStale = (): boolean => probeId !== latestPlatformProbe;
   platformProbeSettled = getSession()
     .then(async (result) => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       if (result.ok && result.data.user) {
         const probedUser = toAuthUser(result.data.user);
         const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
         // Adopting the probed user confirms a platform session outside the
         // `authenticatedPlatformUser` transition — persist here too so the
         // local-mode path feeds the offline restore (LUM-2412).
-        if (options.setUserOnSuccess) persistUserSnapshot(probedUser);
+        if (options.setUserOnSuccess) {
+          persistUserSnapshot(probedUser);
+        }
         // Sync platform assistants to the lockfile BEFORE setting
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
@@ -630,7 +641,7 @@ function probePlatformSession(
         // late commit must not land after routing decisions were made on
         // the un-synced lockfile. `!isStale()` likewise keeps a
         // superseded probe from committing an out-of-date lockfile.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           let timedOut = false;
           const syncIsCurrent = (): boolean => !timedOut && !isStale();
           try {
@@ -658,7 +669,9 @@ function probePlatformSession(
             // Sync failed or timed out — continue with cached lockfile data
           }
         }
-        if (isStale()) return;
+        if (isStale()) {
+          return;
+        }
         set({
           platformSession: "present",
           platformSessionRestoredOffline: false,
@@ -670,13 +683,17 @@ function probePlatformSession(
       }
     })
     .catch(() => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
     })
     .finally(() => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       set((state) =>
         state.platformSession === "unknown"
           ? { platformSession: "absent" }
@@ -724,7 +741,7 @@ function probePlatformSessionIfReachable(
   options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
 ): void {
   if (
-    !isLocalMode() ||
+    !isLocalClient() ||
     isGatewayAuthEnabled() ||
     getPlatformAssistants().length > 0
   ) {
@@ -736,7 +753,9 @@ function probePlatformSessionIfReachable(
 
 async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
   try {
-    if (await refreshRemoteGatewaySession()) return true;
+    if (await refreshRemoteGatewaySession()) {
+      return true;
+    }
   } catch {
     // A network failure says nothing about an already-valid in-memory token.
   }
@@ -761,7 +780,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthEnabled()) {
       try {
-        await primeLocalGatewayConnection();
+        // Ride out the gateway's startup window: on reboot the gateway restarts
+        // concurrently with the app and answers the mint with a transient
+        // "starting" 503 for a few seconds. A single prime there would drop the
+        // session to unauthenticated and surface the recovery controls for an
+        // assistant that reconnects on its own moments later. Still no `wake` —
+        // app launch must not spawn daemon processes.
+        await primeLocalGatewayConnectionWithStartupRetry();
         set(authenticatedLocalUser());
       } catch {
         // Gateway prime failed: settle to unauthenticated but leave
@@ -772,7 +797,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return;
     }
 
-    if (isLocalMode() && !isGatewayAuthEnabled()) {
+    if (isLocalClient() && !isGatewayAuthEnabled()) {
       const hasPlatformAssistants = getPlatformAssistants().length > 0;
       if (hasPlatformAssistants) {
         // Platform assistants require a valid session — await the check
@@ -807,7 +832,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // to the login screen (LUM-2412); only a settled "no session"
         // answer ends the session (and invalidates the snapshot).
         if (isInconclusiveProbe(result)) {
-          if (await restoreOfflineSession(set)) return;
+          if (await restoreOfflineSession(set)) {
+            return;
+          }
         } else {
           clearUserSnapshot();
         }
@@ -877,7 +904,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // revoked session must not be resurrected by a later offline boot.
     // Transport failures keep it (web builds land here too; without a
     // readable credential they stay on the login-screen behavior).
-    if (!isInconclusiveProbe(result)) clearUserSnapshot();
+    if (!isInconclusiveProbe(result)) {
+      clearUserSnapshot();
+    }
     set(sessionEnded());
   },
 
@@ -975,7 +1004,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // stale managed-assistant list until the next full boot. Best-effort
         // and local-mode only (platform mode has no lockfile host); the
         // refresh has already succeeded regardless of the sync outcome.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           try {
             await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
@@ -1056,13 +1085,19 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // session — the platform delete is authenticated by the still-valid
     // session cookie. No-ops off native iOS. Best-effort: never blocks logout.
     await unregisterFromRemotePush();
+    // Same window, same reason: a Live Activity registered for a voice session
+    // outlives the session that owns it unless something retires it, and after
+    // logout there is no authenticated request left that could.
+    await unregisterLiveActivityPushToken();
     try {
       await allauthLogout();
     } finally {
       // Clean up session token in the main process.
-      if (isElectron()) await window.vellum?.auth?.signOut?.();
+      if (isElectron()) {
+        await window.vellum?.auth?.signOut?.();
+      }
       // Web loopback: drop the token the local server's proxy authenticates with.
-      if (isLocalMode() && !isElectron()) {
+      if (isLocalClient() && !isElectron()) {
         await clearLocalPlatformSession();
       }
       void deleteBiometricToken();
@@ -1140,7 +1175,9 @@ export function setupAuthListeners(): () => void {
 
   const unsubResume = subscribe("app.resume", () => {
     // Mid-OAuth refocus — an unauthenticated probe would tear down state.
-    if (isOAuthFlowInFlight()) return;
+    if (isOAuthFlowInFlight()) {
+      return;
+    }
     void safeRefresh();
   });
   cleanups.push(unsubResume);

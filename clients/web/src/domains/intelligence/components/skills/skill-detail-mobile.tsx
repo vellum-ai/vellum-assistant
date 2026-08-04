@@ -1,13 +1,13 @@
 import {
-    ArrowDownToLine,
-    ArrowLeft,
-    ChevronDown,
-    Code,
-    Eye,
-    FileText,
-    Folder,
-    Loader2,
-    Trash2,
+  ArrowDownToLine,
+  ArrowLeft,
+  ChevronDown,
+  Code,
+  Eye,
+  FileText,
+  Folder,
+  Loader2,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -15,12 +15,12 @@ import { createPortal } from "react-dom";
 import { isMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import {
-    isAvailableSkill,
-    type SkillInfo,
+  isAvailableSkill,
+  type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import {
-    useSkillDetailFiles,
-    type SkillFileEntry,
+  useSkillDetailFiles,
+  type SkillFileEntry,
 } from "@/hooks/use-skill-detail-files";
 import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Menu, SegmentControl } from "@vellumai/design-library";

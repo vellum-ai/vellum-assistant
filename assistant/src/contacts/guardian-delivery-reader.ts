@@ -55,7 +55,9 @@ const inFlight = new Map<
 let cacheGeneration = 0;
 
 function cacheKey(channelTypes?: string[]): string {
-  if (!channelTypes || channelTypes.length === 0) return "ALL";
+  if (!channelTypes || channelTypes.length === 0) {
+    return "ALL";
+  }
   return [...channelTypes].sort().join(",");
 }
 
@@ -68,7 +70,9 @@ async function fetchGuardianDelivery(input: {
       input,
       GUARDIAN_DELIVERY_IPC_TIMEOUT_MS,
     );
-    if (!result) return null;
+    if (!result) {
+      return null;
+    }
 
     const parsed = ResolveGuardianDeliveryResponseSchema.safeParse(result);
     return parsed.success ? parsed.data.guardians : null;
@@ -100,7 +104,9 @@ async function readGuardianDelivery(input: {
   // only coalesce with another force fetch — never with a non-force fetch that
   // could have started before a gateway-side binding write and resolve stale.
   const pending = inFlight.get(key);
-  if (pending && (!input.forceRefresh || pending.fresh)) return pending.promise;
+  if (pending && (!input.forceRefresh || pending.fresh)) {
+    return pending.promise;
+  }
 
   const startGen = cacheGeneration;
   const promise = fetchGuardianDelivery({ channelTypes: input.channelTypes })
@@ -116,7 +122,9 @@ async function readGuardianDelivery(input: {
     .finally(() => {
       // Only clear the slot if it still holds this fetch — a concurrent force
       // read may have replaced a non-force entry (or vice versa).
-      if (inFlight.get(key)?.promise === promise) inFlight.delete(key);
+      if (inFlight.get(key)?.promise === promise) {
+        inFlight.delete(key);
+      }
     });
 
   inFlight.set(key, { promise, fresh: !!input.forceRefresh });
@@ -150,7 +158,9 @@ export function peekCachedGuardianDelivery(input?: {
   channelTypes?: string[];
 }): GuardianDelivery[] | undefined {
   const cached = cache.get(cacheKey(input?.channelTypes));
-  if (!cached) return undefined;
+  if (!cached) {
+    return undefined;
+  }
   if (Date.now() - cached.fetchedAt >= GUARDIAN_DELIVERY_CACHE_TTL_MS) {
     return undefined;
   }

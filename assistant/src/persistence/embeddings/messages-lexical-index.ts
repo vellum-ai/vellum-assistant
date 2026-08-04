@@ -145,7 +145,9 @@ export class MessagesLexicalIndex {
   }
 
   async ensureCollection(): Promise<void> {
-    if (this.collectionReady) return;
+    if (this.collectionReady) {
+      return;
+    }
 
     try {
       const exists = await this.client.collectionExists(this.collection);
@@ -230,7 +232,9 @@ export class MessagesLexicalIndex {
   ): Promise<void> {
     await this.ensureCollection();
 
-    if (points.length === 0) return;
+    if (points.length === 0) {
+      return;
+    }
 
     const qdrantPoints = points.map((p) => ({
       id: messagePointId(p.messageId),
@@ -455,10 +459,14 @@ export class MessagesLexicalIndex {
             }
           | undefined
       )?.sparse_vectors;
-      if (!sparseParams || !("sparse" in sparseParams)) return;
+      if (!sparseParams || !("sparse" in sparseParams)) {
+        return;
+      }
 
       const current = sparseParams.sparse?.index?.on_disk ?? false;
-      if (current === this.onDisk) return;
+      if (current === this.onDisk) {
+        return;
+      }
 
       await this.client.updateCollection(this.collection, {
         sparse_vectors: { sparse: { index: { on_disk: this.onDisk } } },

@@ -90,7 +90,9 @@ function recordOperationalStatusTransition(
   const signature = status
     ? `${status.state}:${status.detail_state ?? ""}`
     : "absent";
-  if (lastStatusSignatureByAssistant.get(assistantId) === signature) return;
+  if (lastStatusSignatureByAssistant.get(assistantId) === signature) {
+    return;
+  }
   lastStatusSignatureByAssistant.set(assistantId, signature);
   recordLifecycleDiagnostic("operational_status", {
     assistantId,
@@ -112,12 +114,13 @@ async function fetchOperationalStatus(
   assistantId: string,
   signal?: AbortSignal,
 ): Promise<OperationalStatus | null> {
-  const { data, error, response } =
-    await assistantsOperationalStatusDetailRead({
+  const { data, error, response } = await assistantsOperationalStatusDetailRead(
+    {
       path: { id: assistantId },
       signal,
       throwOnError: false,
-    });
+    },
+  );
 
   if (!response || !response.ok) {
     if (response?.status === 403 || response?.status === 404) {
@@ -170,13 +173,19 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
     staleTime: 0,
     refetchIntervalInBackground: true,
     refetchInterval: (query) => {
-      if (!enabled) return false;
+      if (!enabled) {
+        return false;
+      }
       const data = query.state.data;
-      if (data === null) return DISABLED_STATUS_POLL_MS;
+      if (data === null) {
+        return DISABLED_STATUS_POLL_MS;
+      }
       // The server returns a 30s interval for sleeping, but that's too
       // slow to catch the brief "waking" phase when a wake is triggered.
       // Poll at the active rate so the banner transitions promptly.
-      if (data?.state === "sleeping") return DEFAULT_STATUS_POLL_MS;
+      if (data?.state === "sleeping") {
+        return DEFAULT_STATUS_POLL_MS;
+      }
       return clampPollMs(data?.poll_after_ms);
     },
   });

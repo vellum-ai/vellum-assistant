@@ -35,7 +35,10 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   },
   // Monotonic — retains the highest abandoned ceiling seen.
   recordAbandonedGeneration: (seq: number) => {
-    if (abandonedGenerationCeiling === null || seq > abandonedGenerationCeiling) {
+    if (
+      abandonedGenerationCeiling === null ||
+      seq > abandonedGenerationCeiling
+    ) {
       abandonedGenerationCeiling = seq;
     }
   },
@@ -58,9 +61,8 @@ mock.module("@/lib/diagnostics", () => ({
   recordDiagnostic: recordDiagnosticMock,
 }));
 
-const { createSseEventConsumer } = await import(
-  "@/domains/chat/streaming/sse-event-consumer"
-);
+const { createSseEventConsumer } =
+  await import("@/domains/chat/streaming/sse-event-consumer");
 
 // Test fixture builds a `ConsumableEnvelope` — the narrow input type
 // the consumer actually reads. The runtime envelope from the bus
@@ -73,16 +75,19 @@ const makeEnvelope = (override: {
   seq?: number;
 }) => override;
 
-const makeDeps = (override: {
-  activeConversationId?: string | null;
-  reconcileActive?: () => Promise<unknown>;
-  handleStreamEvent?: (event: AssistantEvent, epoch: number) => void;
-  now?: () => number;
-} = {}) => {
+const makeDeps = (
+  override: {
+    activeConversationId?: string | null;
+    reconcileActive?: () => Promise<unknown>;
+    handleStreamEvent?: (event: AssistantEvent, epoch: number) => void;
+    now?: () => number;
+  } = {},
+) => {
   const activeConversationIdRef = {
     current: override.activeConversationId ?? "conv-1",
   };
-  const reconcileActive = override.reconcileActive ?? mock(() => Promise.resolve());
+  const reconcileActive =
+    override.reconcileActive ?? mock(() => Promise.resolve());
   const handleStreamEvent = override.handleStreamEvent ?? mock(() => {});
   return {
     activeConversationIdRef,
@@ -291,7 +296,9 @@ describe("sse-event-consumer — seq-gap detection", () => {
 
   test("a ring-exceeding gap caused by an event on a background conversation is still detected", () => {
     // GIVEN a consumer scoped to conv-1 with a seeded cursor
-    const { deps, reconcileActive } = makeDeps({ activeConversationId: "conv-1" });
+    const { deps, reconcileActive } = makeDeps({
+      activeConversationId: "conv-1",
+    });
     const consumer = createSseEventConsumer(deps);
     consumer.handleSseEvent(
       makeEnvelope({

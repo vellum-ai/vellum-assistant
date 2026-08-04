@@ -40,6 +40,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getAllTools } from "../tools/registry.js";
+import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
@@ -241,7 +242,10 @@ export interface VoiceTurnCallbacks {
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
   /** Fired when the agent run starts a definitive tool use this turn. */
-  tool_use_start?: (toolName: string, detail?: { toolUseId?: string }) => void;
+  tool_use_start?: (
+    toolName: string,
+    detail?: { toolUseId?: string; input?: Record<string, unknown> },
+  ) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
@@ -283,6 +287,28 @@ export interface VoiceTurnOptions {
   onError?: (message: string) => void;
   /** Event-name callbacks used by non-phone voice clients. */
   callbacks?: VoiceTurnCallbacks;
+  /**
+   * Called when this turn leaves a confirmation for the user to answer instead
+   * of deciding it, so the client can put the prompt where they can see it.
+   *
+   * A voice client renders its call as something that covers the app (the
+   * live-voice room is a full-screen overlay), which is fine while the call is
+   * the only thing happening and wrong the moment the turn is waiting on a
+   * decision: the card is on screen, behind the call. The bridge cannot reach
+   * a client's own surfaces, so it says *that a decision is waiting* and the
+   * client decides what to do about it.
+   */
+  onApprovalPending?: (requestId: string) => void;
+  /**
+   * Called when the last pending confirmation this turn was waiting on is
+   * decided, however it was decided (the user answered, it timed out, a newer
+   * message superseded it). Paired with {@link onApprovalPending} so a client
+   * that changed its presentation for the wait can change it back.
+   *
+   * Fires on the *last* one, not each: a turn waiting on two decisions is
+   * still waiting after the first is answered.
+   */
+  onApprovalsResolved?: () => void;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
   signal?: AbortSignal;
   /**
@@ -308,6 +334,14 @@ export interface VoiceTurnOptions {
    * Only meaningful with `routingLeg: "escalated"`.
    */
   spokenEscalationBridge?: string;
+  /**
+   * Marks this turn's `content` as an internal instruction rather than user
+   * speech: it persists `hidden` so `/messages` filters it after a reload,
+   * its echo is suppressed, and prompt-as-user-speech consumers (title
+   * generation) skip it. Set by callers whose synthetic prompt text is not a
+   * fixed sentinel.
+   */
+  hiddenSyntheticPrompt?: boolean;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
@@ -356,12 +390,27 @@ export interface VoiceTurnHandle {
  * provides assistant identity) and guardian context (injected separately).
  */
 /**
- * Steering shared by every voice channel. Voice turns exclude the ui-surface
- * tools, but the model can still reach OAuth/sign-in flows through shell or
- * CLI tools (e.g. `assistant oauth connect`), which open a browser window
- * mid-call that the caller may be unable to see or complete. Tell it to speak
- * the limitation and defer the flow to text chat instead.
+ * Steering shared by every voice channel. A sign-in flow opens a browser
+ * window mid-call that the caller may be unable to see or complete, whether it
+ * is reached through a ui-surface tool or through shell and CLI tools (e.g.
+ * `assistant oauth connect`). Tell the model to speak the limitation and defer
+ * the flow to text chat instead.
+ *
+ * This outlives the ui-surface restriction it was written alongside: a
+ * live-voice call can now show surfaces, but a browser window handing control
+ * to a third party mid-call is a different problem, and one a minimized room
+ * does not solve.
  */
+/**
+ * How long a live-voice call waits on an approval before deciding it itself.
+ *
+ * Long enough to pick the phone up and read the card, short enough that a turn
+ * cannot sit blocked for the rest of the call. The fallback is the decision
+ * this channel made before it prompted at all, so the worst case of nobody
+ * answering is exactly the old behavior, arrived at late.
+ */
+const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
+
 export const VOICE_NO_SETUP_FLOWS_RULE =
   "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
 
@@ -644,7 +693,7 @@ export async function startVoiceTurn(
     },
     onToolUse: (toolName, input, toolUseId) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName, { toolUseId });
+      opts.callbacks?.tool_use_start?.(toolName, { toolUseId, input });
     },
     onToolResult: (event) => {
       opts.callbacks?.tool_result?.(event);
@@ -680,11 +729,13 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
-  // Opener / verification / escalation-continuation prompts are internal
-  // scaffolding: they persist a row so the model wakes, but they are not user
-  // speech and must not render as a live user bubble. Their echo is suppressed
-  // below (parity with `isEchoSuppressedUserMessage` on the text path).
+  // Opener / verification / escalation-continuation prompts, plus any turn a
+  // caller declares hidden, are internal scaffolding: they persist a row so the
+  // model wakes, but they are not user speech and must not render as a live
+  // user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
   const isSyntheticVoicePrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === CALL_OPENING_MARKER ||
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
@@ -696,8 +747,10 @@ export async function startVoiceTurn(
   // `/messages` filters it out after a refetch/reload, and flag the turn as a
   // hidden prompt so prompt-as-user-speech consumers (e.g. title generation)
   // skip it. The escalated model still sees the row in context — `hidden` only
-  // affects client display.
+  // affects client display. A caller whose prompt text is not a fixed sentinel
+  // opts into the same treatment with `hiddenSyntheticPrompt`.
   const isHiddenSyntheticPrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
 
   // Build the call-control protocol prompt so the model knows how to emit
@@ -836,7 +889,37 @@ export async function startVoiceTurn(
   // (tracked via `clientCallbackInstalled`); otherwise cleanup would detach
   // an active sender installed by a prior turn.
   let clientCallbackInstalled = false;
+  /**
+   * Confirmations this voice turn left pending for the user to answer, and the
+   * timers that stop them waiting forever.
+   *
+   * A call is a poor place to block: the user may have put the phone in a
+   * pocket, and a turn that waits indefinitely is a session that looks wedged.
+   * Each pending request therefore carries a deadline, after which it resolves
+   * the way this channel resolved everything before it prompted at all.
+   */
+  const pendingVoiceApprovals = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  const settleVoiceApproval = (requestId: string): void => {
+    const timer = pendingVoiceApprovals.get(requestId);
+    if (timer === undefined) {
+      // Not one of ours: other interactions (secrets, host-proxy requests)
+      // resolve through the same event.
+      return;
+    }
+    clearTimeout(timer);
+    pendingVoiceApprovals.delete(requestId);
+    if (pendingVoiceApprovals.size === 0) {
+      opts.onApprovalsResolved?.();
+    }
+  };
   const cleanup = () => {
+    for (const timer of pendingVoiceApprovals.values()) {
+      clearTimeout(timer);
+    }
+    pendingVoiceApprovals.clear();
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
     conversation.setCommandIntent(null);
@@ -857,7 +940,12 @@ export async function startVoiceTurn(
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
-      ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
+      metadata: {
+        // Durable "this turn came from an open voice session" marker; see
+        // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
+        voiceSessionTurn: true,
+        ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+      },
     });
     return persistResult.id;
   };
@@ -877,21 +965,22 @@ export async function startVoiceTurn(
     trustContext: opts.trustContext ?? null,
     turnChannelContext,
     turnInterfaceContext,
-    channelCapabilities: {
-      ...resolveChannelCapabilities(
-        turnChannelContext.userMessageChannel,
-        turnInterfaceContext.userMessageInterface,
-      ),
-      // Voice calls are non-interactive: no surface can be shown, read, or
-      // clicked mid-call, so `ui_show`/`ui_update`/`ui_dismiss` (and thus
-      // `oauth_connect`, a ui_show surface_type) must never reach the model.
-      // Phone already resolves to false via its channel; live-voice resolves
-      // vellum/macos → true, so force it off here for every voice turn. This
-      // also flips the runtime-context `supports_dynamic_ui` line the prompt
-      // advertises, the secret-prompter's dynamic-UI branch, and the
-      // task-progress-nudge hook — all correctly non-UI during a call.
-      supportsDynamicUi: false,
-    },
+    // Resolved from the channel, with no voice-specific override.
+    //
+    // Whether a call can show a surface is a property of the call's channel,
+    // not of calls in general. A phone call has no screen at all and resolves
+    // to `supportsDynamicUi: false` on its own; a live-voice call is a screen
+    // the user is holding, temporarily covered by the room overlay, and the
+    // session minimizes that overlay when a surface is shown (see the ui-tool
+    // branch of the live-voice session's `tool_use_start`).
+    //
+    // This one flag also drives the runtime-context `supports_dynamic_ui`
+    // line, the secret-prompter's dynamic-UI branch, and the
+    // task-progress-nudge hook, so a live-voice turn now reaches all of them.
+    channelCapabilities: resolveChannelCapabilities(
+      turnChannelContext.userMessageChannel,
+      turnInterfaceContext.userMessageInterface,
+    ),
     voiceCallControlPrompt,
   };
   const installVoiceTurnState = () => {
@@ -1090,6 +1179,11 @@ export async function startVoiceTurn(
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
   let lastError: string | null = null;
   conversation.updateClient(async (msg: AssistantEvent) => {
+    // The user (or anything else) answered: stop the fallback from firing on a
+    // request that is already decided.
+    if (msg.type === "interaction_resolved") {
+      settleVoiceApproval(msg.requestId);
+    }
     if (msg.type === "confirmation_request") {
       // Broadcast the request BEFORE resolving it: resolution synchronously
       // broadcasts `interaction_resolved` (handleConfirmationResponse →
@@ -1166,6 +1260,71 @@ export async function startVoiceTurn(
         });
         return;
       }
+      // A live-voice call has a screen, so a consequential action can be put
+      // to the user instead of decided for them.
+      //
+      // Everything used to be allowed here on the strength of the caller being
+      // a guardian, which made a voice call the one surface where a tool that
+      // writes to the workspace or reaches the host never had to ask. Only
+      // *sensitive* reach prompts: gating every confirmation would interrupt a
+      // conversation constantly, and the tools that read or render were never
+      // the reason approval exists.
+      //
+      // Phone keeps the old behavior in full. There is no screen on that
+      // channel, so a prompt there is a question nobody can answer.
+      // The workspace root is what makes an escape visible. A sandbox file
+      // tool pointed outside the workspace reaches the host filesystem on a
+      // non-containerized install, and `sensitiveToolReach` can only see that
+      // when it is given the boundary to compare against: without it,
+      // `file_read { path: "/etc/hosts" }` classifies as `none` and would fall
+      // through to the auto-allow this branch exists to prevent.
+      const workspaceRoot = conversation.workingDir;
+      const reach = sensitiveToolReach(
+        msg.toolName,
+        // Absent on requests that do not come from the tool pipeline (proxy
+        // and network prompters). Unknown reads as the more consequential of
+        // the two: the cost of being wrong is a prompt the user did not need,
+        // against an unreviewed action on their machine.
+        msg.executionTarget ?? "host",
+        msg.input,
+        workspaceRoot,
+      );
+      const canPrompt = turnChannelContext.userMessageChannel === "vellum";
+      // Fail closed on a missing boundary for the same reason: with no
+      // workspace root there is no way to tell an ordinary write from an
+      // escape, and the safe reading of "cannot tell" is "ask". A real
+      // conversation always has one, so this is a guard rather than a path.
+      if (canPrompt && (reach !== "none" || !workspaceRoot)) {
+        log.info(
+          { turnId, toolName: msg.toolName, reach },
+          "Prompting guardian voice caller for a sensitive tool",
+        );
+        // Left pending: the request is already broadcast, so the approval card
+        // an attached client renders is now answerable rather than cleared a
+        // moment later by this handler.
+        //
+        // Announced separately, because "a card exists" and "the user can see
+        // it" are different things on a channel whose call covers the app.
+        opts.onApprovalPending?.(msg.requestId);
+        const timer = setTimeout(() => {
+          pendingVoiceApprovals.delete(msg.requestId);
+          if (pendingVoiceApprovals.size === 0) {
+            opts.onApprovalsResolved?.();
+          }
+          log.info(
+            { turnId, toolName: msg.toolName },
+            "Voice approval timed out — falling back to the guardian allow",
+          );
+          conversation.handleConfirmationResponse(msg.requestId, "allow", {
+            decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call and the approval prompt went unanswered.`,
+          });
+        }, VOICE_APPROVAL_TIMEOUT_MS);
+        // Never hold the process open for a prompt nobody is looking at.
+        timer.unref?.();
+        pendingVoiceApprovals.set(msg.requestId, timer);
+        return;
+      }
+
       log.info(
         { turnId, toolName: msg.toolName },
         "Auto-approving confirmation request for guardian voice turn",
@@ -1176,11 +1335,14 @@ export async function startVoiceTurn(
       return;
     }
     if (msg.type === "secret_request") {
-      // Defense-in-depth: SecretPrompter.prompt fails fast with
-      // `unsupported_channel` on voice turns (supportsDynamicUi is forced
-      // off above), so a secret_request should never reach this handler.
-      // Resolve immediately anyway in case an emitter bypasses the
-      // prompter's channel check or races a capability install.
+      // Auto-resolved rather than prompted, on every voice channel.
+      //
+      // A phone call cannot render a secret field at all. A live-voice call
+      // now can (its channel resolves `supportsDynamicUi` true), so this is
+      // where the prompt would surface, and it deliberately does not yet:
+      // typing a credential into a screen you reached by minimizing a call is
+      // a flow that needs designing, not a flag flip. Resolving with no secret
+      // leaves the tool to fail the way it does today.
       log.info(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",

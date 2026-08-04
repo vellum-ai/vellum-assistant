@@ -32,7 +32,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -50,6 +52,7 @@ afterAll(() => {
 });
 
 import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
+import { enableMemoryV3LiveForNewWorkspacesMigration } from "../../workspace/migrations/105-enable-memory-v3-live-for-new-workspaces.js";
 import { invalidateConfigCache, loadConfig } from "../loader.js";
 
 // ---------------------------------------------------------------------------
@@ -132,7 +135,9 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
   test("first launch (no config.json) persists managed service modes but not the platform embedding provider", () => {
     // No config.json on disk: this is the first-launch SEED path that writes a
     // default config so the file exists for users to edit.
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -217,8 +222,10 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(config.memory.qdrant.vectorSize).toBe(384);
   });
 
-  test("first launch seeds memory.v3 with only `live` — tuning knobs resolve from the schema, not disk", () => {
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+  test("first launch persists nothing under memory.v3, not even `live`", () => {
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
 
     const config = loadConfig();
@@ -227,16 +234,37 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(config.memory.v3.gate.denseThreshold).toBe(0.66);
     expect(config.memory.v3.needleK).toBe(100);
 
-    // Persisted config.json carries ONLY `live` under memory.v3 — no tuning knob
-    // is frozen to disk, so a shipped schema-default change reaches this
-    // assistant on its next load (mirrors the embedding-provider strip above).
+    // Nothing under memory.v3 is frozen to disk. Tuning knobs stay absent so a
+    // shipped schema-default change reaches this assistant on its next load
+    // (mirrors the embedding-provider strip above), and `live` stays absent so
+    // migration 105 can record the initial choice: 105 bails on any value
+    // already present, and this seed runs before workspace migrations.
     const raw = readConfig();
     const v3Raw = ((raw.memory as Record<string, unknown>).v3 ?? {}) as Record<
       string,
       unknown
     >;
-    expect(Object.keys(v3Raw)).toEqual(["live"]);
+    expect(Object.keys(v3Raw)).toEqual([]);
     expect(v3Raw.gate).toBeUndefined();
     expect(v3Raw.needleK).toBeUndefined();
+  });
+
+  test("migration 105 turns v3 on for a workspace this seed just created", () => {
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
+    delete process.env.IS_PLATFORM;
+
+    loadConfig();
+    enableMemoryV3LiveForNewWorkspacesMigration.run(WORKSPACE_DIR, {
+      isNewWorkspace: true,
+    });
+
+    const raw = readConfig();
+    const v3Raw = ((raw.memory as Record<string, unknown>).v3 ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(v3Raw.live).toBe(true);
   });
 });

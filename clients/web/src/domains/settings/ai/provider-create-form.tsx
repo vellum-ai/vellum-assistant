@@ -374,73 +374,73 @@ export function ProviderCreateForm({
     <div className="space-y-4">
       {/* Provider — omitted when the host's own picker already fixed it. */}
       {!hideProviderSelect && (
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
-        </label>
-        <Dropdown
-          aria-label="Provider"
-          value={selected}
-          onChange={(newSelected) => {
-            setSelected(newSelected);
-            setError(null);
-            if (newSelected === "chatgpt") {
-              return;
-            }
-            // Internal names always follow the selected provider. Preserve a
-            // user-edited Display Name across provider changes.
-            const { name: seedName, key: seedKey } = deriveProviderDefaults(
-              newSelected,
-              existingNames,
-            );
-            if (!isLabelDirty.current) {
-              // A custom provider's name is the user's identity for it —
-              // seeding the protocol's display name would produce
-              // "Add OpenAI-compatible".
-              setLabel(newSelected === "openai-compatible" ? "" : seedName);
-            }
-            setName(seedKey);
-            setCredential(
-              newSelected === "ollama"
-                ? ""
-                : newSelected === "openai-compatible"
-                  ? `credential/${seedKey}/api_key`
-                  : `credential/${newSelected}/api_key`,
-            );
-            // Credential ref changes above trigger a new TQ query key,
-            // so the presence check auto-refetches for the new provider.
-          }}
-          options={[
-            // Catalog providers first; the custom-provider entry closes the
-            // list. "OpenAI-compatible" is the protocol a custom provider
-            // must speak, not the provider's identity.
-            ...connectionProviderOptions
-              .filter((p) => p !== "openai-compatible")
-              .map((p) => ({
-                value: p,
-                label: PROVIDER_DISPLAY_NAMES[p],
-              })),
-            ...(connectionProviderOptions.includes("openai-compatible")
-              ? [
-                  {
-                    value: "openai-compatible" as ConnectionProvider,
-                    label: "Custom provider",
-                  },
-                ]
-              : []),
-          ]}
-        />
-        {isOpenAICompatible ? (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
-            Custom providers connect to any endpoint that serves the
-            OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
-          </Typography>
-        ) : null}
-      </div>
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Provider
+          </label>
+          <Dropdown
+            aria-label="Provider"
+            value={selected}
+            onChange={(newSelected) => {
+              setSelected(newSelected);
+              setError(null);
+              if (newSelected === "chatgpt") {
+                return;
+              }
+              // Internal names always follow the selected provider. Preserve a
+              // user-edited Display Name across provider changes.
+              const { name: seedName, key: seedKey } = deriveProviderDefaults(
+                newSelected,
+                existingNames,
+              );
+              if (!isLabelDirty.current) {
+                // A custom provider's name is the user's identity for it —
+                // seeding the protocol's display name would produce
+                // "Add OpenAI-compatible".
+                setLabel(newSelected === "openai-compatible" ? "" : seedName);
+              }
+              setName(seedKey);
+              setCredential(
+                newSelected === "ollama"
+                  ? ""
+                  : newSelected === "openai-compatible"
+                    ? `credential/${seedKey}/api_key`
+                    : `credential/${newSelected}/api_key`,
+              );
+              // Credential ref changes above trigger a new TQ query key,
+              // so the presence check auto-refetches for the new provider.
+            }}
+            options={[
+              // Catalog providers first; the custom-provider entry closes the
+              // list. "OpenAI-compatible" is the protocol a custom provider
+              // must speak, not the provider's identity.
+              ...connectionProviderOptions
+                .filter((p) => p !== "openai-compatible")
+                .map((p) => ({
+                  value: p,
+                  label: PROVIDER_DISPLAY_NAMES[p],
+                })),
+              ...(connectionProviderOptions.includes("openai-compatible")
+                ? [
+                    {
+                      value: "openai-compatible" as ConnectionProvider,
+                      label: "Custom provider",
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          {isOpenAICompatible ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              Custom providers connect to any endpoint that serves the
+              OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
+            </Typography>
+          ) : null}
+        </div>
       )}
 
       {/* Name + Base URL + Models — custom providers only. Name leads:

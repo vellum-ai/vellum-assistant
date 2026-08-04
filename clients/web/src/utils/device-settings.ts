@@ -41,20 +41,41 @@ interface DeviceSettingEntry {
  */
 const DEVICE_SETTINGS = {
   theme: { key: "device:theme", legacy: "vellum_theme" },
-  shareAnalytics: { key: "device:share_analytics", legacy: "vellum_share_analytics" },
-  shareDiagnostics: { key: "device:share_diagnostics", legacy: "vellum_share_diagnostics" },
+  shareAnalytics: {
+    key: "device:share_analytics",
+    legacy: "vellum_share_analytics",
+  },
+  shareDiagnostics: {
+    key: "device:share_diagnostics",
+    legacy: "vellum_share_diagnostics",
+  },
   // Effective Sentry reporting gate: tracks the saved diagnostics preference
   // with opt-out semantics — closes only for an explicit opt-out; absent reads
   // open once consent has hydrated. Decoupled from `shareDiagnostics` (the
   // saved preference) so consent-resolution paths can write it independently.
   // No legacy key — introduced after the migration cutover.
   diagnosticsReporting: { key: "device:diagnostics_reporting" },
-  biometricEnabled: { key: "device:biometric_enabled", legacy: "vellum_biometric_enabled" },
-  llmLogRetention: { key: "device:llm_log_retention", legacy: "vellum_llm_log_retention" },
+  biometricEnabled: {
+    key: "device:biometric_enabled",
+    legacy: "vellum_biometric_enabled",
+  },
+  llmLogRetention: {
+    key: "device:llm_log_retention",
+    legacy: "vellum_llm_log_retention",
+  },
   timezone: { key: "device:timezone", legacy: "vellum_timezone" },
-  mediaEmbedsEnabled: { key: "device:media_embeds_enabled", legacy: "vellum_media_embeds_enabled" },
-  mediaEmbedDomains: { key: "device:media_embed_domains", legacy: "vellum_media_embed_domains" },
-  dockBadgesEnabled: { key: "device:dock_badges_enabled", legacy: "vellum_dock_badges_enabled" },
+  mediaEmbedsEnabled: {
+    key: "device:media_embeds_enabled",
+    legacy: "vellum_media_embeds_enabled",
+  },
+  mediaEmbedDomains: {
+    key: "device:media_embed_domains",
+    legacy: "vellum_media_embed_domains",
+  },
+  dockBadgesEnabled: {
+    key: "device:dock_badges_enabled",
+    legacy: "vellum_dock_badges_enabled",
+  },
   lastUserId: { key: "device:last_user_id", legacy: "onboarding.lastUserId" },
 } as const satisfies Record<string, DeviceSettingEntry>;
 
@@ -71,13 +92,16 @@ function readLegacy(entry: DeviceSettingEntry): string | null {
 }
 
 /** Read a device-scoped setting, returning `fallback` when absent or unreadable. */
-export function getDeviceSetting(name: DeviceSettingName, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
+export function getDeviceSetting(
+  name: DeviceSettingName,
+  fallback: string,
+): string {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   const entry = DEVICE_SETTINGS[name];
   try {
-    return localStorage.getItem(entry.key)
-      ?? readLegacy(entry)
-      ?? fallback;
+    return localStorage.getItem(entry.key) ?? readLegacy(entry) ?? fallback;
   } catch {
     return fallback;
   }
@@ -89,14 +113,22 @@ export function setDeviceSetting(name: DeviceSettingName, value: string): void {
 }
 
 /** Read a boolean device setting. */
-export function getDeviceBool(name: DeviceSettingName, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
+export function getDeviceBool(
+  name: DeviceSettingName,
+  fallback: boolean,
+): boolean {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   const entry = DEVICE_SETTINGS[name];
   try {
-    const raw = localStorage.getItem(entry.key)
-      ?? readLegacy(entry);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
+    const raw = localStorage.getItem(entry.key) ?? readLegacy(entry);
+    if (raw === "true") {
+      return true;
+    }
+    if (raw === "false") {
+      return false;
+    }
   } catch {
     // Storage unavailable
   }
@@ -130,10 +162,14 @@ export function watchDeviceSetting(
  * up the new values without needing a full page reload.
  */
 export function migrateDeviceSettings(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     for (const entry of Object.values<DeviceSettingEntry>(DEVICE_SETTINGS)) {
-      if (entry.legacy == null) continue;
+      if (entry.legacy == null) {
+        continue;
+      }
       const legacyValue = localStorage.getItem(entry.legacy);
       if (legacyValue !== null) {
         // Only write if the new key doesn't already exist — avoids

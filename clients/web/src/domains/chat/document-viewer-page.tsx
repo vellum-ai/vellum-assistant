@@ -16,18 +16,21 @@ import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
-    documentsByIdConversationsPost,
-    documentsByIdGet,
-    documentsByIdPdfGet,
+  documentsByIdConversationsPost,
+  documentsByIdGet,
+  documentsByIdPdfGet,
 } from "@/generated/daemon/sdk.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
-import { getEditChatConversationId, setEditChatConversationId } from "@/utils/edit-chat-session";
+import {
+  getEditChatConversationId,
+  setEditChatConversationId,
+} from "@/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import {
-    DocumentViewerContainer,
-    type DocumentViewerContainerHandle,
+  DocumentViewerContainer,
+  type DocumentViewerContainerHandle,
 } from "./components/document-viewer-container";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 
@@ -57,7 +60,9 @@ export function DocumentViewerPage() {
     }
     // Wait for the selection store to resolve before fetching — on cold nav
     // assistantId starts null and the lifecycle hook fills it asynchronously.
-    if (!assistantId) {return;}
+    if (!assistantId) {
+      return;
+    }
 
     let cancelled = false;
     void (async () => {
@@ -66,7 +71,9 @@ export function DocumentViewerPage() {
           path: { assistant_id: assistantId, id: surfaceId },
           throwOnError: true,
         });
-        if (cancelled) {return;}
+        if (cancelled) {
+          return;
+        }
         setDoc(result);
       } catch {
         if (!cancelled) {
@@ -115,15 +122,17 @@ export function DocumentViewerPage() {
   });
 
   const handleSubmitFeedback = useCallback(async () => {
-    if (!doc || !assistantId || !surfaceId) {return;}
+    if (!doc || !assistantId || !surfaceId) {
+      return;
+    }
 
     // Prefer the document's original conversation — the document is already
     // linked there, so the injector will surface the comments automatically.
     // Fall back to session-cached conversation id for repeated feedback.
     const conversationId =
-      doc.conversationId
-      || getEditChatConversationId(assistantId, surfaceId)
-      || (typeof globalThis.crypto?.randomUUID === "function"
+      doc.conversationId ||
+      getEditChatConversationId(assistantId, surfaceId) ||
+      (typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
         : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
@@ -150,17 +159,23 @@ export function DocumentViewerPage() {
     });
 
     const prompt = `Please review and address my comments on "${doc.title}".`;
-    navigate(`${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`);
+    navigate(
+      `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+    );
   }, [doc, assistantId, surfaceId, navigate]);
 
   const handleExport = useCallback(async () => {
-    if (!doc || !assistantId) {return;}
+    if (!doc || !assistantId) {
+      return;
+    }
     const { data: blob, response: pdfResponse } = await documentsByIdPdfGet({
       path: { assistant_id: assistantId, id: doc.surfaceId },
       throwOnError: false,
       parseAs: "blob",
     });
-    if (!pdfResponse?.ok || !blob) {return;}
+    if (!pdfResponse?.ok || !blob) {
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
       href: url,

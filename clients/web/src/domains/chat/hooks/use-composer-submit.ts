@@ -14,7 +14,13 @@
  * the send losslessly (used by the composer secret guard).
  */
 
-import { type FormEvent, type RefObject, useCallback, useEffect, useRef } from "react";
+import {
+  type FormEvent,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 
 import {
   selectPathReferencePaths,
@@ -22,7 +28,10 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
-import { useQuoteReplyStore, type StagedQuote } from "@/domains/chat/quote-reply-store";
+import {
+  useQuoteReplyStore,
+  type StagedQuote,
+} from "@/domains/chat/quote-reply-store";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -107,91 +116,122 @@ export function useComposerSubmit({
   }, [typingDisabled, sendDisabled, inputRef]);
 
   // --- Submit logic -------------------------------------------------------
-  const submitMessage = useCallback(async (
-    inputOverride?: string,
-    opts?: { bypassSecretCheck?: boolean },
-  ) => {
-    const input = useComposerStore.getState().input;
-    const chatAttachments = useComposerStore.getState().attachments;
-    const uploadingCount = selectUploadingCount(chatAttachments);
-    const uploadedIds = selectUploadedIds(chatAttachments);
-    const pathReferences = selectPathReferencePaths(chatAttachments);
+  const submitMessage = useCallback(
+    async (inputOverride?: string, opts?: { bypassSecretCheck?: boolean }) => {
+      const input = useComposerStore.getState().input;
+      const chatAttachments = useComposerStore.getState().attachments;
+      const uploadingCount = selectUploadingCount(chatAttachments);
+      const uploadedIds = selectUploadedIds(chatAttachments);
+      const pathReferences = selectPathReferencePaths(chatAttachments);
 
-    const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
-    const trimmed = (inputOverride ?? input).trim();
-    if (sendDisabled) return;
-    if (
-      !trimmed &&
-      uploadedIds.length === 0 &&
-      pathReferences.length === 0 &&
-      stagedQuotes.length === 0
-    ) {
-      return;
-    }
-    if (uploadingCount > 0) return;
-
-    // Assemble the outgoing content before touching any state so the gate
-    // below can veto the send with the draft/attachments/quotes intact.
-    const contentWithQuotes = buildContentWithQuotes(stagedQuotes, trimmed);
-    const finalContent = appendPathReferences(contentWithQuotes, pathReferences);
-    if (beforeSend && !beforeSend(finalContent)) {
-      return;
-    }
-
-    const attachmentsToSend: DisplayAttachment[] = chatAttachments
-      .filter(
-        (att): att is Extract<typeof att, { kind: "uploaded" }> => att.kind === "uploaded",
-      )
-      .map((att) => ({
-        id: att.id,
-        filename: att.filename,
-        mimeType: att.mimeType,
-        sizeBytes: att.sizeBytes,
-        previewUrl: att.previewUrl ?? null,
-        thumbnailUrl: att.thumbnailUrl ?? null,
-      }));
-
-    useComposerStore.getState().setInput("");
-    if (activeConversationId) {
-      useComposerStore.getState().clearDraft(activeConversationId);
-    }
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-    }
-    useComposerStore.getState().resetAttachments();
-    useQuoteReplyStore.getState().clearStagedQuotes();
-
-    if (!isPointerCoarse()) {
-      shouldFocusInputRef.current = true;
-    }
-    haptic.medium();
-
-    // Engage the auto-pin window so the new turn lands at the bottom.
-    scrollToLatest({ behavior: "auto" });
-
-    if (isEditing && editingMessageId && assistantId && activeConversationId && canUndoEdit) {
-      cancelEditing();
-      try {
-        await conversationsByIdUndoPost({
-          path: { assistant_id: assistantId, id: activeConversationId },
-        });
-      } catch {
-        // If undo fails, still send the message as a new one
+      const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
+      const trimmed = (inputOverride ?? input).trim();
+      if (sendDisabled) {
+        return;
       }
-    }
-    // Forward the secret-check override only when this send explicitly
-    // carries it (the Send-anyway path); ordinary sends never set it.
-    await sendMessage(
-      finalContent,
-      attachmentsToSend,
-      opts?.bypassSecretCheck === true ? { bypassSecretCheck: true } : undefined,
-    );
-  }, [sendDisabled, beforeSend, activeConversationId, inputRef, scrollToLatest, isEditing, editingMessageId, assistantId, cancelEditing, canUndoEdit, sendMessage]);
+      if (
+        !trimmed &&
+        uploadedIds.length === 0 &&
+        pathReferences.length === 0 &&
+        stagedQuotes.length === 0
+      ) {
+        return;
+      }
+      if (uploadingCount > 0) {
+        return;
+      }
 
-  const handleFormSubmit = useCallback((e: FormEvent) => {
-    e.preventDefault();
-    void submitMessage();
-  }, [submitMessage]);
+      // Assemble the outgoing content before touching any state so the gate
+      // below can veto the send with the draft/attachments/quotes intact.
+      const contentWithQuotes = buildContentWithQuotes(stagedQuotes, trimmed);
+      const finalContent = appendPathReferences(
+        contentWithQuotes,
+        pathReferences,
+      );
+      if (beforeSend && !beforeSend(finalContent)) {
+        return;
+      }
+
+      const attachmentsToSend: DisplayAttachment[] = chatAttachments
+        .filter(
+          (att): att is Extract<typeof att, { kind: "uploaded" }> =>
+            att.kind === "uploaded",
+        )
+        .map((att) => ({
+          id: att.id,
+          filename: att.filename,
+          mimeType: att.mimeType,
+          sizeBytes: att.sizeBytes,
+          previewUrl: att.previewUrl ?? null,
+          thumbnailUrl: att.thumbnailUrl ?? null,
+        }));
+
+      useComposerStore.getState().setInput("");
+      if (activeConversationId) {
+        useComposerStore.getState().clearDraft(activeConversationId);
+      }
+      if (inputRef.current) {
+        inputRef.current.style.height = "auto";
+      }
+      useComposerStore.getState().resetAttachments();
+      useQuoteReplyStore.getState().clearStagedQuotes();
+
+      if (!isPointerCoarse()) {
+        shouldFocusInputRef.current = true;
+      }
+      haptic.medium();
+
+      // Engage the auto-pin window so the new turn lands at the bottom.
+      scrollToLatest({ behavior: "auto" });
+
+      if (
+        isEditing &&
+        editingMessageId &&
+        assistantId &&
+        activeConversationId &&
+        canUndoEdit
+      ) {
+        cancelEditing();
+        try {
+          await conversationsByIdUndoPost({
+            path: { assistant_id: assistantId, id: activeConversationId },
+          });
+        } catch {
+          // If undo fails, still send the message as a new one
+        }
+      }
+      // Forward the secret-check override only when this send explicitly
+      // carries it (the Send-anyway path); ordinary sends never set it.
+      await sendMessage(
+        finalContent,
+        attachmentsToSend,
+        opts?.bypassSecretCheck === true
+          ? { bypassSecretCheck: true }
+          : undefined,
+      );
+    },
+    [
+      sendDisabled,
+      beforeSend,
+      activeConversationId,
+      inputRef,
+      scrollToLatest,
+      isEditing,
+      editingMessageId,
+      assistantId,
+      cancelEditing,
+      canUndoEdit,
+      sendMessage,
+    ],
+  );
+
+  const handleFormSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault();
+      void submitMessage();
+    },
+    [submitMessage],
+  );
 
   return { submitMessage, handleFormSubmit };
 }

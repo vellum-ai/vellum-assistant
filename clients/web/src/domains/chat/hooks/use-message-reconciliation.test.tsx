@@ -54,18 +54,15 @@ spyOn(eventsTailApi, "ingestServerEventsTail").mockImplementation(
   },
 );
 
-const { useMessageReconciliation } = await import(
-  "@/domains/chat/hooks/use-message-reconciliation"
-);
+const { useMessageReconciliation } =
+  await import("@/domains/chat/hooks/use-message-reconciliation");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { __resetLocalSeqForTesting } = await import("@/lib/streaming/local-seq");
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // A daemon build at/above the events-tail floor, and one below it.
 const TAIL_CAPABLE_VERSION = "0.10.8";
@@ -207,7 +204,9 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
 describe("startReconciliationLoop — off above the floor, poll loop below", () => {
   test("tail-capable daemon: fully off — no fetch, no loop", async () => {
     // GIVEN a daemon at/above the events-tail floor
-    useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Ada", TAIL_CAPABLE_VERSION);
     seedSnapshotProcessing(true);
     seedServerFetch(false);
     const { result } = renderReconciliation();
@@ -229,7 +228,9 @@ describe("startReconciliationLoop — off above the floor, poll loop below", () 
 
   test("tail-capable daemon: cancelReconciliation is fully off", () => {
     // GIVEN a daemon at/above the events-tail floor
-    useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Ada", TAIL_CAPABLE_VERSION);
     const { result } = renderReconciliation();
 
     // WHEN cancel is invoked (as the stream handlers do on live events)

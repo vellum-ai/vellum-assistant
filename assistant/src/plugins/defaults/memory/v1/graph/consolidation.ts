@@ -255,10 +255,14 @@ async function identifyDuplicateGroups(
   nodes: MemoryNode[],
   _config: AssistantConfig,
 ): Promise<MemoryNode[][]> {
-  if (nodes.length < 2) return [];
+  if (nodes.length < 2) {
+    return [];
+  }
 
   const provider = await getConfiguredProvider("memoryConsolidation");
-  if (!provider) return [];
+  if (!provider) {
+    return [];
+  }
 
   // Compact listing: ID + first 100 chars of content
   const listing = nodes
@@ -281,10 +285,14 @@ async function identifyDuplicateGroups(
   });
 
   const toolBlock = extractToolUse(response);
-  if (!toolBlock) return [];
+  if (!toolBlock) {
+    return [];
+  }
 
   const input = toolBlock.input as { groups?: string[][] };
-  if (!input.groups) return [];
+  if (!input.groups) {
+    return [];
+  }
 
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
@@ -316,7 +324,9 @@ async function consolidatePartition(
     mergeEdgesCreated: 0,
   };
 
-  if (nodes.length === 0) return result;
+  if (nodes.length === 0) {
+    return result;
+  }
 
   // Step 1: Fast LLM call to identify duplicate groups from compact listing
   const dupeGroups = await identifyDuplicateGroups(nodes, config);
@@ -339,7 +349,9 @@ async function consolidatePartition(
   const deleted = new Set<string>();
   for (let i = 0; i < dupeGroups.length; i++) {
     const chunk = dupeGroups[i].filter((n) => !deleted.has(n.id));
-    if (chunk.length < 2) continue;
+    if (chunk.length < 2) {
+      continue;
+    }
 
     const chunkResult = await consolidateChunk(
       `${partitionName} dupes (${i + 1}/${dupeGroups.length})`,
@@ -349,7 +361,9 @@ async function consolidatePartition(
     result.nodesUpdated += chunkResult.nodesUpdated;
     result.nodesDeleted += chunkResult.nodesDeleted;
     result.mergeEdgesCreated += chunkResult.mergeEdgesCreated;
-    for (const id of chunkResult.deletedIds) deleted.add(id);
+    for (const id of chunkResult.deletedIds) {
+      deleted.add(id);
+    }
   }
 
   // Step 3: Run consolidation on singletons in chunks (for fidelity/narrative updates)
@@ -357,7 +371,9 @@ async function consolidatePartition(
   if (remainingSingletons.length >= 2) {
     for (let i = 0; i < remainingSingletons.length; i += CHUNK_SIZE) {
       const chunk = remainingSingletons.slice(i, i + CHUNK_SIZE);
-      if (chunk.length < 2) continue;
+      if (chunk.length < 2) {
+        continue;
+      }
 
       const chunkResult = await consolidateChunk(
         `${partitionName} singles (${Math.floor(i / CHUNK_SIZE) + 1})`,
@@ -367,7 +383,9 @@ async function consolidatePartition(
       result.nodesUpdated += chunkResult.nodesUpdated;
       result.nodesDeleted += chunkResult.nodesDeleted;
       result.mergeEdgesCreated += chunkResult.mergeEdgesCreated;
-      for (const id of chunkResult.deletedIds) deleted.add(id);
+      for (const id of chunkResult.deletedIds) {
+        deleted.add(id);
+      }
     }
   }
 
@@ -390,7 +408,9 @@ async function consolidateChunk(
     deletedIds: [],
   };
 
-  if (nodes.length === 0) return result;
+  if (nodes.length === 0) {
+    return result;
+  }
 
   // Collect edges between partition nodes
   const nodeIds = new Set(nodes.map((n) => n.id));
@@ -415,7 +435,9 @@ async function consolidateChunk(
   const edgeKeys = new Set<string>();
   const dedupedEdges = edges.filter((e) => {
     const key = `${e.sourceId}-${e.relationship}-${e.targetId}`;
-    if (edgeKeys.has(key)) return false;
+    if (edgeKeys.has(key)) {
+      return false;
+    }
     edgeKeys.add(key);
     return true;
   });
@@ -482,18 +504,26 @@ async function consolidateChunk(
 
   // Apply updates
   for (const update of input.updates ?? []) {
-    if (!nodeIds.has(update.id)) continue; // safety: only update nodes in this partition
+    if (!nodeIds.has(update.id)) {
+      continue;
+    } // safety: only update nodes in this partition
 
     const changes: Partial<MemoryNode> = {};
-    if (update.content) changes.content = update.content;
-    if (update.fidelity)
+    if (update.content) {
+      changes.content = update.content;
+    }
+    if (update.fidelity) {
       changes.fidelity = update.fidelity as MemoryNode["fidelity"];
-    if (update.narrativeRole !== undefined)
+    }
+    if (update.narrativeRole !== undefined) {
       changes.narrativeRole = update.narrativeRole || null;
-    if (update.partOfStory !== undefined)
+    }
+    if (update.partOfStory !== undefined) {
       changes.partOfStory = update.partOfStory || null;
-    if (update.event_date !== undefined)
+    }
+    if (update.event_date !== undefined) {
       changes.eventDate = parseEpochMs(update.event_date);
+    }
     changes.lastConsolidated = Date.now();
 
     if (Object.keys(changes).length > 1) {
@@ -528,18 +558,22 @@ async function consolidateChunk(
       result.nodesUpdated++;
       // Sync in-memory state with what updateNode actually wrote to the DB
       // (updateNode deduplicates content before persisting)
-      if (changes.content)
+      if (changes.content) {
         changes.content = deduplicateParagraphs(changes.content);
+      }
       const node = nodeMap.get(update.id);
-      if (node) Object.assign(node, changes);
+      if (node) {
+        Object.assign(node, changes);
+      }
     }
   }
 
   // Apply merge edges (before deletion so the edge can reference the node)
   const { createEdge } = await import("../../graph/store.js");
   for (const merge of input.merge_edges ?? []) {
-    if (!nodeIds.has(merge.survivor_id) || !nodeIds.has(merge.deleted_id))
+    if (!nodeIds.has(merge.survivor_id) || !nodeIds.has(merge.deleted_id)) {
       continue;
+    }
     try {
       createEdge({
         sourceNodeId: merge.survivor_id,
@@ -601,7 +635,9 @@ async function consolidateChunk(
 
   // Apply deletions
   for (const id of input.delete_ids ?? []) {
-    if (!nodeIds.has(id)) continue; // safety
+    if (!nodeIds.has(id)) {
+      continue;
+    } // safety
     try {
       log.info({ nodeId: id }, "Consolidation deleting node");
       deleteNode(id);

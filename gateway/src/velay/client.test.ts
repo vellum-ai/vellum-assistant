@@ -107,7 +107,6 @@ function makeManualTimerApi(delays: number[], callbacks: Array<() => void>) {
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: join(workspaceDir, "logs"), retentionDays: 30 },
     maxAttachmentBytes: {
@@ -125,7 +124,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 1,
     shutdownDrainMs: 1,
-    unmappedPolicy: "reject",
     trustProxy: false,
     ...overrides,
   };

@@ -1,13 +1,15 @@
 import { Loader2 } from "lucide-react";
 
+import type { PlanSpec } from "@/domains/settings/billing/plan-spec";
+import { SpecChip } from "@/domains/settings/billing/spec-chip";
 import { cn } from "@/utils/misc";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 export interface PlanPromoCardProps {
   title: string;
-  /** One-line supporting copy under the title; omitted on the customize variant. */
-  blurb?: string;
+  /** Spec chips under the title; omitted on the customize variant. */
+  specs?: PlanSpec[];
   ctaLabel: string;
   ctaTestId?: string;
   pending?: boolean;
@@ -18,15 +20,16 @@ export interface PlanPromoCardProps {
 }
 
 /**
- * The dark "promo" card in the billing "Plan" section — a centered title,
- * optional one-line blurb, and a single CTA. Purely presentational: the parent
- * owns the copy, the pending/disabled state, and the CTA behavior. The forced
- * `data-theme="dark"` scope resolves the semantic tokens to the mock's dark
- * palette (surface ~#17191C, `--content-secondary` blurb ~#A9B2BB).
+ * The dark "promo" card in the billing "Plan" section: a centered title, an
+ * optional row of spec chips, and a single CTA. Purely presentational: the
+ * parent owns the copy, the specs, the pending/disabled state, and the CTA
+ * behavior. The forced `data-theme="dark"` scope resolves the semantic tokens
+ * to the mock's dark palette (surface ~#17191C, chips on `--surface-overlay`
+ * ~#1C2024). The card is narrow, so the chip row wraps.
  */
 export function PlanPromoCard({
   title,
-  blurb,
+  specs,
   ctaLabel,
   ctaTestId,
   pending = false,
@@ -50,14 +53,12 @@ export function PlanPromoCard({
         >
           {title}
         </Typography>
-        {blurb ? (
-          <Typography
-            as="span"
-            variant="body-small-default"
-            className="text-[var(--content-secondary)]"
-          >
-            {blurb}
-          </Typography>
+        {specs?.length ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {specs.map((spec) => (
+              <SpecChip key={spec.label} icon={spec.icon} label={spec.label} />
+            ))}
+          </div>
         ) : null}
       </div>
       <Button

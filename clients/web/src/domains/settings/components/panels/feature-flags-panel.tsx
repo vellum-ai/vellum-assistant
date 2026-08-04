@@ -7,11 +7,11 @@ import { DetailCard } from "@/components/detail-card";
 import { client } from "@/generated/api/client.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-    ALL_FLAGS,
-    flagKeyToStoreKey,
-    scopeIncludes,
-    type FlagScope,
-    type SingleScope,
+  ALL_FLAGS,
+  flagKeyToStoreKey,
+  scopeIncludes,
+  type FlagScope,
+  type SingleScope,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -32,7 +32,9 @@ async function fetchFlagDefinitions(): Promise<FlagDefinitionResponse[]> {
     Record<string, unknown>,
     false
   >({ url: "/v1/feature-flags/", throwOnError: false });
-  if (!response?.ok) return [];
+  if (!response?.ok) {
+    return [];
+  }
   const parsed = data as { flags?: FlagDefinitionResponse[] } | undefined;
   return parsed?.flags ?? [];
 }
@@ -83,7 +85,9 @@ export function FeatureFlagsPanel() {
 
   const valuesMap = useMemo(() => {
     const map = new Map<string, string[]>();
-    if (!definitions) return map;
+    if (!definitions) {
+      return map;
+    }
     for (const def of definitions) {
       if (def.type === "string" && def.values?.length) {
         map.set(def.key, def.values);
@@ -110,7 +114,9 @@ export function FeatureFlagsPanel() {
             : flag.scope === "assistant"
               ? assistantVal
               : clientVal;
-        if (typeof value !== "boolean") continue;
+        if (typeof value !== "boolean") {
+          continue;
+        }
         entries.push({
           kind: "boolean",
           storeKey,
@@ -274,7 +280,8 @@ function StringFlagRow({
   assistantId: string;
 }) {
   const clientSetStringFlag = useClientFeatureFlagStore.use.setStringFlag();
-  const assistantSetStringFlag = useAssistantFeatureFlagStore.use.setStringFlag();
+  const assistantSetStringFlag =
+    useAssistantFeatureFlagStore.use.setStringFlag();
   const [localValue, setLocalValue] = useState(flag.value);
 
   useEffect(() => {
@@ -282,7 +289,9 @@ function StringFlagRow({
   }, [flag.value]);
 
   const commitValue = (next: string) => {
-    if (next === flag.value) return;
+    if (next === flag.value) {
+      return;
+    }
     if (scopeIncludes(flag.scope, "client")) {
       clientSetStringFlag(flag.storeKey, next);
     }
@@ -292,11 +301,15 @@ function StringFlagRow({
   };
 
   const isDirty = localValue !== flag.value;
-  const knownValues = flag.values && flag.values.length > 0 ? flag.values : null;
-  const isInvalid = isDirty && knownValues != null && !knownValues.includes(localValue);
+  const knownValues =
+    flag.values && flag.values.length > 0 ? flag.values : null;
+  const isInvalid =
+    isDirty && knownValues != null && !knownValues.includes(localValue);
 
   const handleBlur = () => {
-    if (!isInvalid) commitValue(localValue);
+    if (!isInvalid) {
+      commitValue(localValue);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

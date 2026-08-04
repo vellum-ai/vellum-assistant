@@ -48,7 +48,9 @@ let cachedHasUserMessage = false;
  * so don't fire background work."
  */
 export function hasReceivedUserMessage(): boolean {
-  if (cachedHasUserMessage) return true;
+  if (cachedHasUserMessage) {
+    return true;
+  }
 
   try {
     const row = rawGet<{ one: number }>(

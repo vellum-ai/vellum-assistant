@@ -5,9 +5,9 @@ import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewpo
 import type { AcpRunEntry } from "@/domains/chat/acp-run-store";
 
 const AcpRunDetailPanel = lazy(() =>
-  import(
-    "@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel"
-  ).then((m) => ({ default: m.AcpRunDetailPanel })),
+  import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel").then(
+    (m) => ({ default: m.AcpRunDetailPanel }),
+  ),
 );
 
 interface MobileAcpRunDetailOverlayProps {

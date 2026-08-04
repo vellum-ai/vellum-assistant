@@ -191,7 +191,7 @@ export async function checkTelegramWebhookHealth(): Promise<TelegramWebhookHealt
   }
 
   const { configured, usesManagedCallbacks } =
-    hasWebhookRoutingConfigured(true);
+    await hasWebhookRoutingConfigured(true);
   if (!configured) {
     return {
       status: "skipped",

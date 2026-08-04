@@ -61,7 +61,9 @@ export function computeNextBackgroundWakeIntent(
     candidates.push({ nextRunAt: schedule.nextRunAt, source: "schedule" });
   }
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    return null;
+  }
 
   const actualNextDueAt = Math.min(...candidates.map((c) => c.nextRunAt));
   const nextWakeAt = actualNextDueAt;
@@ -93,11 +95,17 @@ export function computeNextBackgroundWakeIntent(
 
 function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
   const config = getConfig().heartbeat;
-  if (!config.enabled) return null;
+  if (!config.enabled) {
+    return null;
+  }
 
   const service = HeartbeatService.getInstance();
-  if (service?.isConsecutiveRunCapReached) return null;
-  if (service?.isDailyCapReached) return null;
+  if (service?.isConsecutiveRunCapReached) {
+    return null;
+  }
+  if (service?.isDailyCapReached) {
+    return null;
+  }
 
   const serviceNextRunAt = service?.nextRunAt ?? null;
   let nextRunAt = serviceNextRunAt;
@@ -122,7 +130,9 @@ function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
     }
   }
 
-  if (!Number.isFinite(nextRunAt) || nextRunAt <= 0) return null;
+  if (!Number.isFinite(nextRunAt) || nextRunAt <= 0) {
+    return null;
+  }
 
   return {
     nextRunAt,

@@ -85,9 +85,14 @@ function makePayloads(): LlmLogPayload[] {
   ];
 }
 
-function fileContents(files: ReturnType<typeof buildInspectorExportFiles>, path: string): string {
+function fileContents(
+  files: ReturnType<typeof buildInspectorExportFiles>,
+  path: string,
+): string {
   const file = files.find((candidate) => candidate.path === path);
-  if (!file) throw new Error(`Missing export file ${path}`);
+  if (!file) {
+    throw new Error(`Missing export file ${path}`);
+  }
   return file.contents;
 }
 
@@ -135,7 +140,10 @@ describe("inspector export", () => {
 
     expect(
       JSON.parse(
-        fileContents(files, "provider-payloads/calls/001-log_alpha/request.json"),
+        fileContents(
+          files,
+          "provider-payloads/calls/001-log_alpha/request.json",
+        ),
       ),
     ).toEqual({
       messages: [{ role: "user", content: "provider envelope" }],
@@ -214,7 +222,7 @@ describe("inspector export (batched)", () => {
     let inFlight = 0;
     let peak = 0;
 
-    const track = async <T,>(produce: () => T): Promise<T> => {
+    const track = async <T>(produce: () => T): Promise<T> => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
       await Promise.resolve();
@@ -274,7 +282,9 @@ describe("inspector export (batched)", () => {
       concurrency: 4,
       fetchPayload: async (logId) => {
         fetchCount += 1;
-        if (fetchCount === 6) controller.abort();
+        if (fetchCount === 6) {
+          controller.abort();
+        }
         return payloadFor(logId);
       },
       signal: controller.signal,

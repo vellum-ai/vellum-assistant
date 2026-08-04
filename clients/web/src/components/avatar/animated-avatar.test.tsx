@@ -9,13 +9,7 @@
  * registers via setTimeout and invoke it from `act()` — same approach as
  * website-carousel.test.tsx.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { cleanup, render } from "@testing-library/react";
 
@@ -93,6 +87,22 @@ describe("AnimatedAvatar blink", () => {
       />,
     );
     expect(eyeTransform(container)).toBe("scaleY(1)");
+  });
+});
+
+describe("AnimatedAvatar canvas", () => {
+  test("lets the body draw outside the SVG box while it moves", () => {
+    const { container } = render(
+      <AnimatedAvatar
+        components={BUNDLED_COMPONENTS}
+        traits={TRAITS}
+        size={240}
+        isAssistantBusy
+      />,
+    );
+
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    expect(svg.style.overflow).toBe("visible");
   });
 });
 

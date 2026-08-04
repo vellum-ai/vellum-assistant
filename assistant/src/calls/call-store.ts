@@ -132,7 +132,9 @@ export function getCallSession(id: string): CallSession | null {
     .from(callSessions)
     .where(eq(callSessions.id, id))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseCallSession(row);
 }
 
@@ -143,7 +145,9 @@ export function getCallSessionByCallSid(callSid: string): CallSession | null {
     .from(callSessions)
     .where(eq(callSessions.providerCallSid, callSid))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseCallSession(row);
 }
 
@@ -165,7 +169,9 @@ export function getActiveCallSessionForConversation(
     )
     .orderBy(desc(callSessions.createdAt))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseCallSession(row);
 }
 
@@ -319,7 +325,9 @@ export function getPendingQuestion(
     .orderBy(desc(callPendingQuestions.askedAt))
     .limit(1)
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parsePendingQuestion(row);
 }
 

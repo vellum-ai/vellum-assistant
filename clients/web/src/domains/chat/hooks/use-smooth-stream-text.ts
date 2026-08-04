@@ -53,7 +53,9 @@ export function useSmoothStreamText(target: string | null): string | null {
   }, [target]);
 
   useEffect(() => {
-    if (!hasTarget) return;
+    if (!hasTarget) {
+      return;
+    }
 
     // Entering a stream: show what already exists, smooth only new growth.
     revealedRef.current = targetRef.current.length;
@@ -77,7 +79,10 @@ export function useSmoothStreamText(target: string | null): string | null {
       }
       if (revealed !== revealedRef.current) {
         revealedRef.current = revealed;
-        if (now - lastCommit >= COMMIT_INTERVAL_MS || revealed >= targetLength) {
+        if (
+          now - lastCommit >= COMMIT_INTERVAL_MS ||
+          revealed >= targetLength
+        ) {
           lastCommit = now;
           // One of the constant update sources during a streaming turn — see
           // `lib/commit-pressure.ts` for why they are counted.
@@ -91,11 +96,17 @@ export function useSmoothStreamText(target: string | null): string | null {
     return () => cancelAnimationFrame(raf);
   }, [hasTarget]);
 
-  if (target === null) return null;
-  if (reducedMotion) return target;
+  if (target === null) {
+    return null;
+  }
+  if (reducedMotion) {
+    return target;
+  }
   const raw = Math.min(target.length, Math.max(0, Math.floor(revealedLength)));
   // Returning the target itself (not a same-length slice) when caught up lets
   // callers detect the caught-up state by identity.
-  if (raw >= target.length) return target;
+  if (raw >= target.length) {
+    return target;
+  }
   return target.slice(0, raw);
 }

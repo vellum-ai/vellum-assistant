@@ -1,36 +1,49 @@
 /**
  * Tests for PlanPromoCard: the dark, layout-only "promo" card in the billing
- * Plan section — a centered title, optional one-line blurb, and a single CTA.
- * Verifies it renders the title, blurb, and CTA label; omits the blurb node
- * when no blurb is passed; fires `onCtaClick` on click; shows the pending
- * spinner and blocks the click while pending; and forces the dark palette.
+ * Plan section: a centered title, an optional spec-chip row, and a single CTA.
+ * Verifies it renders the title, the chip labels, and the CTA label; omits the
+ * chip row when no specs are passed; fires `onCtaClick` on click; shows the
+ * pending spinner and blocks the click while pending; and forces the dark
+ * palette.
  */
+
+import { Coins, Computer, HardDrive } from "lucide-react";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+import type { PlanSpec } from "./plan-spec";
+
 const { PlanPromoCard } = await import("./plan-promo-card");
+
+const MIGHTY_SPECS: PlanSpec[] = [
+  { icon: Computer, label: "Small Machine" },
+  { icon: Coins, label: "$25 credits" },
+  { icon: HardDrive, label: "10 GB" },
+];
 
 afterEach(() => {
   cleanup();
 });
 
 describe("PlanPromoCard", () => {
-  test("renders the title, blurb, and CTA label", async () => {
+  test("renders the title, spec chips, and CTA label", async () => {
     const { findByRole, findByText } = render(
       <PlanPromoCard
         title="Upgrade to Mighty"
-        blurb="More power and storage"
+        specs={MIGHTY_SPECS}
         ctaLabel="Power Up"
         onCtaClick={() => {}}
       />,
     );
     expect(await findByText("Upgrade to Mighty")).toBeTruthy();
-    expect(await findByText("More power and storage")).toBeTruthy();
+    for (const spec of MIGHTY_SPECS) {
+      expect(await findByText(spec.label)).toBeTruthy();
+    }
     expect(await findByRole("button", { name: "Power Up" })).toBeTruthy();
   });
 
-  test("omits the blurb node when blurb is not provided", () => {
+  test("omits the chip row when specs are not provided", () => {
     const { queryByText } = render(
       <PlanPromoCard
         title="Customize"
@@ -38,7 +51,21 @@ describe("PlanPromoCard", () => {
         onCtaClick={() => {}}
       />,
     );
-    expect(queryByText("More power and storage")).toBeNull();
+    for (const spec of MIGHTY_SPECS) {
+      expect(queryByText(spec.label)).toBeNull();
+    }
+  });
+
+  test("omits the chip row when specs is empty", () => {
+    const { container } = render(
+      <PlanPromoCard
+        title="Customize"
+        specs={[]}
+        ctaLabel="Configure"
+        onCtaClick={() => {}}
+      />,
+    );
+    expect(container.querySelector(".flex-wrap")).toBeNull();
   });
 
   test("fires onCtaClick when the CTA is clicked", async () => {

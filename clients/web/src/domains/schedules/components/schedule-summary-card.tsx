@@ -116,7 +116,10 @@ export function ScheduleSummaryCard({
       <Card padding="lg">
         <div className="flex items-start justify-between gap-4">
           <SummaryCardHeader icon={icon} title={title} subtitle={subtitle} />
-          <MinimizeButton label={`Minimize ${title}`} onClick={onToggleExpand} />
+          <MinimizeButton
+            label={`Minimize ${title}`}
+            onClick={onToggleExpand}
+          />
         </div>
         <div className="mt-4">{children}</div>
       </Card>

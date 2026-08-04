@@ -29,7 +29,9 @@ export function useOnboardingLogin(returnToOverride?: string) {
       const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
       await startAuthFlow(PROVIDER_ID, callbackUrl, { returnTo });
     } catch {
-      if (flowId !== flowIdRef.current) return;
+      if (flowId !== flowIdRef.current) {
+        return;
+      }
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }

@@ -15,6 +15,7 @@ function entry(
     edges: [],
     leaves: [],
     modifiedAt: 1,
+    freshAt: 1,
     ...over,
   };
 }

@@ -38,7 +38,9 @@ export function extractMessageText(message: DisplayMessage): string {
       .map((b) => b.text)
       .join("\n")
       .trim();
-    if (text) return text;
+    if (text) {
+      return text;
+    }
   }
   return (message.textSegments ?? []).join("\n").trim();
 }
@@ -49,7 +51,9 @@ export function latestAssistantMessage(
 ): DisplayMessage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m && m.role !== "user") return m;
+    if (m && m.role !== "user") {
+      return m;
+    }
   }
   return null;
 }

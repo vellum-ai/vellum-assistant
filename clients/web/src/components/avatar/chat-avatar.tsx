@@ -1,5 +1,11 @@
 import { motion, useReducedMotion } from "motion/react";
-import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
@@ -58,7 +64,9 @@ function ChatAvatarComponent({
     // Sound is independent of motion preference, so it plays before the
     // reduced-motion short-circuit that skips the bounce animation.
     void getSoundManager().play("character_poke");
-    if (reduce) return;
+    if (reduce) {
+      return;
+    }
     setIsPoking(true);
     window.setTimeout(() => setIsPoking(false), 360);
   }, [reduce]);
@@ -66,12 +74,18 @@ function ChatAvatarComponent({
   const handleClick = interactive ? triggerBounce : undefined;
 
   const effectiveTraits = useMemo(() => {
-    if (traits) return traits;
-    if (!components) return null;
+    if (traits) {
+      return traits;
+    }
+    if (!components) {
+      return null;
+    }
     const body = components.bodyShapes[0];
     const eyes = components.eyeStyles[0];
     const color = components.colors[0];
-    if (!body || !eyes || !color) return null;
+    if (!body || !eyes || !color) {
+      return null;
+    }
     return { bodyShape: body.id, eyeStyle: eyes.id, color: color.id };
   }, [traits, components]);
 

@@ -33,6 +33,7 @@ import {
   type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
+  type LiveVoiceActivityServerFrame,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
@@ -108,6 +109,8 @@ export interface LiveVoiceClientEventMap {
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
+  /** What the turn is doing right now, or `""` when nothing nameable is. */
+  activity: LiveVoiceActivityServerFrame;
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
@@ -193,6 +196,7 @@ export class LiveVoiceChannelClient {
     sttPartial: new Set(),
     sttFinal: new Set(),
     thinking: new Set(),
+    activity: new Set(),
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
     ttsDone: new Set(),
@@ -246,7 +250,9 @@ export class LiveVoiceChannelClient {
     silenceThresholdMs,
     bargeInMinSpeechMs,
   }: LiveVoiceConnectArgs): Promise<void> {
-    if (this.state !== "idle") return;
+    if (this.state !== "idle") {
+      return;
+    }
     this.state = "connecting";
     this.conversationId = conversationId;
     this.turnDetection = turnDetection;
@@ -264,7 +270,9 @@ export class LiveVoiceChannelClient {
       return;
     }
     // A late close()/end() during the await must abort the connect.
-    if (this.state !== "connecting") return;
+    if (this.state !== "connecting") {
+      return;
+    }
 
     let ws: WebSocket;
     try {
@@ -297,7 +305,9 @@ export class LiveVoiceChannelClient {
 
   /** Send a binary PCM audio frame. No-op unless the session is active. */
   sendAudio(pcm: ArrayBuffer): void {
-    if (this.state !== "active") return;
+    if (this.state !== "active") {
+      return;
+    }
     this.trySend(pcm);
   }
 
@@ -321,7 +331,9 @@ export class LiveVoiceChannelClient {
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
   }): void {
-    if (this.state !== "active" || this.configUpdatesUnsupported) return;
+    if (this.state !== "active" || this.configUpdatesUnsupported) {
+      return;
+    }
     this.trySend(
       JSON.stringify({
         type: "update_config",
@@ -341,7 +353,9 @@ export class LiveVoiceChannelClient {
    * `end` send and resolves as a clean close rather than a timeout failure.
    */
   end(): void {
-    if (this.state !== "connecting" && this.state !== "active") return;
+    if (this.state !== "connecting" && this.state !== "active") {
+      return;
+    }
     // Only the `end` frame is meaningful here, and it's strictly best-effort:
     // trySend() no-ops unless the socket is OPEN, so this never throws while the
     // socket is still CONNECTING. close() is reached unconditionally below.
@@ -351,7 +365,9 @@ export class LiveVoiceChannelClient {
 
   /** Close the WebSocket immediately. Idempotent. */
   close(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.teardown();
     // Locally initiated: `code: null` tells the controller this was a
     // deliberate close (never a reconnect trigger).
@@ -359,7 +375,9 @@ export class LiveVoiceChannelClient {
   }
 
   private handleOpen(): void {
-    if (this.state !== "connecting" || !this.ws) return;
+    if (this.state !== "connecting" || !this.ws) {
+      return;
+    }
     const startFrame: LiveVoiceClientStartFrame = {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
@@ -376,16 +394,22 @@ export class LiveVoiceChannelClient {
   }
 
   private handleMessage(event: MessageEvent): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     // Inbound audio (if any) arrives as binary; the wire protocol carries all
     // server payloads as JSON text, so binary frames are not expected. Ignore
     // them rather than mis-parsing bytes as JSON.
-    if (typeof event.data !== "string") return;
+    if (typeof event.data !== "string") {
+      return;
+    }
 
     const frame = parseServerFrame(event.data);
     switch (frame.type) {
       case "ready":
-        if (this.state !== "connecting") return;
+        if (this.state !== "connecting") {
+          return;
+        }
         this.clearConnectTimeout();
         this.state = "active";
         this.emit("ready", frame);
@@ -411,6 +435,9 @@ export class LiveVoiceChannelClient {
         return;
       case "thinking":
         this.emit("thinking", frame);
+        return;
+      case "activity":
+        this.emit("activity", frame);
         return;
       case "assistant_text_delta":
         this.emit("assistantTextDelta", frame);
@@ -477,7 +504,9 @@ export class LiveVoiceChannelClient {
   }
 
   private handleClose(event: CloseEvent): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     // An unexpected close before `ready` is normally a connection failure — but
     // a *retryable* close (velay's 1012/1013) can land pre-`ready` when a
     // reconnect races the tunnel's re-registration. Forward those as a normal
@@ -501,7 +530,9 @@ export class LiveVoiceChannelClient {
   }
 
   private sendControlFrame(type: "ptt_release" | "interrupt"): void {
-    if (this.state !== "active") return;
+    if (this.state !== "active") {
+      return;
+    }
     this.trySend(JSON.stringify({ type }));
   }
 
@@ -523,7 +554,9 @@ export class LiveVoiceChannelClient {
     message: string,
     code?: string,
   ): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.teardown();
     this.emit("error", { reason, message, ...(code ? { code } : {}) });
     // Locally initiated after surfacing the failure; never a reconnect trigger.

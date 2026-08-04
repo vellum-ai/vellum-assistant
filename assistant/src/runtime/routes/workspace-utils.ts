@@ -54,7 +54,9 @@ export function resolveWorkspacePath(
 
     while (true) {
       const parent = resolve(ancestor, "..");
-      if (parent === ancestor) break; // reached filesystem root
+      if (parent === ancestor) {
+        break;
+      } // reached filesystem root
       ancestor = parent;
       try {
         const realAncestor = realpathSync(ancestor);
@@ -172,7 +174,9 @@ export function isTextMimeType(mimeType: string, fileName?: string): boolean {
   // trusted over the extension — overriding them risks corrupting binary files.
   if (fileName && mimeType === "application/octet-stream") {
     const ext = fileName.split(".").pop()?.toLowerCase();
-    if (ext && TEXT_FILE_EXTENSIONS.has(ext)) return true;
+    if (ext && TEXT_FILE_EXTENSIONS.has(ext)) {
+      return true;
+    }
   }
   return false;
 }

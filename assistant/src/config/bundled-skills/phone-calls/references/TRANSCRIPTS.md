@@ -46,13 +46,13 @@ sqlite3 "$VELLUM_WORKSPACE_DIR/data/db/assistant.db" \
 
 ## Key paths
 
-| Resource                                      | Path                                                  |
-| --------------------------------------------- | ----------------------------------------------------- |
-| Assistant logs (caller-side transcripts only) | `$VELLUM_WORKSPACE_DIR/data/logs/assistant-*.log`     |
-| Full conversation database                    | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`          |
-| Messages table                                | `messages` (keyed by `conversation_id`)               |
-| Call sessions table                           | `call_sessions`                                       |
-| Call events table                             | `call_events`                                         |
+| Resource                                      | Path                                              |
+| --------------------------------------------- | ------------------------------------------------- |
+| Assistant logs (caller-side transcripts only) | `$VELLUM_WORKSPACE_DIR/data/logs/assistant-*.log` |
+| Full conversation database                    | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`      |
+| Messages table                                | `messages` (keyed by `conversation_id`)           |
+| Call sessions table                           | `call_sessions`                                   |
+| Call events table                             | `call_events`                                     |
 
 ## Important
 

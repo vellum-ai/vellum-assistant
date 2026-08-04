@@ -55,10 +55,18 @@ function levelName(n: number): string {
 }
 
 function colorLevel(name: string, levelNum: number): string {
-  if (!process.stdout.isTTY) return name;
-  if (levelNum >= 50) return `\x1b[31m${name}\x1b[0m`; // red: error/fatal
-  if (levelNum === 40) return `\x1b[33m${name}\x1b[0m`; // yellow: warn
-  if (levelNum <= 20) return `\x1b[2m${name}\x1b[0m`; // dim: debug/trace
+  if (!process.stdout.isTTY) {
+    return name;
+  }
+  if (levelNum >= 50) {
+    return `\x1b[31m${name}\x1b[0m`;
+  } // red: error/fatal
+  if (levelNum === 40) {
+    return `\x1b[33m${name}\x1b[0m`;
+  } // yellow: warn
+  if (levelNum <= 20) {
+    return `\x1b[2m${name}\x1b[0m`;
+  } // dim: debug/trace
   return name;
 }
 
@@ -78,11 +86,12 @@ export function registerGatewayCommand(program: Command): void {
 
       subcommand(gateway, "status").action(async (_opts, cmd: Command) => {
         const r = await cliIpcCall<GatewayStatusResult>("gateway_status", {});
-        if (!r.ok)
+        if (!r.ok) {
           return exitFromIpcResult(
             { ok: false, error: r.error, statusCode: r.statusCode },
             cmd,
           );
+        }
 
         const result = r.result!;
 
@@ -113,8 +122,12 @@ export function registerGatewayCommand(program: Command): void {
           Math.min(1000, parseInt(opts.n ?? "10", 10) || 10),
         );
         const params: Record<string, unknown> = { n };
-        if (opts.level && opts.level !== "info") params.level = opts.level;
-        if (opts.module) params.module = opts.module;
+        if (opts.level && opts.level !== "info") {
+          params.level = opts.level;
+        }
+        if (opts.module) {
+          params.module = opts.module;
+        }
 
         const result = await cliIpcCall<{
           lines: PinoEntry[];
@@ -130,13 +143,16 @@ export function registerGatewayCommand(program: Command): void {
         const { lines, truncated } = result.result!;
 
         if (opts.raw) {
-          for (const entry of lines)
+          for (const entry of lines) {
             process.stdout.write(JSON.stringify(entry) + "\n");
+          }
           return;
         }
 
         if (lines.length === 0) {
-          if (!opts.quiet) process.stdout.write("No log entries found.\n");
+          if (!opts.quiet) {
+            process.stdout.write("No log entries found.\n");
+          }
           return;
         }
 

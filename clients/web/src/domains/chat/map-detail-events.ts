@@ -38,7 +38,9 @@ export function mapDetailEvents(
     }
 
     const content = evt.content;
-    if (type === "text" && content === "") continue;
+    if (type === "text" && content === "") {
+      continue;
+    }
 
     // Coalesce consecutive text events into a single entry.
     const prev = events[events.length - 1];

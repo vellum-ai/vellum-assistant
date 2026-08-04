@@ -139,8 +139,12 @@ export async function reconcileVellumMetadataFromCes(warningSink: {
   for (const field of VELLUM_PLATFORM_IDENTITY_FIELDS) {
     try {
       const value = await getSecureKeyAsync(credentialKey("vellum", field));
-      if (!value) continue;
-      if (getCredentialMetadata("vellum", field)) continue;
+      if (!value) {
+        continue;
+      }
+      if (getCredentialMetadata("vellum", field)) {
+        continue;
+      }
       upsertCredentialMetadata("vellum", field, {});
       log.info(
         { field },
@@ -228,12 +232,16 @@ interface ExportManifestInputs {
  */
 async function resolveAssistantId(): Promise<string> {
   const inMemory = getPlatformAssistantId();
-  if (inMemory) return inMemory;
+  if (inMemory) {
+    return inMemory;
+  }
   try {
     const stored = await getSecureKeyAsync(
       credentialKey("vellum", "platform_assistant_id"),
     );
-    if (stored) return stored;
+    if (stored) {
+      return stored;
+    }
   } catch (err) {
     log.warn(
       { err },
@@ -771,7 +779,9 @@ async function extractFileData(
       }
       return new Uint8Array(await file.arrayBuffer());
     } catch (err) {
-      if (err instanceof BadRequestError) throw err;
+      if (err instanceof BadRequestError) {
+        throw err;
+      }
       log.error({ err }, "Failed to parse multipart form data");
       throw new BadRequestError("Invalid multipart form data");
     }
@@ -1032,7 +1042,9 @@ function tagFetchBodyError(err: NodeJS.ErrnoException): void {
 }
 
 function isFetchBodyError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
+  if (!err || typeof err !== "object") {
+    return false;
+  }
   return (err as unknown as Record<symbol, boolean>)[kFetchBodyError] === true;
 }
 
@@ -1365,11 +1377,15 @@ async function runGcsImport(
     taggedSource.destroy(err);
   });
   upstreamNodeStream.on("close", () => {
-    if (upstreamEnded) return;
+    if (upstreamEnded) {
+      return;
+    }
     // A local teardown path closed us; don't treat this as an upstream
     // failure. The real error (validation / extraction / hash mismatch) is
     // already propagating through `streamCommitImport`'s result.
-    if (localTeardownInitiated) return;
+    if (localTeardownInitiated) {
+      return;
+    }
     const err = new Error(
       "Upstream body stream closed before end",
     ) as NodeJS.ErrnoException;

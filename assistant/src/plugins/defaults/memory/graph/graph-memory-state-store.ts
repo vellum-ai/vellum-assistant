@@ -12,7 +12,9 @@ export function saveGraphMemoryState(
   stateJson: string,
 ): void {
   const mdb = memoryDbOrNull("saveGraphMemoryState");
-  if (!mdb) return;
+  if (!mdb) {
+    return;
+  }
   const now = Date.now();
   mdb
     .insert(conversationGraphMemoryState)
@@ -30,7 +32,9 @@ export function saveGraphMemoryState(
  */
 export function loadGraphMemoryState(conversationId: string): string | null {
   const mdb = memoryDbOrNull("loadGraphMemoryState");
-  if (!mdb) return null;
+  if (!mdb) {
+    return null;
+  }
   const row = mdb
     .select({ stateJson: conversationGraphMemoryState.stateJson })
     .from(conversationGraphMemoryState)
@@ -50,6 +54,8 @@ export function forkGraphMemoryState(
   newConversationId: string,
 ): void {
   const stateJson = loadGraphMemoryState(parentConversationId);
-  if (stateJson == null) return;
+  if (stateJson == null) {
+    return;
+  }
   saveGraphMemoryState(newConversationId, stateJson);
 }

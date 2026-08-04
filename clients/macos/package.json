@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@sentry/electron": "7.13.0",
+    "@vellumai/electron-utils": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",

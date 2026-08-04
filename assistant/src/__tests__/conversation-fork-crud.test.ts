@@ -483,7 +483,7 @@ describe("forkConversation", () => {
     // message — same-millisecond inserts would otherwise make the event
     // "at-or-before" the branch point and inherit.
     const db = getDb();
-    const base = Date.now();
+    const base = Date.now() - 10_000;
     db.run(
       `UPDATE messages SET created_at = ${base} WHERE id = '${compactedBranchPoint.id}'`,
     );

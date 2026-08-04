@@ -57,7 +57,9 @@ const SLACK_ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
 };
 
 function classifySlackError(errorCode: string | undefined): SlackErrorCategory {
-  if (!errorCode) return "unknown";
+  if (!errorCode) {
+    return "unknown";
+  }
   return SLACK_ERROR_CODE_MAP[errorCode] ?? "unknown";
 }
 
@@ -335,13 +337,23 @@ export async function startSlackStream(params: {
     channel: params.channel,
     thread_ts: params.threadTs,
   };
-  if (params.markdownText) body.markdown_text = params.markdownText;
-  if (params.taskDisplayMode) body.task_display_mode = params.taskDisplayMode;
+  if (params.markdownText) {
+    body.markdown_text = params.markdownText;
+  }
+  if (params.taskDisplayMode) {
+    body.task_display_mode = params.taskDisplayMode;
+  }
   // Channel streams must name the reader; DMs infer it and omit both fields.
-  if (params.recipientUserId) body.recipient_user_id = params.recipientUserId;
-  if (params.recipientTeamId) body.recipient_team_id = params.recipientTeamId;
+  if (params.recipientUserId) {
+    body.recipient_user_id = params.recipientUserId;
+  }
+  if (params.recipientTeamId) {
+    body.recipient_team_id = params.recipientTeamId;
+  }
   const chunks = toStreamChunks(params);
-  if (chunks) body.chunks = chunks;
+  if (chunks) {
+    body.chunks = chunks;
+  }
 
   const data = await callSlackApi("chat.startStream", body);
   return data.ts;
@@ -365,9 +377,13 @@ export async function appendSlackStream(params: {
     channel: params.channel,
     ts: params.streamTs,
   };
-  if (params.markdownText) body.markdown_text = params.markdownText;
+  if (params.markdownText) {
+    body.markdown_text = params.markdownText;
+  }
   const chunks = toStreamChunks(params);
-  if (chunks) body.chunks = chunks;
+  if (chunks) {
+    body.chunks = chunks;
+  }
 
   await callSlackApi("chat.appendStream", body);
 }
@@ -390,16 +406,24 @@ export async function stopSlackStream(params: {
     channel: params.channel,
     ts: params.streamTs,
   };
-  if (params.markdownText) body.markdown_text = params.markdownText;
-  if (params.blocks && params.blocks.length > 0) body.blocks = params.blocks;
+  if (params.markdownText) {
+    body.markdown_text = params.markdownText;
+  }
+  if (params.blocks && params.blocks.length > 0) {
+    body.blocks = params.blocks;
+  }
   const chunks = toStreamChunks(params);
-  if (chunks) body.chunks = chunks;
+  if (chunks) {
+    body.chunks = chunks;
+  }
 
   await callSlackApi("chat.stopStream", body);
 }
 
 function normalizeSlackString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed || undefined;
 }
@@ -413,7 +437,9 @@ export async function getSlackConversationInfo(
   )) as SlackConversationsInfoResponse;
 
   const id = normalizeSlackString(data.channel?.id);
-  if (!id) return null;
+  if (!id) {
+    return null;
+  }
 
   const name = normalizeSlackString(data.channel?.name);
   const nameNormalized = normalizeSlackString(data.channel?.name_normalized);

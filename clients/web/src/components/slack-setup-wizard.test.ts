@@ -8,13 +8,21 @@ const APP = "xapp-";
 describe("validateSlackToken", () => {
   it("accepts a well-formed bot token", () => {
     expect(
-      validateSlackToken(`${BOT}0000000000-0000000000-abcdefghij`, BOT, "Bot token"),
+      validateSlackToken(
+        `${BOT}0000000000-0000000000-abcdefghij`,
+        BOT,
+        "Bot token",
+      ),
     ).toBeNull();
   });
 
   it("accepts a well-formed app token", () => {
     expect(
-      validateSlackToken(`${APP}1-A012345678-0123456789-abcdef`, APP, "App token"),
+      validateSlackToken(
+        `${APP}1-A012345678-0123456789-abcdef`,
+        APP,
+        "App token",
+      ),
     ).toBeNull();
   });
 
@@ -24,12 +32,12 @@ describe("validateSlackToken", () => {
   });
 
   it("rejects a token with the wrong prefix", () => {
-    expect(validateSlackToken(`${APP}0000000000-abcdefghij`, BOT, "Bot token")).toBe(
-      'Bot token should start with "xoxb-".',
-    );
-    expect(validateSlackToken(`${BOT}0000000000-abcdefghij`, APP, "App token")).toBe(
-      'App token should start with "xapp-".',
-    );
+    expect(
+      validateSlackToken(`${APP}0000000000-abcdefghij`, BOT, "Bot token"),
+    ).toBe('Bot token should start with "xoxb-".');
+    expect(
+      validateSlackToken(`${BOT}0000000000-abcdefghij`, APP, "App token"),
+    ).toBe('App token should start with "xapp-".');
   });
 
   it("rejects a token with no recognizable prefix", () => {
@@ -46,7 +54,11 @@ describe("validateSlackToken", () => {
 
   it("ignores surrounding whitespace from a sloppy paste", () => {
     expect(
-      validateSlackToken(`  ${BOT}0000000000-0000000000-abcdefghij  `, BOT, "Bot token"),
+      validateSlackToken(
+        `  ${BOT}0000000000-0000000000-abcdefghij  `,
+        BOT,
+        "Bot token",
+      ),
     ).toBeNull();
   });
 });

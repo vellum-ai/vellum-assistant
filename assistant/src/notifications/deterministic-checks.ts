@@ -227,9 +227,13 @@ function checkDedupe(
     // re-evaluating a signal that was previously stored).
     for (const row of existing) {
       // The current signal's own event row should not count as a duplicate
-      if (row.id === signal.signalId) continue;
+      if (row.id === signal.signalId) {
+        continue;
+      }
       // Only consider events within the dedupe window
-      if (row.createdAt < cutoff) continue;
+      if (row.createdAt < cutoff) {
+        continue;
+      }
       // If any other event with the same dedupeKey exists within the window, suppress
       return {
         passed: false,
@@ -265,10 +269,10 @@ function checkDedupe(
  * case, require `composeFallbackCopy` to yield a non-empty body for
  * at least one selected channel; otherwise fail-closed.
  *
- * The event-name-match branch is skipped for `assistant_tool`
- * pass-through decisions because the producer supplied the body
- * verbatim — a coincidental match with the event name is the user's
- * intent, not a fallback leak.
+ * The event-name-match branch is skipped for decisions flagged
+ * `verbatimCopy` because the producer supplied the body verbatim, so a
+ * coincidental match with the event name is the producer's intent, not a
+ * fallback leak.
  */
 function checkRenderedCopyQuality(
   signal: NotificationSignal,
@@ -278,8 +282,7 @@ function checkRenderedCopyQuality(
     return { passed: true };
   }
 
-  const isAssistantToolPassthrough =
-    decision.reasoningSummary === "assistant_tool pass-through";
+  const isPassthrough = decision.verbatimCopy === true;
   const normalizedEventName = signal.sourceEventName
     .replace(/[._]/g, " ")
     .toLowerCase()
@@ -300,7 +303,7 @@ function checkRenderedCopyQuality(
         reason: "rendered copy body is empty",
       };
     }
-    if (isAssistantToolPassthrough) {
+    if (isPassthrough) {
       continue;
     }
     const normalizedBody = trimmedBody.toLowerCase();

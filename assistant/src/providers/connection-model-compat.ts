@@ -32,8 +32,12 @@ export function isConnectionCompatibleWithModel(
   connection: Pick<ProviderConnection, "auth">,
   model: string | undefined,
 ): boolean {
-  if (connection.auth.type !== "oauth_subscription") return true;
-  if (!model) return true;
+  if (connection.auth.type !== "oauth_subscription") {
+    return true;
+  }
+  if (!model) {
+    return true;
+  }
   return isCodexSubscriptionModel(model);
 }
 
@@ -49,13 +53,17 @@ export function describeSubscriptionModelIncompatibility(
   candidates: Pick<ProviderConnection, "auth">[],
   model: string | undefined,
 ): string | null {
-  if (!model || candidates.length === 0) return null;
+  if (!model || candidates.length === 0) {
+    return null;
+  }
   if (candidates.some((c) => isConnectionCompatibleWithModel(c, model))) {
     return null;
   }
   const allSubscription = candidates.every(
     (c) => c.auth.type === "oauth_subscription",
   );
-  if (!allSubscription) return null;
+  if (!allSubscription) {
+    return null;
+  }
   return `Model "${model}" isn't available through your ChatGPT subscription. Select a supported model or add an OpenAI API key connection.`;
 }

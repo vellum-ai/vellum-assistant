@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import type { BrowserOptions } from "@sentry/react";
 
 import { snapshotCommitPressure } from "@/lib/commit-pressure";
@@ -12,14 +13,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { detectClientOs } from "@/runtime/platform-detection";
 
-/**
- * Resolve the Sentry DSN for the current host. The shared bundle reports to a
- * per-host project: Electron renderer → `VITE_SENTRY_DSN_MACOS`
- * (vellum-assistant-macos), iOS WKWebview → `VITE_SENTRY_DSN_IOS`
- * (vellum-assistant-ios), web → `VITE_SENTRY_DSN` (vellum-assistant-web).
- *
- * The Electron check comes first since the renderer also runs the web bundle.
- */
 /**
  * Recognize React's nested-update-limit error in every form it ships as.
  *
@@ -40,9 +33,18 @@ function isReactError185(message: string): boolean {
   return REACT_ERROR_185.test(message);
 }
 
+/** Resolve the Sentry DSN for the current host. */
 function resolveDsn(): string | undefined {
-  if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
-  if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
+  if (isElectron()) {
+    return import.meta.env.VITE_SENTRY_DSN_MACOS;
+  }
+  if (isNativePlatform()) {
+    const platform = Capacitor.getPlatform();
+    if (platform === "android") {
+      return import.meta.env.VITE_SENTRY_DSN_ANDROID;
+    }
+    return import.meta.env.VITE_SENTRY_DSN_IOS;
+  }
   return import.meta.env.VITE_SENTRY_DSN;
 }
 
@@ -102,9 +104,13 @@ const options: BrowserOptions = {
     const raisedMaxUpdateDepth = event.exception?.values?.some(
       (value) => value.value != null && isReactError185(value.value),
     );
-    if (!raisedMaxUpdateDepth) return event;
+    if (!raisedMaxUpdateDepth) {
+      return event;
+    }
     const pressure = snapshotCommitPressure();
-    if (!pressure) return event;
+    if (!pressure) {
+      return event;
+    }
     return {
       ...event,
       contexts: { ...event.contexts, commit_pressure: { ...pressure } },
@@ -112,11 +118,15 @@ const options: BrowserOptions = {
   },
   beforeBreadcrumb(breadcrumb) {
     const data = breadcrumb.data;
-    if (!data || typeof data !== "object") return breadcrumb;
+    if (!data || typeof data !== "object") {
+      return breadcrumb;
+    }
     const next: Record<string, unknown> = { ...data };
     for (const key of ["url", "to", "from"] as const) {
       const value = next[key];
-      if (typeof value === "string") next[key] = sanitizeUrl(value);
+      if (typeof value === "string") {
+        next[key] = sanitizeUrl(value);
+      }
     }
     return { ...breadcrumb, data: next };
   },

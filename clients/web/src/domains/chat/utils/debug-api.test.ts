@@ -15,14 +15,8 @@ import {
   createChatDebugApi,
   installVellumDebugApi,
 } from "@/domains/chat/utils/debug-api";
-import {
-  recordDiagnostic,
-  recordLifecycleDiagnostic,
-} from "@/lib/diagnostics";
-import {
-  INITIAL_TURN_STATE,
-  type TurnState,
-} from "@/domains/chat/turn-store";
+import { recordDiagnostic, recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { INITIAL_TURN_STATE, type TurnState } from "@/domains/chat/turn-store";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -35,7 +29,9 @@ import {
 //  Helpers
 // ---------------------------------------------------------------------------
 
-function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
+function fakeDisplayMessage(
+  overrides: Partial<DisplayMessage> = {},
+): DisplayMessage {
   return {
     id: "msg-1",
     role: "assistant",
@@ -45,7 +41,9 @@ function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMes
   };
 }
 
-function fakeRuntimeMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
+function fakeRuntimeMessage(
+  overrides: Partial<ConversationMessage> = {},
+): ConversationMessage {
   return makeServerMessage({
     id: "msg-1",
     role: "assistant",
@@ -88,9 +86,7 @@ interface MakeRefsOverrides extends Partial<ChatDebugRefs> {
   pendingInteractions?: Partial<PendingInteractionsSnapshot>;
 }
 
-function makeRefs(
-  overrides: MakeRefsOverrides = {},
-): ChatDebugRefs {
+function makeRefs(overrides: MakeRefsOverrides = {}): ChatDebugRefs {
   const { turn, uiContext, pendingInteractions, ...rest } = overrides;
   const turnState: TurnState = turn ?? INITIAL_TURN_STATE;
   const resolvedUIContext: UIContext = {
@@ -374,7 +370,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.lastTerminalReason).toBeNull();
   });
 
-  test("terminal phase=idle after MESSAGE_COMPLETE → done.lastTerminalReason=\"complete\"", () => {
+  test('terminal phase=idle after MESSAGE_COMPLETE → done.lastTerminalReason="complete"', () => {
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -580,9 +576,7 @@ describe("createChatDebugApi.streamingRing", () => {
 describe("createChatDebugApi.serverMessages", () => {
   test("throws when no context or assistant", async () => {
     useConversationStore.setState({ activeConversationId: null });
-    const api = createChatDebugApi(
-      makeRefs({ getAssistantId: () => null }),
-    );
+    const api = createChatDebugApi(makeRefs({ getAssistantId: () => null }));
     await expect(api.serverMessages()).rejects.toThrow(
       "no active assistant/conversation context",
     );
@@ -616,10 +610,16 @@ describe("createChatDebugApi.serverMessages", () => {
     // Set stream context via the stream store.
     const { useStreamStore } = await import("@/domains/chat/stream-store");
     useStreamStore.setState({
-      streamContext: { assistantId: "asst-stream", conversationId: "conv-stream" },
+      streamContext: {
+        assistantId: "asst-stream",
+        conversationId: "conv-stream",
+      },
     });
     const seen: Array<{ assistantId: string; conversationId: string }> = [];
-    const historyFetcher = async (assistantId: string, conversationId: string) => {
+    const historyFetcher = async (
+      assistantId: string,
+      conversationId: string,
+    ) => {
       seen.push({ assistantId, conversationId });
       return { messages: [], seq: null };
     };
@@ -630,7 +630,9 @@ describe("createChatDebugApi.serverMessages", () => {
       }),
     );
     await api.serverMessages();
-    expect(seen).toEqual([{ assistantId: "asst-stream", conversationId: "conv-stream" }]);
+    expect(seen).toEqual([
+      { assistantId: "asst-stream", conversationId: "conv-stream" },
+    ]);
     // Clean up.
     useStreamStore.setState({ streamContext: null });
   });

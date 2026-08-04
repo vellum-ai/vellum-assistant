@@ -173,7 +173,9 @@ interface CacheShape {
 }
 
 function readCacheFile(): CacheShape | null {
-  if (!existsSync(cachePath)) return null;
+  if (!existsSync(cachePath)) {
+    return null;
+  }
   return JSON.parse(readFileSync(cachePath, "utf-8")) as CacheShape;
 }
 

@@ -27,9 +27,8 @@
  */
 
 import { messagesPost } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { detectClientOs } from "@/runtime/platform-detection";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 
 export interface ResearchCorrection {
@@ -61,7 +60,9 @@ export function buildResearchCorrection({
     ].join(" ");
   }
   const cleaned = removedClaims.map((c) => c.trim()).filter(Boolean);
-  if (cleaned.length === 0) return null;
+  if (cleaned.length === 0) {
+    return null;
+  }
   return [
     "Quick correction on what you found about me — these aren't true, so please",
     "disregard them and don't remember them as facts about me:",
@@ -88,19 +89,17 @@ export async function sendResearchCorrection({
   rejectedAll,
 }: SendResearchCorrectionOptions): Promise<void> {
   const content = buildResearchCorrection({ removedClaims, rejectedAll });
-  if (!content) return;
+  if (!content) {
+    return;
+  }
   try {
-    const body: MessagesPostData["body"] = {
+    // Hidden rows stay in LLM-side history, so the correction still reaches
+    // the assistant.
+    const body = buildSideConversationMessageBody({
       conversationId,
       content,
-      sourceChannel: "vellum",
-      // `interface` is the transport ("web"); the real OS travels in `clientOs`
-      // so the correction turn keeps the assistant's `client_os` context too,
-      // matching the initial research send (`research-runner.ts`).
-      interface: "web",
-      clientOs: detectClientOs(),
-      clientMessageId: crypto.randomUUID(),
-    };
+      transport: "web",
+    });
     await messagesPost({
       path: { assistant_id: assistantId },
       body,

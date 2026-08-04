@@ -21,7 +21,9 @@ export function migrateNotificationTablesSchema(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Check if the old schema is present: the legacy notification_events table
   // had a `notification_type` column that the new schema does not.

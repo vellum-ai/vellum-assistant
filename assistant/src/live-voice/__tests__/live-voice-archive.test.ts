@@ -110,7 +110,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.idempotent).toBe(false);
     expect(result.artifact).toMatchObject({
       source: "live-voice",
@@ -160,7 +162,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.artifact).toMatchObject({
       role: "assistant",
       mimeType: "audio/mpeg",
@@ -210,7 +214,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.artifact).toMatchObject({
       archiveKey: "live-voice:session-user-link:turn-user-link:user",
       role: "user",
@@ -235,7 +241,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.artifact).toMatchObject({
       archiveKey:
         "live-voice:session-assistant-link:turn-assistant-link:assistant",
@@ -342,7 +350,9 @@ describe("live voice audio archive", () => {
       },
     });
     expect(first.type).toBe("archived");
-    if (first.type !== "archived") throw new Error("expected archive result");
+    if (first.type !== "archived") {
+      throw new Error("expected archive result");
+    }
 
     rawRun(
       "test:clearMessageMetadata",
@@ -362,7 +372,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(second.type).toBe("archived");
-    if (second.type !== "archived") throw new Error("expected archive result");
+    if (second.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(second.idempotent).toBe(true);
     expect(second.artifact.attachmentId).toBe(first.artifact.attachmentId);
     expect(countAttachmentsForMessage(message.id)).toBe(1);
@@ -417,7 +429,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(linked.type).toBe("archived");
-    if (linked.type !== "archived") throw new Error("expected link result");
+    if (linked.type !== "archived") {
+      throw new Error("expected link result");
+    }
     expect(linked.idempotent).toBe(false);
     expect(linked.artifact.attachmentId).toBe(archived.artifact.attachmentId);
     expect(getAttachmentsForMessage(targetMessage.id)).toHaveLength(1);
@@ -428,7 +442,9 @@ describe("live voice audio archive", () => {
       artifact: archived.artifact,
     });
     expect(second.type).toBe("archived");
-    if (second.type !== "archived") throw new Error("expected link result");
+    if (second.type !== "archived") {
+      throw new Error("expected link result");
+    }
     expect(second.idempotent).toBe(true);
     expect(countAttachmentsForMessage(targetMessage.id)).toBe(1);
   });

@@ -20,7 +20,11 @@ export function PluginOriginBadge({
     : { label: "Local", icon: HardDrive };
 
   return (
-    <Tag tone="neutral" leftIcon={createElement(meta.icon)} className={className}>
+    <Tag
+      tone="neutral"
+      leftIcon={createElement(meta.icon)}
+      className={className}
+    >
       {meta.label}
     </Tag>
   );

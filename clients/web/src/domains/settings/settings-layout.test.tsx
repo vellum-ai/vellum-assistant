@@ -65,7 +65,13 @@ mock.module("@/runtime/is-electron", () => ({
 }));
 
 mock.module("@/components/sidebar-shell", () => ({
-  SidebarShell: ({ sidebar, children }: { sidebar: ReactNode; children: ReactNode }) => (
+  SidebarShell: ({
+    sidebar,
+    children,
+  }: {
+    sidebar: ReactNode;
+    children: ReactNode;
+  }) => (
     <div>
       {sidebar}
       {children}

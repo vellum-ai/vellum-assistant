@@ -59,14 +59,18 @@ export async function run(
           contacts,
           total: resp.totalPeople ?? contacts.length,
         };
-        if (resp.nextPageToken) result.nextPageToken = resp.nextPageToken;
+        if (resp.nextPageToken) {
+          result.nextPageToken = resp.nextPageToken;
+        }
 
         return ok(JSON.stringify(result, null, 2));
       }
 
       case "search": {
         const query = input.query as string;
-        if (!query) return err("query is required for search action.");
+        if (!query) {
+          return err("query is required for search action.");
+        }
 
         const resp = await searchContacts(connection, query);
         const contacts = (resp.results ?? []).map((r) =>

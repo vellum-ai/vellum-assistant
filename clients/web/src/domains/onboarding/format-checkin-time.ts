@@ -8,9 +8,13 @@ export function formatCheckinTime(
   startIso: string | undefined | null,
   timeZone?: string | null,
 ): string | null {
-  if (!startIso) return null;
+  if (!startIso) {
+    return null;
+  }
   const date = new Date(startIso);
-  if (Number.isNaN(date.getTime())) return null;
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
   try {
     return new Intl.DateTimeFormat(undefined, {
       hour: "numeric",

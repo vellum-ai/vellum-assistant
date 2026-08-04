@@ -39,7 +39,9 @@ const DECISION_REASON_LABELS: Record<string, string> = {
 };
 
 function formatDecisionReason(reason?: string): string {
-  if (!reason) {return "Not applied";}
+  if (!reason) {
+    return "Not applied";
+  }
   return DECISION_REASON_LABELS[reason] ?? "Not applied";
 }
 
@@ -53,7 +55,9 @@ function formatDecisionReason(reason?: string): string {
  */
 function emitFirstRunScopeTelemetry(data?: Record<string, unknown>): void {
   const scope = data?.[FIRST_RUN_SCOPE_DATA_KEY];
-  if (!isFirstRunScope(scope)) {return;}
+  if (!isFirstRunScope(scope)) {
+    return;
+  }
   try {
     // Same auth source `active-chat-view.tsx` derives `authUserId` from, read
     // non-reactively; an absent user id emits as null rather than blocking.
@@ -79,7 +83,9 @@ export async function handleSurfaceAction(
   // `not_found`, handled below) — so no client-side existence pre-check.
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
-    useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "No active session. Please try again." });
     return;
   }
 
@@ -93,12 +99,16 @@ export async function handleSurfaceAction(
     );
   } catch (err) {
     captureError(err, { context: "submit_surface_action" });
-    useChatSessionStore.getState().setError({ message: "Failed to submit. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "Failed to submit. Please try again." });
     return;
   }
 
   if (!result.ok) {
-    useChatSessionStore.getState().setError({ message: "Failed to submit. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "Failed to submit. Please try again." });
     return;
   }
 
@@ -119,7 +129,6 @@ export async function handleSurfaceAction(
 
   patchTranscriptMessages((prev: DisplayMessage[]) =>
     completeSubmittedSurface(prev, surfaceId, actionId, completionText, {
-      isGuardianDecision,
       ...(isGuardianDecision
         ? { tone: guardianDecisionTone(actionId, result) }
         : {}),

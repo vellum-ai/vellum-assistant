@@ -205,7 +205,12 @@ export function appendTextDelta(
     // turn → open a fresh bubble as before.
     const twin = seedTwin?.();
     if (twin) {
-      return appendTextSegmentIntoRow([...prev, twin], prev.length, text, messageId);
+      return appendTextSegmentIntoRow(
+        [...prev, twin],
+        prev.length,
+        text,
+        messageId,
+      );
     }
     return createStreamingBubble(prev, text, messageId, at);
   }
@@ -264,8 +269,9 @@ export function appendThinkingDelta(
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
-    if (idx >= 0)
+    if (idx >= 0) {
       return appendThinkingSegmentIntoRow(prev, idx, thinking, messageId);
+    }
     if (tailIsAssistant(prev)) {
       return appendThinkingSegmentIntoRow(
         prev,
@@ -293,7 +299,12 @@ export function appendThinkingDelta(
   if (!tailIsAssistant(prev)) {
     return createStreamingThinkingBubble(prev, thinking, messageId, at);
   }
-  return appendThinkingSegmentIntoRow(prev, prev.length - 1, thinking, undefined);
+  return appendThinkingSegmentIntoRow(
+    prev,
+    prev.length - 1,
+    thinking,
+    undefined,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -312,9 +323,13 @@ export function finalizeOnIdle(
 ): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
-    if (m.role !== "assistant") return m;
+    if (m.role !== "assistant") {
+      return m;
+    }
     const finalized = finalizeRunningToolCalls(m, at);
-    if (!finalized) return m;
+    if (!finalized) {
+      return m;
+    }
     changed = true;
     return { ...m, ...finalized };
   });
@@ -360,7 +375,9 @@ export function finalizeMessageComplete(
   const attachments = toDisplayAttachments(event.attachments);
 
   if (last?.role !== "assistant") {
-    if (!attachments) return prev;
+    if (!attachments) {
+      return prev;
+    }
     return [
       ...prev,
       {
@@ -522,7 +539,9 @@ export function handleConversationError(
 ): DisplayMessage[] {
   const lastIdx = prev.length - 1;
   const last = prev[lastIdx];
-  if (!last || last.role !== "assistant") return prev;
+  if (!last || last.role !== "assistant") {
+    return prev;
+  }
 
   const finalized = finalizeRunningToolCalls(last, at);
   const hasContent =
@@ -531,7 +550,9 @@ export function handleConversationError(
     (last.toolCalls != null && last.toolCalls.length > 0) ||
     (last.surfaces != null && last.surfaces.length > 0);
 
-  if (!hasContent) return prev.slice(0, -1);
+  if (!hasContent) {
+    return prev.slice(0, -1);
+  }
 
   const updated = [...prev];
   updated[lastIdx] = {

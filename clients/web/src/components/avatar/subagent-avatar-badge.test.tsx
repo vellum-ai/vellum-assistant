@@ -38,7 +38,9 @@ function spawn(id: string, status: SubagentStatus) {
 describe("SubagentAvatarBadge", () => {
   test("renders the deterministic avatar chip", () => {
     spawn("sa-avatar", "running");
-    const { container } = render(<SubagentAvatarBadge subagentId="sa-avatar" />);
+    const { container } = render(
+      <SubagentAvatarBadge subagentId="sa-avatar" />,
+    );
     expect(
       container.querySelector('[aria-label="Subagent sa-avatar"]'),
     ).not.toBeNull();
@@ -60,7 +62,9 @@ describe("SubagentAvatarBadge", () => {
 
   test("completed → green check, no dots", () => {
     spawn("sa-done", "completed");
-    const { getByTestId } = render(<SubagentAvatarBadge subagentId="sa-done" />);
+    const { getByTestId } = render(
+      <SubagentAvatarBadge subagentId="sa-done" />,
+    );
     const indicator = getByTestId("subagent-avatar-badge-status");
     expect(indicator.getAttribute("data-status")).toBe("completed");
     expect(indicator.getAttribute("aria-label")).toBe("completed");
@@ -100,7 +104,9 @@ describe("SubagentAvatarBadge", () => {
 
   test("the circle swaps background to --surface-active on hover (per Figma)", () => {
     spawn("sa-hover", "running");
-    const { getByTestId } = render(<SubagentAvatarBadge subagentId="sa-hover" />);
+    const { getByTestId } = render(
+      <SubagentAvatarBadge subagentId="sa-hover" />,
+    );
     const circle = getByTestId("subagent-avatar-badge");
     // The whole hover state is a background swap: --surface-lift → --surface-active.
     expect(circle.className).toContain("bg-[var(--surface-lift)]");

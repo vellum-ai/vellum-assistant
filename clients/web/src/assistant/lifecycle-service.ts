@@ -170,8 +170,12 @@ class AssistantLifecycleService {
     // deliberately not handled here: its resolver-fed effect path already
     // re-checks, and acting on it would double-fetch with stale inputs.
     useResolvedAssistantsStore.subscribe((state, prevState) => {
-      if (state.selectedAssistantId === prevState.selectedAssistantId) return;
-      if (!isGatewayAuthMode() || this.state.kind === "loading") return;
+      if (state.selectedAssistantId === prevState.selectedAssistantId) {
+        return;
+      }
+      if (!isGatewayAuthMode() || this.state.kind === "loading") {
+        return;
+      }
       this.applyGatewayAuthShortCircuit();
     });
   }
@@ -222,7 +226,9 @@ class AssistantLifecycleService {
    * branches. Safe to call on every input change.
    */
   async respondToInputs(): Promise<void> {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     // Check gateway auth before the unauthenticated-reset below: local (gateway)
     // and platform are independent authorities, so a platform-session loss that
     // flips `sessionStatus` must not tear down a gateway-driven local lifecycle.
@@ -241,7 +247,9 @@ class AssistantLifecycleService {
     if (this.inputs.hasPlatformSession) {
       setSelfHostedConnection(null);
     }
-    if (!this.inputs.isOrgReady) return;
+    if (!this.inputs.isOrgReady) {
+      return;
+    }
     await this.checkAssistant();
   }
 
@@ -252,7 +260,9 @@ class AssistantLifecycleService {
    * the lifecycle is transient).
    */
   async applyServerResult(result: GetAssistantResult): Promise<void> {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     if (
       this.state.kind !== "initializing" &&
       this.state.kind !== "cleaning_up"
@@ -279,7 +289,9 @@ class AssistantLifecycleService {
    * wrong assistant.
    */
   async checkAssistant(assistantIdOverride?: string): Promise<void> {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
       return;
@@ -303,7 +315,9 @@ class AssistantLifecycleService {
         queryFn: () => getAssistant(selectedId ?? undefined),
         staleTime: 0,
       });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) {
+        return;
+      }
       // If the selected assistant 404s (retired/deleted), clear the
       // stale selection and retry without an ID so the lifecycle
       // falls back to the default first-listed assistant.
@@ -314,17 +328,23 @@ class AssistantLifecycleService {
           queryFn: () => getAssistant(),
           staleTime: 0,
         });
-        if (generation !== this.generation) return;
+        if (generation !== this.generation) {
+          return;
+        }
       }
       await this.applyServerStateUpdate(result);
     } catch (err) {
       console.error("Error checking assistant status:", err);
       captureError(err, { context: "check_assistant" });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) {
+        return;
+      }
       // A thrown fetch is a transport failure (the request never got
       // an HTTP answer) — same degrade/auto-retry semantics as a
       // proxy-synthesized network error result.
-      if (this.degradeOnTransportFailure()) return;
+      if (this.degradeOnTransportFailure()) {
+        return;
+      }
       this.transition({
         kind: "error",
         transient: true,
@@ -360,7 +380,9 @@ class AssistantLifecycleService {
   }
 
   retryAssistant(): void {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     void this.checkAssistant();
   }
 
@@ -371,12 +393,16 @@ class AssistantLifecycleService {
    * sessionStorage detector externally.
    */
   markExpectingFirstMessage(): void {
-    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    if (useAssistantLifecycleStore.getState().expectingFirstMessage) {
+      return;
+    }
     useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
   }
 
   clearExpectingFirstMessage(): void {
-    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) {
+      return;
+    }
     useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
   }
 
@@ -434,11 +460,15 @@ class AssistantLifecycleService {
       clearTimeout(this.errorRetryTimer);
       this.errorRetryTimer = null;
     }
-    if (resetAttempts) this.errorRetryAttempt = 0;
+    if (resetAttempts) {
+      this.errorRetryAttempt = 0;
+    }
   }
 
   private armErrorRetry(): void {
-    if (this.errorRetryTimer) clearTimeout(this.errorRetryTimer);
+    if (this.errorRetryTimer) {
+      clearTimeout(this.errorRetryTimer);
+    }
     const delay = errorRetryDelayMs(this.errorRetryAttempt);
     this.errorRetryAttempt += 1;
     this.errorRetryTimer = setTimeout(() => {
@@ -456,7 +486,9 @@ class AssistantLifecycleService {
    * probe loop's next tick.
    */
   private onNetworkOnline(): void {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     if (this.state.kind === "error" && this.state.transient) {
       this.clearErrorRetry(true);
       void this.checkAssistant();
@@ -468,7 +500,9 @@ class AssistantLifecycleService {
   }
 
   private armInitializingWatchdog(): void {
-    if (this.initializingTimeout) clearTimeout(this.initializingTimeout);
+    if (this.initializingTimeout) {
+      clearTimeout(this.initializingTimeout);
+    }
     this.initializingTimeout = setTimeout(() => {
       this.generation++;
       Sentry.captureMessage("Assistant stuck in initializing state", {
@@ -604,7 +638,9 @@ class AssistantLifecycleService {
       return;
     }
 
-    if (generation !== this.generation) return;
+    if (generation !== this.generation) {
+      return;
+    }
     if (nextState.kind !== "active") {
       this.transition(nextState);
     }
@@ -615,7 +651,9 @@ class AssistantLifecycleService {
   // ---------------------------------------------------------------------------
 
   private async probeReachability(assistantId: string): Promise<void> {
-    if (this.reachabilityProbeInFlightIds.has(assistantId)) return;
+    if (this.reachabilityProbeInFlightIds.has(assistantId)) {
+      return;
+    }
     this.reachabilityProbeInFlightIds.add(assistantId);
     try {
       const generation = this.generation;
@@ -666,7 +704,9 @@ class AssistantLifecycleService {
             break;
         }
       }
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) {
+        return;
+      }
       if (
         useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
       ) {
@@ -678,7 +718,9 @@ class AssistantLifecycleService {
         }
         return;
       }
-      if (this.state.kind !== "active") return;
+      if (this.state.kind !== "active") {
+        return;
+      }
       // A migrating daemon answers health checks but refuses every DB-backed
       // route with 503 — statuses the unreachable interceptor treats as
       // unreachable. Counting migrating as reachable would therefore
@@ -705,7 +747,9 @@ class AssistantLifecycleService {
   }
 
   private startProbeLoop(assistantId: string): void {
-    if (this.probeLoopAssistantId === assistantId) return;
+    if (this.probeLoopAssistantId === assistantId) {
+      return;
+    }
     this.cancelProbeTimer();
     this.probeLoopAssistantId = assistantId;
     const startedAt = Date.now();
@@ -746,14 +790,20 @@ class AssistantLifecycleService {
    * `transition()`'s edge-trigger when the state leaves local.
    */
   private startHealthHeartbeat(assistantId: string): void {
-    if (this.healthHeartbeatId === assistantId) return;
+    if (this.healthHeartbeatId === assistantId) {
+      return;
+    }
     this.cancelHealthHeartbeat();
     this.healthHeartbeatId = assistantId;
     const token = this.healthHeartbeatToken;
     const tick = async () => {
-      if (token !== this.healthHeartbeatToken) return;
+      if (token !== this.healthHeartbeatToken) {
+        return;
+      }
       await this.probeReachability(assistantId);
-      if (token !== this.healthHeartbeatToken) return;
+      if (token !== this.healthHeartbeatToken) {
+        return;
+      }
       this.healthHeartbeatTimer = setTimeout(
         () => void tick(),
         LOCAL_HEALTH_POLL_MS,
@@ -788,9 +838,13 @@ class AssistantLifecycleService {
    * overlay (driven by `reachable`) handles the acute state.
    */
   triggerReachabilityProbe(): void {
-    if (this.state.kind !== "active") return;
+    if (this.state.kind !== "active") {
+      return;
+    }
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     this.transition({ ...this.state, reachable: false });
     if (this.healthHeartbeatId === assistantId) {
       // The heartbeat owns the cadence — just pull the next probe
@@ -807,7 +861,9 @@ class AssistantLifecycleService {
   ): void {
     const activeAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
-    if (activeAssistantId !== assistantId) return;
+    if (activeAssistantId !== assistantId) {
+      return;
+    }
 
     if (!inProgress) {
       void this.probeReachability(assistantId);

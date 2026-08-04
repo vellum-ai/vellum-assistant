@@ -20,7 +20,9 @@ export const V3_CARDS_INJECTION_HEADER =
  * `memoryInjectedBlock`.
  */
 export function renderCardsBlockInner(cards: string[]): string {
-  if (cards.length === 0) return "";
+  if (cards.length === 0) {
+    return "";
+  }
   return [V3_CARDS_INJECTION_HEADER, ...cards].join("\n\n");
 }
 
@@ -82,7 +84,9 @@ export async function renderMemoryBlock(
   sectionBySlug: Map<Slug, Section>,
   pageContent: (slug: Slug, section: Section | undefined) => Promise<string>,
 ): Promise<string> {
-  if (slugs.length === 0) return "";
+  if (slugs.length === 0) {
+    return "";
+  }
 
   const contents = await Promise.all(
     slugs.map((slug) => pageContent(slug, sectionBySlug.get(slug))),

@@ -53,7 +53,12 @@ export function useOpenAppFromChat(
       haptic.light();
       await useViewerStore.getState().loadApp(assistantId, appId);
       const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (bindConversation && activeConversationId && openedAppState && activeAppId === appId) {
+      if (
+        bindConversation &&
+        activeConversationId &&
+        openedAppState &&
+        activeAppId === appId
+      ) {
         useConversationStore
           .getState()
           .setEditingConversationId(activeConversationId);

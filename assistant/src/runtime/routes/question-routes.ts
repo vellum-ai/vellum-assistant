@@ -168,7 +168,9 @@ function buildSubmissions(
   body: SubmitBody | LegacyOptionBody | LegacyFreeTextBody,
   interaction: ReturnType<typeof pendingInteractions.get>,
 ): QuestionBatchSubmission[] {
-  if (body.kind === "submit") return body.responses;
+  if (body.kind === "submit") {
+    return body.responses;
+  }
 
   // Legacy single-question shim: synthesize a one-element batch. The
   // prompter stashed the ordered ids on the interaction metadata so we can

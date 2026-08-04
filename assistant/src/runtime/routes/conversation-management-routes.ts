@@ -29,11 +29,7 @@ import {
   discardLastAssistantDisplayTurn,
   extractUserPromptText,
 } from "../../daemon/conversation-history.js";
-import {
-  formatSummarizeUpToResult,
-  isBackgroundEventMetadata,
-  isEchoSuppressedUserMessage,
-} from "../../daemon/conversation-process.js";
+import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   destroyActiveConversation,
@@ -55,6 +51,8 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
   setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
@@ -104,7 +102,9 @@ const log = getLogger("conversation-management-routes");
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
+  if (!id) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
   return id;
 }
 
@@ -278,7 +278,14 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
       conversation.emitActivityState("thinking", "context_compacting", {
         statusText: "Summarizing conversation",
       });
-      const result = await conversation.summarizeUpToMessage(beforeMessageId);
+      // The context-window usage push goes out on the same broadcast path as
+      // the result card below: this route resolves its conversation outside
+      // the send path, so the instance may still hold the store's no-op
+      // sender and a `sendToClient` emit would reach nobody.
+      const result = await conversation.summarizeUpToMessage(
+        beforeMessageId,
+        broadcastMessage,
+      );
       // Stop aborted the in-flight summary: the compactor reports the aborted
       // provider call as a non-compacted result (it swallows the abort rather
       // than throwing), so detect cancellation via the signal. A cancelled
@@ -479,7 +486,9 @@ async function handleDeleteConversation({
 
   await cancelScheduleIfLast(resolvedId);
 
-  destroyActiveConversation(resolvedId);
+  // In-memory teardown only: `deleteConversation` drops the durable subagent
+  // rows inside its own transaction.
+  destroyActiveConversation(resolvedId, { keepSubagentRecords: true });
   const deleted = deleteConversation(resolvedId);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {
@@ -741,6 +750,13 @@ async function handleRetryLastAssistantTurn({
         onEvent: broadcastMessage,
         isUserMessage: true,
         isInteractive,
+        // The re-run carries none of the anchor's original delivery
+        // orchestration: a channel anchor's reply is not posted back to
+        // Slack/Telegram (that is owned by the inbound event's
+        // `finalizeEventDelivery`) and a voice anchor's is not spoken over a
+        // session. The regenerated reply reaches SSE subscribers only, so the
+        // push is the user's only copy once they leave.
+        replyDeliveredInAppOnly: true,
         ...(isHiddenPrompt ? { isHiddenPrompt: true } : {}),
       });
     } catch (err) {

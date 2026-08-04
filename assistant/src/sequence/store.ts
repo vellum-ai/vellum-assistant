@@ -99,7 +99,9 @@ export function getSequence(id: string): Sequence | undefined {
 export function listSequences(filter?: ListSequencesFilter): Sequence[] {
   const db = getDb();
   const conditions = [];
-  if (filter?.status) conditions.push(eq(sequences.status, filter.status));
+  if (filter?.status) {
+    conditions.push(eq(sequences.status, filter.status));
+  }
 
   const rows =
     conditions.length > 0
@@ -119,11 +121,21 @@ export function updateSequence(
   const db = getDb();
   const now = Date.now();
   const updates: Record<string, unknown> = { updatedAt: now };
-  if (patch.name !== undefined) updates.name = patch.name;
-  if (patch.description !== undefined) updates.description = patch.description;
-  if (patch.steps !== undefined) updates.steps = JSON.stringify(patch.steps);
-  if (patch.exitOnReply !== undefined) updates.exitOnReply = patch.exitOnReply;
-  if (patch.status !== undefined) updates.status = patch.status;
+  if (patch.name !== undefined) {
+    updates.name = patch.name;
+  }
+  if (patch.description !== undefined) {
+    updates.description = patch.description;
+  }
+  if (patch.steps !== undefined) {
+    updates.steps = JSON.stringify(patch.steps);
+  }
+  if (patch.exitOnReply !== undefined) {
+    updates.exitOnReply = patch.exitOnReply;
+  }
+  if (patch.status !== undefined) {
+    updates.status = patch.status;
+  }
 
   db.update(sequences).set(updates).where(eq(sequences.id, id)).run();
   return getSequence(id);
@@ -152,13 +164,15 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
 
   // Look up the sequence to compute initial nextStepAt
   const seq = getSequence(input.sequenceId);
-  if (!seq)
+  if (!seq) {
     throw new AssistantError(
       `Sequence not found: ${input.sequenceId}`,
       ErrorCode.INTERNAL_ERROR,
     );
-  if (seq.steps.length === 0)
+  }
+  if (seq.steps.length === 0) {
     throw new AssistantError("Sequence has no steps", ErrorCode.INTERNAL_ERROR);
+  }
 
   const firstStep = seq.steps[0];
   const nextStepAt = now + firstStep.delaySeconds * 1000;
@@ -195,12 +209,15 @@ export function listEnrollments(
 ): SequenceEnrollment[] {
   const db = getDb();
   const conditions = [];
-  if (filter?.sequenceId)
+  if (filter?.sequenceId) {
     conditions.push(eq(sequenceEnrollments.sequenceId, filter.sequenceId));
-  if (filter?.status)
+  }
+  if (filter?.status) {
     conditions.push(eq(sequenceEnrollments.status, filter.status));
-  if (filter?.contactEmail)
+  }
+  if (filter?.contactEmail) {
     conditions.push(eq(sequenceEnrollments.contactEmail, filter.contactEmail));
+  }
 
   const rows =
     conditions.length > 0
@@ -265,7 +282,9 @@ export function claimDueEnrollments(
       )
       .run();
 
-    if (rawChanges() === 0) continue;
+    if (rawChanges() === 0) {
+      continue;
+    }
 
     claimed.push(
       parseEnrollmentRow({ ...row, nextStepAt: null, updatedAt: now }),
@@ -292,11 +311,17 @@ export function advanceEnrollment(
 
   // Load current to increment step
   const current = getEnrollment(id);
-  if (!current) return undefined;
+  if (!current) {
+    return undefined;
+  }
 
   updates.currentStep = current.currentStep + 1;
-  if (conversationId !== undefined) updates.conversationId = conversationId;
-  if (nextStepAt !== undefined) updates.nextStepAt = nextStepAt;
+  if (conversationId !== undefined) {
+    updates.conversationId = conversationId;
+  }
+  if (nextStepAt !== undefined) {
+    updates.nextStepAt = nextStepAt;
+  }
 
   db.update(sequenceEnrollments)
     .set(updates)

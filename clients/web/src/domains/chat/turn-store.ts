@@ -34,12 +34,7 @@ export type TurnPhase =
   | "errored";
 
 export type TerminalReason =
-  | "complete"
-  | "error"
-  | "cancelled"
-  | "timeout"
-  | "session_error"
-  | null;
+  "complete" | "error" | "cancelled" | "timeout" | "session_error" | null;
 
 export interface TurnState {
   phase: TurnPhase;
@@ -343,7 +338,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // meaning a turn is genuinely in progress. After terminal events
     // clear activeTurnId, stale deltas are discarded.
     if (s.phase === "idle" || s.phase === "errored") {
-      if (!s.activeTurnId) return;
+      if (!s.activeTurnId) {
+        return;
+      }
       set({ phase: "streaming" });
       return;
     }
@@ -356,7 +353,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   onToolUseStart: () => {
     const s = get();
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      return;
+    }
     set({
       phase:
         s.phase === "idle" || s.phase === "errored" || s.phase === "queued"
@@ -376,7 +375,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // Stale guard: a tool_result for the previous turn may arrive after we
     // already transitioned to idle. Don't repopulate liveWebActivity post
     // terminal — it'll just leak into the next turn's card render.
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      return;
+    }
     set({
       liveWebActivity: { ...s.liveWebActivity, [toolUseId]: metadata },
     });
@@ -397,7 +398,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       // background conversation's activity can't light this tab's
       // indicator. Terminal teardown arrives via the paired idle activity
       // event or the result card's message_complete (both call endTurn).
-      if (!opts?.canStartFromIdle) return;
+      if (!opts?.canStartFromIdle) {
+        return;
+      }
       set({
         phase: "thinking",
         statusText: statusText ?? null,
@@ -405,7 +408,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
       });
       return;
     }
-    if (s.phase === "awaiting_user_input") return;
+    if (s.phase === "awaiting_user_input") {
+      return;
+    }
     set({ phase: "thinking", statusText: statusText ?? null });
   },
 
@@ -430,11 +435,15 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   showSurface: (interactive) => {
     const s = get();
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      return;
+    }
     // Only transition to awaiting_user_input for interactive surfaces
     // (form, confirmation, file_upload). Non-interactive surfaces (card,
     // table, list) are display-only and shouldn't pause the turn.
-    if (!interactive) return;
+    if (!interactive) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
@@ -466,22 +475,30 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   // ----- Interruptions (awaiting user input) -----
 
   onSecretRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
   onConfirmationRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
   onQuestionRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
   onContactRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
@@ -502,7 +519,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   },
 
   handoffGeneration: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     // Current assistant chunk is finalized; more chunks expected.
     set({ phase: "thinking", activeToolCallCount: 0, statusText: null });
   },
@@ -562,8 +581,12 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // polling says the turn is done. Only transition if still active.
     // When turnId is provided, only honour if it matches the current
     // turn — makes completion idempotent when SSE and polling race.
-    if (turnId && turnId !== s.activeTurnId) return;
-    if (!isSending(s.phase)) return;
+    if (turnId && turnId !== s.activeTurnId) {
+      return;
+    }
+    if (!isSending(s.phase)) {
+      return;
+    }
     set({
       phase: "idle",
       activeTurnId: null,
@@ -591,7 +614,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
    */
   clearStaleTurn: () => {
     const s = get();
-    if (s.activeTurnId && isSending(s.phase)) return;
+    if (s.activeTurnId && isSending(s.phase)) {
+      return;
+    }
     set({ ...INITIAL_TURN_STATE });
   },
 
@@ -663,7 +688,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
 
     case "ASSISTANT_TEXT_DELTA":
       if (state.phase === "idle" || state.phase === "errored") {
-        if (!state.activeTurnId) return state;
+        if (!state.activeTurnId) {
+          return state;
+        }
         return { ...state, phase: "streaming" };
       }
       if (state.phase === "thinking" || state.phase === "queued") {
@@ -672,7 +699,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       return state;
 
     case "TOOL_USE_START":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        return state;
+      }
       return {
         ...state,
         phase:
@@ -691,7 +720,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "TOOL_ACTIVITY_METADATA":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        return state;
+      }
       return {
         ...state,
         liveWebActivity: {
@@ -704,7 +735,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       if (isStale(state)) {
         // Daemon-initiated activity (e.g. summarize-up-to-here) may start
         // without a client-initiated turn — mirrors `onActivityThinking`.
-        if (!event.canStartFromIdle) return state;
+        if (!event.canStartFromIdle) {
+          return state;
+        }
         return {
           ...state,
           phase: "thinking",
@@ -712,7 +745,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
           lastTerminalReason: null,
         };
       }
-      if (state.phase === "awaiting_user_input") return state;
+      if (state.phase === "awaiting_user_input") {
+        return state;
+      }
       return {
         ...state,
         phase: "thinking",
@@ -720,8 +755,12 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "UI_SURFACE_SHOW":
-      if (isStale(state)) return state;
-      if (!event.interactive) return state;
+      if (isStale(state)) {
+        return state;
+      }
+      if (!event.interactive) {
+        return state;
+      }
       return { ...state, phase: "awaiting_user_input" };
 
     case "UI_SURFACE_UPDATE":
@@ -749,7 +788,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
     case "CONFIRMATION_REQUEST":
     case "QUESTION_REQUEST":
     case "CONTACT_REQUEST":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        return state;
+      }
       return { ...state, phase: "awaiting_user_input" };
 
     case "MESSAGE_QUEUED":
@@ -864,7 +905,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "POLL_RECONCILED": {
-      if (!isSending(state.phase)) return state;
+      if (!isSending(state.phase)) {
+        return state;
+      }
       if (
         event.turnId &&
         state.activeTurnId &&
@@ -911,7 +954,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
 
     case "STALE_TURN_CLEARED":
       // See `clearStaleTurn` action for rationale.
-      if (state.activeTurnId && isSending(state.phase)) return state;
+      if (state.activeTurnId && isSending(state.phase)) {
+        return state;
+      }
       return { ...INITIAL_TURN_STATE };
   }
 }

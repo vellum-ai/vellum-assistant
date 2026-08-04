@@ -54,7 +54,9 @@ export function useEventBusInit({
     // future move to a non-React caller (e.g. invoking from a
     // module-level bootstrap). Keep aligned with CONVENTIONS.md's
     // "SSR/build-safe rendering" rule.
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      return;
+    }
     const unsubscribers = [
       publishVisibilitySource(),
       publishWindowOnlineSource(),
@@ -67,12 +69,16 @@ export function useEventBusInit({
       setupQueryFocusManager(),
     ];
     return () => {
-      for (const unsub of unsubscribers) unsub();
+      for (const unsub of unsubscribers) {
+        unsub();
+      }
     };
   }, []);
 
   useEffect(() => {
-    if (!assistantId || !isAssistantActive) return;
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
     return sseService.attach(assistantId);
   }, [assistantId, isAssistantActive]);
 }

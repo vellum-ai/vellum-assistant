@@ -50,7 +50,9 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
 
   beforeEach(() => {
     // Fresh encrypted store (no saved credentials → forces env-var fallback).
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
     mkdirSync(TEST_DIR, { recursive: true });
     setStorePathForTesting(STORE_PATH);
     _resetBackend();
@@ -76,7 +78,9 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   });
 
   afterAll(() => {
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
   });
 
   test("returns BRAVE_API_KEY from process.env when secure store is empty", async () => {

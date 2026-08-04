@@ -34,9 +34,8 @@ mock.module("../../ipc/gateway-client.js", () => ({
 }));
 
 const client = await import("../gateway-verification-sessions.js");
-const { composeApprovalMessage } = await import(
-  "../../runtime/approval-message-composer.js"
-);
+const { composeApprovalMessage } =
+  await import("../../runtime/approval-message-composer.js");
 
 function makeWireSession(
   overrides: Partial<VerificationSessionWire> = {},

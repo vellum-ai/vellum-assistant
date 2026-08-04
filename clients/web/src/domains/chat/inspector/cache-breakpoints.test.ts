@@ -169,9 +169,7 @@ describe("parseCacheBreakpoints", () => {
     const request = {
       model: "claude-sonnet-4",
       system: [text(block, marker(STABLE_TTL))],
-      messages: [
-        { role: "user", content: [text(block, marker(TAIL_TTL))] },
-      ],
+      messages: [{ role: "user", content: [text(block, marker(TAIL_TTL))] }],
     };
 
     const map = parseCacheBreakpoints(
@@ -268,9 +266,7 @@ describe("parseCacheBreakpoints", () => {
     const request = {
       model: "claude-sonnet-4",
       system: "You are a helpful assistant.",
-      messages: [
-        { role: "user", content: [text("hi", marker(STABLE_TTL))] },
-      ],
+      messages: [{ role: "user", content: [text("hi", marker(STABLE_TTL))] }],
     };
 
     const map = parseCacheBreakpoints(

@@ -18,7 +18,9 @@ export function migrateLlmUsageEventsDropAssistantId(
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // DDL guard: if the column was already removed (fresh install or migrateRemoveAssistantIdColumns
   // ran with the llm_usage_events block), just record the checkpoint and exit.
@@ -111,7 +113,9 @@ export function downLlmUsageEventsDropAssistantId(database: DrizzleDb): void {
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
     )
     .get() as { sql: string } | null;
-  if (!ddl || ddl.sql.includes("assistant_id")) return;
+  if (!ddl || ddl.sql.includes("assistant_id")) {
+    return;
+  }
 
   try {
     raw.exec(

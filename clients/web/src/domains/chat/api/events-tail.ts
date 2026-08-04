@@ -39,8 +39,12 @@ export async function ingestServerEventsTail(
   conversationId: string,
   fromSeq: number | null,
 ): Promise<void> {
-  if (fromSeq == null) return;
-  if (!supportsEventsTail()) return;
+  if (fromSeq == null) {
+    return;
+  }
+  if (!supportsEventsTail()) {
+    return;
+  }
   try {
     const { data, response } = await eventsTailGet({
       path: { assistant_id: assistantId },

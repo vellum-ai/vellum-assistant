@@ -136,8 +136,12 @@ function redactJsonlContent(content: string): string {
 }
 
 function redactContent(content: string, ext: string): string {
-  if (ext === ".json") return redactSerializedJson(content, 2);
-  if (ext === ".jsonl") return redactJsonlContent(content);
+  if (ext === ".json") {
+    return redactSerializedJson(content, 2);
+  }
+  if (ext === ".jsonl") {
+    return redactJsonlContent(content);
+  }
   return redactSecrets(content);
 }
 
@@ -190,7 +194,9 @@ export function redactStagedExportFiles(stagingDir: string): {
       }
       // Dirent type checks use lstat semantics, so symlinks are neither
       // files nor directories here — they are skipped, never followed.
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
       const ext = extname(entry.name).toLowerCase();
 
       // Phase 1 — classify and scan. Failures here mean the file's content
@@ -199,7 +205,9 @@ export function redactStagedExportFiles(stagingDir: string): {
       let content = "";
       let redacted = "";
       try {
-        if (!sniffsAsText(filePath)) continue;
+        if (!sniffsAsText(filePath)) {
+          continue;
+        }
         size = statSync(filePath).size;
         if (size <= MAX_SWEEP_FILE_BYTES) {
           content = readFileSync(filePath, "utf-8");
@@ -232,7 +240,9 @@ export function redactStagedExportFiles(stagingDir: string): {
         filesOmitted++;
         continue;
       }
-      if (redacted === content) continue;
+      if (redacted === content) {
+        continue;
+      }
       try {
         // Staged copies inherit source mode bits (`cpSync` preserves them),
         // so a read-only workspace attachment arrives read-only and the

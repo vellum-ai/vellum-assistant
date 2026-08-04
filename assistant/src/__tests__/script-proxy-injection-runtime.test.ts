@@ -327,12 +327,18 @@ describe("MITM rewriteCallback credential injection", () => {
     let injected = false;
     for (const [credId, tpls] of templates) {
       for (const t of tpls) {
-        if (!minimatch(hostname, t.hostPattern, { nocase: true })) continue;
+        if (!minimatch(hostname, t.hostPattern, { nocase: true })) {
+          continue;
+        }
 
         const res = resolveByIdResults.get(credId);
-        if (!res) continue;
+        if (!res) {
+          continue;
+        }
         const value = secureKeyValues.get(res.storageKey);
-        if (!value) continue;
+        if (!value) {
+          continue;
+        }
 
         if (t.injectionType === "header" && t.headerName) {
           headers[t.headerName.toLowerCase()] = (t.valuePrefix ?? "") + value;
@@ -340,7 +346,9 @@ describe("MITM rewriteCallback credential injection", () => {
           break;
         }
       }
-      if (injected) break;
+      if (injected) {
+        break;
+      }
     }
 
     expect(injected).toBe(true);
@@ -364,8 +372,9 @@ describe("MITM rewriteCallback credential injection", () => {
     let injected = false;
     for (const [, tpls] of templates) {
       for (const t of tpls) {
-        if (!minimatch("api.openai.com", t.hostPattern, { nocase: true }))
+        if (!minimatch("api.openai.com", t.hostPattern, { nocase: true })) {
           continue;
+        }
         injected = true;
       }
     }

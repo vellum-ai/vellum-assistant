@@ -26,7 +26,9 @@ let cache: { ids: Set<string>; expiresAt: number } | null = null;
  * returns an empty set on IPC error (never throws).
  */
 export async function getGuardianContactIds(): Promise<Set<string>> {
-  if (cache && cache.expiresAt > Date.now()) return cache.ids;
+  if (cache && cache.expiresAt > Date.now()) {
+    return cache.ids;
+  }
 
   try {
     const result = await ipcCallPersistent("get_guardian_contact", {});

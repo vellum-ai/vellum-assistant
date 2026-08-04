@@ -96,7 +96,9 @@ export async function fetchPluginCatalogFromPlatform(
 
   const entries: MarketplaceEntry[] = [];
   for (const row of parsed.data.plugins) {
-    if (!row.repo || !row.ref) continue;
+    if (!row.repo || !row.ref) {
+      continue;
+    }
     entries.push({
       name: row.name,
       source: {
@@ -113,5 +115,8 @@ export async function fetchPluginCatalogFromPlatform(
     });
   }
 
-  return { ref: opts?.ref ?? "platform", matches: projectMarketplaceEntries(entries) };
+  return {
+    ref: opts?.ref ?? "platform",
+    matches: projectMarketplaceEntries(entries),
+  };
 }

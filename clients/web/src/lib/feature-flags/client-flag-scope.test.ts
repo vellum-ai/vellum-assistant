@@ -187,7 +187,10 @@ describe("setupClientFlagScopeSync", () => {
     teardown = setupClientFlagScopeSync();
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true }, currentClientFlagScopeKey());
+      .setFlags(
+        { marketingPricingTakeover: true },
+        currentClientFlagScopeKey(),
+      );
     expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
 
     useOrganizationStore.getState().clearOrganization();

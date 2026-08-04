@@ -51,7 +51,9 @@ function seedProfiles(profiles: Record<string, unknown>): void {
 
 function findHandler(routes: RouteDefinition[], operationId: string) {
   const route = routes.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 

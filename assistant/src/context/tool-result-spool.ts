@@ -95,7 +95,9 @@ export function spoolAndStubOversizedToolResults(
   let stubbedCount = 0;
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-    if (block.type !== "tool_result") continue;
+    if (block.type !== "tool_result") {
+      continue;
+    }
     if (!isSpoolEligible(block, options.toolNameById(block.tool_use_id))) {
       continue;
     }

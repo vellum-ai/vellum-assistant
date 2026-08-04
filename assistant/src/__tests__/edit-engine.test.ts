@@ -12,7 +12,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, "hello world", "updated", false);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.updatedContent).toBe("updated\n");
     expect(result.matchCount).toBe(1);
     expect(result.matchMethod).toBe("exact");
@@ -24,7 +26,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, "line two", "replaced", false);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.updatedContent).toBe("line one\nreplaced\nline three\n");
     expect(result.matchMethod).toBe("exact");
   });
@@ -41,7 +45,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, oldString, newString, false);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.matchMethod).toBe("whitespace");
     expect(result.matchCount).toBe(1);
     expect(result.similarity).toBe(1);
@@ -57,7 +63,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, oldString, newString, false);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.matchMethod).toBe("fuzzy");
     expect(result.matchCount).toBe(1);
     expect(result.similarity).toBeGreaterThan(0.8);
@@ -73,9 +81,13 @@ describe("edit engine", () => {
     const result = applyEdit(content, "repeat", "new", false);
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("ambiguous");
-    if (result.reason !== "ambiguous") return;
+    if (result.reason !== "ambiguous") {
+      return;
+    }
     expect(result.matchCount).toBe(2);
   });
 
@@ -84,9 +96,13 @@ describe("edit engine", () => {
     const result = applyEdit(content, "x", "y", false);
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("ambiguous");
-    if (result.reason !== "ambiguous") return;
+    if (result.reason !== "ambiguous") {
+      return;
+    }
     expect(result.matchCount).toBe(3);
   });
 
@@ -99,7 +115,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, "nonexistent", "replacement", false);
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("not_found");
   });
 
@@ -112,7 +130,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, "x", "replaced", true);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.updatedContent).toBe("replaced\ny\nreplaced\nz\nreplaced\n");
     expect(result.matchCount).toBe(3);
     expect(result.matchMethod).toBe("exact");
@@ -124,7 +144,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, "b", "B", true);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.updatedContent).toBe("a B c\n");
     expect(result.matchCount).toBe(1);
   });
@@ -134,7 +156,9 @@ describe("edit engine", () => {
     const result = applyEdit(content, "missing", "nope", true);
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("not_found");
   });
 
@@ -156,7 +180,9 @@ describe("edit engine", () => {
 
     expect(preview.ok).toBe(true);
     expect(execution.ok).toBe(true);
-    if (!preview.ok || !execution.ok) return;
+    if (!preview.ok || !execution.ok) {
+      return;
+    }
 
     expect(preview.updatedContent).toBe(execution.updatedContent);
     expect(preview.matchCount).toBe(execution.matchCount);
@@ -173,7 +199,9 @@ describe("edit engine", () => {
 
     expect(preview.ok).toBe(true);
     expect(execution.ok).toBe(true);
-    if (!preview.ok || !execution.ok) return;
+    if (!preview.ok || !execution.ok) {
+      return;
+    }
 
     expect(preview.updatedContent).toBe(execution.updatedContent);
     expect(preview.matchCount).toBe(execution.matchCount);

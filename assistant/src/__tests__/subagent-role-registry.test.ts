@@ -38,7 +38,9 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
   test("all scoped tool-using roles have allowedTools as a non-empty array", () => {
     for (const role of ALL_ROLES) {
       // 'general' has no filter (undefined); 'advisor' is tool-less (empty).
-      if (role === "general" || role === "advisor") continue;
+      if (role === "general" || role === "advisor") {
+        continue;
+      }
       const config = SUBAGENT_ROLE_REGISTRY[role];
       expect(Array.isArray(config.allowedTools)).toBe(true);
       expect(config.allowedTools!.length).toBeGreaterThan(0);

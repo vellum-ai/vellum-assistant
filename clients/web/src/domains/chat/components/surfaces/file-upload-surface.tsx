@@ -1,5 +1,11 @@
 import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
-import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type DragEvent,
+  useCallback,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@vellumai/design-library";
 import { FileUploadSurfaceDataSchema } from "@vellumai/assistant-api";
@@ -14,7 +20,11 @@ import { cn } from "@/utils/misc";
 
 interface FileUploadSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
 }
 
 interface SelectedFile {
@@ -27,8 +37,12 @@ interface SelectedFile {
 // ---------------------------------------------------------------------------
 
 function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -39,13 +53,24 @@ function sanitizeFilename(name: string): string {
 
 /** Executable extensions that are suspicious when combined with a preceding extension. */
 const SUSPICIOUS_EXECUTABLE_EXTS = new Set([
-  ".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".pif", ".js", ".vbs", ".wsf",
+  ".exe",
+  ".bat",
+  ".cmd",
+  ".com",
+  ".msi",
+  ".scr",
+  ".pif",
+  ".js",
+  ".vbs",
+  ".wsf",
 ]);
 
 /** Check if a filename has a suspicious double extension (e.g. `.pdf.exe`). */
 function hasSuspiciousDoubleExtension(name: string): boolean {
   const parts = name.split(".");
-  if (parts.length < 3) return false;
+  if (parts.length < 3) {
+    return false;
+  }
   const lastExt = `.${parts[parts.length - 1]!.toLowerCase()}`;
   return SUSPICIOUS_EXECUTABLE_EXTS.has(lastExt);
 }
@@ -58,7 +83,9 @@ function hasSuspiciousDoubleExtension(name: string): boolean {
  */
 function fileMatchesType(file: File, acceptedType: string): boolean {
   const pattern = acceptedType.trim().toLowerCase();
-  if (!pattern) return false;
+  if (!pattern) {
+    return false;
+  }
 
   // Extension pattern, e.g. ".pdf"
   if (pattern.startsWith(".")) {
@@ -86,7 +113,8 @@ function readFileAsBase64(file: File): Promise<string> {
       const base64 = result.split(",")[1] ?? "";
       resolve(base64);
     };
-    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+    reader.onerror = () =>
+      reject(new Error(`Failed to read file: ${file.name}`));
     reader.readAsDataURL(file);
   });
 }
@@ -95,7 +123,10 @@ function readFileAsBase64(file: File): Promise<string> {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps) {
+export function FileUploadSurface({
+  surface,
+  onAction,
+}: FileUploadSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (every field optional/coerced, so a real surface never fails to parse). The
   // schema also coerces `acceptedTypes` to a string[], the shape this
@@ -169,7 +200,9 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
         hasSuspiciousDoubleExtension(f.name),
       );
       if (suspicious.length > 0) {
-        const names = suspicious.map((f) => sanitizeFilename(f.name)).join(", ");
+        const names = suspicious
+          .map((f) => sanitizeFilename(f.name))
+          .join(", ");
         setExtensionWarning(
           `Suspicious file extension detected: ${names}. This file may not be what it appears.`,
         );
@@ -192,7 +225,9 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       const stillSuspicious = next.some((sf) =>
         hasSuspiciousDoubleExtension(sf.file.name),
       );
-      if (!stillSuspicious) setExtensionWarning(null);
+      if (!stillSuspicious) {
+        setExtensionWarning(null);
+      }
       return next;
     });
     setError(null);
@@ -201,9 +236,13 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
   const handleFileChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
-      if (files.length > 0) addFiles(files);
+      if (files.length > 0) {
+        addFiles(files);
+      }
       // Reset the input so the same file can be re-selected
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     },
     [addFiles],
   );
@@ -223,13 +262,17 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       e.preventDefault();
       setIsDragOver(false);
       const files = Array.from(e.dataTransfer.files);
-      if (files.length > 0) addFiles(files);
+      if (files.length > 0) {
+        addFiles(files);
+      }
     },
     [addFiles],
   );
 
   const handleSubmit = useCallback(async () => {
-    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0) {
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
 
@@ -347,7 +390,11 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       )}
 
       {/* Error message */}
-      {error && <p className="mt-2 text-body-small-default text-[var(--system-negative-strong)]">{error}</p>}
+      {error && (
+        <p className="mt-2 text-body-small-default text-[var(--system-negative-strong)]">
+          {error}
+        </p>
+      )}
 
       {/* Suspicious extension warning */}
       {extensionWarning && (
@@ -363,7 +410,9 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
           variant="primary"
           disabled={isSubmitting || selectedFiles.length === 0}
           onClick={handleSubmit}
-          leftIcon={isSubmitting ? <Loader2 className="animate-spin" /> : <Upload />}
+          leftIcon={
+            isSubmitting ? <Loader2 className="animate-spin" /> : <Upload />
+          }
         >
           {isSubmitting ? "Uploading..." : "Upload"}
         </Button>

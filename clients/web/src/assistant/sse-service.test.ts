@@ -63,9 +63,8 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   resetReconnectCursor: resetReconnectCursorMock,
 }));
 
-const { sseService, __setHiddenTeardownGraceMsForTesting } = await import(
-  "@/assistant/sse-service"
-);
+const { sseService, __setHiddenTeardownGraceMsForTesting } =
+  await import("@/assistant/sse-service");
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

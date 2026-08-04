@@ -3,3 +3,6 @@
 
 # chore: bulk prettier format all TS source files (#12093)
 cb76abd542b04840a29a7d259bb24397b15b15d0
+
+# chore: enforce control-flow braces at error level (#39429)
+7568a85c4ea1eea3472ba5ff5f9b88260de605d8

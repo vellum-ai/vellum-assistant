@@ -44,7 +44,11 @@ interface AssistantFeatureFlagActions {
   /** Called on assistant switch: resets to defaults + clears hasHydrated. */
   resetForAssistantSwitch: () => void;
   setStringFlags: (flags: Record<string, string>) => void;
-  setStringFlag: (key: string, value: string, assistantId: string | null) => void;
+  setStringFlag: (
+    key: string,
+    value: string,
+    assistantId: string | null,
+  ) => void;
 }
 
 type AssistantFeatureFlagStore = Record<string, boolean> &
@@ -68,7 +72,10 @@ function resetConfirmedFlags(flags: Record<string, boolean> = {}) {
 }
 
 function resetConfirmedStringFlags(flags: Record<string, string> = {}) {
-  confirmedAssistantStringFlagValues = { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...flags };
+  confirmedAssistantStringFlagValues = {
+    ...ASSISTANT_STRING_FLAG_DEFAULTS,
+    ...flags,
+  };
 }
 
 function resetAllConfirmed() {
@@ -79,158 +86,176 @@ function resetAllConfirmed() {
 const envOverrides = getEnvFlagOverridesForScope("assistant");
 
 function latestConfirmedValue(key: string): boolean {
-  return confirmedAssistantFlagValues[key] ?? ASSISTANT_FLAG_DEFAULTS[key] ?? false;
+  return (
+    confirmedAssistantFlagValues[key] ?? ASSISTANT_FLAG_DEFAULTS[key] ?? false
+  );
 }
 
 function latestConfirmedStringValue(key: string): string {
-  return confirmedAssistantStringFlagValues[key] ?? ASSISTANT_STRING_FLAG_DEFAULTS[key] ?? "";
+  return (
+    confirmedAssistantStringFlagValues[key] ??
+    ASSISTANT_STRING_FLAG_DEFAULTS[key] ??
+    ""
+  );
 }
 
 // The store type intersects Record<string, boolean> with meta/action
 // interfaces. Zustand's set() expects Partial<Store>, but the index
 // signature makes { stringFlags: Record<string, string> } incompatible.
 // setStr() bypasses this for string-flag-only partials.
-const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
-  (set) => {
-    const setStr = set as unknown as (
-      partial:
-        | { stringFlags: Record<string, string> }
-        | ((state: AssistantFeatureFlagStore) => { stringFlags: Record<string, string> } | AssistantFeatureFlagStore),
-    ) => void;
+const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()((
+  set,
+) => {
+  const setStr = set as unknown as (
+    partial:
+      | { stringFlags: Record<string, string> }
+      | ((
+          state: AssistantFeatureFlagStore,
+        ) =>
+          { stringFlags: Record<string, string> } | AssistantFeatureFlagStore),
+  ) => void;
 
-    return ({
-      ...ASSISTANT_FLAG_DEFAULTS,
-      ...envOverrides.bool,
-      hasHydrated: false,
-      stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...envOverrides.str },
+  return {
+    ...ASSISTANT_FLAG_DEFAULTS,
+    ...envOverrides.bool,
+    hasHydrated: false,
+    stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...envOverrides.str },
 
-      setFlags: (flags: Record<string, boolean>) =>
+    setFlags: (flags: Record<string, boolean>) =>
+      set((prev) => {
+        resetConfirmedFlags(flags);
+        const merged = { ...flags, ...envOverrides.bool };
+        const changed = Object.keys(merged).some((k) => merged[k] !== prev[k]);
+        return changed ? merged : prev;
+      }),
+
+    setFlag: (key: string, value: boolean, assistantId: string | null) => {
+      const requestId = ++nextFlagRequestId;
+      const revertIfLatestRejectedRequest = () => {
+        if (pendingFlagRequestIds[key] !== requestId) {
+          return;
+        }
+        delete pendingFlagRequestIds[key];
+        const confirmedValue = latestConfirmedValue(key);
         set((prev) => {
-          resetConfirmedFlags(flags);
-          const merged = { ...flags, ...envOverrides.bool };
-          const changed = Object.keys(merged).some(
-            (k) => merged[k] !== prev[k],
-          );
-          return changed ? merged : prev;
-        }),
-
-      setFlag: (key: string, value: boolean, assistantId: string | null) => {
-        const requestId = ++nextFlagRequestId;
-        const revertIfLatestRejectedRequest = () => {
-          if (pendingFlagRequestIds[key] !== requestId) {
-            return;
+          if (prev[key] !== value) {
+            return prev;
           }
-          delete pendingFlagRequestIds[key];
-          const confirmedValue = latestConfirmedValue(key);
-          set((prev) => {
-            if (prev[key] !== value) {
-              return prev;
+          return { [key]: confirmedValue };
+        });
+        toast.error(
+          `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
+        );
+      };
+      const flagKey = storeKeyToFlagKey(key);
+      // Assistant-scoped flags persist via the gateway. Without an assistant
+      // id there is nowhere to write, so this is a true no-op: never apply an
+      // optimistic value or fake a "confirmed" one the daemon will never
+      // receive — that local-only write is what masked the silent failure.
+      if (!assistantId || !flagKey) {
+        return;
+      }
+      pendingFlagRequestIds[key] = requestId;
+      void assistantFeatureFlagsPatch({
+        path: { assistant_id: assistantId, flag_key: flagKey },
+        body: { enabled: value },
+        throwOnError: false,
+      })
+        .then((result) => {
+          const response = (result as { response?: Response }).response;
+          if (response?.ok) {
+            confirmedAssistantFlagValues[key] = value;
+            if (pendingFlagRequestIds[key] === requestId) {
+              delete pendingFlagRequestIds[key];
             }
-            return { [key]: confirmedValue };
-          });
-          toast.error(
-            `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
-          );
-        };
-        const flagKey = storeKeyToFlagKey(key);
-        // Assistant-scoped flags persist via the gateway. Without an assistant
-        // id there is nowhere to write, so this is a true no-op: never apply an
-        // optimistic value or fake a "confirmed" one the daemon will never
-        // receive — that local-only write is what masked the silent failure.
-        if (!assistantId || !flagKey) {
+          } else {
+            revertIfLatestRejectedRequest();
+          }
+        })
+        .catch(revertIfLatestRejectedRequest);
+
+      set({ [key]: envOverrides.bool[key] ?? value });
+    },
+
+    markHydrated: () => set({ hasHydrated: true }),
+
+    resetForAssistantSwitch: () => {
+      resetAllConfirmed();
+      set({
+        ...ASSISTANT_FLAG_DEFAULTS,
+        ...envOverrides.bool,
+        hasHydrated: false,
+      });
+      setStr({
+        stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...envOverrides.str },
+      });
+    },
+
+    setStringFlags: (flags: Record<string, string>) =>
+      setStr((prev) => {
+        resetConfirmedStringFlags(flags);
+        const merged = { ...flags, ...envOverrides.str };
+        const prevStr = prev.stringFlags;
+        const changed = Object.keys(merged).some(
+          (k) => merged[k] !== prevStr[k],
+        );
+        return changed ? { stringFlags: merged } : prev;
+      }),
+
+    setStringFlag: (key: string, value: string, assistantId: string | null) => {
+      const requestId = ++nextFlagRequestId;
+      const revertIfLatestRejectedRequest = () => {
+        if (pendingFlagRequestIds[key] !== requestId) {
           return;
         }
-        pendingFlagRequestIds[key] = requestId;
-        void assistantFeatureFlagsPatch({
-          path: { assistant_id: assistantId, flag_key: flagKey },
-          body: { enabled: value },
-          throwOnError: false,
-        })
-          .then((result) => {
-            const response = (result as { response?: Response }).response;
-            if (response?.ok) {
-              confirmedAssistantFlagValues[key] = value;
-              if (pendingFlagRequestIds[key] === requestId) {
-                delete pendingFlagRequestIds[key];
-              }
-            } else {
-              revertIfLatestRejectedRequest();
-            }
-          })
-          .catch(revertIfLatestRejectedRequest);
-
-        set({ [key]: envOverrides.bool[key] ?? value });
-      },
-
-      markHydrated: () => set({ hasHydrated: true }),
-
-      resetForAssistantSwitch: () => {
-        resetAllConfirmed();
-        set({ ...ASSISTANT_FLAG_DEFAULTS, ...envOverrides.bool, hasHydrated: false });
-        setStr({ stringFlags: { ...ASSISTANT_STRING_FLAG_DEFAULTS, ...envOverrides.str } });
-      },
-
-      setStringFlags: (flags: Record<string, string>) =>
+        delete pendingFlagRequestIds[key];
+        const confirmedValue = latestConfirmedStringValue(key);
         setStr((prev) => {
-          resetConfirmedStringFlags(flags);
-          const merged = { ...flags, ...envOverrides.str };
-          const prevStr = prev.stringFlags;
-          const changed = Object.keys(merged).some(
-            (k) => merged[k] !== prevStr[k],
-          );
-          return changed ? { stringFlags: merged } : prev;
-        }),
-
-      setStringFlag: (key: string, value: string, assistantId: string | null) => {
-        const requestId = ++nextFlagRequestId;
-        const revertIfLatestRejectedRequest = () => {
-          if (pendingFlagRequestIds[key] !== requestId) {
-            return;
+          if (prev.stringFlags[key] !== value) {
+            return prev;
           }
-          delete pendingFlagRequestIds[key];
-          const confirmedValue = latestConfirmedStringValue(key);
-          setStr((prev) => {
-            if (prev.stringFlags[key] !== value) {
-              return prev;
+          return {
+            stringFlags: { ...prev.stringFlags, [key]: confirmedValue },
+          };
+        });
+        toast.error(
+          `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
+        );
+      };
+      const flagKey = storeKeyToFlagKey(key);
+      // See `setFlag`: a missing assistant id is a true no-op for
+      // assistant-scoped flags rather than a local-only write.
+      if (!assistantId || !flagKey) {
+        return;
+      }
+      pendingFlagRequestIds[key] = requestId;
+      void assistantFeatureFlagsPatch({
+        path: { assistant_id: assistantId, flag_key: flagKey },
+        body: { enabled: value },
+        throwOnError: false,
+      })
+        .then((result) => {
+          const response = (result as { response?: Response }).response;
+          if (response?.ok) {
+            confirmedAssistantStringFlagValues[key] = value;
+            if (pendingFlagRequestIds[key] === requestId) {
+              delete pendingFlagRequestIds[key];
             }
-            return { stringFlags: { ...prev.stringFlags, [key]: confirmedValue } };
-          });
-          toast.error(
-            `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
-          );
-        };
-        const flagKey = storeKeyToFlagKey(key);
-        // See `setFlag`: a missing assistant id is a true no-op for
-        // assistant-scoped flags rather than a local-only write.
-        if (!assistantId || !flagKey) {
-          return;
-        }
-        pendingFlagRequestIds[key] = requestId;
-        void assistantFeatureFlagsPatch({
-          path: { assistant_id: assistantId, flag_key: flagKey },
-          body: { enabled: value },
-          throwOnError: false,
+          } else {
+            revertIfLatestRejectedRequest();
+          }
         })
-          .then((result) => {
-            const response = (result as { response?: Response }).response;
-            if (response?.ok) {
-              confirmedAssistantStringFlagValues[key] = value;
-              if (pendingFlagRequestIds[key] === requestId) {
-                delete pendingFlagRequestIds[key];
-              }
-            } else {
-              revertIfLatestRejectedRequest();
-            }
-          })
-          .catch(revertIfLatestRejectedRequest);
+        .catch(revertIfLatestRejectedRequest);
 
-        setStr((prev) => ({
-          stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
-        }));
-      },
-    }) as AssistantFeatureFlagStore;
-  },
-);
+      setStr((prev) => ({
+        stringFlags: {
+          ...prev.stringFlags,
+          [key]: envOverrides.str[key] ?? value,
+        },
+      }));
+    },
+  } as AssistantFeatureFlagStore;
+});
 
 export const useAssistantFeatureFlagStore = createSelectors(
   useAssistantFeatureFlagStoreBase,

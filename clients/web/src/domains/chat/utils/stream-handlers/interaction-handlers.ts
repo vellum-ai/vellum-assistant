@@ -119,6 +119,7 @@ export function handleContactRequest(
     requestId: event.requestId,
     channel: event.channel,
     placeholder: event.placeholder,
+    defaultValue: event.defaultValue,
     label: event.label,
     description: event.description,
     role: event.role,
@@ -130,7 +131,9 @@ export function handleQuestionRequest(
   ctx: StreamHandlerContext,
 ): void {
   const entries = normalizeQuestionRequest(event);
-  if (entries.length === 0) return;
+  if (entries.length === 0) {
+    return;
+  }
   ctx.turnActions.onQuestionRequest();
   useInteractionStore.getState().showQuestion({
     requestId: event.requestId,

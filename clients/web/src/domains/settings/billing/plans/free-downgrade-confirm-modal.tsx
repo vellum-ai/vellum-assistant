@@ -19,8 +19,8 @@ export interface FreeDowngradeConfirmModalProps {
 }
 
 /**
- * Reconfirm dialog for cancelling Pro ("Downgrade to Free") from the plans
- * takeover. Mirrors the adjust-plan modal's "Downgrade to Base?" step: it lists
+ * Reconfirm dialog for cancelling Pro ("Downgrade to Base") from the plans
+ * takeover. Mirrors the adjust-plan modal's step of the same name: it lists
  * the Pro features that will be lost before handing off to the Stripe billing
  * portal, where the actual cancellation happens. Layout-only — the parent owns
  * the portal mutation.
@@ -44,7 +44,7 @@ export function FreeDowngradeConfirmModal({
     >
       <Modal.Content size="md" hideCloseButton>
         <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>Downgrade to Free?</Modal.Title>
+          <Modal.Title icon={AlertTriangle}>Downgrade to Base?</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Typography
@@ -78,7 +78,7 @@ export function FreeDowngradeConfirmModal({
             disabled={pending}
             data-testid="confirm-free-downgrade-button"
           >
-            Downgrade to Free
+            Downgrade to Base
           </Button>
         </Modal.Footer>
       </Modal.Content>

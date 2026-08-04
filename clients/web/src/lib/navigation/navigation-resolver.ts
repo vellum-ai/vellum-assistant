@@ -1,5 +1,6 @@
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { routes } from "@/utils/routes";
 
@@ -8,7 +9,7 @@ import { routes } from "@/utils/routes";
 // ---------------------------------------------------------------------------
 
 export interface NavigationState {
-  isLocalMode: boolean;
+  isLocalClient: boolean;
   isPlatformDisabled: boolean;
   isRemoteGateway: boolean;
   remoteGatewayPublicPathPrefix: string;
@@ -37,6 +38,14 @@ export interface NavigationState {
    * hydration would misread an established user as un-onboarded.
    */
   consentHydrated: boolean;
+  /**
+   * Whether `consentHydrated` above was forced by the auth middleware after its
+   * hydration wait timed out. The consent flags then still read their boot
+   * `false`, so a gate that treats them as a settled "not consented" would
+   * evict a consented user. Absent on every other caller — only the middleware
+   * can know its own wait ran out.
+   */
+  consentHydrationTimedOut?: boolean;
   /** Whether the resolved assistants list reflects at least one authoritative load. */
   assistantsHydrated: boolean;
 }
@@ -109,11 +118,14 @@ const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([
 ]);
 
 function isOnboardingPath(pathname: string): boolean {
-  return pathname.startsWith(`${ONBOARDING_PREFIX}/`) || pathname === ONBOARDING_PREFIX;
+  return (
+    pathname.startsWith(`${ONBOARDING_PREFIX}/`) ||
+    pathname === ONBOARDING_PREFIX
+  );
 }
 
-function onboardingEntrypoint(isLocalMode: boolean): string {
-  return isLocalMode ? routes.welcome : routes.onboarding.privacy;
+function onboardingEntrypoint(isLocalClient: boolean): string {
+  return isLocalClient ? routes.welcome : routes.onboarding.privacy;
 }
 
 /**
@@ -122,37 +134,43 @@ function onboardingEntrypoint(isLocalMode: boolean): string {
  * `BillingRedirectPage` forwards) and the Billing tab's own path, which the
  * native deep-link return and `usageBillingCheckout()` build directly.
  */
-const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
+const POST_CHECKOUT_LANDING_PATHS: ReadonlySet<string> = new Set([
   `${routes.settings.root}/billing`,
   routes.settings.usage,
 ]);
 
-/** Whether `pathnameWithSearch` is a billing landing carrying Stripe's `session_id`. */
-function isPostCheckoutReturn(
-  path: string,
-  pathnameWithSearch: string,
-): boolean {
-  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
-    return false;
-  }
-  const qIdx = pathnameWithSearch.indexOf("?");
+/**
+ * Whether `destination` is a billing landing carrying Stripe's `session_id` —
+ * the return leg of a finished purchase rather than a plain visit to the same
+ * page.
+ *
+ * `destination` is a path with its query: the route guard asks about the
+ * location it is deciding on, and `requiresPlatformSession` asks about a
+ * `returnTo`. Both put the same question to the same URL shape, so they share
+ * this answer.
+ */
+export function isPostCheckoutReturn(destination: string): boolean {
+  const qIdx = destination.indexOf("?");
   if (qIdx < 0) {
     return false;
   }
-  return new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).has(
-    "session_id",
-  );
+  const path = destination.slice(0, qIdx).split("#")[0] ?? "";
+  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
+    return false;
+  }
+  return new URLSearchParams(destination.slice(qIdx + 1)).has("session_id");
 }
 
 /**
- * The hatching-screen query param naming a hatch that is the return leg of a
- * completed Stripe Checkout. Only {@link MANAGED_PROVISIONING_DESTINATION} sets
+ * The onboarding query param naming a hatch that is the return leg of a
+ * completed Stripe Checkout. Only {@link managedProvisioningDestination} sets
  * it, and only for a billing landing carrying Stripe's `session_id`.
  *
  * Deliberately separate from `hosting=vellum-cloud`, which says only that the
- * hatch is managed — a hosting choice a free user can make too. The hatching
- * screen holds for a lagging subscription webhook on this param alone, so
- * conflating the two would park every free managed hatch on a spinner.
+ * hatch is managed — a hosting choice a free user can make too. The purchased-
+ * provisioning wait holds for a lagging subscription webhook on this param
+ * alone, so conflating the two would park every free managed hatch on a
+ * spinner.
  */
 export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
 
@@ -162,14 +180,36 @@ export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
  *
  * `hosting=vellum-cloud` is the onboarding flow's managed-hatch marker (see
  * `adopt-existing-assistant`): it names a managed hatch even in a local-mode
- * build, where the hatching screen would otherwise let the local gateway answer
- * for the assistant and skip the purchased-provisioning wait.
+ * build, where the client would otherwise let the local gateway answer for the
+ * assistant and skip the purchased-provisioning wait. Carrying it onto the
+ * research entry is load-bearing on Electron for exactly that reason —
+ * `shouldAdoptExistingAssistant` reads it to force the managed hatch instead of
+ * adopting a local gateway assistant.
  *
  * {@link POST_CHECKOUT_HATCH_PARAM} adds the narrower fact that money has
- * already changed hands, which is what lets the hatching screen treat a
- * still-base subscription read as a pending webhook rather than a free org.
+ * already changed hands, which is what lets the hatch treat a still-base
+ * subscription read as a pending webhook rather than a free org.
  */
-const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
+function managedProvisioningDestination(): string {
+  // The headless research entry runs the purchased-provisioning wait behind
+  // the onboarding form. `isLocalHatch` is false by construction —
+  // `hosting=vellum-cloud` forces the managed hatch on every client.
+  const route = onboardingDestinationAfterConsent({
+    isLocalHatch: false,
+  });
+  return `${route}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
+}
+
+/**
+ * The provisioning funnel entries a paid return can name: the headless research
+ * onboarding and the foreground hatching screen retained for return URLs
+ * stashed by older clients. Both provision the purchased assistant, so both are
+ * consent-gated and resumable from the privacy screen.
+ */
+const PROVISIONING_FUNNEL_PATHS: Set<string> = new Set([
+  routes.onboarding.hatching,
+  routes.onboarding.research,
+]);
 
 /**
  * `value` when it names a paid managed hatch, else `null`.
@@ -177,9 +217,10 @@ const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=
  * Narrower than {@link sanitizeReturnTo}'s open-redirect check: the onboarding
  * privacy screen navigates here in place of the standard onboarding step once
  * consent is recorded, so admitting any same-origin path would let a crafted
- * link skip the rest of the funnel. Only the hatching route carrying
- * {@link POST_CHECKOUT_HATCH_PARAM} qualifies, which only
- * {@link MANAGED_PROVISIONING_DESTINATION} produces.
+ * link skip the rest of the funnel. Only a {@link PROVISIONING_FUNNEL_PATHS}
+ * entry carrying {@link POST_CHECKOUT_HATCH_PARAM} qualifies — the screen
+ * resumes either the foreground or the headless paid provisioning entry, and
+ * that closed set of two keeps the anti-open-redirect property.
  */
 export function postCheckoutHatchReturnTo(
   value: string | null | undefined,
@@ -189,7 +230,7 @@ export function postCheckoutHatchReturnTo(
     return null;
   }
   const qIdx = destination.indexOf("?");
-  if (qIdx < 0 || destination.slice(0, qIdx) !== routes.onboarding.hatching) {
+  if (qIdx < 0 || !PROVISIONING_FUNNEL_PATHS.has(destination.slice(0, qIdx))) {
     return null;
   }
   const params = new URLSearchParams(destination.slice(qIdx + 1));
@@ -265,7 +306,7 @@ export function resolveNavigation(
 // Conceptual layers:
 //   1. Readiness          — is the session ready?
 //   2. Paid return        — a checkout return with nothing provisioned yet
-//   3. Bypass             — gateway auth skips everything
+//   3. Bypass             — gateway auth skips everything but a paid return
 //   4. Identity           — is the user authenticated?
 //   5. Mode boundary      — is this path valid for the user's mode?
 //   6. Setup exemptions   — onboarding/consent paths are always reachable
@@ -295,11 +336,14 @@ function resolveRouteGuard(
   pathnameWithSearch: string,
 ): NavigationDecision {
   const qIdx = pathnameWithSearch.indexOf("?");
-  const path = qIdx >= 0 ? pathnameWithSearch.slice(0, qIdx) : pathnameWithSearch;
+  const path =
+    qIdx >= 0 ? pathnameWithSearch.slice(0, qIdx) : pathnameWithSearch;
 
   for (const step of ROUTE_GUARD_PIPELINE) {
     const decision = step(state, path, pathnameWithSearch);
-    if (decision) return decision;
+    if (decision) {
+      return decision;
+    }
   }
   return { action: "allow" };
 }
@@ -317,11 +361,11 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * billing landing. Every billing surface mounts under `ActiveAssistantGate`,
  * which renders a "Connecting to your assistant…" placeholder for as long as
  * no assistant resolves — so the paid return dead-ends on a spinner. Send it
- * into the hatching funnel instead, which provisions the assistant and applies
- * the purchased specs.
+ * into the provisioning funnel instead, which provisions the assistant and
+ * applies the purchased specs.
  *
- * The destination is {@link MANAGED_PROVISIONING_DESTINATION}: the marker is
- * what makes a local-mode client provision on the platform and hold for the
+ * The destination is {@link managedProvisioningDestination}: its marker is what
+ * makes a local-mode client provision on the platform and hold for the
  * purchased machine and storage instead of letting its own gateway answer for
  * the assistant.
  *
@@ -349,13 +393,14 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * Electron takes the `"native"` checkout return, but its deep-link handler
  * lands on the same in-app billing path carrying `session_id`, so it resolves
  * through this pipeline too.
- * Consent is still enforced: the destination is an onboarding path, and
- * `onboardingCompletedMiddleware` re-runs this pipeline there, where
- * `allowSetupRoutes` bounces an unconsented user to the privacy screen.
+ * Consent is still enforced: re-resolving the destination runs
+ * `allowSetupRoutes`, which bounces an unconsented user to the consent
+ * entrypoint. `allowGatewayAuth` suspends its bypass for exactly these URLs so
+ * a gateway session reaches that step.
  */
 function requirePostCheckoutProvisioning(
   state: NavigationState,
-  path: string,
+  _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
   // An org with a platform-hosted assistant has a target for the purchase, so
@@ -364,7 +409,7 @@ function requirePostCheckoutProvisioning(
   if (state.hasPlatformHostedAssistant) {
     return null;
   }
-  if (!isPostCheckoutReturn(path, pathnameWithSearch)) {
+  if (!isPostCheckoutReturn(pathnameWithSearch)) {
     return null;
   }
   // Not signed in yet: fall through so `requireAuth` sends the user to login
@@ -377,7 +422,7 @@ function requirePostCheckoutProvisioning(
   // deciding on that default would funnel an established user out of their own
   // billing page. Local mode is excluded for the same reason as in
   // `requireAssistant` — its list is lockfile-driven.
-  if (!state.isLocalMode && !state.assistantsHydrated) {
+  if (!state.isLocalClient && !state.assistantsHydrated) {
     return { action: "wait" };
   }
   // A local-mode client reaches "authenticated" on its gateway session alone,
@@ -386,7 +431,7 @@ function requirePostCheckoutProvisioning(
   // probe boots `"unknown"`, so hold until it settles. When it settles absent
   // there is no account to provision into: fall through to billing, whose login
   // notice carries `session_id` through sign-in and lands back here.
-  if (state.isLocalMode) {
+  if (state.isLocalClient) {
     if (state.platformSession === "unknown") {
       return { action: "wait", waitFor: "platform-session" };
     }
@@ -394,11 +439,32 @@ function requirePostCheckoutProvisioning(
       return null;
     }
   }
-  return { action: "redirect", to: MANAGED_PROVISIONING_DESTINATION };
+  return { action: "redirect", to: managedProvisioningDestination() };
 }
 
-function allowGatewayAuth(state: NavigationState): NavigationDecision | null {
-  return state.isGatewayAuth ? { action: "allow" } : null;
+/**
+ * A gateway session answers for itself, so it skips the rest of the pipeline —
+ * except on a paid return to a provisioning funnel entry.
+ *
+ * The bypass runs before `allowSetupRoutes`, so leaving it unconditional would
+ * let an Electron paid return reach the headless research entry and start the
+ * purchased hatch with no consent recorded. Suspending it only for a
+ * {@link postCheckoutHatchReturnTo} URL keeps every other gateway-auth surface
+ * — including the local adopt flow's unmarked research entry — on today's
+ * bypass, and hands exactly the paid case to the consent steps below.
+ */
+function allowGatewayAuth(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  if (!state.isGatewayAuth) {
+    return null;
+  }
+  if (postCheckoutHatchReturnTo(pathnameWithSearch)) {
+    return null;
+  }
+  return { action: "allow" };
 }
 
 function stripRemoteGatewayPublicPathPrefix(
@@ -406,8 +472,12 @@ function stripRemoteGatewayPublicPathPrefix(
   pathnameWithSearch: string,
 ): string {
   const prefix = state.remoteGatewayPublicPathPrefix;
-  if (!state.isRemoteGateway || !prefix) return pathnameWithSearch;
-  if (pathnameWithSearch === prefix) return routes.assistant;
+  if (!state.isRemoteGateway || !prefix) {
+    return pathnameWithSearch;
+  }
+  if (pathnameWithSearch === prefix) {
+    return routes.assistant;
+  }
   if (pathnameWithSearch.startsWith(`${prefix}/`)) {
     return pathnameWithSearch.slice(prefix.length);
   }
@@ -419,9 +489,14 @@ function requireRemoteGatewayPairing(
   _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (!state.isRemoteGateway || state.isAuthenticated) return null;
+  if (!state.isRemoteGateway || state.isAuthenticated) {
+    return null;
+  }
 
-  const returnTo = stripRemoteGatewayPublicPathPrefix(state, pathnameWithSearch);
+  const returnTo = stripRemoteGatewayPublicPathPrefix(
+    state,
+    pathnameWithSearch,
+  );
   return {
     action: "redirect",
     to: `${routes.remotePair}?returnTo=${encodeURIComponent(returnTo)}`,
@@ -433,18 +508,23 @@ function requireAuth(
   path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.isAuthenticated) return null;
+  if (state.isAuthenticated) {
+    return null;
+  }
 
-  if (state.isLocalMode && (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))) {
+  if (
+    state.isLocalClient &&
+    (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))
+  ) {
     if (path === routes.selectAssistant && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.hosting };
     }
     return { action: "allow" };
   }
-  if (state.isLocalMode && !state.hasAssistants) {
+  if (state.isLocalClient && !state.hasAssistants) {
     return { action: "redirect", to: routes.welcome };
   }
-  if (state.isLocalMode) {
+  if (state.isLocalClient) {
     return { action: "redirect", to: routes.selectAssistant };
   }
   return {
@@ -458,7 +538,7 @@ function enforceModeBoundary(
   path: string,
 ): NavigationDecision | null {
   if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
-    if (!state.isLocalMode) {
+    if (!state.isLocalClient) {
       return { action: "redirect", to: routes.assistant };
     }
     if (path === routes.selectAssistant && !state.hasAssistants) {
@@ -467,7 +547,7 @@ function enforceModeBoundary(
     return { action: "allow" };
   }
 
-  if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
+  if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalClient) {
     return { action: "redirect", to: routes.assistant };
   }
 
@@ -475,20 +555,23 @@ function enforceModeBoundary(
 }
 
 /**
- * Where an unconsented user who reached the hatching screen is sent.
+ * Where an unconsented user who reached a provisioning funnel entry is sent.
  *
- * A paid return carries its hatching URL as `returnTo`, the same contract
+ * A paid return carries its funnel URL as `returnTo`, the same contract
  * `review-terms` uses, and the privacy screen resumes it on Start. Without the
  * carry the funnel's markers are lost on the bounce and the paying user
- * finishes the hatch at the baseline plan. Every other hatching bounce — and
- * local mode, whose entrypoint is `welcome` and reads no `returnTo` — gets the
+ * finishes the hatch at the baseline plan. Every other funnel bounce gets the
  * bare entrypoint.
+ *
+ * Local mode is a deliberate exception to that carry: its `welcome` entrypoint
+ * reads no `returnTo`, so the hatch finishes at baseline and the server-side
+ * post-hatch reconcile applies the purchased specs.
  */
 function consentBounceDestination(
   state: NavigationState,
   pathnameWithSearch: string,
 ): string {
-  const entrypoint = onboardingEntrypoint(state.isLocalMode);
+  const entrypoint = onboardingEntrypoint(state.isLocalClient);
   if (entrypoint !== routes.onboarding.privacy) {
     return entrypoint;
   }
@@ -508,17 +591,82 @@ function allowSetupRoutes(
     return { action: "allow" };
   }
 
-  if (isOnboardingPath(path)) {
-    if (path === routes.onboarding.hatching && !hasCompletedOnboarding(state)) {
-      return {
-        action: "redirect",
-        to: consentBounceDestination(state, pathnameWithSearch),
-      };
-    }
+  if (!isOnboardingPath(path)) {
+    return null;
+  }
+
+  return enforceFunnelConsent(state, path, pathnameWithSearch);
+}
+
+/**
+ * Consent for the two provisioning funnel entries, which `requireConsent` never
+ * reaches — every onboarding path is allowed before it runs. It decides every
+ * onboarding path outright: anything that is not a funnel entry is plainly
+ * allowed.
+ *
+ * The hatching entry keeps exactly the gate it has always had — reached from
+ * in-app navigation and from the native paid return, it decides on the flags in
+ * hand and leaves stale-toggle review to the screen's own `hatch-gate`. The
+ * research entry is the one a cold paid deep link lands on, so it also waits
+ * for the flags to hydrate and re-reviews a stale toggle before starting a
+ * hatch the user paid for.
+ */
+function enforceFunnelConsent(
+  state: NavigationState,
+  path: string,
+  pathnameWithSearch: string,
+): NavigationDecision {
+  if (!PROVISIONING_FUNNEL_PATHS.has(path)) {
     return { action: "allow" };
   }
 
-  return null;
+  if (path === routes.onboarding.research) {
+    // The consent flags are still at their boot defaults on a cold deep link,
+    // and bouncing on them would send an already-consented user to privacy.
+    // Local mode is excluded for the same reason as in `requireConsent`: its
+    // consent either hydrates synchronously during session init or never does,
+    // so waiting would hang navigation.
+    if (!state.isLocalClient && !state.consentHydrated) {
+      return { action: "wait" };
+    }
+    // A hydration that never landed leaves those boot defaults behind a forced
+    // `consentHydrated`, so the gates below would read a consented user as
+    // un-onboarded and restart their funnel. Fail open to the entry's
+    // unconditional contract instead; a hydrated read still gates.
+    if (state.consentHydrationTimedOut) {
+      return { action: "allow" };
+    }
+  }
+
+  if (!hasCompletedOnboarding(state)) {
+    return {
+      action: "redirect",
+      to: consentBounceDestination(state, pathnameWithSearch),
+    };
+  }
+
+  // A stale toggle must be re-reviewed before a hatch the user paid for.
+  // Research-only: the hatching entry — where a `returnTo` stashed by an older
+  // client may still point — reaches a screen whose own `hatch-gate` already
+  // re-reviews stale terms, so gating it twice would only change where it
+  // lands. Gated on the paid marker so the ordinary funnel keeps its exemption,
+  // and on a live platform session for the same reason as `requireConsent`:
+  // there is nothing to re-review against without one.
+  if (
+    path === routes.onboarding.research &&
+    postCheckoutHatchReturnTo(pathnameWithSearch) &&
+    !state.isPlatformDisabled &&
+    state.platformSession === "present" &&
+    !consentIsCurrent(state)
+  ) {
+    const returnTo = encodeURIComponent(pathnameWithSearch);
+    return {
+      action: "redirect",
+      to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+    };
+  }
+
+  return { action: "allow" };
 }
 
 function requireAssistant(
@@ -526,7 +674,9 @@ function requireAssistant(
   path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.hasAssistants) return null;
+  if (state.hasAssistants) {
+    return null;
+  }
 
   // The marketing pricing CTAs deep-link a brand-new user (no assistant yet)
   // straight into Stripe checkout for a chosen package. Exempt that route from
@@ -534,9 +684,11 @@ function requireAssistant(
   // this step, so consent is still enforced before any paid checkout starts.
   // Every other billing surface still funnels a no-assistant user into
   // provisioning first.
-  if (path === routes.checkout) return null;
+  if (path === routes.checkout) {
+    return null;
+  }
 
-  if (state.isLocalMode) {
+  if (state.isLocalClient) {
     if (state.platformSession === "unknown") {
       return { action: "wait", waitFor: "platform-session" };
     }
@@ -560,7 +712,10 @@ function requireAssistant(
   // A stale toggle must be re-reviewed before provisioning an assistant.
   if (!consentIsCurrent(state)) {
     const returnTo = encodeURIComponent(pathnameWithSearch);
-    return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
+    return {
+      action: "redirect",
+      to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+    };
   }
   // A consented user with no assistant goes to the standard hatching screen.
   return { action: "redirect", to: routes.onboarding.hatching };
@@ -574,7 +729,7 @@ function requireConsent(
   // Consent is a platform-account concern: only enforce it when there is a
   // live platform session to consent against. A disabled platform or an
   // absent/unknown session has no server consent record to gate on. Note this
-  // is NOT gated on isLocalMode — a local-mode client with a platform session
+  // is NOT gated on isLocalClient — a local-mode client with a platform session
   // still re-reviews stale terms.
   if (
     state.isPlatformDisabled ||
@@ -589,12 +744,15 @@ function requireConsent(
   // Local mode decides immediately: its platform-session paths that enforce
   // consent hydrate synchronously during session init, and the gateway-probe
   // path never hydrates, so waiting there would hang navigation.
-  if (!state.consentHydrated && !state.isLocalMode) {
+  if (!state.consentHydrated && !state.isLocalClient) {
     return { action: "wait" };
   }
 
   const returnTo = encodeURIComponent(pathnameWithSearch);
-  return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
+  return {
+    action: "redirect",
+    to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -605,17 +763,27 @@ function resolveOnboardingIntercept(
   state: NavigationState,
   intendedDestination: string,
 ): NavigationDecision {
-  if (state.isLocalMode && state.hasAssistants) return { action: "allow" };
-  if (hasCompletedOnboarding(state)) return { action: "allow" };
+  if (state.isLocalClient && state.hasAssistants) {
+    return { action: "allow" };
+  }
+  if (hasCompletedOnboarding(state)) {
+    return { action: "allow" };
+  }
 
   const path = extractPathname(intendedDestination);
-  if (!path.startsWith(routes.assistant)) return { action: "allow" };
-  if (path.startsWith(`${routes.assistant}/onboarding`)) return { action: "allow" };
-  if (path === routes.reviewTerms) return { action: "allow" };
+  if (!path.startsWith(routes.assistant)) {
+    return { action: "allow" };
+  }
+  if (path.startsWith(`${routes.assistant}/onboarding`)) {
+    return { action: "allow" };
+  }
+  if (path === routes.reviewTerms) {
+    return { action: "allow" };
+  }
 
   return {
     action: "redirect",
-    to: onboardingEntrypoint(state.isLocalMode),
+    to: onboardingEntrypoint(state.isLocalClient),
   };
 }
 
@@ -624,15 +792,17 @@ function resolveOnboardingIntercept(
 // ---------------------------------------------------------------------------
 
 function resolveHatchGate(state: NavigationState): NavigationDecision {
-  if (!state.sessionSettled) return { action: "wait" };
-  if (!state.isAuthenticated && !state.isLocalMode) {
+  if (!state.sessionSettled) {
+    return { action: "wait" };
+  }
+  if (!state.isAuthenticated && !state.isLocalClient) {
     return { action: "redirect", to: routes.account.login };
   }
   if (!hasCompletedOnboarding(state)) {
-    return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
+    return { action: "redirect", to: onboardingEntrypoint(state.isLocalClient) };
   }
   // A stale toggle must be re-reviewed before hatching, even via direct navigation.
-  if (!state.isLocalMode && !consentIsCurrent(state)) {
+  if (!state.isLocalClient && !consentIsCurrent(state)) {
     return { action: "redirect", to: routes.reviewTerms };
   }
   return { action: "allow" };
@@ -687,10 +857,10 @@ function resolvePostRetire(state: NavigationState): NavigationDecision {
     // select-assistant is local-only; platform users go straight to /assistant
     return {
       action: "redirect",
-      to: state.isLocalMode ? routes.selectAssistant : routes.assistant,
+      to: state.isLocalClient ? routes.selectAssistant : routes.assistant,
     };
   }
-  if (!state.isLocalMode) {
+  if (!state.isLocalClient) {
     return { action: "redirect", to: routes.onboarding.privacy };
   }
   if (state.platformSession === "present") {

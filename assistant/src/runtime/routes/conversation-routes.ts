@@ -39,7 +39,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -53,7 +53,6 @@ import {
   buildModelInfoEvent,
   formatCleanResult,
   formatCompactResult,
-  isBackgroundEventMetadata,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
@@ -113,8 +112,10 @@ import {
   getMessages,
   getMessagesPaginated,
   hasMessages,
+  isBackgroundEventMetadata,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isProviderErrorMetadata,
   isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
@@ -890,6 +891,7 @@ export function handleListMessages({
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
+    let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
@@ -900,6 +902,19 @@ export function handleListMessages({
         // render as standalone system notices, not persona speech.
         if (isSystemCardMetadata(meta)) {
           systemCard = true;
+        }
+        // Daemon-persisted provider-failure notices carry the classified
+        // error code/category so clients can render a themed card instead
+        // of a persona bubble.
+        if (isProviderErrorMetadata(meta)) {
+          providerError = {
+            ...(typeof meta.providerErrorCode === "string"
+              ? { code: meta.providerErrorCode }
+              : {}),
+            ...(typeof meta.providerErrorCategory === "string"
+              ? { category: meta.providerErrorCategory }
+              : {}),
+          };
         }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
@@ -973,6 +988,7 @@ export function handleListMessages({
       backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
+      providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1169,6 +1185,8 @@ export function handleListMessages({
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
+      ...(m.systemCard ? { systemCard: true } : {}),
+      ...(m.providerError ? { providerError: m.providerError } : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });
@@ -1387,6 +1405,10 @@ export async function handleSendMessage(
     // handoff to prime a proactive assistant greeting without showing the
     // triggering user message. Honored on the standard send path only.
     hidden?: boolean;
+    // True when the turn was auto-sent on the user's behalf rather than typed.
+    // Independent of `hidden`: the research prompt is visible AND scripted,
+    // the kickoff greeting is hidden AND scripted. Absent means UNKNOWN.
+    scripted?: boolean;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
@@ -1449,7 +1471,11 @@ export async function handleSendMessage(
     );
   }
   if (requestedInferenceProfile !== undefined) {
-    const profiles = getEffectiveProfiles(getConfig().llm.profiles);
+    const { llm } = getConfig();
+    const profiles = getEffectiveProfilesForProvider(
+      llm.profiles,
+      llm.defaultProvider ?? null,
+    );
     if (
       !Object.prototype.hasOwnProperty.call(profiles, requestedInferenceProfile)
     ) {
@@ -1874,8 +1900,7 @@ export async function handleSendMessage(
   // real first response. Gated behind the `self-intro-greeting` flag (default
   // off); `undefined` (flag off or no names) falls back to the canned path.
   const selfIntroGreetingEnabled =
-    isWakeUp &&
-    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig());
+    isWakeUp && isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG);
   const selfIntro = selfIntroGreetingEnabled
     ? buildSelfIntroMessage(body.onboarding ?? undefined)
     : undefined;
@@ -2086,6 +2111,13 @@ export async function handleSendMessage(
           // hidden send that lands mid-turn stays hidden when drained —
           // the drain path persists this metadata and skips the echo.
           ...(body.hidden === true ? { hidden: true } : {}),
+          // Same reason: the queue round-trips metadata, not persist options,
+          // so a scripted send that lands mid-turn can only keep its marker
+          // this way. Both booleans forwarded, since false is a real assertion
+          // ("the user typed this"), not an absence.
+          ...(typeof body.scripted === "boolean"
+            ? { scripted: body.scripted }
+            : {}),
         },
         clientMetadata,
       ),
@@ -2228,6 +2260,9 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        ...(typeof body.scripted === "boolean"
+          ? { scripted: body.scripted }
+          : {}),
       };
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
@@ -2372,7 +2407,9 @@ export async function handleSendMessage(
         });
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
-        const result = await conversation.forceCompact();
+        // Same sink the result card below goes out on, so the indicator and
+        // the card can never be delivered to different places.
+        const result = await conversation.forceCompact(broadcastMessage);
         const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
@@ -2493,6 +2530,7 @@ export async function handleSendMessage(
         : undefined,
       clientMetadata,
     ),
+    scripted: body.scripted,
     clientMessageId,
   });
 
@@ -3026,6 +3064,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
+        ),
+      scripted: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, this turn was auto-sent on the user's behalf rather than typed by them: onboarding research prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the client genuinely cannot tell, since absent means UNKNOWN and a wrong false is trusted downstream. Independent of `hidden`: a turn can be visible and scripted (the research prompt) or hidden and scripted (the kickoff greeting).",
         ),
       onboarding: z
         .object({

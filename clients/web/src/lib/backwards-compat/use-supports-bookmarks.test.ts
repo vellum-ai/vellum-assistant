@@ -64,8 +64,8 @@ describe("useSupportsBookmarks", () => {
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", "0.8.1", OWNER_ASSISTANT_ID);
-    expect(
-      renderHook(() => useSupportsBookmarks(null)).result.current,
-    ).toBe(false);
+    expect(renderHook(() => useSupportsBookmarks(null)).result.current).toBe(
+      false,
+    );
   });
 });

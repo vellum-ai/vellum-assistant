@@ -32,19 +32,25 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
   // Capture the authenticated user BEFORE the await so we can detect a
   // logout/account-switch that races the in-flight fetch.
   const userIdBefore = useAuthStore.getState().user?.id;
-  if (!userIdBefore) return;
+  if (!userIdBefore) {
+    return;
+  }
   try {
     const consent = await fetchConsent();
     // The user may have logged out or switched accounts while the fetch was in
     // flight. Applying a stale response would re-enable reporting after logout
     // or overwrite the next user's setting, so discard it.
-    if (useAuthStore.getState().user?.id !== userIdBefore) return;
+    if (useAuthStore.getState().user?.id !== userIdBefore) {
+      return;
+    }
     const resolved = resolveServerConsent(consent);
     // An empty server record is not authoritative: a platform-side revoke
     // always arrives as a real record (share_diagnostics=false). Leave state
     // unchanged, matching the failed-fetch posture; the auth resync owns the
     // no-record path.
-    if (!resolved.hasServerRecord) return;
+    if (!resolved.hasServerRecord) {
+      return;
+    }
     const store = useOnboardingStore.getState();
     // Adopt both effective verdicts, mirroring the auth-store sync, so a
     // platform-side revoke closes the gates without a fresh login. The
@@ -71,7 +77,9 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
 
 function refreshIfDue(): void {
   const now = Date.now();
-  if (now - lastRefreshAt < MIN_REFRESH_INTERVAL_MS) return;
+  if (now - lastRefreshAt < MIN_REFRESH_INTERVAL_MS) {
+    return;
+  }
   lastRefreshAt = now;
   void refreshDiagnosticsConsent();
 }
@@ -88,7 +96,9 @@ export function installConsentRefreshListeners(): () => void {
   }
 
   const onVisibility = (): void => {
-    if (document.visibilityState === "visible") refreshIfDue();
+    if (document.visibilityState === "visible") {
+      refreshIfDue();
+    }
   };
   const onFocus = (): void => refreshIfDue();
 

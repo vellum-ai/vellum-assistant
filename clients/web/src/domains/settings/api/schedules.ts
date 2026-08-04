@@ -100,9 +100,13 @@ export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
  */
 export function schedulesListQueryOptions(assistantId: string | undefined) {
   return {
-    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId ?? "" } }),
+    queryKey: schedulesGetQueryKey({
+      path: { assistant_id: assistantId ?? "" },
+    }),
     queryFn: () =>
-      assistantId ? fetchSchedules(assistantId) : Promise.resolve<Schedule[]>([]),
+      assistantId
+        ? fetchSchedules(assistantId)
+        : Promise.resolve<Schedule[]>([]),
     staleTime: 10_000,
   };
 }
@@ -204,5 +208,3 @@ export async function runScheduleNow(
     );
   }
 }
-
-

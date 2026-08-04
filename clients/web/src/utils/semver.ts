@@ -10,7 +10,9 @@ export function parseSemver(v: string): ParsedSemver | null {
   const [core, ...rest] = stripped.split("-");
   const pre = rest.length > 0 ? rest.join("-") : null;
   const match = (core ?? "").match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
@@ -26,18 +28,28 @@ export function comparePreRelease(a: string, b: string): number {
   for (let i = 0; i < len; i++) {
     const ai = pa[i];
     const bi = pb[i];
-    if (ai === undefined) return -1;
-    if (bi === undefined) return 1;
+    if (ai === undefined) {
+      return -1;
+    }
+    if (bi === undefined) {
+      return 1;
+    }
     const aIsNum = /^\d+$/.test(ai);
     const bIsNum = /^\d+$/.test(bi);
     if (aIsNum && bIsNum) {
       const diff = Number(ai) - Number(bi);
-      if (diff !== 0) return diff;
+      if (diff !== 0) {
+        return diff;
+      }
     } else if (aIsNum !== bIsNum) {
       return aIsNum ? -1 : 1;
     } else {
-      if (ai < bi) return -1;
-      if (ai > bi) return 1;
+      if (ai < bi) {
+        return -1;
+      }
+      if (ai > bi) {
+        return 1;
+      }
     }
   }
   return 0;
@@ -45,13 +57,25 @@ export function comparePreRelease(a: string, b: string): number {
 
 export function compareParsed(a: ParsedSemver, b: ParsedSemver): number {
   const majorDiff = a.major - b.major;
-  if (majorDiff !== 0) return majorDiff;
+  if (majorDiff !== 0) {
+    return majorDiff;
+  }
   const minorDiff = a.minor - b.minor;
-  if (minorDiff !== 0) return minorDiff;
+  if (minorDiff !== 0) {
+    return minorDiff;
+  }
   const patchDiff = a.patch - b.patch;
-  if (patchDiff !== 0) return patchDiff;
-  if (a.pre === null && b.pre === null) return 0;
-  if (a.pre !== null && b.pre === null) return -1;
-  if (a.pre === null && b.pre !== null) return 1;
+  if (patchDiff !== 0) {
+    return patchDiff;
+  }
+  if (a.pre === null && b.pre === null) {
+    return 0;
+  }
+  if (a.pre !== null && b.pre === null) {
+    return -1;
+  }
+  if (a.pre === null && b.pre !== null) {
+    return 1;
+  }
   return comparePreRelease(a.pre!, b.pre!);
 }

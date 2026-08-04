@@ -94,14 +94,18 @@ function useVoiceSamplePreview(): {
   );
 
   function play(voice: ManagedVoiceOption): void {
-    if (!voice.sampleUrl) return;
+    if (!voice.sampleUrl) {
+      return;
+    }
     audioRef.current?.pause();
     const token = ++tokenRef.current;
     const audio = new Audio(voice.sampleUrl);
     audioRef.current = audio;
     setPreviewingModel(voice.model);
     const clear = () => {
-      if (tokenRef.current === token) setPreviewingModel(null);
+      if (tokenRef.current === token) {
+        setPreviewingModel(null);
+      }
     };
     audio.onended = clear;
     audio.onerror = clear;
@@ -173,8 +177,11 @@ export function VoiceList({
   const controlled = value !== undefined && onChange !== undefined;
   const activeModel = controlled ? value : currentModel;
   const choose = (model: string) => {
-    if (controlled) onChange(model);
-    else selectModel(model);
+    if (controlled) {
+      onChange(model);
+    } else {
+      selectModel(model);
+    }
     onSelect?.();
   };
 
@@ -231,7 +238,9 @@ export function VoiceList({
   // otherwise switching the draft provider to Vellum would show an empty picker
   // until the first Save persists the provider.
   const hasCatalog = voices.length > 0;
-  if (controlled ? !hasCatalog : !available) return null;
+  if (controlled ? !hasCatalog : !available) {
+    return null;
+  }
 
   return (
     <div
@@ -304,7 +313,8 @@ export function VoiceList({
                   </span>
                   {showSource && !filterBySource && (
                     <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
-                      {MANAGED_VOICE_SOURCE_LABELS[voice.source] ?? voice.source}
+                      {MANAGED_VOICE_SOURCE_LABELS[voice.source] ??
+                        voice.source}
                     </span>
                   )}
                   {/* One fixed-width trailing slot the preview button and the

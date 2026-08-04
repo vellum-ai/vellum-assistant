@@ -144,7 +144,9 @@ export async function runInlineCommand(
     }, timeoutMs);
 
     child.stdout!.on("data", (data: Buffer) => {
-      if (stdoutBytes >= MAX_STDOUT_BUFFER_BYTES) return;
+      if (stdoutBytes >= MAX_STDOUT_BUFFER_BYTES) {
+        return;
+      }
       stdoutChunks.push(data);
       stdoutBytes += data.length;
       if (stdoutBytes >= MAX_STDOUT_BUFFER_BYTES) {
@@ -243,7 +245,9 @@ export async function runInlineCommand(
  * characters (excluding tab, newline, carriage return).
  */
 function isBinaryish(text: string): boolean {
-  if (text.length === 0) return false;
+  if (text.length === 0) {
+    return false;
+  }
 
   let controlCount = 0;
   for (let i = 0; i < text.length; i++) {

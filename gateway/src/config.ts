@@ -9,7 +9,6 @@ const log = getLogger("config");
 
 export type GatewayConfig = {
   assistantRuntimeBaseUrl: string;
-  defaultAssistantId: string | undefined;
   gatewayInternalBaseUrl: string;
   velayBaseUrl?: string;
   logFile: LogFileConfig;
@@ -35,7 +34,6 @@ export type GatewayConfig = {
   runtimeProxyRequireAuth: boolean;
   runtimeTimeoutMs: number;
   shutdownDrainMs: number;
-  unmappedPolicy: "reject" | "default";
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
 };
@@ -159,18 +157,6 @@ export function loadConfig(): GatewayConfig {
       ? process.env.GATEWAY_TRUST_PROXY === "true" ||
         process.env.GATEWAY_TRUST_PROXY === "1"
       : gw.trustProxy === true || gw.trustProxy === "true";
-  const unmappedPolicyEnv = process.env.UNMAPPED_POLICY?.trim();
-  const unmappedPolicy: "reject" | "default" =
-    unmappedPolicyEnv === "default" || unmappedPolicyEnv === "reject"
-      ? unmappedPolicyEnv
-      : gw.unmappedPolicy === "default"
-        ? "default"
-        : "reject";
-  const defaultAssistantId =
-    process.env.DEFAULT_ASSISTANT_ID?.trim() ||
-    (typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
-      ? gw.defaultAssistantId
-      : undefined);
   const runtimeTimeoutMs =
     parsePositiveInteger(
       process.env.RUNTIME_TIMEOUT_MS,
@@ -201,8 +187,6 @@ export function loadConfig(): GatewayConfig {
       assistantRuntimeBaseUrl,
       gatewayInternalBaseUrl,
       routingEntryCount: routingEntries.length,
-      unmappedPolicy,
-      hasDefaultAssistant: !!defaultAssistantId,
       hasVelayBaseUrl: !!velayBaseUrl,
       port,
       runtimeProxyRequireAuth,
@@ -214,7 +198,6 @@ export function loadConfig(): GatewayConfig {
 
   return {
     assistantRuntimeBaseUrl,
-    defaultAssistantId,
     gatewayInternalBaseUrl,
     velayBaseUrl,
     logFile,
@@ -238,7 +221,6 @@ export function loadConfig(): GatewayConfig {
     runtimeProxyRequireAuth,
     runtimeTimeoutMs,
     shutdownDrainMs: 5000,
-    unmappedPolicy,
     trustProxy,
   };
 }

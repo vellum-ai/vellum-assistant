@@ -91,7 +91,9 @@ let eventLoopResetTimer: ReturnType<typeof setInterval> | null = null;
  * SSE handler.
  */
 function ensureEventLoopDelayMonitorStarted(): void {
-  if (eventLoopDelay !== null) return;
+  if (eventLoopDelay !== null) {
+    return;
+  }
   try {
     const histogram = monitorEventLoopDelay({
       resolution: EVENT_LOOP_DELAY_RESOLUTION_MS,
@@ -122,7 +124,9 @@ export interface EventLoopDelaySnapshot {
 }
 
 function nsToMs(ns: number): number | null {
-  if (!Number.isFinite(ns)) return null;
+  if (!Number.isFinite(ns)) {
+    return null;
+  }
   // Round to the nearest microsecond, then express in ms (3 decimal places).
   return Math.round(ns / 1e3) / 1e3;
 }
@@ -388,7 +392,9 @@ export function handleSubscribeAssistantEvents(
 
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
-    if (!controller) return;
+    if (!controller) {
+      return;
+    }
     if (
       event.seq != null &&
       highWaterReplaySeq >= 0 &&

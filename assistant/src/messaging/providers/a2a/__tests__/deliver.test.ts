@@ -41,7 +41,9 @@ const defaultTask: A2ATask = {
 mock.module("../../../../a2a/task-store.js", () => ({
   completeWithArtifacts: (taskId: string, artifacts: Artifact[]): A2ATask => {
     completeWithArtifactsCalls.push({ taskId, artifacts });
-    if (completeError) throw completeError;
+    if (completeError) {
+      throw completeError;
+    }
     return completedTask ?? defaultTask;
   },
   getPushUrl: (taskId: string): string | null => {

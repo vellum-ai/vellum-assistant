@@ -104,8 +104,12 @@ export function classifyDiskPressureTurnPolicy(
 }
 
 function isBackgroundTurn(metadata: DiskPressureTurnMetadata): boolean {
-  if (isExplicitLocalOwnerCleanupTurn(metadata)) return false;
-  if (metadata.isDirectWake) return true;
+  if (isExplicitLocalOwnerCleanupTurn(metadata)) {
+    return false;
+  }
+  if (metadata.isDirectWake) {
+    return true;
+  }
   if (metadata.callSite != null && metadata.callSite !== "mainAgent") {
     return true;
   }
@@ -136,18 +140,24 @@ function isNonGuardianTrustClass(
 function isLocalOwnerTurnWithoutTrust(
   metadata: DiskPressureTurnMetadata,
 ): boolean {
-  if (metadata.trustContext != null) return false;
+  if (metadata.trustContext != null) {
+    return false;
+  }
 
   const channel = metadata.sourceChannel;
   const sourceInterface = metadata.sourceInterface;
-  if (channel !== "vellum" || sourceInterface == null) return false;
+  if (channel !== "vellum" || sourceInterface == null) {
+    return false;
+  }
   return LOCAL_OWNER_INTERFACES.has(sourceInterface);
 }
 
 function isExplicitLocalOwnerCleanupTurn(
   metadata: DiskPressureTurnMetadata,
 ): boolean {
-  if (metadata.isDirectWake !== true) return false;
+  if (metadata.isDirectWake !== true) {
+    return false;
+  }
   const sourceInterface = metadata.sourceInterface;
   if (
     metadata.sourceChannel !== "vellum" ||

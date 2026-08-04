@@ -39,11 +39,7 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
  *   upgraded to one of the above by the transport's teardown path.
  */
 export type SseClientEndReason =
-  | "watchdog"
-  | "cancelled"
-  | "error"
-  | "ended"
-  | "aborted";
+  "watchdog" | "cancelled" | "error" | "ended" | "aborted";
 
 export interface SseDebugClient {
   /** Stable client identifier. */
@@ -220,10 +216,14 @@ export const EVENTS_TAIL_CLIENT_ID = "events-tail";
 export function ingestReplayedEnvelopes(
   envelopes: AssistantEventEnvelope[],
 ): void {
-  if (envelopes.length === 0) return;
+  if (envelopes.length === 0) {
+    return;
+  }
   const retained = new Set<number>();
   for (const e of events) {
-    if (typeof e.seq === "number") retained.add(e.seq);
+    if (typeof e.seq === "number") {
+      retained.add(e.seq);
+    }
   }
   for (const envelope of envelopes) {
     if (typeof envelope.seq === "number" && retained.has(envelope.seq)) {
@@ -276,7 +276,9 @@ export function getSseEnvelopesSince(
   conversationId: string,
   sinceSeq: number | null,
 ): AssistantEventEnvelope[] | null {
-  if (sinceSeq === null) return null;
+  if (sinceSeq === null) {
+    return null;
+  }
 
   // Does the ring still reach back to the cursor? `seq` is a single global
   // counter, so the oldest retained seq across ALL conversations is what proves

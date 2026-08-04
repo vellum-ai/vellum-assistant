@@ -40,7 +40,7 @@ export function isFeatureFlagEnabled(key: string): boolean {
   return !!getFeatureFlagValue(key);
 }
 
-function isPlatformMode(): boolean {
+export function isPlatformMode(): boolean {
   const v = process.env.IS_PLATFORM?.trim().toLowerCase();
   return v === "true" || v === "1";
 }

@@ -129,19 +129,22 @@ export function AmoebaPeekTab({
     let cancelled = false;
     let t: ReturnType<typeof setTimeout>;
     const idle = () => {
-      t = setTimeout(() => {
-        if (cancelled) {
-          return;
-        }
-        setBlinking(true);
-        t = setTimeout(() => {
+      t = setTimeout(
+        () => {
           if (cancelled) {
             return;
           }
-          setBlinking(false);
-          idle();
-        }, 140);
-      }, 2500 + Math.random() * 4000);
+          setBlinking(true);
+          t = setTimeout(() => {
+            if (cancelled) {
+              return;
+            }
+            setBlinking(false);
+            idle();
+          }, 140);
+        },
+        2500 + Math.random() * 4000,
+      );
     };
     idle();
     return () => {
@@ -190,7 +193,10 @@ export function AmoebaPeekTab({
     : { duration: TAB_OUT_S };
 
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-0"
+    >
       <motion.div
         className="absolute top-0 left-0 rounded-full"
         style={{

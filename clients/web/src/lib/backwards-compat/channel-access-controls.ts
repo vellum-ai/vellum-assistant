@@ -34,7 +34,7 @@
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.10.13";
+export const MIN_VERSION = "0.11.0";
 
 /** Render-path gate for the Channels tab's Assistant Access controls. */
 export function useSupportsChannelAccessControls(): boolean {

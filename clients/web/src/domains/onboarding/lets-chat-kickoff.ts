@@ -1,4 +1,7 @@
-import { FIRST_RUN_SCOPE_DATA_KEY, type FirstRunScope } from "./first-run-scope";
+import {
+  FIRST_RUN_SCOPE_DATA_KEY,
+  type FirstRunScope,
+} from "./first-run-scope";
 
 /** Renders one choice option's wire fields (id + data payload) for the prompt. */
 function optionWire(scope: FirstRunScope): string {

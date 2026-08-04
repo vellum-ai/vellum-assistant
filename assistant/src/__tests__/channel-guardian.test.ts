@@ -68,7 +68,9 @@ mock.module("../ipc/gateway-client.js", () => ({
       const { revokeChannelById } =
         await import("./helpers/seed-contact-channel.js");
       const channelId = params?.contactChannelId as string | undefined;
-      if (channelId) revokeChannelById(channelId);
+      if (channelId) {
+        revokeChannelById(channelId);
+      }
     }
     return {
       ok: true,

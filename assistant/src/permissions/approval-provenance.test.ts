@@ -26,7 +26,9 @@ describe("mapApprovalProvenance", () => {
   });
 
   test("allow + trust rule → auto / trust_rule_allowed", () => {
-    const r = mapApprovalProvenance("allow", { matchedTrustRuleId: "rule-abc" });
+    const r = mapApprovalProvenance("allow", {
+      matchedTrustRuleId: "rule-abc",
+    });
     expect(r.approvalMode).toBe("auto");
     expect(r.approvalReason).toBe("trust_rule_allowed");
   });
@@ -62,12 +64,17 @@ describe("mapApprovalProvenance", () => {
   });
 
   test("wasSystemCancel takes priority over wasTimeout", () => {
-    const r = mapApprovalProvenance("deny", { wasSystemCancel: true, wasTimeout: true });
+    const r = mapApprovalProvenance("deny", {
+      wasSystemCancel: true,
+      wasTimeout: true,
+    });
     expect(r.approvalReason).toBe("system_cancelled");
   });
 
   test("denied + matchedTrustRuleId → blocked / trust_rule_denied", () => {
-    const r = mapApprovalProvenance("denied", { matchedTrustRuleId: "rule-abc" });
+    const r = mapApprovalProvenance("denied", {
+      matchedTrustRuleId: "rule-abc",
+    });
     expect(r.approvalMode).toBe("blocked");
     expect(r.approvalReason).toBe("trust_rule_denied");
   });
@@ -123,7 +130,9 @@ function wasExpected(
   riskLevel: string,
   riskThreshold: RiskThreshold,
 ): boolean {
-  if (approvalMode !== "auto") return true;
+  if (approvalMode !== "auto") {
+    return true;
+  }
   return RISK_ORDINAL[riskLevel] <= THRESHOLD_ORDINAL[riskThreshold];
 }
 

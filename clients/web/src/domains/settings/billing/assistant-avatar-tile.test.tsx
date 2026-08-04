@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render } from "@testing-library/react";
 
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** Flipped per-test to hold the avatar query in flight. */
@@ -15,6 +16,7 @@ let avatarLoading = false;
 /** An uploaded avatar image, the simplest resolved avatar to assert on. */
 let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: () => ({
     components: null,
     traits: null,

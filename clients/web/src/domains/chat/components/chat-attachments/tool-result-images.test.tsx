@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
@@ -41,9 +47,8 @@ mock.module("@/runtime/native-file", () => ({
   saveFile: saveFileMock,
 }));
 
-const { ToolResultImages } = await import(
-  "@/domains/chat/components/chat-attachments/tool-result-images"
-);
+const { ToolResultImages } =
+  await import("@/domains/chat/components/chat-attachments/tool-result-images");
 
 function renderStrip(
   toolCalls: ChatMessageToolCall[],

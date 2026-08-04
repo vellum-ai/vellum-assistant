@@ -34,11 +34,9 @@ export function SubagentAvatarRow({
     >
       {/* pointer-events-none so clicking an avatar triggers the button, not the avatar. */}
       <div className="pointer-events-none flex items-center gap-1">
-        {subagentIds
-          .slice(0, MAX_VISIBLE_SUBAGENT_AVATARS)
-          .map((id) => (
-            <SubagentAvatarBadge key={id} subagentId={id} />
-          ))}
+        {subagentIds.slice(0, MAX_VISIBLE_SUBAGENT_AVATARS).map((id) => (
+          <SubagentAvatarBadge key={id} subagentId={id} />
+        ))}
 
         {overflowCount > 0 && (
           <div
@@ -55,13 +53,11 @@ export function SubagentAvatarRow({
         )}
       </div>
 
-      <span className="flex items-center gap-1">
-        <Typography
-          variant="body-medium-default"
-          className="text-[var(--content-tertiary)]"
-        >
-          Details
-        </Typography>
+      {/* Text style tracks the chat transcript's "Thinking" label
+          (single-activity.tsx): 13px / 500 / --content-secondary. Off the
+          typography scale, so it can't use a `Typography` variant. */}
+      <span className="flex items-center gap-1 text-[13px] font-medium text-[var(--content-secondary)]">
+        Details
         <ChevronDown className="h-3 w-3 text-[var(--content-tertiary)]" />
       </span>
     </button>

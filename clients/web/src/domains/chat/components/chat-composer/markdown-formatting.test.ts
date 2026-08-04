@@ -14,7 +14,12 @@ describe("applyMarkdownFormatting", () => {
       const selectionEnd = 11;
 
       // WHEN applying bold formatting
-      const result = applyMarkdownFormatting(text, selectionStart, selectionEnd, "**");
+      const result = applyMarkdownFormatting(
+        text,
+        selectionStart,
+        selectionEnd,
+        "**",
+      );
 
       // THEN the selection is wrapped with ** markers
       expect(result.text).toBe("hello **world**");
@@ -44,7 +49,12 @@ describe("applyMarkdownFormatting", () => {
       const selectionEnd = 13;
 
       // WHEN applying bold formatting again
-      const result = applyMarkdownFormatting(text, selectionStart, selectionEnd, "**");
+      const result = applyMarkdownFormatting(
+        text,
+        selectionStart,
+        selectionEnd,
+        "**",
+      );
 
       // THEN the markers are removed
       expect(result.text).toBe("hello world");

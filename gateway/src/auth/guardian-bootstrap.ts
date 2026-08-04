@@ -10,6 +10,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   actorRefreshTokenRecords,
@@ -56,7 +57,7 @@ export const REFRESH_INACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export const REFRESH_AFTER_FRACTION = 0.8;
 
 /** The daemon's internal assistant scope identifier. */
-const DAEMON_INTERNAL_ASSISTANT_ID = "self";
+const DAEMON_INTERNAL_ASSISTANT_ID = LOCAL_ASSISTANT_ID;
 
 // ---------------------------------------------------------------------------
 // Types

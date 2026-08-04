@@ -100,9 +100,9 @@ describe("formatBundleOptionLabel", () => {
   });
 
   test("formats sub-dollar cents with two decimals", () => {
-    expect(
-      formatBundleOptionLabel({ ...TIERS[0]!, price_cents: 1050 }),
-    ).toBe("10 credits — $10.50/mo");
+    expect(formatBundleOptionLabel({ ...TIERS[0]!, price_cents: 1050 })).toBe(
+      "10 credits — $10.50/mo",
+    );
   });
 });
 

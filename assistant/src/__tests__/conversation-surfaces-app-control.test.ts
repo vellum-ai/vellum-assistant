@@ -337,7 +337,9 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
         next: InstanceType<typeof HostAppControlProxy> | undefined,
       ) => {
         setterCalls.push(next);
-        if (attached && attached !== next) attached.dispose();
+        if (attached && attached !== next) {
+          attached.dispose();
+        }
         attached = next;
       };
 

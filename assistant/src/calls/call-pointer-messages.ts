@@ -62,11 +62,17 @@ function resolvePointerAudienceIsOwner(conversationId: string): boolean {
     // fallback even on a cold load where the in-memory trust context is absent.
     const provenance =
       getConversationRecentProvenanceTrustClass(conversationId);
-    if (isContactTrustClass(provenance)) return false;
-    if (provenance === "guardian") return true;
+    if (isContactTrustClass(provenance)) {
+      return false;
+    }
+    if (provenance === "guardian") {
+      return true;
+    }
 
     const originChannel = getConversationOriginChannel(conversationId);
-    if (originChannel === "vellum") return true;
+    if (originChannel === "vellum") {
+      return true;
+    }
   } catch {
     // Conversation may not exist or DB may be unavailable — default to non-owner.
   }
@@ -102,9 +108,15 @@ export async function addPointerMessage(
   // Build required-facts list so generated text cannot drop key details.
   // These are passed to the processor for post-generation validation.
   const requiredFacts: string[] = [phoneNumber];
-  if (extra?.duration) requiredFacts.push(extra.duration);
-  if (extra?.verificationCode) requiredFacts.push(extra.verificationCode);
-  if (extra?.reason) requiredFacts.push(extra.reason);
+  if (extra?.duration) {
+    requiredFacts.push(extra.duration);
+  }
+  if (extra?.verificationCode) {
+    requiredFacts.push(extra.verificationCode);
+  }
+  if (extra?.reason) {
+    requiredFacts.push(extra.reason);
+  }
 
   // Enforce lifecycle outcome keywords so the LLM cannot rewrite e.g. a
   // "failed" event as a success — the generated text must contain the
@@ -117,7 +129,9 @@ export async function addPointerMessage(
     verification_failed: "failed",
   };
   const outcomeKeyword = eventOutcomeKeywords[event];
-  if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
+  if (outcomeKeyword) {
+    requiredFacts.push(outcomeKeyword);
+  }
 
   const ownerAudience =
     audienceMode === "trusted" ||
@@ -183,7 +197,9 @@ export function postPointerMessageSafe(
  */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;

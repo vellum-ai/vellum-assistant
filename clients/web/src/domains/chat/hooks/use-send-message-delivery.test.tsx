@@ -69,16 +69,13 @@ mock.module("@/utils/fetch-conversation-detail", () => ({
   },
 }));
 
-const { useSendMessage } = await import(
-  "@/domains/chat/hooks/use-send-message"
-);
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useSendMessage } =
+  await import("@/domains/chat/hooks/use-send-message");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 
 const queryClient = new QueryClient();
@@ -223,5 +220,30 @@ describe("useSendMessage — SSE + reconciliation own delivery (no poll)", () =>
     );
     expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
     expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(0);
+  });
+
+  test("a hidden send on the queue path leaves the pending FIFO untouched", async () => {
+    // A hidden send renders no row and receives no queued ack, so tracking
+    // it would park a dead FIFO entry that the next visible send's ack
+    // would bind to instead of its own row.
+    postChatMessageMock = mock(async (): Promise<PostMessageResult> => ({
+      ok: true as const,
+      queued: true,
+      assistantId: "asst-1",
+      conversationId: "conv-A",
+      requestId: "request-hidden",
+    }));
+    useTurnStore.setState({
+      phase: "streaming",
+      activeTurnId: "turn-1",
+    });
+    const { result } = renderSend(() => {});
+
+    await act(async () => {
+      await result.current.sendMessage("machine signal", [], { hidden: true });
+    });
+
+    expect(useChatSessionStore.getState().pendingQueuedMessageIds).toEqual([]);
+    expect(useChatSessionStore.getState().optimisticSends).toHaveLength(0);
   });
 });

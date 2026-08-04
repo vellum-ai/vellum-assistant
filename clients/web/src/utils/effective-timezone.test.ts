@@ -8,7 +8,9 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const getDeviceSettingMock = mock((_name: string, fallback: string) => fallback);
+const getDeviceSettingMock = mock(
+  (_name: string, fallback: string) => fallback,
+);
 mock.module("@/utils/device-settings", () => ({
   getDeviceSetting: getDeviceSettingMock,
 }));

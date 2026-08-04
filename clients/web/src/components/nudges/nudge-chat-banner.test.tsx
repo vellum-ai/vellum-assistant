@@ -61,7 +61,8 @@ mock.module("@vellumai/design-library", () => ({
   ),
 }));
 
-const { NudgeChatBanner } = await import("@/components/nudges/nudge-chat-banner");
+const { NudgeChatBanner } =
+  await import("@/components/nudges/nudge-chat-banner");
 
 describe("NudgeChatBanner", () => {
   test("uses an opaque surface so transcript content does not show through", () => {
@@ -78,7 +79,9 @@ describe("NudgeChatBanner", () => {
       />,
     );
 
-    expect(html).toContain("background:var(--surface-base)");
+    expect(html).toContain(
+      "background:color-mix(in srgb, var(--surface-base) 92%, white)",
+    );
     expect(html).not.toContain("background:var(--surface-overlay)");
   });
 

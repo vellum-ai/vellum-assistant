@@ -215,7 +215,9 @@ function installCopy(
 /** Read the commit recorded in a copy's provenance sidecar, if present. */
 function sidecarCommit(pluginsDir: string, name: string): string | null {
   const path = join(pluginsDir, name, "install-meta.json");
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
   return JSON.parse(readFileSync(path, "utf-8")).commit ?? null;
 }
 
@@ -412,7 +414,9 @@ describe("upgradePlugin", () => {
     const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
     // AND a clone that fails mid-fetch
     const failingGit: GitRunner = async (args) => {
-      if (args[0] === "fetch") throw new Error("network down");
+      if (args[0] === "fetch") {
+        throw new Error("network down");
+      }
       return { stdout: "" };
     };
 
@@ -514,7 +518,9 @@ describe("upgradePlugin", () => {
     installCopy(pluginsDir, "level-up", { commit: SHA_A });
     const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
     const failingGit: GitRunner = async (args) => {
-      if (args[0] === "fetch") throw new Error("network down");
+      if (args[0] === "fetch") {
+        throw new Error("network down");
+      }
       return { stdout: "" };
     };
     let calls = 0;

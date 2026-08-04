@@ -51,7 +51,9 @@ function sourceLinks(sources: string[]): { domain: string; url: string }[] {
   const byDomain = new Map<string, string>();
   for (const url of sources) {
     const domain = domainFromUrl(url);
-    if (domain && !byDomain.has(domain)) byDomain.set(domain, url);
+    if (domain && !byDomain.has(domain)) {
+      byDomain.set(domain, url);
+    }
   }
   return [...byDomain].map(([domain, url]) => ({ domain, url }));
 }
@@ -108,7 +110,9 @@ function ClaimRow({
             setPopoverOpen(open);
             // Opening from an active row marks it removed immediately; a reason
             // is optional and can be chosen (or skipped) from the popover.
-            if (open && !removed) onRemove();
+            if (open && !removed) {
+              onRemove();
+            }
           }}
         >
           <Popover.Trigger asChild>

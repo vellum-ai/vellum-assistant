@@ -46,25 +46,35 @@ export const swapBalancedProfileToGlm52Migration: WorkspaceMigration = {
   description: "Set the managed balanced profile to GLM 5.2 (Fireworks)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
-    if (profiles === null) return;
+    if (profiles === null) {
+      return;
+    }
 
     const profile = readObject(profiles["balanced"]);
-    if (profile === null || profile.source === "user") return;
+    if (profile === null || profile.source === "user") {
+      return;
+    }
 
     let changed = false;
     if (profile.model === OLD_MODEL) {
@@ -81,7 +91,9 @@ export const swapBalancedProfileToGlm52Migration: WorkspaceMigration = {
       delete profile.topP;
       changed = true;
     }
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     profiles["balanced"] = profile;
     llm.profiles = profiles;

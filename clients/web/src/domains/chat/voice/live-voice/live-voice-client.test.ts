@@ -35,8 +35,9 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
       const { token } = await mintResult;
       const url = new URL(`wss://velay.vellum.ai/${assistantId}/v1/live-voice`);
       url.searchParams.set("token", token);
-      if (conversationId)
+      if (conversationId) {
         url.searchParams.set("conversationId", conversationId);
+      }
       return url.toString();
     },
   ),
@@ -147,7 +148,9 @@ async function connectAndGetSocket(
 ): Promise<FakeWebSocket> {
   await client.connect(args);
   const ws = FakeWebSocket.instances.at(-1);
-  if (!ws) throw new Error("no WebSocket was constructed");
+  if (!ws) {
+    throw new Error("no WebSocket was constructed");
+  }
   return ws;
 }
 

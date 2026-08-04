@@ -25,7 +25,9 @@ function dispatch(method: string, path: string) {
   const route = ROUTES.find(
     (r) => r.method === method && r.endpoint === endpoint,
   );
-  if (!route) throw new Error(`No route for ${method} /v1/${path}`);
+  if (!route) {
+    throw new Error(`No route for ${method} /v1/${path}`);
+  }
 
   const queryParams: Record<string, string> = {};
   for (const [k, v] of url.searchParams.entries()) {

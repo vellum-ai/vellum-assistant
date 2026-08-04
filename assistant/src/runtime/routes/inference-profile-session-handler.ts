@@ -152,14 +152,10 @@ export async function setInferenceProfileSession({
   }
 
   // --- Validate profile ---
-  // Provider-aware expansion: managed presets are judged (and existence-
-  // checked) as the body dispatch would actually run through under
-  // llm.defaultProvider, not the always-Vellum column — a BYOK install must
-  // not be refused a preset for lacking a Vellum sign-in it doesn't use.
-  const llmConfig = loadConfig().llm;
+  const { llm } = loadConfig();
   const profiles = getEffectiveProfilesForProvider(
-    llmConfig?.profiles,
-    llmConfig?.defaultProvider ?? null,
+    llm?.profiles,
+    llm?.defaultProvider ?? null,
   );
   if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
     throw new BadRequestError(

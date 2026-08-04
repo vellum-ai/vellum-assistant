@@ -21,6 +21,9 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 
+/** Coarse memory tier, mirroring the daemon's `memoryTier()` buckets. */
+export type MemoryTier = "off" | "v1" | "v2" | "v3";
+
 /**
  * Two-state result mirroring `MemoryGraphResult`. `unsupported` is a
  * success-shaped outcome (the daemon predates the `/memory/stats` route) that
@@ -28,12 +31,43 @@ import {
  *
  * `graphSupported` (on `ready`) reports whether the memory-concept graph is
  * available for this assistant — the cheap capability signal that lets the
- * identity Memory card gate its graph entry point on real availability without
- * building the graph. See the daemon's `graph_supported` on `GET /memory/stats`.
+ * Memory surface decide between drawing the graph and explaining why it can't.
+ * See the daemon's `graph_supported` on `GET /memory/stats`.
+ *
+ * `tier` reports WHY, so the Memory tab can name the actual fix instead of a
+ * bare "not available": `"off"` is the user's own Memory opt-out (Settings),
+ * `"v1"`/`"v2"` are legacy engines (migrate to v3). It is `undefined` on
+ * daemons predating the field, which callers render as neutral copy.
  */
 export type MemoryStatsResult =
-  | { kind: "ready"; concepts: number; graphSupported: boolean }
+  | {
+      kind: "ready";
+      concepts: number;
+      graphSupported: boolean;
+      tier: MemoryTier | undefined;
+    }
   | { kind: "unsupported" };
+
+/**
+ * The concept-page count, but only where it is a real measurement — otherwise
+ * `undefined`, which glanceable surfaces render as "no count" rather than a
+ * number. Concept pages are the v2/v3 substrate: a v1 assistant keeps its
+ * memory in the legacy graph and a memory-off one keeps none, so for both the
+ * count is a truthful-but-meaningless zero that reads as "I remember nothing
+ * about you". Older daemons omit `tier`; fall back to the capability bit,
+ * which they do send.
+ */
+export function conceptPageCount(
+  result: MemoryStatsResult | undefined,
+): number | undefined {
+  if (result?.kind !== "ready") {
+    return undefined;
+  }
+  const hasCorpus = result.tier
+    ? result.tier === "v2" || result.tier === "v3"
+    : result.graphSupported;
+  return hasCorpus ? result.concepts : undefined;
+}
 
 const FAILURE_MESSAGE = "Failed to load memory stats.";
 
@@ -76,6 +110,10 @@ export function memoryStatsOptions(assistantId: string) {
         // v3 assistant whose daemon hasn't shipped the field yet. Once every
         // daemon reports it, this default never applies and gating is exact.
         graphSupported: data?.graph_supported ?? true,
+        // Left undefined on daemons predating the field rather than guessed —
+        // a wrong tier would name the wrong fix ("turn Memory back on" at an
+        // assistant whose memory is on). Callers fall back to neutral copy.
+        tier: data?.tier,
       };
     },
   });

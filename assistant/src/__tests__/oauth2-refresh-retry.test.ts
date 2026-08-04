@@ -57,7 +57,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
         },
       );
     }
-    if (next.type === "error") throw next.error;
+    if (next.type === "error") {
+      throw next.error;
+    }
     return new Response(JSON.stringify(next.body), {
       status: next.status,
       headers: { "Content-Type": "application/json" },

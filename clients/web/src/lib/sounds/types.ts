@@ -63,7 +63,9 @@ export function defaultSoundsConfig(): SoundsConfig {
 
 export function soundExtension(filename: string): string {
   const idx = filename.lastIndexOf(".");
-  if (idx < 0 || idx === filename.length - 1) return "";
+  if (idx < 0 || idx === filename.length - 1) {
+    return "";
+  }
   return filename.slice(idx + 1).toLowerCase();
 }
 
@@ -73,14 +75,22 @@ export function hasSupportedExtension(filename: string): boolean {
 }
 
 export function validateSoundFilename(filename: string): boolean {
-  if (!filename) return false;
-  if (filename.includes("/") || filename.includes("\\")) return false;
-  if (filename.includes("..")) return false;
+  if (!filename) {
+    return false;
+  }
+  if (filename.includes("/") || filename.includes("\\")) {
+    return false;
+  }
+  if (filename.includes("..")) {
+    return false;
+  }
   return hasSupportedExtension(filename);
 }
 
 export function displayLabelForFilename(filename: string): string {
   const idx = filename.lastIndexOf(".");
-  if (idx <= 0) return filename;
+  if (idx <= 0) {
+    return filename;
+  }
   return filename.slice(0, idx);
 }

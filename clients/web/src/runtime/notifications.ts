@@ -32,6 +32,7 @@ import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { hasSessionConfirmedRemotePushRegistration } from "@/runtime/push-registration";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -58,17 +59,27 @@ let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
  * Notification API).
  */
 export function isNotificationsSupported(): boolean {
-  if (typeof window === "undefined") return false;
-  if (isElectron()) return !!window.vellum?.notifications;
-  if (isNativePlatform()) return true;
+  if (typeof window === "undefined") {
+    return false;
+  }
+  if (isElectron()) {
+    return !!window.vellum?.notifications;
+  }
+  if (isNativePlatform()) {
+    return true;
+  }
   return "Notification" in window;
 }
 
 async function checkNativePermission(): Promise<PermissionState> {
   try {
     const { display } = await LocalNotifications.checkPermissions();
-    if (display === "granted") return "granted";
-    if (display === "denied") return "denied";
+    if (display === "granted") {
+      return "granted";
+    }
+    if (display === "denied") {
+      return "denied";
+    }
     return "prompt";
   } catch {
     return "unsupported";
@@ -76,7 +87,9 @@ async function checkNativePermission(): Promise<PermissionState> {
 }
 
 function checkBrowserPermission(): PermissionState {
-  if (typeof Notification === "undefined") return "unsupported";
+  if (typeof Notification === "undefined") {
+    return "unsupported";
+  }
   switch (Notification.permission) {
     case "granted":
       return "granted";
@@ -90,8 +103,12 @@ function checkBrowserPermission(): PermissionState {
 async function requestNativePermission(): Promise<PermissionState> {
   try {
     const { display } = await LocalNotifications.requestPermissions();
-    if (display === "granted") return "granted";
-    if (display === "denied") return "denied";
+    if (display === "granted") {
+      return "granted";
+    }
+    if (display === "denied") {
+      return "denied";
+    }
     return "prompt";
   } catch {
     return "unsupported";
@@ -99,10 +116,16 @@ async function requestNativePermission(): Promise<PermissionState> {
 }
 
 async function requestBrowserPermission(): Promise<PermissionState> {
-  if (typeof Notification === "undefined") return "unsupported";
+  if (typeof Notification === "undefined") {
+    return "unsupported";
+  }
   const result = await Notification.requestPermission();
-  if (result === "granted") return "granted";
-  if (result === "denied") return "denied";
+  if (result === "granted") {
+    return "granted";
+  }
+  if (result === "denied") {
+    return "denied";
+  }
   return "prompt";
 }
 
@@ -110,7 +133,9 @@ async function requestBrowserPermission(): Promise<PermissionState> {
  * Resolve the current permission state without prompting the user.
  */
 export async function getNotificationPermission(): Promise<PermissionState> {
-  if (cachedPermission) return cachedPermission;
+  if (cachedPermission) {
+    return cachedPermission;
+  }
   const state = isNativePlatform()
     ? await checkNativePermission()
     : checkBrowserPermission();
@@ -126,8 +151,12 @@ export async function getNotificationPermission(): Promise<PermissionState> {
  */
 export async function ensureNotificationPermission(): Promise<PermissionState> {
   const current = await getNotificationPermission();
-  if (current !== "prompt") return current;
-  if (permissionPromptIssued) return current;
+  if (current !== "prompt") {
+    return current;
+  }
+  if (permissionPromptIssued) {
+    return current;
+  }
   permissionPromptIssued = true;
   const result = isNativePlatform()
     ? await requestNativePermission()
@@ -137,7 +166,9 @@ export async function ensureNotificationPermission(): Promise<PermissionState> {
 }
 
 async function registerTapListeners(): Promise<void> {
-  if (tapListenersRegistered) return;
+  if (tapListenersRegistered) {
+    return;
+  }
   tapListenersRegistered = true;
 
   // Electron path: subscribe to main-process notification action events.
@@ -146,7 +177,9 @@ async function registerTapListeners(): Promise<void> {
   // regardless of platform. The listener is permanent (app lifetime).
   if (isElectron() && window.vellum?.notifications) {
     window.vellum.notifications.onAction((event) => {
-      if (!tapHandler) return;
+      if (!tapHandler) {
+        return;
+      }
       tapHandler({
         conversationId: event.conversationId,
         sourceEventName: `electron:${event.category}:${event.kind}`,
@@ -156,15 +189,18 @@ async function registerTapListeners(): Promise<void> {
     return;
   }
 
-  if (!isNativePlatform()) return;
+  if (!isNativePlatform()) {
+    return;
+  }
   try {
     await LocalNotifications.addListener(
       "localNotificationActionPerformed",
       (action) => {
         const extra = action.notification.extra as
-          | NotificationTapPayload
-          | undefined;
-        if (extra && tapHandler) tapHandler(extra);
+          NotificationTapPayload | undefined;
+        if (extra && tapHandler) {
+          tapHandler(extra);
+        }
       },
     );
   } catch {
@@ -212,7 +248,9 @@ function toNotificationId(seed: string): number {
 export function extractConversationId(
   metadata: Record<string, unknown> | undefined,
 ): string | undefined {
-  if (!metadata) return undefined;
+  if (!metadata) {
+    return undefined;
+  }
   const { conversationId } = metadata;
   if (typeof conversationId === "string" && conversationId.length > 0) {
     return conversationId;
@@ -235,6 +273,13 @@ export interface PostLocalNotificationArgs {
    * directly with `success=true`.
    */
   assistantId?: string;
+  /**
+   * True when the daemon confirmed the platform (APNs) channel accepted a
+   * remote push for this delivery. A native app that is hidden at intent
+   * arrival with a session-confirmed push registration skips the local
+   * banner so the remote push is the only one.
+   */
+  remotePushDispatched?: boolean;
 }
 
 /**
@@ -324,6 +369,10 @@ export async function postLocalNotification(
     return;
   }
 
+  // Snapshot before the awaits below: the remote-push dedup skip must see
+  // visibility at intent arrival, not after an async native-bridge gap.
+  const visibilityAtIntent = document.visibilityState;
+
   const permission = await ensureNotificationPermission();
   if (permission !== "granted") {
     if (args.assistantId && args.deliveryId) {
@@ -348,6 +397,39 @@ export async function postLocalNotification(
   let errorMessage: string | undefined;
 
   if (isNativePlatform()) {
+    // iOS suppresses remote pushes while the app is foregrounded (no
+    // presentationOptions configured), so the local banner is the only
+    // foreground surface. The banner is skipped only when the daemon
+    // confirmed an accepted remote push, this device holds a
+    // session-confirmed APNs registration (an upsert succeeded in this JS
+    // session, proving the platform held a live token row for this device
+    // at mount), and the app was hidden when the intent arrived; the
+    // remote push banners on its own there, and scheduling the local one
+    // too would double-notify during the SSE grace window after
+    // backgrounding. A session-confirmed registration implies remote-push
+    // support: it is recorded only by `registerForRemotePush`, which is
+    // gated on that support.
+    //
+    // Residual limitation: `remotePushDispatched` is an aggregate
+    // account-level outcome (any device token accepted), so on a
+    // multi-device account a token pruned mid-session can still suppress
+    // this banner while only another device received the push.
+    if (
+      args.remotePushDispatched === true &&
+      args.assistantId !== undefined &&
+      hasSessionConfirmedRemotePushRegistration(args.assistantId) &&
+      visibilityAtIntent === "hidden"
+    ) {
+      if (args.deliveryId) {
+        await sendNotificationIntentAck(
+          args.assistantId,
+          args.deliveryId,
+          true,
+        );
+      }
+      return;
+    }
+
     const seed =
       args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {
@@ -380,7 +462,9 @@ export async function postLocalNotification(
       });
       n.onclick = () => {
         window.focus();
-        if (tapHandler) tapHandler(tapPayload);
+        if (tapHandler) {
+          tapHandler(tapPayload);
+        }
         n.close();
       };
     } catch (err) {

@@ -7,13 +7,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-    organizationsBillingSubscriptionRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
-    useActiveAssistantIsPlatformHosted,
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -81,7 +81,9 @@ export function UpgradeSuccessPage() {
     // Stop polling once we observe Pro OR the timeout fires.
     refetchInterval: (query) => {
       const planId = query.state.data?.plan_id;
-      if (planId === "pro" || pollExpired) return false;
+      if (planId === "pro" || pollExpired) {
+        return false;
+      }
       return POLL_INTERVAL_MS;
     },
     refetchIntervalInBackground: false,
@@ -111,7 +113,9 @@ export function UpgradeSuccessPage() {
   // no actual polling). Cleanup clears the timer if polling gets
   // disabled again (gated/disabled mid-flight).
   useEffect(() => {
-    if (!isPollingEnabled) return;
+    if (!isPollingEnabled) {
+      return;
+    }
     const t = setTimeout(() => setPollExpired(true), POLL_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, [isPollingEnabled]);
@@ -120,14 +124,17 @@ export function UpgradeSuccessPage() {
 
   // Auto-redirect after success state has rendered for SUCCESS_REDIRECT_DELAY_MS.
   useEffect(() => {
-    if (!reachedPro) return;
+    if (!reachedPro) {
+      return;
+    }
     const t = setTimeout(() => {
       navigate(routes.settings.usageBilling, { replace: true });
     }, SUCCESS_REDIRECT_DELAY_MS);
     return () => clearTimeout(t);
   }, [reachedPro, navigate]);
 
-  const goToBilling = () => navigate(routes.settings.usageBilling, { replace: true });
+  const goToBilling = () =>
+    navigate(routes.settings.usageBilling, { replace: true });
 
   // Whole-page gates: same Navigate/chrome pattern as `billing-page.tsx`. The
   // hooks above all ran (with `enabled: false` for the query) so React's
@@ -156,8 +163,8 @@ export function UpgradeSuccessPage() {
     return (
       <div className="max-w-4xl space-y-6">
         <Notice tone="warning">
-          We can&apos;t confirm your upgrade for the current assistant.
-          Return to billing to retry.
+          We can&apos;t confirm your upgrade for the current assistant. Return
+          to billing to retry.
         </Notice>
         <div className="flex justify-end">
           <Button

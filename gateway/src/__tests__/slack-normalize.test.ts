@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackChannelMessage,
@@ -16,7 +17,6 @@ import type { GatewayConfig } from "../config.js";
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -34,7 +34,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
@@ -193,16 +192,15 @@ describe("normalizeSlackAppMention", () => {
     expect(result!.event.source.updateId).toBe("my-event-id");
   });
 
-  test("returns null when routing rejects the event", async () => {
+  test("resolves an unrouted mention to the local assistant", async () => {
     const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
       routingEntries: [],
     });
     const event = makeEvent();
     const result = await normalizeSlackAppMention(event, "evt-011", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   test("raw event is included in the result", async () => {
@@ -479,8 +477,6 @@ describe("normalizeSlackMessageEdit", () => {
 
   test("DM edits use default assistant when channel is not in routing table", () => {
     const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: "default-assistant",
       routingEntries: [],
     });
     const event = makeMessageChangedEvent({ channel_type: "im" });
@@ -490,16 +486,15 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.event.message.isEdit).toBe(true);
   });
 
-  test("returns null when routing rejects non-DM event", () => {
+  test("resolves an unrouted non-DM edit to the local assistant", () => {
     const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
       routingEntries: [],
     });
     const event = makeMessageChangedEvent({ channel_type: "channel" });
     const result = normalizeSlackMessageEdit(event, "evt-109", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   test("sets chatType to channel for non-DM edits", () => {

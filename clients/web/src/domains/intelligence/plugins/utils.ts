@@ -53,7 +53,9 @@ export function mergePlugins(
 /** Case-insensitive substring match against a plugin's name + description. */
 export function matchesQuery(item: PluginListItem, query: string): boolean {
   const q = query.trim().toLowerCase();
-  if (!q) return true;
+  if (!q) {
+    return true;
+  }
   return [item.name, item.description].some((f) =>
     f?.toLowerCase().includes(q),
   );
@@ -64,7 +66,9 @@ export function sortPlugins(items: PluginListItem[]): PluginListItem[] {
   return [...items].sort((a, b) => {
     const aInstalled = a.status === "installed";
     const bInstalled = b.status === "installed";
-    if (aInstalled !== bInstalled) return aInstalled ? -1 : 1;
+    if (aInstalled !== bInstalled) {
+      return aInstalled ? -1 : 1;
+    }
     return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
   });
 }

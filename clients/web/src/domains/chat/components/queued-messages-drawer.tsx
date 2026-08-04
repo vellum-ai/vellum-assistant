@@ -1,4 +1,3 @@
-
 import { ArrowUp, Pencil, X } from "lucide-react";
 import { useCallback, useMemo, type ReactNode } from "react";
 
@@ -42,10 +41,7 @@ function QueuedMessageRow({
   showSteer,
   onEdit,
 }: QueuedMessageRowProps) {
-  const preview = useMemo(
-    () => messagePlainText(message),
-    [message],
-  );
+  const preview = useMemo(() => messagePlainText(message), [message]);
   return (
     <div className="flex items-center gap-1.5 rounded-md py-0.5 md:gap-2 md:px-2 md:py-1.5">
       {/* Accent bar */}

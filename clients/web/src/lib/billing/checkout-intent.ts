@@ -37,6 +37,8 @@ export type CheckoutIntent =
       storageTier: StorageTierEnum | null;
       creditTier: CreditTierEnum | null;
       savedAt: number;
+      /** The signup carry marker, exactly as on the `package` member above. */
+      resumeAfterOnboarding?: true;
     };
 
 /** `Omit` distributed over each member of a union. */
@@ -105,18 +107,18 @@ export function readCheckoutIntent(): CheckoutIntent | null {
 }
 
 /**
- * The stashed intent when it names a package the user actually paid for, else
- * `null`.
+ * The stashed intent when it names an upgrade the user actually paid for,
+ * else `null`.
  *
  * A stash still carrying `resumeAfterOnboarding` never reached the Stripe
  * hand-off — the hand-off replaces the record without the marker — so it names
- * a package nobody bought. Surfaces that report a purchase to the user read
- * this rather than {@link readCheckoutIntent}, which every bail path would
- * otherwise leave able to render a phantom.
+ * an upgrade nobody bought, whichever kind it is. Surfaces that report a
+ * purchase to the user read this rather than {@link readCheckoutIntent}, which
+ * every bail path would otherwise leave able to render a phantom.
  */
 export function readPurchasedCheckoutIntent(): CheckoutIntent | null {
   const intent = readCheckoutIntent();
-  if (intent?.kind === "package" && intent.resumeAfterOnboarding === true) {
+  if (intent?.resumeAfterOnboarding === true) {
     return null;
   }
   return intent;
@@ -147,9 +149,13 @@ function readInMemoryIntent(): CheckoutIntent | null {
 }
 
 function isCheckoutIntent(value: unknown): value is CheckoutIntent {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const intent = value as Partial<CheckoutIntent>;
-  if (typeof intent.savedAt !== "number") return false;
+  if (typeof intent.savedAt !== "number") {
+    return false;
+  }
   if (intent.kind === "package") {
     return typeof intent.packageKey === "string";
   }

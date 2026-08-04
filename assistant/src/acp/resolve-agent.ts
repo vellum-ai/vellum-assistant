@@ -158,7 +158,9 @@ function lookupAgent(
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
   const direct = directLookup(userAgents, id);
-  if (direct) return direct;
+  if (direct) {
+    return direct;
+  }
   const canonicalId = AGENT_ID_ALIASES[normalizeAgentId(id)];
   return canonicalId !== undefined
     ? directLookup(userAgents, canonicalId)
@@ -170,9 +172,13 @@ function directLookup(
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
   const userAgent = userAgents[id];
-  if (userAgent) return { agent: userAgent, source: "config" };
+  if (userAgent) {
+    return { agent: userAgent, source: "config" };
+  }
   const defaultAgent = DEFAULT_ACP_AGENT_PROFILES[id];
-  if (defaultAgent) return { agent: defaultAgent, source: "default" };
+  if (defaultAgent) {
+    return { agent: defaultAgent, source: "default" };
+  }
   return undefined;
 }
 

@@ -69,7 +69,9 @@ export function createEvent(
       .from(notificationEvents)
       .where(and(eq(notificationEvents.dedupeKey, normalizedDedupeKey)))
       .get();
-    if (existing) return null;
+    if (existing) {
+      return null;
+    }
   }
 
   const row = {

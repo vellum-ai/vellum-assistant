@@ -140,14 +140,12 @@ async function checkCredential(
 }
 
 /** Check that public ingress is configured and enabled. */
-function checkIngress(
+async function checkIngress(
   allowManagedCallbacks = false,
   options: { twilio?: boolean } = {},
-): ReadinessCheckResult {
-  const { configured, usesManagedCallbacks } = hasWebhookRoutingConfigured(
-    allowManagedCallbacks,
-    options,
-  );
+): Promise<ReadinessCheckResult> {
+  const { configured, usesManagedCallbacks } =
+    await hasWebhookRoutingConfigured(allowManagedCallbacks, options);
   return check(
     "ingress",
     configured,
@@ -173,7 +171,7 @@ const voiceProbe: ChannelProbe = {
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const hasCreds = await hasTwilioCredentials();
     const hasPhone = !!resolveTwilioPhoneNumber();
-    const ingress = checkIngress(true, { twilio: true });
+    const ingress = await checkIngress(true, { twilio: true });
 
     return [
       check(
@@ -211,7 +209,7 @@ const telegramProbe: ChannelProbe = {
         "webhook_secret",
         "Telegram webhook secret",
       ),
-      checkIngress(true),
+      await checkIngress(true),
     ];
   },
 };
@@ -234,7 +232,7 @@ const emailProbe: ChannelProbe = {
         "Email invite code redemption is enabled",
         "Email invite code redemption is disabled",
       ),
-      checkIngress(),
+      await checkIngress(),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
@@ -307,7 +305,7 @@ const whatsappProbe: ChannelProbe = {
         "WhatsApp invite code redemption is enabled",
         "WhatsApp invite code redemption is disabled",
       ),
-      checkIngress(),
+      await checkIngress(),
     ];
   },
 };

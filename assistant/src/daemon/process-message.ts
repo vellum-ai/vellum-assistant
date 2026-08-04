@@ -154,7 +154,9 @@ export function deriveIngressIdempotencyKey(options?: {
 function buildEventEmitter(
   observer?: (msg: AssistantEvent) => void,
 ): (msg: AssistantEvent) => void {
-  if (!observer) {return broadcastMessage;}
+  if (!observer) {
+    return broadcastMessage;
+  }
   return (msg) => {
     broadcastMessage(msg);
     try {

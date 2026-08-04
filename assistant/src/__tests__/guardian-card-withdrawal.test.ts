@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const completeSurfaceAndNotify = mock(() => {});
+const markSurfaceCompleted = mock(() => {});
 mock.module("../daemon/conversation-surfaces.js", () => ({
   completeSurfaceAndNotify,
+  markSurfaceCompleted,
 }));
 
 const withdrawSlackApprovalCard = mock(
@@ -10,6 +12,13 @@ const withdrawSlackApprovalCard = mock(
 );
 mock.module("../messaging/providers/slack/withdraw.js", () => ({
   withdrawSlackApprovalCard,
+}));
+
+const withdrawTelegramApprovalCard = mock(
+  async (_params: Record<string, unknown>) => {},
+);
+mock.module("../messaging/providers/telegram-bot/withdraw.js", () => ({
+  withdrawTelegramApprovalCard,
 }));
 
 // The recorder writes through the gateway client; serve that surface from
@@ -56,7 +65,9 @@ describe("withdrawGuardianRequestCards", () => {
   beforeEach(() => {
     bridgeState.reset();
     completeSurfaceAndNotify.mockClear();
+    markSurfaceCompleted.mockClear();
     withdrawSlackApprovalCard.mockClear();
+    withdrawTelegramApprovalCard.mockClear();
   });
 
   test("withdraws + broadcasts the in-app card when the decision came from another surface", async () => {
@@ -81,7 +92,7 @@ describe("withdrawGuardianRequestCards", () => {
     );
   });
 
-  test("skips the in-app card when the decision originated in-app", async () => {
+  test("persists the in-app card's completion without broadcasting when the decision originated in-app", async () => {
     const req = makeRequest();
     bridgeState.seedDelivery({
       requestId: req.id,
@@ -95,8 +106,40 @@ describe("withdrawGuardianRequestCards", () => {
       originChannel: "vellum",
     });
 
-    // The acting in-app client already completed its own card optimistically.
+    // The acting client's optimistic completion is in-memory only, so the
+    // terminal state still has to reach history or a re-entry re-renders the
+    // undecided button group (LUM-2919).
+    expect(markSurfaceCompleted).toHaveBeenCalledTimes(1);
+    expect(markSurfaceCompleted).toHaveBeenCalledWith(
+      { conversationId: "conv-1" },
+      `access-request-${req.id}`,
+      "Approved",
+    );
+    // No broadcast: it would replace the resolver's reply text already on
+    // screen with the canonical status label.
     expect(completeSurfaceAndNotify).not.toHaveBeenCalled();
+  });
+
+  test("persists a park decided in-app under its neutral label", async () => {
+    const req = makeRequest();
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "denied",
+      originChannel: "vellum",
+      decidedAction: "leave_unverified",
+    });
+
+    expect(markSurfaceCompleted).toHaveBeenCalledWith(
+      { conversationId: "conv-1" },
+      `access-request-${req.id}`,
+      "Left unverified",
+    );
   });
 
   test("withdraws the Slack card with decider and decision time", async () => {
@@ -164,7 +207,7 @@ describe("withdrawGuardianRequestCards", () => {
     expect(withdrawSlackApprovalCard).toHaveBeenCalledTimes(1);
   });
 
-  test("ignores channels without in-place edit support (telegram)", async () => {
+  test("withdraws the Telegram card with a status reply when resolved from another surface", async () => {
     const req = makeRequest({ sourceChannel: "telegram" });
     bridgeState.seedDelivery({
       requestId: req.id,
@@ -173,10 +216,90 @@ describe("withdrawGuardianRequestCards", () => {
       destinationMessageId: "9",
     });
 
-    await withdrawGuardianRequestCards({ request: req, status: "approved" });
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "vellum",
+    });
 
     expect(withdrawSlackApprovalCard).not.toHaveBeenCalled();
-    expect(completeSurfaceAndNotify).not.toHaveBeenCalled();
+    expect(withdrawTelegramApprovalCard).toHaveBeenCalledTimes(1);
+    expect(withdrawTelegramApprovalCard).toHaveBeenCalledWith({
+      chatId: "T1",
+      messageId: "9",
+      status: "approved",
+      postStatusReply: true,
+    });
+  });
+
+  test("suppresses the Telegram status reply only when the origin flow replies to the guardian", async () => {
+    const req = makeRequest({ sourceChannel: "telegram" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+      destinationMessageId: "9",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "denied",
+      originChannel: "telegram",
+      decidedAction: "reject",
+      hasOriginGuardianReply: true,
+    });
+
+    // The resolver's guardian-facing reply is being delivered in that chat;
+    // withdrawal only drops the keyboard.
+    expect(withdrawTelegramApprovalCard).toHaveBeenCalledWith({
+      chatId: "T1",
+      messageId: "9",
+      status: "denied",
+      decidedAction: "reject",
+      postStatusReply: false,
+    });
+  });
+
+  test("posts the Telegram status reply for origin decisions without a guardian-facing resolver reply", async () => {
+    const req = makeRequest({ sourceChannel: "telegram" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+      destinationMessageId: "9",
+    });
+
+    // Most resolvers (tool grants, tool approvals, questions) reply to the
+    // requester only, so the quoted status reply is the guardian's only
+    // durable outcome even for a decision made on Telegram itself.
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "telegram",
+      decidedAction: "approve_once",
+      hasOriginGuardianReply: false,
+    });
+
+    expect(withdrawTelegramApprovalCard).toHaveBeenCalledWith({
+      chatId: "T1",
+      messageId: "9",
+      status: "approved",
+      decidedAction: "approve_once",
+      postStatusReply: true,
+    });
+  });
+
+  test("skips the Telegram edit when no channel message id was captured", async () => {
+    const req = makeRequest({ sourceChannel: "telegram" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+    });
+
+    await withdrawGuardianRequestCards({ request: req, status: "approved" });
+
+    expect(withdrawTelegramApprovalCard).not.toHaveBeenCalled();
   });
 
   test("is best-effort: a failing surface never blocks the others or throws", async () => {

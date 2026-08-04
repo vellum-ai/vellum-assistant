@@ -55,7 +55,9 @@ export function BlockedDeleteModal({
     <Modal.Root
       open={blocked !== null}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) {
+          onClose();
+        }
       }}
     >
       <Modal.Content size="sm">

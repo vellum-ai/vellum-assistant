@@ -54,7 +54,8 @@ import {
 // avatar (as in the app, via `--avatar-accent`).
 const SAMPLE_COLOR_ID = "purple";
 const SAMPLE_ACCENT =
-  BUNDLED_COMPONENTS.colors.find((c) => c.id === SAMPLE_COLOR_ID)?.hex ?? "#A665C9";
+  BUNDLED_COMPONENTS.colors.find((c) => c.id === SAMPLE_COLOR_ID)?.hex ??
+  "#A665C9";
 const SAMPLE_ASSISTANT_ID = "story-assistant";
 
 const queryClient = new QueryClient({
@@ -103,7 +104,10 @@ const BODY_IDS = BUNDLED_COMPONENTS.bodyShapes.map((b) => b.id);
  * swell, plus jitter) when `oscillate` is on. Amplitude never flows through
  * React state, matching the real call sites.
  */
-function useAmplitudeDriver(amplitude: number, oscillate: boolean): () => number {
+function useAmplitudeDriver(
+  amplitude: number,
+  oscillate: boolean,
+): () => number {
   const ampRef = useRef(amplitude);
 
   useEffect(() => {
@@ -123,7 +127,10 @@ function useAmplitudeDriver(amplitude: number, oscillate: boolean): () => number
       const syllable = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI * 3.5);
       const phrase = 0.6 + 0.4 * Math.sin(t * 2 * Math.PI * 0.4);
       const jitter = Math.random() * 0.12;
-      ampRef.current = Math.min(1, Math.max(0, syllable * phrase * 0.9 + jitter));
+      ampRef.current = Math.min(
+        1,
+        Math.max(0, syllable * phrase * 0.9 + jitter),
+      );
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -169,8 +176,14 @@ function RoomScene({
     <div
       ref={ref}
       data-theme="dark"
+      /* No backdrop of its own: `VoiceRoomAmbientBackground` paints the room's
+         void gradient across `inset-0`, so anything set here would only ever
+         be a guess at one of its stops. */
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
-      style={{ background: "#05060b", minHeight, ["--avatar-accent" as string]: SAMPLE_ACCENT }}
+      style={{
+        minHeight,
+        ["--avatar-accent" as string]: SAMPLE_ACCENT,
+      }}
     >
       <VoiceRoomAmbientBackground />
       {visual === "listening" ? (
@@ -209,7 +222,9 @@ function useBoxSize() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const measure = () => {
       const r = el.getBoundingClientRect();
       setSize({ w: r.width, h: r.height });
@@ -268,9 +283,7 @@ function ColorLookScene({
   // the eyes held steady-low, not bobbing.
   const getAmplitude = useCallback(
     () =>
-      visual === "listening" || visual === "responding"
-        ? driveAmplitude()
-        : 0,
+      visual === "listening" || visual === "responding" ? driveAmplitude() : 0,
     [driveAmplitude, visual],
   );
   const { ref, size } = useBoxSize();
@@ -361,15 +374,22 @@ const colorArgTypes = {
   wavePlacement: {
     options: ["top", "bottom", "center"] satisfies VoiceWavePlacement[],
     control: { type: "inline-radio" as const },
-    description: "Waveform: sweeping in from the top edge, rising from the floor, or a centered band.",
+    description:
+      "Waveform: sweeping in from the top edge, rising from the floor, or a centered band.",
   },
   wavePalette: {
     options: ["tone", "accent", "aurora"] satisfies VoiceWavePalette[],
     control: { type: "inline-radio" as const },
-    description: "tone follows the room fg; accent = avatar hue; aurora = cyan→indigo.",
+    description:
+      "tone follows the room fg; accent = avatar hue; aurora = cyan→indigo.",
   },
   respondingStyle: {
-    options: ["rings", "halo", "waveform", "pulse"] satisfies VoiceRespondingStyle[],
+    options: [
+      "rings",
+      "halo",
+      "waveform",
+      "pulse",
+    ] satisfies VoiceRespondingStyle[],
     control: { type: "inline-radio" as const },
     description: "Responding treatment (visible in the responding state).",
   },
@@ -435,7 +455,9 @@ export const States: Story = {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">{visual}</span>
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            {visual}
+          </span>
           <ColorLookScene
             {...args}
             visual={visual}
@@ -457,7 +479,9 @@ export const Colors: Story = {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {COLOR_IDS.map((colorId) => (
         <div key={colorId} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">{colorId}</span>
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            {colorId}
+          </span>
           <ColorLookScene {...args} colorId={colorId} minHeight={300} />
         </div>
       ))}
@@ -477,19 +501,21 @@ export const RespondingSketches: Story = {
   argTypes: colorArgTypes,
   render: (args) => (
     <div className="grid gap-4 sm:grid-cols-2">
-      {(["rings", "halo", "waveform", "pulse"] as const).map((respondingStyle) => (
-        <div key={respondingStyle} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">
-            {respondingStyle}
-          </span>
-          <ColorLookScene
-            {...args}
-            visual="responding"
-            respondingStyle={respondingStyle}
-            minHeight={340}
-          />
-        </div>
-      ))}
+      {(["rings", "halo", "waveform", "pulse"] as const).map(
+        (respondingStyle) => (
+          <div key={respondingStyle} className="flex flex-col gap-2">
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              {respondingStyle}
+            </span>
+            <ColorLookScene
+              {...args}
+              visual="responding"
+              respondingStyle={respondingStyle}
+              minHeight={340}
+            />
+          </div>
+        ),
+      )}
     </div>
   ),
 };
@@ -514,7 +540,8 @@ const voidArgTypes = {
   palette: {
     options: ["aurora", "accent", "tone"] satisfies VoiceWavePalette[],
     control: { type: "inline-radio" as const },
-    description: "Fixed cyan→indigo, tinted from the avatar accent, or room-fg tone.",
+    description:
+      "Fixed cyan→indigo, tinted from the avatar accent, or room-fg tone.",
   },
   realAvatar: {
     control: { type: "boolean" as const },
@@ -549,7 +576,9 @@ export const VoidLookStates: VoidStory = {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">{visual}</span>
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            {visual}
+          </span>
           {/* Tall enough that the lower zone's caption clears the avatar in a
               grid cell — the zone anchors off the frame, not the centerpiece. */}
           <RoomScene {...args} visual={visual} size={140} minHeight={360} />

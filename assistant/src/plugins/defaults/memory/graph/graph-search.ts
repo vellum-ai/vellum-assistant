@@ -156,7 +156,9 @@ export async function embedGraphTriggerJob(
   const { embedWithBackend } = await import("../embeddings.js");
 
   const db = memoryDbOrNull("embedGraphTriggerJob");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
   const row = db
     .select()
     .from(memoryGraphTriggers)

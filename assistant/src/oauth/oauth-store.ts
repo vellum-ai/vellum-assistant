@@ -491,76 +491,131 @@ export function updateProvider(
   }>,
 ): OAuthProviderRow | undefined {
   const existing = getProvider(provider);
-  if (!existing) return undefined;
+  if (!existing) {
+    return undefined;
+  }
 
   const db = getDb();
   const set: Record<string, unknown> = { updatedAt: Date.now() };
 
-  if (params.authorizeUrl !== undefined) set.authorizeUrl = params.authorizeUrl;
-  if (params.tokenExchangeUrl !== undefined)
+  if (params.authorizeUrl !== undefined) {
+    set.authorizeUrl = params.authorizeUrl;
+  }
+  if (params.tokenExchangeUrl !== undefined) {
     set.tokenExchangeUrl = params.tokenExchangeUrl;
-  if (params.refreshUrl !== undefined) set.refreshUrl = params.refreshUrl;
-  if (params.tokenEndpointAuthMethod !== undefined)
+  }
+  if (params.refreshUrl !== undefined) {
+    set.refreshUrl = params.refreshUrl;
+  }
+  if (params.tokenEndpointAuthMethod !== undefined) {
     set.tokenEndpointAuthMethod =
       params.tokenEndpointAuthMethod || "client_secret_post";
-  if (params.tokenExchangeBodyFormat !== undefined)
+  }
+  if (params.tokenExchangeBodyFormat !== undefined) {
     set.tokenExchangeBodyFormat = params.tokenExchangeBodyFormat || "form";
-  if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
-  if (params.pingUrl !== undefined) set.pingUrl = params.pingUrl;
-  if (params.pingMethod !== undefined) set.pingMethod = params.pingMethod;
-  if (params.pingHeaders !== undefined)
+  }
+  if (params.userinfoUrl !== undefined) {
+    set.userinfoUrl = params.userinfoUrl;
+  }
+  if (params.pingUrl !== undefined) {
+    set.pingUrl = params.pingUrl;
+  }
+  if (params.pingMethod !== undefined) {
+    set.pingMethod = params.pingMethod;
+  }
+  if (params.pingHeaders !== undefined) {
     set.pingHeaders = JSON.stringify(params.pingHeaders);
-  if (params.pingBody !== undefined)
+  }
+  if (params.pingBody !== undefined) {
     set.pingBody = JSON.stringify(params.pingBody);
-  if (params.revokeUrl !== undefined) set.revokeUrl = params.revokeUrl;
-  if (params.revokeBodyTemplate !== undefined)
+  }
+  if (params.revokeUrl !== undefined) {
+    set.revokeUrl = params.revokeUrl;
+  }
+  if (params.revokeBodyTemplate !== undefined) {
     set.revokeBodyTemplate =
       params.revokeBodyTemplate === null
         ? null
         : JSON.stringify(params.revokeBodyTemplate);
-  if (params.baseUrl !== undefined) set.baseUrl = params.baseUrl;
-  if (params.defaultScopes !== undefined)
+  }
+  if (params.baseUrl !== undefined) {
+    set.baseUrl = params.baseUrl;
+  }
+  if (params.defaultScopes !== undefined) {
     set.defaultScopes = JSON.stringify(params.defaultScopes);
-  if (params.availableScopes !== undefined)
+  }
+  if (params.availableScopes !== undefined) {
     set.availableScopes =
       params.availableScopes === null
         ? null
         : JSON.stringify(params.availableScopes);
-  if (params.scopeSeparator !== undefined)
-    // Coerce empty string to the default space separator (see seedProviders).
+  }
+  if (
+    params.scopeSeparator !== undefined
+  ) // Coerce empty string to the default space separator (see seedProviders).
+  {
     set.scopeSeparator = params.scopeSeparator || " ";
-  if (params.authorizeParams !== undefined)
+  }
+  if (params.authorizeParams !== undefined) {
     set.authorizeParams = JSON.stringify(params.authorizeParams);
-  if (params.displayLabel !== undefined) set.displayLabel = params.displayLabel;
-  if (params.description !== undefined) set.description = params.description;
-  if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;
-  if (params.clientIdPlaceholder !== undefined)
+  }
+  if (params.displayLabel !== undefined) {
+    set.displayLabel = params.displayLabel;
+  }
+  if (params.description !== undefined) {
+    set.description = params.description;
+  }
+  if (params.dashboardUrl !== undefined) {
+    set.dashboardUrl = params.dashboardUrl;
+  }
+  if (params.clientIdPlaceholder !== undefined) {
     set.clientIdPlaceholder = params.clientIdPlaceholder;
-  if (params.logoUrl !== undefined) set.logoUrl = params.logoUrl;
-  if (params.requiresClientSecret !== undefined)
+  }
+  if (params.logoUrl !== undefined) {
+    set.logoUrl = params.logoUrl;
+  }
+  if (params.requiresClientSecret !== undefined) {
     set.requiresClientSecret = params.requiresClientSecret ? 1 : 0;
-  if (params.loopbackPort !== undefined) set.loopbackPort = params.loopbackPort;
-  if (params.injectionTemplates !== undefined)
+  }
+  if (params.loopbackPort !== undefined) {
+    set.loopbackPort = params.loopbackPort;
+  }
+  if (params.injectionTemplates !== undefined) {
     set.injectionTemplates = JSON.stringify(params.injectionTemplates);
-  if (params.appType !== undefined) set.appType = params.appType;
-  if (params.setupNotes !== undefined)
+  }
+  if (params.appType !== undefined) {
+    set.appType = params.appType;
+  }
+  if (params.setupNotes !== undefined) {
     set.setupNotes = JSON.stringify(params.setupNotes);
-  if (params.identityUrl !== undefined) set.identityUrl = params.identityUrl;
-  if (params.identityMethod !== undefined)
+  }
+  if (params.identityUrl !== undefined) {
+    set.identityUrl = params.identityUrl;
+  }
+  if (params.identityMethod !== undefined) {
     set.identityMethod = params.identityMethod;
-  if (params.identityHeaders !== undefined)
+  }
+  if (params.identityHeaders !== undefined) {
     set.identityHeaders = JSON.stringify(params.identityHeaders);
-  if (params.identityBody !== undefined)
+  }
+  if (params.identityBody !== undefined) {
     set.identityBody = JSON.stringify(params.identityBody);
-  if (params.identityResponsePaths !== undefined)
+  }
+  if (params.identityResponsePaths !== undefined) {
     set.identityResponsePaths = JSON.stringify(params.identityResponsePaths);
-  if (params.identityFormat !== undefined)
+  }
+  if (params.identityFormat !== undefined) {
     set.identityFormat = params.identityFormat;
-  if (params.identityOkField !== undefined)
+  }
+  if (params.identityOkField !== undefined) {
     set.identityOkField = params.identityOkField;
-  if (params.featureFlag !== undefined) set.featureFlag = params.featureFlag;
-  if (params.managedServiceIsPaid !== undefined)
+  }
+  if (params.featureFlag !== undefined) {
+    set.featureFlag = params.featureFlag;
+  }
+  if (params.managedServiceIsPaid !== undefined) {
     set.managedServiceIsPaid = params.managedServiceIsPaid;
+  }
 
   db.update(oauthProviders)
     .set(set)
@@ -579,7 +634,9 @@ export function updateProvider(
  */
 export function deleteProvider(provider: string): boolean {
   const existing = getProvider(provider);
-  if (!existing) return false;
+  if (!existing) {
+    return false;
+  }
 
   const db = getDb();
   db.delete(oauthProviders).where(eq(oauthProviders.provider, provider)).run();
@@ -718,7 +775,9 @@ export async function getAppClientSecret(
   appOrId: OAuthAppRow | string,
 ): Promise<string | undefined> {
   const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
-  if (!app) return undefined;
+  if (!app) {
+    return undefined;
+  }
   return getSecureKeyAsync(app.clientSecretCredentialPath);
 }
 
@@ -765,7 +824,9 @@ export async function deleteApp(id: string): Promise<boolean> {
   const db = getDb();
 
   const app = db.select().from(oauthApps).where(eq(oauthApps.id, id)).get();
-  if (!app) return false;
+  if (!app) {
+    return false;
+  }
 
   // Delete the DB row first so that if it fails (e.g. FK constraint from
   // existing connections), the secret in secure storage remains intact.
@@ -879,7 +940,9 @@ export function getActiveConnections(
 
   if (clientId) {
     const app = getAppByProviderAndClientId(provider, clientId);
-    if (!app) return [];
+    if (!app) {
+      return [];
+    }
     conditions.push(eq(oauthConnections.oauthAppId, app.id));
   }
 
@@ -929,7 +992,9 @@ export function listActiveConnectionsByProvider(
  */
 export async function isProviderConnected(provider: string): Promise<boolean> {
   const conn = getActiveConnection(provider);
-  if (!conn || conn.status !== "active") return false;
+  if (!conn || conn.status !== "active") {
+    return false;
+  }
   const tokenResult = await getConnectionAccessTokenResult({
     provider,
     connectionId: conn.id,
@@ -961,17 +1026,30 @@ export function updateConnection(
   // For expiresAt, null means "clear the column" so we check for undefined
   // explicitly rather than truthiness.
   const set: Record<string, unknown> = { updatedAt: now };
-  if (updates.oauthAppId !== undefined) set.oauthAppId = updates.oauthAppId;
-  if (updates.accountInfo !== undefined) set.accountInfo = updates.accountInfo;
-  if (updates.grantedScopes !== undefined)
+  if (updates.oauthAppId !== undefined) {
+    set.oauthAppId = updates.oauthAppId;
+  }
+  if (updates.accountInfo !== undefined) {
+    set.accountInfo = updates.accountInfo;
+  }
+  if (updates.grantedScopes !== undefined) {
     set.grantedScopes = JSON.stringify(updates.grantedScopes);
-  if (updates.expiresAt !== undefined) set.expiresAt = updates.expiresAt;
-  if (updates.hasRefreshToken !== undefined)
+  }
+  if (updates.expiresAt !== undefined) {
+    set.expiresAt = updates.expiresAt;
+  }
+  if (updates.hasRefreshToken !== undefined) {
     set.hasRefreshToken = updates.hasRefreshToken ? 1 : 0;
-  if (updates.status !== undefined) set.status = updates.status;
-  if (updates.label !== undefined) set.label = updates.label;
-  if (updates.metadata !== undefined)
+  }
+  if (updates.status !== undefined) {
+    set.status = updates.status;
+  }
+  if (updates.label !== undefined) {
+    set.label = updates.label;
+  }
+  if (updates.metadata !== undefined) {
     set.metadata = JSON.stringify(updates.metadata);
+  }
 
   db.update(oauthConnections).set(set).where(eq(oauthConnections.id, id)).run();
 
@@ -1056,7 +1134,9 @@ export async function disconnectOAuthProvider(
   const conn = connectionId
     ? getConnection(connectionId)
     : getActiveConnection(provider, { clientId });
-  if (!conn) return "not-found";
+  if (!conn) {
+    return "not-found";
+  }
 
   // Best-effort upstream revoke. Mirrors platform's try_revoke_token in
   // django/app/assistant/oauth/providers/base.py. Failures here never

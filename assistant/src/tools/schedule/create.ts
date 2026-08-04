@@ -20,6 +20,7 @@ import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
+import { resolveGroupReference } from "../conversation-groups/group_shared.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -73,6 +74,7 @@ export const scheduleCreateInputSchema = z.looseObject({
   retry_backoff_ms: nullAsOmitted(z.int()),
   timeout_ms: z.int().optional(),
   inference_profile: z.string().optional(),
+  group: nullAsOmitted(z.string()),
 });
 
 export async function executeScheduleCreate(
@@ -129,6 +131,18 @@ export async function executeScheduleCreate(
     if (profileError) {
       return { content: `Error: ${profileError}`, isError: true };
     }
+  }
+
+  // Sidebar group for run conversations; null = default system:scheduled.
+  let groupId: string | null = null;
+  let groupName: string | null = null;
+  if (parsed.group !== undefined) {
+    const resolvedGroup = resolveGroupReference(parsed.group);
+    if ("error" in resolvedGroup) {
+      return { content: `Error: ${resolvedGroup.error}`, isError: true };
+    }
+    groupId = resolvedGroup.group.id;
+    groupName = resolvedGroup.group.name;
   }
 
   if (!name) {
@@ -261,6 +275,7 @@ export async function executeScheduleCreate(
         workflowArgs,
         capabilities,
         inferenceProfile,
+        groupId,
         createdFromConversationId: context.conversationId,
       });
 
@@ -277,6 +292,7 @@ export async function executeScheduleCreate(
           ...(job.inferenceProfile
             ? [`  Inference profile: ${job.inferenceProfile}`]
             : []),
+          ...(groupName ? [`  Conversation group: ${groupName}`] : []),
           `  Fire at: ${fireDate}`,
           `  Enabled: ${job.enabled}`,
           `  Status: ${job.status}`,
@@ -352,6 +368,7 @@ export async function executeScheduleCreate(
       workflowArgs,
       capabilities,
       inferenceProfile,
+      groupId,
       createdFromConversationId: context.conversationId,
     });
 
@@ -375,6 +392,7 @@ export async function executeScheduleCreate(
         ...(job.inferenceProfile
           ? [`  Inference profile: ${job.inferenceProfile}`]
           : []),
+        ...(groupName ? [`  Conversation group: ${groupName}`] : []),
         `  Schedule: ${scheduleDescription}${
           job.timezone ? ` (${job.timezone})` : ""
         }`,

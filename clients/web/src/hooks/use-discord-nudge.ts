@@ -85,11 +85,21 @@ export function areDiscordPrerequisitesMet(
   platformNudgeResolved: boolean,
   conversationCount: number,
 ): boolean {
-  if (!platformNudgeResolved) return false;
-  if (!isGitHubNudgeResolved()) return false;
-  if (!isAccountAgeEligible()) return false;
-  if (conversationCount < DISCORD_MIN_CONVERSATION_COUNT) return false;
-  if (!isGitHubDismissCooldownElapsed()) return false;
+  if (!platformNudgeResolved) {
+    return false;
+  }
+  if (!isGitHubNudgeResolved()) {
+    return false;
+  }
+  if (!isAccountAgeEligible()) {
+    return false;
+  }
+  if (conversationCount < DISCORD_MIN_CONVERSATION_COUNT) {
+    return false;
+  }
+  if (!isGitHubDismissCooldownElapsed()) {
+    return false;
+  }
   return true;
 }
 
@@ -160,6 +170,8 @@ export function useDiscordNudgeState(
 // ---------------------------------------------------------------------------
 
 export function openDiscordInvite(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   window.open(DISCORD_INVITE_URL, "_blank", "noopener,noreferrer");
 }

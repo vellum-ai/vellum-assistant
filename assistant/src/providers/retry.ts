@@ -4,7 +4,11 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
-import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
+import {
+  type ProviderCredentialSource,
+  ProviderError,
+  type ProviderErrorReason,
+} from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   computeRetryDelay,
@@ -18,8 +22,12 @@ import {
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
+  isAdaptiveThinkingOnlyModel,
+  isAdaptiveThinkingUnsupportedModel,
+} from "./model-catalog.js";
+import {
+  isThinkingConfigAdaptive,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";
@@ -234,23 +242,35 @@ const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
 ]);
 
 function isRetryableStreamError(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — not a stream error
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
 }
 
 function isRetryableProviderMessage(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — handled by status check
   return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableTransportAbort(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
   // Transport aborts surface with ``status === undefined`` (the SDK never
   // saw an HTTP response). A real HTTP status here means a server error,
   // which is handled by the status check.
-  if (error.statusCode !== undefined) return false;
+  if (error.statusCode !== undefined) {
+    return false;
+  }
   return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
@@ -259,7 +279,9 @@ function isRetryableError(error: unknown): boolean {
   // will never succeed. Short-circuit before the generic 429/5xx check so
   // ContextOverflowError (which extends ProviderError and may carry a 429
   // statusCode on Gemini/Vertex) never triggers exponential backoff.
-  if (isContextOverflowError(error)) return false;
+  if (isContextOverflowError(error)) {
+    return false;
+  }
   // Daemon/user-initiated aborts are never retryable. The catch-site tags
   // these with `abortReason` exactly when `signal.aborted` was true at the
   // time of failure, so this short-circuits before any message-based pattern
@@ -279,11 +301,19 @@ function isRetryableError(error: unknown): boolean {
     return RETRYABLE_PROVIDER_ERROR_REASONS.has(error.reason);
   }
   if (error instanceof ProviderError && error.statusCode !== undefined) {
-    if (error.statusCode === 429 || error.statusCode >= 500) return true;
+    if (error.statusCode === 429 || error.statusCode >= 500) {
+      return true;
+    }
   }
-  if (isRetryableProviderMessage(error)) return true;
-  if (isRetryableStreamError(error)) return true;
-  if (isRetryableTransportAbort(error)) return true;
+  if (isRetryableProviderMessage(error)) {
+    return true;
+  }
+  if (isRetryableStreamError(error)) {
+    return true;
+  }
+  if (isRetryableTransportAbort(error)) {
+    return true;
+  }
   return isRetryableNetworkError(error);
 }
 
@@ -330,7 +360,9 @@ function normalizeSendMessageOptions(
   normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
-  if (!config) return options;
+  if (!config) {
+    return options;
+  }
 
   const nextConfig: Record<string, unknown> = { ...config };
 
@@ -527,6 +559,21 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
+  // Pre-adaptive Claude models (Haiku 4.5, Opus 4.5, Sonnet 4.5) reject
+  // `thinking: { type: "adaptive" }` (Anthropic 400s the request), and Vellum
+  // never sends the legacy budget_tokens form. Drop an adaptive thinking
+  // config for these models so the request goes out without thinking instead
+  // of failing. A pass-through `{ type: "enabled", budget_tokens }` config is
+  // left intact: these models do support that shape.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingUnsupportedModel(nextConfig.model) &&
+    isThinkingConfigAdaptive(nextConfig.thinking) &&
+    targetsAnthropicWire(providerName, nextConfig.model)
+  ) {
+    delete nextConfig.thinking;
+  }
+
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
   // signal for its unified reasoning parameter; Gemini reads `level` from it.
   // Strip it for other providers.
@@ -551,7 +598,9 @@ function normalizeSendMessageOptions(
     if (wire.level !== undefined || wire.streamThinking !== undefined) {
       const scrubbed: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(wire)) {
-        if (key === "level" || key === "streamThinking") continue;
+        if (key === "level" || key === "streamThinking") {
+          continue;
+        }
         scrubbed[key] = value;
       }
       nextConfig.thinking = scrubbed;
@@ -571,10 +620,16 @@ function normalizeSendMessageOptions(
   // `reasoning` parameter via `buildExtraCreateParams` and may support
   // reasoning with forced tool_choice).
   const isThinkingForcedToolConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    if (nextConfig.thinking == null) {
+      return false;
+    }
+    if (isThinkingConfigDisabled(nextConfig.thinking)) {
+      return false;
+    }
     const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
-    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
+    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) {
+      return false;
+    }
     const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
     return targetsAnthropicWire(providerName, model);
   })();
@@ -773,6 +828,8 @@ function addSanitizedHeader(
 export class RetryProvider implements Provider {
   public readonly name: string;
 
+  private inner: Provider;
+
   get tokenEstimationProvider(): string | undefined {
     return this.inner.tokenEstimationProvider;
   }
@@ -791,24 +848,63 @@ export class RetryProvider implements Provider {
   // the wrapper chain (callers gate on its presence). Bound straight to the
   // inner provider — count_tokens is a cheap separate endpoint and its caller
   // already falls back on error, so it needs no retry wrapping.
+  // Deliberately not re-bound when a credential refresh swaps `inner`: every
+  // outer wrapper snapshots this the same way at construction, so a re-bind
+  // here would never reach callers. count_tokens on the pre-refresh credential
+  // fails soft — its caller falls back to estimation.
   public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
 
   constructor(
-    private readonly inner: Provider,
-    private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
+    inner: Provider,
+    private readonly options: {
+      forwardUsageAttributionHeaders?: boolean;
+      credentialSource?: ProviderCredentialSource;
+      connectionName?: string;
+      refreshCredentialProvider?: () => Promise<Provider | null>;
+    } = {},
   ) {
+    this.inner = inner;
     this.name = inner.name;
     if (inner.countInputTokens) {
       this.countInputTokens = inner.countInputTokens.bind(inner);
     }
   }
 
+  private shouldRefreshManagedCredential(error: unknown): boolean {
+    return (
+      this.options.credentialSource === "vellum-managed" &&
+      this.options.refreshCredentialProvider !== undefined &&
+      error instanceof ProviderError &&
+      (error.statusCode === 401 || error.statusCode === 403) &&
+      (error.reason === undefined ||
+        error.reason === "unknown" ||
+        error.reason === "invalid_credentials")
+    );
+  }
+
+  private attributeCredential(error: unknown): void {
+    const { credentialSource, connectionName } = this.options;
+    if (
+      !(error instanceof ProviderError) ||
+      (!credentialSource && !connectionName)
+    ) {
+      return;
+    }
+    // Merges under whatever a closer layer already stamped, so a route
+    // resolved at dispatch keeps precedence over this adapter's own view.
+    error.attachRouteAttribution({
+      ...(credentialSource ? { credentialSource } : {}),
+      ...(connectionName ? { connectionName } : {}),
+    });
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    let lastError: unknown;
     let didRetry = false;
+    let retryAttempt = 0;
+    let credentialRefreshAttempted = false;
     let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
@@ -816,7 +912,7 @@ export class RetryProvider implements Provider {
         this.options.forwardUsageAttributionHeaders === true,
     });
 
-    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    while (true) {
       try {
         const result = await this.inner.sendMessage(
           messagesForAttempt,
@@ -824,9 +920,37 @@ export class RetryProvider implements Provider {
         );
         return result;
       } catch (error) {
-        lastError = error;
+        if (
+          !credentialRefreshAttempted &&
+          this.shouldRefreshManagedCredential(error)
+        ) {
+          credentialRefreshAttempted = true;
+          try {
+            const refreshed = await this.options.refreshCredentialProvider?.();
+            if (refreshed) {
+              this.inner = refreshed;
+              log.info(
+                {
+                  provider: this.name,
+                  connectionName: this.options.connectionName,
+                },
+                "Retrying managed inference with refreshed assistant credentials",
+              );
+              continue;
+            }
+          } catch (refreshError) {
+            log.warn(
+              {
+                provider: this.name,
+                connectionName: this.options.connectionName,
+                refreshError,
+              },
+              "Failed to reload managed assistant credentials",
+            );
+          }
+        }
 
-        if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+        if (retryAttempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
           // Malformed tool-argument JSON is conditioned on the request, so
           // resend with the corrective note. Built from the original
           // `messages` each time — the note appears exactly once no matter
@@ -839,7 +963,8 @@ export class RetryProvider implements Provider {
             error instanceof ProviderError ? error.retryAfterMs : undefined;
           const MAX_RETRY_DELAY_MS = 60_000; // Cap server-suggested delays at 60s
           const delay = Math.min(
-            retryAfter ?? computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS),
+            retryAfter ??
+              computeRetryDelay(retryAttempt, DEFAULT_BASE_DELAY_MS),
             MAX_RETRY_DELAY_MS,
           );
           const errorType =
@@ -858,7 +983,7 @@ export class RetryProvider implements Provider {
                       : "network_error";
           log.warn(
             {
-              attempt: attempt + 1,
+              attempt: retryAttempt + 1,
               maxRetries: DEFAULT_MAX_RETRIES,
               delay,
               retryAfterHeader: retryAfter !== undefined,
@@ -870,6 +995,7 @@ export class RetryProvider implements Provider {
             "Retrying after transient error",
           );
           didRetry = true;
+          retryAttempt++;
           await sleep(delay);
           continue;
         }
@@ -885,16 +1011,9 @@ export class RetryProvider implements Provider {
             true;
         }
 
+        this.attributeCredential(error);
         throw error;
       }
     }
-
-    // Unreachable in practice — the loop body always either returns or throws —
-    // but mark the last error in case execution somehow falls through.
-    if (lastError instanceof Error && isRetryableError(lastError)) {
-      (lastError as Error & { retriesExhausted?: boolean }).retriesExhausted =
-        true;
-    }
-    throw lastError;
   }
 }

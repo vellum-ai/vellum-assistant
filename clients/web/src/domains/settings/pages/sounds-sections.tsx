@@ -5,12 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { AvailableSound } from "@/lib/sounds/api";
 import {
-    defaultSoundsConfig,
-    displayLabelForFilename,
-    SOUND_EVENT_DISPLAY_NAMES,
-    SOUND_EVENT_IDS,
-    type SoundEventConfig,
-    type SoundEventId,
+  defaultSoundsConfig,
+  displayLabelForFilename,
+  SOUND_EVENT_DISPLAY_NAMES,
+  SOUND_EVENT_IDS,
+  type SoundEventConfig,
+  type SoundEventId,
 } from "@/lib/sounds/types";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -280,7 +280,9 @@ export function SoundsSections() {
   const addSoundToEvent = (event: SoundEventId, filename: string) => {
     updateConfig((prev) => {
       const current = prev.events[event] ?? { enabled: true, sounds: [] };
-      if (current.sounds.includes(filename)) return prev;
+      if (current.sounds.includes(filename)) {
+        return prev;
+      }
       return {
         ...prev,
         events: {
@@ -294,7 +296,9 @@ export function SoundsSections() {
   const removeSoundFromEvent = (event: SoundEventId, filename: string) => {
     updateConfig((prev) => {
       const current = prev.events[event];
-      if (!current) return prev;
+      if (!current) {
+        return prev;
+      }
       return {
         ...prev,
         events: {
@@ -339,17 +343,23 @@ export function SoundsSections() {
             onPointerUp={(e) => {
               const next = parseFloat(e.currentTarget.value);
               setDraftVolume(null);
-              if (next !== config.volume) commitVolume(next);
+              if (next !== config.volume) {
+                commitVolume(next);
+              }
             }}
             onKeyUp={(e) => {
               const next = parseFloat(e.currentTarget.value);
               setDraftVolume(null);
-              if (next !== config.volume) commitVolume(next);
+              if (next !== config.volume) {
+                commitVolume(next);
+              }
             }}
             onBlur={(e) => {
               const next = parseFloat(e.currentTarget.value);
               setDraftVolume(null);
-              if (next !== config.volume) commitVolume(next);
+              if (next !== config.volume) {
+                commitVolume(next);
+              }
             }}
             className="h-1 w-48 cursor-pointer"
             disabled={!config.globalEnabled}

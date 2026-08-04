@@ -37,8 +37,16 @@ export function navigateToConversation(
     haptic.light();
   }
   useViewerStore.getState().setMainView("chat");
-  useSubagentStore.getState().reset();
-  useWorkflowStore.getState().reset();
+  // Only wipe per-conversation process state on a genuine switch. Wiping on
+  // a same-conversation navigation kills the inline cards for subagents
+  // that are still running: the store repopulates only from live SSE
+  // events, so the spawned entries can't come back mid-run (LUM-2875).
+  if (
+    conversationId !== useConversationStore.getState().activeConversationId
+  ) {
+    useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
+  }
   useConversationStore.getState().setActiveConversationId(conversationId);
   void navigate(
     options?.messageId

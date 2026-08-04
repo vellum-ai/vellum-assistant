@@ -26,9 +26,7 @@ let testDir: string;
 let runsDir: string;
 let origEnv: Record<string, string | undefined>;
 
-function findRoute(
-  operationId: string,
-): RouteDefinition | undefined {
+function findRoute(operationId: string): RouteDefinition | undefined {
   return ROUTES.find((r) => r.operationId === operationId);
 }
 
@@ -182,23 +180,23 @@ describe("Profiler routes", () => {
     for (const payload of traversalPayloads) {
       test(`GET rejects runId "${payload}"`, () => {
         const route = findRoute("profiler_runs_by_runId_get")!;
-        expect(() =>
-          route.handler({ pathParams: { runId: payload } }),
-        ).toThrow(BadRequestError);
+        expect(() => route.handler({ pathParams: { runId: payload } })).toThrow(
+          BadRequestError,
+        );
       });
 
       test(`POST export rejects runId "${payload}"`, () => {
         const route = findRoute("profiler_runs_by_runId_export_post")!;
-        expect(() =>
-          route.handler({ pathParams: { runId: payload } }),
-        ).toThrow(BadRequestError);
+        expect(() => route.handler({ pathParams: { runId: payload } })).toThrow(
+          BadRequestError,
+        );
       });
 
       test(`DELETE rejects runId "${payload}"`, () => {
         const route = findRoute("profiler_runs_by_runId_delete")!;
-        expect(() =>
-          route.handler({ pathParams: { runId: payload } }),
-        ).toThrow(BadRequestError);
+        expect(() => route.handler({ pathParams: { runId: payload } })).toThrow(
+          BadRequestError,
+        );
       });
     }
   });

@@ -23,7 +23,8 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { ShareFeedbackModal } = await import("@/components/share-feedback-modal");
+const { ShareFeedbackModal } =
+  await import("@/components/share-feedback-modal");
 
 afterEach(() => {
   cleanup();

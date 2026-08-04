@@ -41,7 +41,9 @@ describe("avatarSurfaceHex", () => {
 
   test("every bundled palette color clears 7:1 against white", () => {
     for (const { hex } of BUNDLED_COMPONENTS.colors) {
-      expect(contrastRatio(avatarSurfaceHex(hex), "#FFFFFF")).toBeGreaterThanOrEqual(7);
+      expect(
+        contrastRatio(avatarSurfaceHex(hex), "#FFFFFF"),
+      ).toBeGreaterThanOrEqual(7);
     }
   });
 

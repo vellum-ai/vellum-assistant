@@ -30,7 +30,9 @@ const ipcCallPersistentMock = mock(
     timeoutMs?: number,
   ) => {
     ipcCalls.push({ method, params, timeoutMs });
-    if (ipcError) throw ipcError;
+    if (ipcError) {
+      throw ipcError;
+    }
     return ipcResult;
   },
 );

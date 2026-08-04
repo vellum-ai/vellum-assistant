@@ -181,7 +181,9 @@ export function updateDeliveryRenderedCopy(
   if (patch.renderedBody !== undefined) {
     updates.renderedBody = patch.renderedBody;
   }
-  if (Object.keys(updates).length === 1) return false;
+  if (Object.keys(updates).length === 1) {
+    return false;
+  }
 
   getDb()
     .update(notificationDeliveries)

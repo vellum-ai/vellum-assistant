@@ -8,7 +8,9 @@ let mockRouterResult: unknown;
 let mockRouterError: Error | undefined;
 
 const generateAvatarFn = mock(async () => {
-  if (mockRouterError) throw mockRouterError;
+  if (mockRouterError) {
+    throw mockRouterError;
+  }
   return mockRouterResult;
 });
 

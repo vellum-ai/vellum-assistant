@@ -10,10 +10,14 @@ export function getHatchedSidecarPath(): string {
 }
 
 function normalizeHatchedAt(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
 
   const parsedTime = Date.parse(value);
-  if (isNaN(parsedTime) || parsedTime <= 0) return undefined;
+  if (isNaN(parsedTime) || parsedTime <= 0) {
+    return undefined;
+  }
 
   return new Date(parsedTime).toISOString();
 }
@@ -31,7 +35,9 @@ export function readHatchedAtSidecar(): string | undefined {
 
 export function writeHatchedAtSidecar(hatchedAt: string): void {
   const normalized = normalizeHatchedAt(hatchedAt);
-  if (!normalized) return;
+  if (!normalized) {
+    return;
+  }
 
   try {
     mkdirSync(getDataDir(), { recursive: true });
@@ -77,7 +83,9 @@ export function resolveAndPersistHatchedAt(
   now: Date = new Date(),
 ): string {
   const sidecarHatchedAt = readHatchedAtSidecar();
-  if (sidecarHatchedAt) return sidecarHatchedAt;
+  if (sidecarHatchedAt) {
+    return sidecarHatchedAt;
+  }
 
   const hatchedAt =
     readIdentityFileHatchedAt(identityPath) ?? now.toISOString();

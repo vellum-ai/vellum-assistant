@@ -1,4 +1,3 @@
-
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 
@@ -66,7 +65,9 @@ export function WebsiteCarousel({
   // and the walk resumes — always converging on (and then holding) the most
   // recently searched site. Once caught up we hold and schedule nothing.
   useEffect(() => {
-    if (currentIndex >= target) return;
+    if (currentIndex >= target) {
+      return;
+    }
     const id = setTimeout(
       () => setCurrentIndex((i) => Math.min(i + 1, target)),
       minDwellMs,
@@ -74,11 +75,16 @@ export function WebsiteCarousel({
     return () => clearTimeout(id);
   }, [currentIndex, target, minDwellMs]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return null;
+  }
 
   const transition = reduce
     ? { duration: 0 }
-    : { duration: 0.35, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] };
+    : {
+        duration: 0.35,
+        ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+      };
   const initial = reduce ? { opacity: 0 } : { y: -28, opacity: 0 };
   const animate = reduce ? { opacity: 1 } : { y: 0, opacity: 1 };
   const exit = reduce ? { opacity: 0 } : { y: 28, opacity: 0 };

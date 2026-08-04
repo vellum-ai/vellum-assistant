@@ -1,7 +1,6 @@
 import { inArray } from "drizzle-orm";
 
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import type {
   QdrantSearchResult,
@@ -13,6 +12,7 @@ import {
   memorySummaries,
 } from "../../../../persistence/schema/index.js";
 import { getMemoryConfig } from "../config.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { mapCosineToUnit } from "../validation.js";
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -58,13 +58,17 @@ export async function semanticSearch(
   excludedMessageIds: string[] = [],
   sparseVector?: QdrantSparseVector,
 ): Promise<Candidate[]> {
-  if (limit <= 0) return [];
+  if (limit <= 0) {
+    return [];
+  }
 
   // Concept-page memory owns the read path when active; the v1 `memory`
   // collection is in active retirement, and routing semantic recall there
   // would re-enter the same corrupted sparse segments that can OOM-crash
   // Qdrant.
-  if (usesConceptPageMemory(getMemoryConfig())) return [];
+  if (usesConceptPageMemory(getMemoryConfig())) {
+    return [];
+  }
 
   const qdrant = getQdrantClient();
 
@@ -100,36 +104,41 @@ export async function semanticSearch(
     );
   }
 
-  const db = getDb();
+  const mem = memoryDbOrNull("semanticSearch");
 
   // Batch-fetch all backing records upfront to avoid N+1 queries per result
   const summaryTargetIds: string[] = [];
   const segmentTargetIds: string[] = [];
   for (const r of results) {
-    if (r.payload.target_type === "summary")
+    if (r.payload.target_type === "summary") {
       summaryTargetIds.push(r.payload.target_id);
-    else if (r.payload.target_type === "segment")
+    } else if (r.payload.target_type === "segment") {
       segmentTargetIds.push(r.payload.target_id);
+    }
   }
 
   const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
-  if (summaryTargetIds.length > 0) {
-    const allSummaries = db
+  if (mem && summaryTargetIds.length > 0) {
+    const allSummaries = mem
       .select()
       .from(memorySummaries)
       .where(inArray(memorySummaries.id, summaryTargetIds))
       .all();
-    for (const s of allSummaries) summariesMap.set(s.id, s);
+    for (const s of allSummaries) {
+      summariesMap.set(s.id, s);
+    }
   }
 
   const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
-  if (segmentTargetIds.length > 0) {
-    const allSegments = db
+  if (mem && segmentTargetIds.length > 0) {
+    const allSegments = mem
       .select()
       .from(memorySegments)
       .where(inArray(memorySegments.id, segmentTargetIds))
       .all();
-    for (const seg of allSegments) segmentsMap.set(seg.id, seg);
+    for (const seg of allSegments) {
+      segmentsMap.set(seg.id, seg);
+    }
   }
 
   const candidates: Candidate[] = [];
@@ -143,7 +152,9 @@ export async function semanticSearch(
       // Legacy item vectors — skip (table dropped, Qdrant cleanup pending)
       continue;
     } else if (payload.target_type === "summary") {
-      if (!summariesMap.has(payload.target_id)) continue;
+      if (!summariesMap.has(payload.target_id)) {
+        continue;
+      }
       candidates.push({
         key: `summary:${payload.target_id}`,
         type: "summary",
@@ -176,7 +187,9 @@ export async function semanticSearch(
         finalScore: 0,
       });
     } else {
-      if (!segmentsMap.has(payload.target_id)) continue;
+      if (!segmentsMap.has(payload.target_id)) {
+        continue;
+      }
       candidates.push({
         key: `segment:${payload.target_id}`,
         type: "segment",
@@ -194,7 +207,9 @@ export async function semanticSearch(
         finalScore: 0,
       });
     }
-    if (candidates.length >= limit) break;
+    if (candidates.length >= limit) {
+      break;
+    }
   }
 
   // For hybrid search (RRF fusion), normalize semantic scores relative to

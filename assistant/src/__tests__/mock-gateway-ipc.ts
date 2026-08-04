@@ -74,8 +74,12 @@ class FakePersistentIpcClient extends EventEmitter {
     if (simulateError) {
       throw new Error("Mock IPC socket error");
     }
-    if (method in ipcResults) return ipcResults[method];
-    if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
+    if (method in ipcResults) {
+      return ipcResults[method];
+    }
+    if (method === "get_feature_flags") {
+      return GET_FEATURE_FLAGS_DEFAULT;
+    }
     return undefined;
   }
 
@@ -115,10 +119,15 @@ class FakeIpcCallError extends Error {
   ) {
     super(message);
     this.name = "IpcCallError";
-    if (fields.statusCode !== undefined) this.statusCode = fields.statusCode;
-    if (fields.errorCode !== undefined) this.errorCode = fields.errorCode;
-    if (fields.errorDetails !== undefined)
+    if (fields.statusCode !== undefined) {
+      this.statusCode = fields.statusCode;
+    }
+    if (fields.errorCode !== undefined) {
+      this.errorCode = fields.errorCode;
+    }
+    if (fields.errorDetails !== undefined) {
       this.errorDetails = fields.errorDetails;
+    }
   }
 }
 
@@ -133,8 +142,12 @@ export function installGatewayIpcMock(): void {
         // Real ipcCall returns undefined on failure — mirror that behavior.
         return undefined;
       }
-      if (method in ipcResults) return ipcResults[method];
-      if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
+      if (method in ipcResults) {
+        return ipcResults[method];
+      }
+      if (method === "get_feature_flags") {
+        return GET_FEATURE_FLAGS_DEFAULT;
+      }
       return undefined;
     },
     IpcCallError: FakeIpcCallError,

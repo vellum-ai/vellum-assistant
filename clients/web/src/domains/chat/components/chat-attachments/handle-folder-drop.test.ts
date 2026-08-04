@@ -11,9 +11,8 @@ mock.module("@/runtime/file-paths", () => ({
   getNativePathForFile: getNativePathForFileMock,
 }));
 
-const { resolveDroppedDirectories, WEB_FOLDER_DROP_ERROR } = await import(
-  "./handle-folder-drop"
-);
+const { resolveDroppedDirectories, WEB_FOLDER_DROP_ERROR } =
+  await import("./handle-folder-drop");
 
 afterEach(() => {
   getNativePathForFileMock.mockReset();
@@ -34,8 +33,8 @@ describe("resolveDroppedDirectories", () => {
   });
 
   test("resolves every folder to its native path when Electron is available", () => {
-    getNativePathForFileMock.mockImplementation((file) =>
-      `/Users/example/${(file as File).name}`,
+    getNativePathForFileMock.mockImplementation(
+      (file) => `/Users/example/${(file as File).name}`,
     );
     const folders = [
       new File([], "app", { type: "" }),

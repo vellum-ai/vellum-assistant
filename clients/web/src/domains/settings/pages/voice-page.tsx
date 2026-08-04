@@ -111,10 +111,7 @@ export function VoicePage() {
 export function VoiceSections() {
   return (
     <div className="flex flex-col gap-8">
-      <VoiceSection
-        heading="Output"
-        description="How your assistant sounds."
-      >
+      <VoiceSection heading="Output" description="How your assistant sounds.">
         <VoicePickerCard />
         <SpeechServicesBanner />
       </VoiceSection>
@@ -148,7 +145,9 @@ export function VoiceSections() {
 function SpeechServicesBanner() {
   const { available } = useManagedVoiceSelection(useActiveAssistantId());
 
-  if (!available) return null;
+  if (!available) {
+    return null;
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
@@ -221,7 +220,9 @@ function MicrophoneCard() {
   );
 
   const refreshDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return;
+    }
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
       const inputs = all.filter((device) => device.kind === "audioinput");
@@ -253,7 +254,9 @@ function MicrophoneCard() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-      for (const track of stream.getTracks()) track.stop();
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
     } catch {
       // Denied or no device — the picker keeps showing System Default.
     }
@@ -263,7 +266,9 @@ function MicrophoneCard() {
   useEffect(() => {
     void refreshDevices();
     const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices?.addEventListener) return;
+    if (!mediaDevices?.addEventListener) {
+      return;
+    }
     const onDeviceChange = () => void refreshDevices();
     mediaDevices.addEventListener("devicechange", onDeviceChange);
     return () =>
@@ -377,10 +382,18 @@ function PushToTalkCard() {
       if (fnPushToTalkConfigurable && event.getModifierState("Fn")) {
         modifiers.push("function");
       }
-      if (event.ctrlKey) modifiers.push("control");
-      if (event.altKey) modifiers.push("option");
-      if (event.shiftKey) modifiers.push("shift");
-      if (event.metaKey) modifiers.push("command");
+      if (event.ctrlKey) {
+        modifiers.push("control");
+      }
+      if (event.altKey) {
+        modifiers.push("option");
+      }
+      if (event.shiftKey) {
+        modifiers.push("shift");
+      }
+      if (event.metaKey) {
+        modifiers.push("command");
+      }
       return modifiers;
     },
     [fnPushToTalkConfigurable],
@@ -427,7 +440,9 @@ function PushToTalkCard() {
 
   const handleCaptureKeyUp = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (!isRecording) return;
+      if (!isRecording) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
 
@@ -438,7 +453,9 @@ function PushToTalkCard() {
         key === "Shift" ||
         key === "Meta" ||
         key === "Fn";
-      if (!isModifierOnly) return;
+      if (!isModifierOnly) {
+        return;
+      }
 
       if (nonModifierPressedRef.current) {
         nonModifierPressedRef.current = false;
@@ -458,7 +475,9 @@ function PushToTalkCard() {
   );
 
   useEffect(() => {
-    if (!isRecording) return;
+    if (!isRecording) {
+      return;
+    }
     const handler = (event: MouseEvent) => {
       if (
         recordingZoneRef.current &&
@@ -637,8 +656,9 @@ function ConversationTuningCard() {
             <Slider
               value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
               onValueChange={(next) => {
-                if (typeof next === "number")
+                if (typeof next === "number") {
                   setPauseMs(Math.round(next * 1000));
+                }
               }}
               min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
               max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}

@@ -97,7 +97,9 @@ export function useEdgeSwipeBack({
   const unregisterBackOwner =
     useEdgeSwipeArbiterStore.use.unregisterBackOwner();
   useEffect(() => {
-    if (!enabled) {return;}
+    if (!enabled) {
+      return;
+    }
     registerBackOwner();
     return unregisterBackOwner;
   }, [enabled, registerBackOwner, unregisterBackOwner]);
@@ -107,17 +109,23 @@ export function useEdgeSwipeBack({
     const timers = timersRef.current;
     return () => {
       cancelledRef.current = true;
-      for (const id of timers) {clearTimeout(id);}
+      for (const id of timers) {
+        clearTimeout(id);
+      }
       timers.clear();
       const el = containerRef.current;
-      if (el) {resetTransientStyles(el);}
+      if (el) {
+        resetTransientStyles(el);
+      }
     };
   }, [containerRef]);
 
   const scheduleTimeout = (fn: () => void, ms: number) => {
     const id = setTimeout(() => {
       timersRef.current.delete(id);
-      if (!cancelledRef.current) {fn();}
+      if (!cancelledRef.current) {
+        fn();
+      }
     }, ms);
     timersRef.current.add(id);
   };
@@ -147,7 +155,9 @@ export function useEdgeSwipeBack({
     applyOffset(el, window.innerWidth);
     let didFinish = false;
     const finish = () => {
-      if (didFinish || cancelledRef.current) {return;}
+      if (didFinish || cancelledRef.current) {
+        return;
+      }
       didFinish = true;
       el.removeEventListener("transitionend", finish);
 
@@ -182,13 +192,17 @@ export function useEdgeSwipeBack({
     enabled,
     onConfirm: () => {
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       el.style.transition = "none";
       el.style.willChange = "transform";
     },
     onMove: (dx, threshold) => {
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       applyOffset(el, computeVisualOffset(dx, threshold));
     },
     onCommit: () => {
@@ -207,7 +221,9 @@ export function useEdgeSwipeBack({
     },
     onCancel: (animate) => {
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       if (animate) {
         snapBack(el);
       } else {
@@ -222,14 +238,20 @@ export function useEdgeSwipeBack({
   // so here we just transition it to rest — the outgoing page is already gone,
   // so nothing stale is ever revealed.
   useLayoutEffect(() => {
-    if (!pendingRevealRef.current) {return;}
+    if (!pendingRevealRef.current) {
+      return;
+    }
     pendingRevealRef.current = false;
     const el = containerRef.current;
-    if (!el) {return;}
+    if (!el) {
+      return;
+    }
 
     let settled = false;
     const settle = () => {
-      if (settled) {return;}
+      if (settled) {
+        return;
+      }
       settled = true;
       el.removeEventListener("transitionend", settle);
       resetTransientStyles(el);

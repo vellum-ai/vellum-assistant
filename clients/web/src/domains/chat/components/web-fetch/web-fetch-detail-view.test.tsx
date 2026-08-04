@@ -67,7 +67,9 @@ describe("parseWebFetchResult", () => {
     expect(parsed.url).toBe("https://www.cnbc.com/2025/09/22/michelob.html");
     expect(parsed.status).toBe("200 OK");
     expect(parsed.notices.length).toBe(1);
-    expect(parsed.notices[0].startsWith("Extracted only 5047 chars")).toBe(true);
+    expect(parsed.notices[0].startsWith("Extracted only 5047 chars")).toBe(
+      true,
+    );
     // The <external_content> wrapper is stripped, leaving the prose.
     expect(parsed.content).toBe(
       "Michelob Ultra has overtaken Modelo Especial as the best-selling beer in the United States.",
@@ -111,7 +113,9 @@ describe("WebFetchDetailView", () => {
     expect(getByText("cnbc.com")).toBeDefined();
     expect(getByText("200 OK")).toBeDefined();
     expect(
-      getByText("Extracted only 5047 chars of text from 757146 bytes of HTML (0.7%). Content may be JavaScript-rendered."),
+      getByText(
+        "Extracted only 5047 chars of text from 757146 bytes of HTML (0.7%). Content may be JavaScript-rendered.",
+      ),
     ).toBeDefined();
     expect(getByTestId("markdown").textContent).toContain(
       "Michelob Ultra has overtaken",

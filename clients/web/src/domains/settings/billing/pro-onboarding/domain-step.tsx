@@ -3,10 +3,10 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
-    assistantsDomainsListQueryKey,
-    assistantsListQueryKey,
-    organizationsBillingSubscriptionOnboardingDomainCreateMutation,
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+  assistantsDomainsListQueryKey,
+  assistantsListQueryKey,
+  organizationsBillingSubscriptionOnboardingDomainCreateMutation,
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
@@ -14,10 +14,10 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import {
-    CreatureCorners,
-    SUBTLE_NOTICE_CLASS,
-    SUBTLE_NOTICE_TEXT_CLASS,
-    WizardCardHeading,
+  CreatureCorners,
+  SUBTLE_NOTICE_CLASS,
+  SUBTLE_NOTICE_TEXT_CLASS,
+  WizardCardHeading,
 } from "./primitives";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { DOMAIN_EXIT_DELAY_MS, extractOnboardingErrorMessage } from "./utils";
@@ -50,7 +50,9 @@ export function DomainStep({
   const [prefilled, setPrefilled] = useState(false);
 
   useEffect(() => {
-    if (prefilled) return;
+    if (prefilled) {
+      return;
+    }
     if (existingDomain) {
       setSubdomain(existingDomain.subdomain);
       setPrefilled(true);
@@ -73,7 +75,9 @@ export function DomainStep({
   const busy = domainMutation.isPending || confirmed;
 
   useEffect(() => {
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
     const t = setTimeout(onExit, DOMAIN_EXIT_DELAY_MS);
     return () => clearTimeout(t);
   }, [confirmed, onExit]);
@@ -81,7 +85,9 @@ export function DomainStep({
   const handleSet = () => {
     // Registering the email writes to the machine's gateway over the guardian
     // channel, so it must wait until the machine is back online.
-    if (busy || machineBusy || !subdomain) return;
+    if (busy || machineBusy || !subdomain) {
+      return;
+    }
     domainMutation.mutate(
       {
         body: {
@@ -93,14 +99,17 @@ export function DomainStep({
         onSuccess: () => {
           setErrorMsg(null);
           setConfirmed(true);
-          void queryClient.invalidateQueries({ queryKey: assistantsListQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: assistantsListQueryKey(),
+          });
           void queryClient.invalidateQueries({
             queryKey: assistantsDomainsListQueryKey({
               path: { assistant_id: assistantId ?? "" },
             }),
           });
           void queryClient.invalidateQueries({
-            queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+            queryKey:
+              organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
           });
         },
         onError: (err) => {
@@ -116,7 +125,9 @@ export function DomainStep({
   };
 
   const handleSkip = () => {
-    if (busy) return;
+    if (busy) {
+      return;
+    }
     domainMutation.mutate(
       { body: { skipped: true } },
       { onSuccess: onExit, onError: () => onExit() },
@@ -138,7 +149,10 @@ export function DomainStep({
         <div className="space-y-1.5">
           <div className="flex items-end gap-2">
             <div className="flex flex-col gap-1">
-              <label htmlFor="onboarding-email-prefix" className={LABEL_CLASSES}>
+              <label
+                htmlFor="onboarding-email-prefix"
+                className={LABEL_CLASSES}
+              >
                 Prefix
               </label>
               <input
@@ -157,7 +171,10 @@ export function DomainStep({
               @
             </span>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <label htmlFor="onboarding-email-handle" className={LABEL_CLASSES}>
+              <label
+                htmlFor="onboarding-email-handle"
+                className={LABEL_CLASSES}
+              >
                 Handle (public)
               </label>
               <input
@@ -165,7 +182,9 @@ export function DomainStep({
                 value={subdomain}
                 onChange={(e) => {
                   setSubdomain(e.target.value.toLowerCase().trim());
-                  if (errorMsg) setErrorMsg(null);
+                  if (errorMsg) {
+                    setErrorMsg(null);
+                  }
                 }}
                 disabled={busy || isLocked}
                 readOnly={isLocked}

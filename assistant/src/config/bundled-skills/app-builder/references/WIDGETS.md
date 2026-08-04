@@ -18,7 +18,7 @@ A CSS widget library is auto-injected alongside the design system — the `.v-*`
 | `.v-progress-bar` / `.v-progress-track` / `.v-progress-fill` | Horizontal progress                                            |
 | `.v-status-badge`                                            | Colored pill with dot (`.success`/`.error`/`.warning`/`.info`) |
 | `.v-stat-row` / `.v-stat`                                    | Horizontal label-value pairs                                   |
-| `.v-toast`                                                   | Notification banner (show/hide with your own JS)              |
+| `.v-toast`                                                   | Notification banner (show/hide with your own JS)               |
 | `.v-avatar-row`                                              | Contact/team display                                           |
 | `.v-tag-group`                                               | Wrapping tag row                                               |
 

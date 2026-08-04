@@ -43,7 +43,12 @@ const okResponse = { response: new Response(), error: undefined };
 // The shared Skills taxonomy the rail renders from.
 const CATEGORY_DEFS: CategoryInfo[] = [
   { slug: "email", label: "Email", description: "Email tools", icon: "mail" },
-  { slug: "system", label: "System", description: "System tools", icon: "settings" },
+  {
+    slug: "system",
+    label: "System",
+    description: "System tools",
+    icon: "settings",
+  },
 ];
 
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
@@ -89,11 +94,21 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }) => {
       const { kind, origin, category, q } = options.query ?? {};
       const filtered = skills.filter((s) => {
-        if (kind === "installed" && s.kind === "catalog") {return false;}
-        if (kind === "available" && s.kind !== "catalog") {return false;}
-        if (origin && s.origin !== origin) {return false;}
-        if (category && (s.category ?? "system") !== category) {return false;}
-        if (q && !s.name.toLowerCase().includes(q.toLowerCase())) {return false;}
+        if (kind === "installed" && s.kind === "catalog") {
+          return false;
+        }
+        if (kind === "available" && s.kind !== "catalog") {
+          return false;
+        }
+        if (origin && s.origin !== origin) {
+          return false;
+        }
+        if (category && (s.category ?? "system") !== category) {
+          return false;
+        }
+        if (q && !s.name.toLowerCase().includes(q.toLowerCase())) {
+          return false;
+        }
         return true;
       });
       return {
@@ -108,7 +123,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   // Mirrors the daemon: filter installed plugins by the requested category
   // slug, and (when taxonomy-aware) echo the UNFILTERED categoryCounts/total.
   pluginsGet: mock(async (options: { query?: { category?: string } }) => {
-    if (installedGate) {await installedGate;}
+    if (installedGate) {
+      await installedGate;
+    }
     const selected = options.query?.category;
     const plugins = selected
       ? installedPlugins.filter((p) => (p.category ?? "system") === selected)
@@ -127,7 +144,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     };
   }),
   pluginsSearchGet: mock(async () => ({
-    data: { query: "", ref: "main", matches: catalogMatches } as PluginsSearchGetResponse,
+    data: {
+      query: "",
+      ref: "main",
+      matches: catalogMatches,
+    } as PluginsSearchGetResponse,
     ...okResponse,
   })),
   // Backs the shared category taxonomy the rail renders from.
@@ -135,10 +156,13 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     data: { categories: categoryDefs },
     ...okResponse,
   })),
-  pluginsByNameInspectGet: mock(async (options: { path: { name: string } }) => ({
-    data: inspectByName[options.path.name] ?? upToDateInspect(options.path.name),
-    ...okResponse,
-  })),
+  pluginsByNameInspectGet: mock(
+    async (options: { path: { name: string } }) => ({
+      data:
+        inspectByName[options.path.name] ?? upToDateInspect(options.path.name),
+      ...okResponse,
+    }),
+  ),
   // Backs the in-tab detail (`usePluginDetail`) once a row is selected.
   pluginsByNameGet: mock(async (options: { path: { name: string } }) => ({
     data: pluginDetail(options.path.name),
@@ -428,7 +452,12 @@ describe("SuperpowersTab", () => {
   test("the Installed filter drops available rows of both kinds", async () => {
     skills = [
       skill(),
-      skill({ id: "cat-skill", name: "cat-skill", kind: "catalog", status: "available" }),
+      skill({
+        id: "cat-skill",
+        name: "cat-skill",
+        kind: "catalog",
+        status: "available",
+      }),
     ];
     installedPlugins = [installed()];
     catalogMatches = [catalog()];
@@ -448,7 +477,12 @@ describe("SuperpowersTab", () => {
   test("the Available filter narrows to catalog rows of both kinds", async () => {
     skills = [
       skill(),
-      skill({ id: "cat-skill", name: "cat-skill", kind: "catalog", status: "available" }),
+      skill({
+        id: "cat-skill",
+        name: "cat-skill",
+        kind: "catalog",
+        status: "available",
+      }),
     ];
     installedPlugins = [installed()];
     catalogMatches = [catalog()];
@@ -491,7 +525,9 @@ describe("SuperpowersTab", () => {
   });
 
   test("hides the Type group on assistants without the plugin surface", async () => {
-    useAssistantIdentityStore.getState().setIdentity("Test", "0.1.0", ASSISTANT_ID);
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Test", "0.1.0", ASSISTANT_ID);
     skills = [skill()];
     installedPlugins = [installed()];
 
@@ -824,7 +860,9 @@ describe("SuperpowersTab", () => {
     // installedCategoryCounts stays undefined → the daemon ignores the
     // installed read's ?category= param, so plugin rows would leak into every
     // category. Skills still filter fine.
-    skills = [skill({ id: "mail-skill", name: "mail-skill", category: "email" })];
+    skills = [
+      skill({ id: "mail-skill", name: "mail-skill", category: "email" }),
+    ];
     installedPlugins = [installed()];
 
     const { findByRole, findByText, queryByText } = renderTab();

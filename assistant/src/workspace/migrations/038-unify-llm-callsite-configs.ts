@@ -49,12 +49,16 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
     "Consolidate scattered LLM config keys into unified llm.{default,profiles,callSites} structure",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -473,7 +477,9 @@ function hasLegacyLlmDefaultSource(config: Record<string, unknown>): boolean {
     "contextWindow",
     "pricingOverrides",
   ]) {
-    if (key in config) return true;
+    if (key in config) {
+      return true;
+    }
   }
   return false;
 }
@@ -486,22 +492,34 @@ function hasLegacyLlmDefaultSource(config: Record<string, unknown>): boolean {
  */
 function hasLegacyCallSiteSource(config: Record<string, unknown>): boolean {
   const heartbeat = readObject(config.heartbeat);
-  if (heartbeat && "speed" in heartbeat) return true;
+  if (heartbeat && "speed" in heartbeat) {
+    return true;
+  }
   const filing = readObject(config.filing);
-  if (filing && "speed" in filing) return true;
+  if (filing && "speed" in filing) {
+    return true;
+  }
   const analysis = readObject(config.analysis);
   if (analysis && ("modelIntent" in analysis || "modelOverride" in analysis)) {
     return true;
   }
   const memory = readObject(config.memory);
   const summarization = memory ? readObject(memory.summarization) : null;
-  if (summarization && "modelIntent" in summarization) return true;
+  if (summarization && "modelIntent" in summarization) {
+    return true;
+  }
   const notifications = readObject(config.notifications);
-  if (notifications && "decisionModelIntent" in notifications) return true;
+  if (notifications && "decisionModelIntent" in notifications) {
+    return true;
+  }
   const ui = readObject(config.ui);
-  if (ui && "greetingModelIntent" in ui) return true;
+  if (ui && "greetingModelIntent" in ui) {
+    return true;
+  }
   const calls = readObject(config.calls);
-  if (calls && "model" in calls) return true;
+  if (calls && "model" in calls) {
+    return true;
+  }
   const workspaceGit = readObject(config.workspaceGit);
   const commitMessageLLM = workspaceGit
     ? readObject(workspaceGit.commitMessageLLM)

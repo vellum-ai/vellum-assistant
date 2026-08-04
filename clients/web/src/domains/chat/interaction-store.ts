@@ -103,7 +103,10 @@ export interface InteractionActions {
   submitConfirmationEnd: () => void;
   dismissConfirmation: () => void;
   dismissConfirmationIfMatches: (requestId: string) => void;
-  updateConfirmation: (requestId: string, patch: Partial<PendingConfirmationState>) => void;
+  updateConfirmation: (
+    requestId: string,
+    patch: Partial<PendingConfirmationState>,
+  ) => void;
   setInlineConfirmationToolCallId: (toolCallId: string | null) => void;
 
   // Contact request
@@ -203,21 +206,25 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       set({ pendingSecret: { ...pendingSecret, ...defined } });
       return;
     }
-    set({ pendingSecret: payload, isSubmittingSecret: false, secretSaved: false });
+    set({
+      pendingSecret: payload,
+      isSubmittingSecret: false,
+      secretSaved: false,
+    });
   },
 
-  submitSecretStart: () =>
-    set({ isSubmittingSecret: true }),
+  submitSecretStart: () => set({ isSubmittingSecret: true }),
 
   submitSecretEnd: (saved) =>
     set({ isSubmittingSecret: false, secretSaved: saved ?? false }),
 
-  dismissSecret: () =>
-    set({ pendingSecret: null, isSubmittingSecret: false }),
+  dismissSecret: () => set({ pendingSecret: null, isSubmittingSecret: false }),
 
   updateSecret: (requestId, patch) => {
     const { pendingSecret } = get();
-    if (!pendingSecret || pendingSecret.requestId !== requestId) return;
+    if (!pendingSecret || pendingSecret.requestId !== requestId) {
+      return;
+    }
     set({ pendingSecret: { ...pendingSecret, ...patch } });
   },
 
@@ -225,24 +232,26 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   showConfirmation: (payload) =>
     set({ pendingConfirmation: payload, isSubmittingConfirmation: false }),
 
-  submitConfirmationStart: () =>
-    set({ isSubmittingConfirmation: true }),
+  submitConfirmationStart: () => set({ isSubmittingConfirmation: true }),
 
-  submitConfirmationEnd: () =>
-    set({ isSubmittingConfirmation: false }),
+  submitConfirmationEnd: () => set({ isSubmittingConfirmation: false }),
 
   dismissConfirmation: () =>
     set({ pendingConfirmation: null, isSubmittingConfirmation: false }),
 
   dismissConfirmationIfMatches: (requestId) => {
     const { pendingConfirmation } = get();
-    if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) return;
+    if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) {
+      return;
+    }
     set({ pendingConfirmation: null, isSubmittingConfirmation: false });
   },
 
   updateConfirmation: (requestId, patch) => {
     const { pendingConfirmation } = get();
-    if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) return;
+    if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) {
+      return;
+    }
     set({ pendingConfirmation: { ...pendingConfirmation, ...patch } });
   },
 
@@ -257,33 +266,35 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       contactRequestAccepted: false,
     }),
 
-  submitContactRequestStart: () =>
-    set({ isSubmittingContactRequest: true }),
+  submitContactRequestStart: () => set({ isSubmittingContactRequest: true }),
 
-  submitContactRequestEnd: () =>
-    set({ isSubmittingContactRequest: false }),
+  submitContactRequestEnd: () => set({ isSubmittingContactRequest: false }),
 
   dismissContactRequest: () =>
     set({ pendingContactRequest: null, isSubmittingContactRequest: false }),
 
-  acceptContactRequest: () =>
-    set({ contactRequestAccepted: true }),
+  acceptContactRequest: () => set({ contactRequestAccepted: true }),
 
   // ----- Question -----
   showQuestion: (payload) =>
-    set({ pendingQuestion: payload, isSubmittingQuestion: false, isQuestionCardDismissed: false }),
+    set({
+      pendingQuestion: payload,
+      isSubmittingQuestion: false,
+      isQuestionCardDismissed: false,
+    }),
 
-  submitQuestionStart: () =>
-    set({ isSubmittingQuestion: true }),
+  submitQuestionStart: () => set({ isSubmittingQuestion: true }),
 
-  submitQuestionEnd: () =>
-    set({ isSubmittingQuestion: false }),
+  submitQuestionEnd: () => set({ isSubmittingQuestion: false }),
 
   dismissQuestion: () =>
-    set({ pendingQuestion: null, isSubmittingQuestion: false, isQuestionCardDismissed: false }),
+    set({
+      pendingQuestion: null,
+      isSubmittingQuestion: false,
+      isQuestionCardDismissed: false,
+    }),
 
-  dismissQuestionCard: () =>
-    set({ isQuestionCardDismissed: true }),
+  dismissQuestionCard: () => set({ isQuestionCardDismissed: true }),
 
   // ----- Resets -----
   resetSecretAndConfirmation: () =>
@@ -330,13 +341,17 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   // ----- Nudge tracking -----
   addUnknownNudgeToolCallId: (toolCallId) => {
     const current = get().unknownNudgeToolCallIds;
-    if (current.has(toolCallId)) return;
+    if (current.has(toolCallId)) {
+      return;
+    }
     set({ unknownNudgeToolCallIds: new Set([...current, toolCallId]) });
   },
 
   removeUnknownNudgeToolCallId: (toolCallId) => {
     const current = get().unknownNudgeToolCallIds;
-    if (!current.has(toolCallId)) return;
+    if (!current.has(toolCallId)) {
+      return;
+    }
     const next = new Set(current);
     next.delete(toolCallId);
     set({ unknownNudgeToolCallIds: next });

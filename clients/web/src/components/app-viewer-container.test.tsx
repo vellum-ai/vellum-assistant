@@ -56,7 +56,9 @@ function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
 }
 
 function getMaximizeButton(): HTMLButtonElement | null {
-  return document.querySelector("svg.lucide-maximize2")?.closest("button") ?? null;
+  return (
+    document.querySelector("svg.lucide-maximize2")?.closest("button") ?? null
+  );
 }
 
 function getFloatingExitButton(): HTMLButtonElement | null {
@@ -64,11 +66,15 @@ function getFloatingExitButton(): HTMLButtonElement | null {
   // top/right offsets are applied via inline safe-area-aware styles); scope to
   // that so we don't match any nav-bar button.
   const container = document.querySelector(".absolute.z-10");
-  return container?.querySelector("svg.lucide-minimize2")?.closest("button") ?? null;
+  return (
+    container?.querySelector("svg.lucide-minimize2")?.closest("button") ?? null
+  );
 }
 
 function getRoot(): HTMLElement {
-  return document.querySelector("[data-testid='app-viewer-root']") as HTMLElement;
+  return document.querySelector(
+    "[data-testid='app-viewer-root']",
+  ) as HTMLElement;
 }
 
 describe("AppViewerContainer fullscreen", () => {

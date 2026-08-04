@@ -50,7 +50,9 @@ export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
   const origin = Array.isArray(req.headers.origin)
     ? req.headers.origin[0]
     : req.headers.origin;
-  if (!originIsAllowed(origin)) return false;
+  if (!originIsAllowed(origin)) {
+    return false;
+  }
   const site = req.headers["sec-fetch-site"];
   const siteValue = Array.isArray(site) ? site[0] : site;
   return !siteValue || siteValue === "same-origin" || siteValue === "none";
@@ -146,8 +148,12 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
 function platformSessionMiddleware(): Connect.NextHandleFunction {
   return (req, res, next) => {
     const path = (req.url ?? "").split("?")[0];
-    if (!PLATFORM_SESSION_PATTERN.test(path)) return next();
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (!PLATFORM_SESSION_PATTERN.test(path)) {
+      return next();
+    }
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method === "DELETE") {
       devPlatformToken = null;
@@ -192,8 +198,9 @@ function configMiddleware(
   const body = JSON.stringify({ webUrl, platformUrl });
 
   return (req, res, next) => {
-    if (req.url !== "/assistant/__config" && req.url !== "/__config")
+    if (req.url !== "/assistant/__config" && req.url !== "/__config") {
       return next();
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(body);
   };
@@ -205,12 +212,15 @@ function accountSpaFallback(server: ViteDevServer): Connect.NextHandleFunction {
       !req.url?.startsWith("/account/") &&
       !req.url?.startsWith("/account?") &&
       req.url !== "/account"
-    )
+    ) {
       return next();
+    }
 
     const indexPath = path.join(server.config.root, "index.html");
     fs.readFile(indexPath, "utf-8", (err, html) => {
-      if (err) return next(err);
+      if (err) {
+        return next(err);
+      }
       server
         .transformIndexHtml(req.url!, html)
         .then((transformed) => {
@@ -229,10 +239,13 @@ function lockfileMiddleware(
     if (
       req.url !== "/assistant/__local/lockfile" &&
       req.url !== "/__local/lockfile"
-    )
+    ) {
       return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method === "GET") {
       const result = getLockfileData(lockfilePaths);
@@ -287,10 +300,16 @@ function lockfileMiddleware(
 
 function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url !== "/assistant/__local/hatch" && req.url !== "/__local/hatch")
+    if (
+      req.url !== "/assistant/__local/hatch" &&
+      req.url !== "/__local/hatch"
+    ) {
       return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -309,8 +328,12 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
             species?: string;
             remote?: string;
           };
-          if (body.species) species = body.species;
-          if (body.remote) remote = body.remote;
+          if (body.species) {
+            species = body.species;
+          }
+          if (body.remote) {
+            remote = body.remote;
+          }
         } catch {
           res.statusCode = 400;
           res.setHeader("Content-Type", "application/json");
@@ -359,10 +382,13 @@ function retireMiddleware(
     if (
       req.url !== "/assistant/__local/retire" &&
       req.url !== "/__local/retire"
-    )
+    ) {
       return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -446,7 +472,9 @@ function sleepMiddleware(baseDir: string): Connect.NextHandleFunction {
       return next();
     }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -509,10 +537,13 @@ function sleepMiddleware(baseDir: string): Connect.NextHandleFunction {
 
 function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url !== "/assistant/__local/wake" && req.url !== "/__local/wake")
+    if (req.url !== "/assistant/__local/wake" && req.url !== "/__local/wake") {
       return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -582,9 +613,13 @@ function upgradeMiddleware(
   upgradingLocalAssistantIds: Set<string>,
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (!LOCAL_UPGRADE_PATTERN.test(req.url ?? "")) return next();
+    if (!LOCAL_UPGRADE_PATTERN.test(req.url ?? "")) {
+      return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -691,9 +726,13 @@ function statusMiddleware(
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     const match = req.url?.match(LOCAL_STATUS_PATTERN);
-    if (!match) return next();
+    if (!match) {
+      return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (req.method !== "GET") {
       res.statusCode = 405;
@@ -724,7 +763,9 @@ function guardianTokenMiddleware(
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     const match = req.url?.match(GUARDIAN_TOKEN_PATTERN);
-    if (!match) return next();
+    if (!match) {
+      return next();
+    }
 
     if (req.method !== "GET") {
       res.statusCode = 405;
@@ -732,7 +773,9 @@ function guardianTokenMiddleware(
       return;
     }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     const assistantId = decodeURIComponent(match[1]!);
 
@@ -772,9 +815,13 @@ function gatewayProxyMiddleware(
     const decision = resolveGatewayProxyTarget(req.url ?? "", () =>
       readAllowedGatewayPorts(lockfilePaths),
     );
-    if (decision.kind === "pass") return next();
+    if (decision.kind === "pass") {
+      return next();
+    }
 
-    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
 
     if (decision.kind === "invalid-port") {
       res.statusCode = 400;

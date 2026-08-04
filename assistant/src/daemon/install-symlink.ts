@@ -73,11 +73,15 @@ function trySymlink(target: string, symlinkPath: string): boolean {
         return false;
       }
       const dest = readlinkSync(symlinkPath);
-      if (dest === target) return true;
+      if (dest === target) {
+        return true;
+      }
       // Stale or dangling symlink — remove before creating new one
       unlinkSync(symlinkPath);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") return false;
+      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        return false;
+      }
       // Path doesn't exist — proceed to create symlink
     }
 
@@ -104,13 +108,17 @@ function ensureLocalBinInShellProfile(localBinDir: string): void {
     : shell.endsWith("/bash")
       ? join(home, ".bash_profile")
       : null;
-  if (!profilePath) return;
+  if (!profilePath) {
+    return;
+  }
 
   try {
     const contents = existsSync(profilePath)
       ? readFileSync(profilePath, "utf-8")
       : "";
-    if (contents.includes(localBinDir)) return;
+    if (contents.includes(localBinDir)) {
+      return;
+    }
     const line = `\nexport PATH="${localBinDir}:$PATH"\n`;
     appendFileSync(profilePath, line);
     log.info(
@@ -158,10 +166,14 @@ function commandResolvesElsewhere(
  * Skipped when VELLUM_DEV=1 (developers manage their own PATH).
  */
 export function installAssistantSymlink(): void {
-  if (process.env.VELLUM_DEV === "1") return;
+  if (process.env.VELLUM_DEV === "1") {
+    return;
+  }
 
   const target = resolveAssistantBinary();
-  if (!target) return;
+  if (!target) {
+    return;
+  }
 
   const localBinDir = join(homedir(), ".local", "bin");
   const candidateDirs = ["/usr/local/bin", localBinDir];

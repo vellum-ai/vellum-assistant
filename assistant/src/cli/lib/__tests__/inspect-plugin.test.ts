@@ -56,7 +56,9 @@ function makeFetch(opts: {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("marketplace.json")) {
-      if (opts.fail) throw new Error("network down");
+      if (opts.fail) {
+        throw new Error("network down");
+      }
       if (opts.marketplace === undefined) {
         return new Response("not found", { status: 404 });
       }

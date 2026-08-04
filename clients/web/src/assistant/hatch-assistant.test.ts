@@ -52,7 +52,9 @@ describe("hatchAssistant", () => {
 
   test("sends mode=create to provision an additional assistant", async () => {
     const result = await hatchAssistant(undefined, "create");
-    expect(hatchCreateMock.mock.calls[0]?.[0].query).toEqual({ mode: "create" });
+    expect(hatchCreateMock.mock.calls[0]?.[0].query).toEqual({
+      mode: "create",
+    });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.status).toBe(201);

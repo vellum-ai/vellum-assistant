@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { CompactionContext } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -212,7 +213,8 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeProvider() {
+function makeProvider(counts?: number[]) {
+  const pending = counts ? [...counts] : null;
   return {
     name: "mock-provider",
     async sendMessage(): Promise<ProviderResponse> {
@@ -223,15 +225,21 @@ function makeProvider() {
         stopReason: "end_turn",
       };
     },
+    // Present only when the test supplies counts, so the other cases keep
+    // exercising the local-estimate fallback.
+    ...(pending ? { countInputTokens: async () => pending.shift() ?? 0 } : {}),
   };
 }
 
-function makeConversation(): Conversation {
+function makeConversation(options?: {
+  counts?: number[];
+  onEvent?: (msg: AssistantEvent) => void;
+}): Conversation {
   const conversation = new Conversation(
     "conv-1",
-    makeProvider(),
+    makeProvider(options?.counts),
     "system prompt",
-    () => {},
+    options?.onEvent ?? (() => {}),
     "/tmp",
     { maxTokens: 4096 },
   );
@@ -365,7 +373,10 @@ describe("Conversation.summarizeUpToMessage", () => {
 
     const result = await conversation.summarizeUpToMessage("m4");
 
-    expect(result).toBe(mockCompactResult);
+    // The compaction result passes through with its displayed token counts
+    // re-measured by the provider tokenizer, which the mocked manager reports
+    // as 0 here.
+    expect(result).toEqual(mockCompactResult);
     expect(compactCalls).toHaveLength(1);
     expect(compactCalls[0].force).toBe(true);
     // Row index 4 with no compacted prefix and no summary message → 4.
@@ -852,6 +863,61 @@ describe("Conversation.summarizeUpToMessage", () => {
 
     expect(recordOutcome).toHaveBeenCalledTimes(1);
     expect(recordOutcome).toHaveBeenCalledWith(true, expect.anything());
+  });
+
+  test("reports tokenizer counts and pushes them to the caller's sink", async () => {
+    // The management route resolves its conversation outside the send path, so
+    // the instance keeps the store's no-op sender: the push has to ride the
+    // sink the route hands in, not `sendToClient`.
+    const collected: AssistantEvent[] = [];
+    const conversation = makeConversation({ counts: [56_000, 18_000] });
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      // Estimate-based figures the pipeline records internally; the card and
+      // the indicator both report the tokenizer counts instead.
+      previousEstimatedInputTokens: 43_000,
+      estimatedInputTokens: 12_000,
+      maxInputTokens: 200_000,
+      compactedPersistedMessages: 4,
+    };
+
+    const result = await conversation.summarizeUpToMessage("m4", (msg) =>
+      collected.push(msg),
+    );
+
+    expect(result.previousEstimatedInputTokens).toBe(56_000);
+    expect(result.estimatedInputTokens).toBe(18_000);
+
+    const usage = collected.filter((m) => m.type === "context_window_usage");
+    expect(usage).toHaveLength(1);
+    const usageEvent = usage[0] as Extract<
+      AssistantEvent,
+      { type: "context_window_usage" }
+    >;
+    expect(usageEvent.conversationId).toBe("conv-1");
+    expect(usageEvent.tokens).toBe(result.estimatedInputTokens);
+    expect(usageEvent.maxTokens).toBe(200_000);
+  });
+
+  test("falls back to the conversation's own sender when no sink is passed", async () => {
+    const collected: AssistantEvent[] = [];
+    const conversation = makeConversation({
+      counts: [56_000, 18_000],
+      onEvent: (msg) => collected.push(msg),
+    });
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      maxInputTokens: 200_000,
+      compactedPersistedMessages: 4,
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(
+      collected.filter((m) => m.type === "context_window_usage"),
+    ).toHaveLength(1);
   });
 });
 

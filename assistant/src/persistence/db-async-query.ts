@@ -185,11 +185,15 @@ export function _resetFallbackWarning(): void {
  * callers treat as "no rows affected".
  */
 export function parseChangesFromStdout(stdout: string | undefined): number {
-  if (!stdout) return 0;
+  if (!stdout) {
+    return 0;
+  }
   const lines = stdout.split(/\r?\n/).filter((s) => s.trim().length > 0);
   for (let i = lines.length - 1; i >= 0; i--) {
     const n = parseInt(lines[i].trim(), 10);
-    if (Number.isFinite(n) && n >= 0) return n;
+    if (Number.isFinite(n) && n >= 0) {
+      return n;
+    }
   }
   return 0;
 }
@@ -228,7 +232,7 @@ async function runViaCli(
   // corrupt) — the durability posture every daemon write already has, so
   // FULL here buys no end-to-end guarantee. Prepended to the piped SQL so
   // both take effect before the statement runs.
-  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\nPRAGMA synchronous=NORMAL;\n${sql}`;
+  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\nPRAGMA synchronous=NORMAL;\nPRAGMA journal_mode=WAL;\n${sql}`;
 
   // Write the SQL and close stdin so sqlite3 sees EOF and exits.
   proc.stdin.write(sqlWithPragma + "\n");
@@ -244,7 +248,9 @@ async function runViaCli(
     timedOut = true;
     proc.kill("SIGKILL");
   }, timeoutMs);
-  if (typeof timer.unref === "function") timer.unref();
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
 
   const exitCode = await proc.exited;
   clearTimeout(timer);

@@ -32,32 +32,46 @@ export const upgradeQualityProfileToOpus48Migration: WorkspaceMigration = {
     "Move the managed quality-optimized profile from Claude Fable 5 to Opus 4.8",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
-    if (profiles === null) return;
+    if (profiles === null) {
+      return;
+    }
 
     let changed = false;
 
     for (const name of TARGET_PROFILES) {
       const profile = readObject(profiles[name]);
-      if (profile === null) continue;
-      if (typeof profile.model !== "string") continue;
+      if (profile === null) {
+        continue;
+      }
+      if (typeof profile.model !== "string") {
+        continue;
+      }
 
       const upgraded = MODEL_UPGRADES[profile.model];
-      if (upgraded === undefined) continue;
+      if (upgraded === undefined) {
+        continue;
+      }
 
       profile.model = upgraded;
       profiles[name] = profile;

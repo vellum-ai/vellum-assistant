@@ -468,15 +468,15 @@ describe("CustomPlanModal — base subscriber", () => {
     expect(labels.some((l) => l.startsWith("250 GB"))).toBe(false);
   });
 
-  test("recap opens with just the labeled base fee", () => {
+  test("recap opens with just the labeled platform fee", () => {
     const { getByRole, getByText } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
-    // Nothing selected yet — the total is the bare base fee, and the recap's
-    // permanent first row labels where it comes from.
+    // Nothing selected yet, so the total is the bare platform fee, and the
+    // recap's permanent first row labels where it comes from.
     getByText("$20/mo");
-    getByText("Pro base plan — $20/mo");
+    getByText("Platform fee: $20/mo");
   });
 
   test("recap totals the base price plus the selected tiers", () => {
@@ -494,7 +494,7 @@ describe("CustomPlanModal — base subscriber", () => {
     // Read the recap rows rather than getByText — the machine text also appears
     // in its dropdown trigger and would double-match.
     expect(recapRows()).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GB storage",
       "$50 of bundled credits",
@@ -599,7 +599,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     // The recap reflects the seeded current tiers.
     expect(recapRows()).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
       "No extra credits",
@@ -618,7 +618,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
     expect(recapRows()).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
       "No extra credits",
@@ -638,7 +638,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     // the new value; every other row keeps its single seeded label.
     expect(strikethroughs()).toEqual(["Medium machine (2.5 vCPU, 5 GiB)"]);
     expect(recapRows()).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)Large machine (4 vCPU, 8 GiB)",
       "10 GB storage",
       "No extra credits",
@@ -838,7 +838,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
       (li) => li.textContent?.trim() ?? "",
     );
     expect(rows).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
       "$25 of bundled credits",
@@ -904,7 +904,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     // The held bundle labels its own row rather than claiming the paying
     // subscriber has no credits, and nothing reads as changed on open.
     expect(recapRows()).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
       "$25 of bundled credits",
@@ -928,7 +928,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     expect(continueButton().disabled).toBe(true);
     expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
     expect(recapRows()).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "250 GB storage",
       "No extra credits",

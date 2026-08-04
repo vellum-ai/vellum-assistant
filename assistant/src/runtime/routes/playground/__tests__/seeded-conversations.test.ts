@@ -44,7 +44,9 @@ function resetSpies() {
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not registered`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not registered`);
+  }
   return route;
 }
 

@@ -13,9 +13,8 @@ let mockGuardianPersona: string | null = null;
 
 // Snapshot-spread the real module so untouched exports (used elsewhere in the
 // import chain) stay intact.
-const actualPersonaResolver = await import(
-  "../../../prompts/persona-resolver.js"
-);
+const actualPersonaResolver =
+  await import("../../../prompts/persona-resolver.js");
 mock.module("../../../prompts/persona-resolver.js", () => ({
   ...actualPersonaResolver,
   resolveGuardianPersonaStrict: () => mockGuardianPersona,
@@ -23,9 +22,8 @@ mock.module("../../../prompts/persona-resolver.js", () => ({
 
 const { GUARDIAN_LABEL_IPC_METHODS, handleResolveGuardianLabel } =
   await import("../guardian-label-ipc-routes.js");
-const { ROUTES: contactRoutes } = await import(
-  "../../../runtime/routes/contact-routes.js"
-);
+const { ROUTES: contactRoutes } =
+  await import("../../../runtime/routes/contact-routes.js");
 
 describe("resolve_guardian_label", () => {
   beforeEach(() => {

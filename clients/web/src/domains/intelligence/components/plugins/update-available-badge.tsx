@@ -37,7 +37,9 @@ export function UpdateAvailableBadge({
     </Tag>
   );
 
-  if (!onClick) return badge;
+  if (!onClick) {
+    return badge;
+  }
 
   return (
     <button

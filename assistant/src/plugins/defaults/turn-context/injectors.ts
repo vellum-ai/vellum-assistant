@@ -28,7 +28,9 @@ const unifiedTurnContextInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const { timestamp } = ctx;
-    if (!timestamp) return null;
+    if (!timestamp) {
+      return null;
+    }
     const text = buildUnifiedTurnContextBlock({
       timestamp,
       interfaceName: ctx.interfaceName,

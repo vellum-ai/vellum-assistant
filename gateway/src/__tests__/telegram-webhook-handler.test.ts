@@ -31,8 +31,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: false,
     shutdownDrainMs: 5000,
@@ -360,8 +358,10 @@ describe("telegram webhook handler: /new rejection", () => {
     expect((sendMessageCall!.body as any).text).toContain("Starting up");
   });
 
-  test("/start with routing rejection sends setup notice and does not forward", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
+  test("/start on an unrouted chat forwards instead of sending a setup notice", async () => {
+    // Regression: an unrouted chat used to hit the unmapped `reject` policy
+    // and get a "not fully set up" notice instead of reaching the assistant.
+    const config = makeConfig();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -375,18 +375,18 @@ describe("telegram webhook handler: /new rejection", () => {
     expect(body.ok).toBe(true);
 
     const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
-    expect(runtimeCall).toBeUndefined();
+    expect(runtimeCall).toBeDefined();
 
-    const sendMessageCall = fetchCalls.find((c) =>
-      c.url.includes("/sendMessage"),
+    const setupNotice = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("not fully set up"),
     );
-    expect(sendMessageCall).toBeDefined();
-    expect((sendMessageCall!.body as any).text).toContain("not fully set up");
+    expect(setupNotice).toBeUndefined();
   });
 
-  test("sends rejection notice when /new command routing is rejected", async () => {
-    // No routing entries and unmappedPolicy is "reject" — routing will fail
-    const config = makeConfig({ unmappedPolicy: "reject" });
+  test("/new on an unrouted chat resets instead of sending a rejection notice", async () => {
+    const config = makeConfig();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -398,15 +398,12 @@ describe("telegram webhook handler: /new rejection", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
 
-    // Verify a Telegram sendMessage call was made with the rejection notice
-    const telegramCalls = fetchCalls.filter((c) =>
-      c.url.includes("api.telegram.org"),
+    const rejectionNotice = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("could not be routed"),
     );
-    expect(telegramCalls.length).toBeGreaterThanOrEqual(1);
-
-    const sendCall = telegramCalls.find((c) => c.url.includes("/sendMessage"));
-    expect(sendCall).toBeDefined();
-    expect((sendCall!.body as any).text).toContain("could not be routed");
+    expect(rejectionNotice).toBeUndefined();
   });
 
   test("/new succeeds and sends confirmation when routing matches", async () => {
@@ -445,22 +442,6 @@ describe("telegram webhook handler: /new rejection", () => {
       );
     });
     expect(confirmCall).toBeDefined();
-  });
-
-  test("/new rejection does not call resetConversation", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config, makeCaches());
-
-    const payload = makeTelegramPayload("/new", 5001);
-    const req = makeWebhookRequest(payload);
-    await handler(req);
-
-    // Verify no reset conversation call was made
-    const resetCall = fetchCalls.find((c) =>
-      c.url.includes("/channels/conversation"),
-    );
-    expect(resetCall).toBeUndefined();
   });
 });
 

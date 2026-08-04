@@ -53,7 +53,9 @@ mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
       prefetchLimit?: number;
     }) => {
       hybridSearchCalls.push(params);
-      if (hybridThrows) throw hybridThrows;
+      if (hybridThrows) {
+        throw hybridThrows;
+      }
       return hybridResults;
     },
     search: async (
@@ -62,7 +64,9 @@ mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
       filter?: Record<string, unknown>,
     ) => {
       searchCalls.push({ vector, limit, filter });
-      if (denseThrows) throw denseThrows;
+      if (denseThrows) {
+        throw denseThrows;
+      }
       return denseResults;
     },
   }),

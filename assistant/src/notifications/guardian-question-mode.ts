@@ -389,7 +389,9 @@ export function resolveGuardianInstructionModeFromFields(
   mode: GuardianQuestionInstructionMode;
 } | null {
   const parsed = GuardianQuestionRequestKindSchema.safeParse(requestKindValue);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
 
   return {
     requestKind: parsed.data,
@@ -403,12 +405,16 @@ export function resolveGuardianInstructionModeFromFields(
 export function resolveGuardianInstructionModeForRequest(
   request?: GuardianRequestModeInput | null,
 ): GuardianQuestionInstructionMode {
-  if (!request) return "approval";
+  if (!request) {
+    return "approval";
+  }
   const modeResolution = resolveGuardianInstructionModeFromFields(
     request.kind,
     request.toolName,
   );
-  if (!modeResolution) return "approval";
+  if (!modeResolution) {
+    return "approval";
+  }
   return modeResolution.mode;
 }
 
@@ -466,7 +472,9 @@ export function buildGuardianInvalidActionReply(
   requestCode?: string,
 ): string {
   const config = getModeTextConfig(mode);
-  if (requestCode) return config.invalidActionWithCode(requestCode);
+  if (requestCode) {
+    return config.invalidActionWithCode(requestCode);
+  }
   return config.invalidActionWithoutCode;
 }
 
@@ -505,7 +513,9 @@ export function hasGuardianRequestCodeInstruction(
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): boolean {
-  if (typeof text !== "string") return false;
+  if (typeof text !== "string") {
+    return false;
+  }
   const upper = text.toUpperCase();
   const normalizedCode = requestCode.toUpperCase();
 

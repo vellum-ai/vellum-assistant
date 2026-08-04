@@ -11,7 +11,8 @@ interface StreamCall {
 }
 
 const streamCalls: StreamCall[] = [];
-let streamImpl: (opts: StreamCall) => Promise<string> = async () => "Hello there";
+let streamImpl: (opts: StreamCall) => Promise<string> = async () =>
+  "Hello there";
 
 mock.module("@/domains/chat/api/stream-greeting", () => ({
   streamEmptyStateGreeting: (opts: StreamCall) => {

@@ -1,4 +1,3 @@
-
 import { Smartphone } from "lucide-react";
 
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";

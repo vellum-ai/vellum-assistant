@@ -52,7 +52,9 @@ describe("VoiceTranscriptToggles", () => {
 
   test("showDescription renders the per-toggle description lines", () => {
     render(<VoiceTranscriptToggles showDescription />);
-    expect(screen.getByText("Live transcription while you speak.")).toBeTruthy();
+    expect(
+      screen.getByText("Live transcription while you speak."),
+    ).toBeTruthy();
     expect(
       screen.getByText("Text alongside the spoken response."),
     ).toBeTruthy();

@@ -18,11 +18,14 @@ export function deriveFailureError(ackMessage: string, stderr: string): string {
 
   // Most precise: a structured adapter error — prefer it over the ack.
   const jsonMessage = lastJsonErrorMessage(clean);
-  if (jsonMessage) return jsonMessage;
+  if (jsonMessage) {
+    return jsonMessage;
+  }
 
   // An already-specific ack is preserved when stderr has no better detail.
-  if (ackMessage.length > 0 && ackMessage !== "Internal error")
+  if (ackMessage.length > 0 && ackMessage !== "Internal error") {
     return ackMessage;
+  }
 
   // Generic/empty ack: fall back to the last meaningful stderr line.
   return lastNonEmptyLine(clean) ?? ackMessage;
@@ -105,7 +108,9 @@ function lastNonEmptyLine(text: string): string | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const trimmed = lines[i].trim();
-    if (trimmed.length > 0) return trimmed;
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
   }
   return null;
 }

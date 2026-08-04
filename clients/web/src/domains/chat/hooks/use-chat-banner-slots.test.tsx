@@ -89,7 +89,11 @@ describe("useChatBannerSlots — banner slot construction", () => {
     expect(result.current.mainBannerSlot).toBeNull();
   });
 
-  const flags = ["showBanner", "showGitHubBanner", "showDiscordBanner"] as const;
+  const flags = [
+    "showBanner",
+    "showGitHubBanner",
+    "showDiscordBanner",
+  ] as const;
   for (const flag of flags) {
     test(`${flag} → mainBannerSlot renders`, () => {
       const { result } = renderHook(useChatBannerSlots, {

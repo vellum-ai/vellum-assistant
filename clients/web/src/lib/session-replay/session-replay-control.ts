@@ -2,9 +2,9 @@
  * Consent-gated lifecycle for session replay, mirroring `sentry-control.ts`.
  *
  * Replay records the web DOM, so a single web-layer client covers every surface
- * (browser, Electron renderer, iOS WKWebview) — there is no native uploader or
- * per-host client to fan out to. SDK access dispatches through the provider seam
- * (`session-replay-provider.ts`), a no-op today.
+ * (browser, Electron renderer, iOS WKWebView, Android WebView); there is no
+ * native uploader or per-host client to fan out to. SDK access dispatches
+ * through the provider seam (`session-replay-provider.ts`), a no-op today.
  *
  * Fail-closed: the provider is never started until consent is confirmed. On a
  * mid-session revoke the provider is stopped best-effort; a hard reset takes
@@ -41,7 +41,10 @@ export function sessionReplayConsentGranted(): boolean {
 
 function buildTraits(surface: SessionReplaySurface): SessionReplayTraits {
   const { user } = useAuthStore.getState();
-  const name = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+  const name = [user?.firstName, user?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
   return {
     name: name || undefined,
     email: user?.email ?? undefined,
@@ -56,14 +59,20 @@ function buildTraits(surface: SessionReplaySurface): SessionReplayTraits {
  * email/username in the auth store).
  */
 export function identifySessionReplayUser(surface: SessionReplaySurface): void {
-  if (!provider.isActive()) return;
+  if (!provider.isActive()) {
+    return;
+  }
   const uid = useAuthStore.getState().user?.id;
-  if (!uid) return;
+  if (!uid) {
+    return;
+  }
   provider.identify(uid, buildTraits(surface));
 }
 
 function tryInit(config: SessionReplayConfig): void {
-  if (provider.isActive()) return;
+  if (provider.isActive()) {
+    return;
+  }
   provider.init(config.appId, {
     environment: config.environment,
     release: config.release,
@@ -78,7 +87,9 @@ function tryInit(config: SessionReplayConfig): void {
 }
 
 function tryStop(): void {
-  if (!provider.isActive()) return;
+  if (!provider.isActive()) {
+    return;
+  }
   provider.stop();
 }
 

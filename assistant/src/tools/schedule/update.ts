@@ -19,6 +19,7 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import { resolveGroupReference } from "../conversation-groups/group_shared.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -44,8 +45,8 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
  *   preprocessing that would silently turn an explicit update into a no-op.
  * - `timezone` and `script` are nullable at runtime though advertised as
  *   plain strings: `updateSchedule` persists null as "clear this field".
- * - `timeout_ms` / `inference_profile` advertise null (it reverts to the
- *   default); the executor's bespoke handling stays.
+ * - `timeout_ms` / `inference_profile` / `group` advertise null (it reverts
+ *   to the default); the executor's bespoke handling stays.
  * - `mode`, `routing_intent`, `workflow_name`, and `workflow_args` are
  *   deliberately UNDECLARED (loose passthrough): the first two keep bespoke
  *   `VALID_*` errors; `workflow_name` has bespoke coercion semantics in the
@@ -68,6 +69,7 @@ export const scheduleUpdateInputSchema = z.looseObject({
   retry_backoff_ms: z.int().optional(),
   timeout_ms: z.int().nullable().optional(),
   inference_profile: z.string().nullable().optional(),
+  group: z.string().nullable().optional(),
 });
 
 export async function executeScheduleUpdate(
@@ -214,6 +216,21 @@ export async function executeScheduleUpdate(
         return { content: `Error: ${profileError}`, isError: true };
       }
       updates.inferenceProfile = parsed.inference_profile;
+    }
+  }
+
+  // Sidebar group for run conversations (null clears it, reverting to the
+  // default system:scheduled). Applies to conversations created by future
+  // runs; existing conversations stay where they are.
+  if (parsed.group !== undefined) {
+    if (parsed.group === null) {
+      updates.groupId = null;
+    } else {
+      const resolvedGroup = resolveGroupReference(parsed.group);
+      if ("error" in resolvedGroup) {
+        return { content: `Error: ${resolvedGroup.error}`, isError: true };
+      }
+      updates.groupId = resolvedGroup.group.id;
     }
   }
 

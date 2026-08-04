@@ -73,7 +73,9 @@ export function VoiceLiveTranscript({
         className,
       )}
       style={
-        maxHeightPx !== undefined ? { maxHeight: `${maxHeightPx}px` } : undefined
+        maxHeightPx !== undefined
+          ? { maxHeight: `${maxHeightPx}px` }
+          : undefined
       }
     >
       {text}

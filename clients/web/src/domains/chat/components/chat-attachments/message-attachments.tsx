@@ -1,4 +1,3 @@
-
 import { useCallback } from "react";
 import type { FC } from "react";
 
@@ -28,7 +27,10 @@ export const MessageAttachments: FC<MessageAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  const { openPreview, previewModal } = useAttachmentPreview(assistantId, attachments);
+  const { openPreview, previewModal } = useAttachmentPreview(
+    assistantId,
+    attachments,
+  );
 
   const handleDownload = useCallback(
     (att: DisplayAttachment) => {

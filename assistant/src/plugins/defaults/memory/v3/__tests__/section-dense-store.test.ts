@@ -91,7 +91,9 @@ mock.module("../../../../../persistence/embeddings/embedding-cache.js", () => ({
   ) => {
     cacheState.reads.push(cacheKey(key));
     const row = cacheState.store.get(cacheKey(key));
-    if (!row || row.dimensions !== key.expectedDim) return null;
+    if (!row || row.dimensions !== key.expectedDim) {
+      return null;
+    }
     return { dense: row.dense, contentHash: row.contentHash };
   },
   writeEmbeddingCache: (
@@ -115,6 +117,10 @@ mock.module("../../../../../persistence/embeddings/embedding-cache.js", () => ({
 
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => ({}),
+  // The section store resolves the embedding cache on the memory connection via
+  // `memoryDbOrNull`; hand back truthy sentinels so it takes the cache path.
+  getMemoryDb: () => ({}),
+  getMemorySqlite: () => ({}),
 }));
 
 // Mock the underlying @qdrant/js-client-rest package. The mock client records
@@ -164,13 +170,17 @@ class MockQdrantClient {
   async createCollection(_name: string, params: unknown) {
     state.createCollectionCalls++;
     state.createCollectionParams = params;
-    if (state.createCollectionThrows) throw state.createCollectionThrows;
+    if (state.createCollectionThrows) {
+      throw state.createCollectionThrows;
+    }
     state.collectionExists = true;
     return {};
   }
   async getCollection(_name: string) {
     state.getCollectionCalls++;
-    if (state.getCollectionThrows) throw state.getCollectionThrows;
+    if (state.getCollectionThrows) {
+      throw state.getCollectionThrows;
+    }
     return state.getCollectionInfo;
   }
   async deleteCollection(name: string) {

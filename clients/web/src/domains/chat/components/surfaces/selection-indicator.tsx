@@ -13,7 +13,10 @@ interface SelectionIndicatorProps {
  * a rounded square (multi-select) or circle (single-select) that fills with the
  * primary color and shows a check when selected.
  */
-export function SelectionIndicator({ selected, single }: SelectionIndicatorProps) {
+export function SelectionIndicator({
+  selected,
+  single,
+}: SelectionIndicatorProps) {
   return (
     <span
       className={cn(

@@ -21,7 +21,10 @@ import {
   shouldShowThinkingIndicator,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
-import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import {
+  hasAnyInteractiveSurface,
+  hasPendingAssistantResponse,
+} from "@/domains/chat/utils/chat";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -85,7 +88,11 @@ export function useChatUIState(): ChatUIState {
   const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
 
   // TanStack Query — deduped with any other call for the same conversation.
-  const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
+  const activeConversation = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    true,
+  );
 
   // --- Derived values (memoized) ------------------------------------------
 
@@ -113,9 +120,13 @@ export function useChatUIState(): ChatUIState {
   // streaming "Thinking" loading state). Used to hand off from the standalone
   // thinking-dots row so the two indicators never compete.
   const hasStreamingAssistantThinking = useMemo(() => {
-    if (liveAssistantMessageId == null) return false;
+    if (liveAssistantMessageId == null) {
+      return false;
+    }
     const live = transcript.find((m) => m.id === liveAssistantMessageId);
-    if (!live) return false;
+    if (!live) {
+      return false;
+    }
     return (
       (live.thinkingSegments?.length ?? 0) > 0 ||
       !!live.contentBlocks?.some((b) => b.type === "thinking")
@@ -137,7 +148,8 @@ export function useChatUIState(): ChatUIState {
       hasPendingContactRequest: !!pendingContactRequest,
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
-      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+      hasPendingAssistantResponse:
+        activeConversationHasPendingAssistantResponse,
       snapshotProcessing,
     }),
     [
@@ -154,7 +166,11 @@ export function useChatUIState(): ChatUIState {
     ],
   );
 
-  const showThinking = shouldShowThinkingIndicator(phase, activeToolCallCount, uiContext);
+  const showThinking = shouldShowThinkingIndicator(
+    phase,
+    activeToolCallCount,
+    uiContext,
+  );
   const isAssistantBusy = isAssistantBusySelector(phase, uiContext);
   const isSendDisabledFromTurn = isSendDisabled(uiContext);
   const thinkingLabel = statusText;

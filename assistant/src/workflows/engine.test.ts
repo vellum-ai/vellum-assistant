@@ -27,7 +27,9 @@ function resetTables(): void {
 async function waitUntil(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((r) => setTimeout(r, 2));
   }
   throw new Error("Timed out waiting for condition");
@@ -385,7 +387,9 @@ describe("executeWorkflow — abort handling (leaf abort = run abort)", () => {
     const runner = async (): Promise<import("./leaf-runner.js").LeafResult> => {
       onStart();
       await new Promise<void>((resolve) => {
-        if (signal.aborted) return resolve();
+        if (signal.aborted) {
+          return resolve();
+        }
         signal.addEventListener("abort", () => resolve(), { once: true });
       });
       // The signal fired while we were awaiting — reject the way a cancelled
@@ -913,7 +917,9 @@ describe("executeWorkflow — fan-out unwind (no orphaned leaves)", () => {
             err.name = "AbortError";
             reject(err);
           };
-          if (sig?.aborted) return fail();
+          if (sig?.aborted) {
+            return fail();
+          }
           // No timer: if never aborted the leaf stays pending (matches the
           // existing blocking-runner pattern — no leaked timers).
           sig?.addEventListener("abort", fail, { once: true });
@@ -960,8 +966,11 @@ describe("executeWorkflow — nested workflow()", () => {
   });
 
   afterEach(() => {
-    if (prevOverride === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
-    else process.env.VELLUM_WORKSPACE_DIR = prevOverride;
+    if (prevOverride === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = prevOverride;
+    }
     rmSync(workspaceDir, { recursive: true, force: true });
   });
 
@@ -1254,7 +1263,9 @@ describe("executeWorkflow — onLeaf observe-only hook", () => {
     > => {
       started = true;
       await new Promise<void>((resolve) => {
-        if (controller.signal.aborted) return resolve();
+        if (controller.signal.aborted) {
+          return resolve();
+        }
         controller.signal.addEventListener("abort", () => resolve(), {
           once: true,
         });

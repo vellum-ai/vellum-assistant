@@ -7,7 +7,9 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 export function getAssistantName(): string | null {
   try {
     const path = getWorkspacePromptPath("IDENTITY.md");
-    if (!existsSync(path)) return null;
+    if (!existsSync(path)) {
+      return null;
+    }
     const content = readFileSync(path, "utf-8");
     const match = content.match(/\*\*Name:\*\*\s*(.+)/);
     return match?.[1]?.trim() || null;

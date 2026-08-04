@@ -5,12 +5,15 @@ import { useMemo, useState } from "react";
 import { Button, Input, Typography } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
-import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { DetailShell } from "@/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
-import type { ChannelSetupPayload, ChannelSetupType } from "@/stores/viewer-store";
+import type {
+  ChannelSetupPayload,
+  ChannelSetupType,
+} from "@/stores/viewer-store";
 import { publicAsset } from "@/utils/public-asset";
 
 interface ChannelSetupPanelProps {
@@ -28,7 +31,8 @@ const CHANNEL_META: Record<
   },
   telegram: {
     label: "Telegram",
-    connectedMessage: "Your assistant is ready to receive messages on Telegram.",
+    connectedMessage:
+      "Your assistant is ready to receive messages on Telegram.",
   },
   phone: {
     label: "Phone",
@@ -36,7 +40,10 @@ const CHANNEL_META: Record<
   },
 };
 
-export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) {
+export function ChannelSetupPanel({
+  payload,
+  onClose,
+}: ChannelSetupPanelProps) {
   const meta = CHANNEL_META[payload.channel];
 
   const saveSlack = useSaveSlackConfig({
@@ -57,9 +64,8 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
   const readinessQuery = useQuery({
     ...channelsReadinessGetOptions(readinessOpts),
     select: (data) =>
-      data.snapshots?.some(
-        (s) => s.channel === payload.channel && s.ready,
-      ) ?? false,
+      data.snapshots?.some((s) => s.channel === payload.channel && s.ready) ??
+      false,
   });
   const isConnected = readinessQuery.data === true;
 
@@ -90,10 +96,16 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
       {isConnected ? (
         <div className="flex flex-col items-center gap-3 py-8 text-center">
           <CheckCircle className="h-8 w-8 text-[var(--content-positive)]" />
-          <Typography variant="title-small" className="text-[color:var(--content-strong)]">
+          <Typography
+            variant="title-small"
+            className="text-[color:var(--content-strong)]"
+          >
             {meta.label} is connected
           </Typography>
-          <Typography variant="body-small-default" className="text-[color:var(--content-subtle)]">
+          <Typography
+            variant="body-small-default"
+            className="text-[color:var(--content-subtle)]"
+          >
             {meta.connectedMessage}
           </Typography>
           <Button variant="outlined" size="compact" onClick={onClose}>
@@ -103,7 +115,9 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
       ) : payload.channel === "slack" ? (
         <SlackSetupWizard
           assistantName={payload.assistantName}
-          onSave={(bot, app) => saveSlack.mutate({ botToken: bot, appToken: app })}
+          onSave={(bot, app) =>
+            saveSlack.mutate({ botToken: bot, appToken: app })
+          }
           saveStatus={saveSlack.status}
           saveError={saveSlack.error?.message ?? null}
         />
@@ -145,7 +159,10 @@ function TelegramCredentialForm({
 
   return (
     <div className="flex flex-col gap-4 px-4 py-3">
-      <Typography variant="body-small-default" className="text-[color:var(--content-secondary)]">
+      <Typography
+        variant="body-small-default"
+        className="text-[color:var(--content-secondary)]"
+      >
         Enter the bot token from{" "}
         <a
           href="https://t.me/BotFather"
@@ -168,12 +185,18 @@ function TelegramCredentialForm({
         fullWidth
       />
       {status === "error" && error ? (
-        <Typography variant="body-small-default" className="text-[color:var(--system-negative-strong)]">
+        <Typography
+          variant="body-small-default"
+          className="text-[color:var(--system-negative-strong)]"
+        >
           {error}
         </Typography>
       ) : null}
       {status === "success" ? (
-        <Typography variant="body-small-default" className="text-[color:var(--content-positive)]">
+        <Typography
+          variant="body-small-default"
+          className="text-[color:var(--content-positive)]"
+        >
           Credentials saved. Return to the chat to finish setup.
         </Typography>
       ) : null}
@@ -209,7 +232,10 @@ function TwilioCredentialForm({
 
   return (
     <div className="flex flex-col gap-4 px-4 py-3">
-      <Typography variant="body-small-default" className="text-[color:var(--content-secondary)]">
+      <Typography
+        variant="body-small-default"
+        className="text-[color:var(--content-secondary)]"
+      >
         Enter your Twilio credentials from the{" "}
         <a
           href="https://console.twilio.com"
@@ -241,12 +267,18 @@ function TwilioCredentialForm({
         fullWidth
       />
       {status === "error" && error ? (
-        <Typography variant="body-small-default" className="text-[color:var(--system-negative-strong)]">
+        <Typography
+          variant="body-small-default"
+          className="text-[color:var(--system-negative-strong)]"
+        >
           {error}
         </Typography>
       ) : null}
       {status === "success" ? (
-        <Typography variant="body-small-default" className="text-[color:var(--content-positive)]">
+        <Typography
+          variant="body-small-default"
+          className="text-[color:var(--content-positive)]"
+        >
           Credentials saved. Return to the chat to finish setup.
         </Typography>
       ) : null}

@@ -113,7 +113,9 @@ export function migrateStripIntegrationPrefixFromProviderKeysDown(
       .all() as Array<{ provider_key: string }>;
 
     for (const { provider_key: bareKey } of rows) {
-      if (ALWAYS_BARE.has(bareKey)) continue;
+      if (ALWAYS_BARE.has(bareKey)) {
+        continue;
+      }
 
       const prefixedKey = `integration:${bareKey}`;
 
@@ -162,7 +164,9 @@ export function migrateStripIntegrationPrefixFromProviderKeysDown(
       .all() as Array<{ credential_service: string }>;
 
     for (const { credential_service: bareKey } of watcherRows) {
-      if (ALWAYS_BARE.has(bareKey)) continue;
+      if (ALWAYS_BARE.has(bareKey)) {
+        continue;
+      }
       raw
         .prepare(
           /*sql*/ `UPDATE watchers SET credential_service = ? WHERE credential_service = ?`,

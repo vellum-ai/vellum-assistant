@@ -12,25 +12,41 @@ function colorsDisabled(): boolean {
 }
 
 export function red(text: string): string {
-  if (!process.stderr.isTTY) return text;
-  if (colorsDisabled()) return text;
+  if (!process.stderr.isTTY) {
+    return text;
+  }
+  if (colorsDisabled()) {
+    return text;
+  }
   return `\x1b[31m${text}\x1b[0m`;
 }
 
 export function green(text: string): string {
-  if (!process.stderr.isTTY) return text;
-  if (colorsDisabled()) return text;
+  if (!process.stderr.isTTY) {
+    return text;
+  }
+  if (colorsDisabled()) {
+    return text;
+  }
   return `\x1b[32m${text}\x1b[0m`;
 }
 
 export function yellow(text: string): string {
-  if (!process.stderr.isTTY) return text;
-  if (colorsDisabled()) return text;
+  if (!process.stderr.isTTY) {
+    return text;
+  }
+  if (colorsDisabled()) {
+    return text;
+  }
   return `\x1b[33m${text}\x1b[0m`;
 }
 
 export function dim(text: string): string {
-  if (!process.stdout.isTTY) return text;
-  if (colorsDisabled()) return text;
+  if (!process.stdout.isTTY) {
+    return text;
+  }
+  if (colorsDisabled()) {
+    return text;
+  }
   return `\x1b[2m${text}\x1b[0m`;
 }

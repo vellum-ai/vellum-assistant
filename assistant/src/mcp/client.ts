@@ -84,7 +84,9 @@ export class McpClient {
   }
 
   async connect(transportConfig: McpTransport): Promise<void> {
-    if (this.connected) return;
+    if (this.connected) {
+      return;
+    }
 
     const isHttpTransport =
       transportConfig.type === "sse" ||
@@ -257,7 +259,9 @@ export class McpClient {
   }
 
   async disconnect(): Promise<void> {
-    if (!this.connected) return;
+    if (!this.connected) {
+      return;
+    }
 
     try {
       await this.client.close();
@@ -301,7 +305,9 @@ export class McpClient {
  * from genuine transport failures so we can log guidance instead of crashing.
  */
 function isAuthRelatedError(err: unknown): boolean {
-  if (err instanceof UnauthorizedError) return true;
+  if (err instanceof UnauthorizedError) {
+    return true;
+  }
 
   if (
     err instanceof Error &&

@@ -323,7 +323,9 @@ export function findInDocument(
       /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
       surfaceId,
     );
-    if (!row) return null;
+    if (!row) {
+      return null;
+    }
 
     const lines = row.content.split("\n");
     const matches: FindMatch[] = [];
@@ -347,7 +349,9 @@ export function findInDocument(
               matchText: m[0],
             });
           }
-          if (m[0].length === 0) re.lastIndex++;
+          if (m[0].length === 0) {
+            re.lastIndex++;
+          }
         }
       }
     } else {
@@ -358,7 +362,9 @@ export function findInDocument(
         let startPos = 0;
         while (startPos <= haystack.length) {
           const idx = haystack.indexOf(needle, startPos);
-          if (idx === -1) break;
+          if (idx === -1) {
+            break;
+          }
           uncappedTotal++;
           if (matches.length < MAX_FIND_MATCHES) {
             matches.push({
@@ -505,7 +511,9 @@ export function replaceInDocument(
       let lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = pattern.exec(row.content)) !== null) {
-        if (count >= limit) break;
+        if (count >= limit) {
+          break;
+        }
         result += row.content.slice(lastIndex, m.index);
         const singleMatchPattern = new RegExp(
           pattern.source,
@@ -514,7 +522,9 @@ export function replaceInDocument(
         result += m[0].replace(singleMatchPattern, replace);
         lastIndex = m.index + m[0].length;
         count++;
-        if (m[0].length === 0) pattern.lastIndex++;
+        if (m[0].length === 0) {
+          pattern.lastIndex++;
+        }
       }
       result += row.content.slice(lastIndex);
       newContent = result;

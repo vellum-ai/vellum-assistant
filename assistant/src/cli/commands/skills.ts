@@ -16,9 +16,15 @@ import { skillsHelp } from "./skills.help.js";
  * stdout before the process tears down).
  */
 function exitCodeFromStatus(statusCode: number | undefined): number {
-  if (statusCode === undefined) return 10;
-  if (statusCode >= 500) return 3;
-  if (statusCode >= 400) return 2;
+  if (statusCode === undefined) {
+    return 10;
+  }
+  if (statusCode >= 500) {
+    return 3;
+  }
+  if (statusCode >= 400) {
+    return 2;
+  }
   return 1;
 }
 
@@ -70,11 +76,12 @@ export function registerSkillsCommand(program: Command): void {
               owner?: { kind: string; id: string };
             }>;
           }>("listSkills", { queryParams: {} });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromCliResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               opts.json ?? false,
             );
+          }
           // Source labels the extension a skill ships from. Plugin-resident
           // skills are intentionally mapped to kind:bundled/origin:vellum for
           // older clients, so their real attribution lives on `owner` —
@@ -84,8 +91,12 @@ export function registerSkillsCommand(program: Command): void {
             kind: string;
             owner?: { kind: string; id: string };
           }): string => {
-            if (s.owner) return `${s.owner.kind}:${s.owner.id}`;
-            if (s.origin === "vellum" && s.kind === "bundled") return "bundled";
+            if (s.owner) {
+              return `${s.owner.kind}:${s.owner.id}`;
+            }
+            if (s.origin === "vellum" && s.kind === "bundled") {
+              return "bundled";
+            }
             return s.origin;
           };
           const allSkills = r
@@ -153,11 +164,12 @@ export function registerSkillsCommand(program: Command): void {
               configKeys: string[];
             } | null;
           }>("skillsLocalInspect", { pathParams: { id: skillId } });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromCliResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               opts.json ?? false,
             );
+          }
           const detail = r.result!;
           if (opts.json) {
             console.log(JSON.stringify({ ok: true, skill: detail }));
@@ -169,51 +181,67 @@ export function registerSkillsCommand(program: Command): void {
           log.info(`  Source:    ${detail.source}`);
           log.info(`  State:     ${detail.state}`);
           log.info(`  Path:      ${detail.directoryPath}`);
-          if (detail.featureFlag)
+          if (detail.featureFlag) {
             log.info(`  Flag:      ${detail.featureFlag}`);
-          if (detail.includes?.length)
+          }
+          if (detail.includes?.length) {
             log.info(`  Includes:  ${detail.includes.join(", ")}`);
-          if (detail.activationHints?.length)
+          }
+          if (detail.activationHints?.length) {
             log.info(`  Hints:     ${detail.activationHints.join("; ")}`);
-          if (detail.avoidWhen?.length)
+          }
+          if (detail.avoidWhen?.length) {
             log.info(`  Avoid:     ${detail.avoidWhen.join("; ")}`);
+          }
           if (detail.toolManifest) {
             const tm = detail.toolManifest;
             log.info(
               `\n  Tools:     ${tm.valid ? `${tm.toolCount} tool(s)` : "invalid manifest"}`,
             );
-            for (const name of tm.toolNames) log.info(`    - ${name}`);
+            for (const name of tm.toolNames) {
+              log.info(`    - ${name}`);
+            }
           }
           if (detail.installMeta) {
             log.info(`\n  Install metadata:`);
-            if (detail.installMeta.origin)
+            if (detail.installMeta.origin) {
               log.info(`    Origin:      ${detail.installMeta.origin}`);
-            if (detail.installMeta.installedAt)
+            }
+            if (detail.installMeta.installedAt) {
               log.info(`    Installed:   ${detail.installMeta.installedAt}`);
-            if (detail.installMeta.installedBy)
+            }
+            if (detail.installMeta.installedBy) {
               log.info(`    Installed by: ${detail.installMeta.installedBy}`);
-            if (detail.installMeta.version)
+            }
+            if (detail.installMeta.version) {
               log.info(`    Version:     ${detail.installMeta.version}`);
-            if (detail.installMeta.slug)
+            }
+            if (detail.installMeta.slug) {
               log.info(`    Slug:        ${detail.installMeta.slug}`);
-            if (detail.installMeta.sourceRepo)
+            }
+            if (detail.installMeta.sourceRepo) {
               log.info(`    Source repo:  ${detail.installMeta.sourceRepo}`);
-            if (detail.installMeta.contentHash)
+            }
+            if (detail.installMeta.contentHash) {
               log.info(`    Hash:        ${detail.installMeta.contentHash}`);
-            if (detail.installMeta.backfilledBy)
+            }
+            if (detail.installMeta.backfilledBy) {
               log.info(`    Backfilled:  ${detail.installMeta.backfilledBy}`);
+            }
           }
           if (detail.config) {
             log.info(`\n  Config:`);
             log.info(
               `    Enabled:     ${detail.config.enabled ? "yes" : "no"}`,
             );
-            if (detail.config.envKeys.length)
+            if (detail.config.envKeys.length) {
               log.info(`    Env vars:    ${detail.config.envKeys.join(", ")}`);
-            if (detail.config.configKeys.length)
+            }
+            if (detail.config.configKeys.length) {
               log.info(
                 `    Config keys: ${detail.config.configKeys.join(", ")}`,
               );
+            }
           }
         },
       );
@@ -268,7 +296,9 @@ export function registerSkillsCommand(program: Command): void {
           // Deduplicate by id — vellum wins
           const seen = new Set(vellumSkills.map((s) => s.id));
           const dedupedCommunity = communitySkills.filter((s) => {
-            if (seen.has(s.id)) return false;
+            if (seen.has(s.id)) {
+              return false;
+            }
             seen.add(s.id);
             return true;
           });
@@ -300,10 +330,12 @@ export function registerSkillsCommand(program: Command): void {
 
           if (!hasResults) {
             log.info(`No skills found for "${query}".`);
-            if (!catalogR.ok)
+            if (!catalogR.ok) {
               log.warn(`(Vellum catalog unavailable: ${catalogR.error})`);
-            if (!communityR.ok)
+            }
+            if (!communityR.ok) {
               log.warn(`(Community registry unavailable: ${communityR.error})`);
+            }
             return;
           }
 
@@ -313,11 +345,16 @@ export function registerSkillsCommand(program: Command): void {
               const emoji = s.emoji ? `${s.emoji} ` : "";
               const badge = s.kind === "installed" ? " [installed]" : "";
               log.info(`  ${emoji}${s.name}${badge}`);
-              if (s.name !== s.id) log.info(`    ID: ${s.id}`);
+              if (s.name !== s.id) {
+                log.info(`    ID: ${s.id}`);
+              }
               log.info(`    ${s.description}`);
-              if (s.updatedAt) log.info(`    Updated: ${s.updatedAt}`);
-              if (s.kind !== "installed")
+              if (s.updatedAt) {
+                log.info(`    Updated: ${s.updatedAt}`);
+              }
+              if (s.kind !== "installed") {
                 log.info(`    Install: assistant skills install ${s.id}`);
+              }
               log.info("");
             }
           }
@@ -327,17 +364,25 @@ export function registerSkillsCommand(program: Command): void {
             for (const r of skillsshResults) {
               const badge = r.kind === "installed" ? " [installed]" : "";
               log.info(`  ${r.name}${badge}`);
-              if (r.name !== r.id) log.info(`    ID: ${r.id}`);
-              if (r.sourceRepo) log.info(`    Source: ${r.sourceRepo}`);
-              if (r.installs !== undefined)
+              if (r.name !== r.id) {
+                log.info(`    ID: ${r.id}`);
+              }
+              if (r.sourceRepo) {
+                log.info(`    Source: ${r.sourceRepo}`);
+              }
+              if (r.installs !== undefined) {
                 log.info(`    Installs: ${r.installs}`);
-              if (r.kind !== "installed")
-                // Use the fully-qualified 3-segment id (owner/repo/skill) — this
-                // matches the `owner/repo/skill-name` form accepted by
-                // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
-                // skills.sh because the registry returns `slug` as the full id,
-                // producing `owner/repo@owner/repo/skill` which the parser rejects.
+              }
+              if (
+                r.kind !== "installed"
+              ) // Use the fully-qualified 3-segment id (owner/repo/skill) — this
+              // matches the `owner/repo/skill-name` form accepted by
+              // `resolveSkillSource()`. Building `sourceRepo@slug` fails for
+              // skills.sh because the registry returns `slug` as the full id,
+              // producing `owner/repo@owner/repo/skill` which the parser rejects.
+              {
                 log.info(`    Install: assistant skills add ${r.id}`);
+              }
               log.info("");
             }
           } else if (!communityR.ok) {
@@ -349,13 +394,24 @@ export function registerSkillsCommand(program: Command): void {
             for (const r of clawhubResults) {
               const badge = r.kind === "installed" ? " [installed]" : "";
               log.info(`  ${r.name}${badge}`);
-              if (r.name !== r.id) log.info(`    ID: ${r.id}`);
-              if (r.author) log.info(`    Author: ${r.author}`);
-              if (r.description) log.info(`    ${r.description}`);
-              if (r.stars) log.info(`    Stars: ${r.stars}`);
-              if (r.installs) log.info(`    Installs: ${r.installs}`);
-              if (r.kind !== "installed")
+              if (r.name !== r.id) {
+                log.info(`    ID: ${r.id}`);
+              }
+              if (r.author) {
+                log.info(`    Author: ${r.author}`);
+              }
+              if (r.description) {
+                log.info(`    ${r.description}`);
+              }
+              if (r.stars) {
+                log.info(`    Stars: ${r.stars}`);
+              }
+              if (r.installs) {
+                log.info(`    Installs: ${r.installs}`);
+              }
+              if (r.kind !== "installed") {
                 log.info(`    Install: npx clawhub install ${r.slug ?? r.id}`);
+              }
               log.info("");
             }
           }
@@ -413,11 +469,12 @@ export function registerSkillsCommand(program: Command): void {
           const r = await cliIpcCall<null>("deleteSkill", {
             pathParams: { id: skillId },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromCliResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               opts.json ?? false,
             );
+          }
           if (opts.json) {
             console.log(JSON.stringify({ ok: true, skillId }));
           } else {
@@ -451,11 +508,12 @@ export function registerSkillsCommand(program: Command): void {
               },
             },
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromCliResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               json,
             );
+          }
 
           if (json) {
             console.log(

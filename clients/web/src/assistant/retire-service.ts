@@ -2,7 +2,7 @@ import { listAssistants, retireAssistantById } from "@/assistant/api";
 import {
   getLockfile,
   isLocalAssistant,
-  isLocalMode,
+  isLocalClient,
   retireLocalAssistant,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
@@ -29,8 +29,7 @@ const MARKETING_ASSISTANT_NAME_CACHE_KEY = "vellum_assistant_name";
  * service can't own routing). On failure carries a user-facing message.
  */
 export type RetireOutcome =
-  | { ok: true; nextRoute: string }
-  | { ok: false; error: string };
+  { ok: true; nextRoute: string } | { ok: false; error: string };
 
 /**
  * Resolve where to send the user after a retire. Reads `hasAssistants`
@@ -41,9 +40,7 @@ function getPostRetireRoute(): string {
   const decision = resolveNavigation(buildNavigationState(), {
     kind: "post-retire",
   });
-  return decision.action === "redirect"
-    ? decision.to
-    : routes.welcome;
+  return decision.action === "redirect" ? decision.to : routes.welcome;
 }
 
 /**
@@ -67,7 +64,7 @@ export async function retireAssistant(
     const target = getLockfile().assistants.find(
       (a) => a.assistantId === assistantId,
     );
-    const useLocal = isLocalMode() && !!target && isLocalAssistant(target);
+    const useLocal = isLocalClient() && !!target && isLocalAssistant(target);
 
     if (useLocal) {
       const result = await retireLocalAssistant(assistantId);
@@ -88,13 +85,14 @@ export async function retireAssistant(
             : "Failed to retire assistant.";
         return { ok: false, error: detail };
       }
-      if (isLocalMode()) {
+      if (isLocalClient()) {
         try {
           const remaining = await listAssistants();
           if (remaining.ok) {
             await syncPlatformAssistantsToLockfile(
               remaining.data,
-              useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              useOrganizationStore.getState().currentOrganizationId ??
+                undefined,
             );
           }
         } catch {

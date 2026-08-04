@@ -36,20 +36,28 @@ export function useLiveThinkingText(
 ): string | null {
   const messages = useTranscriptMessages();
   return useMemo(() => {
-    if (!messageId || groupIndex == null) return null;
+    if (!messageId || groupIndex == null) {
+      return null;
+    }
     const message = messages.find((m) =>
       messageMatchKeys(m).includes(messageId),
     );
-    if (!message) return null;
+    if (!message) {
+      return null;
+    }
     const groups = groupContentBlocks(message.contentBlocks ?? [], {
       splitInlineThinking: message.role !== "user",
     });
     const group = groups[groupIndex];
-    if (!group || group.type !== "activity") return null;
+    if (!group || group.type !== "activity") {
+      return null;
+    }
     const segments = group.items.flatMap((item) =>
       item.type === "thinking" && item.thinking ? [item.thinking] : [],
     );
-    if (thinkingItemIndex == null) return segments.join("\n");
+    if (thinkingItemIndex == null) {
+      return segments.join("\n");
+    }
     return segments[thinkingItemIndex] ?? null;
   }, [messages, messageId, groupIndex, thinkingItemIndex]);
 }

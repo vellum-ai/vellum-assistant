@@ -84,7 +84,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundResetCompactionCircuit",
   );
-  if (!route) {throw new Error("reset-circuit route not registered");}
+  if (!route) {
+    throw new Error("reset-circuit route not registered");
+  }
   return route;
 }
 

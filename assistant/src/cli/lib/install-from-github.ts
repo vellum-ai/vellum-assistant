@@ -1428,11 +1428,15 @@ async function listRemoteRefNames(
     // Each line is `<sha>\t<refname>`; keep the branch/tag short-name, dropping
     // the `refs/heads/` | `refs/tags/` prefix and an annotated tag's `^{}` peel.
     const refname = line.trim().split(/\s+/)[1];
-    if (!refname) continue;
+    if (!refname) {
+      continue;
+    }
     const name = refname
       .replace(/^refs\/(?:heads|tags)\//, "")
       .replace(/\^\{\}$/, "");
-    if (name) names.add(name);
+    if (name) {
+      names.add(name);
+    }
   }
   return names;
 }

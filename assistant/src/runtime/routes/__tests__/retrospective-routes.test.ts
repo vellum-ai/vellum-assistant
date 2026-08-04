@@ -46,7 +46,9 @@ function resetTables(): void {
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 

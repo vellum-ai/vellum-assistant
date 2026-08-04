@@ -29,7 +29,9 @@ export interface UseNewChatPluginsResult {
  * single name. Keyed by `activeConversationId`, so unsent drafts are
  * independent (mirrors how `ComposerSettingsMenu` reads `pendingDraftProfiles`).
  */
-export function useNewChatPlugins(assistantId: string): UseNewChatPluginsResult {
+export function useNewChatPlugins(
+  assistantId: string,
+): UseNewChatPluginsResult {
   const activeConversationId = useConversationStore.use.activeConversationId();
   const pendingDraftPlugins = useConversationStore.use.pendingDraftPlugins();
 
@@ -54,14 +56,18 @@ export function useNewChatPlugins(assistantId: string): UseNewChatPluginsResult 
 
   const toggle = useCallback(
     (name: string) => {
-      if (!activeConversationId) return;
+      if (!activeConversationId) {
+        return;
+      }
       const store = useConversationStore.getState();
       // First toggle off the all-selected default: seed the explicit set as
       // "all installed except this one" so the stored set reflects what was
       // visible, then let `togglePendingDraftPlugin` own subsequent flips.
       if (!store.pendingDraftPlugins.has(activeConversationId)) {
         const explicit = new Set(
-          plugins.map((p) => p.name).filter((pluginName) => pluginName !== name),
+          plugins
+            .map((p) => p.name)
+            .filter((pluginName) => pluginName !== name),
         );
         store.setPendingDraftPlugins(activeConversationId, explicit);
         return;

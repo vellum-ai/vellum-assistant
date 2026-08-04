@@ -49,12 +49,16 @@ import {
  * no-op otherwise.
  */
 export function anchorColdStartReplay(serverSeq: number | null): void {
-  if (serverSeq === null) return;
+  if (serverSeq === null) {
+    return;
+  }
   // A non-null cursor means a live event already seeded it — the
   // connection is no longer cold, so the running merge/apply path owns
   // alignment from here. Only a still-`null` cursor is a genuine cold
   // start that needs anchoring.
-  if (getReconnectCursor() !== null) return;
+  if (getReconnectCursor() !== null) {
+    return;
+  }
 
   // Seed the resumable cursor at the snapshot position. The cold connect
   // that is already in flight was opened cursor-less (before `S` was

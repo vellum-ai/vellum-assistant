@@ -220,7 +220,9 @@ async function requestViaToken<T extends SlackApiResponse>(
     if (params) {
       const searchParams = new URLSearchParams();
       for (const [k, v] of Object.entries(params)) {
-        if (v !== undefined) searchParams.set(k, v);
+        if (v !== undefined) {
+          searchParams.set(k, v);
+        }
       }
       url += `?${searchParams}`;
     }
@@ -420,8 +422,12 @@ export async function postMessage(
       ? { threadTs: optionsOrThreadTs }
       : (optionsOrThreadTs ?? {});
   const body: Record<string, unknown> = { channel, text };
-  if (opts.threadTs) body.thread_ts = opts.threadTs;
-  if (opts.blocks) body.blocks = opts.blocks;
+  if (opts.threadTs) {
+    body.thread_ts = opts.threadTs;
+  }
+  if (opts.blocks) {
+    body.blocks = opts.blocks;
+  }
   return request<SlackPostMessageResponse>(
     connectionOrToken,
     "chat.postMessage",

@@ -44,11 +44,6 @@ import explorationDriftPostToolUse, {
   resetExplorationDriftStateForTests,
 } from "./exploration-drift/hooks/post-tool-use.js";
 import explorationDriftPkg from "./exploration-drift/package.json" with { type: "json" };
-import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
-import historyRepairStop from "./history-repair/hooks/stop.js";
-import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
-import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
-import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
 import imageFallbackConversationDeleted from "./image-fallback/hooks/conversation-deleted.js";
 import imageFallbackInit from "./image-fallback/hooks/init.js";
 import imageFallbackPostCompact from "./image-fallback/hooks/post-compact.js";
@@ -287,27 +282,6 @@ export const defaultPlatformHostedPlugin: Plugin = {
 };
 
 /**
- * `history-repair` — normalizes the working message history (tool-use/tool-result
- * pairing, role alternation). The `user-prompt-submit` hook normalizes the
- * history before each provider call; the `post-model-call` hook handles the
- * provider rejection where the call failed on an ordering violation,
- * deep-repairing the history and asking the loop to retry; the `stop` hook
- * clears the one-shot repair bound on a terminal stop so the next turn repairs
- * afresh.
- */
-export const defaultHistoryRepairPlugin: Plugin = {
-  manifest: {
-    name: historyRepairPkg.name,
-    version: historyRepairPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": historyRepairUserPromptSubmit,
-    "post-model-call": historyRepairPostModelCall,
-    stop: historyRepairStop,
-  },
-};
-
-/**
  * `image-recovery` — recovers from a provider image-too-large rejection. The
  * `post-model-call` hook handles the rejection, downscaling the oversized image
  * blocks in the working history and asking the loop to retry, and persisting
@@ -469,7 +443,6 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultExplorationDriftPlugin,
     defaultTaskProgressNudgePlugin,
     defaultSurfaceCompletionNudgePlugin,
-    defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
@@ -535,7 +508,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetEmptyResponseNudgeStoreForTests();
   resetMaxTokensContinueStoreForTests();
-  resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();

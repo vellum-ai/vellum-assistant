@@ -18,7 +18,13 @@ function snapshot(
   messages: DisplayMessage[],
   seq: number | null,
 ): PaginatedHistoryResult {
-  return { messages, hasMore: false, oldestTimestamp: null, oldestMessageId: null, seq };
+  return {
+    messages,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq,
+  };
 }
 function textRow(id: string, text: string): DisplayMessage {
   return {
@@ -29,7 +35,11 @@ function textRow(id: string, text: string): DisplayMessage {
     contentBlocks: [{ type: "text", text }],
   };
 }
-function envelope(seq: number, conversationId: string, message: AssistantEvent): AssistantEventEnvelope {
+function envelope(
+  seq: number,
+  conversationId: string,
+  message: AssistantEvent,
+): AssistantEventEnvelope {
   return {
     id: `e${seq}`,
     conversationId,
@@ -39,7 +49,11 @@ function envelope(seq: number, conversationId: string, message: AssistantEvent):
   } as AssistantEventEnvelope;
 }
 const textDelta = (seq: number, conv: string, id: string, text: string) =>
-  envelope(seq, conv, { type: "assistant_text_delta", messageId: id, text } as AssistantEvent);
+  envelope(seq, conv, {
+    type: "assistant_text_delta",
+    messageId: id,
+    text,
+  } as AssistantEvent);
 
 const store = () => useChatSessionStore.getState();
 
@@ -66,9 +80,9 @@ describe("chat-session-store — snapshot + optimistic", () => {
 
     store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
 
-    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
-      "persisted + live",
-    ]);
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments,
+    ).toEqual(["persisted + live"]);
     expect(store().snapshot?.seq).toBe(6);
   });
 
@@ -99,13 +113,17 @@ describe("chat-session-store — snapshot + optimistic", () => {
     } as AssistantEvent);
     pushSseEvent(id, echo);
     store().applyEnvelopeToSnapshot(echo);
-    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(
+      true,
+    );
 
     const before = store().snapshot;
     store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier")], 100));
 
     expect(store().snapshot).toBe(before);
-    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(
+      true,
+    );
   });
 
   test("seedSnapshot accepts a caught-up anchor after dropping a stale one", () => {
@@ -123,20 +141,25 @@ describe("chat-session-store — snapshot + optimistic", () => {
     // The authoritative reconcile refetch lands with the persisted user row
     // and an anchor at (or past) the live watermark — reseeds normally.
     const fresh = snapshot(
-      [textRow("a1", "earlier"), { ...textRow("msg-user-1", "hi"), role: "user" }],
+      [
+        textRow("a1", "earlier"),
+        { ...textRow("msg-user-1", "hi"), role: "user" },
+      ],
       500,
     );
     store().seedSnapshot(CONV, fresh);
-    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(
+      true,
+    );
     expect(store().snapshot?.seq).toBe(500);
   });
 
   test("applyEnvelopeToSnapshot folds a live event once seeded; idempotent by seq", () => {
     store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
     store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
-    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
-      "persisted live",
-    ]);
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments,
+    ).toEqual(["persisted live"]);
     // Re-applying seq 6 is a no-op.
     const before = store().snapshot;
     store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
@@ -149,10 +172,18 @@ describe("chat-session-store — snapshot + optimistic", () => {
   });
 
   test("optimistic sends add and retire via setOptimisticSends", () => {
-    const send: DisplayMessage = { ...textRow("u1", "hi"), role: "user", clientMessageId: "nonce-1" };
+    const send: DisplayMessage = {
+      ...textRow("u1", "hi"),
+      role: "user",
+      clientMessageId: "nonce-1",
+    };
     store().addOptimisticSend(send);
-    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual(["nonce-1"]);
-    store().setOptimisticSends((prev) => prev.filter((m) => m.clientMessageId !== "nonce-1"));
+    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual([
+      "nonce-1",
+    ]);
+    store().setOptimisticSends((prev) =>
+      prev.filter((m) => m.clientMessageId !== "nonce-1"),
+    );
     expect(store().optimisticSends).toEqual([]);
   });
 
@@ -176,14 +207,23 @@ describe("chat-session-store — snapshot + optimistic", () => {
       snapshot([{ ...textRow("msg-server-1", "pic"), role: "user" }], 5),
     );
 
-    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual(["nonce-2"]);
+    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual([
+      "nonce-2",
+    ]);
   });
 
   test("switching conversation resets snapshot and optimistic sends", () => {
     store().seedSnapshot(CONV, snapshot([textRow("a1", "x")], 1));
-    store().addOptimisticSend({ ...textRow("u1", "hi"), role: "user", clientMessageId: "n" });
+    store().addOptimisticSend({
+      ...textRow("u1", "hi"),
+      role: "user",
+      clientMessageId: "n",
+    });
 
-    store().switchToConversation({ assistantId: "asst-1", activeConversationId: "conv-B" });
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
 
     expect(store().snapshot).toBeNull();
     expect(store().optimisticSends).toEqual([]);
@@ -299,7 +339,10 @@ describe("chat-session-store — snapshot + optimistic", () => {
       clientMessageId: "nonce-1",
       attachments: [{ ...attachment, previewUrl: "data:image/png;base64,x" }],
     };
-    store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier"), serverRow], 7));
+    store().seedSnapshot(
+      CONV,
+      snapshot([textRow("a1", "earlier"), serverRow], 7),
+    );
 
     expect(store().optimisticSends).toEqual([]);
     const afterReseed = selectTranscriptMessages(

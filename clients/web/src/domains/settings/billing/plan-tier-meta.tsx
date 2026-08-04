@@ -6,13 +6,13 @@ export type PlanTierKey = "free" | "mighty" | "super" | "ultra";
 
 /** Vellum creature traits per plan tier, matching the pricing-page creatures. */
 export const TIER_TRAITS: Record<
-    string,
-    { bodyShape: string; eyeStyle: string; color: string }
+  string,
+  { bodyShape: string; eyeStyle: string; color: string }
 > = {
-    free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
-    mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
-    super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
-    ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
+  free: { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" },
+  mighty: { bodyShape: "blob", eyeStyle: "grumpy", color: "green" },
+  super: { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" },
+  ultra: { bodyShape: "sprout", eyeStyle: "curious", color: "orange" },
 };
 
 /**
@@ -35,30 +35,30 @@ export const FREE_CREDITS_USD = 0;
  * loads lazily; a same-size placeholder holds the layout until it resolves.
  */
 export function PlanTierAvatar({
-    tier,
-    size = 40,
+  tier,
+  size = 40,
 }: {
-    tier: string;
-    size?: number;
+  tier: string;
+  size?: number;
 }) {
-    const traits = TIER_TRAITS[tier] ?? TIER_TRAITS.free;
-    const components = useBundledAvatarComponents();
-    return (
-        <div aria-hidden className="inline-flex shrink-0">
-            {components ? (
-                // Plan-tier avatars render eyeless (body-only); the eye style is
-                // deliberately omitted here. `TIER_TRAITS[tier].eyeStyle` is
-                // kept so the trait table stays a complete creature descriptor
-                // matching the pricing-page creatures, not because it's read here.
-                <AvatarRenderer
-                    components={components}
-                    bodyShapeId={traits.bodyShape}
-                    colorId={traits.color}
-                    size={size}
-                />
-            ) : (
-                <div style={{ width: size, height: size }} />
-            )}
-        </div>
-    );
+  const traits = TIER_TRAITS[tier] ?? TIER_TRAITS.free;
+  const components = useBundledAvatarComponents();
+  return (
+    <div aria-hidden className="inline-flex shrink-0">
+      {components ? (
+        // Plan-tier avatars render eyeless (body-only); the eye style is
+        // deliberately omitted here. `TIER_TRAITS[tier].eyeStyle` is
+        // kept so the trait table stays a complete creature descriptor
+        // matching the pricing-page creatures, not because it's read here.
+        <AvatarRenderer
+          components={components}
+          bodyShapeId={traits.bodyShape}
+          colorId={traits.color}
+          size={size}
+        />
+      ) : (
+        <div style={{ width: size, height: size }} />
+      )}
+    </div>
+  );
 }

@@ -38,7 +38,10 @@ export type Bookmark = NonNullable<BookmarksGetResponse>["bookmarks"][number];
 const EMPTY_BOOKMARKS: Bookmark[] = [];
 
 /** Active assistant id + whether the shared bookmark query should run. */
-function useBookmarkQueryGate(): { assistantId: string | null; enabled: boolean } {
+function useBookmarkQueryGate(): {
+  assistantId: string | null;
+  enabled: boolean;
+} {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const supportsBookmarks = useSupportsBookmarks(assistantId);
   const enabled = supportsBookmarks && Boolean(assistantId);
@@ -120,7 +123,9 @@ export function useBookmarkToggle(): (
 
   return useCallback(
     async (messageId, conversationId, currentlyBookmarked) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       const queryKey = bookmarksGetQueryKey({
         path: { assistant_id: assistantId },
       });
@@ -133,7 +138,9 @@ export function useBookmarkToggle(): (
         if (currentlyBookmarked) {
           return { bookmarks: list.filter((b) => b.messageId !== messageId) };
         }
-        if (list.some((b) => b.messageId === messageId)) return old;
+        if (list.some((b) => b.messageId === messageId)) {
+          return old;
+        }
         const now = Date.now();
         const optimistic: Bookmark = {
           id: `optimistic-${messageId}`,

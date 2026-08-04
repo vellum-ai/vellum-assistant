@@ -22,6 +22,8 @@
  * 3. **The identify cap is derived from the budget, not chosen for feel.**
  */
 
+import { ExponentialBackoff } from "../util/exponential-backoff.js";
+
 /** Delay before the first reconnect attempt. */
 const BASE_BACKOFF_MS = 1_000;
 
@@ -62,23 +64,26 @@ export const SESSION_STABLE_AFTER_MS = 120_000;
 export type RecoveryKind = "resume" | "identify";
 
 /**
- * Consecutive-failure pacing for reconnects.
- *
- * Stateless with respect to time — the caller owns the timers, so this stays
- * a pure function of attempt count and is testable without waiting.
+ * Consecutive-failure pacing for reconnects: the shared full-jitter
+ * exponential core plus Discord's two rules on top of it, a per-kind delay
+ * ceiling and a reset gated on session stability rather than socket-open.
  */
 export class ReconnectBackoff {
-  private consecutiveFailures = 0;
-  private readonly random: () => number;
+  private readonly backoff: ExponentialBackoff;
 
   /** `random` is injectable so tests can pin the jitter. */
   constructor(random: () => number = Math.random) {
-    this.random = random;
+    this.backoff = new ExponentialBackoff({
+      baseDelayMs: BASE_BACKOFF_MS,
+      maxDelayMs: RESUME_MAX_BACKOFF_MS,
+      jitter: { mode: "full" },
+      random,
+    });
   }
 
   /** Consecutive recovery attempts since the last stable session. */
   get failureCount(): number {
-    return this.consecutiveFailures;
+    return this.backoff.attemptCount;
   }
 
   /**
@@ -90,14 +95,10 @@ export class ReconnectBackoff {
    * identify path at full speed.
    */
   nextDelayMs(kind: RecoveryKind): number {
-    const cap =
-      kind === "identify" ? IDENTIFY_MAX_BACKOFF_MS : RESUME_MAX_BACKOFF_MS;
-    const window = Math.min(
-      BASE_BACKOFF_MS * 2 ** this.consecutiveFailures,
-      cap,
-    );
-    this.consecutiveFailures++;
-    return Math.round(this.random() * window);
+    return this.backoff.nextDelayMs({
+      maxDelayMs:
+        kind === "identify" ? IDENTIFY_MAX_BACKOFF_MS : RESUME_MAX_BACKOFF_MS,
+    });
   }
 
   /**
@@ -105,6 +106,6 @@ export class ReconnectBackoff {
    * is the only thing that clears the backoff.
    */
   noteSessionStable(): void {
-    this.consecutiveFailures = 0;
+    this.backoff.reset();
   }
 }

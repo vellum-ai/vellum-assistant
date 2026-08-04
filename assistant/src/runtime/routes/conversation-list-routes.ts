@@ -147,7 +147,9 @@ const conversationDetailResponseSchema = z.object({
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  if (!id) {
+    throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  }
   return id;
 }
 

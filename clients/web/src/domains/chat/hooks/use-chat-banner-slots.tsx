@@ -49,9 +49,13 @@ export function useChatBannerSlots({
   queueSteering,
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
-    showBanner, isOnIOS, nudge,
-    showGitHubBanner, githubNudge,
-    showDiscordBanner, discordNudge,
+    showBanner,
+    isOnIOS,
+    nudge,
+    showGitHubBanner,
+    githubNudge,
+    showDiscordBanner,
+    discordNudge,
   } = nudges;
 
   const mainBannerSlot = useMemo((): ReactNode => {
@@ -84,7 +88,7 @@ export function useChatBannerSlots({
     }
     if (showDiscordBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
+        <div className="pointer-events-auto w-full px-3 pb-1 sm:px-6">
           <DiscordNudgeBanner
             onJoin={discordNudge.handleJoin}
             onDismiss={discordNudge.handleBannerDismiss}
@@ -93,18 +97,36 @@ export function useChatBannerSlots({
       );
     }
     return null;
-  }, [showBanner, isOnIOS, nudge, showGitHubBanner, githubNudge, showDiscordBanner, discordNudge]);
+  }, [
+    showBanner,
+    isOnIOS,
+    nudge,
+    showGitHubBanner,
+    githubNudge,
+    showDiscordBanner,
+    discordNudge,
+  ]);
 
-  const mainQueuedDrawerSlot = useMemo((): ReactNode => (
-    <QueuedMessagesDrawer
-      queuedMessages={queuedMessages}
-      onCancelMessage={onCancelQueuedMessage}
-      onCancelAll={onCancelAllQueued}
-      onSteer={onSteerMessage}
-      showSteer={queueSteering}
-      onEditTail={onEditQueueTail}
-    />
-  ), [queuedMessages, onCancelQueuedMessage, onCancelAllQueued, onSteerMessage, queueSteering, onEditQueueTail]);
+  const mainQueuedDrawerSlot = useMemo(
+    (): ReactNode => (
+      <QueuedMessagesDrawer
+        queuedMessages={queuedMessages}
+        onCancelMessage={onCancelQueuedMessage}
+        onCancelAll={onCancelAllQueued}
+        onSteer={onSteerMessage}
+        showSteer={queueSteering}
+        onEditTail={onEditQueueTail}
+      />
+    ),
+    [
+      queuedMessages,
+      onCancelQueuedMessage,
+      onCancelAllQueued,
+      onSteerMessage,
+      queueSteering,
+      onEditQueueTail,
+    ],
+  );
 
   return { mainBannerSlot, mainQueuedDrawerSlot };
 }

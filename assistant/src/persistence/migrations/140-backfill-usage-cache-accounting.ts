@@ -46,18 +46,26 @@ interface ReconstructedUsage extends PricingUsage {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value == null) return null;
+  if (typeof value !== "object" || value == null) {
+    return null;
+  }
   return value as Record<string, unknown>;
 }
 
 function parseRequiredTokenCount(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  if (value < 0) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  if (value < 0) {
+    return null;
+  }
   return value;
 }
 
 function parseOptionalTokenCount(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
   return Math.max(value, 0);
 }
 
@@ -72,7 +80,9 @@ function parseResponseUsage(
   }
 
   const payloads = Array.isArray(parsed) ? parsed : [parsed];
-  if (payloads.length === 0) return null;
+  if (payloads.length === 0) {
+    return null;
+  }
 
   let directInputTokens = 0;
   let outputTokens = 0;
@@ -83,7 +93,9 @@ function parseResponseUsage(
   for (const payload of payloads) {
     const response = asRecord(payload);
     const usage = asRecord(response?.usage);
-    if (!usage) return null;
+    if (!usage) {
+      return null;
+    }
 
     const inputTokens = parseRequiredTokenCount(usage.input_tokens);
     const responseOutputTokens = parseRequiredTokenCount(usage.output_tokens);
@@ -154,7 +166,9 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'llm_request_logs'`,
     )
     .get();
-  if (!usageEventsTableExists || !requestLogsTableExists) return;
+  if (!usageEventsTableExists || !requestLogsTableExists) {
+    return;
+  }
 
   const usageRows = raw
     .query(
@@ -251,7 +265,9 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
       requestOffsets.set(conversationId, requestOffset);
       previousUsageEventCreatedAt.set(conversationId, usageRow.created_at);
 
-      if (usageRow.provider !== "anthropic") continue;
+      if (usageRow.provider !== "anthropic") {
+        continue;
+      }
 
       scannedAnthropicRows += 1;
       if (windowLogs.length === 0) {

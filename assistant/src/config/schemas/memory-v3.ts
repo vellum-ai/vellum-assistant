@@ -64,11 +64,11 @@ export const MemoryV3HotSetSchema = z
   .describe("Memory v3 hot-set lane (decayed selection frequency) tuning.");
 
 /**
- * Fresh-set lane tuning: the top-K pages by most-recent on-disk modification
- * folded into the candidate pool as a stable-prefix lane. Recency covers the
- * window before the other lanes can reach a just-written page (no selection
- * history for the hot set; nothing lexical for the finders on summary-shaped
- * messages).
+ * Fresh-set lane tuning: the top-K pages by effective recency (the declared
+ * `origin_date` frontmatter when present, else file mtime) folded into the
+ * candidate pool as a stable-prefix lane. Recency covers the window before
+ * the other lanes can reach a just-written page (no selection history for
+ * the hot set; nothing lexical for the finders on summary-shaped messages).
  */
 export const MemoryV3FreshSetSchema = z
   .object({
@@ -78,10 +78,10 @@ export const MemoryV3FreshSetSchema = z
       .nonnegative("memory.v3.freshSet.k must be a non-negative integer")
       .default(100)
       .describe(
-        "Number of most-recently-modified pages included in the fresh-set lane (0 disables the lane). Sized to cover roughly the last day or two of page writes — the recency window conversations reference most.",
+        "Number of pages included in the fresh-set lane, ranked by effective recency: the declared origin_date frontmatter when present, else file mtime (0 disables the lane). Sized to cover roughly the last day or two of page activity, the recency window conversations reference most.",
       ),
   })
-  .describe("Memory v3 fresh-set lane (page-modification recency) tuning.");
+  .describe("Memory v3 fresh-set lane (effective page recency) tuning.");
 
 /**
  * Learned-edge lane tuning: a co-selection NPMI association graph over the

@@ -172,10 +172,14 @@ function inferFromLegacyVersionJson(
 export function touchSkillLastUsed(skillDir: string, today: string): boolean {
   try {
     const meta = readInstallMeta(skillDir);
-    if (!meta) return false;
+    if (!meta) {
+      return false;
+    }
 
     // Compare only the date portion so multiple loads within a day are a no-op.
-    if (meta.lastUsedAt?.slice(0, 10) === today) return false;
+    if (meta.lastUsedAt?.slice(0, 10) === today) {
+      return false;
+    }
 
     writeInstallMeta(skillDir, {
       ...meta,
@@ -211,15 +215,18 @@ export function collectFileContents(
   prefix = "",
 ): Array<{ relPath: string; content: Buffer }> {
   const results: Array<{ relPath: string; content: Buffer }> = [];
-  if (!existsSync(dir)) return results;
+  if (!existsSync(dir)) {
+    return results;
+  }
 
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     // Exclude metadata files at the root level (prefix === "").
     // Only exclude actual files — a directory with a metadata name should
     // still be traversed so nested content contributes to the hash.
-    if (!prefix && entry.isFile() && METADATA_FILENAMES.has(entry.name))
+    if (!prefix && entry.isFile() && METADATA_FILENAMES.has(entry.name)) {
       continue;
+    }
 
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = join(dir, entry.name);
@@ -242,10 +249,14 @@ export function collectFileContents(
  * different hashing strategy (v1: prefix) for version identity.
  */
 export function computeSkillHash(skillDir: string): string | null {
-  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
+  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) {
+    return null;
+  }
 
   const files = collectFileContents(skillDir);
-  if (files.length === 0) return null;
+  if (files.length === 0) {
+    return null;
+  }
 
   const hasher = new Bun.CryptoHasher("sha256");
   for (const file of files) {

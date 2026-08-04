@@ -65,9 +65,7 @@ function renderDialog(
 describe("Menu step", () => {
   test("renders the title, assistant name, and all three actions", () => {
     renderDialog();
-    expect(document.body.textContent).toContain(
-      "Can’t Authenticate Assistant",
-    );
+    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
     expect(document.body.textContent).toContain(
       "The authentication token for Local Assistant",
     );
@@ -113,9 +111,7 @@ describe("Repair confirmation", () => {
     const { onRepair, onCancel } = renderDialog();
     fireEvent.click(getButton("Wake & Repair"));
     fireEvent.click(getButton("Cancel"));
-    expect(document.body.textContent).toContain(
-      "Can’t Authenticate Assistant",
-    );
+    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
     expect(onRepair).not.toHaveBeenCalled();
     expect(onCancel).not.toHaveBeenCalled();
   });
@@ -197,9 +193,7 @@ describe("Reset on reopen", () => {
 
     rerender({ open: false });
     rerender({ open: true });
-    expect(document.body.textContent).toContain(
-      "Can’t Authenticate Assistant",
-    );
+    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
     expect(getButton("Wake & Repair")).toBeTruthy();
   });
 });

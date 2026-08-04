@@ -15,6 +15,8 @@ import { isElectron } from "@/runtime/is-electron";
  * Safe to call from any host — no-op off Electron.
  */
 export function setAssistantIcon(png: Uint8Array | null): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.icon?.setAvatar(png);
 }

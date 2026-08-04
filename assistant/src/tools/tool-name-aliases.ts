@@ -179,7 +179,9 @@ function normalizeLegacyComputerUsePressKeyInput(
   const key = typeof normalized.key === "string" ? normalized.key.trim() : "";
   const modifiers = Array.isArray(normalized.modifiers)
     ? normalized.modifiers.flatMap((modifier) => {
-        if (typeof modifier !== "string") return [];
+        if (typeof modifier !== "string") {
+          return [];
+        }
         const normalizedModifier = normalizeKeyModifier(modifier);
         return normalizedModifier ? [normalizedModifier] : [];
       })

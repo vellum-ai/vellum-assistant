@@ -25,13 +25,19 @@ export const retightenMigrationOnboardingThreadMigration: WorkspaceMigration = {
     // rewritten on upgrade. When invoked without a context (e.g. from older
     // callers), default to the safe path and skip — the runner always supplies
     // one in production.
-    if (!ctx?.isNewWorkspace) return;
+    if (!ctx?.isNewWorkspace) {
+      return;
+    }
     const filePath = join(workspaceDir, "memory", "threads.md");
-    if (!existsSync(filePath)) return;
+    if (!existsSync(filePath)) {
+      return;
+    }
     const content = readFileSync(filePath, "utf-8");
     // Idempotent: if the old bullet is absent (already replaced, or the user
     // edited it away), there is nothing to do.
-    if (!content.includes(OLD_BULLET)) return;
+    if (!content.includes(OLD_BULLET)) {
+      return;
+    }
     writeFileSync(filePath, content.replace(OLD_BULLET, NEW_BULLET), "utf-8");
   },
 

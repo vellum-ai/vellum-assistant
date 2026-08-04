@@ -158,7 +158,9 @@ function alreadyMatchesTarget(record: Record<string, unknown>): boolean {
   const sortedTools = [...tools].sort();
   const sortedTarget = [...TARGET_ALLOWED_TOOLS].sort();
   for (let i = 0; i < sortedTools.length; i++) {
-    if (sortedTools[i] !== sortedTarget[i]) return false;
+    if (sortedTools[i] !== sortedTarget[i]) {
+      return false;
+    }
   }
 
   if (!Array.isArray(domains) || domains.length !== 0) {

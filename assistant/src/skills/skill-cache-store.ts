@@ -46,7 +46,9 @@ export function setCacheEntry(
   // drop the oldest entry (first key in Map iteration order).
   if (_store.size >= DEFAULT_MAX_ENTRIES) {
     const oldest = _store.keys().next().value;
-    if (oldest !== undefined) _store.delete(oldest);
+    if (oldest !== undefined) {
+      _store.delete(oldest);
+    }
   }
 
   _store.set(key, { data, expiresAt: Date.now() + ttl });
@@ -61,7 +63,9 @@ export function setCacheEntry(
  */
 export function getCacheEntry(key: string): { data: unknown } | null {
   const entry = _store.get(key);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
 
   // Lazy TTL eviction.
   if (Date.now() >= entry.expiresAt) {

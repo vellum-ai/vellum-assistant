@@ -68,9 +68,7 @@ export async function streamEmptyStateGreeting({
   }
 
   const stream = (data ?? response?.body) as
-    | ReadableStream<Uint8Array>
-    | null
-    | undefined;
+    ReadableStream<Uint8Array> | null | undefined;
   if (!stream) {
     throw new Error("Greeting stream returned no body");
   }

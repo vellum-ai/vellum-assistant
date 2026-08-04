@@ -63,27 +63,37 @@ function decodeBase64Bytes(
 }
 
 function readUint32BE(buf: Buffer, offset: number): number {
-  if (offset + 4 > buf.length) return -1;
+  if (offset + 4 > buf.length) {
+    return -1;
+  }
   return buf.readUInt32BE(offset);
 }
 
 function readUint16BE(buf: Buffer, offset: number): number {
-  if (offset + 2 > buf.length) return -1;
+  if (offset + 2 > buf.length) {
+    return -1;
+  }
   return buf.readUInt16BE(offset);
 }
 
 function readUint16LE(buf: Buffer, offset: number): number {
-  if (offset + 2 > buf.length) return -1;
+  if (offset + 2 > buf.length) {
+    return -1;
+  }
   return buf.readUInt16LE(offset);
 }
 
 function readUint32LE(buf: Buffer, offset: number): number {
-  if (offset + 4 > buf.length) return -1;
+  if (offset + 4 > buf.length) {
+    return -1;
+  }
   return buf.readUInt32LE(offset);
 }
 
 function readUint24LE(buf: Buffer, offset: number): number {
-  if (offset + 3 > buf.length) return -1;
+  if (offset + 3 > buf.length) {
+    return -1;
+  }
   return buf[offset]! | (buf[offset + 1]! << 8) | (buf[offset + 2]! << 16);
 }
 
@@ -91,7 +101,9 @@ function parsePng(
   base64Data: string,
 ): { width: number; height: number } | null {
   const buf = decodeBase64Bytes(base64Data, 32);
-  if (!buf || buf.length < 24) return null;
+  if (!buf || buf.length < 24) {
+    return null;
+  }
 
   // Validate PNG signature: 89 50 4E 47
   if (
@@ -105,7 +117,9 @@ function parsePng(
 
   const width = readUint32BE(buf, 16);
   const height = readUint32BE(buf, 20);
-  if (width <= 0 || height <= 0) return null;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
 
   return { width, height };
 }
@@ -115,10 +129,14 @@ function parseJpeg(
 ): { width: number; height: number } | null {
   // Scan up to 1 MiB to handle JPEGs with large EXIF/ICC metadata before the SOF marker
   const buf = decodeBase64Bytes(base64Data, 1_048_576);
-  if (!buf || buf.length < 2) return null;
+  if (!buf || buf.length < 2) {
+    return null;
+  }
 
   // Validate JPEG SOI marker
-  if (buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  if (buf[0] !== 0xff || buf[1] !== 0xd8) {
+    return null;
+  }
 
   let offset = 2;
   while (offset < buf.length - 1) {
@@ -132,7 +150,9 @@ function parseJpeg(
     while (offset < buf.length && buf[offset] === 0xff) {
       offset++;
     }
-    if (offset >= buf.length) return null;
+    if (offset >= buf.length) {
+      return null;
+    }
 
     const marker = buf[offset]!;
     offset++;
@@ -145,17 +165,25 @@ function parseJpeg(
       marker !== 0xcc
     ) {
       // SOF marker found: skip 2-byte length + 1-byte precision
-      if (offset + 7 > buf.length) return null;
+      if (offset + 7 > buf.length) {
+        return null;
+      }
       const height = readUint16BE(buf, offset + 3);
       const width = readUint16BE(buf, offset + 5);
-      if (width <= 0 || height <= 0) return null;
+      if (width <= 0 || height <= 0) {
+        return null;
+      }
       return { width, height };
     }
 
     // Skip this marker's payload
-    if (offset + 1 >= buf.length) return null;
+    if (offset + 1 >= buf.length) {
+      return null;
+    }
     const segmentLength = readUint16BE(buf, offset);
-    if (segmentLength < 2) return null;
+    if (segmentLength < 2) {
+      return null;
+    }
     offset += segmentLength;
   }
 
@@ -166,7 +194,9 @@ function parseGif(
   base64Data: string,
 ): { width: number; height: number } | null {
   const buf = decodeBase64Bytes(base64Data, 12);
-  if (!buf || buf.length < 10) return null;
+  if (!buf || buf.length < 10) {
+    return null;
+  }
 
   // Validate GIF signature: 47 49 46 38 (GIF8)
   if (
@@ -180,7 +210,9 @@ function parseGif(
 
   const width = readUint16LE(buf, 6);
   const height = readUint16LE(buf, 8);
-  if (width <= 0 || height <= 0) return null;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
 
   return { width, height };
 }
@@ -189,7 +221,9 @@ function parseWebp(
   base64Data: string,
 ): { width: number; height: number } | null {
   const buf = decodeBase64Bytes(base64Data, 32);
-  if (!buf || buf.length < 16) return null;
+  if (!buf || buf.length < 16) {
+    return null;
+  }
 
   // Validate RIFF signature
   if (
@@ -219,31 +253,47 @@ function parseWebp(
 
   if (subFormat === "VP8 ") {
     // VP8 lossy
-    if (buf.length < 30) return null;
+    if (buf.length < 30) {
+      return null;
+    }
     const width = readUint16LE(buf, 26) & 0x3fff;
     const height = readUint16LE(buf, 28) & 0x3fff;
-    if (width <= 0 || height <= 0) return null;
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
     return { width, height };
   }
 
   if (subFormat === "VP8L") {
     // VP8L lossless — validate signature byte 0x2f at offset 20
-    if (buf.length < 25) return null;
-    if (buf[20] !== 0x2f) return null;
+    if (buf.length < 25) {
+      return null;
+    }
+    if (buf[20] !== 0x2f) {
+      return null;
+    }
     const bits = readUint32LE(buf, 21);
-    if (bits < 0) return null;
+    if (bits < 0) {
+      return null;
+    }
     const width = (bits & 0x3fff) + 1;
     const height = ((bits >> 14) & 0x3fff) + 1;
-    if (width <= 0 || height <= 0) return null;
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
     return { width, height };
   }
 
   if (subFormat === "VP8X") {
     // VP8X extended
-    if (buf.length < 30) return null;
+    if (buf.length < 30) {
+      return null;
+    }
     const width = readUint24LE(buf, 24) + 1;
     const height = readUint24LE(buf, 27) + 1;
-    if (width <= 0 || height <= 0) return null;
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
     return { width, height };
   }
 

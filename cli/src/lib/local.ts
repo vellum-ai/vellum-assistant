@@ -1592,8 +1592,6 @@ export async function startGateway(
     // Pass gateway operational settings via env vars so the CLI does not
     // need direct access to the workspace config file.
     RUNTIME_PROXY_REQUIRE_AUTH: "true",
-    UNMAPPED_POLICY: "default",
-    DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),

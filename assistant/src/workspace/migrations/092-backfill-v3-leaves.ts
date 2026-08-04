@@ -23,7 +23,9 @@ function readAssignments(workspaceDir: string): Record<string, string[]> {
   try {
     raw = fs.readFileSync(assignmentsPath, "utf8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
     throw err;
   }
   const parsed = JSON.parse(raw) as unknown;
@@ -49,10 +51,14 @@ interface SplitPage {
  * shifts semantics when the runtime page parser evolves.
  */
 function splitFrontmatter(content: string): SplitPage | null {
-  if (!content.startsWith(FRONTMATTER_DELIMITER)) return null;
+  if (!content.startsWith(FRONTMATTER_DELIMITER)) {
+    return null;
+  }
   const afterOpen = content.slice(FRONTMATTER_DELIMITER.length);
   const closeMatch = afterOpen.match(/\r?\n---[ \t]*(?:\r?\n|$)/);
-  if (!closeMatch || closeMatch.index === undefined) return null;
+  if (!closeMatch || closeMatch.index === undefined) {
+    return null;
+  }
   const frontmatter = afterOpen.slice(0, closeMatch.index);
   const body = afterOpen.slice(closeMatch.index + closeMatch[0].length);
   return { frontmatter, body };
@@ -72,7 +78,9 @@ function findLeavesField(
 ): { start: number; end: number; nonEmpty: boolean } | null {
   for (let i = 0; i < lines.length; i++) {
     const m = /^leaves:[ \t]*(.*)$/.exec(lines[i]);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     const inline = m[1].trim();
     if (inline.length > 0) {
       // Inline form: `leaves: [a, b]` (non-empty) or `leaves: []` (empty).
@@ -82,7 +90,9 @@ function findLeavesField(
     let end = i + 1;
     let nonEmpty = false;
     while (end < lines.length && /^[ \t]+\S/.test(lines[end])) {
-      if (/^[ \t]+-[ \t]+\S/.test(lines[end])) nonEmpty = true;
+      if (/^[ \t]+-[ \t]+\S/.test(lines[end])) {
+        nonEmpty = true;
+      }
       end++;
     }
     return { start: i, end, nonEmpty };
@@ -104,7 +114,9 @@ function withLeaves(frontmatter: string, leaves: string[]): string {
   const lines = frontmatter.replace(/\s+$/, "").split(/\r?\n/);
   // Drop a leading empty line so a previously blank frontmatter doesn't yield
   // a stray newline at the top.
-  while (lines.length > 0 && lines[0].trim() === "") lines.shift();
+  while (lines.length > 0 && lines[0].trim() === "") {
+    lines.shift();
+  }
 
   const existing = findLeavesField(lines);
   if (existing) {
@@ -138,22 +150,30 @@ export const backfillV3LeavesMigration: WorkspaceMigration = {
     const conceptsDir = join(workspaceDir, CONCEPTS_REL);
 
     for (const [slug, leaves] of Object.entries(assignments)) {
-      if (!Array.isArray(leaves) || leaves.length === 0) continue;
+      if (!Array.isArray(leaves) || leaves.length === 0) {
+        continue;
+      }
 
       const file = join(conceptsDir, `${slug}.md`);
       let content: string;
       try {
         content = fs.readFileSync(file, "utf8");
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          continue;
+        }
         throw err;
       }
 
       const split = splitFrontmatter(content);
-      if (!split) continue; // No frontmatter fence — leave the page untouched.
+      if (!split) {
+        continue;
+      } // No frontmatter fence — leave the page untouched.
       // Never clobber a page that already declares non-empty leaves.
       const existing = findLeavesField(split.frontmatter.split(/\r?\n/));
-      if (existing?.nonEmpty) continue;
+      if (existing?.nonEmpty) {
+        continue;
+      }
 
       const rebuilt = `${FRONTMATTER_DELIMITER}\n${withLeaves(
         split.frontmatter,

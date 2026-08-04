@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  spyOn,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import * as eventBus from "@/lib/event-bus";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
@@ -26,7 +19,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  while (subscriptions.length) subscriptions.pop()?.();
+  while (subscriptions.length) {
+    subscriptions.pop()?.();
+  }
   publishSpy.mockClear();
 });
 

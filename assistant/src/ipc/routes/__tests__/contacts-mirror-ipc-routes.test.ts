@@ -39,7 +39,9 @@ mock.module("../../../contacts/contacts-write.js", () => ({
   upsertContactChannel: (
     ...args: Parameters<typeof realContactsWrite.upsertContactChannel>
   ) => {
-    if (!mockActive) {return realContactsWrite.upsertContactChannel(...args);}
+    if (!mockActive) {
+      return realContactsWrite.upsertContactChannel(...args);
+    }
     upsertContactChannelCalls.push(args[0]);
     return null;
   },
@@ -50,26 +52,34 @@ mock.module("../../../contacts/contact-store.js", () => ({
   upsertContact: (
     ...args: Parameters<typeof realContactStore.upsertContact>
   ) => {
-    if (!mockActive) {return realContactStore.upsertContact(...args);}
+    if (!mockActive) {
+      return realContactStore.upsertContact(...args);
+    }
     upsertContactCalls.push(args[0]);
     return { created: true };
   },
   deleteContact: (
     ...args: Parameters<typeof realContactStore.deleteContact>
   ) => {
-    if (!mockActive) {return realContactStore.deleteContact(...args);}
+    if (!mockActive) {
+      return realContactStore.deleteContact(...args);
+    }
     deleteContactCalls.push(args[0]);
   },
   upsertContactMirrorFull: (
     ...args: Parameters<typeof realContactStore.upsertContactMirrorFull>
   ) => {
-    if (!mockActive) {return realContactStore.upsertContactMirrorFull(...args);}
+    if (!mockActive) {
+      return realContactStore.upsertContactMirrorFull(...args);
+    }
     upsertContactMirrorFullCalls.push(args[0]);
   },
   mergeContactMirror: (
     ...args: Parameters<typeof realContactStore.mergeContactMirror>
   ) => {
-    if (!mockActive) {return realContactStore.mergeContactMirror(...args);}
+    if (!mockActive) {
+      return realContactStore.mergeContactMirror(...args);
+    }
     mergeContactMirrorCalls.push(args[0]);
   },
 }));
@@ -97,9 +107,8 @@ const {
   handleContactsMirrorApply,
 } = await import("../contacts-mirror-ipc-routes.js");
 
-const { ROUTES: contactRoutes } = await import(
-  "../../../runtime/routes/contact-routes.js"
-);
+const { ROUTES: contactRoutes } =
+  await import("../../../runtime/routes/contact-routes.js");
 const { routeDefinitionsToIpcMethods } = await import("../route-adapter.js");
 
 const MIRROR_OPERATION_IDS = [
@@ -301,7 +310,10 @@ describe("contacts_mirror_upsert_full", () => {
         contactId: "co-full",
         contactType: "assistant",
         notes: null,
-        assistantMetadata: { species: "vellum", metadata: { assistantId: "a1" } },
+        assistantMetadata: {
+          species: "vellum",
+          metadata: { assistantId: "a1" },
+        },
         channels: [
           { id: "gw-ch-1", type: "email", address: "a@x.com", isPrimary: true },
         ],
@@ -316,7 +328,10 @@ describe("contacts_mirror_upsert_full", () => {
         displayName: undefined,
         contactType: "assistant",
         notes: null,
-        assistantMetadata: { species: "vellum", metadata: { assistantId: "a1" } },
+        assistantMetadata: {
+          species: "vellum",
+          metadata: { assistantId: "a1" },
+        },
         channels: [
           {
             id: "gw-ch-1",
@@ -349,9 +364,7 @@ describe("contacts_mirror_delete_contact", () => {
   });
 
   test("rejects a body missing contactId", () => {
-    expect(() =>
-      handleContactsMirrorDeleteContact({ body: {} }),
-    ).toThrow();
+    expect(() => handleContactsMirrorDeleteContact({ body: {} })).toThrow();
   });
 });
 

@@ -108,12 +108,10 @@ mock.module(
   }),
 );
 
-const { SkillDetailPage } = await import(
-  "@/domains/intelligence/skill-detail-page"
-);
-const { skillsGetOptions } = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
+const { SkillDetailPage } =
+  await import("@/domains/intelligence/skill-detail-page");
+const { skillsGetOptions } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
 
 function makeSkill(overrides: Partial<SkillInfo> = {}): SkillInfo {
   return {

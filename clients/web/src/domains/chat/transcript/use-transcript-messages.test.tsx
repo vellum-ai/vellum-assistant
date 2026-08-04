@@ -18,11 +18,23 @@ function textRow(id: string, text: string): DisplayMessage {
   };
 }
 
-function snapshot(messages: DisplayMessage[], seq: number): PaginatedHistoryResult {
-  return { messages, hasMore: false, oldestTimestamp: null, oldestMessageId: null, seq };
+function snapshot(
+  messages: DisplayMessage[],
+  seq: number,
+): PaginatedHistoryResult {
+  return {
+    messages,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq,
+  };
 }
 
-function envelope(seq: number, message: AssistantEvent): AssistantEventEnvelope {
+function envelope(
+  seq: number,
+  message: AssistantEvent,
+): AssistantEventEnvelope {
   return {
     id: `e${seq}`,
     seq,
@@ -57,7 +69,9 @@ describe("useTranscriptMessages reference stability", () => {
     act(() => {
       useChatSessionStore
         .getState()
-        .applyEnvelopeToSnapshot(envelope(2, { type: "sync_changed" } as AssistantEvent));
+        .applyEnvelopeToSnapshot(
+          envelope(2, { type: "sync_changed" } as AssistantEvent),
+        );
     });
 
     // The snapshot object identity changed…

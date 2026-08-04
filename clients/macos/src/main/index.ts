@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import {
   readAllowedGatewayPorts,
   resolveLocalConfigFromEnv,
@@ -19,7 +20,6 @@ import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
-import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import {
@@ -38,6 +38,7 @@ import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
+import { installDownloads } from "./downloads";
 import { installShare } from "./share";
 import {
   installEscapeMonitor,
@@ -65,7 +66,11 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
-import { relocateToApplicationsFolder } from "./move-to-applications";
+import {
+  promptToRelocateIfStranded,
+  relocateToApplicationsFolder,
+} from "./move-to-applications";
+import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -155,9 +160,9 @@ initSentryMain();
 
 // Single-instance lock: relaunches focus the existing window instead of
 // spawning a parallel main process. The second-instance handler fires on the
-// instance that holds the lock (the primary). The instance that fails to
-// acquire calls app.quit() and never reaches whenReady.
-if (!app.requestSingleInstanceLock()) {
+// instance that holds the lock (the primary).
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
   app.quit();
 }
 
@@ -366,13 +371,25 @@ const forwardPlatformRequest = async (
 app
   .whenReady()
   .then(async () => {
+    // The instance that lost the single-instance lock is already quitting.
+    // `app.quit()` requests a shutdown rather than halting the module, and a
+    // `ready` that is already queued still fires, so the losing instance gates
+    // its own setup here. Electron's documented single-instance example puts
+    // every `whenReady` side effect behind this same branch.
+    // https://www.electronjs.org/docs/latest/api/app#apprequestsingleinstancelockadditionaldata
+    if (!gotSingleInstanceLock) {
+      return;
+    }
+
     // Install into /Applications before any other setup. On the first packaged
     // launch from a mounted DMG (or ~/Downloads), the app silently moves itself
     // there and relaunches — the "double-click to install" half of the DMG flow.
     // Skip it when a file or deep link triggered the launch: those events are
     // buffered in-process and would be lost during the relaunch.
-    if (!hasPendingFiles() && !hasPendingDeepLinks()) {
-      if (await relocateToApplicationsFolder()) return;
+    if (hasPendingFiles() || hasPendingDeepLinks()) {
+      markRelocationSkipped();
+    } else if (await relocateToApplicationsFolder()) {
+      return;
     }
 
     if (!isDev) {
@@ -426,6 +443,9 @@ app
     installAvatarIpc();
     installDock();
     installShare();
+    // Files renderer downloads into ~/Downloads instead of prompting a Save
+    // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
+    installDownloads();
     installPowerEvents();
     installNotifications();
     // Register the status channel before the tray installs so the tray's
@@ -449,6 +469,15 @@ app
     });
     installNativeAuth();
     installMainWindow();
+
+    // Runs after the main window so the recovery dialog has a window to sit in
+    // front of, and so a user who declines lands on a working app rather than
+    // an empty screen. A packaged app outside /Applications cannot update, and
+    // the relocation at the head of this block is the only thing that would
+    // have fixed it.
+    void promptToRelocateIfStranded().catch((err: unknown) => {
+      log.error("[app] relocation prompt failed:", err);
+    });
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
     // back to front, recreating it if it was previously closed. The

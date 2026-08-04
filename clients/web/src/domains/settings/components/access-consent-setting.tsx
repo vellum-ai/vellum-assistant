@@ -3,14 +3,14 @@ import { Loader2 } from "lucide-react";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-    assistantsAccessConsentRetrieveOptions,
-    assistantsAccessConsentRetrieveSetQueryData,
+  assistantsAccessConsentRetrieveOptions,
+  assistantsAccessConsentRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 import {
-    useActiveAssistantIsPlatformHosted,
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -73,7 +73,9 @@ export function AccessConsentSetting() {
   // never skip a hook and trigger a hook-order violation. The trailing
   // divider in `privacy-page.tsx` is also gated on the same condition
   // so the layout doesn't render two adjacent dividers.
-  if (platformGate === "gated") return null;
+  if (platformGate === "gated") {
+    return null;
+  }
 
   // `isResolving` controls the spinner adjacent to the toggle, NOT the
   // toggle's disabled state. The `disabled` predicate stays strict on
@@ -101,9 +103,9 @@ export function AccessConsentSetting() {
             Allow Staff Access
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-            When enabled, Vellum Staff will be able to access your assistant
-            and its data for debugging purposes. It&apos;s suggested that you
-            leave this off and only turn it on temporarily if you need Vellum
+            When enabled, Vellum Staff will be able to access your assistant and
+            its data for debugging purposes. It&apos;s suggested that you leave
+            this off and only turn it on temporarily if you need Vellum
             Support&apos;s help in investigating an issue.
           </p>
           {platformGate === "full" && isError && (

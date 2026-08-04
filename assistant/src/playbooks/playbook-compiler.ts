@@ -54,7 +54,9 @@ export function compilePlaybooks(): CompiledPlaybooks {
   for (const row of rows) {
     // Content format: "Playbook: <trigger>\n<json statement>"
     const newlineIdx = row.content.indexOf("\n");
-    if (newlineIdx === -1) continue;
+    if (newlineIdx === -1) {
+      continue;
+    }
     const statement = row.content.slice(newlineIdx + 1);
     const playbook = parsePlaybookStatement(statement);
     if (playbook) {

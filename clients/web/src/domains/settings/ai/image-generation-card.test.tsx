@@ -93,7 +93,7 @@ let daemonSupportsVellumProvider = true;
 mock.module(
   "@/lib/backwards-compat/use-supports-image-gen-vellum-provider",
   () => ({
-    MIN_VERSION: "0.10.13",
+    MIN_VERSION: "0.11.0",
     supportsImageGenVellumProvider: () => daemonSupportsVellumProvider,
   }),
 );

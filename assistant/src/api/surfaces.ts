@@ -54,6 +54,38 @@ export function coerceSurfaceDataRecord(
   return {};
 }
 
+/**
+ * Describe why a `data` payload the caller double-encoded as a JSON object or
+ * array literal could not be decoded, or null when it decoded fine.
+ *
+ * {@link coerceSurfaceDataRecord} collapses an undecodable string to `{}`, which
+ * every downstream shape check then reads as "no fields were sent". Callers pair
+ * the two so a rejection names the encoding failure instead of blaming whichever
+ * field happened to be looked up first.
+ *
+ * Scoped to strings that open with `{` or `[`: those are an object payload that
+ * lost a quote or a brace on the way through. A string that never resembled one
+ * (`"delete it?"`) is a different mistake, and the surface's own shape doc says
+ * more about it than a parse error would.
+ */
+export function describeSurfaceDataStringParseFailure(
+  value: unknown,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trimStart();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return null;
+  }
+  try {
+    JSON.parse(value);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 /** Optional string that drops (rather than rejects on) a non-string value. */
 const tolerantString = () => z.string().optional().catch(undefined);
 
@@ -458,6 +490,59 @@ export const WorkResultSurfaceDataSchema = z.object({
 });
 export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
 
+/**
+ * Inline visual: a self-contained html fragment rendered in a sandboxed
+ * frame. Model-invokable via `ui_show`, which validates the fragment (no
+ * external resources, design-token styling) before emitting it — see
+ * `tools/ui-surface/visual-validation.ts`.
+ */
+export const VisualSurfaceDataSchema = z.object({
+  /** The visual's markup. Load-bearing: empty renders a blank box. */
+  html: z.string().catch(""),
+  /** Preferred render height in px. */
+  height: tolerantNumber(),
+});
+export type VisualSurfaceData = z.infer<typeof VisualSurfaceDataSchema>;
+
+/**
+ * Bounds for the caller's initial height estimate, in CSS pixels. The maximum
+ * matches the client renderer's clamp (`visual-surface.tsx`), so an estimate
+ * the frame would clip never reaches the wire.
+ */
+const VISUAL_MIN_HEIGHT = 80;
+const VISUAL_MAX_HEIGHT = 1400;
+
+/**
+ * Normalize a visual `ui_show` payload: recover `html`/`height` the model
+ * placed at the top level of the tool input instead of nesting inside `data`,
+ * clamp the height estimate, then parse through the canonical schema. Shared
+ * by the tool's validation guard and the daemon resolver so both layers see
+ * the same fragment.
+ */
+export function normalizeVisualShowData(
+  input: Record<string, unknown>,
+  data: Record<string, unknown>,
+): VisualSurfaceData {
+  const normalized: Record<string, unknown> = { ...data };
+  if (typeof normalized.html !== "string" && typeof input.html === "string") {
+    normalized.html = input.html;
+  }
+  if (normalized.height == null && input.height != null) {
+    normalized.height = input.height;
+  }
+  const parsed = VisualSurfaceDataSchema.parse(normalized);
+  if (parsed.height === undefined || parsed.height <= 0) {
+    return { html: parsed.html };
+  }
+  return {
+    html: parsed.html,
+    height: Math.min(
+      VISUAL_MAX_HEIGHT,
+      Math.max(VISUAL_MIN_HEIGHT, Math.round(parsed.height)),
+    ),
+  };
+}
+
 // === Surface type registry ===
 
 export const SURFACE_TYPES = [
@@ -477,6 +562,7 @@ export const SURFACE_TYPES = [
   "work_result",
   "skill_card",
   "call_summary",
+  "visual",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
@@ -534,7 +620,8 @@ export type SurfaceData =
   | DynamicPageSurfaceData
   | FileUploadSurfaceData
   | DocumentPreviewSurfaceData
-  | WorkResultSurfaceData;
+  | WorkResultSurfaceData
+  | VisualSurfaceData;
 
 /**
  * Per-type `data` payload shapes, keyed by surface type. This is the
@@ -568,6 +655,7 @@ export interface SurfaceDataByType {
   work_result: WorkResultSurfaceData;
   skill_card: Record<string, unknown>;
   call_summary: Record<string, unknown>;
+  visual: VisualSurfaceData;
 }
 
 /** Any surface `data` payload, including the opaque (non-renderable) types. */
@@ -600,6 +688,7 @@ export const SURFACE_DATA_SCHEMAS: {
   work_result: WorkResultSurfaceDataSchema,
   skill_card: z.record(z.string(), z.unknown()),
   call_summary: z.record(z.string(), z.unknown()),
+  visual: VisualSurfaceDataSchema,
 };
 
 /**

@@ -131,7 +131,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async tokens(): Promise<OAuthTokens | undefined> {
     const raw = await getSecureKeyAsync(tokensKey(this.serverId));
-    if (!raw) return undefined;
+    if (!raw) {
+      return undefined;
+    }
     try {
       return JSON.parse(raw) as OAuthTokens;
     } catch {
@@ -214,7 +216,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     const raw = await getSecureKeyAsync(clientInfoKey(this.serverId));
-    if (!raw) return undefined;
+    if (!raw) {
+      return undefined;
+    }
     try {
       return JSON.parse(raw) as OAuthClientInformationMixed;
     } catch {
@@ -280,7 +284,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
     const raw = await getSecureKeyAsync(discoveryKey(this.serverId));
-    if (!raw) return undefined;
+    if (!raw) {
+      return undefined;
+    }
     try {
       return JSON.parse(raw) as OAuthDiscoveryState;
     } catch {
@@ -553,7 +559,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
           codeReject(new Error("MCP OAuth callback timed out"));
         }
       }, CALLBACK_TIMEOUT_MS);
-      if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
+      if (typeof timeout === "object" && "unref" in timeout) {
+        timeout.unref();
+      }
       this.callbackTimeout = timeout;
 
       const cleanup = () => {

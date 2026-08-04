@@ -23,6 +23,12 @@ import { Glob } from "bun";
 const DISABLE_CALL = "disableStreamSeqStamping()";
 const PID_GUARD_CALL = "startWorkerPidFileGuard(";
 
+/** Shape of a shutdown that schedules `process.exit` instead of calling it. */
+const DEFERRED_EXIT = ".finally(() => process.exit";
+
+/** A synchronously-set shutdown flag re-checked before work starts. */
+const BAILOUT = /if\s*\(\s*shuttingDown\s*\)\s*\{\s*return;/;
+
 /**
  * The first call each entrypoint makes that can run orphaned schedule/job
  * work. The PID guard must be armed before this — its on-arm identity check
@@ -77,6 +83,39 @@ describe("worker entrypoint guards", () => {
       entrypointsMissing(PID_GUARD_CALL),
       `Worker entrypoints must call ${PID_GUARD_CALL}...) so an orphaned ` +
         "worker (one its PID file stops naming) evicts itself.",
+    ).toEqual([]);
+  });
+
+  /**
+   * Arming the guard before work-start is only sufficient while the eviction
+   * path exits synchronously. An entrypoint that defers its exit (to reap child
+   * processes first) hands control back to startup, which then runs its
+   * work-start call anyway: for the memory worker that means
+   * `resetRunningJobsToPending()` flipping the LIVE successor's in-progress
+   * jobs back to pending. Such an entrypoint must re-check and bail.
+   */
+  test("an entrypoint that defers its exit bails out before starting work", () => {
+    const offenders = findWorkerEntrypoints().filter((file) => {
+      const source = readFileSync(join(process.cwd(), "src", file), "utf8");
+      if (!source.includes(DEFERRED_EXIT)) {
+        return false;
+      }
+      const marker = WORK_START_MARKERS[file];
+      if (marker == null) {
+        return true;
+      }
+      const guardAt = source.indexOf(PID_GUARD_CALL);
+      const workAt = source.indexOf(marker);
+      if (guardAt < 0 || workAt < 0) {
+        return true;
+      }
+      return !BAILOUT.test(source.slice(guardAt, workAt));
+    });
+    expect(
+      offenders,
+      "A worker whose shutdown defers process.exit must re-check a " +
+        "synchronously-set shutdown flag and return before its work-start " +
+        "call, so an evicted worker cannot run work against live data.",
     ).toEqual([]);
   });
 

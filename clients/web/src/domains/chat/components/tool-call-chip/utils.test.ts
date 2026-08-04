@@ -431,9 +431,9 @@ describe("friendlyRunningLabel — CLI browser operations", () => {
 
 describe("friendlyRunningLabel — buildingStatus", () => {
   test("app_create with buildingStatus returns the status string", () => {
-    expect(friendlyRunningLabel("app_create", "", "Adding dark mode styles")).toBe(
-      "Adding dark mode styles",
-    );
+    expect(
+      friendlyRunningLabel("app_create", "", "Adding dark mode styles"),
+    ).toBe("Adding dark mode styles");
   });
 
   test("app_refresh with buildingStatus returns the status string", () => {
@@ -443,9 +443,9 @@ describe("friendlyRunningLabel — buildingStatus", () => {
   });
 
   test("app_update with buildingStatus returns the status string", () => {
-    expect(friendlyRunningLabel("app_update", "", "Fixing responsive grid")).toBe(
-      "Fixing responsive grid",
-    );
+    expect(
+      friendlyRunningLabel("app_update", "", "Fixing responsive grid"),
+    ).toBe("Fixing responsive grid");
   });
 
   test("app_create without buildingStatus returns default label", () => {

@@ -20,30 +20,42 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/**
+ * Body of `POST /v1/host-file-result`, declared as the route's `requestBody`
+ * and parsed by the handler, so the OpenAPI contract and the runtime check are
+ * one schema rather than two hand-kept copies.
+ *
+ * Unknown keys are stripped rather than rejected, so a desktop client that
+ * reports a newer result field still resolves its pending request.
+ */
+const HostFileResultBodySchema = z.object({
+  requestId: z.string().min(1).describe("Pending request ID to resolve"),
+  content: z.string().describe("File content result").optional(),
+  isError: z.boolean().describe("Whether the result is an error").optional(),
+  imageData: z
+    .string()
+    .describe("Optional base64-encoded image bytes for successful image reads")
+    .optional(),
+  audioData: z
+    .string()
+    .describe("Optional base64-encoded audio bytes for successful audio reads")
+    .optional(),
+  audioMimeType: z
+    .string()
+    .describe("MIME type for audioData (e.g. audio/mpeg)")
+    .optional(),
+});
 
 // ---------------------------------------------------------------------------
 // POST /v1/host-file-result
 // ---------------------------------------------------------------------------
 
 async function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-
   const { requestId, content, isError, imageData, audioData, audioMimeType } =
-    body as {
-      requestId?: string;
-      content?: string;
-      isError?: boolean;
-      imageData?: string;
-      audioData?: string;
-      audioMimeType?: string;
-    };
-
-  if (!requestId || typeof requestId !== "string") {
-    throw new BadRequestError("requestId is required");
-  }
+    parseBody(HostFileResultBodySchema, body);
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
@@ -117,30 +129,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Resolve a pending host file proxy request by requestId when the desktop client returns execution results.",
     tags: ["host-file"],
-    requestBody: z.object({
-      requestId: z.string().describe("Pending request ID to resolve"),
-      content: z.string().describe("File content result").optional(),
-      isError: z
-        .boolean()
-        .describe("Whether the result is an error")
-        .optional(),
-      imageData: z
-        .string()
-        .describe(
-          "Optional base64-encoded image bytes for successful image reads",
-        )
-        .optional(),
-      audioData: z
-        .string()
-        .describe(
-          "Optional base64-encoded audio bytes for successful audio reads",
-        )
-        .optional(),
-      audioMimeType: z
-        .string()
-        .describe("MIME type for audioData (e.g. audio/mpeg)")
-        .optional(),
-    }),
+    requestBody: HostFileResultBodySchema,
     responseBody: z.object({
       accepted: z.boolean(),
     }),

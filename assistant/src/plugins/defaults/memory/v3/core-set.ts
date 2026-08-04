@@ -49,9 +49,13 @@ export function loadCoreSet(workspaceDir: string): Slug[] {
   const slugs: Slug[] = [];
   for (const line of raw.split("\n")) {
     const match = LIST_LINE.exec(line.trim());
-    if (!match) continue;
+    if (!match) {
+      continue;
+    }
     const slug = (match[1] ?? match[2] ?? "").trim();
-    if (!SLUG_SHAPE.test(slug) || seen.has(slug)) continue;
+    if (!SLUG_SHAPE.test(slug) || seen.has(slug)) {
+      continue;
+    }
     seen.add(slug);
     slugs.push(slug);
   }

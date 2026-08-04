@@ -86,7 +86,7 @@ Examples:
   $ echo "Summarize this" | assistant inference send
   $ assistant llm send --system-prompt "You are a poet" "Write a haiku"
   $ assistant inference send --timeout-seconds 300 "Draft a long memo"
-  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant inference send --model claude-sonnet-5 --json "Hello"
   $ assistant inference send --profile balanced "Explain RFC 1149"`,
 };
 
@@ -101,7 +101,7 @@ Examples:
   $ assistant inference send "What is the capital of France?"
   $ echo "Explain quantum computing" | assistant inference send
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
-  $ assistant inference send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant inference send --model claude-sonnet-5 --json "Hello"
   $ assistant inference send --profile balanced "Explain RFC 1149"`,
   subcommands: [
     sendSubcommandHelp,
@@ -565,7 +565,7 @@ Examples:
   $ assistant llm send "What is the capital of France?"
   $ echo "Explain quantum computing" | assistant llm send
   $ assistant llm send --system-prompt "Be concise" "What is TCP?"
-  $ assistant llm send --model claude-sonnet-4-20250514 --json "Hello"
+  $ assistant llm send --model claude-sonnet-5 --json "Hello"
   $ assistant llm send --profile balanced "Explain RFC 1149"`,
   subcommands: [sendSubcommandHelp],
 };

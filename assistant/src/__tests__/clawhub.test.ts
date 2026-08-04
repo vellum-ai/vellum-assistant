@@ -27,7 +27,9 @@ describe("clawhubInstall slug validation", () => {
     result: Awaited<ReturnType<typeof clawhubInstall>>,
   ): string {
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("Expected clawhubInstall to fail");
+    if (result.success) {
+      throw new Error("Expected clawhubInstall to fail");
+    }
     return result.error;
   }
 

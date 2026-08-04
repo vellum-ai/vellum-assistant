@@ -164,7 +164,9 @@ export function HomePage({
     setConsumedNavigationKey(navigationKey ?? null);
     const item = feedItems.find((i) => i.id === initialFeedItemId);
     // A since-dismissed item's drawer must not pop open unprompted.
-    if (item && item.status !== "dismissed") handleSelectItem(item);
+    if (item && item.status !== "dismissed") {
+      handleSelectItem(item);
+    }
     onInitialFeedItemConsumed?.();
   }, [
     initialFeedItemId,

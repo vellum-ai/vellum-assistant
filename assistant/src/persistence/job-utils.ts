@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { AssistantConfig } from "../config/types.js";
 import { BackendUnavailableError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db-connection.js";
+import { getMemoryDb } from "./db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
@@ -62,8 +62,12 @@ export function classifyError(err: unknown): ErrorCategory {
   if (err != null && typeof err === "object" && "status" in err) {
     const status = (err as { status?: number }).status;
     if (typeof status === "number") {
-      if (status === 429) return "retryable";
-      if (status >= 500) return "retryable";
+      if (status === 429) {
+        return "retryable";
+      }
+      if (status >= 500) {
+        return "retryable";
+      }
       // 400, 401, 403, 404, 409, 422, other 4xx → fatal
       return "fatal";
     }
@@ -77,10 +81,16 @@ export function classifyError(err: unknown): ErrorCategory {
     const statusMatch = err.message.match(/\((\d{3})\)/);
     if (statusMatch) {
       const status = parseInt(statusMatch[1], 10);
-      if (status === 429) return "retryable";
-      if (status >= 500) return "retryable";
+      if (status === 429) {
+        return "retryable";
+      }
+      if (status >= 500) {
+        return "retryable";
+      }
       // 4xx client errors → fatal
-      if (status >= 400 && status < 500) return "fatal";
+      if (status >= 400 && status < 500) {
+        return "fatal";
+      }
     }
   }
 
@@ -133,7 +143,9 @@ export function asString(value: unknown): string | null {
 }
 
 export function truncate(text: string, max: number): string {
-  if (text.length <= max) return text;
+  if (text.length <= max) {
+    return text;
+  }
   return `${text.slice(0, max - 3)}...`;
 }
 
@@ -180,24 +192,29 @@ export async function embedAndUpsert(
   let vector: number[];
 
   // Check SQLite embedding cache for a matching content hash (primary provider only).
-  const db = getDb();
+  // The cache lives on the memory connection alongside `memory_embeddings`.
+  const mem = getMemoryDb();
   const expectedDim = config.memory.qdrant.vectorSize;
-  let cachedRow = db
-    .select({
-      vectorBlob: memoryEmbeddings.vectorBlob,
-      vectorJson: memoryEmbeddings.vectorJson,
-      dimensions: memoryEmbeddings.dimensions,
-    })
-    .from(memoryEmbeddings)
-    .where(
-      and(
-        eq(memoryEmbeddings.contentHash, contentHash),
-        eq(memoryEmbeddings.provider, provider),
-        eq(memoryEmbeddings.model, model),
-      ),
-    )
-    .get();
-  if (cachedRow && cachedRow.dimensions !== expectedDim) cachedRow = undefined;
+  let cachedRow = mem
+    ? mem
+        .select({
+          vectorBlob: memoryEmbeddings.vectorBlob,
+          vectorJson: memoryEmbeddings.vectorJson,
+          dimensions: memoryEmbeddings.dimensions,
+        })
+        .from(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.contentHash, contentHash),
+            eq(memoryEmbeddings.provider, provider),
+            eq(memoryEmbeddings.model, model),
+          ),
+        )
+        .get()
+    : undefined;
+  if (cachedRow && cachedRow.dimensions !== expectedDim) {
+    cachedRow = undefined;
+  }
 
   if (cachedRow) {
     // Prefer BLOB (compact), fall back to JSON for unmigrated rows
@@ -209,7 +226,9 @@ export async function embedAndUpsert(
   } else {
     const embedded = await embedWithBackend(config, [input]);
     vector = embedded.vectors[0];
-    if (!vector) return;
+    if (!vector) {
+      return;
+    }
     provider = embedded.provider;
     model = embedded.model;
   }
@@ -265,7 +284,8 @@ export async function embedAndUpsert(
   // and leaves the point in place, and the next run re-embeds.
   try {
     const blobValue = vectorToBlob(vector);
-    db.insert(memoryEmbeddings)
+    mem
+      ?.insert(memoryEmbeddings)
       .values({
         id: randomUUID(),
         targetType,

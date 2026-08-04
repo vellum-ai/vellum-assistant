@@ -91,6 +91,8 @@ export function canStartPull(args: {
   scrollHeight: number;
   clientHeight: number;
 }): boolean {
-  if (args.isRefreshing) return false;
+  if (args.isRefreshing) {
+    return false;
+  }
   return distanceFromBottom(args) <= PULL_ELIGIBLE_BOTTOM_DISTANCE_PX;
 }

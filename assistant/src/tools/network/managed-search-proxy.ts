@@ -139,15 +139,23 @@ export async function callManagedSearchProxy(
 function isManagedSearchProxyResponse(
   value: unknown,
 ): value is ManagedSearchProxyResponse {
-  if (!isRecord(value)) return false;
-  if (typeof value.status !== "number") return false;
-  if (!isStringRecord(value.headers)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (typeof value.status !== "number") {
+    return false;
+  }
+  if (!isStringRecord(value.headers)) {
+    return false;
+  }
   return "body" in value;
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
   const text = await response.text().catch(() => "");
-  if (!text) return null;
+  if (!text) {
+    return null;
+  }
 
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
@@ -174,12 +182,18 @@ function platformErrorMessage(status: number, body: unknown): string {
 }
 
 function extractErrorDetail(body: unknown): string | undefined {
-  if (typeof body === "string") return body || undefined;
-  if (!isRecord(body)) return undefined;
+  if (typeof body === "string") {
+    return body || undefined;
+  }
+  if (!isRecord(body)) {
+    return undefined;
+  }
 
   for (const key of ["detail", "error", "message"]) {
     const value = body[key];
-    if (typeof value === "string" && value) return value;
+    if (typeof value === "string" && value) {
+      return value;
+    }
   }
 
   return undefined;
@@ -190,6 +204,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   return Object.values(value).every((entry) => typeof entry === "string");
 }

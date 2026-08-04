@@ -6,6 +6,8 @@ import { isElectron } from "@/runtime/is-electron";
  * exists in the Electron shell.
  */
 export function syncDiagnosticsToMain(enabled: boolean): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.diagnostics?.setShareDiagnostics(enabled);
 }

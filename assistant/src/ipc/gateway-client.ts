@@ -106,7 +106,9 @@ export async function ipcGetFeatureFlags(
   if (result && typeof result === "object" && !Array.isArray(result)) {
     const filtered: Record<string, boolean | string> = {};
     for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
-      if (typeof v === "boolean" || typeof v === "string") filtered[k] = v;
+      if (typeof v === "boolean" || typeof v === "string") {
+        filtered[k] = v;
+      }
     }
     return filtered;
   }
@@ -133,7 +135,9 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
     return null;
   }
   const obj = result as Record<string, unknown>;
-  if (typeof obj.connected !== "boolean") return null;
+  if (typeof obj.connected !== "boolean") {
+    return null;
+  }
   return {
     connected: obj.connected,
     publicUrl: typeof obj.publicUrl === "string" ? obj.publicUrl : null,

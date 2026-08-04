@@ -131,7 +131,9 @@ export function createCesProcessManager(
     },
 
     async stop(): Promise<void> {
-      if (!running) return;
+      if (!running) {
+        return;
+      }
 
       if (managedSocket) {
         managedSocket.destroy();
@@ -232,7 +234,9 @@ function createCloseNotifier(): {
     isAlive: () => alive,
     markDead() {
       alive = false;
-      if (notified) {return;}
+      if (notified) {
+        return;
+      }
       notified = true;
       for (const handler of handlers) {
         try {

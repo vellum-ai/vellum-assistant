@@ -104,7 +104,7 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
     // base $20 + large $60 + 30 GB $10 + $50 credits.
     expect(diff.totalCents).toBe(2000 + 6000 + 1000 + 5000);
     expect(diff.rows.map((r) => r.label)).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GB storage",
       "$50 of bundled credits",
@@ -124,7 +124,7 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
     });
 
     expect(diff.rows.map((r) => r.label)).toEqual([
-      "Pro base plan — $20/mo",
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
       "No extra credits",
