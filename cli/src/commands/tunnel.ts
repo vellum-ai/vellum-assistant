@@ -19,12 +19,14 @@ const DEFAULT_PROVIDER: TunnelProvider = "vellum";
 interface TunnelArgs {
   assistantName: string | null;
   provider: TunnelProvider;
+  domain: string | null;
 }
 
 function parseArgs(): TunnelArgs {
   const args = process.argv.slice(3);
   let assistantName: string | null = null;
   let provider: TunnelProvider = DEFAULT_PROVIDER;
+  let domain: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -50,6 +52,12 @@ function parseArgs(): TunnelArgs {
       console.log(
         `  --provider <provider>         Tunnel provider: ${VALID_PROVIDERS.join(", ")} (default: ${DEFAULT_PROVIDER})`,
       );
+      console.log(
+        "  --domain <domain>             Reserved ngrok domain to bind (ngrok provider only).",
+      );
+      console.log(
+        "                                Saved to the workspace config so `vellum wake` restores reuse it.",
+      );
       console.log("");
       console.log("Providers:");
       console.log(
@@ -74,6 +82,9 @@ function parseArgs(): TunnelArgs {
       console.log("Examples:");
       console.log("  $ vellum tunnel");
       console.log("  $ vellum tunnel --provider ngrok");
+      console.log(
+        "  $ vellum tunnel --provider ngrok --domain my-assistant.ngrok.app",
+      );
       console.log("  $ vellum tunnel --provider cloudflare");
       console.log("  $ vellum tunnel my-assistant --provider tailscale");
       process.exit(0);
@@ -96,6 +107,16 @@ function parseArgs(): TunnelArgs {
       }
       provider = next as TunnelProvider;
       i++;
+    } else if (arg === "--domain") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error(
+          "Error: --domain requires a value, e.g. --domain my-assistant.ngrok.app",
+        );
+        process.exit(1);
+      }
+      domain = next;
+      i++;
     } else if (arg.startsWith("-")) {
       console.error(`Error: Unknown option '${arg}'.`);
       process.exit(1);
@@ -107,7 +128,14 @@ function parseArgs(): TunnelArgs {
     }
   }
 
-  return { assistantName, provider };
+  if (domain && provider !== "ngrok") {
+    console.error(
+      `Error: --domain is only supported with --provider ngrok (got '${provider}').`,
+    );
+    process.exit(1);
+  }
+
+  return { assistantName, provider, domain };
 }
 
 function parsePortFromUrl(url: unknown): number | undefined {
@@ -151,7 +179,7 @@ async function shouldPreferNginxIngress(
 }
 
 export async function tunnel(): Promise<void> {
-  const { assistantName, provider } = parseArgs();
+  const { assistantName, provider, domain } = parseArgs();
 
   const entry = resolveAssistant(assistantName ?? undefined);
 
@@ -179,6 +207,7 @@ export async function tunnel(): Promise<void> {
   if (provider === "ngrok") {
     await runNgrokTunnel({
       ...baseTunnelOpts,
+      ...(domain ? { domain } : {}),
       preferNginxIngress: await shouldPreferNginxIngress(
         entry.assistantId,
         gatewayPort,

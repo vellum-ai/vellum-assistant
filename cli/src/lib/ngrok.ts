@@ -6,8 +6,10 @@ import { GATEWAY_PORT } from "./constants.js";
 import {
   clearIngressUrl,
   getDefaultWorkspaceDir,
+  loadNgrokDomain,
   loadRawConfig,
   saveIngressUrl,
+  saveNgrokDomain,
 } from "./ingress-config.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 import { resolveTunnelTargetPort } from "./nginx-ingress.js";
@@ -103,11 +105,15 @@ export async function findExistingTunnel(
  * parent process — which would either prevent the CLI from exiting (if
  * handles are left open) or send SIGPIPE to ngrok (if destroyed).
  *
+ * When `domain` is set, the tunnel binds that reserved ngrok domain via
+ * `--domain=<domain>`.
+ *
  * Returns the spawned child process.
  */
 export function startNgrokProcess(
   targetPort: number,
   logFilePath?: string,
+  domain?: string,
 ): ChildProcess {
   let stdio: ("ignore" | "pipe" | number)[] = ["ignore", "pipe", "pipe"];
   let fd: number | undefined;
@@ -118,7 +124,12 @@ export function startNgrokProcess(
     stdio = ["ignore", fd, fd];
   }
 
-  const child = spawn("ngrok", ["http", String(targetPort), "--log=stdout"], {
+  const args = ["http", String(targetPort), "--log=stdout"];
+  if (domain) {
+    args.push(`--domain=${domain}`);
+  }
+
+  const child = spawn("ngrok", args, {
     detached: true,
     stdio,
   });
@@ -232,7 +243,8 @@ export async function maybeStartNgrokTunnel(
   // Writing to a log file sidesteps both issues — the file descriptor is
   // inherited by the detached ngrok process and remains valid after CLI exit.
   const ngrokLogPath = join(workspaceDir, "data", "logs", "ngrok.log");
-  const ngrokProcess = startNgrokProcess(targetPort, ngrokLogPath);
+  const savedDomain = loadNgrokDomain(workspaceDir) ?? undefined;
+  const ngrokProcess = startNgrokProcess(targetPort, ngrokLogPath, savedDomain);
   ngrokProcess.unref();
 
   try {
@@ -259,6 +271,8 @@ export interface RunNgrokTunnelOptions {
   preferNginxIngress?: boolean;
   /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
   assistantId?: string;
+  /** Reserved ngrok domain to bind. Persisted so wake restores reuse it. */
+  domain?: string;
 }
 
 /**
@@ -303,6 +317,7 @@ export async function runNgrokTunnel(
   if (existingUrl) {
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
+    saveNgrokDomain(workspaceDir, opts.domain ?? null);
     console.log("Ingress URL saved to config.");
     console.log("");
     console.log(
@@ -321,7 +336,7 @@ export async function runNgrokTunnel(
 
   let publicUrl: string | undefined;
 
-  const ngrokProcess = startNgrokProcess(port);
+  const ngrokProcess = startNgrokProcess(port, undefined, opts.domain);
 
   const cleanup = () => {
     if (!ngrokProcess.killed) {
@@ -378,7 +393,10 @@ export async function runNgrokTunnel(
   console.log(`Tunnel established: ${publicUrl}`);
   console.log(`Forwarding to:     localhost:${port}`);
 
+  // The domain is standing intent, not tunnel state: cleanup clears the
+  // ingress URL but leaves the domain saved for wake/daemon restores.
   saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
+  saveNgrokDomain(workspaceDir, opts.domain ?? null);
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");
