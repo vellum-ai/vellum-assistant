@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { Cron } from "croner";
 import {
   and,
@@ -21,6 +24,7 @@ import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   hasOwnerDeferProvenance,
@@ -707,18 +711,23 @@ export async function updateSchedule(
   return getSchedule(id);
 }
 
+/** `source_key` of the row, or null when the row is absent or imperative. */
+function getRowSourceKey(id: string): string | null {
+  const row = getDb()
+    .select({ sourceKey: scheduleJobs.sourceKey })
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
+    .get();
+  return row?.sourceKey ?? null;
+}
+
 export async function deleteSchedule(id: string): Promise<boolean> {
   const db = getDb();
   // Plugin-sourced rows keep their identity and run history: deleting one
   // would just have the reconciler recreate it from the declaration on its
   // next pass. Disable is the supported action; removal means removing the
   // plugin's schedule file.
-  const target = db
-    .select({ sourceKey: scheduleJobs.sourceKey })
-    .from(scheduleJobs)
-    .where(eq(scheduleJobs.id, id))
-    .get();
-  if (target?.sourceKey != null) {
+  if (getRowSourceKey(id) != null) {
     throw new UserError(
       "This schedule is managed by a plugin and cannot be deleted. Disable it instead, or remove the plugin's schedule file.",
     );
@@ -760,7 +769,7 @@ export interface DeclaredScheduleDefinition {
   timezone?: string | null;
   message: string;
   script?: string | null;
-  mode: ScheduleMode;
+  mode: Extract<ScheduleMode, "execute" | "script">;
   maxRetries?: number;
   retryBackoffMs?: number;
   quiet?: boolean;
@@ -808,8 +817,11 @@ function isEngineLatched(row: {
  * every call, so a row disarmed while its plugin was disabled re-arms once
  * the declaration is back in the desired set. `nextRunAt` is recomputed only
  * when the timing changed or the row transitions to enabled; a matching hash
- * with matching effective `enabled` is a no-op. Rows the engine has latched
- * are returned untouched.
+ * with matching script path and effective `enabled` is a no-op. A script
+ * path that moved on a matching hash (the invocation embeds the absolute
+ * entrypoint path, which moves with the workspace while the hash covers only
+ * schedules/-relative paths and contents) is rewritten without touching
+ * timing. Rows the engine has latched are returned untouched.
  */
 export async function upsertDeclaredSchedule(
   sourceKey: string,
@@ -840,8 +852,13 @@ export async function upsertDeclaredSchedule(
 
   const definitionChanged =
     existing.definitionHash !== definition.definitionHash;
+  const scriptChanged = (definition.script ?? null) !== existing.script;
   const effectiveEnabled = existing.userEnabled ?? definition.enabled;
-  if (!definitionChanged && effectiveEnabled === existing.enabled) {
+  if (
+    !definitionChanged &&
+    !scriptChanged &&
+    effectiveEnabled === existing.enabled
+  ) {
     return parseJobRow(existing);
   }
 
@@ -883,6 +900,8 @@ export async function upsertDeclaredSchedule(
     set.inferenceProfile = definition.inferenceProfile ?? null;
     set.timeoutMs = definition.timeoutMs ?? null;
     set.definitionHash = definition.definitionHash;
+  } else if (scriptChanged) {
+    set.script = definition.script ?? null;
   }
   // While disabled, `nextRunAt` is left alone so a stale value never reads as
   // the engine's exhaust latch (`nextRunAt = 0` with `lastRunAt` set).
@@ -948,6 +967,24 @@ export async function disarmDeclaredSchedule(id: string): Promise<void> {
 }
 
 /**
+ * True when the plugin declaration behind `sourceKey` is still present on
+ * disk, in either declaration form: a flat `<name>.md` or a `<name>/`
+ * directory under the plugin's schedules/ dir. A cheap existence probe only;
+ * parsing and validity are the reconciler's business.
+ */
+function declaredScheduleSourceExists(sourceKey: string): boolean {
+  const match = /^plugin:([^/]+)\/(.+)$/.exec(sourceKey);
+  if (!match) {
+    return false;
+  }
+  const schedulesDir = join(getWorkspacePluginsDir(), match[1]!, "schedules");
+  return (
+    existsSync(join(schedulesDir, `${match[2]!}.md`)) ||
+    existsSync(join(schedulesDir, match[2]!))
+  );
+}
+
+/**
  * The user's side of the enabled toggle.
  *
  * On an imperative row this is exactly the existing toggle
@@ -989,15 +1026,29 @@ export async function setUserEnabled(
     value !== existing.enabled &&
     !isEngineLatched(existing)
   ) {
-    set.enabled = value;
-    // Re-arming needs a fresh occurrence: the stored one went stale while the
-    // row was disabled. Disabling keeps `nextRunAt`; see the disarm note.
-    if (value && existing.cronExpression != null) {
-      set.nextRunAt = computeNextRunAtEngine({
-        syntax: existing.scheduleSyntax as ScheduleSyntax,
-        expression: existing.cronExpression,
-        timezone: existing.timezone,
-      });
+    // Enabling a row whose declaration has left the disk (plugin
+    // uninstalled, schedule file removed) would let it fire an orphaned run
+    // before the next reconcile pass disarms it again. The reconciler is the
+    // authority on the declaration set; this existence probe only closes
+    // that fire-before-next-sweep window. The override itself is still
+    // recorded, so it applies if the declaration returns.
+    if (value && !declaredScheduleSourceExists(existing.sourceKey)) {
+      logger.info(
+        { scheduleId: id, sourceKey: existing.sourceKey },
+        "Enable override recorded without re-arming: declaration missing on disk",
+      );
+    } else {
+      set.enabled = value;
+      // Re-arming needs a fresh occurrence: the stored one went stale while
+      // the row was disabled. Disabling keeps `nextRunAt`; see the disarm
+      // note.
+      if (value && existing.cronExpression != null) {
+        set.nextRunAt = computeNextRunAtEngine({
+          syntax: existing.scheduleSyntax as ScheduleSyntax,
+          expression: existing.cronExpression,
+          timezone: existing.timezone,
+        });
+      }
     }
   }
 
@@ -1280,6 +1331,15 @@ export async function failOneShotPermanently(id: string): Promise<void> {
  */
 export async function cancelSchedule(id: string): Promise<boolean> {
   const db = getDb();
+  // Cancelled is a permanent latch on a sourced row: the reconciler, the
+  // enabled toggle, and delete all skip it, so cancelling would brick the
+  // plugin's schedule even across reinstalls. Disable is the supported
+  // action, as with update and delete.
+  if (getRowSourceKey(id) != null) {
+    throw new UserError(
+      "This schedule is managed by a plugin and cannot be cancelled. Disable it instead via the enabled toggle.",
+    );
+  }
   const now = Date.now();
   const cancelled = await withSqliteRetry(
     () => {

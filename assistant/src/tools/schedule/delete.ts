@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
+import { UserError } from "../../util/errors.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -35,7 +36,18 @@ export async function executeScheduleDelete(
     return { content: `Error: Schedule not found: ${jobId}`, isError: true };
   }
 
-  const deleted = await deleteSchedule(jobId);
+  let deleted: boolean;
+  try {
+    deleted = await deleteSchedule(jobId);
+  } catch (err) {
+    // The store refuses to delete plugin-sourced rows with a UserError. That
+    // refusal is an expected outcome for the model to relay, not a daemon
+    // fault to classify as unexpected.
+    if (err instanceof UserError) {
+      return { content: `Error: ${err.message}`, isError: true };
+    }
+    throw err;
+  }
   if (!deleted) {
     return {
       content: `Error: Failed to delete schedule: ${jobId}`,

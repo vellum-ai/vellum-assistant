@@ -1023,6 +1023,29 @@ async function confirmDeclaredSchedules(
   return true;
 }
 
+/**
+ * Maximum rendered width of a declared-schedule listing cell. Declaration
+ * strings come from the plugin being installed, so an overlong expression
+ * must not be able to push the consent prompt off-screen.
+ */
+const MAX_SCHEDULE_CELL_WIDTH = 60;
+
+/**
+ * Make a plugin-controlled declaration string safe to print next to the
+ * install consent prompt: drop well-formed CSI/OSC escape sequences whole,
+ * strip every remaining C0/C1 control character (which could rewrite or hide
+ * the surrounding untrusted-source warning), and cap the cell width.
+ */
+function sanitizeScheduleCell(value: string): string {
+  const stripped = value
+    .replace(/\u001b\[[0-9:;<=>?]*[ -\/]*[@-~]/g, "")
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+  return stripped.length > MAX_SCHEDULE_CELL_WIDTH
+    ? `${stripped.slice(0, MAX_SCHEDULE_CELL_WIDTH - 3)}...`
+    : stripped;
+}
+
 /** Aligned `name  cadence  (mode)` rows for a declared-schedules listing. */
 function formatScheduleRows(
   schedules: readonly PluginScheduleSurface[],
@@ -1030,11 +1053,16 @@ function formatScheduleRows(
   if (schedules.length === 0) {
     return [];
   }
-  const nameW = Math.max(...schedules.map((s) => s.name.length));
-  const cadenceW = Math.max(...schedules.map((s) => s.cadence.length));
-  const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
-  return schedules.map(
-    (s) => `${pad(s.name, nameW)}  ${pad(s.cadence, cadenceW)}  (${s.mode})`,
+  const rows = schedules.map((s) => ({
+    name: sanitizeScheduleCell(s.name),
+    cadence: sanitizeScheduleCell(s.cadence),
+    mode: sanitizeScheduleCell(s.mode),
+  }));
+  const nameW = Math.max(...rows.map((r) => r.name.length));
+  const cadenceW = Math.max(...rows.map((r) => r.cadence.length));
+  return rows.map(
+    (r) =>
+      `${r.name.padEnd(nameW)}  ${r.cadence.padEnd(cadenceW)}  (${r.mode})`,
   );
 }
 

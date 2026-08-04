@@ -6,7 +6,7 @@
  *   markdown body (the prompt message). Mode is `execute`.
  * - Directory: `<name>/` containing `config.json` (the schedule config) plus
  *   exactly one entrypoint, `index.md` (mode `execute`, body is the prompt)
- *   or `index.sh` (mode `script`, invoked by absolute path).
+ *   or `index.sh` (mode `script`, invoked via `sh` by absolute path).
  *
  * Ambiguity fails closed, never resolves by precedence: a basename declared
  * in both forms, a directory with zero or multiple entrypoints, or an
@@ -14,8 +14,8 @@
  * schedule does not load. Errors are per-schedule; one bad declaration never
  * blocks siblings.
  *
- * Declared schedules are recurring only: `expression` is required and there
- * is no one-shot form.
+ * Declared schedules are recurring only: `expression` is required, a
+ * single-fire RRULE (COUNT=1) is rejected, and there is no one-shot form.
  *
  * Pure filesystem + parsing. This module must not import from persistence or
  * schedule-store; the reconciler owns all database interaction.
@@ -33,11 +33,13 @@ import {
   parseFrontmatterFields,
 } from "../skills/frontmatter.js";
 import {
+  isSingleFireRRule,
   isValidScheduleExpression,
   validateRruleSetLines,
 } from "./recurrence-engine.js";
 import type { ScheduleSyntax } from "./recurrence-types.js";
 import { normalizeScheduleSyntax } from "./recurrence-types.js";
+import { validateScriptTimeoutMs } from "./run-script.js";
 
 export type PluginScheduleMode = "execute" | "script";
 
@@ -64,8 +66,10 @@ export interface ScheduleDeclaration {
   /** Prompt body for `execute` mode; null for `script` mode. */
   message: string | null;
   /**
-   * Shell invocation of the declaration's `index.sh` by absolute path (not
-   * the file's content); null for `execute` mode.
+   * Shell invocation of the declaration's `index.sh`, as `sh '<absolute
+   * path>'` rather than the file's content. The explicit interpreter keeps
+   * the entrypoint runnable when an install path drops its exec bit. Null
+   * for `execute` mode.
    */
   scriptInvocation: string | null;
   config: PluginScheduleConfig;
@@ -89,7 +93,7 @@ export interface ParsedPluginSchedules {
   errors: DeclarationError[];
 }
 
-export function pluginScheduleSourceKey(
+function pluginScheduleSourceKey(
   pluginName: string,
   scheduleName: string,
 ): string {
@@ -123,6 +127,13 @@ function parseScheduleConfig(
   }
   const fields = result.data;
 
+  if (fields.timeout_ms !== undefined) {
+    const timeoutError = validateScriptTimeoutMs(fields.timeout_ms);
+    if (timeoutError) {
+      return { error: timeoutError };
+    }
+  }
+
   const resolved = normalizeScheduleSyntax({
     syntax: fields.expression_syntax,
     expression: fields.expression,
@@ -136,6 +147,12 @@ function parseScheduleConfig(
     const setError = validateRruleSetLines(resolved.expression);
     if (setError) {
       return { error: setError };
+    }
+    if (isSingleFireRRule(resolved.expression)) {
+      return {
+        error:
+          "expression fires exactly once (COUNT=1): declared schedules must be recurring",
+      };
     }
   }
   if (
@@ -313,7 +330,7 @@ function parseDirectoryDeclaration(
     }
     mode = "execute";
   } else {
-    scriptInvocation = shellQuote(join(dirPath, "index.sh"));
+    scriptInvocation = `sh ${shellQuote(join(dirPath, "index.sh"))}`;
     mode = "script";
   }
 
