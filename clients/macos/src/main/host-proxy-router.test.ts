@@ -17,6 +17,7 @@ const mockGetGuardianAccessToken = mock(
 mock.module("@vellumai/local-mode", () => ({
   getGuardianAccessToken: mockGetGuardianAccessToken,
   resolveConfigDir: () => "/tmp/test-config",
+  resolveEnvironmentName: () => "test",
 }));
 
 // Minimal lockfile-watcher stub — capture the listener
@@ -427,6 +428,151 @@ describe("host-proxy-router", () => {
       lockfileListener?.(lockfile);
       await flush();
       expect(__testing.connections.get("cloud-1")!.sse).toBe(firstSse);
+    });
+  });
+
+  // -- Paired lifecycle ----------------------------------------------------
+
+  describe("paired lifecycle", () => {
+    /** Swap globalThis.fetch for one that records every request it serves. */
+    function recordingFetch(): { url: string; headers: Record<string, string> }[] {
+      const requests: { url: string; headers: Record<string, string> }[] = [];
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        requests.push({
+          url: String(input),
+          headers: { ...((init?.headers ?? {}) as Record<string, string>) },
+        });
+        return new Response("ok");
+      }) as typeof globalThis.fetch;
+      return requests;
+    }
+
+    test("connects with the guardian bearer against the remote events URL", async () => {
+      const requests = recordingFetch();
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("paired-1")).toBe(true);
+      expect(__testing.connections.get("paired-1")!.fingerprint).toBe(
+        "paired:https://tunnel.example.com:paired-1",
+      );
+
+      const sseRequest = requests.find((r) => r.url === "https://tunnel.example.com/v1/events");
+      expect(sseRequest).toBeDefined();
+      expect(sseRequest!.headers.Authorization).toBe("Bearer test-token");
+      expect(sseRequest!.headers["ngrok-skip-browser-warning"]).toBe("true");
+    });
+
+    test("never issues a token-exchange request for a paired entry", async () => {
+      const requests = recordingFetch();
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      expect(__testing.connections.has("paired-1")).toBe(true);
+      expect(requests.some((r) => r.url.includes("/auth/token"))).toBe(false);
+    });
+
+    test("trailing slashes on runtimeUrl are stripped from the events URL", async () => {
+      const requests = recordingFetch();
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://tunnel.example.com//" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      expect(requests.some((r) => r.url === "https://tunnel.example.com/v1/events")).toBe(true);
+    });
+
+    test("reconnects when the runtimeUrl changes", async () => {
+      recordingFetch();
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://old-tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+      const firstSse = __testing.connections.get("paired-1")!.sse;
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://new-tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      expect(__testing.connections.get("paired-1")!.sse).not.toBe(firstSse);
+      expect(__testing.connections.get("paired-1")!.fingerprint).toBe(
+        "paired:https://new-tunnel.example.com:paired-1",
+      );
+    });
+
+    test("skips paired entries without a usable runtimeUrl", async () => {
+      recordingFetch();
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-no-url", cloud: "paired" },
+          { assistantId: "paired-bad-url", cloud: "paired", runtimeUrl: "not-a-url" },
+        ],
+        activeAssistant: null,
+      });
+      await flush();
+
+      expect(__testing.connections.size).toBe(0);
+    });
+
+    test("guardian-token failure skips the paired entry without breaking other connections", async () => {
+      recordingFetch();
+      mockGetGuardianAccessToken.mockImplementation(
+        async () => ({ ok: false, status: 401, error: "expired" }),
+      );
+      installHostProxyBridge(fakeCliResolver);
+
+      const lockfile: Lockfile = {
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://tunnel.example.com" },
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
+        ],
+        activeAssistant: "paired-1",
+      };
+      lockfileListener?.(lockfile);
+      await flush();
+
+      // Paired skipped, cloud unaffected
+      expect(__testing.connections.has("paired-1")).toBe(false);
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+
+      // Token becomes available: retried on the next lockfile cycle
+      mockGetGuardianAccessToken.mockImplementation(
+        async () => ({ ok: true, accessToken: "fresh-token" }),
+      );
+      lockfileListener?.(lockfile);
+      await flush();
+
+      expect(__testing.connections.has("paired-1")).toBe(true);
     });
   });
 
