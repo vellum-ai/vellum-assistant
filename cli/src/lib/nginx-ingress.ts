@@ -723,8 +723,9 @@ async function resolveEdgeIncludesWebApp(
  * mode is always delegated to `startRemoteWebIngress`, which reuses a running
  * edge that already serves that mode and restarts one that drifted, so the
  * returned port always fronts the flag-resolved config. `started` is false when
- * a matching edge was reused. Failures throw with actionable install or
- * diagnostic text.
+ * a matching edge was reused; a drifted edge that survives the restart attempt
+ * throws rather than reporting the wrong mode. Failures throw with actionable
+ * install or diagnostic text.
  */
 export async function ensureTunnelEdge(opts: {
   assistantId: string | undefined;
@@ -748,15 +749,28 @@ export async function ensureTunnelEdge(opts: {
         started: true,
         includesWebApp: includeWebApp,
       };
-    case "already-running":
+    case "already-running": {
+      // `already-running` also covers a mode-drifted edge whose restart
+      // failed, so trust the recorded state over the requested mode. A state
+      // record without includeWebApp represents an SPA edge.
+      const state = readIngressState(opts.workspaceDir);
+      const recordedIncludesWebApp = state?.includeWebApp ?? true;
+      if (recordedIncludesWebApp !== includeWebApp) {
+        const describe = (spa: boolean) => (spa ? "web app" : "webhooks-only");
+        throw new Error(
+          `The nginx edge is still running in ${describe(recordedIncludesWebApp)} mode ` +
+            `and could not be restarted in ${describe(includeWebApp)} mode. ` +
+            "Run `vellum nginx-ingress down` and retry.",
+        );
+      }
       // The reused edge's recorded listen port is the target; the result's
       // listenPort is only the port this call would have requested.
       return {
-        port:
-          readIngressState(opts.workspaceDir)?.listenPort ?? result.listenPort,
+        port: state?.listenPort ?? result.listenPort,
         started: false,
-        includesWebApp: includeWebApp,
+        includesWebApp: recordedIncludesWebApp,
       };
+    }
     case "nginx-missing":
       throw new Error(
         "nginx is not installed, so the tunnel edge cannot start. " +

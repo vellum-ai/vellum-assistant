@@ -613,6 +613,15 @@ function mockKillableNginx(pid: number): { killed: () => boolean } {
   return { killed: () => !alive };
 }
 
+/** The given PID stays alive: liveness probes succeed, kill signals fail. */
+function mockUnkillableNginx(pid: number): void {
+  process.kill = mock((targetPid: number, signal?: string | number) => {
+    if (targetPid !== pid) return originalKill(targetPid, signal);
+    if (signal === 0) return true;
+    throw new Error("operation not permitted");
+  }) as unknown as typeof process.kill;
+}
+
 describe("startRemoteWebIngress", () => {
   test("webhooks-only mode starts the denylist+proxy edge without a web dist", async () => {
     const ws = makeWorkspace();
@@ -925,6 +934,52 @@ describe("ensureTunnelEdge", () => {
       includesWebApp: true,
     });
     expect(edge.killed()).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("reuses a running webhooks-only edge and reports the recorded mode", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: false });
+    const edge = mockKillableNginx(pid);
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result).toEqual({
+      port: 7845,
+      started: false,
+      includesWebApp: false,
+    });
+    expect(edge.killed()).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("a mode-drifted edge that survives the restart attempt throws", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: true });
+    mockUnkillableNginx(pid);
+
+    const promise = ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    await expect(promise).rejects.toThrow(
+      "still running in web app mode and could not be restarted in webhooks-only mode",
+    );
+    await expect(promise).rejects.toThrow("vellum nginx-ingress down");
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
