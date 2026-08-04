@@ -133,9 +133,14 @@ beforeEach(() => {
   configPatchBodies = [];
   servedConfig = CONFIG;
   servedCatalog = CATALOG;
+  // A hydrated pre-tier-overrides version: the legacy apply-to-all path is
+  // rendered AND writable (the Apply button stays disabled while the
+  // version is unknown).
+  useAssistantIdentityStore.getState().setIdentity("Asst", "0.10.0", "asst-1");
 });
 
 afterEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
   cleanup();
 });
 
@@ -469,11 +474,9 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
   }
 
   beforeEach(() => {
-    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.1");
-  });
-
-  afterEach(() => {
-    useAssistantIdentityStore.getState().clearIdentity();
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Asst", "0.11.1", "asst-1");
   });
 
   test("renders one Defaults row per shipped tier and hides apply-to-all", async () => {
@@ -531,8 +534,29 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     });
   });
 
-  test("an unknown assistant version falls back to apply-to-all", async () => {
+  test("an unknown assistant version falls back to a non-writing apply-to-all", async () => {
     useAssistantIdentityStore.getState().clearIdentity();
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Use one profile for all actions");
+    });
+    expect(renderedText()).not.toContain("Defaults");
+    // Non-writing until the version hydrates: on a tier-overrides daemon a
+    // sweep would persist pins that outrank the tier remaps.
+    const trigger = document.querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!trigger) {
+      throw new Error("expected the apply-all dropdown trigger");
+    }
+    pickOption(trigger, "My BYOK");
+    expect(getButton("Apply to all").disabled).toBe(true);
+  });
+
+  test("a version fetched for a different assistant keeps the gate off", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Other", "0.11.1", "asst-other");
     renderTierPanel();
     await waitFor(() => {
       expect(renderedText()).toContain("Use one profile for all actions");

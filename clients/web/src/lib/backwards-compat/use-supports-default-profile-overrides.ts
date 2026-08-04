@@ -21,16 +21,19 @@
  * the daemon-side PR misses the cut), retarget this gate to the next
  * scheduled cut's number.
  */
-import { useAssistantSupports } from "./utils";
+import { useAssistantScopedSupports } from "./utils";
 
 export const MIN_VERSION = "0.11.1";
 
 /**
- * Returns `true` when the active assistant resolves per-tier default
- * profile overrides. Subscribes to the identity store so consumers
- * re-render when the assistant version crosses `MIN_VERSION`;
- * conservative `false` while the version is unknown.
+ * Returns `true` when the assistant owning the gated surface resolves
+ * per-tier default profile overrides. Scoped to `assistantId` so a panel
+ * that stays mounted across an assistant switch never reads another
+ * assistant's version; conservative `false` while the version is unknown
+ * or was fetched for a different assistant.
  */
-export function useSupportsDefaultProfileOverrides(): boolean {
-  return useAssistantSupports(MIN_VERSION);
+export function useSupportsDefaultProfileOverrides(
+  assistantId: string,
+): boolean {
+  return useAssistantScopedSupports(MIN_VERSION, assistantId);
 }

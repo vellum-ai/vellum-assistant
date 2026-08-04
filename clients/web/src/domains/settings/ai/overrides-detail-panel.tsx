@@ -31,6 +31,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { useSupportsDefaultProfileOverrides } from "@/lib/backwards-compat/use-supports-default-profile-overrides";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -102,7 +103,12 @@ export function OverridesDetailPanel({
     },
   });
 
-  const supportsTierOverrides = useSupportsDefaultProfileOverrides();
+  const supportsTierOverrides = useSupportsDefaultProfileOverrides(assistantId);
+  // The legacy apply-to-all sweep stays non-writing until the version is
+  // hydrated: on a tier-overrides daemon it would persist per-call-site
+  // pins, which outrank `defaultProfileOverrides` and lock the Defaults
+  // rows out of those actions.
+  const identityVersionKnown = useAssistantIdentityStore.use.version() != null;
 
   const [search, setSearch] = useState("");
   const [applyAllProfile, setApplyAllProfile] = useState("");
@@ -645,7 +651,9 @@ export function OverridesDetailPanel({
               variant="outlined"
               size="compact"
               onClick={handleApplyAll}
-              disabled={!applyAllProfile || !isSeeded || saving}
+              disabled={
+                !applyAllProfile || !isSeeded || saving || !identityVersionKnown
+              }
             >
               Apply to all
             </Button>
