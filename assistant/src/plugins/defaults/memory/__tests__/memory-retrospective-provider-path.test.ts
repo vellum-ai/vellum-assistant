@@ -322,6 +322,15 @@ function makeForkConversationDouble(): Conversation {
     provider: fakeProvider,
     systemPrompt: "test",
     conversationId: FORK_ID,
+    // Real executor round-trip: the finalizer's durable-evidence gate
+    // requires a matching successful tool_result, so the loop must execute
+    // the remember call and persist its result exactly as production does.
+    toolExecutor: async (name: string) => {
+      if (name === "remember") {
+        return { content: "Saved.", isError: false };
+      }
+      return { content: `unknown tool ${name}`, isError: true };
+    },
   });
   const conversation = {
     conversationId: FORK_ID,

@@ -415,8 +415,9 @@ function persistedInstructionText(): string {
 
 /**
  * Default persisted run output for the wake's fork conversation: a single
- * assistant `remember` tool_use with an empty batch payload. Satisfies the
- * fail-closed advancement gate (a durable memory-writing call exists) while
+ * assistant `remember` tool_use with an empty batch payload plus its
+ * successful tool_result. Satisfies the fail-closed advancement gate (a
+ * durable memory-writing call exists AND its execution succeeded) while
  * appending nothing to the remembered log, so pre-gate assertions about log
  * contents hold unchanged. Tests that assert the gate itself override
  * `messagesByConversationId` for the fork id.
@@ -426,9 +427,22 @@ function defaultForkRunOutput() {
     {
       role: "assistant",
       content: JSON.stringify([
-        { type: "tool_use", name: "remember", input: { content: [] } },
+        {
+          type: "tool_use",
+          id: "tu-run-1",
+          name: "remember",
+          input: { content: [] },
+        },
       ]),
       createdAt: Date.parse("2026-05-11T10:20:00Z"),
+      metadata: null,
+    },
+    {
+      role: "user",
+      content: JSON.stringify([
+        { type: "tool_result", tool_use_id: "tu-run-1", content: "Saved." },
+      ]),
+      createdAt: Date.parse("2026-05-11T10:20:01Z"),
       metadata: null,
     },
   ];
@@ -883,11 +897,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-ckpt-1",
             name: "remember",
             input: { content: ["fact persisted via checkpoint"] },
           },
         ]),
         createdAt: 200,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-ckpt-1", content: "Saved." },
+        ]),
+        createdAt: 201,
         metadata: null,
       },
     ];
@@ -909,11 +932,24 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-skill-1",
             name: "scaffold_managed_skill",
             input: { name: "deploy-checklist" },
           },
         ]),
         createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-skill-1",
+            content: "Skill scaffolded.",
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
         metadata: null,
       },
     ];
@@ -925,6 +961,72 @@ describe("memoryRetrospectiveJob", () => {
     expect(stateUpserts[0]!.rememberedLog).toEqual([]);
   });
 
+  test("a remember whose execution FAILED (is_error tool_result) is not durable evidence and its facts stay out of the log", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-fail-1",
+            name: "remember",
+            input: { content: "fact that never landed" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-fail-1",
+            content: "memory buffer write failed",
+            is_error: true,
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    // The tool_use alone proves the model asked; the durable write happens
+    // in the executor, and it failed. Window stays retryable, and the failed
+    // fact must not enter <already_remembered> where it would suppress the
+    // retry's re-save.
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+  });
+
+  test("a remember tool_use with NO persisted tool_result is not durable evidence", async () => {
+    mockWakeResult = { invoked: true };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-noresult-1",
+            name: "remember",
+            input: { content: "fact with unproven execution" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    expect(stateUpserts).toHaveLength(0);
+  });
+
   test("retry after a no_usable_output run advances only once durable output exists", async () => {
     mockWakeResult = { invoked: true };
     messagesByConversationId["fork-conv-1"] = [];
@@ -933,18 +1035,28 @@ describe("memoryRetrospectiveJob", () => {
     expect(first.kind).toBe("no_usable_output");
     expect(stateUpserts).toHaveLength(0);
 
-    // Retry: same window, this time the run persists a real save.
+    // Retry: same window, this time the run persists a real save and its
+    // successful execution.
     messagesByConversationId["fork-conv-1"] = [
       {
         role: "assistant",
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-retry-1",
             name: "remember",
             input: { content: "fact captured on retry" },
           },
         ]),
         createdAt: Date.parse("2026-05-11T10:25:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-retry-1", content: "Saved." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:25:01Z"),
         metadata: null,
       },
     ];
@@ -1992,11 +2104,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-tail-1",
             name: "remember",
             input: { content: "post-fork tail save — included" },
           },
         ]),
         createdAt: 2000,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-tail-1", content: "Saved." },
+        ]),
+        createdAt: 2001,
         metadata: null,
       },
     ];
@@ -2056,11 +2177,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-seed-1",
             name: "remember",
             input: { content: "this run's save" },
           },
         ]),
         createdAt: 2000,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-seed-1", content: "Saved." },
+        ]),
+        createdAt: 2001,
         metadata: null,
       },
     ];
@@ -2101,11 +2231,20 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-carry-1",
             name: "remember",
             input: { content: "fork tail save" },
           },
         ]),
         createdAt: 2000,
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-carry-1", content: "Saved." },
+        ]),
+        createdAt: 2001,
         metadata: null,
       },
     ];
@@ -2356,11 +2495,24 @@ describe("memoryRetrospectiveJob", () => {
         content: JSON.stringify([
           {
             type: "tool_use",
+            id: "tu-replay-1",
             name: "remember",
             input: { content: "replayed save" },
           },
         ]),
         createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "tu-replay-1",
+            content: "Saved.",
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
         metadata: null,
       },
     ];

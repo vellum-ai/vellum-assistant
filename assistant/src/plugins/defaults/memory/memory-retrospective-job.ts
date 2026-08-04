@@ -1052,7 +1052,20 @@ async function collectPriorRetrospectiveRemembers(
 async function extractRetrospectiveRunRemembers(
   conversationId: string,
 ): Promise<string[]> {
-  return (await collectRetrospectiveRunEvidence(conversationId)).remembers;
+  const conv = await getConversation(conversationId);
+  const runMessages = await loadRetrospectiveRunMessages(
+    conversationId,
+    conv?.source ?? null,
+  );
+  if (runMessages == null) {
+    return [];
+  }
+  // Deliberately unfiltered by execution success: this reads a PRIOR run for
+  // the <already_remembered> dedup baseline, where over-inclusion is the
+  // safe direction (worst case a fact is not re-saved) and old runs predate
+  // result-verified evidence. The CURRENT run's log append goes through
+  // `collectRetrospectiveRunEvidence`, which does verify execution.
+  return extractRememberContents(runMessages);
 }
 
 /**
@@ -1070,9 +1083,15 @@ const DURABLE_RETROSPECTIVE_TOOLS: ReadonlySet<string> = new Set([
 /**
  * Read the durable evidence a retrospective run persisted: its `remember`
  * contents plus a count of every memory-writing tool call on the run's
- * post-boundary tail. A load failure (`runMessages == null`) reports zero
- * durable calls, which the advancement gate treats as "not proven usable"
- * (fail-closed, the window stays retryable).
+ * post-boundary tail whose EXECUTION succeeded. A `tool_use` block alone
+ * proves only that the model asked; the durable write happens inside the
+ * executor, so a call counts (and its facts feed the remembered log) only
+ * when a matching non-error `tool_result` is persisted on the same tail. A
+ * failed or missing execution therefore leaves the window retryable, and a
+ * failed `remember`'s facts never enter the `<already_remembered>` baseline
+ * where they would suppress the retry's re-save. A load failure
+ * (`runMessages == null`) reports zero durable calls, which the advancement
+ * gate treats as "not proven usable" (fail-closed).
  */
 async function collectRetrospectiveRunEvidence(
   conversationId: string,
@@ -1085,18 +1104,61 @@ async function collectRetrospectiveRunEvidence(
   if (runMessages == null) {
     return { remembers: [], durableToolCallCount: 0 };
   }
+  const succeededIds = collectSuccessfulToolResultIds(runMessages);
   return {
-    remembers: extractRememberContents(runMessages),
-    durableToolCallCount: countDurableToolUses(runMessages),
+    remembers: extractRememberContents(runMessages, succeededIds),
+    durableToolCallCount: countDurableToolUses(runMessages, succeededIds),
   };
 }
 
 /**
- * Count persisted `tool_use` blocks whose `name` is in
- * {@link DURABLE_RETROSPECTIVE_TOOLS} across the run's assistant rows.
- * Robust to malformed content JSON the same way `extractRememberContents` is.
+ * Ids of `tool_result` blocks on the run's user rows whose execution did not
+ * report an error. Robust to malformed content JSON the same way
+ * `extractRememberContents` is.
  */
-function countDurableToolUses(messages: MessageLike[]): number {
+function collectSuccessfulToolResultIds(messages: MessageLike[]): Set<string> {
+  const ids = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "user") {
+      continue;
+    }
+    let blocks: unknown = msg.content;
+    if (typeof blocks === "string") {
+      try {
+        blocks = JSON.parse(blocks);
+      } catch {
+        continue;
+      }
+    }
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const b = block as Record<string, unknown>;
+      if (
+        b.type === "tool_result" &&
+        typeof b.tool_use_id === "string" &&
+        b.is_error !== true
+      ) {
+        ids.add(b.tool_use_id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Count persisted `tool_use` blocks whose `name` is in
+ * {@link DURABLE_RETROSPECTIVE_TOOLS} across the run's assistant rows and
+ * whose id has a matching successful `tool_result` in `succeededIds`.
+ */
+function countDurableToolUses(
+  messages: MessageLike[],
+  succeededIds: ReadonlySet<string>,
+): number {
   let count = 0;
   for (const msg of messages) {
     if (msg.role !== "assistant") {
@@ -1120,7 +1182,9 @@ function countDurableToolUses(messages: MessageLike[]): number {
       const b = block as Record<string, unknown>;
       if (
         b.type === "tool_use" &&
-        DURABLE_RETROSPECTIVE_TOOLS.has(String(b.name))
+        DURABLE_RETROSPECTIVE_TOOLS.has(String(b.name)) &&
+        typeof b.id === "string" &&
+        succeededIds.has(b.id)
       ) {
         count += 1;
       }
@@ -1139,7 +1203,10 @@ interface MessageLike {
  * `"remember"` and return the `input.content` strings in order. Robust to
  * malformed content JSON — unparseable rows are skipped, not propagated.
  */
-function extractRememberContents(messages: MessageLike[]): string[] {
+function extractRememberContents(
+  messages: MessageLike[],
+  succeededIds?: ReadonlySet<string>,
+): string[] {
   const contents: string[] = [];
   for (const msg of messages) {
     if (msg.role !== "assistant") {
@@ -1165,6 +1232,16 @@ function extractRememberContents(messages: MessageLike[]): string[] {
         continue;
       }
       if (b.name !== "remember") {
+        continue;
+      }
+      // When a success set is provided, only executions that reported a
+      // non-error tool_result contribute facts: a failed remember never
+      // wrote the buffer, and logging its facts would suppress the retry's
+      // re-save via <already_remembered>.
+      if (
+        succeededIds !== undefined &&
+        (typeof b.id !== "string" || !succeededIds.has(b.id))
+      ) {
         continue;
       }
       const input = b.input;

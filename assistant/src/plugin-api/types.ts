@@ -22,6 +22,7 @@ export type {
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  PreModelCallDecision,
   StopContext,
   UserPromptSubmitContext,
 } from "../hooks/types.js";

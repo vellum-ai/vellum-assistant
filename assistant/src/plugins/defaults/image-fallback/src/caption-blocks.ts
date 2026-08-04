@@ -182,6 +182,34 @@ export async function captionImagesInMessages(
 }
 
 /**
+ * Count every image block a provider request built from `messages` would
+ * carry: top-level image blocks plus images nested in `tool_result`
+ * `contentBlocks`. Used on an outbound (already-sanitized) history, where
+ * stale tool-result media has been stripped to markers, so the count is
+ * exactly the set {@link captionOutboundImagesInMessages} would substitute.
+ * Read-only.
+ */
+export function countImageBlocksInMessages(
+  messages: ReadonlyArray<Message>,
+): number {
+  let imageCount = 0;
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type === "image") {
+        imageCount++;
+      } else if (block.type === "tool_result" && block.contentBlocks != null) {
+        for (const nested of block.contentBlocks) {
+          if (nested.type === "image") {
+            imageCount++;
+          }
+        }
+      }
+    }
+  }
+  return imageCount;
+}
+
+/**
  * Caption only the image blocks a rejected model call would still carry after
  * the host's outbound media-stripping: every top-level image block (the
  * sanitizer never strips those) plus tool_result media in the current-turn

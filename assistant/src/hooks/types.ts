@@ -451,17 +451,37 @@ export interface StopContext extends StopInputContext, BaseHookContext {}
 // ─── Pre-model-call hook context ─────────────────────────────────────────────
 
 /**
+ * Outcome of the `pre-model-call` hook chain. The agent loop seeds it to
+ * `"proceed"` and acts on the value the chain settles on:
+ *
+ * - `"proceed"`: issue the provider call (with any edits the chain applied).
+ *   This is the default.
+ * - `"fail"`: do not send. The loop ends the turn through its normal error
+ *   path (an `error` event followed by the `stop` hook with exit reason
+ *   `"error"`), carrying {@link PreModelCallContext.failureReason} as the error
+ *   message. This is the fail-closed lever for a hook that determines the
+ *   outbound request must not reach the resolved model (e.g. media bound for a
+ *   model that cannot accept it, on a call site whose caller retries failures).
+ *   Because the hook pipeline contains hook throws, setting this field is the
+ *   only way a hook can fail the call; a thrown error is logged and the call
+ *   proceeds with the original request.
+ */
+export type PreModelCallDecision = "proceed" | "fail";
+
+/**
  * Context passed to the `pre-model-call` hook. Fires immediately before each
  * provider call — once per model call within a turn, including tool-result
  * follow-up calls. Because it runs for every provider call (background, subagent,
  * and compaction work can share a conversation), hooks MUST self-gate on
  * {@link callSite} / {@link conversationId} before acting.
  *
- * A hook may edit the outbound request by replacing {@link systemPrompt}, route
- * the call to a different inference profile via {@link modelProfile}, and opt
- * this turn into deferred output streaming via {@link deferAssistantOutput}.
- * Mutate the context in place or return a new one; throwing is contained by the
- * loop (the call proceeds with the original request).
+ * A hook may edit the outbound request by replacing {@link systemPrompt} or
+ * rewriting {@link messages}, route the call to a different inference profile
+ * via {@link modelProfile}, opt this turn into deferred output streaming via
+ * {@link deferAssistantOutput}, or fail the call outright via
+ * {@link PreModelCallDecision}. Mutate the context in place or return a new
+ * one; throwing is contained by the loop (the call proceeds with the original
+ * request).
  */
 export interface PreModelCallInputContext {
   /** Conversation ID the call belongs to. */
@@ -495,6 +515,26 @@ export interface PreModelCallInputContext {
    */
   modelProfile: string | null;
   /**
+   * Effective inference-profile identity for the model this run resolved at
+   * turn start: a profile key for named-profile configs, the resolved model id
+   * for profileless configs (mirrors
+   * {@link UserPromptSubmitContext.modelProfileKey}). `null` for raw loop runs
+   * that supply none. A hook judging model capabilities for THIS call should
+   * prefer {@link modelProfile} (the live per-call override, which an earlier
+   * hook in the chain may have rerouted) and fall back to this value.
+   */
+  readonly modelProfileKey: string | null;
+  /**
+   * The outbound provider-bound message history for this call, after the
+   * loop's pre-send sanitization (historical media stripped, AX trees
+   * collapsed, stale web-search results converted to text). A hook may rewrite
+   * it, in place or by returning a new context with a replacement array, and
+   * the loop sends the settled value. Wire payload only: the loop's own
+   * history bookkeeping (persistence, compaction, retries) is untouched by
+   * edits here.
+   */
+  messages: Message[];
+  /**
    * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
    * live assistant `text_delta` stream; a `post-model-call` hook is then
    * expected to produce the text the client sees (emitted once, after the reply
@@ -502,6 +542,18 @@ export interface PreModelCallInputContext {
    * redaction that needs the full message — instead of leaking the raw stream.
    */
   deferAssistantOutput: boolean;
+  /**
+   * Seeded `"proceed"`. A hook sets it to `"fail"` to stop the loop from
+   * sending this call and end the turn through the loop's normal error path;
+   * see {@link PreModelCallDecision}. Later hooks in the chain may override it.
+   */
+  decision: PreModelCallDecision;
+  /**
+   * Error message the loop surfaces when {@link decision} settles on `"fail"`.
+   * A failing hook should name the call site, the resolved model, and the
+   * remedy. `null` (with a generic fallback message) when unset.
+   */
+  failureReason: string | null;
 }
 
 /**

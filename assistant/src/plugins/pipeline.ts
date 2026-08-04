@@ -207,6 +207,9 @@ const HOOK_OUTPUT_SCHEMAS: Partial<
   [HOOKS.POST_COMPACT]: z.looseObject({
     history: z.array(MessageSchema).optional(),
   }),
+  [HOOKS.PRE_MODEL_CALL]: z.looseObject({
+    messages: z.array(MessageSchema).optional(),
+  }),
   [HOOKS.POST_MODEL_CALL]: z.looseObject({
     messages: z.array(MessageSchema).optional(),
     content: z.array(ContentBlockSchema).optional(),
