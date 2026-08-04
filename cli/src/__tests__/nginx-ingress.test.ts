@@ -686,12 +686,17 @@ describe("startRemoteWebIngress", () => {
       includeWebApp: false,
     });
 
-    expect(result).toEqual({ status: "already-running", listenPort: 7845 });
+    expect(result).toEqual({
+      status: "already-running",
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7830,
+    });
     expect(edge.killed()).toBe(false);
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
-  test("short-circuits when the recorded gateway port matches the request", async () => {
+  test("already-running carries the recorded listen port over the requested one", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
@@ -705,12 +710,45 @@ describe("startRemoteWebIngress", () => {
     const result = await startRemoteWebIngress({
       workspaceDir: ws,
       gatewayPort: 7830,
+      listenPort: 7999,
+      includeWebApp: false,
+    });
+
+    expect(result).toEqual({
+      status: "already-running",
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7830,
+    });
+    expect(edge.killed()).toBe(false);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("a failed restart reports the recorded mode and gateway port", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    const pid = mockRunningEdge(ws, {
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7900,
+    });
+    mockUnkillableNginx(pid);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
       listenPort: 7845,
       includeWebApp: false,
     });
 
-    expect(result).toEqual({ status: "already-running", listenPort: 7845 });
-    expect(edge.killed()).toBe(false);
+    expect(result).toEqual({
+      status: "already-running",
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7900,
+    });
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
@@ -799,7 +837,12 @@ describe("startRemoteWebIngress", () => {
       listenPort: 7845,
     });
 
-    expect(result).toEqual({ status: "already-running", listenPort: 7845 });
+    expect(result).toEqual({
+      status: "already-running",
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+    });
     expect(edge.killed()).toBe(false);
     expect(spawnMock).not.toHaveBeenCalled();
   });

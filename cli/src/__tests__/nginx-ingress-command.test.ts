@@ -19,10 +19,14 @@ const realNginxIngressLib = { ...nginxIngressLib };
 const ensureTunnelEdgeMock = mock<typeof nginxIngressLib.ensureTunnelEdge>(
   async () => ({ port: 7840, started: true, includesWebApp: true }),
 );
+const getIngressPidMock = mock<typeof nginxIngressLib.getIngressPid>(
+  () => null,
+);
 
 mock.module("../lib/nginx-ingress.js", () => ({
   ...nginxIngressLib,
   ensureTunnelEdge: ensureTunnelEdgeMock,
+  getIngressPid: getIngressPidMock,
 }));
 
 // Restore the real module once this file finishes so the mock does not leak
@@ -31,7 +35,11 @@ afterAll(() => {
   mock.module("../lib/nginx-ingress.js", () => realNginxIngressLib);
 });
 
-import { resolveNginxIngressTarget, up } from "../commands/nginx-ingress.js";
+import {
+  resolveNginxIngressTarget,
+  status,
+  up,
+} from "../commands/nginx-ingress.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "cli-nginx-ingress-command-test-"));
@@ -134,7 +142,7 @@ describe("up", () => {
     const output = logs.join("\n");
     expect(output).toContain("http://127.0.0.1:7845 (webhooks only)");
     expect(output).toContain("web-remote-ingress");
-    expect(output).toContain("vellum tunnel");
+    expect(output).toContain("vellum tunnel --provider ngrok");
   });
 
   test("states the remote web mode when the flag is on", async () => {
@@ -153,5 +161,69 @@ describe("up", () => {
     const output = logs.join("\n");
     expect(output).toContain("http://127.0.0.1:7840 (remote web + webhooks)");
     expect(output).not.toContain("Enable the web-remote-ingress feature flag");
+  });
+});
+
+describe("status", () => {
+  const statusWorkspace = join(testDir, "status-workspace");
+  let logs: string[];
+  let logSpy: ReturnType<typeof spyOn<typeof console, "log">>;
+
+  beforeEach(() => {
+    getIngressPidMock.mockReset();
+    getIngressPidMock.mockReturnValue(4242);
+    logs = [];
+    logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args.join(" "));
+    });
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    rmSync(statusWorkspace, { recursive: true, force: true });
+  });
+
+  function writeIngressState(nginx: Record<string, unknown>): void {
+    mkdirSync(statusWorkspace, { recursive: true });
+    writeFileSync(
+      join(statusWorkspace, "config.json"),
+      JSON.stringify({ ingress: { nginx } }) + "\n",
+    );
+  }
+
+  test("prints the recorded gateway upstream, not the requested one", async () => {
+    writeIngressState({
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7900,
+    });
+
+    await status({ workspaceDir: statusWorkspace, gatewayPort: 7830 });
+
+    const output = logs.join("\n");
+    expect(output).toContain("nginx ingress: running");
+    expect(output).toContain("Listen:  http://127.0.0.1:7845");
+    expect(output).toContain("Gateway: http://127.0.0.1:7900");
+    expect(output).not.toContain("http://127.0.0.1:7830");
+    expect(output).not.toContain("(unverified)");
+    expect(output).toContain("Mode:    webhooks only");
+  });
+
+  test("marks the requested gateway port unverified when the record predates the field", async () => {
+    writeIngressState({ listenPort: 7845 });
+
+    await status({ workspaceDir: statusWorkspace, gatewayPort: 7830 });
+
+    const output = logs.join("\n");
+    expect(output).toContain("Gateway: http://127.0.0.1:7830 (unverified)");
+    expect(output).toContain("Mode:    remote web + webhooks");
+  });
+
+  test("reports a stopped edge", async () => {
+    getIngressPidMock.mockReturnValue(null);
+
+    await status({ workspaceDir: statusWorkspace, gatewayPort: 7830 });
+
+    expect(logs.join("\n")).toContain("nginx ingress: not running");
   });
 });
