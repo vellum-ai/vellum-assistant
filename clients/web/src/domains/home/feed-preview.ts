@@ -17,8 +17,13 @@ const MIN_PREVIEW_LENGTH = 12;
  * Sentence punctuation, ignored at the end of a comparison form and left
  * dangling once a title prefix is sliced away. Both sites read this one set,
  * so the slice can never strand a character the comparison already discounted.
+ *
+ * The horizontal ellipsis is in here so a title the producer truncated compares
+ * as its unellipsized text and is still recognized as derived from the summary.
+ * The three-period form falls out of `.` already being a member, since the
+ * trailing trim runs over the whole punctuation run.
  */
-const SENTENCE_PUNCTUATION = ".,;:!?-";
+const SENTENCE_PUNCTUATION = ".,;:!?-…";
 
 /**
  * The parts of a markdown node the flattener reads. Structural rather than
@@ -172,8 +177,8 @@ function normalizedCharacters(value: string): NormalizedCharacter[] {
 
 /**
  * Reduce a string to the form used for title-versus-preview comparison, so
- * that case, spacing, and a trailing period never make two equivalent strings
- * look different.
+ * that case, spacing, and trailing sentence punctuation never make two
+ * equivalent strings look different.
  */
 function normalizeForCompare(value: string): string {
   const flattened = normalizedCharacters(value)

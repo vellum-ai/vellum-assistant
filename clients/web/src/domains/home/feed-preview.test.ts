@@ -4,6 +4,14 @@ import { describe, expect, test } from "bun:test";
 
 import { resolvePreview } from "./feed-preview";
 
+/** The daemon's `NOTIFICATION_TITLE_MAX_LENGTH`, the clamp `deriveTitle` uses. */
+const DERIVED_TITLE_MAX_LENGTH = 60;
+
+/** Build a title the way the daemon's `deriveTitle` builds an over-long one. */
+function deriveTruncatedTitle(body: string, ellipsis: string): string {
+  return body.slice(0, DERIVED_TITLE_MAX_LENGTH).trim() + ellipsis;
+}
+
 describe("resolvePreview", () => {
   test("unwraps inline emphasis in a flattened summary", () => {
     expect(
@@ -366,6 +374,36 @@ describe("resolvePreview", () => {
     expect(resolvePreview("Deploy", "Deployment queue is backed up")).toBe(
       "Deployment queue is backed up",
     );
+  });
+
+  test("matches a derived title clamped with a horizontal ellipsis", () => {
+    const summary =
+      "Deploy failed because the api worker never reported healthy after three restarts.";
+    const title = deriveTruncatedTitle(summary, "…");
+    // The first sentence runs past the clamp, which is what appends the ellipsis.
+    expect(summary.length).toBeGreaterThan(DERIVED_TITLE_MAX_LENGTH);
+
+    const preview = resolvePreview(title, summary);
+    expect(preview).toBe("after three restarts.");
+    expect(preview).not.toContain("Deploy failed");
+    expect(preview).not.toContain("api worker");
+  });
+
+  test("matches a derived title clamped with three periods", () => {
+    const summary =
+      "Deploy failed because the api worker never reported healthy after three restarts.";
+    const title = deriveTruncatedTitle(summary, "...");
+
+    const preview = resolvePreview(title, summary);
+    expect(preview).toBe("after three restarts.");
+    expect(preview).not.toContain("Deploy failed");
+  });
+
+  test("keeps the whole preview when an ellipsized title is not a prefix", () => {
+    const summary =
+      "The api worker never reported healthy after three restarts.";
+    expect(resolvePreview("Waiting on the deploy…", summary)).toBe(summary);
+    expect(resolvePreview("Waiting on the deploy...", summary)).toBe(summary);
   });
 
   test("does not split a decomposed letter away from its combining mark", () => {
