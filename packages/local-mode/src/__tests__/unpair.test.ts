@@ -127,6 +127,28 @@ describe("unpairAssistant", () => {
     expect(readLockfileFromDisk().activeAssistant).toBe("paired-1");
   });
 
+  test("restores the guardian token when the lockfile write fails", () => {
+    writeLockfile({
+      assistants: [{ assistantId: "paired-1", cloud: "paired" }],
+      activeAssistant: null,
+    });
+    const tokenPath = seedGuardianToken("paired-1");
+    // A read-only lockfile directory makes the tmp-file write fail after the
+    // token has already been deleted.
+    fs.chmodSync(tmpDir, 0o500);
+    try {
+      const result = unpairAssistant([lockfilePath], configDir, "paired-1");
+
+      expect(result.ok).toBe(false);
+      expect(fs.existsSync(tokenPath)).toBe(true);
+      expect(fs.readFileSync(tokenPath, "utf-8")).toBe(
+        JSON.stringify({ accessToken: "tok" }),
+      );
+    } finally {
+      fs.chmodSync(tmpDir, 0o700);
+    }
+  });
+
   test("leaves the active pointer alone when it names another assistant", () => {
     writeLockfile({
       assistants: [

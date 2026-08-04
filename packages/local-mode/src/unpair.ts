@@ -42,8 +42,15 @@ export function unpairAssistant(
   // Delete the token BEFORE committing the lockfile removal. A failed delete
   // aborts with the entry intact, so unpair stays retryable; the reverse order
   // would strand the credential on disk forever (the retry 404s on the
-  // already-removed entry and never reaches cleanup).
+  // already-removed entry and never reaches cleanup). The token contents are
+  // kept in memory so a failed lockfile write below can restore them.
   const tokenPath = guardianTokenPath(configDir, assistantId);
+  let savedToken: string | null = null;
+  try {
+    savedToken = fs.readFileSync(tokenPath, "utf-8");
+  } catch {
+    savedToken = null;
+  }
   try {
     fs.rmSync(tokenPath, { force: true });
   } catch (err) {
@@ -65,7 +72,7 @@ export function unpairAssistant(
   lockfile.assistants = remaining;
   // Reassign the active assistant like the CLI's removeAssistantEntry does, so
   // unpairing through the bridge and through `vellum unpair` leave the same
-  // active state. Skip tolerated malformed entries (no string assistantId) —
+  // active state. Skip tolerated malformed entries (no string assistantId):
   // parseLockfile drops them from the returned lockfile, so pointing at one
   // would report no active assistant while valid entries remain.
   if (lockfile.activeAssistant === assistantId) {
@@ -79,5 +86,16 @@ export function unpairAssistant(
     }
   }
 
-  return writeRawLockfile(lockfilePaths, lockfile);
+  const result = writeRawLockfile(lockfilePaths, lockfile);
+  if (!result.ok && savedToken !== null) {
+    // The entry is still listed, so put its credential back (best-effort;
+    // the write failure itself is what gets reported).
+    try {
+      fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(tokenPath, savedToken, { mode: 0o600 });
+    } catch {
+      // Restore failed; the reported write error already covers the outcome.
+    }
+  }
+  return result;
 }
