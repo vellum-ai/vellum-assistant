@@ -31,7 +31,11 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalClient } from "@/lib/local-mode";
 import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
-import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useHasPlatformSession,
+  useIsPlatformSessionSettled,
+} from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
@@ -303,13 +307,19 @@ export function ResearchOnboardingRoute() {
   const skipCheckinSteps = adoptExistingAssistant;
   // The claim-credits step ("integration") promises managed free credits,
   // which only a platform account can hold. A self-hosted onboarding with no
-  // platform login has no account to credit, so the promise would be empty —
-  // skip the step. A signed-in self-hosted user keeps it: their platform
-  // account is real, credits and all.
+  // platform login has no account to credit, so the promise would be empty:
+  // skip the step. A signed-in self-hosted user keeps it (their platform
+  // account is real, credits and all), and so does the probe's pre-settle
+  // window, where "no session yet" is not an answer. Skipping is a one-way
+  // transition with no later correction, so only a settled absent session may
+  // take it; every settle path resolves "unknown", including local gateway
+  // boot, which settles "absent" directly.
   const hasPlatformSession = useHasPlatformSession();
-  const skipClaimCreditsStep = adoptExistingAssistant && !hasPlatformSession;
-  // Where "personality" advances to: the claim-credits step, or — when that's
-  // skipped — straight to the research reveal (skipping credits implies a
+  const platformSessionSettled = useIsPlatformSessionSettled();
+  const skipClaimCreditsStep =
+    adoptExistingAssistant && platformSessionSettled && !hasPlatformSession;
+  // Where "personality" advances to: the claim-credits step, or, when that's
+  // skipped, straight to the research reveal (skipping credits implies a
   // self-hosted flow, which skips the calendar steps too).
   const stepAfterPersonality: ResearchStep = skipClaimCreditsStep
     ? "looking"
@@ -511,7 +521,7 @@ export function ResearchOnboardingRoute() {
       // A snapshot written before the calendar steps were dropped from the
       // local flow (or by a signed-in web session) may resume onto them, and
       // one written while the claim-credits step still showed may resume onto
-      // it — remap to the research reveal the skips land on.
+      // it: remap to the research reveal the skips land on.
       const resumeStep = resolveResumeStep(snapshot);
       const resumeStepDropped =
         (skipCheckinSteps &&

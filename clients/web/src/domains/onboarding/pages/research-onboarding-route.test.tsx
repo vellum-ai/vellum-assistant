@@ -151,6 +151,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
 }));
 
 let hasPlatformSession = true;
+let platformSessionSettled = true;
 
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
@@ -159,6 +160,7 @@ mock.module("@/stores/auth-store", () => ({
     },
   },
   useHasPlatformSession: () => hasPlatformSession,
+  useIsPlatformSessionSettled: () => platformSessionSettled,
 }));
 
 mock.module("@/utils/routes", () => ({
@@ -428,6 +430,7 @@ beforeEach(() => {
   localStorage.clear();
   adoptExistingAssistant = false;
   hasPlatformSession = true;
+  platformSessionSettled = true;
   researchStatus = "idle";
   installedPlugins = [];
   establishedResult = { established: false, assistantName: null };
@@ -1037,7 +1040,7 @@ describe("ResearchOnboardingRoute hatch retry", () => {
 });
 
 // The claim-credits step ("integration") promises managed free credits, which
-// only a platform account can hold — a self-hosted onboarding with no platform
+// only a platform account can hold: a self-hosted onboarding with no platform
 // login skips it (LUM-3028).
 describe("ResearchOnboardingRoute claim-credits skip", () => {
   test("self-hosted without a platform session skips the claim-credits step", async () => {
@@ -1048,7 +1051,7 @@ describe("ResearchOnboardingRoute claim-credits skip", () => {
     render(<ResearchOnboardingRoute />);
     fireEvent.click(await screen.findByTestId("personality-continue"));
 
-    // Straight to the research reveal — the calendar steps are skipped for
+    // Straight to the research reveal: the calendar steps are skipped for
     // self-hosted too, so nothing renders between.
     await waitFor(() => expect(screen.getByTestId("looking-step")).toBeTruthy());
     expect(screen.queryByTestId("integration-step")).toBeNull();
@@ -1062,6 +1065,22 @@ describe("ResearchOnboardingRoute claim-credits skip", () => {
     render(<ResearchOnboardingRoute />);
     fireEvent.click(await screen.findByTestId("personality-continue"));
 
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-step")).toBeTruthy(),
+    );
+  });
+
+  test("an unsettled platform-session probe keeps the claim-credits step", async () => {
+    adoptExistingAssistant = true;
+    hasPlatformSession = false;
+    platformSessionSettled = false;
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "personality" }));
+
+    render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("personality-continue"));
+
+    // "No session yet" is not an answer: a signed-in user racing the probe
+    // must not lose the step to a decision that is never revisited.
     await waitFor(() =>
       expect(screen.getByTestId("integration-step")).toBeTruthy(),
     );
