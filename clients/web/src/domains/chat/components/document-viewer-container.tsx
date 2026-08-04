@@ -4,13 +4,20 @@
  * Renders the document content using a Tiptap/ProseMirror editor and provides
  * a toggleable comment sidebar. Comment anchors, active highlights, and text
  * selection are wired via React props/callbacks (no iframe postMessage).
+ *
+ * One backing store: a document surface in the daemon's document database.
+ * A surface bound to a workspace markdown file passes that file's path so the
+ * navbar can name it and the workspace browser's cache can be refreshed after
+ * a save, but it saves and behaves exactly like any other document.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
   lazy,
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type Ref,
@@ -31,8 +38,15 @@ import {
   createComment,
   fetchComments,
 } from "@/domains/chat/api/document-comments";
+import {
+  saveDocumentContent,
+  type DocumentSaveTarget,
+} from "@/domains/chat/api/document-save";
+import {
+  localFileBlobQueryKey,
+  localFileInfoQueryKey,
+} from "@/domains/chat/components/local-file/use-local-file-info";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
-import { documentsPost } from "@/generated/daemon/sdk.gen";
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
   DocumentCommentPanel,
@@ -56,17 +70,26 @@ export interface DocumentViewerContainerHandle {
   refreshComments: () => Promise<void>;
 }
 
+/** A document surface: autosave writes through the documents API. */
 export interface DocumentViewerContainerProps {
-  surfaceId: string;
+  source: "document";
   assistantId: string;
-  conversationId: string;
   documentName: string;
   content: string;
   onClose: () => void;
-  onExport?: () => void;
-  onSubmitFeedback?: () => void;
   /** Imperative handle ref for SSE-driven refresh triggers. */
   handleRef?: Ref<DocumentViewerContainerHandle>;
+  surfaceId: string;
+  conversationId: string;
+  /**
+   * The workspace markdown file this document is bound to, when it has one.
+   * The daemon writes saves through to it, so the client only needs the path
+   * to name the file in the navbar and to invalidate the workspace browser's
+   * view of it after a save.
+   */
+  workspacePath?: string | null;
+  onExport?: () => void;
+  onSubmitFeedback?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,16 +117,27 @@ interface TextSelection {
 // ---------------------------------------------------------------------------
 
 export function DocumentViewerContainer({
-  surfaceId,
   assistantId,
-  conversationId,
   documentName,
   content,
   onClose,
+  handleRef,
+  surfaceId,
+  conversationId,
+  workspacePath = null,
   onExport,
   onSubmitFeedback,
-  handleRef,
 }: DocumentViewerContainerProps) {
+  // Where autosave writes.
+  const saveTarget: DocumentSaveTarget = {
+    source: "document",
+    assistantId,
+    surfaceId,
+    conversationId,
+    title: documentName,
+  };
+
+  const queryClient = useQueryClient();
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [textSelection, setTextSelection] = useState<TextSelection | null>(
     null,
@@ -123,6 +157,55 @@ export function DocumentViewerContainer({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const savedFadeRef = useRef<ReturnType<typeof setTimeout>>(null);
 
+  // The debounced save reads its destination through refs rather than the
+  // closure the keystroke created. The container is keyed per document, so a
+  // switch unmounts it with a save still pending, and a rename changes the
+  // title under a mounted one; both are cases where the value captured when
+  // the keystroke landed is no longer where the text belongs. The backing file
+  // rides along for the same reason, and the pending markdown does so the
+  // unmount flush below has something to write.
+  const saveTargetRef = useRef(saveTarget);
+  const workspacePathRef = useRef(workspacePath);
+  const pendingMarkdownRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    saveTargetRef.current = saveTarget;
+    workspacePathRef.current = workspacePath;
+  });
+
+  const flushPendingSave = useCallback(() => {
+    const markdown = pendingMarkdownRef.current;
+    if (markdown === null) {
+      return;
+    }
+    pendingMarkdownRef.current = null;
+    const target = saveTargetRef.current;
+    const savedFile = workspacePathRef.current;
+    void saveDocumentContent(target, markdown).then(
+      () => {
+        setSaveStatus("saved");
+        savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+        if (savedFile !== null) {
+          // The daemon wrote this document through to its backing file, and
+          // the workspace browser reads that file through its own query, so
+          // that query must see the new bytes.
+          void queryClient.invalidateQueries({
+            queryKey: ["assistantsWorkspaceFileRetrieve"],
+          });
+          // The transcript's embeds and the drawer's read-only preview read
+          // the same file through the local-file queries, which hold their
+          // bytes indefinitely. Both are now a version behind.
+          void queryClient.invalidateQueries({
+            queryKey: localFileBlobQueryKey(savedFile, assistantId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: localFileInfoQueryKey(savedFile, assistantId),
+          });
+        }
+      },
+      () => setSaveStatus("idle"),
+    );
+  }, [assistantId, queryClient]);
+
   const handleContentChange = useCallback(
     (markdown: string) => {
       if (saveTimerRef.current) {
@@ -131,35 +214,37 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) {
         clearTimeout(savedFadeRef.current);
       }
+      pendingMarkdownRef.current = markdown;
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        const wordCount = markdown
-          .trim()
-          .split(/\s+/)
-          .filter((w) => w.length > 0).length;
-        void documentsPost({
-          path: { assistant_id: assistantId },
-          body: {
-            surfaceId,
-            conversationId,
-            title: documentName,
-            content: markdown,
-            wordCount,
-          },
-          throwOnError: true,
-        }).then(
-          () => {
-            setSaveStatus("saved");
-            savedFadeRef.current = setTimeout(
-              () => setSaveStatus("idle"),
-              2000,
-            );
-          },
-          () => setSaveStatus("idle"),
-        );
+        saveTimerRef.current = null;
+        flushPendingSave();
       }, 1000);
     },
-    [assistantId, surfaceId, conversationId, documentName],
+    [flushPendingSave],
+  );
+
+  // A keyed remount takes the pending timer down with it, so an edit made in
+  // the last second before a document switch or a close would never reach the
+  // daemon. Fire it now instead: the refs still name the document being left,
+  // so the text lands where it was typed.
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  useLayoutEffect(() => {
+    flushPendingSaveRef.current = flushPendingSave;
+  });
+  useEffect(
+    () => () => {
+      if (savedFadeRef.current) {
+        clearTimeout(savedFadeRef.current);
+        savedFadeRef.current = null;
+      }
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        flushPendingSaveRef.current();
+      }
+    },
+    [],
   );
 
   // Clear inline comment state when panel closes (but keep text selection
@@ -175,7 +260,7 @@ export function DocumentViewerContainer({
     setCommentAnchors([]);
     setActiveHighlight(null);
     setTextSelection(null);
-  }, [surfaceId]);
+  }, [surfaceId, workspacePath]);
 
   // -------------------------------------------------------------------------
   // Comment panel interaction handlers
@@ -310,6 +395,8 @@ export function DocumentViewerContainer({
         <Typography
           variant="title-small"
           className="min-w-0 flex-1 truncate text-[var(--content-emphasised)]"
+          // The full path tells the user which file on disk they are editing.
+          title={workspacePath ?? undefined}
         >
           {documentName}
         </Typography>

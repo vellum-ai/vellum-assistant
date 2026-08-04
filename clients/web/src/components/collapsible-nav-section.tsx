@@ -1,4 +1,4 @@
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { ChevronDown, type LucideIcon } from "lucide-react";
 import { type DragEvent, type ReactNode, type Ref } from "react";
 
 import { BottomSheet, ContextMenu } from "@vellumai/design-library";
@@ -22,9 +22,14 @@ import { isPointerCoarse } from "@/utils/pointer";
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
  *
- *   - Leading icon that swaps to a disclosure chevron on hover
- *     (matching macOS SidebarSectionHeader). The original icon is
- *     always visible when not hovered, regardless of expanded state.
+ *   - No leading icon. The title itself isn't the toggle: it's a plain
+ *     label that just sits inside the draggable header, so clicking and
+ *     holding it drags the section (see `drag`) without also expanding
+ *     or collapsing it. The one toggle target is a small chevron button
+ *     on the trailing edge, left of the "…", revealed only on hover or
+ *     while the section is open (so an expanded section keeps its own
+ *     visible way to collapse again), not on click-then-release focus,
+ *     which would otherwise linger after the click that opened/closed it.
  *   - Optional `trailing` slot for an ellipsis menu or other per-row
  *     affordance. Pointer events are isolated so clicking trailing
  *     content doesn't toggle the section.
@@ -34,7 +39,8 @@ import { isPointerCoarse } from "@/utils/pointer";
  *     pointer type — Radix `ContextMenu` alone renders a pointer-positioned
  *     popover on touch, which is the wrong surface on mobile. Mirrors the
  *     conversation-row long-press pattern.
- *   - No hover background — the chevron swap is the affordance.
+ *   - No hover background on the title; the chevron button's own hover
+ *     state is the affordance.
  *
  * Usage:
  *
@@ -216,9 +222,13 @@ function CollapsibleNavSectionSection({
           the New Chat plus and the assistant eyes. Only the vertical
           metrics grow on mobile. */}
       {collapsible ? (
-        <Collapsible.Trigger
+        // Not the toggle target: clicking/holding the title drags the
+        // section (native HTML5 drag on the header div, see `drag` below).
+        // Only the chevron toggles, in the trailing cluster.
+        <div
+          data-slot="collapsible-nav-section-title"
           className={cn(
-            "group h-[30px] max-md:h-auto",
+            "flex h-[30px] min-w-0 flex-1 items-center max-md:h-auto",
             "rounded-[6px] py-[6px] max-md:py-3",
             "text-left text-body-medium-lighter max-md:text-body-large-lighter",
             "text-[var(--content-tertiary)]",
@@ -229,41 +239,13 @@ function CollapsibleNavSectionSection({
             gap: SIDEBAR_CHIP_GAP,
           }}
         >
-          <span
-            className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
-            style={{ width: SIDEBAR_CHIP_SIZE }}
-          >
-            {Icon ? (
-              <Icon
-                size={12}
-                aria-hidden
-                className={cn(
-                  "absolute inset-0 m-auto transition-opacity",
-                  "text-[var(--content-tertiary)]",
-                  "group-hover:opacity-0 group-focus-visible:opacity-0",
-                )}
-              />
-            ) : null}
-            <ChevronRight
-              size={12}
-              aria-hidden
-              className={cn(
-                "absolute inset-0 m-auto transition-[opacity,transform]",
-                "text-[var(--content-tertiary)]",
-                Icon
-                  ? "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-                  : "opacity-100",
-                "group-data-[state=open]:rotate-90",
-              )}
-            />
-          </span>
           <span className="min-w-0 flex-1 truncate">{label}</span>
           {collapsedIndicator ? (
-            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]:hidden">
+            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]/section:hidden">
               {collapsedIndicator}
             </span>
           ) : null}
-        </Collapsible.Trigger>
+        </div>
       ) : (
         // Non-collapsible: no chevron, no toggle affordance, just the icon
         // slot (if given) and the label, always at rest.
@@ -291,28 +273,57 @@ function CollapsibleNavSectionSection({
           <span className="min-w-0 flex-1 truncate">{label}</span>
         </div>
       )}
-      {trailing ? (
-        <span
-          data-slot="collapsible-nav-section-trailing"
-          /* `empty:hidden` so a trailing component that renders nothing (a
-             menu with no wired actions) doesn't leave a padded box behind.
+      {collapsible || trailing ? (
+        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+          {collapsible ? (
+            // The toggle target, moved off the title (which now only
+            // drags) and off the leading icon slot (there is no icon
+            // anymore) onto its own small trailing button, left of the
+            // "…". Icon-only, so it needs its own accessible name.
+            <Collapsible.Trigger
+              aria-label={label}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)]"
+            >
+              <ChevronDown
+                size={12}
+                aria-hidden
+                className={cn(
+                  "shrink-0 transition-[opacity,transform]",
+                  "text-[var(--content-tertiary)]",
+                  "opacity-0 group-hover/header:opacity-100",
+                  "group-data-[state=open]/section:opacity-100",
+                  "max-md:opacity-100",
+                  "group-data-[state=open]/section:rotate-180",
+                )}
+              />
+            </Collapsible.Trigger>
+          ) : null}
+          {trailing ? (
+            <span
+              data-slot="collapsible-nav-section-trailing"
+              /* `empty:hidden` so a trailing component that renders nothing
+                 (a menu with no wired actions) doesn't leave a padded box
+                 behind.
 
-             Revealed on hover so a row of resting section headers stays quiet.
-             It also stays up while its own menu is open (`aria-expanded`),
-             or the control would vanish the moment it was clicked, and while
-             anything inside holds focus, so it is reachable by keyboard. Touch
-             has no hover, and the header's long-press sheet is the equivalent
-             affordance there, so below `md` it simply stays visible. */
-          className={cn(
-            "flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden",
-            "opacity-0 transition-opacity",
-            "group-hover/header:opacity-100 focus-within:opacity-100",
-            "has-[[aria-expanded=true]]:opacity-100",
-            "max-md:opacity-100",
-          )}
-          onClick={(event) => event.stopPropagation()}
-        >
-          {trailing}
+                 Revealed on hover so a row of resting section headers stays
+                 quiet. It also stays up while its own menu is open
+                 (`aria-expanded`), or the control would vanish the moment it
+                 was clicked, and while anything inside holds focus, so it is
+                 reachable by keyboard. Touch has no hover, and the header's
+                 long-press sheet is the equivalent affordance there, so
+                 below `md` it simply stays visible. */
+              className={cn(
+                "flex items-center shrink-0 empty:hidden",
+                "opacity-0 transition-opacity",
+                "group-hover/header:opacity-100 focus-within:opacity-100",
+                "has-[[aria-expanded=true]]:opacity-100",
+                "max-md:opacity-100",
+              )}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {trailing}
+            </span>
+          ) : null}
         </span>
       ) : null}
     </div>
@@ -348,6 +359,10 @@ function CollapsibleNavSectionSection({
          this section" from reading as "lands inside it" when the section is
          expanded. */
       className={cn(
+        // Named so the trailing chevron (a header-level sibling of the
+        // Trigger, not a descendant) can read this item's own open/closed
+        // `data-state` for its rotation.
+        "group/section",
         drag?.dragging && "opacity-50",
         // Insertion line, matching the conversation-row drop indicator.
         drag?.dropEdge === "before" &&

@@ -23,7 +23,8 @@
  * Store cadence while this bundle deploys continuously. A server composing its
  * own strings would reintroduce exactly that drift one layer further out, so
  * registration hands over a phase→label map and the platform only ever looks a
- * phase up in it.
+ * phase up in it. The accent and mute state travel the same way and for the
+ * same underlying reason. See {@link LiveActivityRegistration}.
  *
  * Best-effort throughout, like everything else that touches the island: a
  * failure here costs a background update, never a voice session.
@@ -128,6 +129,42 @@ function trackUpsert(upsert: Promise<void>): void {
 }
 
 /**
+ * Tail of the upsert chain, so registrations reach the platform in the order
+ * they were made.
+ *
+ * The row is now content the platform composes its pushes from, which makes
+ * ordering load-bearing: two registrations in flight at once (a mute toggled
+ * twice, or a mute landing while an avatar that loaded late re-registers the
+ * accent) can arrive in either order, and the loser is what every subsequent
+ * background push renders. Serializing costs nothing here, because a
+ * registration is never on a latency path, and it makes "last call wins" true.
+ */
+let upsertChain: Promise<void> = Promise.resolve();
+
+/** Everything the platform needs to push at one running activity. */
+export interface LiveActivityRegistration {
+  token: string;
+  assistantId: string;
+  conversationId: string;
+  /**
+   * The island's accent and mute state, as {@link VoiceLiveActivityContent}
+   * carries them.
+   *
+   * **They register rather than dispatch because the daemon cannot see
+   * them.** The accent is the avatar color this layer renders and mute is a
+   * local control the session never hears about, yet both are `ContentState`
+   * fields, and a server push replaces that state wholesale, so a dispatch
+   * composed without them would gray out the island and drop its mute glyph on
+   * the first phase change after the app is backgrounded, which is the only
+   * state the island is ever seen in. The platform stores them on the token row
+   * and composes every push from there; the caller re-registers when either
+   * moves.
+   */
+  accentHex: string;
+  muted: boolean;
+}
+
+/**
  * Register (or re-register) the activity's push token for a conversation.
  *
  * Safe to call repeatedly: iOS rotates tokens mid-activity and each value
@@ -135,20 +172,24 @@ function trackUpsert(upsert: Promise<void>): void {
  * `(user, token)`, so a rotation replaces the row rather than accumulating one.
  */
 export async function registerLiveActivityPushToken(
-  token: string,
-  assistantId: string,
-  conversationId: string,
+  registration: LiveActivityRegistration,
 ): Promise<void> {
-  const upsert = upsertToken(token, assistantId, conversationId);
+  const upsert = upsertChain.then(() => upsertToken(registration));
+  // The chain must not inherit a rejection, or one failed upsert would poison
+  // every later registration for the session. `upsertToken` already swallows
+  // its own failures; this covers the boundary.
+  upsertChain = upsert.catch(() => undefined);
   trackUpsert(upsert);
   await upsert;
 }
 
-async function upsertToken(
-  token: string,
-  assistantId: string,
-  conversationId: string,
-): Promise<void> {
+async function upsertToken({
+  token,
+  assistantId,
+  conversationId,
+  accentHex,
+  muted,
+}: LiveActivityRegistration): Promise<void> {
   try {
     // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
     const { App } = await import("@capacitor/app");
@@ -164,6 +205,8 @@ async function upsertToken(
         apns_environment: apnsEnvironment,
         conversation_id: conversationId,
         labels: phaseLabels(),
+        accent_hex: accentHex,
+        muted,
       },
       throwOnError: false,
     });

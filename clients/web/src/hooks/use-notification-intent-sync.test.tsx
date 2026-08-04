@@ -1,7 +1,6 @@
 /**
  * `useNotificationIntentSync` forwards `notification_intent` SSE events to
- * `postLocalNotification`, including the optional `remotePushDispatched`
- * flag the dedup skip in `runtime/notifications.ts` keys on.
+ * `postLocalNotification`, including remote-push acceptance metadata.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -37,6 +36,7 @@ const { useNotificationIntentSync } = await import(
 
 function publishNotificationIntent(overrides: {
   remotePushDispatched?: boolean;
+  remotePushPlatforms?: ("ios" | "android")[];
 }) {
   act(() => {
     publish("sse.event", {
@@ -48,6 +48,7 @@ function publishNotificationIntent(overrides: {
         title: "Reminder",
         body: "Stand up",
         deliveryId: "delivery-1",
+        correlationId: "signal-1",
         ...overrides,
       },
     });
@@ -68,10 +69,13 @@ afterEach(() => {
 });
 
 describe("useNotificationIntentSync", () => {
-  test("passes remotePushDispatched through to postLocalNotification", () => {
+  test("passes remote push acceptance through to postLocalNotification", () => {
     renderHook(() => useNotificationIntentSync("assistant-1"));
 
-    publishNotificationIntent({ remotePushDispatched: true });
+    publishNotificationIntent({
+      remotePushDispatched: true,
+      remotePushPlatforms: ["android"],
+    });
 
     expect(postedArgs).toEqual([
       {
@@ -79,9 +83,11 @@ describe("useNotificationIntentSync", () => {
         body: "Stand up",
         sourceEventName: "reminder.fired",
         deliveryId: "delivery-1",
+        correlationId: "signal-1",
         deepLinkMetadata: undefined,
         assistantId: "assistant-1",
         remotePushDispatched: true,
+        remotePushPlatforms: ["android"],
       },
     ]);
   });
@@ -93,5 +99,6 @@ describe("useNotificationIntentSync", () => {
 
     expect(postedArgs).toHaveLength(1);
     expect(postedArgs[0]?.remotePushDispatched).toBeUndefined();
+    expect(postedArgs[0]?.remotePushPlatforms).toBeUndefined();
   });
 });

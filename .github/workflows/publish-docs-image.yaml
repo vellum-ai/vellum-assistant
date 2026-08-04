@@ -1,12 +1,12 @@
 name: Publish Docs Image
 
 # Builds and publishes the docs-site image to each environment's Artifact
-# Registry. Pushes to main publish to dev, staging, and production so every
-# environment's registry always has the latest main build; `workflow_dispatch`
-# republishes to a single chosen environment. The image lives under the
-# existing `sandbox-images` AR repo. Publishing is inert until the platform
-# Helm chart enables the docs backend in that environment and helm-cd rolls
-# it out.
+# Registry, then dispatches the platform repo's docs-cd workflow so the docs
+# Deployment (and nothing else) rolls to the freshly published SHA. Pushes to main publish to dev,
+# staging, and production so every environment's registry always has the
+# latest main build; `workflow_dispatch` republishes (and redeploys) a single
+# chosen environment. The image lives under the existing `sandbox-images` AR
+# repo.
 
 on:
   push:
@@ -91,3 +91,25 @@ jobs:
             ${{ steps.image.outputs.gcp }}:latest
           cache-from: type=gha,scope=docs-site
           cache-to: type=gha,mode=max,ignore-error=true,scope=docs-site
+
+      # The dispatch lives inside the matrix leg so each environment deploys
+      # only after its own publish succeeded, and a cancelled (superseded)
+      # publish never triggers a deploy. docs-cd rolls only the docs
+      # Deployment to this SHA — it does not run a full platform Helm deploy.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Trigger platform docs deploy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run docs-cd.yaml \
+            --repo vellum-ai/vellum-assistant-platform \
+            --field environment="${{ matrix.environment }}" \
+            --field docs_image_tag="${{ github.sha }}"

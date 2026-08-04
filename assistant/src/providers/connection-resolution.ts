@@ -132,11 +132,12 @@ export async function tryResolveProviderForConnectionName(
     connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
     !isVellumManagedConnection(connection)
   ) {
-    return resolveThroughPlatform(
+    const provider = await resolveThroughPlatform(
       config,
       expectedProvider ?? declaredProvider,
       model,
     );
+    return attachProviderRoute(provider, canonicalVellumConnection());
   }
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
@@ -221,10 +222,11 @@ export async function tryResolveProviderForConnectionName(
   // catch is specifically for in-flight failures that should not take
   // dispatch offline.
   try {
-    return await resolveProviderFromConnection(connection, config, {
+    const provider = await resolveProviderFromConnection(connection, config, {
       model,
       providerOverride: isVellumRoute ? expectedProvider : undefined,
     });
+    return attachProviderRoute(provider, connection);
   } catch (err) {
     log.warn(
       { err, connectionName },
@@ -232,6 +234,44 @@ export async function tryResolveProviderForConnectionName(
     );
     return null;
   }
+}
+
+function attachProviderRoute(
+  provider: Provider | null,
+  connection: { name: string; provider: string; auth: { type: string } },
+): Provider | null {
+  if (provider) {
+    provider.routeAttribution = {
+      connectionName: connection.name,
+      isManagedRoute: isVellumManagedConnection(connection),
+    };
+  }
+  return provider;
+}
+
+/**
+ * Whether a route through this connection name is Vellum-managed
+ * (platform-billed), for callers that hold only the name. Returns undefined
+ * when the row can't be read, so the caller can fall back rather than assert
+ * a BYOK route it never confirmed.
+ *
+ * The canonical name is always managed: a user-owned row claiming it is
+ * ignored and the route resolves through platform auth regardless (see
+ * `tryResolveProviderForConnectionName`).
+ */
+export function isManagedConnectionRoute(
+  connectionName: string,
+): boolean | undefined {
+  if (connectionName === VELLUM_MANAGED_CONNECTION_NAME) {
+    return true;
+  }
+  let connection;
+  try {
+    connection = getConnection(getDb(), connectionName);
+  } catch {
+    return undefined;
+  }
+  return connection ? isVellumManagedConnection(connection) : undefined;
 }
 
 /**

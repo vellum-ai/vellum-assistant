@@ -63,10 +63,10 @@ export interface WorkspacePathLinkProps {
   /** Active assistant whose workspace the path is resolved against. */
   assistantId?: string | null;
   /**
-   * Click handler shared with `vellum://` markdown links, so a resolved path
-   * opens the same file-action modal (Go to file / Download) as an explicitly
-   * linked file. Without it there is no affordance to offer and the span stays
-   * plain code.
+   * Where a click on a resolved path goes, given the file's `vellum://` href
+   * and its basename. The caller points this at the same destination an
+   * explicitly linked file reaches, so the two affordances behave alike.
+   * Without it there is no affordance to offer and the span stays plain code.
    */
   onOpen?: (href: string, linkText: string) => void;
 }

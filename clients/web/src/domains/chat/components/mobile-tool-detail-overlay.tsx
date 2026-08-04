@@ -14,6 +14,8 @@ interface MobileToolDetailOverlayProps {
   detail: ToolDetailPayload | null;
   /** Closes the overlay. */
   onClose: () => void;
+  /** Assistant that owns the conversation the step belongs to. */
+  assistantId?: string | null;
 }
 
 /**
@@ -25,6 +27,7 @@ interface MobileToolDetailOverlayProps {
 export function MobileToolDetailOverlay({
   detail,
   onClose,
+  assistantId,
 }: MobileToolDetailOverlayProps) {
   if (!detail) {
     return null;
@@ -51,7 +54,11 @@ export function MobileToolDetailOverlay({
       onClick={handleBackdropClick}
     >
       <LazyBoundary>
-        <ToolDetailPanel detail={detail} onClose={onClose} />
+        <ToolDetailPanel
+          detail={detail}
+          onClose={onClose}
+          assistantId={assistantId}
+        />
       </LazyBoundary>
     </div>
   );

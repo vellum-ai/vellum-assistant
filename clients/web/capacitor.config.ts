@@ -99,6 +99,10 @@ const config: CapacitorConfig = {
   // Pin both iOS knobs to the behavior the app already depends on so an
   // upstream default change cannot move them silently.
   plugins: {
+    LocalNotifications: {
+      smallIcon: "ic_stat_notification",
+      iconColor: "#F6C744",
+    },
     Keyboard: {
       // `native` resizes the whole WKWebView frame above the keyboard, which
       // is what `src/hooks/use-visible-viewport.ts` measures against

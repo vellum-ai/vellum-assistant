@@ -93,7 +93,8 @@ export function MobileChatOverlays() {
 
   const handleDocumentSubmitFeedback = useCallback(() => {
     const docState = useViewerStore.getState().openedDocumentState;
-    if (!docState) {
+    // Only a db-backed document has comments to submit feedback on.
+    if (!docState || docState.source !== "document") {
       return;
     }
     const prompt = `Please review and address my comments on "${docState.documentName}".`;
@@ -192,6 +193,7 @@ export function MobileChatOverlays() {
         onClose={handleCloseSubagentDetail}
         onStop={handleStopSubagent}
         onRequestDetail={handleRequestSubagentDetail}
+        assistantId={assistantId}
       />
       <MobileWorkflowDetailOverlay
         entry={
@@ -210,6 +212,7 @@ export function MobileChatOverlays() {
             : null
         }
         onClose={handleCloseAcpRunDetail}
+        assistantId={assistantId}
       />
       <MobileBackgroundTaskDetailOverlay
         entry={
@@ -222,10 +225,12 @@ export function MobileChatOverlays() {
       <MobileToolDetailOverlay
         detail={mainView === "tool-detail" ? activeToolDetail : null}
         onClose={handleCloseToolDetail}
+        assistantId={assistantId}
       />
       <MobileActivityStepsOverlay
         payload={mainView === "activity-steps" ? activeActivitySteps : null}
         onClose={handleCloseActivitySteps}
+        assistantId={assistantId}
       />
       <MobileMessageFilesOverlay
         payload={mainView === "message-files" ? activeMessageFiles : null}

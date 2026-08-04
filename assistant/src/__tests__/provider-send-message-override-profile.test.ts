@@ -27,6 +27,7 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
 import { setConfig } from "./helpers/set-config.js";
 
 const DUMMY_MESSAGES: Message[] = [
@@ -239,6 +240,91 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(response.model).toBe("openai");
   });
 
+  test("CallSiteRoutingProvider attributes provider errors to the actual resolved connection", async () => {
+    setLlmConfig({
+      profiles: {
+        fast: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
+    });
+
+    const providerError = new ProviderError(
+      "OpenAI API error (429): Too many requests",
+      "openai",
+      429,
+      { reason: "rate_limited" },
+    );
+    const defaultProvider = makeThrowingProvider(
+      "anthropic",
+      new Error("default provider should not be called"),
+    );
+    const altProvider = makeThrowingProvider("openai", providerError);
+    altProvider.routeAttribution = {
+      connectionName: "openai-recovered",
+      isManagedRoute: false,
+    };
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      async (connectionName) =>
+        connectionName === "openai-conn" ? altProvider : null,
+      { connectionName: "vellum", isManagedRoute: true },
+    );
+
+    await expect(
+      wrapped.sendMessage(DUMMY_MESSAGES, {
+        config: { callSite: "mainAgent", overrideProfile: "fast" },
+      }),
+    ).rejects.toBe(providerError);
+    expect(providerError.routeAttribution).toEqual({
+      connectionName: "openai-recovered",
+      profileName: "fast",
+      isManagedRoute: false,
+    });
+  });
+
+  test("CallSiteRoutingProvider attributes soft fallback errors to the actual default connection", async () => {
+    setLlmConfig({
+      profiles: {
+        fast: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
+    });
+
+    const providerError = new ProviderError(
+      "Anthropic API error (429): Too many requests",
+      "anthropic",
+      429,
+      { reason: "rate_limited" },
+    );
+    const defaultProvider = makeThrowingProvider("anthropic", providerError);
+    defaultProvider.routeAttribution = {
+      connectionName: "anthropic-default",
+      isManagedRoute: false,
+    };
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      async () => null,
+      defaultProvider.routeAttribution,
+    );
+
+    await expect(
+      wrapped.sendMessage(DUMMY_MESSAGES, {
+        config: { callSite: "mainAgent", overrideProfile: "fast" },
+      }),
+    ).rejects.toBe(providerError);
+    expect(providerError.routeAttribution).toEqual({
+      connectionName: "anthropic-default",
+      profileName: "fast",
+      isManagedRoute: false,
+    });
+  });
+
   test("missing overrideProfile name silently falls through to base resolution", async () => {
     setLlmConfig({
       // The call-site tweak applies last in resolution, so it pins the model
@@ -327,6 +413,15 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(captured?.overrideProfile).toBeUndefined();
   });
 });
+
+function makeThrowingProvider(name: string, error: Error): Provider {
+  return {
+    name,
+    async sendMessage(): Promise<ProviderResponse> {
+      throw error;
+    },
+  };
+}
 
 describe("SendMessageOptions.config.forceOverrideProfile", () => {
   test("CallSiteConfiguredProvider forwards forceOverrideProfile into the send config", async () => {

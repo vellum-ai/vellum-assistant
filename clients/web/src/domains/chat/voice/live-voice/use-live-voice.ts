@@ -906,6 +906,15 @@ export function useLiveVoice(
           s.clearAssistantTranscript();
           s.setState("thinking");
         }),
+        client.on("activity", (frame) => {
+          if (!live()) {
+            return;
+          }
+          // Stored verbatim. The daemon composes this wording precisely so
+          // that this driver and the APNs push carry the same string, and
+          // rewording it here would break the equality it exists to provide.
+          useLiveVoiceStore.getState().setActivityLabel(frame.label);
+        }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) {
             return;

@@ -442,6 +442,72 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   });
 });
 
+describe("HTTP POST /v1/messages visibleAppId transport metadata", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  async function captureTransport(
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | undefined> {
+    const conversation = makeConversation({
+      persistUserMessage: mock(async () => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      })),
+      runAgentLoop: mock(async () => undefined),
+    });
+    let capturedOptions: Record<string, unknown> | undefined;
+
+    const res = await sendMessage("hello", conversation, body, {
+      onGetOrCreateConversation: (_conversationId, opts) => {
+        capturedOptions = opts;
+      },
+    });
+
+    expect(res.status).toBe(202);
+    return capturedOptions?.transport as Record<string, unknown> | undefined;
+  }
+
+  test("carries the reported visible app onto the transport", async () => {
+    expect(await captureTransport({ visibleAppId: "app-abc" })).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+      visibleAppId: "app-abc",
+    });
+  });
+
+  test("omits visibleAppId when no app is in view", async () => {
+    expect(await captureTransport({})).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+    });
+  });
+
+  test("carries a long plugin-bundled app id, which the viewer can open", async () => {
+    // `plugins~<plugin>~<app>`, both segments at the filesystem's 255-byte
+    // ceiling. The open route resolves ids this long, so ingress must not clip
+    // them or the app on screen goes unreported.
+    const longPluginAppId = `plugins~${"p".repeat(255)}~${"a".repeat(255)}`;
+
+    expect(await captureTransport({ visibleAppId: longPluginAppId })).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+      visibleAppId: longPluginAppId,
+    });
+  });
+
+  test("drops a traversal-shaped visibleAppId without rejecting the message", async () => {
+    expect(
+      await captureTransport({ visibleAppId: "../../etc/passwd" }),
+    ).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+    });
+  });
+});
+
 // ============================================================================
 // CLIENT METADATA — sanitized x-vellum-* headers persisted under
 // metadata.client for turn analytics
