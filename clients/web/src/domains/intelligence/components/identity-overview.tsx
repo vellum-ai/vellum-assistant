@@ -180,12 +180,6 @@ const PHOTO_OVERLAY_STYLE = {
   // value = the theme's hover wash pre-composited over the dark card.
   "--card-hover": "#2d3339",
   "--card-accent": "#bd4900",
-  // The signature's wash goes lighter and softer here so it reads over the
-  // photo instead of muddying it; its dots need an opaque halo, since the
-  // card's own surface is translucent glass.
-  "--signature-wash": "#fea973",
-  "--signature-wash-opacity": "0.5",
-  "--signature-halo": "#24292e",
   "--card-flood-fg": "#fdfdfc",
   "--content-default": "#fdfdfc",
   "--content-strong": "#fdfdfc",
@@ -512,14 +506,6 @@ function SectionCard({
         className={`relative flex h-full w-full cursor-pointer flex-col justify-between gap-3 overflow-hidden p-5 text-left transition-all duration-150 active:scale-[0.98] ${
           hoverFill ? "hover:bg-[var(--card-hover)]" : ""
         }`}
-        // While flooded the dots sit on the avatar color rather than the
-        // card's own surface, so the halo has to follow. Set here and not on
-        // the span below, where `--card-accent` has already been remapped.
-        style={
-          flooded
-            ? ({ "--signature-halo": "var(--card-accent)" } as CSSProperties)
-            : undefined
-        }
       >
         {floodOverlay}
         {/* The Personality card fills with the signature of the persisted

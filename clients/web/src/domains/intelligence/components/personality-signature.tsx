@@ -1,24 +1,23 @@
 /**
- * The personality signature: one dot per trait axis on a dashed neutral rule,
- * joined by a drawn curve, with each axis' two poles named above and below its
- * dot ("Coworker" over "Companion"). A dot's height between its own pair of
- * words is the whole reading, so there is no chart grammar to learn. The axes
- * are bipolar (50 is neutral and both ends are equally valid), which is why
- * the mark measures from a centre rule rather than from a corner or an origin.
- * A personality nobody has tuned sits flat on that rule.
+ * The personality signature: one capsule per trait axis, rising or falling from
+ * a shared dashed rule, with that axis' two poles named above and below it
+ * ("Coworker" over "Companion"). A capsule's reach toward one of its own two
+ * words is the whole reading, so there is no chart grammar to learn. The
+ * axes are bipolar (50 is neutral and both ends are equally valid), which is
+ * why the mark measures from a centre rule rather than from a corner or an
+ * origin. A personality nobody has tuned sits flat on that rule.
  *
- * The dots carry the data; the curve and its wash only bind them into one
- * mark, so left-to-right order is a reading aid rather than a measurement.
- * The wash fades to nothing at the neutral rule, which puts the most ink
- * exactly where a trait is furthest from neutral.
+ * The axes are unordered, so nothing joins one capsule to the next. Each grows
+ * from the rule they all share, and its length repeats what its height already
+ * says: how far that trait sits from neutral. A trait nobody has set collapses
+ * to a pip resting on the rule.
  *
  * The mark rides `--card-accent` and the rule and labels ride `currentColor`,
- * so the card can flip the whole thing while flooded. `--signature-wash` (and
- * its opacity) let the photo backdrop soften the fill without a code change.
+ * so the card can flip the whole thing while flooded.
  */
 
 import { animate, useReducedMotion } from "motion/react";
-import { Fragment, useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import {
   PERSONALITY_AXES,
@@ -38,6 +37,8 @@ const BOTTOM_Y = 179;
 const LINE_H = 11.5;
 /** Inside this much of neutral a trait reads as unset, not as a lean. */
 const DEAD_ZONE = 5;
+/** Capsule width; also the diameter an unset trait collapses to. */
+const CAP_W = 10;
 /** Both poles of an unset trait, then the pole a set trait moved away from. */
 const NEUTRAL_LABEL_OPACITY = 0.42;
 const FADED_LABEL_OPACITY = 0.26;
@@ -53,37 +54,6 @@ function axisValue(values: Record<string, number>, id: string): number {
 
 function yFor(value: number): number {
   return MID - ((value - 50) / 50) * SPAN;
-}
-
-/**
- * A Catmull-Rom spline through the dots, emitted as cubic beziers so the mark
- * reads as drawn rather than plotted.
- *
- * `voice-reactive-waves` runs the same spline math over its sampled heights.
- * It stays separate deliberately: that one reads a `Float32Array` on every
- * animation frame, so giving both a shared point-array helper would put
- * per-frame allocation into its rAF loop.
- */
-function curvePath(ys: number[]): string {
-  let d = `M ${XS[0]!.toFixed(1)} ${ys[0]!.toFixed(1)}`;
-  for (let i = 0; i < XS.length - 1; i++) {
-    const prev = Math.max(0, i - 1);
-    const after = Math.min(XS.length - 1, i + 2);
-    const c1x = XS[i]! + (XS[i + 1]! - XS[prev]!) / 6;
-    const c1y = ys[i]! + (ys[i + 1]! - ys[prev]!) / 6;
-    const c2x = XS[i + 1]! - (XS[after]! - XS[i]!) / 6;
-    const c2y = ys[i + 1]! - (ys[after]! - ys[i]!) / 6;
-    d +=
-      ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)},` +
-      ` ${c2x.toFixed(1)} ${c2y.toFixed(1)},` +
-      ` ${XS[i + 1]!.toFixed(1)} ${ys[i + 1]!.toFixed(1)}`;
-  }
-  return d;
-}
-
-/** The curve closed back along the neutral rule, for the gradient wash. */
-function washPath(curve: string): string {
-  return `${curve} L ${XS[XS.length - 1]!.toFixed(1)} ${MID} L ${XS[0]!.toFixed(1)} ${MID} Z`;
 }
 
 /** "Baby Boomer" needs two lines at this size; single words never wrap. */
@@ -150,10 +120,6 @@ export function PersonalitySignature({
   className,
 }: PersonalitySignatureProps) {
   const reduce = useReducedMotion();
-  // Both layouts can mount this at once, so the gradient needs an id that
-  // can't collide. `useId` wraps its value in punctuation that `url(#…)`
-  // won't take, hence the strip.
-  const washId = `personality-wash-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 
   const axes = PERSONALITY_AXES.map((axis) => {
     const value = axisValue(values, axis.id);
@@ -181,8 +147,6 @@ export function PersonalitySignature({
   }, [reduce]);
 
   const ys = axes.map((a) => yFor(50 + (a.value - 50) * grown));
-  // Built once per frame and shared: the wash is the same curve, closed.
-  const curve = curvePath(ys);
 
   const ariaLabel = axes
     .map(({ axis, lean, neutral, magnitude }) => {
@@ -200,33 +164,6 @@ export function PersonalitySignature({
       aria-label={`Personality: ${ariaLabel}`}
       className={className}
     >
-      <defs>
-        <linearGradient
-          id={washId}
-          gradientUnits="userSpaceOnUse"
-          x1={0}
-          y1={0}
-          x2={0}
-          y2={H}
-        >
-          <stop
-            offset="0"
-            stopColor="var(--signature-wash, var(--card-accent))"
-            stopOpacity={0.34}
-          />
-          <stop
-            offset="0.5"
-            stopColor="var(--signature-wash, var(--card-accent))"
-            stopOpacity={0}
-          />
-          <stop
-            offset="1"
-            stopColor="var(--signature-wash, var(--card-accent))"
-            stopOpacity={0.34}
-          />
-        </linearGradient>
-      </defs>
-
       <line
         x1={PAD_X - 14}
         y1={MID}
@@ -238,33 +175,20 @@ export function PersonalitySignature({
         strokeDasharray="2 4"
       />
 
-      <path
-        d={washPath(curve)}
-        fill={`url(#${washId})`}
-        // The photo backdrop softens the wash without changing the mark.
-        style={{ fillOpacity: "var(--signature-wash-opacity, 1)" }}
-      />
-      <path
-        d={curve}
-        fill="none"
-        stroke="var(--card-accent)"
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      {/* Each capsule reaches from the rule to its own value and stops. The
+          axes are unordered, so nothing spans two of them: a shape crossing
+          from one axis to the next would imply a value in between.
+          A rounded rect rather than a round-capped line, because an unset
+          trait is a zero-length run, which browsers disagree about drawing. */}
       {axes.map(({ axis }, i) => (
-        <circle
+        <rect
           key={axis.id}
-          cx={XS[i]}
-          cy={ys[i]}
-          r={5}
+          x={XS[i]! - CAP_W / 2}
+          y={Math.min(MID, ys[i]!) - CAP_W / 2}
+          width={CAP_W}
+          height={Math.abs(ys[i]! - MID) + CAP_W}
+          rx={CAP_W / 2}
           fill="var(--card-accent)"
-          // The halo is whatever surface the dot sits on, so each dot reads
-          // as a bead rather than a thickening of the curve. The card sets
-          // `--signature-halo` wherever that surface isn't its own feature bg
-          // (the flood, the photo backdrop).
-          stroke="var(--signature-halo, var(--card-feature-bg, var(--card-bg, var(--surface-lift))))"
-          strokeWidth={2.5}
         />
       ))}
 
