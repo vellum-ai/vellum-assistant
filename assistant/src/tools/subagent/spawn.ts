@@ -699,7 +699,10 @@ async function runAdvisorConsult(args: {
     );
     // Count the child's tool calls off its own event stream. Each executed call
     // emits exactly one `tool_use_start`, enveloped by the manager as a
-    // `subagent_event` on its way to the parent's client.
+    // `subagent_event` on its way to the parent's client. The budget is spent
+    // in full before the abort fires: the call that trips it is the one past
+    // `ADVISOR_MAX_TOOL_CALLS`, so the consult keeps every result inside the
+    // budget and loses only the call it was starting.
     let toolCalls = 0;
     const countingSendToClient = (msg: AssistantEvent): void => {
       sendToClient(msg);
@@ -797,7 +800,7 @@ async function runAdvisorConsult(args: {
           content: withAdvisorNote(
             partial,
             stoppedForToolCap
-              ? `The advisor stopped after ${ADVISOR_MAX_TOOL_CALLS} tool calls and answered with what it had read, so the guidance above may be incomplete.`
+              ? `The advisor used its full budget of ${ADVISOR_MAX_TOOL_CALLS} tool calls and answered with what it had read, so the guidance above may be incomplete.`
               : "The advisor reached its time limit while still writing, so the guidance above may be cut off.",
             profileNote,
           ),
@@ -806,7 +809,10 @@ async function runAdvisorConsult(args: {
       }
       if (stoppedForToolCap) {
         return {
-          content: `(advisor stopped after ${ADVISOR_MAX_TOOL_CALLS} tool calls without writing any guidance: narrow the question, or point it at the specific file or decision you want checked)`,
+          content: withAdvisorNote(
+            `(advisor used its full budget of ${ADVISOR_MAX_TOOL_CALLS} tool calls without writing any guidance: narrow the question, or point it at the specific file or decision you want checked)`,
+            profileNote,
+          ),
           isError: false,
         };
       }

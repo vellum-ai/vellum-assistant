@@ -37,8 +37,8 @@ export interface BootstrapConversationOptions {
    */
   subagentRole?: string;
   /**
-   * How the subagent that owns this conversation was spawned (`regular`,
-   * `fork`, `advisor_consult`, `voice_continuation`). Orthogonal to
+   * How the subagent that owns this conversation was spawned, one of the modes
+   * described on `SubagentSpawnMode` in `subagent/types.ts`. Orthogonal to
    * {@link subagentRole}; persisted for the same reason.
    */
   subagentSpawnMode?: string;

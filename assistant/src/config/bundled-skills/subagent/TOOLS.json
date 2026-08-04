@@ -35,11 +35,11 @@
           },
           "inference_profile": {
             "type": "string",
-            "description": "Optional llm.profiles key this subagent should run under. When omitted, the subagent normally inherits the parent turn's profile if one is active, and otherwise uses the subagentSpawn call site's default model selection. When profile isolation is enabled, the subagent always takes the subagentSpawn default instead of the parent's profile, and a profile the model catalog does not report as tool-capable is replaced by that default with a note on the result. An output_contract of 'verdict' takes a cheaper profile ahead of either path unless you name a profile here."
+            "description": "Optional llm.profiles key this subagent should run under. When omitted, the subagent normally inherits the parent turn's profile if one is active, and otherwise uses the subagentSpawn call site's default model selection. When profile isolation is enabled, the subagent always takes the subagentSpawn default instead of the parent's profile, and a profile the model catalog does not report as tool-capable is replaced by that default with a note on the result. An advisor consult applies that tool-capability fallback whether or not profile isolation is enabled, since it carries read-only tools either way. An output_contract of 'verdict' takes a cheaper profile ahead of either path unless you name a profile here, or unless the subagentSpawn call site has its own profile pinned in config, which also beats the cheaper preset."
           },
           "confirm_repeat": {
             "type": "boolean",
-            "description": "Set true to spawn anyway when the repeat-spawn guard reports that this objective already completed several times in the last day."
+            "description": "Set true to spawn anyway when the repeat-spawn guard reports that this objective already completed several times in the last day, or that near-identical copies of it are still running with nothing returned yet."
           },
           "output_contract": {
             "type": "string",

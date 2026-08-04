@@ -126,11 +126,12 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    */
   subagent_role: string | null;
   /**
-   * How that subagent was spawned: `regular`, `fork`, `advisor_consult`, or
-   * `voice_continuation`. Orthogonal to `subagent_role`: the role selects the
-   * child's capabilities, the spawn mode selects its context inheritance and
-   * lifecycle (a fork's inherited transcript dominates its input tokens
-   * regardless of role). Null under the same condition as `subagent_role`.
+   * How that subagent was spawned, one of the modes described on
+   * `SubagentSpawnMode` in `subagent/types.ts`, carried here as an open string
+   * set. Orthogonal to `subagent_role`: the role selects the child's
+   * capabilities, the spawn mode selects its context inheritance and lifecycle
+   * (a fork's inherited transcript dominates its input tokens regardless of
+   * role). Null under the same condition as `subagent_role`.
    */
   subagent_spawn_mode: string | null;
   provider: string;
