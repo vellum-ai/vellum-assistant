@@ -861,7 +861,7 @@ graph LR
 
 ---
 
-## Plugin-Declared Schedules — Declaration → Reconciler → cron_jobs
+## Plugin-Declared Schedules: Declaration → Reconciler → cron_jobs
 
 Plugins contribute recurring schedules as a surface: files under
 `<pluginDir>/schedules/`, either flat `<name>.md` (YAML frontmatter config,
@@ -887,7 +887,7 @@ engine owns runtime columns (`next_run_at`, `status`, `last_*`,
 `retry_count`) and its latches are never overridden; the user owns
 `user_enabled`, a sticky override consulted when computing effective
 `enabled`. Nothing ever writes to plugin files. Execution itself is
-unchanged — declared rows fire through the same `claimDueSchedules` path as
+unchanged: declared rows fire through the same `claimDueSchedules` path as
 imperative ones.
 
 Consent and surfacing: CLI install/upgrade list declared schedules and
