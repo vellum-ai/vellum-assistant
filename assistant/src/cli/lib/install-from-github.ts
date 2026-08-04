@@ -237,7 +237,7 @@ export class PluginPostinstallError extends Error {
  * outcome rather than something to report as a failure.
  */
 export class PluginInstallDeclinedError extends Error {
-  constructor(readonly pluginName: string) {
+  constructor(pluginName: string) {
     super(`Install of "${pluginName}" was declined.`);
     this.name = "PluginInstallDeclinedError";
   }

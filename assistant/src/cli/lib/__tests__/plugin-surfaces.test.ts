@@ -2,9 +2,14 @@
  * Tests for {@link detectPluginSurfaces}.
  *
  * Surface detection is a pure walk of an installed plugin's on-disk tree, so
- * the fixtures materialize the `hooks/`, `tools/`, and `skills/` directory
- * conventions in a real temp dir and assert the derived listing matches what
- * the runtime loader / skills catalog would discover.
+ * the fixtures materialize the `hooks/`, `tools/`, `skills/`, and `schedules/`
+ * directory conventions in a real temp dir and assert the derived listing
+ * matches what the runtime loader / skills catalog would discover.
+ *
+ * The schedules walk only mirrors the daemon parser's structural refusals;
+ * it stays permissive beyond structure. In particular, `expression` validity
+ * is not checked CLI-side, so a schedule whose expression the daemon rejects
+ * is still listed.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -157,9 +162,11 @@ describe("detectPluginSurfaces", () => {
     ]);
   });
 
-  test("skips schedule declarations the loader would refuse", () => {
+  test("skips structurally malformed schedule declarations (frontmatter, entrypoint, config, body)", () => {
     // GIVEN a flat file without frontmatter
     touch("schedules/no-frontmatter.md", "just a body\n");
+    // AND a flat file whose prompt body after the frontmatter is empty
+    touch("schedules/empty-body.md", '---\nexpression: "0 9 * * *"\n---\n  \n');
     // AND a directory with both entrypoints
     touch("schedules/two-entries/config.json", '{"expression": "0 9 * * *"}');
     touch("schedules/two-entries/index.md", "body\n");
@@ -167,6 +174,16 @@ describe("detectPluginSurfaces", () => {
     // AND a directory with an unsupported entrypoint
     touch("schedules/bad-entry/config.json", '{"expression": "0 9 * * *"}');
     touch("schedules/bad-entry/index.py", "print()\n");
+    // AND a directory whose index.md carries frontmatter (config belongs in
+    // config.json)
+    touch(
+      "schedules/md-frontmatter/config.json",
+      '{"expression": "0 9 * * *"}',
+    );
+    touch("schedules/md-frontmatter/index.md", flatSchedule("0 9 * * *"));
+    // AND a directory whose index.md prompt body is empty
+    touch("schedules/md-empty/config.json", '{"expression": "0 9 * * *"}');
+    touch("schedules/md-empty/index.md", "\n  \n");
     // AND a directory missing its config.json
     touch("schedules/no-config/index.md", "body\n");
     // AND a directory whose config declares no expression

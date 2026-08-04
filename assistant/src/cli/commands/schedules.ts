@@ -239,7 +239,7 @@ export function registerSchedulesCommand(program: Command): void {
             ["Retry backoff", formatDuration(schedule.retryBackoffMs)],
             ["Timeout", formatDuration(schedule.timeoutMs)],
             ["Source conversation", schedule.createdFromConversationId ?? "—"],
-            ["Plugin", describeSource(schedule.sourceKey) || "—"],
+            ["Plugin", describeSource(schedule.sourceKey) || "-"],
           ];
           const labelWidth = Math.max(...fields.map(([label]) => label.length));
           for (const [label, value] of fields) {
