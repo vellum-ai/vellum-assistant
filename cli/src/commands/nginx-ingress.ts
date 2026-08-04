@@ -20,6 +20,7 @@ import {
   isIngressRunning,
   readIngressState,
   stopIngressNginx,
+  type TunnelEdge,
 } from "../lib/nginx-ingress.js";
 
 function printHelp(): void {
@@ -138,7 +139,7 @@ export function resolveNginxIngressTarget(
 export async function up(target: NginxIngressTarget): Promise<void> {
   const { workspaceDir, gatewayPort } = target;
 
-  let edge: Awaited<ReturnType<typeof ensureTunnelEdge>>;
+  let edge: TunnelEdge;
   try {
     edge = await ensureTunnelEdge({
       assistantId: target.assistantId,
@@ -175,7 +176,10 @@ export async function up(target: NginxIngressTarget): Promise<void> {
   console.log("");
   console.log("Next steps:");
   console.log(
-    "  vellum tunnel                    # put an HTTPS front on this edge",
+    "  vellum tunnel --provider ngrok   # put an HTTPS front on this edge",
+  );
+  console.log(
+    "                                   # (cloudflare and tailscale work too)",
   );
   console.log("  vellum nginx-ingress down        # stop the edge");
 }
@@ -191,7 +195,7 @@ async function down(target: NginxIngressTarget): Promise<void> {
   );
 }
 
-async function status(target: NginxIngressTarget): Promise<void> {
+export async function status(target: NginxIngressTarget): Promise<void> {
   const { workspaceDir, gatewayPort } = target;
   const { confPath, logPath } = getIngressPaths(workspaceDir);
   const pid = getIngressPid(workspaceDir);
@@ -201,12 +205,18 @@ async function status(target: NginxIngressTarget): Promise<void> {
   }
   const state = readIngressState(workspaceDir);
   const listenPort = state?.listenPort ?? getNginxIngressPort();
-  const mode = formatEdgeMode(state?.includeWebApp !== false);
+  const mode = formatEdgeMode(state?.includeWebApp ?? true);
+  // The recorded gateway port is what the running edge proxies; a record
+  // predating the field cannot be verified.
+  const gatewayLine =
+    state?.gatewayPort !== undefined
+      ? `http://127.0.0.1:${state.gatewayPort}`
+      : `http://127.0.0.1:${gatewayPort} (unverified)`;
   console.log("nginx ingress: running");
   console.log(`  PID:     ${pid}`);
   console.log(`  Mode:    ${mode}`);
   console.log(`  Listen:  http://127.0.0.1:${listenPort}`);
-  console.log(`  Gateway: http://127.0.0.1:${gatewayPort}`);
+  console.log(`  Gateway: ${gatewayLine}`);
   console.log(`  Config:  ${confPath}`);
   console.log(`  Log:     ${logPath}`);
 }

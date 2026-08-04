@@ -7,7 +7,11 @@ import {
   getDefaultWorkspaceDir,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
-import { ensureTunnelEdge, formatEdgeMode } from "../lib/nginx-ingress.js";
+import {
+  ensureTunnelEdge,
+  formatEdgeMode,
+  type TunnelEdge,
+} from "../lib/nginx-ingress.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
@@ -208,11 +212,7 @@ export async function tunnel(): Promise<void> {
     process.exit(1);
   }
 
-  if (
-    provider !== "ngrok" &&
-    provider !== "cloudflare" &&
-    provider !== "tailscale"
-  ) {
+  if (provider === "vellum") {
     throw new Error(
       `Tunnel provider '${provider}' is not yet implemented. ` +
         `If this provider is documented, ${STALE_CLI_UPDATE_HINT}`,
@@ -230,7 +230,7 @@ export async function tunnel(): Promise<void> {
     console.log("Cleared the saved ngrok domain from the workspace config.");
   }
 
-  let edge: Awaited<ReturnType<typeof ensureTunnelEdge>>;
+  let edge: TunnelEdge;
   try {
     edge = await ensureTunnelEdge({
       assistantId: entry.assistantId,

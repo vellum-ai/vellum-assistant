@@ -124,8 +124,7 @@ function gatewayProxyBlock(gatewayPort: number): string {
  * Sensitive local-only routes the edge must never expose to the internet,
  * regardless of whether the SPA is being served.
  */
-function denylistLocations(): string {
-  return `    location = /auth/token { return 404; }
+const DENYLIST_LOCATIONS = `    location = /auth/token { return 404; }
     location = /auth/token/ { return 404; }
     location = /v1/pair { return 404; }
     location = /v1/pair/ { return 404; }
@@ -143,7 +142,6 @@ function denylistLocations(): string {
     location = /v1/remote-web/pairing-verification/ { return 404; }
     location ^~ /assistant/__local/ { return 404; }
     location ^~ /assistant/__gateway/ { return 404; }`;
-}
 
 export interface RemoteWebIngressOptions {
   webDistDir: string;
@@ -197,7 +195,7 @@ export function buildIngressNginxConfig(opts: {
         indexHtmlPath: remoteWebIngress.indexHtmlPath,
         config: remoteWebIngressConfig(remoteWebIngress.config),
       })
-    : `${denylistLocations()}
+    : `${DENYLIST_LOCATIONS}
 
     location / {
 ${proxyBlock}
@@ -266,7 +264,7 @@ function buildRemoteWebIngressLocations(opts: {
     opts.indexHtmlPath ?? join(opts.webDistDir, "index.html");
   const configJson = JSON.stringify(opts.config);
 
-  return `${denylistLocations()}
+  return `${DENYLIST_LOCATIONS}
 
     location = /healthz {
 ${proxyBlock}
@@ -414,7 +412,10 @@ export function isIngressRunning(workspaceDir: string): boolean {
 
 export interface IngressState {
   listenPort: number;
-  /** Edge mode: SPA + proxy (true) or webhooks-only proxy (false). */
+  /**
+   * Edge mode: SPA + proxy (true) or webhooks-only proxy (false). A persisted
+   * record without this field represents an SPA edge.
+   */
   includeWebApp: boolean;
   /**
    * Gateway port the edge's proxy_pass targets. Undefined in state records
@@ -432,7 +433,6 @@ export function readIngressState(workspaceDir: string): IngressState | null {
   const listenPort = nginx?.listenPort;
   if (typeof listenPort !== "number") return null;
   const gatewayPort = nginx?.gatewayPort;
-  // A state record without includeWebApp represents an SPA edge.
   return {
     listenPort,
     includeWebApp: nginx?.includeWebApp !== false,
@@ -601,7 +601,15 @@ export type StartRemoteWebIngressResult =
       webDistDir: string | null;
       version: string;
     }
-  | { status: "already-running"; listenPort: number }
+  | {
+      status: "already-running";
+      /** Recorded listen port of the running edge (requested port when no state is recorded). */
+      listenPort: number;
+      /** Recorded edge mode; a running edge without a state record reports the SPA default. */
+      includeWebApp: boolean;
+      /** Recorded gateway upstream; undefined when the record predates the field. */
+      gatewayPort?: number;
+    }
   | { status: "nginx-missing" }
   | { status: "web-dist-missing" }
   | { status: "unreachable"; listenPort: number; logPath: string };
@@ -654,16 +662,23 @@ export async function startRemoteWebIngress(opts: {
   }
 
   const running = isIngressRunning(opts.workspaceDir);
-  if (running) {
-    const state = readIngressState(opts.workspaceDir);
-    const recordedMode = state?.includeWebApp ?? true;
-    // An unknown recorded gateway port is unverified (see IngressState).
-    if (
-      recordedMode === includeWebApp &&
-      state?.gatewayPort === opts.gatewayPort
-    ) {
-      return { status: "already-running", listenPort };
-    }
+  const recorded = running ? readIngressState(opts.workspaceDir) : null;
+  const recordedMode = recorded?.includeWebApp ?? true;
+  const alreadyRunning = (): StartRemoteWebIngressResult => ({
+    status: "already-running",
+    listenPort: recorded?.listenPort ?? listenPort,
+    includeWebApp: recordedMode,
+    ...(recorded?.gatewayPort !== undefined
+      ? { gatewayPort: recorded.gatewayPort }
+      : {}),
+  });
+  // An unknown recorded gateway port is unverified (see IngressState).
+  if (
+    running &&
+    recordedMode === includeWebApp &&
+    recorded?.gatewayPort === opts.gatewayPort
+  ) {
+    return alreadyRunning();
   }
 
   let webDistDir: string | null = null;
@@ -683,7 +698,7 @@ export async function startRemoteWebIngress(opts: {
     !(await stopIngressNginx(opts.workspaceDir)) &&
     isIngressRunning(opts.workspaceDir)
   ) {
-    return { status: "already-running", listenPort };
+    return alreadyRunning();
   }
 
   opts.onStarting?.({ version, webDistDir, listenPort });
@@ -728,7 +743,7 @@ async function resolveEdgeIncludesWebApp(
     );
   } catch (err) {
     throw new Error(
-      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the tunnel. Is the assistant running? Try \`vellum wake\` and retry. ${
+      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the edge. Is the assistant running? Try \`vellum wake\` and retry. ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -738,6 +753,15 @@ async function resolveEdgeIncludesWebApp(
 /** User-facing label for the edge mode, shared by every edge status line. */
 export function formatEdgeMode(includesWebApp: boolean): string {
   return includesWebApp ? "remote web + webhooks" : "webhooks only";
+}
+
+/** Resolved edge a tunnel (or bring-your-own HTTPS front) should target. */
+export interface TunnelEdge {
+  /** Loopback listen port the HTTPS front should forward to. */
+  port: number;
+  /** True when this call started the edge, false when a running one was reused. */
+  started: boolean;
+  includesWebApp: boolean;
 }
 
 /**
@@ -765,7 +789,7 @@ export async function ensureTunnelEdge(opts: {
     webDistDir: string | null;
     listenPort: number;
   }) => void;
-}): Promise<{ port: number; started: boolean; includesWebApp: boolean }> {
+}): Promise<TunnelEdge> {
   const includeWebApp = opts.assistantId
     ? await resolveEdgeIncludesWebApp(opts.assistantId, opts.gatewayPort)
     : false;
@@ -786,23 +810,19 @@ export async function ensureTunnelEdge(opts: {
       };
     case "already-running": {
       // `already-running` also covers a drifted edge whose restart failed, so
-      // trust the recorded state over the requested config. A state record
-      // without includeWebApp represents an SPA edge; one without a gateway
-      // port is unverified (see IngressState).
-      const state = readIngressState(opts.workspaceDir);
-      const recordedIncludesWebApp = state?.includeWebApp ?? true;
-      if (recordedIncludesWebApp !== includeWebApp) {
+      // trust the recorded state it carries over the requested config.
+      if (result.includeWebApp !== includeWebApp) {
         const describe = (spa: boolean) => (spa ? "web app" : "webhooks-only");
         throw new Error(
-          `The nginx edge is still running in ${describe(recordedIncludesWebApp)} mode ` +
+          `The nginx edge is still running in ${describe(result.includeWebApp)} mode ` +
             `and could not be restarted in ${describe(includeWebApp)} mode. ` +
             "Run `vellum nginx-ingress down` and retry.",
         );
       }
-      if (state?.gatewayPort !== opts.gatewayPort) {
+      if (result.gatewayPort !== opts.gatewayPort) {
         const upstream =
-          state?.gatewayPort !== undefined
-            ? `still proxying gateway port ${state.gatewayPort}`
+          result.gatewayPort !== undefined
+            ? `still proxying gateway port ${result.gatewayPort}`
             : "proxying an unknown gateway port";
         throw new Error(
           `The nginx edge is ${upstream} ` +
@@ -810,12 +830,10 @@ export async function ensureTunnelEdge(opts: {
             "Run `vellum nginx-ingress down` and retry.",
         );
       }
-      // The reused edge's recorded listen port is the target; the result's
-      // listenPort is only the port this call would have requested.
       return {
-        port: state?.listenPort ?? result.listenPort,
+        port: result.listenPort,
         started: false,
-        includesWebApp: recordedIncludesWebApp,
+        includesWebApp: result.includeWebApp,
       };
     }
     case "nginx-missing":

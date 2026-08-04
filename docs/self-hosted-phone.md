@@ -202,8 +202,8 @@ vellum tunnel --provider ngrok --domain my-assistant.ngrok.app
 
 The domain is saved to the workspace config. `vellum wake` restores the
 tunnel automatically only when a messaging channel like Telegram or Twilio is
-configured; otherwise rerun `vellum tunnel` after a restart and the saved
-domain is reused.
+configured; otherwise rerun `vellum tunnel --provider ngrok` after a restart
+and the saved domain is reused.
 
 **Privacy trade-off:** these publish a public-internet URL, so anyone who
 learns the URL can reach your assistant's sign-in and pairing page (pairing
