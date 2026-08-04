@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  OAuthConnectSurfaceDataSchema,
   type OAuthConnectSurfaceData,
+  OAuthConnectSurfaceDataSchema,
 } from "./surfaces.js";
 
 describe("OAuthConnectSurfaceDataSchema requestedScopes", () => {
