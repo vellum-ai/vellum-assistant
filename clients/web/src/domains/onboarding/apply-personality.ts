@@ -10,11 +10,11 @@
  * and settle logic, shared with the About Assistant personality page). The
  * user's profile (users/guardian.md) is left untouched.
  *
- * Like the research turn (`research-runner.ts`) and the check-in
- * (`checkin-scheduler.ts`), this runs on a dedicated throwaway side
- * conversation: we await hatch readiness, mint a conversation, post the prompt,
- * and let the rewrite turn settle. Talks to the daemon through the generated
- * SDK directly (`@/domains/chat/api/*` is import-banned from onboarding).
+ * Like the research turn (`research-runner.ts`), this runs on a dedicated
+ * throwaway side conversation: we await hatch readiness, mint a conversation,
+ * post the prompt, and let the rewrite turn settle. Talks to the daemon through
+ * the generated SDK directly (`@/domains/chat/api/*` is import-banned from
+ * onboarding).
  *
  * The thread is minted `conversationType: "background"`, which keeps it out of
  * the daemon's default `standard` conversation list: it never enters Recents
