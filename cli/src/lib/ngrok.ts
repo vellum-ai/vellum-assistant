@@ -87,16 +87,16 @@ function pickMatchingTunnel(
   return matches.find((t) => t.public_url)?.public_url ?? null;
 }
 
-/**
- * Find an existing ngrok tunnel that targets the given local address.
- * Returns the HTTPS public URL if found, null otherwise.
- */
-export async function findExistingTunnel(
-  targetPort: number,
-): Promise<string | null> {
-  const tunnels = await queryNgrokTunnels();
-  if (!tunnels || tunnels.length === 0) return null;
-  return pickMatchingTunnel(tunnels, targetPort);
+/** Render listed tunnels as `url -> addr` pairs for mismatch diagnostics. */
+function describeTunnels(tunnels: NgrokTunnel[]): string {
+  return tunnels
+    .map((t) => `${t.public_url} -> ${t.config?.addr ?? "unknown target"}`)
+    .join(", ");
+}
+
+/** Recovery copy for a saved domain whose reservation may have lapsed. */
+function savedDomainRecoveryHint(domain: string): string {
+  return `The saved ngrok domain '${domain}' (ingress.ngrok.domain in the workspace config) may no longer be reserved. Run \`vellum tunnel --provider ngrok --clear-domain\` to drop it and tunnel without one.`;
 }
 
 /** Whether a tunnel public URL's host equals the given reserved domain. */
@@ -243,7 +243,8 @@ export async function maybeStartNgrokTunnel(
   const savedDomain = loadNgrokDomain(workspaceDir) ?? undefined;
 
   // Reuse an existing tunnel if one is already running
-  const existingUrl = await findExistingTunnel(targetPort);
+  const runningTunnels = (await queryNgrokTunnels()) ?? [];
+  const existingUrl = pickMatchingTunnel(runningTunnels, targetPort);
   if (existingUrl) {
     if (savedDomain && !urlMatchesDomain(existingUrl, savedDomain)) {
       // Spawning a second agent would collide (ERR_NGROK_334), and saving the
@@ -256,6 +257,15 @@ export async function maybeStartNgrokTunnel(
     }
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl);
+    return null;
+  }
+  if (runningTunnels.length > 0) {
+    // An agent is up but tunnels some other local port (likely started before
+    // the edge unification, or by an external process). Spawning a second
+    // agent would collide (ERR_NGROK_334) on single-agent plans, so skip.
+    console.warn(
+      `   ⚠ An ngrok agent is already running but tunnels a different local port (${describeTunnels(runningTunnels)}), not ${targetPort}. It was likely started before the tunnel edge unification or by an external process. Stop that ngrok agent, then run \`vellum tunnel --provider ngrok\` to tunnel the local edge.`,
+    );
     return null;
   }
 
@@ -281,6 +291,9 @@ export async function maybeStartNgrokTunnel(
     console.warn(
       `   ⚠ Could not start ngrok tunnel. Webhook integrations may not work until you run \`vellum tunnel\`.`,
     );
+    if (savedDomain) {
+      console.warn(`   ⚠ ${savedDomainRecoveryHint(savedDomain)}`);
+    }
     if (!ngrokProcess.killed) ngrokProcess.kill("SIGTERM");
     return null;
   }
@@ -334,8 +347,20 @@ export async function runNgrokTunnel(
     console.log(`Using saved ngrok domain: ${domain}`);
   }
 
-  // Check for an existing ngrok tunnel pointing at the gateway
-  const existingUrl = await findExistingTunnel(port);
+  // Check for an existing ngrok tunnel pointing at the local edge
+  const runningTunnels = (await queryNgrokTunnels()) ?? [];
+  const existingUrl = pickMatchingTunnel(runningTunnels, port);
+  if (!existingUrl && runningTunnels.length > 0) {
+    // Spawning a second agent would collide (ERR_NGROK_334) on single-agent
+    // plans; fail loudly instead, matching the domain-mismatch path.
+    console.error(
+      `Error: an ngrok agent is already running but tunnels a different local port (${describeTunnels(runningTunnels)}), not ${port}. It was likely started before the tunnel edge unification or by an external process.`,
+    );
+    console.error(
+      "Stop the existing ngrok agent first, then re-run this command to tunnel the local edge.",
+    );
+    process.exit(1);
+  }
   if (existingUrl) {
     if (domain && !urlMatchesDomain(existingUrl, domain)) {
       console.error(
@@ -419,6 +444,9 @@ export async function runNgrokTunnel(
     publicUrl = await waitForNgrokUrl(port, domain);
   } catch (err) {
     cleanup();
+    if (domain && !opts.domain) {
+      console.error(savedDomainRecoveryHint(domain));
+    }
     throw err;
   }
 

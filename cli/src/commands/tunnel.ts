@@ -3,7 +3,10 @@ import { join } from "path";
 import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
-import { getDefaultWorkspaceDir } from "../lib/ingress-config.js";
+import {
+  getDefaultWorkspaceDir,
+  saveNgrokDomain,
+} from "../lib/ingress-config.js";
 import { ensureTunnelEdge, formatEdgeMode } from "../lib/nginx-ingress.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
@@ -18,6 +21,7 @@ interface TunnelArgs {
   assistantName: string | null;
   provider: TunnelProvider;
   domain: string | null;
+  clearDomain: boolean;
 }
 
 function parseArgs(): TunnelArgs {
@@ -25,6 +29,7 @@ function parseArgs(): TunnelArgs {
   let assistantName: string | null = null;
   let provider: TunnelProvider = DEFAULT_PROVIDER;
   let domain: string | null = null;
+  let clearDomain = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -63,6 +68,12 @@ function parseArgs(): TunnelArgs {
       console.log(
         "                                Saved to the workspace config so `vellum wake` restores reuse it.",
       );
+      console.log(
+        "  --clear-domain                Clear the saved ngrok domain (ngrok provider only) and tunnel",
+      );
+      console.log(
+        "                                without one. Cannot be combined with --domain.",
+      );
       console.log("");
       console.log("Providers:");
       console.log(
@@ -90,6 +101,7 @@ function parseArgs(): TunnelArgs {
       console.log(
         "  $ vellum tunnel --provider ngrok --domain my-assistant.ngrok.app",
       );
+      console.log("  $ vellum tunnel --provider ngrok --clear-domain");
       console.log("  $ vellum tunnel --provider cloudflare");
       console.log("  $ vellum tunnel my-assistant --provider tailscale");
       process.exit(0);
@@ -122,6 +134,8 @@ function parseArgs(): TunnelArgs {
       }
       domain = next;
       i++;
+    } else if (arg === "--clear-domain") {
+      clearDomain = true;
     } else if (arg.startsWith("-")) {
       console.error(`Error: Unknown option '${arg}'.`);
       process.exit(1);
@@ -140,7 +154,21 @@ function parseArgs(): TunnelArgs {
     process.exit(1);
   }
 
-  return { assistantName, provider, domain };
+  if (clearDomain && provider !== "ngrok") {
+    console.error(
+      `Error: --clear-domain is only supported with --provider ngrok (got '${provider}').`,
+    );
+    process.exit(1);
+  }
+
+  if (clearDomain && domain) {
+    console.error(
+      "Error: --clear-domain cannot be combined with --domain. Pass --domain alone to replace the saved domain.",
+    );
+    process.exit(1);
+  }
+
+  return { assistantName, provider, domain, clearDomain };
 }
 
 function parsePortFromUrl(url: unknown): number | undefined {
@@ -165,7 +193,7 @@ function resolveEntryGatewayPort(entry: AssistantEntry): number {
 }
 
 export async function tunnel(): Promise<void> {
-  const { assistantName, provider, domain } = parseArgs();
+  const { assistantName, provider, domain, clearDomain } = parseArgs();
 
   const entry = resolveAssistant(assistantName ?? undefined);
 
@@ -196,6 +224,11 @@ export async function tunnel(): Promise<void> {
   const workspaceDir = resources
     ? join(resources.instanceDir, ".vellum", "workspace")
     : getDefaultWorkspaceDir();
+
+  if (clearDomain) {
+    saveNgrokDomain(workspaceDir, null);
+    console.log("Cleared the saved ngrok domain from the workspace config.");
+  }
 
   let edge: Awaited<ReturnType<typeof ensureTunnelEdge>>;
   try {
