@@ -26,6 +26,11 @@ function storyId(status: SubagentStatus): string {
 /**
  * Reset the store, then seed one entry per status. Resetting first is what
  * keeps entries from accumulating as stories re-render or swap.
+ *
+ * The seeded entries carry no `parentConversationId`, and `useActiveSubagentIds`
+ * deliberately treats those as visible in every conversation, so they have to be
+ * torn down after each story or the three active ones leak into unrelated
+ * stories and make them render activity affordances they do not expect.
  */
 function seedEveryStatus() {
   const store = useSubagentStore.getState();
@@ -49,6 +54,9 @@ const meta: Meta<typeof SubagentAvatarBadge> = {
   },
   beforeEach: () => {
     seedEveryStatus();
+    return () => {
+      useSubagentStore.getState().reset();
+    };
   },
 };
 
