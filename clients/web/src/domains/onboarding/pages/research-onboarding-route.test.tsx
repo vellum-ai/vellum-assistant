@@ -236,6 +236,7 @@ mock.module("@/stores/onboarding-focus-store", () => ({
       enterFocus: () => noop,
       exitFocus: () => noop,
       setPendingAvatarTraits: () => noop,
+      setPendingAvatarVoice: () => noop,
       requestSidebarCollapse: () => noop,
     },
   },

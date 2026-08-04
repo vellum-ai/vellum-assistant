@@ -44,16 +44,11 @@ const resolvedAuth: ResolvedAuth = {
 describe("vellum connection routing", () => {
   test("isVellumManagedConnection identifies the sentinel connection", () => {
     expect(isVellumManagedConnection(vellumConnection)).toBe(true);
-    expect(
-      isVellumManagedConnection({
-        provider: "fireworks",
-        auth: { type: "platform" },
-      }),
-    ).toBe(false);
-    // `vellum` provider with non-platform auth is not a managed vellum route.
-    expect(
-      isVellumManagedConnection({ provider: "vellum", auth: { type: "none" } }),
-    ).toBe(false);
+    // The provider column alone decides: a concrete provider is never the
+    // managed route (platform auth always pairs with provider "vellum";
+    // DB migration 361 reconciles stored rows).
+    expect(isVellumManagedConnection({ provider: "fireworks" })).toBe(false);
+    expect(isVellumManagedConnection({ provider: "vellum" })).toBe(true);
   });
 
   test("the vellum sentinel is not a real provider without an override", () => {

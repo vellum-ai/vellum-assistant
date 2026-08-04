@@ -106,7 +106,7 @@ export async function applyPersonality({
     }
 
     // Persist the raw dial positions as the workspace sidecar the About
-    // Assistant personality page and the overview's radar read — the prose
+    // Assistant personality page and the overview's signature read: the prose
     // rewrite alone would lose them. Best-effort, like the rest of the flow.
     await savePersonalitySliders(assistantId, completeSliderValues(values));
 

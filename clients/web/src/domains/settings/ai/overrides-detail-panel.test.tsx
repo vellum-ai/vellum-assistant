@@ -73,10 +73,12 @@ let configPatchBodies: unknown[] = [];
 // persisted shape reassign this, because seeding the query cache alone is
 // not enough: `staleTime: 0` refetches and the mock's value wins.
 let servedConfig: unknown = CONFIG;
+// Same deal for the call-site catalog.
+let servedCatalog: unknown = CATALOG;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
-  configLlmCallsitesGet: mock(async () => ({ data: CATALOG })),
+  configLlmCallsitesGet: mock(async () => ({ data: servedCatalog })),
   configGet: mock(async () => ({ data: servedConfig })),
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
@@ -86,6 +88,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 const { OverridesDetailPanel } =
   await import("@/domains/settings/ai/overrides-detail-panel");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,9 +132,15 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
 beforeEach(() => {
   configPatchBodies = [];
   servedConfig = CONFIG;
+  servedCatalog = CATALOG;
+  // A hydrated pre-tier-overrides version: the legacy apply-to-all path is
+  // rendered AND writable (the Apply button stays disabled while the
+  // version is unknown).
+  useAssistantIdentityStore.getState().setIdentity("Asst", "0.10.0", "asst-1");
 });
 
 afterEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
   cleanup();
 });
 
@@ -142,10 +152,7 @@ describe("OverridesDetailPanel - call-site enumeration", () => {
   test("renders catalog call sites but excludes mainAgent", async () => {
     render(
       <Wrapper>
-        <OverridesDetailPanel
-          assistantId="asst-1"
-          onClose={() => {}}
-        />
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -159,10 +166,7 @@ describe("OverridesDetailPanel - apply to all", () => {
   test("applies the chosen profile to every call site and saves", async () => {
     render(
       <Wrapper>
-        <OverridesDetailPanel
-          assistantId="asst-1"
-          onClose={() => {}}
-        />
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
       </Wrapper>,
     );
     await waitFor(() => {
@@ -337,9 +341,7 @@ describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
       document.querySelectorAll<HTMLElement>(
         '[role="switch"], input[type="checkbox"]',
       ),
-    ).find((el) =>
-      (el.getAttribute("aria-label") ?? "").includes(displayName),
-    );
+    ).find((el) => (el.getAttribute("aria-label") ?? "").includes(displayName));
     if (!match) {
       throw new Error(`expected a toggle for ${displayName}`);
     }
@@ -391,5 +393,227 @@ describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
       llm: { callSites: Record<string, unknown> };
     };
     expect(body.llm.callSites.heartbeatAgent).toBe(null);
+  });
+});
+
+describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
+  const TIER_CATALOG = {
+    domains: [{ id: "agentLoop", displayName: "Agent Loop" }],
+    callSites: [
+      {
+        id: "mainAgent",
+        displayName: "Main Agent",
+        description: "The primary chat agent.",
+        domain: "agentLoop",
+        defaultProfile: null,
+        shippedDefaultProfile: null,
+      },
+      {
+        id: "workflowLeaf",
+        displayName: "Workflow Leaf",
+        description: "Runs an ephemeral leaf agent.",
+        domain: "agentLoop",
+        defaultProfile: "balanced",
+        shippedDefaultProfile: "balanced",
+      },
+      {
+        id: "heartbeatAgent",
+        displayName: "Heartbeat Agent",
+        description: "Runs background tasks on a schedule.",
+        domain: "agentLoop",
+        defaultProfile: "cost-optimized",
+        shippedDefaultProfile: "cost-optimized",
+      },
+      {
+        // Pinned: `defaultProfile` is the winning pin, the shipped tier is
+        // cost-optimized. Must count toward Speed, not mint a My BYOK row.
+        id: "filingAgent",
+        displayName: "Filing Agent",
+        description: "Files memories after conversations.",
+        domain: "agentLoop",
+        defaultProfile: "my-byok",
+        shippedDefaultProfile: "cost-optimized",
+      },
+    ],
+  };
+
+  const TIER_CONFIG = {
+    llm: {
+      ...CONFIG.llm,
+      profiles: {
+        ...CONFIG.llm.profiles,
+        balanced: {
+          label: "Balanced",
+          provider: "vellum",
+          model: "gpt-5.6-luna",
+        },
+        "cost-optimized": {
+          label: "Speed",
+          provider: "vellum",
+          model: "gpt-5.6-luna",
+        },
+      },
+      callSites: { filingAgent: { profile: "my-byok" } },
+    },
+  };
+
+  function renderTierPanel(config: unknown = TIER_CONFIG) {
+    servedCatalog = TIER_CATALOG;
+    servedConfig = config;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], TIER_CATALOG);
+    client.setQueryData([{ _id: "configGet" }], config);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  function tierTrigger(label: string): HTMLElement {
+    const match = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes(label));
+    if (!match) {
+      throw new Error(`expected a dropdown trigger showing "${label}"`);
+    }
+    return match;
+  }
+
+  beforeEach(() => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Asst", "0.11.1", "asst-1");
+  });
+
+  test("renders one Defaults row per shipped tier and hides apply-to-all", async () => {
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+    expect(renderedText()).toContain("Balanced (default)");
+    expect(renderedText()).toContain("1 action");
+    // The pinned Filing Agent counts toward its shipped Speed tier...
+    expect(renderedText()).toContain("Speed (default)");
+    expect(renderedText()).toContain("2 actions");
+    // ...and its winning pin must not mint a tier row of its own.
+    expect(renderedText()).not.toContain("My BYOK (default)");
+    expect(renderedText()).not.toContain("Use one profile for all actions");
+  });
+
+  test("remapping a tier saves only the changed key and shows provenance", async () => {
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+
+    pickOption(tierTrigger("Balanced (default)"), "My BYOK");
+    // The per-action caption reflects the pending remap.
+    expect(renderedText()).toContain("Balanced → My BYOK");
+
+    fireEvent.click(getButton("Save"));
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    expect(body.llm.defaultProfileOverrides).toEqual({ balanced: "my-byok" });
+    // No call-site row moved, so the map must not be sent.
+    expect("callSites" in body.llm).toBe(false);
+  });
+
+  test("clearing a persisted remap sends null for that tier", async () => {
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { "cost-optimized": "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+    // The persisted remap is visible on the tier row and in the caption of
+    // unpinned Speed-tier sites.
+    expect(renderedText()).toContain("Speed → My BYOK");
+    // The pinned Filing Agent keeps its winner caption without an arrow:
+    // its pin outranks the remap.
+    expect(renderedText()).toContain("Default: My BYOK");
+
+    pickOption(tierTrigger("My BYOK"), "Speed (default)");
+    fireEvent.click(getButton("Save"));
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    expect(body.llm.defaultProfileOverrides).toEqual({
+      "cost-optimized": null,
+    });
+  });
+
+  test("Reset clears per-action pins but keeps the tier remaps", async () => {
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { "cost-optimized": "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+
+    fireEvent.click(getButton("Reset to Defaults"));
+    // Confirm dialog: the destructive confirm carries the same label.
+    const confirm = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((b) => b.textContent?.trim() === "Reset to Defaults")[1];
+    if (!confirm) {
+      throw new Error("expected the confirm dialog button");
+    }
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    // Per-action pins are nulled; the user's tier configuration is not an
+    // override to reset and must not be touched.
+    expect(body.llm.callSites).toBeTruthy();
+    expect("defaultProfileOverrides" in body.llm).toBe(false);
+  });
+
+  test("an unknown assistant version falls back to a non-writing apply-to-all", async () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Use one profile for all actions");
+    });
+    expect(renderedText()).not.toContain("Balanced (default)");
+    // Non-writing until the version hydrates: on a tier-overrides daemon a
+    // sweep would persist pins that outrank the tier remaps.
+    const trigger = document.querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!trigger) {
+      throw new Error("expected the apply-all dropdown trigger");
+    }
+    pickOption(trigger, "My BYOK");
+    expect(getButton("Apply to all").disabled).toBe(true);
+  });
+
+  test("a version fetched for a different assistant keeps the gate off", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Other", "0.11.1", "asst-other");
+    renderTierPanel();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Use one profile for all actions");
+    });
+    expect(renderedText()).not.toContain("Balanced (default)");
   });
 });

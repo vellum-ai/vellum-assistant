@@ -43,6 +43,7 @@ import {
   pickSameUserAutoResolve,
 } from "../runtime/auth/same-actor.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -86,6 +87,7 @@ import type {
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -175,11 +177,70 @@ const pendingSurfacePersists = new Map<
   }
 >();
 
+/** A located `ui_surface` block plus everything needed to write it back. */
+type PersistedSurfaceHit = {
+  rowId: string;
+  blocks: unknown[];
+  block: Record<string, unknown>;
+  blockIndex: number;
+};
+
 /**
- * Persist the latest `data` for a `ui_surface` content block by
- * scanning the conversation's messages for one containing the given
- * `surfaceId` and patching its `data` field. Mirrors the scan-and-patch
- * pattern in `markSurfaceCompleted`.
+ * Locate the persisted `ui_surface` content block for `surfaceId`.
+ *
+ * The single owner of how a persisted surface block is resolved *in this
+ * module*: newest message row first, first matching block within that row,
+ * stopping at the first hit. Every persisted read and write here goes through
+ * it so a change to storage resolution, ordering, or matching can never make
+ * them target different blocks. `findPersistedSurfaceState`
+ * (`runtime/routes/surface-conversation-resolver.ts`) is the other persisted
+ * `ui_surface` reader and deliberately does not: it runs its own SQL scan,
+ * bounded by the compaction boundary, for the read-only content route.
+ *
+ * `filterByProvenance` applies {@link isRowVisibleToUntrustedActor} per row,
+ * the identical predicate `loadFromDb` applies when building `messages`. It
+ * covers the persisted type/data read ({@link findPersistedSurfaceInfo})
+ * only. Writes scan unfiltered, so a completion write can mutate a row the
+ * requester cannot see and push requester-controlled summary text into it.
+ * The live-state path (`ctx.surfaceState` / `ctx.pendingSurfaceActions`) is
+ * unfiltered too: it is scoped to the trust the conversation was loaded
+ * under, not the requester's.
+ *
+ * The scan is deliberately unbounded by compaction (see
+ * {@link findPersistedSurfaceInfo}), and it throws rather than swallowing DB
+ * errors so each caller keeps its own logging.
+ */
+function findPersistedSurfaceBlock(
+  conversationId: string,
+  surfaceId: string,
+  opts: { filterByProvenance: boolean },
+): PersistedSurfaceHit | undefined {
+  const { filterByProvenance } = opts;
+  const rows = getMessages(conversationId);
+  for (let r = rows.length - 1; r >= 0; r--) {
+    if (filterByProvenance && !isRowVisibleToUntrustedActor(rows[r].metadata)) {
+      continue;
+    }
+    const blocks: unknown[] = rows[r].content;
+    const blockIndex = blocks.findIndex((pb) => {
+      const rb = pb as Record<string, unknown>;
+      return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
+    });
+    if (blockIndex !== -1) {
+      return {
+        rowId: rows[r].id,
+        blocks,
+        block: blocks[blockIndex] as Record<string, unknown>,
+        blockIndex,
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Persist the latest `data` for a `ui_surface` content block by locating it
+ * with {@link findPersistedSurfaceBlock} and patching its `data` field.
  *
  * Safe to call before the assistant message has been persisted (mid-stream):
  * the scan simply finds nothing and bails. The next update after
@@ -191,23 +252,14 @@ function persistSurfaceData(
   data: SurfaceData,
 ): void {
   try {
-    const rows = getMessages(conversationId);
-    for (let r = rows.length - 1; r >= 0; r--) {
-      const parsed: unknown[] = rows[r].content;
-      let found = false;
-      for (const pb of parsed) {
-        const rb = pb as Record<string, unknown>;
-        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
-          rb.data = data;
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        updateMessageContent(rows[r].id, JSON.stringify(parsed));
-        return;
-      }
+    const hit = findPersistedSurfaceBlock(conversationId, surfaceId, {
+      filterByProvenance: false,
+    });
+    if (!hit) {
+      return;
     }
+    hit.block.data = data;
+    updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
   } catch (err) {
     log.debug(
       { err, surfaceId, conversationId },
@@ -306,22 +358,72 @@ export function flushPendingSurfaceDataPersists(conversationId?: string): void {
 
 /**
  * Mark a `ui_surface` content block as completed in the database so that
- * history reconstruction preserves the completion state.  Also updates
+ * history reconstruction preserves the completion state. Also updates
  * in-memory messages when available.
+ *
+ * Never throws: a persistence hiccup must not fail the surface action that
+ * triggered it. Returns whether the completion is safe to announce to
+ * clients, so a caller about to broadcast `ui_surface_complete` can withhold
+ * it. A write that threw is not safe: it leaves a persisted block that reverts
+ * to pending on the next history reseed. Finding no block to write IS safe: a
+ * standalone surface owns none, so nothing can revert.
+ *
+ * A surface still in `ctx.currentTurnSurfaces` owns no persisted block either,
+ * but one is coming: the turn-finalization appenders build it from that
+ * snapshot. The completion is stamped onto the snapshot so the appended block
+ * carries it, instead of landing as a fresh pending card the next reseed
+ * reactivates.
  */
 export function markSurfaceCompleted(
-  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  ctx: {
+    conversationId: string;
+    messages?: Array<{ content: unknown }>;
+    currentTurnSurfaces?: CurrentTurnSurface[];
+  },
   surfaceId: string,
   summary: string,
-): void {
+): boolean {
   // Force-flush any pending debounced data persist so the completion
   // patch lands on top of the latest data instead of racing with it.
   flushSurfaceDataPersist(surfaceId);
 
+  try {
+    const hit = findPersistedSurfaceBlock(ctx.conversationId, surfaceId, {
+      filterByProvenance: false,
+    });
+    if (hit) {
+      hit.block.completed = true;
+      hit.block.completionSummary = summary;
+      updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
+    } else {
+      // Mutated in place so a later `ui_update` that respreads the entry
+      // carries the completion forward.
+      const pendingSnapshot = ctx.currentTurnSurfaces?.find(
+        (s) => s.surfaceId === surfaceId,
+      );
+      if (pendingSnapshot) {
+        pendingSnapshot.completed = true;
+        pendingSnapshot.completionSummary = summary;
+      }
+    }
+  } catch (err) {
+    // Error, not warn: a silent failure here presents as the user's answer being discarded.
+    log.error(
+      { err, conversationId: ctx.conversationId, surfaceId },
+      "Failed to persist surface completion to DB",
+    );
+    // In-memory messages stay untouched so this process's history cannot
+    // claim an answered card the database still holds as pending.
+    return false;
+  }
+
   // Update in-memory messages when available so subsequent reads within
-  // this session see the change without waiting for DB.
+  // this session see the change without waiting for DB. Newest match only,
+  // matching the persisted patch above: marking every copy of a duplicated
+  // surfaceId would make memory and history disagree, and a reseed would
+  // revert the extras.
   if (ctx.messages) {
-    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+    outer: for (let i = ctx.messages.length - 1; i >= 0; i--) {
       const msg = ctx.messages[i];
       if (!Array.isArray(msg.content)) {
         continue;
@@ -331,48 +433,94 @@ export function markSurfaceCompleted(
         if (b.type === "ui_surface" && b.surfaceId === surfaceId) {
           b.completed = true;
           b.completionSummary = summary;
-          break;
+          break outer;
         }
       }
     }
   }
 
-  // Persist to DB.
+  return true;
+}
+
+/** What a persisted `ui_surface` block can still tell us once it is cold. */
+type PersistedSurfaceInfo = {
+  /** The block's `surfaceType`, absent when it carries no string type. */
+  surfaceType: string | undefined;
+  /** The block's `data`, absent when it carries no plain-object data. */
+  data: Record<string, unknown> | undefined;
+};
+
+/**
+ * Read a `ui_surface` block's `surfaceType` and `data` out of persisted
+ * history. Both travel together because every caller that has lost the live
+ * entry needs both: the type to decide completion, the data for the labels a
+ * completion summary quotes.
+ *
+ * `requesterCanAccessMemory` is the REQUESTER's memory capability, not the
+ * trust class whatever conversation happens to be loaded under. The live path
+ * this falls back from hides guardian-provenance rows from an untrusted actor
+ * (`loadFromDb` → `restoreSurfaceStateFromHistory`), so the live entry is
+ * missing precisely when the row was filtered out. The scan therefore applies
+ * the same per-row predicate rather than handing back what the filter dropped.
+ *
+ * This must NOT be routed through `findPersistedSurfaceState`
+ * (`runtime/routes/surface-conversation-resolver.ts`): that helper is bounded
+ * by `liveHistoryStartRow` / `contextCompactedMessageCount` and by design will
+ * not see a surface behind the compaction boundary, which is exactly the case
+ * this lookup exists to serve. {@link findPersistedSurfaceBlock}, which also
+ * backs the write paths, is unbounded, so reads and writes stay consistent.
+ *
+ * Hits are deliberately not memoized into `conversation.surfaceState`; see
+ * `runtime/routes/surface-content-routes.ts` for why that shared map must not
+ * absorb scan results.
+ *
+ * Exported for its unit test only, and not a supported read API. In-repo callers
+ * go through `handleSurfaceAction`.
+ */
+export function findPersistedSurfaceInfo(
+  conversationId: string,
+  surfaceId: string,
+  opts: { requesterCanAccessMemory: boolean },
+): PersistedSurfaceInfo | undefined {
   try {
-    const rows = getMessages(ctx.conversationId);
-    for (let r = rows.length - 1; r >= 0; r--) {
-      const parsed: unknown[] = rows[r].content;
-      let found = false;
-      for (const pb of parsed) {
-        const rb = pb as Record<string, unknown>;
-        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
-          rb.completed = true;
-          rb.completionSummary = summary;
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        updateMessageContent(rows[r].id, JSON.stringify(parsed));
-        return;
-      }
+    const hit = findPersistedSurfaceBlock(conversationId, surfaceId, {
+      filterByProvenance: !opts.requesterCanAccessMemory,
+    });
+    if (!hit) {
+      return undefined;
     }
+    const data = hit.block.data;
+    return {
+      surfaceType:
+        typeof hit.block.surfaceType === "string"
+          ? hit.block.surfaceType
+          : undefined,
+      data: isPlainObject(data) ? data : undefined,
+    };
   } catch (err) {
-    log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
+    log.warn(
+      { err, conversationId, surfaceId },
+      "Failed to read persisted surface info from DB",
+    );
   }
+  return undefined;
 }
 
 /**
  * Complete a `ui_surface` card and notify live clients, addressed only by
  * conversation + surface id.
  *
- * Unlike {@link completeSurfaceFromAction}, this needs no live `Conversation`
+ * Unlike {@link maybeCompleteSurfaceAfterAction}, this needs no live `Conversation`
  * instance, so it can run from flows that don't own one — projecting a
  * terminal guardian-request status onto its in-app approval card when the
  * request was resolved on another surface (or by the expiry sweep). Persists
- * the completion (reload-safe) and broadcasts `ui_surface_complete` so every
- * connected client of this guardian converges. No-ops when the surface block
- * isn't found in the conversation.
+ * the completion (reload-safe) first, then broadcasts `ui_surface_complete` so
+ * every connected client of this guardian converges.
+ *
+ * The broadcast is deliberately NOT gated on the persist, unlike the
+ * user-action completion paths: the underlying request is already resolved, so
+ * withholding the announcement on a transient write failure strands a live,
+ * clickable approval card for a decision that has already been made.
  */
 export function completeSurfaceAndNotify(
   conversationId: string,
@@ -419,18 +567,12 @@ export function removeSurfaceBlock(
   }
 
   try {
-    const rows = getMessages(ctx.conversationId);
-    for (let r = rows.length - 1; r >= 0; r--) {
-      const parsed: unknown[] = rows[r].content;
-      const idx = parsed.findIndex((pb) => {
-        const rb = pb as Record<string, unknown>;
-        return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
-      });
-      if (idx !== -1) {
-        parsed.splice(idx, 1);
-        updateMessageContent(rows[r].id, JSON.stringify(parsed));
-        return;
-      }
+    const hit = findPersistedSurfaceBlock(ctx.conversationId, surfaceId, {
+      filterByProvenance: false,
+    });
+    if (hit) {
+      hit.blocks.splice(hit.blockIndex, 1);
+      updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
     }
   } catch (err) {
     log.warn({ err, surfaceId }, "Failed to remove dismissed surface from DB");
@@ -1715,18 +1857,30 @@ function maybeEmitActivationMoment(
   recordActivationMoment(ctx, moment);
 }
 
-function completeSurfaceFromAction(
+/**
+ * Record a surface action the message queue refused.
+ *
+ * The route answers `{ ok: true }` for a rejected enqueue and the client
+ * optimistically completes the card on that, so the user sees an answered card
+ * that the next history reseed reverts. Nothing else on this path logs, so
+ * without this the only user-visible cause of a reverted card leaves no trace.
+ */
+function logSurfaceActionRejected(
   ctx: SurfaceConversationContext,
   surfaceId: string,
-  summary: string,
+  actionId: string,
+  surfaceType: string | undefined,
 ): void {
-  broadcastMessage({
-    type: "ui_surface_complete",
-    conversationId: ctx.conversationId,
-    surfaceId,
-    summary,
-  });
-  markSurfaceCompleted(ctx, surfaceId, summary);
+  log.warn(
+    {
+      conversationId: ctx.conversationId,
+      surfaceId,
+      actionId,
+      surfaceType,
+      queueDepth: ctx.getQueueDepth(),
+    },
+    "Surface action rejected by the message queue",
+  );
 }
 
 // One-shot interactive surfaces auto-complete once their action message is
@@ -1739,6 +1893,76 @@ const ONE_SHOT_SURFACE_TYPES = [
   "file_upload",
   "task_preferences",
 ];
+
+/**
+ * The completion rule for an accepted surface action: complete when the client
+ * asked for it explicitly (`_completeSurface`), or when the surface is a
+ * one-shot type. No-op otherwise. Owns the whole rule, including reading the
+ * `_completeSurface` request out of the raw action data.
+ *
+ * Called from both `handleSurfaceAction` branches, one holding a pending entry
+ * and one with none, always after `enqueueMessage` accepted the turn so a
+ * rejected enqueue leaves the surface answerable. Persists first and broadcasts
+ * `ui_surface_complete` only once that write is known not to have failed: a
+ * client must not render a card the next history reseed reverts.
+ *
+ * "No pending entry" is broader than "restored from history", and with
+ * `pendingSurfaceActions` empty the two cannot be told apart: a surface shown
+ * with `await_action: false` never registered a pending entry, and a daemon
+ * restart drops the entry of one that did. So a one-shot surface that never
+ * awaited an action does complete on its first action.
+ *
+ * `liveSurfaceType` / `liveSurfaceData` come from in-memory state. When the
+ * type is missing the persisted block supplies both, read at most once per
+ * action and only once the decision actually needs it.
+ */
+function maybeCompleteSurfaceAfterAction(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  actionId: string,
+  actionData: Record<string, unknown> | undefined,
+  opts: {
+    liveSurfaceType: string | undefined;
+    liveSurfaceData: Record<string, unknown> | undefined;
+    requesterCanAccessMemory: boolean;
+    submittedData?: Record<string, unknown>;
+  },
+): void {
+  const requestedSummary = getRequestedSurfaceCompletionSummary(actionData);
+
+  let surfaceType = opts.liveSurfaceType;
+  let surfaceData = opts.liveSurfaceData;
+  // Only the type-driven one-shot rule needs history: an explicit request
+  // carries its own summary and decides on its own. Type and labels come from
+  // the same read so the decision and the summary can never disagree.
+  if (surfaceType === undefined && !requestedSummary) {
+    const persisted = findPersistedSurfaceInfo(ctx.conversationId, surfaceId, {
+      requesterCanAccessMemory: opts.requesterCanAccessMemory,
+    });
+    surfaceType = persisted?.surfaceType;
+    surfaceData = persisted?.data ?? surfaceData;
+  }
+
+  const isOneShot =
+    surfaceType !== undefined && ONE_SHOT_SURFACE_TYPES.includes(surfaceType);
+  if (!requestedSummary && !isOneShot) {
+    return;
+  }
+
+  const summary =
+    requestedSummary ??
+    buildCompletionSummary(surfaceType, actionId, actionData, surfaceData);
+  if (!markSurfaceCompleted(ctx, surfaceId, summary)) {
+    return;
+  }
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId: ctx.conversationId,
+    surfaceId,
+    summary,
+    ...(opts.submittedData ? { submittedData: opts.submittedData } : {}),
+  });
+}
 
 export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
@@ -1802,6 +2026,9 @@ export async function handleSurfaceAction(
       return { accepted: true, conversationId: ctx.conversationId };
     }
 
+    // Broadcast unconditionally: `showStandaloneSurface` renders straight to
+    // the client without appending a `ui_surface` block, so there is no
+    // persisted state a failed completion write could contradict.
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
@@ -1911,6 +2138,16 @@ export async function handleSurfaceAction(
     return { accepted: true, conversationId };
   }
 
+  // Trust of the actor committing THIS action. `POST /v1/surface-actions`
+  // stamps the verified requester's trust onto the conversation before
+  // dispatching here, and `loadFromDb` derives the live history filter from
+  // the same value, so the completion path's persisted read stays scoped to
+  // exactly what this actor's live view would have held. Unresolvable trust
+  // fails closed to the untrusted filter.
+  const requesterCanAccessMemory = resolveCapabilities(
+    ctx.trustContext?.trustClass,
+  ).canAccessMemory;
+
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
 
   // When surfaces are restored from history (e.g. onboarding cards), there is
@@ -2019,8 +2256,12 @@ export async function handleSurfaceAction(
 
     log.info(
       {
+        conversationId: ctx.conversationId,
         surfaceId,
         actionId,
+        // False means the surface type and the labels its completion summary
+        // quotes can only come from persisted history.
+        hasLiveState: stored !== undefined,
         contentLength: content.length,
         contentPreview: content.slice(0, 200),
         attachmentCount: attachments.length,
@@ -2057,6 +2298,7 @@ export async function handleSurfaceAction(
 
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
+      logSurfaceActionRejected(ctx, surfaceId, actionId, stored?.surfaceType);
       return;
     }
 
@@ -2066,11 +2308,12 @@ export async function handleSurfaceAction(
     // (and the one-shot tag stays intact for the user's retry).
     maybeEmitActivationMoment(ctx, surfaceId);
 
-    const requestedCompletionSummary =
-      getRequestedSurfaceCompletionSummary(mergedData);
-    if (requestedCompletionSummary) {
-      completeSurfaceFromAction(ctx, surfaceId, requestedCompletionSummary);
-    }
+    maybeCompleteSurfaceAfterAction(ctx, surfaceId, actionId, mergedData, {
+      liveSurfaceType: stored?.surfaceType,
+      liveSurfaceData: stored?.data as Record<string, unknown> | undefined,
+      requesterCanAccessMemory,
+      submittedData: actionDataForText,
+    });
 
     // One-shot: clear accumulated state now that the message has been accepted.
     // Deferred until after rejection check so state is preserved for retry on rejection.
@@ -2302,6 +2545,7 @@ export async function handleSurfaceAction(
   });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
+    logSurfaceActionRejected(ctx, surfaceId, actionId, pending.surfaceType);
     return;
   }
 
@@ -2311,26 +2555,12 @@ export async function handleSurfaceAction(
   // one-shot tag stays intact for the user's retry).
   maybeEmitActivationMoment(ctx, surfaceId);
 
-  const requestedCompletionSummary =
-    getRequestedSurfaceCompletionSummary(mergedData);
-
-  // One-shot interactive surfaces — auto-complete now that the message has
-  // been accepted. Deferred until after rejection check so the surface stays
-  // active and retryable if the queue was full.
-  if (
-    requestedCompletionSummary ||
-    ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
-  ) {
-    const completionSummary = requestedCompletionSummary ?? summary;
-    broadcastMessage({
-      type: "ui_surface_complete",
-      conversationId: ctx.conversationId,
-      surfaceId,
-      summary: completionSummary,
-      submittedData: mergedDataForText,
-    });
-    markSurfaceCompleted(ctx, surfaceId, completionSummary);
-  }
+  maybeCompleteSurfaceAfterAction(ctx, surfaceId, actionId, mergedData, {
+    liveSurfaceType: pending.surfaceType,
+    liveSurfaceData: surfaceData,
+    requesterCanAccessMemory,
+    submittedData: mergedDataForText,
+  });
 
   // One-shot: clear accumulated state now that the message has been accepted.
   // Deferred until after rejection check so state is preserved for retry on rejection.
@@ -3394,6 +3624,18 @@ export async function surfaceProxyResolver(
         lastAction.data,
         stored?.data,
       );
+      // A `ui_show` surface owns a persisted block, so the completion has to
+      // land before the client is told the card is answered.
+      if (!markSurfaceCompleted(ctx, surfaceId, summary)) {
+        // Tearing the live entries down here would strand the card that the
+        // next reseed restores, so leave them for a retry and tell the model
+        // the dismissal did not land.
+        return {
+          content:
+            "Could not dismiss the surface: persisting its completion failed. The card is still showing, so try ui_dismiss again.",
+          isError: true,
+        };
+      }
       ctx.sendToClient({
         type: "ui_surface_complete",
         conversationId: ctx.conversationId,
@@ -3401,7 +3643,6 @@ export async function surfaceProxyResolver(
         summary,
         submittedData: lastAction.data,
       });
-      markSurfaceCompleted(ctx, surfaceId, summary);
     } else {
       ctx.sendToClient({
         type: "ui_surface_dismiss",

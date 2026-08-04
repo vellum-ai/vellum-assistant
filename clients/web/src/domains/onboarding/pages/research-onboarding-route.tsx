@@ -139,6 +139,8 @@ export function ResearchOnboardingRoute() {
   const exitFocus = useOnboardingFocusStore.use.exitFocus();
   const setPendingAvatarTraits =
     useOnboardingFocusStore.use.setPendingAvatarTraits();
+  const setPendingAvatarVoice =
+    useOnboardingFocusStore.use.setPendingAvatarVoice();
   const requestSidebarCollapse =
     useOnboardingFocusStore.use.requestSidebarCollapse();
   // Research/personality onboarding is now THE onboarding — it fully replaces
@@ -370,8 +372,9 @@ export function ResearchOnboardingRoute() {
   useEffect(() => {
     exitFocus();
     setPendingAvatarTraits(null);
+    setPendingAvatarVoice(null);
     startHatch();
-  }, [exitFocus, setPendingAvatarTraits, startHatch]);
+  }, [exitFocus, setPendingAvatarTraits, setPendingAvatarVoice, startHatch]);
 
   // Resolve whether the hatched assistant already has a life BEFORE the flow
   // can fire anything at it: the research turn writes memory and the
@@ -775,8 +778,10 @@ export function ResearchOnboardingRoute() {
     // Stage the chosen avatar traits; OnboardingAvatarApplier applies them once
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
-    // Onboarding assistants use the default Vellum managed voice via their TTS
-    // config; per-avatar voice selection is a planned follow-up.
+    // ...and the voice that avatar was auditioned in, so the assistant speaks
+    // as the character the user picked rather than in the platform default.
+    // Null (no catalog) leaves the default in place.
+    setPendingAvatarVoice(face?.voiceModel ?? null);
 
     // The research pass renders in the focused presentation; entering from a
     // suggestion (or skipping) is a normal chat, so only focus for research.
@@ -1324,6 +1329,7 @@ export function ResearchOnboardingRoute() {
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}
+        assistantId={hatchedAssistantId}
       />,
     );
   }

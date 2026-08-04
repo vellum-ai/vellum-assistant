@@ -27,16 +27,15 @@ import { Check, Square, Volume2 } from "lucide-react";
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { toast } from "@vellumai/design-library/components/toast";
 
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
 import {
   groupVoicesByAccent,
   MANAGED_VOICE_SOURCE_LABELS,
   splitVoiceDescription,
   voiceTraitsLabel,
 } from "@/lib/tts/managed-voice-catalog";
-import { type ManagedVoiceOption } from "@/lib/tts/use-managed-voices";
 
 /**
  * A voice's label: its character traits lead (sentence-cased), with the accent
@@ -60,64 +59,6 @@ export function VoiceLabel({
       )}
     </span>
   );
-}
-
-/**
- * On-demand preview of a single voice via its hosted sample. Tracks which
- * voice is playing so the row can show a spinner; tears down on a new play and
- * on unmount so a late-resolving `play()` can't leak onto a gone component.
- */
-function useVoiceSamplePreview(): {
-  previewingModel: string | null;
-  play: (voice: ManagedVoiceOption) => void;
-  stop: () => void;
-} {
-  const [previewingModel, setPreviewingModel] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const tokenRef = useRef(0);
-
-  const stop = () => {
-    // Bump the token so a late-resolving play() bails, then tear down.
-    tokenRef.current++;
-    audioRef.current?.pause();
-    audioRef.current = null;
-    setPreviewingModel(null);
-  };
-
-  useEffect(
-    () => () => {
-      tokenRef.current++;
-      audioRef.current?.pause();
-      audioRef.current = null;
-    },
-    [],
-  );
-
-  function play(voice: ManagedVoiceOption): void {
-    if (!voice.sampleUrl) {
-      return;
-    }
-    audioRef.current?.pause();
-    const token = ++tokenRef.current;
-    const audio = new Audio(voice.sampleUrl);
-    audioRef.current = audio;
-    setPreviewingModel(voice.model);
-    const clear = () => {
-      if (tokenRef.current === token) {
-        setPreviewingModel(null);
-      }
-    };
-    audio.onended = clear;
-    audio.onerror = clear;
-    void audio.play().catch(() => {
-      if (tokenRef.current === token) {
-        toast.error("Could not play the voice sample.");
-        setPreviewingModel(null);
-      }
-    });
-  }
-
-  return { previewingModel, play, stop };
 }
 
 export interface VoiceListProps {
