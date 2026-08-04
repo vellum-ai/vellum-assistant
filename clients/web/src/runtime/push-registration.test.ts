@@ -312,6 +312,8 @@ describe("registerForRemotePush", () => {
 
     await registerForRemotePush("assistant-1");
 
+    expect(requestPermissionsMock).not.toHaveBeenCalled();
+    expect(ensureAndroidAlertsChannelMock).not.toHaveBeenCalled();
     expect(registerMock).not.toHaveBeenCalled();
     expect(androidRegisterMock).not.toHaveBeenCalled();
   });

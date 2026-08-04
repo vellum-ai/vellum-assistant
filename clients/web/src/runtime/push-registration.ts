@@ -340,6 +340,13 @@ export async function registerForRemotePush(
   if (!isRemotePushSupported()) {
     return;
   }
+  const isAndroid = Capacitor.getPlatform() === "android";
+  if (
+    isAndroid &&
+    !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
+  ) {
+    return;
+  }
   currentAssistantId = assistantId;
 
   // If iOS already handed us a token for this device under a different
@@ -358,10 +365,7 @@ export async function registerForRemotePush(
     if (permission.receive !== "granted") {
       return;
     }
-    if (Capacitor.getPlatform() === "android") {
-      if (!Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
-        return;
-      }
+    if (isAndroid) {
       await AndroidPushRegistration.register();
     } else {
       await PushNotifications.register();
