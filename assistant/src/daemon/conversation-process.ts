@@ -813,7 +813,10 @@ async function drainSingleMessage(
           : {}),
         sentAt: next.sentAt,
       };
-      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = await createUserMessage(
+        next.content,
+        next.attachments,
+      );
       const llmUserMsg = enrichMessageWithSourcePaths(
         cleanUserMsg,
         next.attachments,
@@ -821,7 +824,7 @@ async function drainSingleMessage(
       // When displayContent is provided (e.g. original text before recording
       // intent stripping), persist that to DB so users see the full message.
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-      const contentToPersist = serializePersistedUserMessageContent(
+      const contentToPersist = await serializePersistedUserMessageContent(
         next.content,
         next.displayContent,
         next.attachments,
@@ -913,11 +916,14 @@ async function drainSingleMessage(
           : {}),
         sentAt: next.sentAt,
       };
-      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = await createUserMessage(
+        next.content,
+        next.attachments,
+      );
       await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           next.content,
           next.displayContent,
           next.attachments,
@@ -1003,11 +1009,14 @@ async function drainSingleMessage(
           : {}),
         sentAt: next.sentAt,
       };
-      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = await createUserMessage(
+        next.content,
+        next.attachments,
+      );
       await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           next.content,
           next.displayContent,
           next.attachments,
@@ -1873,7 +1882,7 @@ export async function processMessage(
           : {}),
       };
 
-      const cleanUserMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = await createUserMessage(content, attachments);
       const llmUserMsg = enrichMessageWithSourcePaths(
         cleanUserMsg,
         attachments,
@@ -1881,7 +1890,7 @@ export async function processMessage(
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           content,
           displayContent,
           attachments,
@@ -1965,12 +1974,12 @@ export async function processMessage(
         ? { imageSourcePaths: pmImageSourcePaths }
         : {}),
     };
-    const cleanUserMsg = createUserMessage(content, attachments);
+    const cleanUserMsg = await createUserMessage(content, attachments);
     const llmUserMsg = enrichMessageWithSourcePaths(cleanUserMsg, attachments);
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message.
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-    const contentToPersist = serializePersistedUserMessageContent(
+    const contentToPersist = await serializePersistedUserMessageContent(
       content,
       displayContent,
       attachments,
@@ -2049,11 +2058,11 @@ export async function processMessage(
             }
           : {}),
       };
-      const cleanUserMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = await createUserMessage(content, attachments);
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           content,
           displayContent,
           attachments,
@@ -2127,11 +2136,11 @@ export async function processMessage(
             }
           : {}),
       };
-      const cleanUserMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = await createUserMessage(content, attachments);
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           content,
           displayContent,
           attachments,

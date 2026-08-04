@@ -480,7 +480,7 @@ export async function installExternalSkill(
       contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
 
-    installSkillDependenciesIfPresent(stagedDir);
+    await installSkillDependenciesIfPresent(stagedDir);
     commitStagedSkillInstall(skillSlug, stagedDir);
   } catch (err) {
     rmSync(stagedDir, { recursive: true, force: true });

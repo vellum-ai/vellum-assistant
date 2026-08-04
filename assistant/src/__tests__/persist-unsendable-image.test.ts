@@ -132,7 +132,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN one message is rewritten with no image block left
     expect(rewritten).toBe(1);
@@ -162,7 +162,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN only the rejected original is removed
     expect(rewritten).toBe(1);
@@ -184,7 +184,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing is rewritten and the image remains
     expect(rewritten).toBe(0);
@@ -202,7 +202,7 @@ describe("persistUnsendableImageDowngrades", () => {
     });
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the oversized-payload image is removed
     expect(rewritten).toBe(1);
@@ -224,7 +224,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the undersized image is removed (upscale is a no-op on this host)
     expect(rewritten).toBe(1);
@@ -248,7 +248,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the message is rewritten with the nested image swapped for a note
     expect(rewritten).toBe(1);
@@ -274,7 +274,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing is rewritten and the nested image remains
     expect(rewritten).toBe(0);
@@ -302,7 +302,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the image survives with its media type corrected to the sniffed one
     expect(rewritten).toBe(1);
@@ -319,7 +319,7 @@ describe("persistUnsendableImageDowngrades", () => {
     });
 
     // AND a second run is a no-op (the corrected block no longer mismatches)
-    expect(persistUnsendableImageDowngrades(conv.id)).toBe(0);
+    expect(await persistUnsendableImageDowngrades(conv.id)).toBe(0);
   });
 
   /** Re-running after a rewrite is a safe no-op (no image blocks remain). */
@@ -332,10 +332,10 @@ describe("persistUnsendableImageDowngrades", () => {
       JSON.stringify([imageBlock(makePngBase64(10000, 10000))]),
       { skipIndexing: true },
     );
-    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
+    expect(await persistUnsendableImageDowngrades(conv.id)).toBe(1);
 
     // WHEN the downgrade runs a second time
-    const secondRun = persistUnsendableImageDowngrades(conv.id);
+    const secondRun = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);
@@ -346,46 +346,46 @@ describe("unsendableImageReplacement", () => {
   /** A still-sendable image must be left alone — never replaced with a note.
    *  This is the gate that keeps the in-memory recovery from discarding valid
    *  screenshots when only one image in the turn was actually oversized. */
-  test("returns null for an image within the provider caps", () => {
+  test("returns null for an image within the provider caps", async () => {
     const sendable = imageBlock(makePngBase64(1024, 768)) as Extract<
       ContentBlock,
       { type: "image" }
     >;
-    expect(unsendableImageReplacement(sendable)).toBeNull();
+    expect(await unsendableImageReplacement(sendable)).toBeNull();
   });
 
   /** An image past the provider caps that cannot be shrunk on this host (fake
    *  PNG that sips cannot decode) collapses to the unsendable note. */
-  test("returns the unsendable note when an oversized image cannot be shrunk", () => {
+  test("returns the unsendable note when an oversized image cannot be shrunk", async () => {
     const oversized = imageBlock(makePngBase64(12000, 9000)) as Extract<
       ContentBlock,
       { type: "image" }
     >;
-    const replacement = unsendableImageReplacement(oversized);
+    const replacement = await unsendableImageReplacement(oversized);
     expect(replacement?.type).toBe("text");
   });
 
   /** An image below the provider's minimum-size floor (rejected with "Could
    *  not process image") that cannot be upscaled on this host collapses to
    *  the unsendable note, same as the oversized direction. */
-  test("returns the unsendable note when an undersized image cannot be upscaled", () => {
+  test("returns the unsendable note when an undersized image cannot be upscaled", async () => {
     const undersized = imageBlock(makePngBase64(16, 14)) as Extract<
       ContentBlock,
       { type: "image" }
     >;
-    const replacement = unsendableImageReplacement(undersized);
+    const replacement = await unsendableImageReplacement(undersized);
     expect(replacement?.type).toBe("text");
   });
 
   /** A within-limits image whose declared media type disagrees with its bytes
    *  is relabeled with the sniffed type instead of being noted out. */
-  test("relabels a mislabeled image with its sniffed media type", () => {
+  test("relabels a mislabeled image with its sniffed media type", async () => {
     const pngData = makePngBase64(1024, 768);
     const mislabeled = imageBlock(pngData, "image/jpeg") as Extract<
       ContentBlock,
       { type: "image" }
     >;
-    const replacement = unsendableImageReplacement(mislabeled);
+    const replacement = await unsendableImageReplacement(mislabeled);
     expect(replacement).toMatchObject({
       type: "image",
       source: { type: "base64", media_type: "image/png", data: pngData },
@@ -394,9 +394,9 @@ describe("unsendableImageReplacement", () => {
 
   /** Relabeling a persisted (workspace_ref) image keeps the reference shape —
    *  inlining it would bake the full payload into the stored message row. */
-  test("relabels a mislabeled workspace_ref without inlining the payload", () => {
+  test("relabels a mislabeled workspace_ref without inlining the payload", async () => {
     const pngData = makePngBase64(1024, 768);
-    const stored = uploadAttachment("photo.png", "image/png", pngData);
+    const stored = await uploadAttachment("photo.png", "image/png", pngData);
     const mislabeledRef = {
       type: "image",
       source: {
@@ -407,7 +407,7 @@ describe("unsendableImageReplacement", () => {
       },
     } as Extract<ContentBlock, { type: "image" }>;
 
-    const replacement = unsendableImageReplacement(mislabeledRef);
+    const replacement = await unsendableImageReplacement(mislabeledRef);
 
     expect(replacement).toMatchObject({
       type: "image",
@@ -419,7 +419,7 @@ describe("unsendableImageReplacement", () => {
     });
     // AND the corrected reference no longer matches on a second pass
     expect(
-      unsendableImageReplacement(
+      await unsendableImageReplacement(
         replacement as Extract<ContentBlock, { type: "image" }>,
       ),
     ).toBeNull();

@@ -72,9 +72,9 @@ describe("handleListMessages provider-error projection", () => {
       },
     );
 
-    const response = handleListMessages({
+    const response = (await handleListMessages({
       queryParams: { conversationId: conv.id },
-    }) as { messages: ProjectedMessage[] };
+    })) as { messages: ProjectedMessage[] };
 
     // Every projected message validates against the wire schema.
     for (const message of response.messages) {
@@ -106,9 +106,9 @@ describe("handleListMessages provider-error projection", () => {
       },
     );
 
-    const response = handleListMessages({
+    const response = (await handleListMessages({
       queryParams: { conversationId: conv.id },
-    }) as { messages: ProjectedMessage[] };
+    })) as { messages: ProjectedMessage[] };
 
     expect(response.messages).toHaveLength(1);
     expect(response.messages[0]?.providerError).toEqual({});
@@ -130,9 +130,9 @@ describe("handleListMessages provider-error projection", () => {
       JSON.stringify([{ type: "text", text: "hi there" }]),
     );
 
-    const response = handleListMessages({
+    const response = (await handleListMessages({
       queryParams: { conversationId: conv.id },
-    }) as { messages: ProjectedMessage[] };
+    })) as { messages: ProjectedMessage[] };
 
     expect(response.messages).toHaveLength(2);
     for (const message of response.messages) {

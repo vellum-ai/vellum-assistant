@@ -455,11 +455,6 @@ async function handleUpdateConnection({
       `Invalid label: must be a non-blank string or null`,
     );
   }
-  // Managed connections need no dedicated auth lock: the provider is
-  // immutable on PATCH, and the pairing guard above rejects any auth change
-  // away from platform on a vellum-provider row. Label remains user-editable
-  // (the boot upsert leaves it alone).
-
   const customFields = await parseCustomProviderFields(body, existing.provider);
 
   // Only a CHANGED label is validated: keeping a stored label — whatever it

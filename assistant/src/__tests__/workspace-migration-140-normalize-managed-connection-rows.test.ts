@@ -5,6 +5,8 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { normalizeManagedConnectionRowsMigration } from "../workspace/migrations/140-normalize-managed-connection-rows.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 let workspaceDir: string;
 
@@ -74,11 +76,23 @@ beforeEach(() => {
 
 afterEach(() => {
   if (existsSync(workspaceDir)) {
+    assertNotLiveDb(workspaceDir);
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 });
 
 describe("140-normalize-managed-connection-rows", () => {
+  test("has correct migration id and is registered last", () => {
+    expect(normalizeManagedConnectionRowsMigration.id).toBe(
+      "140-normalize-managed-connection-rows",
+    );
+    // getLastWorkspaceMigrationId() reports the final entry as the registry
+    // ceiling, so the highest id must stay last.
+    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
+      "140-normalize-managed-connection-rows",
+    );
+  });
+
   test("rewrites a platform-auth row with a concrete provider to provider vellum", () => {
     const db = createDb();
     insertRow(db, "managed-openai", "openai", '{"type":"platform"}');

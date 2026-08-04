@@ -976,7 +976,7 @@ export class AnthropicProvider implements Provider {
     // edge LB, NAT idle) — only the latter should be retried.
     let innerTimeoutSignal: AbortSignal | undefined;
     try {
-      sentMessages = this.buildSentMessages(messages);
+      sentMessages = await this.buildSentMessages(messages);
       const {
         effort,
         speed,
@@ -1801,7 +1801,7 @@ export class AnthropicProvider implements Provider {
     systemPrompt: string,
     tools?: ToolDefinition[],
   ): Promise<number> {
-    const sentMessages = this.buildSentMessages(messages);
+    const sentMessages = await this.buildSentMessages(messages);
 
     const system = systemPrompt
       ? systemPrompt
@@ -1837,10 +1837,12 @@ export class AnthropicProvider implements Provider {
    * `cache_control` breakpoints (which don't affect token counts) are the
    * only thing layered on top in `sendMessage`.
    */
-  private buildSentMessages(messages: Message[]): Anthropic.MessageParam[] {
+  private async buildSentMessages(
+    messages: Message[],
+  ): Promise<Anthropic.MessageParam[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
-    messages = resolveMediaReferences(messages);
+    messages = await resolveMediaReferences(messages);
     const formatted = messages
       .map((m) => {
         // Track whether an unknown block was dropped during filtering
