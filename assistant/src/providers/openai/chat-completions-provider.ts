@@ -46,6 +46,7 @@ import {
   OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES,
   openAIInputAudioFormat,
 } from "./input-audio.js";
+import { serializeToolResult } from "./orphaned-tool-result.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -956,9 +957,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
       });
     }
 
+    // Tool-call ids emitted in assistant messages earlier in this request.
+    // The API rejects a tool-role message whose `tool_call_id` has no
+    // preceding assistant `tool_calls` entry, so tool results are only
+    // serialized as tool messages when their call was emitted first
+    // (backward matches only).
+    const emittedToolCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant") {
-        result.push(this.toOpenAIAssistantMessage(msg));
+        const assistantMessage = this.toOpenAIAssistantMessage(msg);
+        for (const toolCall of assistantMessage.tool_calls ?? []) {
+          emittedToolCallIds.add(toolCall.id);
+        }
+        result.push(assistantMessage);
       } else {
         // User messages may contain tool_result blocks mixed with text/image
         const toolResults = msg.content.filter(
@@ -975,46 +986,51 @@ export class OpenAIChatCompletionsProvider implements Provider {
         // Emit tool results as separate tool-role messages
         // OpenAI's API only supports string content in tool messages, so media
         // from contentBlocks is collected and injected as a user message below.
+        // A tool_result whose id has no preceding assistant tool call in this
+        // request is orphaned; its content is degraded into the user message
+        // instead of being sent as a rejectable tool message.
         const toolResultMedia: ContentBlock[] = [];
+        const orphanedResultBlocks: ContentBlock[] = [];
         for (const tr of toolResults) {
-          let textContent = tr.content;
-          if (tr.contentBlocks && tr.contentBlocks.length > 0) {
-            const extraText = tr.contentBlocks
-              .filter(
-                (cb): cb is Extract<ContentBlock, { type: "text" }> =>
-                  cb.type === "text",
+          // Media this transport can carry: images always, plus inline audio
+          // when the model accepts it. The text payload and the orphan
+          // decision are the shared cross-transport rule.
+          for (const cb of tr.contentBlocks ?? []) {
+            if (cb.type === "image") {
+              toolResultMedia.push(cb);
+            } else if (
+              audioInputEnabled &&
+              cb.type === "file" &&
+              isOpenAICompatInlineAudio(
+                cb.source.media_type,
+                mediaSourceByteLength(cb.source),
               )
-              .map((cb) => cb.text);
-            if (extraText.length > 0) {
-              textContent = textContent + "\n" + extraText.join("\n");
+            ) {
+              toolResultMedia.push(cb);
             }
-            for (const cb of tr.contentBlocks) {
-              if (cb.type === "image") {
-                toolResultMedia.push(cb);
-              } else if (
-                audioInputEnabled &&
-                cb.type === "file" &&
-                isOpenAICompatInlineAudio(
-                  cb.source.media_type,
-                  mediaSourceByteLength(cb.source),
-                )
-              ) {
-                toolResultMedia.push(cb);
-              }
-            }
+          }
+          const serialized = serializeToolResult(tr, emittedToolCallIds);
+          if (serialized.kind === "orphaned") {
+            orphanedResultBlocks.push(serialized.block);
+            continue;
           }
           result.push({
             role: "tool",
             tool_call_id: tr.tool_use_id,
-            content: tr.is_error ? `[ERROR] ${textContent}` : textContent,
+            content: serialized.payload,
           });
         }
 
-        // Emit remaining content + any tool result media as a user message.
-        // Media from tool results (e.g. browser_screenshot, audio a tool read)
-        // must go in a user message because OpenAI-compatible APIs don't
-        // support media parts in tool messages.
-        const userContent = [...otherBlocks, ...toolResultMedia];
+        // Emit remaining content, degraded orphaned results, and any tool
+        // result media as a user message. Media from tool results (e.g.
+        // browser_screenshot, audio a tool read) must go in a user message
+        // because OpenAI-compatible APIs don't support media parts in tool
+        // messages.
+        const userContent = [
+          ...otherBlocks,
+          ...orphanedResultBlocks,
+          ...toolResultMedia,
+        ];
         if (userContent.length > 0) {
           result.push(this.toOpenAIUserMessage(userContent, audioInputEnabled));
         }

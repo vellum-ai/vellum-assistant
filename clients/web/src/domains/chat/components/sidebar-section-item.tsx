@@ -80,11 +80,10 @@ export function SidebarSectionItem({
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator}
       drag={drag}
-      // Pinned is the user's own curation, always at the top: collapsing
-      // it away would hide the thing the section exists to surface. It's
-      // also the one section that never caps/scrolls internally: it grows
-      // to fit its own rows instead.
-      collapsible={section.type !== "pinned"}
+      // Pinned collapses like every other section (one component, one
+      // behavior; its open state defaults open and persists like the
+      // rest). It is the one section that never caps/scrolls internally:
+      // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
       {...rowListPropsFor(section)}
     />

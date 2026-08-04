@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { deepRepairHistory } from "../agent/history-repair/history-repair.js";
+import { isRepairableOrderingError } from "../agent/history-repair/history-repair.js";
 import { repairHistory } from "../agent/history-repair/history-repair.js";
 import type { Message } from "../providers/types.js";
 
@@ -1108,5 +1109,43 @@ describe("deepRepairHistory", () => {
     expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
+  });
+});
+
+describe("isRepairableOrderingError", () => {
+  test("matches Anthropic tool ordering rejections", () => {
+    expect(
+      isRepairableOrderingError(
+        "Requests which include `tool_use` blocks must have a corresponding `tool_result` block in the next message.",
+      ),
+    ).toBe(true);
+    expect(
+      isRepairableOrderingError(
+        "messages.5: tool_result block references tool_use_id toolu_abc which was not found",
+      ),
+    ).toBe(true);
+  });
+
+  test("matches the OpenAI Responses orphan function_call_output rejection", () => {
+    expect(
+      isRepairableOrderingError(
+        "No tool call found for function call output with call_id call_abc123.",
+      ),
+    ).toBe(true);
+  });
+
+  test("matches the OpenAI Chat Completions orphan tool_call_id rejection", () => {
+    expect(
+      isRepairableOrderingError(
+        "Invalid parameter: 'tool_call_id' of 'call_abc123' not found in 'tool_calls' of previous message.",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not match unrelated provider errors", () => {
+    expect(isRepairableOrderingError("Rate limit exceeded")).toBe(false);
+    expect(
+      isRepairableOrderingError("Request too large for model context window"),
+    ).toBe(false);
   });
 });

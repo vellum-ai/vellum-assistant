@@ -72,8 +72,9 @@ export interface ConversationRowListProps {
    * Skips {@link SIDEBAR_SECTION_MAX_HEIGHT} entirely: the list grows to fit
    * every row instead of capping and scrolling within itself. Pinned is the
    * one section that wants this, the user's own curation, expected to stay
-   * short, and (unlike Chats or a channel section) not something that should
-   * ever need its own internal scrollbar.
+   * short - and (unlike Chats or a channel section, which cap and scroll
+   * internally) not something that should ever push its neighbours off
+   * screen.
    */
   unbounded?: boolean;
 }

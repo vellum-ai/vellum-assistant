@@ -26,6 +26,7 @@ import {
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+import { serializeToolResult } from "./orphaned-tool-result.js";
 
 const log = getLogger("openai-responses");
 
@@ -758,11 +759,16 @@ export class OpenAIResponsesProvider implements Provider {
     messages = resolveMediaReferences(messages);
     const result: unknown[] = [];
 
+    // `call_id`s emitted as `function_call` items earlier in this request.
+    // The API rejects a `function_call_output` whose `call_id` has no
+    // preceding `function_call`, so tool results are only serialized as
+    // outputs when their call was emitted first (backward matches only).
+    const emittedCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant") {
-        this.appendAssistantItems(result, msg);
+        this.appendAssistantItems(result, msg, emittedCallIds);
       } else {
-        this.appendUserItems(result, msg);
+        this.appendUserItems(result, msg, emittedCallIds);
       }
     }
 
@@ -887,8 +893,16 @@ export class OpenAIResponsesProvider implements Provider {
     }
   }
 
-  /** Convert an assistant message's content blocks to Responses input items. */
-  private appendAssistantItems(result: unknown[], msg: Message): void {
+  /**
+   * Convert an assistant message's content blocks to Responses input items.
+   * Every `function_call` emitted is recorded in `emittedCallIds` so the
+   * user-item conversion can pair `tool_result` blocks against it.
+   */
+  private appendAssistantItems(
+    result: unknown[],
+    msg: Message,
+    emittedCallIds: Set<string>,
+  ): void {
     const textParts: string[] = [];
 
     for (const block of msg.content) {
@@ -912,6 +926,7 @@ export class OpenAIResponsesProvider implements Provider {
             name: block.name,
             arguments: JSON.stringify(block.input),
           });
+          emittedCallIds.add(block.id);
           break;
         case "server_tool_use":
           textParts.push(`[Web search: ${block.name}]`);
@@ -932,8 +947,18 @@ export class OpenAIResponsesProvider implements Provider {
     }
   }
 
-  /** Convert a user message's content blocks to Responses input items. */
-  private appendUserItems(result: unknown[], msg: Message): void {
+  /**
+   * Convert a user message's content blocks to Responses input items.
+   * A `tool_result` whose `tool_use_id` was not emitted as a `function_call`
+   * earlier in this request (`emittedCallIds`) is orphaned; the API rejects
+   * an unmatched `function_call_output`, so its content is degraded into the
+   * plain user message instead of dropped.
+   */
+  private appendUserItems(
+    result: unknown[],
+    msg: Message,
+    emittedCallIds: Set<string>,
+  ): void {
     // Separate tool results from other blocks
     const toolResults = msg.content.filter(
       (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
@@ -948,33 +973,34 @@ export class OpenAIResponsesProvider implements Provider {
 
     // Emit tool results as function_call_output items
     const toolResultImages: ContentBlock[] = [];
+    const orphanedResultBlocks: ContentBlock[] = [];
     for (const tr of toolResults) {
-      let textContent = tr.content;
-      if (tr.contentBlocks && tr.contentBlocks.length > 0) {
-        const extraText = tr.contentBlocks
-          .filter(
-            (cb): cb is Extract<ContentBlock, { type: "text" }> =>
-              cb.type === "text",
-          )
-          .map((cb) => cb.text);
-        if (extraText.length > 0) {
-          textContent = textContent + "\n" + extraText.join("\n");
+      // This transport carries images only; the text payload and the orphan
+      // decision are the shared cross-transport rule.
+      for (const cb of tr.contentBlocks ?? []) {
+        if (cb.type === "image") {
+          toolResultImages.push(cb);
         }
-        for (const cb of tr.contentBlocks) {
-          if (cb.type === "image") {
-            toolResultImages.push(cb);
-          }
-        }
+      }
+      const serialized = serializeToolResult(tr, emittedCallIds);
+      if (serialized.kind === "orphaned") {
+        orphanedResultBlocks.push(serialized.block);
+        continue;
       }
       result.push({
         type: "function_call_output",
         call_id: tr.tool_use_id,
-        output: tr.is_error ? `[ERROR] ${textContent}` : textContent,
+        output: serialized.payload,
       });
     }
 
-    // Emit remaining content + any tool result images as a user message
-    const userContent = [...otherBlocks, ...toolResultImages];
+    // Emit remaining content, degraded orphaned results, and any tool result
+    // images as a user message
+    const userContent = [
+      ...otherBlocks,
+      ...orphanedResultBlocks,
+      ...toolResultImages,
+    ];
     if (userContent.length > 0) {
       result.push(this.toResponsesUserMessage(userContent));
     }
