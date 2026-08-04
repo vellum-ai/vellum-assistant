@@ -425,7 +425,7 @@ export function findPersistedSurfaceType(
  * Complete a `ui_surface` card and notify live clients, addressed only by
  * conversation + surface id.
  *
- * Unlike {@link completeSurfaceFromAction}, this needs no live `Conversation`
+ * Unlike {@link maybeCompleteSurfaceAfterAction}, this needs no live `Conversation`
  * instance, so it can run from flows that don't own one — projecting a
  * terminal guardian-request status onto its in-app approval card when the
  * request was resolved on another surface (or by the expiry sweep). Persists
@@ -1766,20 +1766,6 @@ function maybeEmitActivationMoment(
   recordActivationMoment(ctx, moment);
 }
 
-function completeSurfaceFromAction(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-  summary: string,
-): void {
-  broadcastMessage({
-    type: "ui_surface_complete",
-    conversationId: ctx.conversationId,
-    surfaceId,
-    summary,
-  });
-  markSurfaceCompleted(ctx, surfaceId, summary);
-}
-
 // One-shot interactive surfaces auto-complete once their action message is
 // accepted (they never accept further actions).
 const ONE_SHOT_SURFACE_TYPES = [
@@ -1790,6 +1776,44 @@ const ONE_SHOT_SURFACE_TYPES = [
   "file_upload",
   "task_preferences",
 ];
+
+/**
+ * The completion rule for an accepted surface action: complete when the client
+ * asked for it explicitly (`_completeSurface`), or when the surface is a
+ * one-shot type. No-op otherwise.
+ *
+ * Both `handleSurfaceAction` branches (pending and history-restored) route
+ * completion through here, and both call it only after `enqueueMessage`
+ * accepted the turn, so a rejected enqueue leaves the surface answerable.
+ * Broadcasts `ui_surface_complete` so live clients converge, and persists the
+ * completion so a history reseed reports the surface as answered.
+ */
+function maybeCompleteSurfaceAfterAction(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  opts: {
+    surfaceType: string | undefined;
+    requestedSummary: string | null;
+    fallbackSummary: string;
+    submittedData?: Record<string, unknown>;
+  },
+): void {
+  const isOneShot =
+    opts.surfaceType !== undefined &&
+    ONE_SHOT_SURFACE_TYPES.includes(opts.surfaceType);
+  if (!opts.requestedSummary && !isOneShot) {
+    return;
+  }
+  const summary = opts.requestedSummary ?? opts.fallbackSummary;
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId: ctx.conversationId,
+    surfaceId,
+    summary,
+    submittedData: opts.submittedData,
+  });
+  markSurfaceCompleted(ctx, surfaceId, summary);
+}
 
 export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
@@ -2117,11 +2141,34 @@ export async function handleSurfaceAction(
     // (and the one-shot tag stays intact for the user's retry).
     maybeEmitActivationMoment(ctx, surfaceId);
 
-    const requestedCompletionSummary =
-      getRequestedSurfaceCompletionSummary(mergedData);
-    if (requestedCompletionSummary) {
-      completeSurfaceFromAction(ctx, surfaceId, requestedCompletionSummary);
+    // In-memory state is absent whenever the surface outlived its live entry
+    // (client reload, daemon restart), so the persisted block is the only
+    // remaining source for the surface type.
+    const resolvedSurfaceType =
+      stored?.surfaceType ??
+      findPersistedSurfaceType(ctx.conversationId, surfaceId);
+    if (!stored) {
+      log.info(
+        {
+          conversationId: ctx.conversationId,
+          surfaceId,
+          actionId,
+          resolvedSurfaceType,
+        },
+        "Surface action handled with no in-memory surface state",
+      );
     }
+
+    maybeCompleteSurfaceAfterAction(ctx, surfaceId, {
+      surfaceType: resolvedSurfaceType,
+      requestedSummary: getRequestedSurfaceCompletionSummary(mergedData),
+      fallbackSummary: buildCompletionSummary(
+        resolvedSurfaceType,
+        actionId,
+        mergedData,
+        stored?.data as Record<string, unknown> | undefined,
+      ),
+    });
 
     // One-shot: clear accumulated state now that the message has been accepted.
     // Deferred until after rejection check so state is preserved for retry on rejection.
@@ -2362,26 +2409,12 @@ export async function handleSurfaceAction(
   // one-shot tag stays intact for the user's retry).
   maybeEmitActivationMoment(ctx, surfaceId);
 
-  const requestedCompletionSummary =
-    getRequestedSurfaceCompletionSummary(mergedData);
-
-  // One-shot interactive surfaces — auto-complete now that the message has
-  // been accepted. Deferred until after rejection check so the surface stays
-  // active and retryable if the queue was full.
-  if (
-    requestedCompletionSummary ||
-    ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
-  ) {
-    const completionSummary = requestedCompletionSummary ?? summary;
-    broadcastMessage({
-      type: "ui_surface_complete",
-      conversationId: ctx.conversationId,
-      surfaceId,
-      summary: completionSummary,
-      submittedData: mergedDataForText,
-    });
-    markSurfaceCompleted(ctx, surfaceId, completionSummary);
-  }
+  maybeCompleteSurfaceAfterAction(ctx, surfaceId, {
+    surfaceType: pending.surfaceType,
+    requestedSummary: getRequestedSurfaceCompletionSummary(mergedData),
+    fallbackSummary: summary,
+    submittedData: mergedDataForText,
+  });
 
   // One-shot: clear accumulated state now that the message has been accepted.
   // Deferred until after rejection check so state is preserved for retry on rejection.
