@@ -100,7 +100,6 @@ function parseArgs(): TunnelArgs {
       );
       console.log("");
       console.log("Examples:");
-      console.log("  $ vellum tunnel");
       console.log("  $ vellum tunnel --provider ngrok");
       console.log(
         "  $ vellum tunnel --provider ngrok --domain my-assistant.ngrok.app",

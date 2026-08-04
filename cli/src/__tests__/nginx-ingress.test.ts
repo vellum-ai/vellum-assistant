@@ -1304,6 +1304,75 @@ describe("ensureTunnelEdge", () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
+  test("flagRetry retries a thrown flag lookup and then starts the edge", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    isFeatureFlagEnabledMock
+      .mockImplementationOnce(async () => {
+        throw new Error('HTTP 503 {"status":"starting"}');
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error('HTTP 503 {"status":"starting"}');
+      })
+      .mockImplementationOnce(async () => false);
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      flagRetry: { attempts: 3, intervalMs: 1 },
+    });
+
+    expect(isFeatureFlagEnabledMock).toHaveBeenCalledTimes(3);
+    expect(result).toEqual({
+      port: REQUESTED_PORT,
+      started: true,
+      includesWebApp: false,
+    });
+  });
+
+  test("flagRetry does not retry a resolved false: it is a real answer", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      flagRetry: { attempts: 3, intervalMs: 1 },
+    });
+
+    expect(isFeatureFlagEnabledMock).toHaveBeenCalledTimes(1);
+    expect(result.includesWebApp).toBe(false);
+  });
+
+  test("an exhausted flagRetry throws the wake hint with the last error", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    isFeatureFlagEnabledMock.mockImplementation(async () => {
+      throw new Error("connect ECONNREFUSED");
+    });
+
+    const promise = ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      flagRetry: { attempts: 3, intervalMs: 1 },
+    });
+
+    await expect(promise).rejects.toThrow(
+      "Could not verify the `web-remote-ingress` feature flag",
+    );
+    await expect(promise).rejects.toThrow("connect ECONNREFUSED");
+    expect(isFeatureFlagEnabledMock).toHaveBeenCalledTimes(3);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
   test("missing web dist with the flag enabled throws build guidance", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
