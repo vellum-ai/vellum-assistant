@@ -1883,7 +1883,14 @@ function inspection(
     remoteError: overrides.remoteError ?? null,
     surfaces:
       overrides.surfaces === undefined
-        ? { skills: [], hooks: ["post-model-call"], tools: [], schedules: [] }
+        ? {
+            skills: [],
+            hooks: ["post-model-call"],
+            tools: [],
+            schedules: [
+              { name: "digest", cadence: "0 9 * * *", mode: "execute" },
+            ],
+          }
         : overrides.surfaces,
   };
 }
@@ -1911,6 +1918,26 @@ describe("GET /v1/plugins/:name/inspect", () => {
     expect(result).toEqual(view);
     // AND the name is forwarded to the lib (ref is never caller-supplied)
     expect(inspectSpy.mock.calls[0]?.[0]).toEqual({ name: "level-up" });
+  });
+
+  test("the inspect wire schema carries the schedules surface", async () => {
+    // GIVEN an inspection whose surfaces declare a schedule
+    inspectSpy.mockImplementation(async () => inspection());
+    const result = await invokeInspect({ pathParams: { name: "level-up" } });
+
+    // WHEN the handler result is parsed through the route's response schema
+    // (zod strips undeclared keys, so an omission would drop the field)
+    const route = PLUGINS_ROUTES.find(
+      (r) => r.operationId === "plugins_inspect",
+    )!;
+    const parsed = (
+      route.responseBody as { parse: (v: unknown) => PluginInspection }
+    ).parse(result);
+
+    // THEN the declared schedules survive the wire contract
+    expect(parsed.surfaces?.schedules).toEqual([
+      { name: "digest", cadence: "0 9 * * *", mode: "execute" },
+    ]);
   });
 
   test("a captured marketplace error is returned as 200 with remote-unavailable, not thrown", async () => {

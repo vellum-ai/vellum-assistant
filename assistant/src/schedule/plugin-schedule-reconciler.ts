@@ -18,15 +18,13 @@
  * plugin source reconcile.
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-
 import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
+import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
+import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspacePluginsDir } from "../util/platform.js";
 import {
   type DeclarationError,
   parsePluginScheduleDeclarations,
@@ -82,7 +80,7 @@ async function runReconcilePass(): Promise<void> {
     return;
   }
 
-  const { desired, errors } = collectDesiredDeclarations();
+  const { desired, errors } = await collectDesiredDeclarations();
 
   const existingByKey = new Map<string, ScheduleJob>();
   for (const row of listDeclaredSchedules()) {
@@ -98,8 +96,9 @@ async function runReconcilePass(): Promise<void> {
       row !== undefined &&
       row.enabled &&
       row.definitionHash !== definition.definitionHash;
+    let applied: ScheduleJob;
     try {
-      await upsertDeclaredSchedule(sourceKey, definition);
+      applied = await upsertDeclaredSchedule(sourceKey, definition);
     } catch (err) {
       log.error(
         { err, sourceKey },
@@ -109,6 +108,15 @@ async function runReconcilePass(): Promise<void> {
     }
     if (changesArmedRow) {
       emitDefinitionChanged(pluginName, declaration);
+    }
+    // A brand-new armed row must never appear silently: a daemon-route
+    // install/upgrade has no interactive consent prompt, and even a CLI
+    // upgrade only confirms what it staged. The arrival notification is the
+    // consent surface for those paths; a CLI install that already prompted
+    // gets one redundant, hash-deduped notification. A re-linked row (its
+    // `source_key` already existed, e.g. reinstall or re-enable) is not new.
+    if (row === undefined && applied.enabled) {
+      emitScheduleDeclared(pluginName, declaration);
     }
   }
 
@@ -143,47 +151,34 @@ async function runReconcilePass(): Promise<void> {
 }
 
 /**
- * Enumerate installed plugins with the same gates as the plugin source walk
- * (`plugins/collect-source-versions.ts`): a directory under the workspace
- * plugins dir carrying a `package.json`, identity = the directory basename
- * (mirroring `parsePluginManifest`). Disabled plugins are skipped entirely,
- * so their declarations fall out of the desired set and disarm.
+ * Enumerate installed plugins ({@link listInstalledPluginDirs}, the same walk
+ * as the plugin source collector) and gather their schedule declarations.
+ * Identity = the directory basename, mirroring `parsePluginManifest`.
+ *
+ * Disabled plugins are skipped entirely, so their declarations fall out of
+ * the desired set and disarm. A plugin whose manifest fails
+ * `parsePluginManifest` (unreadable or schema-invalid `package.json`) is
+ * treated the same way: the runtime loader refuses to bring such a plugin up,
+ * so its schedules must not stay armed either. The parse failure is logged
+ * with attribution by `parsePluginManifest` itself.
  */
-function collectDesiredDeclarations(): {
+async function collectDesiredDeclarations(): Promise<{
   desired: Map<string, DesiredEntry>;
   errors: DeclarationError[];
-} {
+}> {
   const desired = new Map<string, DesiredEntry>();
   const errors: DeclarationError[] = [];
 
-  const pluginsDir = getWorkspacePluginsDir();
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(pluginsDir);
-  } catch {
-    // No plugins directory yet, so nothing declared.
-  }
-  for (const entry of entries) {
-    if (entry.startsWith(".")) {
+  for (const { name, dir } of listInstalledPluginDirs()) {
+    if (isPluginDisabled(name)) {
       continue;
     }
-    const dir = join(pluginsDir, entry);
-    try {
-      if (!statSync(dir).isDirectory()) {
-        continue;
-      }
-    } catch {
+    if ((await parsePluginManifest(dir)) === undefined) {
       continue;
     }
-    if (!existsSync(join(dir, "package.json"))) {
-      continue;
-    }
-    if (isPluginDisabled(entry)) {
-      continue;
-    }
-    const parsed = parsePluginScheduleDeclarations(dir, entry);
+    const parsed = parsePluginScheduleDeclarations(dir, name);
     for (const declaration of parsed.declarations) {
-      desired.set(declaration.sourceKey, { pluginName: entry, declaration });
+      desired.set(declaration.sourceKey, { pluginName: name, declaration });
     }
     errors.push(...parsed.errors);
   }
@@ -247,11 +242,28 @@ function emitDefinitionSignal(
 }
 
 /**
+ * UTC day of the last definition-error emit per `sourceKey`. A persistently
+ * broken declaration re-surfaces on every pass (60s sweep); the downstream
+ * daily dedupe key would drop the repeats, but this guard skips the emit call
+ * entirely so steady-state passes do no notification work.
+ */
+const definitionErrorEmittedDay = new Map<string, string>();
+
+/** Test-only: forget which definition errors were already emitted today. */
+export function resetDefinitionErrorEmitGuardForTests(): void {
+  definitionErrorEmittedDay.clear();
+}
+
+/**
  * Surface a malformed declaration. Deduped per schedule per UTC day so a
  * broken file doesn't spam on every pass.
  */
 function emitDefinitionError(error: DeclarationError): void {
   const day = new Date().toISOString().slice(0, 10);
+  if (definitionErrorEmittedDay.get(error.sourceKey) === day) {
+    return;
+  }
+  definitionErrorEmittedDay.set(error.sourceKey, day);
   emitDefinitionSignal(
     "schedule.definition_error",
     error.sourceKey,
@@ -282,6 +294,29 @@ function emitDefinitionChanged(
       pluginName,
       scheduleName: declaration.name,
       sourceKey: declaration.sourceKey,
+    },
+  );
+}
+
+/**
+ * Surface a declared schedule arming for the first time (its row was created
+ * by this pass). Deduped by definition hash, so the CLI-install case (which
+ * already prompted for consent) collapses to a single notification and
+ * concurrent triggers emit once.
+ */
+function emitScheduleDeclared(
+  pluginName: string,
+  declaration: ScheduleDeclaration,
+): void {
+  emitDefinitionSignal(
+    "schedule.declared",
+    declaration.sourceKey,
+    `schedule-declared:${declaration.sourceKey}:${declaration.definitionHash}`,
+    {
+      pluginName,
+      scheduleName: declaration.name,
+      sourceKey: declaration.sourceKey,
+      cadence: declaration.config.expression,
     },
   );
 }

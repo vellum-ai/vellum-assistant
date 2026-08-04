@@ -54,6 +54,8 @@ import {
   type PluginLocalInfo,
 } from "./inspect-plugin.js";
 import {
+  type ConfirmStagedInstall,
+  confirmStagedOrAbort,
   finalizeStagedInstall,
   type GitRunner,
   installPlugin,
@@ -138,6 +140,14 @@ export interface UpgradePluginDeps {
    * for dry runs or no-op upgrades (they never reach the swap).
    */
   readonly beforeSwap?: () => Promise<void>;
+  /**
+   * Consent gate between staging and finalize, identical to the install
+   * path's ({@link ConfirmStagedInstall}): the caller inspects the staged
+   * upgraded tree (e.g. its declared schedules) and may abort before
+   * anything replaces the live install. Applies to overwrite and merge
+   * upgrades alike; dry runs and no-ops never stage, so it is not invoked.
+   */
+  readonly confirmStaged?: ConfirmStagedInstall;
 }
 
 /** Result of an upgrade attempt. */
@@ -401,6 +411,7 @@ export async function upgradePlugin(
       runPostinstall: deps.runPostinstall,
       runInstallDeps: deps.runInstallDeps,
       beforeSwap: deps.beforeSwap,
+      confirmStaged: deps.confirmStaged,
     },
   );
 
@@ -591,6 +602,7 @@ async function directUpgrade(
       runPostinstall: deps.runPostinstall,
       runInstallDeps: deps.runInstallDeps,
       beforeSwap: deps.beforeSwap,
+      confirmStaged: deps.confirmStaged,
     },
   );
 
@@ -746,6 +758,12 @@ async function mergeUpgrade(
       strategy,
       conflictLabels,
     });
+
+    // Same staging-to-finalize consent boundary as `installPlugin`: the
+    // caller sees the fully merged tree before it replaces the live install.
+    // A decline removes the staging dir and throws; the outer catch's rmSync
+    // is then a no-op.
+    await confirmStagedOrAbort(name, stagingDir, deps.confirmStaged);
 
     const toCommit = theirs.commit ?? ctx.toCommit;
     const toTimestamp = theirs.committedAt ?? ctx.toTimestamp;

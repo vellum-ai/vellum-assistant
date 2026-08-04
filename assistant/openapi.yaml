@@ -24012,14 +24012,43 @@ paths:
                             description:
                               Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
                               `create_issue`).
+                          schedules:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                  description: "Schedule name: the flat file's basename or the declaration directory's name."
+                                cadence:
+                                  type: string
+                                  description: Raw schedule `expression` string from the declaration's config.
+                                mode:
+                                  type: string
+                                  enum:
+                                    - execute
+                                    - script
+                                  description: "`execute` for a markdown prompt entrypoint, `script` for `index.sh`."
+                              required:
+                                - name
+                                - cadence
+                                - mode
+                              additionalProperties: false
+                            description:
+                              "Schedules declared under `schedules/`, in either loader form: a flat `<name>.md` with YAML frontmatter, or
+                              a `<name>/` directory with `config.json` plus one entrypoint. Display surface only;
+                              ambiguous or unsupported declarations are omitted."
                         required:
                           - skills
                           - hooks
                           - tools
+                          - schedules
                         additionalProperties: false
                         description: Surfaces the installed copy contributes, read from its on-disk tree.
                       - type: "null"
-                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
+                    description:
+                      Surfaces the installed copy contributes (skills, hooks, tools, schedules); null when the plugin is not
+                      installed.
                 required:
                   - name
                   - installed

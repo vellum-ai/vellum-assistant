@@ -115,6 +115,38 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.message, "A reminder has fired"),
   }),
 
+  "schedule.declared": (payload) => {
+    const scheduleName = str(payload.scheduleName, "a schedule");
+    const pluginName = str(payload.pluginName, "A plugin");
+    const cadence =
+      typeof payload.cadence === "string" && payload.cadence.length > 0
+        ? ` (${payload.cadence})`
+        : "";
+    return {
+      title: `New plugin schedule: ${scheduleName}`,
+      body: `Plugin "${pluginName}" armed the schedule "${scheduleName}"${cadence}. It will run automatically; you can disable it from your schedules.`,
+    };
+  },
+
+  "schedule.definition_changed": (payload) => {
+    const scheduleName = str(payload.scheduleName, "a schedule");
+    const pluginName = str(payload.pluginName, "A plugin");
+    return {
+      title: `Plugin schedule changed: ${scheduleName}`,
+      body: `Plugin "${pluginName}" changed the definition of its schedule "${scheduleName}".`,
+    };
+  },
+
+  "schedule.definition_error": (payload) => {
+    const scheduleName = str(payload.scheduleName, "a schedule");
+    const pluginName = str(payload.pluginName, "A plugin");
+    const reason = str(payload.reason, "the declaration is invalid");
+    return {
+      title: `Plugin schedule error: ${scheduleName}`,
+      body: `Plugin "${pluginName}" has a schedule "${scheduleName}" that could not be loaded: ${reason}`,
+    };
+  },
+
   "guardian.question": (payload) => {
     const question = str(
       payload.questionText,

@@ -33,6 +33,11 @@ import type {
   InstallPluginOptions,
   InstallPluginResult,
 } from "../../lib/install-from-github.js";
+import type {
+  PluginUpgradeResult,
+  UpgradePluginDeps,
+  UpgradePluginOptions,
+} from "../../lib/upgrade-plugin.js";
 
 // ---------------------------------------------------------------------------
 // Mock state
@@ -49,6 +54,19 @@ let stageFixture: ((stagingDir: string) => void) | null = null;
 
 let installPluginCalls: InstallPluginOptions[] = [];
 let platformInstallCalls: Array<{ name: string; force?: boolean }> = [];
+let upgradePluginCalls: UpgradePluginOptions[] = [];
+
+/**
+ * Queued daemon IPC responses. The default (empty queue) is a transport
+ * failure (`ok: false`, no `statusCode`), which routes upgrade to the local
+ * lib fallback where the consent gate lives.
+ */
+let ipcResults: Array<{
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+}> = [];
 
 let inspectResult: PluginInspection | null = null;
 
@@ -71,25 +89,29 @@ const realPlatform = await import("../../lib/install-from-platform.js");
 const realInspect = await import("../../lib/inspect-plugin.js");
 
 /**
- * Fake install: stage the fixture tree, run the real staged-install consent
- * gate (so a decline aborts exactly like production), and return a canned
- * success result.
+ * Stage the fixture tree and run the real staged-install consent gate, so a
+ * decline aborts exactly like production. Shared by the fake install and
+ * fake upgrade.
  */
+async function stageAndConfirm(
+  name: string,
+  confirmStaged: InstallPluginDeps["confirmStaged"],
+): Promise<void> {
+  const stagingDir = mkdtempSync(join(tmpdir(), "plugins-cmd-staging-"));
+  try {
+    stageFixture?.(stagingDir);
+    await realGithub.confirmStagedOrAbort(name, stagingDir, confirmStaged);
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+  }
+}
+
+/** Fake install: run the consent gate, then return a canned success result. */
 async function runFakeInstall(
   name: string,
   deps: Pick<InstallPluginDeps, "confirmStaged"> | undefined,
 ): Promise<InstallPluginResult> {
-  const stagingDir = mkdtempSync(join(tmpdir(), "plugins-cmd-staging-"));
-  try {
-    stageFixture?.(stagingDir);
-    await realGithub.confirmStagedOrAbort(
-      name,
-      stagingDir,
-      deps?.confirmStaged,
-    );
-  } finally {
-    rmSync(stagingDir, { recursive: true, force: true });
-  }
+  await stageAndConfirm(name, deps?.confirmStaged);
   return {
     name,
     target: `/plugins/${name}`,
@@ -131,6 +153,46 @@ mock.module("../../lib/inspect-plugin.js", () => ({
     return inspectResult;
   },
 }));
+
+const realUpgrade = await import("../../lib/upgrade-plugin.js");
+const realCliClient = await import("../../../ipc/cli-client.js");
+
+/** Fake upgrade: run the consent gate, then return a canned upgraded result. */
+mock.module("../../lib/upgrade-plugin.js", () => ({
+  ...realUpgrade,
+  upgradePlugin: async (
+    opts: UpgradePluginOptions,
+    deps: UpgradePluginDeps,
+  ): Promise<PluginUpgradeResult> => {
+    upgradePluginCalls.push(opts);
+    await stageAndConfirm(opts.name, deps.confirmStaged);
+    return upgradedResult(opts.name);
+  },
+}));
+
+mock.module("../../../ipc/cli-client.js", () => ({
+  ...realCliClient,
+  cliIpcCall: async () =>
+    ipcResults.shift() ?? { ok: false, error: "daemon unreachable" },
+}));
+
+function upgradedResult(name: string): PluginUpgradeResult {
+  return {
+    name,
+    outcome: "upgraded",
+    fromCommit: "a".repeat(40),
+    fromTimestamp: null,
+    toCommit: "b".repeat(40),
+    toTimestamp: null,
+    target: `/plugins/${name}`,
+    fileCount: 3,
+    dryRun: false,
+    strategy: "overwrite",
+    conflicts: [],
+    binaryConflicts: [],
+    provenanceWasUnknown: false,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Import module under test (after mocks)
@@ -228,6 +290,8 @@ beforeEach(() => {
   stageFixture = null;
   installPluginCalls = [];
   platformInstallCalls = [];
+  upgradePluginCalls = [];
+  ipcResults = [];
   inspectResult = null;
   // Platform features on by default, so a plain name install takes the
   // platform-tarball branch.
@@ -364,6 +428,83 @@ describe("plugins install - declared-schedules consent", () => {
     expect(installPluginCalls[0]!.trustedSource).toBeDefined();
     expect(confirmCalls.length).toBe(1);
     expect(r.stdout).toContain('Plugin "caveman" declares 2 schedules:');
+    expect(r.exitCode).toBe(0);
+  });
+});
+
+describe("plugins upgrade - declared-schedules consent (local fallback)", () => {
+  test("lists declared schedules and prompts before finalizing", async () => {
+    stageFixture = writeScheduleFixture;
+    confirmResults = ["confirmed"];
+
+    const r = await runCommand(["plugins", "upgrade", "example"]);
+
+    expect(upgradePluginCalls.length).toBe(1);
+    expect(r.stdout).toContain('Plugin "example" declares 2 schedules:');
+    expect(r.stdout).toContain("daily-report");
+    expect(r.stdout).toContain("cleanup");
+    expect(confirmCalls.length).toBe(1);
+    expect(confirmCalls[0]!.question).toContain(
+      'Upgrade "example" and allow these schedules?',
+    );
+    expect(r.stdout).toContain('Upgraded "example"');
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("declining cancels the upgrade cleanly", async () => {
+    stageFixture = writeScheduleFixture;
+    confirmResults = ["denied"];
+
+    const r = await runCommand(["plugins", "upgrade", "example"]);
+
+    expect(r.stdout).toContain("Upgrade cancelled.");
+    expect(r.stdout).not.toContain('Upgraded "example"');
+    expect(r.stderr).not.toContain("Plugin upgrade failed");
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("a non-interactive refusal exits 1", async () => {
+    stageFixture = writeScheduleFixture;
+    confirmResults = ["non-interactive"];
+
+    const r = await runCommand(["plugins", "upgrade", "example"]);
+
+    expect(r.stdout).not.toContain('Upgraded "example"');
+    expect(r.exitCode).toBe(1);
+  });
+
+  test("--force skips the prompt but still lists the schedules", async () => {
+    stageFixture = writeScheduleFixture;
+
+    const r = await runCommand(["plugins", "upgrade", "example", "--force"]);
+
+    expect(confirmCalls.length).toBe(0);
+    expect(r.stdout).toContain('Plugin "example" declares 2 schedules:');
+    expect(r.stdout).toContain('Upgraded "example"');
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("an upgrade without declared schedules has zero consent UX", async () => {
+    stageFixture = null;
+
+    const r = await runCommand(["plugins", "upgrade", "example"]);
+
+    expect(confirmCalls.length).toBe(0);
+    expect(r.stdout).toContain('Upgraded "example"');
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("a daemon-routed upgrade never reaches the local gate", async () => {
+    // The daemon route is unattended by design; the reconciler's
+    // schedule.declared notification is its consent surface.
+    stageFixture = writeScheduleFixture;
+    ipcResults = [{ ok: true, result: upgradedResult("example") }];
+
+    const r = await runCommand(["plugins", "upgrade", "example"]);
+
+    expect(upgradePluginCalls.length).toBe(0);
+    expect(confirmCalls.length).toBe(0);
+    expect(r.stdout).toContain('Upgraded "example"');
     expect(r.exitCode).toBe(0);
   });
 });
