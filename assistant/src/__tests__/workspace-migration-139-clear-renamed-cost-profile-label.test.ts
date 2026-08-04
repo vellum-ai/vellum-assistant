@@ -51,15 +51,15 @@ afterEach(() => {
 });
 
 describe("139-clear-renamed-cost-profile-label migration", () => {
-  test("has correct migration id and is registered", () => {
+  test("has correct migration id and is registered last", () => {
     expect(clearRenamedCostProfileLabelMigration.id).toBe(
       "139-clear-renamed-cost-profile-label",
     );
-    expect(
-      WORKSPACE_MIGRATIONS.some(
-        (m) => m.id === "139-clear-renamed-cost-profile-label",
-      ),
-    ).toBe(true);
+    // getLastWorkspaceMigrationId() reports the final entry as the registry
+    // ceiling, so the highest id must stay last.
+    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
+      "139-clear-renamed-cost-profile-label",
+    );
   });
 
   test("clears the seeded label so the code catalog label applies", () => {

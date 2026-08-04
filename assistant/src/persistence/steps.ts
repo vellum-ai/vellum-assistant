@@ -468,6 +468,7 @@ import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/357-move-memor
 import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/358-move-memory-embeddings-to-memory-db.js";
 import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memory-summaries-to-memory-db.js";
 import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-workspace-path.js";
+import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1543,4 +1544,5 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateAddDocumentWorkspacePath,
+  migrateNormalizeManagedConnectionRows,
 ];
