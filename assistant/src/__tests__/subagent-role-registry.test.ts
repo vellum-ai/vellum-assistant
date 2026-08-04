@@ -89,6 +89,15 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
+  test("researcher preamble discourages slicing without instructing whole-file reads", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.researcher.systemPromptPreamble;
+    // `file_read` takes no default line limit and its results skip result-time
+    // spooling, so a whole-file instruction puts full bodies on every LLM call
+    // for the rest of the turn. Keep the anti-slicing guidance without it.
+    expect(preamble.toLowerCase()).not.toContain("read whole files");
+    expect(preamble).toContain("one pass rather than many small slices");
+  });
+
   test("advisor preamble states it can verify facts but cannot change anything", () => {
     const preamble = SUBAGENT_ROLE_REGISTRY.advisor.systemPromptPreamble;
     expect(preamble).toContain("read and search the files");
