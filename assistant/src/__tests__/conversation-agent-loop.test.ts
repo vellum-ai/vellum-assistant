@@ -2406,12 +2406,11 @@ describe("session-agent-loop", () => {
     });
 
     test("persists the synthetic error row when a daily-limit error kills the run mid-turn", async () => {
-      // The regression this pins: a run that already completed a tool
-      // round-trip carries assistant `tool_use` messages, so a "did any
-      // assistant message exist?" guard treated the run as having replied and
-      // skipped the whole persist branch. The turn then left nothing durable
-      // behind — a reload showed the tool call with no explanation of why the
-      // assistant stopped.
+      // Mid-turn shape: the run already carries assistant `tool_use` messages
+      // from the completed tool round-trip, and only the failing follow-up
+      // call lacks a reply. The synthetic error row must persist for this
+      // shape too, so a reload explains why the assistant stopped instead of
+      // ending on a bare tool call.
       reserveMessageMock
         .mockImplementationOnce(async () => ({ id: "msg-reserve-1" }))
         .mockImplementationOnce(async () => ({ id: "msg-reserve-2" }))
