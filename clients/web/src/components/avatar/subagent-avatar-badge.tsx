@@ -1,6 +1,8 @@
-// Collapsed-summary avatar unit: a 46x32 pill carrying a status glyph
-// (running dots / check / X) in a fixed slot to the left of the subagent's
-// avatar. Terminal states tint the pill with the matching weak system fill.
+// Collapsed-summary avatar unit: a pill carrying a status glyph (running dots
+// / check / X) in a fixed slot to the left of the subagent's avatar. Terminal
+// states tint the pill with the matching weak system fill. The glyphs and the
+// slot are sized in px so they hold their proportions at any root font size;
+// the pill's height tracks the root like the rest of the row.
 
 import { Check, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -118,10 +120,10 @@ export function SubagentAvatarBadge({
                   <ThreeDotIndicator dotSize={3} gap={2} />
                 )}
                 {badgeState === "completed" && (
-                  <Check className="h-2.5 w-2.5 text-[var(--system-positive-on-weak)]" />
+                  <Check className="h-[10px] w-[10px] text-[var(--system-positive-on-weak)]" />
                 )}
                 {badgeState === "errored" && (
-                  <X className="h-2.5 w-2.5 text-[var(--system-negative-on-weak)]" />
+                  <X className="h-[10px] w-[10px] text-[var(--system-negative-on-weak)]" />
                 )}
               </motion.span>
             </AnimatePresence>
