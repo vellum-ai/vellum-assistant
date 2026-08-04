@@ -58,12 +58,15 @@ mock.module("@/lib/local-mode", () => ({
 // store's heavy dependency graph. `subscribe` is a no-op the (unrelated)
 // organization-store binds but never calls in these tests.
 type MockSessionStatus = "initializing" | "authenticated" | "unauthenticated";
+type MockPlatformSession = "unknown" | "present" | "absent";
 
 const mockAuthState: {
   sessionStatus: MockSessionStatus;
+  platformSession: MockPlatformSession;
   refreshSession: () => Promise<boolean>;
 } = {
   sessionStatus: "authenticated",
+  platformSession: "present",
   refreshSession: async () => true,
 };
 
@@ -1483,6 +1486,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     setSelfHostedConnection(null);
     sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
     mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.platformSession = "present";
     mockAuthState.refreshSession = mock(async () => true);
     hardNavigateMock.mockClear();
   });
@@ -1599,11 +1603,9 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 
-  test("stops redirecting to login once the budget is spent (#39820)", async () => {
+  test("stops redirecting to login once the budget is spent", async () => {
     // The redirect is a full page load, so the in-memory latch cannot count
-    // round trips — a destination that bounces back and rejects again gets a
-    // fresh latch every time. Without the sessionStorage budget this is an
-    // unbounded loop.
+    // round trips and a bouncing destination would drive them without bound.
     for (let i = 0; i < PLATFORM_AUTH_MAX_REDIRECTS; i++) {
       await rejectOnce();
     }
@@ -1613,7 +1615,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(hardNavigateMock).toHaveBeenCalledTimes(PLATFORM_AUTH_MAX_REDIRECTS);
   });
 
-  test("a successful platform response restores the redirect budget", async () => {
+  test("a platform 2xx on a confirmed session restores the redirect budget", async () => {
     sessionStorage.setItem(
       PLATFORM_AUTH_REDIRECT_KEY,
       String(PLATFORM_AUTH_MAX_REDIRECTS),
@@ -1622,7 +1624,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     await rejectOnce();
     expect(hardNavigateMock).not.toHaveBeenCalled();
 
-    // The platform answering is the only evidence the session works again.
+    mockAuthState.platformSession = "present";
     platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
     expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBeNull();
 
@@ -1630,8 +1632,28 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(hardNavigateMock).toHaveBeenCalledTimes(1);
   });
 
+  test("a 2xx without a platform session does not restore the budget", async () => {
+    // The platform serves some routes to anonymous visitors, and the login
+    // screen loads one: `AccountLayout` syncs client feature flags. Treating
+    // that as proof of a live session would refill the budget on every bounce.
+    mockAuthState.platformSession = "absent";
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, "https://platform.test/v1/feature-flags/"),
+    );
+
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+  });
+
   test("a self-hosted gateway 2xx does not restore the platform budget", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    mockAuthState.platformSession = "present";
     sessionStorage.setItem(
       PLATFORM_AUTH_REDIRECT_KEY,
       String(PLATFORM_AUTH_MAX_REDIRECTS),

@@ -32,13 +32,8 @@ export async function refreshDiagnosticsConsent(): Promise<void> {
   // Capture the authenticated user BEFORE the await so we can detect a
   // logout/account-switch that races the in-flight fetch.
   //
-  // Gated on `kind`, not merely on a truthy id: local mode signs in a synthetic
-  // `"local"` user (`id: "gateway-local"`) that has no platform account behind
-  // it, so an id check alone sent this fetch out for users the platform has
-  // never heard of. `/v1/user/consent/` then answers 401/403 — a settled
-  // rejection, which arms `platformAuthRecoveryInterceptor` — to ask a question
-  // that has no server-side answer to begin with. There is no consent record to
-  // read without a platform account (#39820).
+  // Gated on `kind`, not a truthy id: local mode signs in a synthetic `"local"`
+  // user that has no platform account, and so no consent record to read.
   const userBefore = useAuthStore.getState().user;
   const userIdBefore = userBefore?.id;
   if (!userIdBefore || userBefore?.kind !== "platform") {

@@ -534,17 +534,13 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent"); // stale platform state cleared
   });
 
-  test("refreshSession keeps a pre-hatch local session alive on a settled 401 (#39820)", async () => {
-    // Brand-new desktop user: local mode, nothing hatched yet, so there is no
-    // local gateway URL and `isGatewayAuthEnabled()` is false. They have no
-    // platform account either, so the probe legitimately settles 401. Ending
-    // the local session here is what drove the onboarding reload loop — the
-    // recovery interceptor sent them to `/account/login?returnTo=…`, which
-    // bounced straight back once boot re-established the local session.
+  test("refreshSession keeps a pre-hatch local session alive on a settled 401", async () => {
+    // Brand-new desktop user: nothing hatched, so no local gateway URL, and no
+    // platform account for the probe to find.
     mockIsLocalClient = true;
-    mockIsGatewayAuth = false; // nothing hatched → no local gateway URL
+    mockIsGatewayAuth = false;
     mockGatewayToken = null;
-    mockPlatformAssistants = []; // and no managed assistant to answer for
+    mockPlatformAssistants = [];
     sessionUser = null;
     useAuthStore.setState({
       sessionStatus: "authenticated",
@@ -560,9 +556,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("refreshSession still ends a local session whose assistants are platform-hosted", async () => {
     // A managed assistant is unreachable without a platform session, so the
-    // demotion above deliberately does not cover this case — routing to login
-    // is the honest outcome rather than stranding the user beside an assistant
-    // that can no longer answer.
+    // demotion above excludes this case and login is the right destination.
     mockIsLocalClient = true;
     mockIsGatewayAuth = false;
     mockGatewayToken = null;
@@ -580,7 +574,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("refreshSession still ends the session for a platform-mode client on a settled 401", async () => {
     // The web SPA has no local session to fall back on, so a settled rejection
-    // must still log out — the guard above is local-mode only.
+    // still logs out.
     mockIsLocalClient = false;
     mockIsGatewayAuth = false;
     mockGatewayToken = null;

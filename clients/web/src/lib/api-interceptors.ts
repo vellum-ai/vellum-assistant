@@ -53,6 +53,7 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import {
+  hasLivePlatformSession,
   isAuthenticated,
   isSettledSessionRejection,
 } from "@/stores/session-status";
@@ -517,25 +518,11 @@ export function localGatewayAuthRecoveryInterceptor(
 let platformAuthRecoveryFired = false;
 
 /**
- * Cross-page-load budget for the redirect below.
- *
- * The in-memory latch above only de-duplicates rejections within one page
- * lifecycle, and the redirect is a full page load — so a destination that comes
- * back and rejects again gets a fresh latch every time, and nothing counts the
- * round trips. That is a loop with no floor, and #39820 rode it: the login page
- * bounced straight back to the caller's `returnTo`, which rejected again, twice
- * a second, indefinitely.
- *
- * The specific cause of that loop is fixed in `refreshSession` (a local session
- * no longer ends on a platform rejection), so this is the structural backstop
- * rather than the fix: whatever the reason a redirect fails to resolve the
- * rejection, the app stops re-driving it after a few attempts and the normal
- * error path surfaces the state instead.
- *
- * Mirrors the gateway budget above, including why elapsed time never restores
- * it: only a platform request actually succeeding proves the session works, so
- * only that clears it. Living in sessionStorage means a quit-and-reopen grants
- * a fresh budget.
+ * Caps the login redirects below. The redirect is a full page load, so the
+ * in-memory latch cannot count round trips and a destination that bounces back
+ * and rejects again would drive them without bound. Only a confirmed platform
+ * session restores the budget; sessionStorage means a relaunch grants a fresh
+ * one.
  */
 const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
 const PLATFORM_AUTH_MAX_REDIRECTS = 3;
@@ -546,9 +533,8 @@ export function resetPlatformAuthRecoveryFlag(): void {
 }
 
 /**
- * Spend one redirect from the budget. Returns false when it is exhausted (or
- * when sessionStorage is unavailable, so an environment that cannot count fails
- * closed rather than looping).
+ * Spend one redirect. False when the budget is exhausted, or when
+ * sessionStorage is unavailable so an uncountable environment fails closed.
  */
 function claimPlatformAuthRedirect(): boolean {
   try {
@@ -566,6 +552,11 @@ function claimPlatformAuthRedirect(): boolean {
   }
 }
 
+/**
+ * Restore the budget. Gated on a confirmed platform session by the caller: the
+ * platform serves some routes (client feature flags) to anonymous visitors, so
+ * a 2xx alone does not mean the session works.
+ */
 function clearPlatformAuthRedirectBudget(): void {
   try {
     sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
@@ -613,8 +604,8 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
  * {@link localGatewayAuthRecoveryInterceptor}.
  *
- * A platform request that succeeds restores the redirect budget: it is the only
- * evidence the session is working again.
+ * A platform request that succeeds against a confirmed session restores the
+ * redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
   const ingressUrl = getSelfHostedIngressUrl();
@@ -622,9 +613,12 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
     !!ingressUrl && response.url.startsWith(ingressUrl);
 
   if (response.ok) {
-    // Scoped to platform responses — a working self-hosted gateway says nothing
-    // about the platform session the budget is counting redirects for.
-    if (!fromSelfHostedGateway) {
+    // A working self-hosted gateway says nothing about the platform session,
+    // and neither does a route the platform serves anonymously.
+    if (
+      !fromSelfHostedGateway &&
+      hasLivePlatformSession(useAuthStore.getState().platformSession)
+    ) {
       clearPlatformAuthRedirectBudget();
     }
     return response;

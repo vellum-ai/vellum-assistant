@@ -48,8 +48,7 @@ mock.module("@/lib/consent/diagnostics-consent", () => ({
 
 type MockUser = { id: string; kind: "platform" | "local" };
 const PLATFORM_USER: MockUser = { id: "u1", kind: "platform" };
-// What local mode signs in before anything is hatched: a synthetic identity
-// with no platform account behind it.
+// The synthetic identity local mode signs in, with no platform account behind it.
 const LOCAL_USER: MockUser = { id: "gateway-local", kind: "local" };
 let currentUser: MockUser | null = PLATFORM_USER;
 mock.module("@/stores/auth-store", () => ({
@@ -141,11 +140,9 @@ describe("refreshDiagnosticsConsent", () => {
     expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();
   });
 
-  test("no-ops for a local-mode user with no platform account (#39820)", async () => {
-    // A truthy id is not a platform account. Fetching consent for the synthetic
-    // local user asks the platform about someone it has never heard of, and the
-    // 401/403 it answers with is a settled rejection that arms the platform auth
-    // recovery — the redirect half of the onboarding reload loop.
+  test("no-ops for a local-mode user with no platform account", async () => {
+    // A truthy id is not a platform account, and the 401/403 the platform
+    // answers with is a settled rejection that arms the auth recovery.
     currentUser = LOCAL_USER;
     await refreshDiagnosticsConsent();
     expect(fetchConsent).not.toHaveBeenCalled();
