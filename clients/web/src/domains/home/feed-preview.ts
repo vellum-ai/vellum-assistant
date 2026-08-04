@@ -1,7 +1,9 @@
 /**
  * Preview text resolution for home feed cards. A feed item's `summary` is
- * markdown, so it has to be flattened to a single line before it can sit under
- * the title, and suppressed entirely when it would only restate that title.
+ * markdown, so it has to be flattened to a single line of plain text before it
+ * can sit under the title, and suppressed entirely when it would only restate
+ * that title. The returned string carries no markdown syntax and is meant to be
+ * rendered directly.
  */
 
 import remarkGfm from "remark-gfm";
@@ -10,12 +12,6 @@ import { unified } from "unified";
 
 /** Shortest continuation worth showing after the title's prefix is removed. */
 const MIN_PREVIEW_LENGTH = 12;
-
-/**
- * Inline punctuation ignored when comparing a preview to a title: emphasis,
- * code span, and strikethrough markers.
- */
-const INLINE_MARK_PUNCTUATION = "*_`~";
 
 /**
  * Sentence punctuation, ignored at the end of a comparison form and left
@@ -69,10 +65,9 @@ function trimTrailingSentencePunctuation(value: string): string {
 }
 
 /**
- * Turn multi-line markdown into a single line, dropping block structure and
- * code while keeping inline emphasis (`**bold**`, `*em*`, backtick code) so
- * the result can be rendered as inline markdown. A link contributes its text
- * and drops its destination.
+ * Turn multi-line markdown into a single line of plain text, dropping block
+ * structure and code blocks and unwrapping every inline marker. A link
+ * contributes its text and drops its destination.
  */
 function flattenMarkdownBlocks(summary: string): string {
   const tree = markdownParser.parse(summary) as MarkdownNode;
@@ -88,27 +83,18 @@ function flattenNode(node: MarkdownNode): string {
     case "yaml": {
       return "";
     }
+    case "inlineCode":
     case "text": {
       return node.value ?? "";
-    }
-    case "inlineCode": {
-      const value = node.value ?? "";
-      return value.length === 0 ? "" : `\`${value}\``;
     }
     case "break": {
       return " ";
     }
-    case "strong": {
-      const inner = flattenChildren(node);
-      return inner.length === 0 ? "" : `**${inner}**`;
-    }
-    case "emphasis": {
-      const inner = flattenChildren(node);
-      return inner.length === 0 ? "" : `*${inner}*`;
-    }
     case "delete":
+    case "emphasis":
     case "link":
-    case "linkReference": {
+    case "linkReference":
+    case "strong": {
       return flattenChildren(node);
     }
     case "image":
@@ -154,12 +140,11 @@ interface NormalizedCharacter {
 
 /**
  * Emit the comparison form of `value` one character at a time, recording where
- * each character ends in the source. Emphasis, code span, and strikethrough
- * punctuation is dropped, whitespace runs collapse to a single space, and
- * leading whitespace is skipped.
+ * each character ends in the source. Whitespace runs collapse to a single
+ * space, leading whitespace is skipped, and letters are lowercased.
  *
  * Comparison and slicing both read this one walk, so the offset a slice cuts
- * at can never drift from what the comparison removed.
+ * at can never drift from what the comparison collapsed.
  */
 function normalizedCharacters(value: string): NormalizedCharacter[] {
   const characters: NormalizedCharacter[] = [];
@@ -167,9 +152,6 @@ function normalizedCharacters(value: string): NormalizedCharacter[] {
 
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index];
-    if (INLINE_MARK_PUNCTUATION.includes(char)) {
-      continue;
-    }
     const end = index + 1;
     if (/\s/.test(char)) {
       if (previousWasSpace || characters.length === 0) {
@@ -190,8 +172,8 @@ function normalizedCharacters(value: string): NormalizedCharacter[] {
 
 /**
  * Reduce a string to the form used for title-versus-preview comparison, so
- * that inline markup, spacing, and a trailing period never make two equivalent
- * strings look different.
+ * that case, spacing, and a trailing period never make two equivalent strings
+ * look different.
  */
 function normalizeForCompare(value: string): string {
   const flattened = normalizedCharacters(value)
@@ -224,24 +206,17 @@ function sliceAfterNormalizedPrefix(
 }
 
 /**
- * Clean up the join between a sliced-off title and the text that follows it:
- * leading whitespace, sentence punctuation, and any inline markers left
- * closing a run whose opener went with the title. A marker is only debris
- * while it abuts the cut, so a backtick after a space (the start of a real
- * inline code span) is kept.
+ * Clean up the join between a sliced-off title and the text that follows it,
+ * dropping the leading whitespace and sentence punctuation the cut leaves
+ * behind.
  */
 function stripSliceDebris(value: string): string {
   let index = 0;
-  let sawWhitespace = false;
   while (index < value.length) {
     const char = value[index];
-    const isWhitespace = /\s/.test(char);
-    const isClosingMark =
-      !sawWhitespace && INLINE_MARK_PUNCTUATION.includes(char);
-    if (!isWhitespace && !isClosingMark && !isSentencePunctuation(char)) {
+    if (!/\s/.test(char) && !isSentencePunctuation(char)) {
       break;
     }
-    sawWhitespace = sawWhitespace || isWhitespace;
     index += 1;
   }
   return value.slice(index);

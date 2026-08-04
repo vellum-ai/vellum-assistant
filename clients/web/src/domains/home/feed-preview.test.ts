@@ -5,13 +5,13 @@ import { describe, expect, test } from "bun:test";
 import { resolvePreview } from "./feed-preview";
 
 describe("resolvePreview", () => {
-  test("keeps inline emphasis in a flattened summary", () => {
+  test("unwraps inline emphasis in a flattened summary", () => {
     expect(
       resolvePreview(
         "Watcher job failed",
         "**Error:** message channel closed before a response was received.",
       ),
-    ).toBe("**Error:** message channel closed before a response was received.");
+    ).toBe("Error: message channel closed before a response was received.");
   });
 
   test("passes a genuinely distinct summary through untouched", () => {
@@ -37,16 +37,16 @@ describe("resolvePreview", () => {
     expect(preview).toBe("because the api worker never reported healthy.");
   });
 
-  test("keeps emphasis intact in the continuation", () => {
+  test("unwraps emphasis and code spans in the continuation", () => {
     expect(
       resolvePreview(
         "Deploy failed",
         "**Deploy failed** because the `api` worker never reported healthy.",
       ),
-    ).toBe("because the `api` worker never reported healthy.");
+    ).toBe("because the api worker never reported healthy.");
   });
 
-  test("drops a closing emphasis marker orphaned by the slice", () => {
+  test("drops a bold title's trailing period orphaned by the slice", () => {
     expect(
       resolvePreview(
         "Deploy failed",
@@ -73,10 +73,10 @@ describe("resolvePreview", () => {
     ).toBe("The api worker never reported healthy.");
   });
 
-  test("keeps a code span that starts the continuation", () => {
+  test("unwraps a code span that starts the continuation", () => {
     expect(
       resolvePreview("Deploy failed", "Deploy failed: `api` never came up."),
-    ).toBe("`api` never came up.");
+    ).toBe("api never came up.");
   });
 
   test("returns null when the summary only links the title text", () => {
@@ -156,13 +156,13 @@ describe("resolvePreview", () => {
     expect(resolvePreview("Deploy failed", "Deploy failed on api.")).toBeNull();
   });
 
-  test("strips headings and bullets while preserving inline bold", () => {
+  test("strips headings and bullets and unwraps inline bold", () => {
     expect(
       resolvePreview(
         "Deploy report",
         "## Deploy failed\n\n- **api** timed out\n- worker OK",
       ),
-    ).toBe("Deploy failed **api** timed out worker OK");
+    ).toBe("Deploy failed api timed out worker OK");
   });
 
   test("strips ordered list markers in both delimiter forms", () => {
@@ -242,7 +242,43 @@ describe("resolvePreview", () => {
   test("treats a backtick run with a backticked info string as an inline span", () => {
     expect(
       resolvePreview("Status check", "```code``` is the reported value"),
-    ).toBe("`code` is the reported value");
+    ).toBe("code is the reported value");
+  });
+
+  test("unwraps a code span whose content holds a backtick", () => {
+    const preview = resolvePreview(
+      "Shell tip",
+      "Use ``a ` b`` in the shell without escaping.",
+    );
+    expect(preview).toBe("Use a ` b in the shell without escaping.");
+  });
+
+  test("keeps escaped asterisks as literal text", () => {
+    expect(
+      resolvePreview(
+        "Export formatting",
+        "The label reads \\* literal stars \\* exactly as typed.",
+      ),
+    ).toBe("The label reads * literal stars * exactly as typed.");
+    expect(
+      resolvePreview(
+        "Export formatting",
+        "The label reads \\*literal stars\\* exactly as typed.",
+      ),
+    ).toBe("The label reads *literal stars* exactly as typed.");
+  });
+
+  test("returns a markdown-rich summary as plain text", () => {
+    const preview = resolvePreview(
+      "Release notes",
+      "## Rollout\n\n- **api** is `healthy` after the [runbook](https://example.com) steps\n- *worker* recovered",
+    );
+    expect(preview).toBe(
+      "Rollout api is healthy after the runbook steps worker recovered",
+    );
+    for (const character of ["*", "`", "#", "[", "]"]) {
+      expect(preview).not.toContain(character);
+    }
   });
 
   test("still opens a tilde fence whose info string holds a backtick", () => {
