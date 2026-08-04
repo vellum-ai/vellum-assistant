@@ -4,7 +4,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // them at will, and `off` removes them so teardown is observable.
 type PowerListener = () => void;
 const powerListeners = new Map<string, Set<PowerListener>>();
+// Set to an event name to make that subscription blow up, standing in for an
+// electron build where one of the six events is unavailable.
+let attachFailsOn: string | null = null;
 const powerOnMock = mock((event: string, listener: PowerListener) => {
+  if (event === attachFailsOn) {
+    throw new Error(`cannot subscribe to ${event}`);
+  }
   const existing = powerListeners.get(event) ?? new Set<PowerListener>();
   existing.add(listener);
   powerListeners.set(event, existing);
@@ -29,6 +35,29 @@ mock.module("electron", () => ({
     getSystemIdleTime: getSystemIdleTimeMock,
   },
 }));
+
+// Stub electron-log so the module's logger import stays inert under test.
+const mockLogWarn = mock((..._args: unknown[]) => {});
+mock.module("electron-log/main", () => {
+  const noop = () => {};
+  return {
+    default: {
+      info: noop,
+      warn: mockLogWarn,
+      error: noop,
+      debug: noop,
+      initialize: noop,
+      transports: {
+        file: {
+          maxSize: 0,
+          fileName: "",
+          format: "",
+          getFile: () => ({ path: "" }),
+        },
+      },
+    },
+  };
+});
 
 const { IDLE_THRESHOLD_MS, POLL_INTERVAL_MS, installPresenceMonitor } =
   await import("./presence");
@@ -59,6 +88,8 @@ beforeEach(() => {
   powerOnMock.mockClear();
   powerOffMock.mockClear();
   getSystemIdleTimeMock.mockClear();
+  mockLogWarn.mockClear();
+  attachFailsOn = null;
   idleSeconds = 0;
   idleThrows = false;
   intervalCallback = null;
@@ -263,6 +294,35 @@ describe("installPresenceMonitor", () => {
     secondTeardown();
     expect(listenerCount()).toBe(6);
     expect(clearIntervalMock).not.toHaveBeenCalled();
+  });
+
+  test("a refused install says so in the log", () => {
+    install();
+
+    mockLogWarn.mockClear();
+    const secondTeardown = installPresenceMonitor(() => {});
+
+    // A caller that silently gets nothing would otherwise be invisible.
+    expect(mockLogWarn).toHaveBeenCalledTimes(1);
+    secondTeardown();
+  });
+
+  test("a throw while attaching listeners leaves the latch clear", () => {
+    attachFailsOn = "user-did-resign-active";
+    expect(() => installPresenceMonitor(() => {})).toThrow();
+
+    // Latching before the listeners are up would strand the process with no
+    // monitor, no teardown, and no way to try again.
+    attachFailsOn = null;
+    idleSeconds = 0;
+    const reports: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
+
+    expect(reports).toEqual(["active"]);
+    expect(intervalCallback).not.toBeNull();
+
+    fire("lock-screen");
+    expect(reports).toEqual(["active", "away"]);
   });
 
   test("a fresh install works again after teardown", () => {

@@ -27,6 +27,12 @@ export interface HostProxySseOptions {
   idleCheckIntervalMs?: number;
   /** Called before each reconnect — return a fresh token or null. */
   onRefreshToken?: () => Promise<string | null>;
+  /**
+   * Called every time a stream goes live, reconnects included. A reconnect is
+   * when the daemon has dropped this client's subscriber, so anything keyed to
+   * the subscriber existing has to be redone rather than only set up once.
+   */
+  onConnected?: () => void;
 }
 
 export interface HostProxySseMessage {
@@ -48,6 +54,7 @@ export class HostProxySseClient {
   private readonly idleTimeoutMs: number;
   private readonly idleCheckIntervalMs: number;
   private readonly onRefreshToken: (() => Promise<string | null>) | null;
+  private readonly onConnected: (() => void) | null;
   private onMessage: MessageCallback | null = null;
 
   private abortController: AbortController | null = null;
@@ -65,6 +72,7 @@ export class HostProxySseClient {
     this.idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
     this.idleCheckIntervalMs = options.idleCheckIntervalMs ?? IDLE_CHECK_INTERVAL_MS;
     this.onRefreshToken = options.onRefreshToken ?? null;
+    this.onConnected = options.onConnected ?? null;
   }
 
   /** Register a callback for parsed SSE messages. */
@@ -131,6 +139,7 @@ export class HostProxySseClient {
     this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
     this.lastTrafficAt = Date.now();
     this.startIdleWatchdog();
+    this.notifyConnected();
 
     try {
       await this.readStream(response.body);
@@ -141,6 +150,17 @@ export class HostProxySseClient {
     this._connected = false;
     if (this.shouldReconnect) {
       this.scheduleReconnect();
+    }
+  }
+
+  private notifyConnected(): void {
+    if (!this.onConnected) {
+      return;
+    }
+    try {
+      this.onConnected();
+    } catch {
+      // A subscriber's failure must not take the stream down with it.
     }
   }
 

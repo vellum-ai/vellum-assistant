@@ -1,5 +1,7 @@
 import { powerMonitor } from "electron";
 
+import log from "./logger";
+
 /**
  * Desktop presence, derived from system-wide HID idle time plus screen
  * lock, suspend, and login-session activation.
@@ -33,11 +35,12 @@ export const installPresenceMonitor = (
 ): (() => void) => {
   // A second install would leak the first monitor's interval and listeners
   // and double the report rate, so it hands back a teardown that owns
-  // nothing rather than a live second monitor.
+  // nothing rather than a live second monitor. The caller gets no reports at
+  // all from it, which is worth a line in the log.
   if (installed) {
+    log.warn("[presence] monitor already installed, ignoring second install");
     return (): void => {};
   }
-  installed = true;
 
   // Three independently owned reasons the desktop is unreachable, each
   // cleared only by its paired event. A locked machine that sleeps and wakes
@@ -104,6 +107,12 @@ export const installPresenceMonitor = (
   powerMonitor.on("resume", onResume);
   powerMonitor.on("user-did-become-active", onSessionBecameActive);
   powerMonitor.on("user-did-resign-active", onSessionResigned);
+
+  // Latched only once the monitor is fully wired. Claiming it up front would
+  // leave a throw from any attachment above with the latch set and no teardown
+  // in the caller's hands, and nothing else can clear it, so presence would be
+  // dead for the life of the process.
+  installed = true;
 
   // Establishes a state immediately instead of waiting out the first tick,
   // so a message sent right after launch is judged against real presence

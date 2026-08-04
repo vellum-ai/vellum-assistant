@@ -179,8 +179,26 @@ export class HostProxyPoster {
     return this.postJson("/host-ui-snapshot-result", result);
   }
 
+  /**
+   * A 2xx only means the daemon accepted the request. It answers
+   * `{ recorded: false }` when it discarded the report (no connected client
+   * with this id, or the caller does not own that client), which is the
+   * silent-death mode for presence gating, so only a recorded report counts
+   * as success. A body it cannot read is treated the same way: unproven.
+   */
   async postPresence(payload: PresencePayload): Promise<boolean> {
-    return this.postJson("/clients/presence", payload);
+    const recorded = await this.sendJson(
+      "/clients/presence",
+      payload,
+      async (res) => {
+        if (!res.ok) {
+          return false;
+        }
+        const body = (await res.json()) as { recorded?: unknown } | null;
+        return body?.recorded === true;
+      },
+    );
+    return recorded ?? false;
   }
 
   // -----------------------------------------------------------------------
@@ -256,6 +274,20 @@ export class HostProxyPoster {
     path: string,
     payload: object,
   ): Promise<boolean> {
+    const ok = await this.sendJson(path, payload, async (res) => res.ok);
+    return ok ?? false;
+  }
+
+  /**
+   * POST a JSON body and let the caller interpret the response. `readResponse`
+   * runs while the request timeout is still armed, so reading the body cannot
+   * hang past it. Resolves null if the request or the read fails.
+   */
+  private async sendJson<T>(
+    path: string,
+    payload: object,
+    readResponse: (res: Response) => Promise<T>,
+  ): Promise<T | null> {
     try {
       const body = JSON.stringify(payload);
       const timeout = computeTimeout(Buffer.byteLength(body, "utf-8"));
@@ -270,12 +302,12 @@ export class HostProxyPoster {
           body,
           signal: controller.signal,
         });
-        return res.ok;
+        return await readResponse(res);
       } finally {
         clearTimeout(timer);
       }
     } catch {
-      return false;
+      return null;
     }
   }
 }
