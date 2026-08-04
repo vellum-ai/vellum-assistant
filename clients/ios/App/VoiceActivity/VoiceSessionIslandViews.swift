@@ -220,13 +220,17 @@ func voiceAvatarImage(_ data: Data?) -> UIImage? {
 struct VoiceAccentBadge: View {
     let accent: Color
     var avatarImageData: Data?
+    /// Sized by the slot rather than fixed: the Lock Screen has room for the
+    /// full mark, while the expanded island's leading region is shallow enough
+    /// to clip one that assumes it.
+    var diameter: CGFloat = 34
 
     var body: some View {
         if let image = voiceAvatarImage(avatarImageData) {
-            VoiceAvatarImage(image: image, diameter: 34)
+            VoiceAvatarImage(image: image, diameter: diameter)
         } else {
             VoiceAccentGlyph(accent: accent.contrastingForeground)
-                .frame(width: 34, height: 34)
+                .frame(width: diameter, height: diameter)
                 .background(accent, in: Circle())
                 .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
         }
@@ -248,33 +252,6 @@ struct VoiceCompactIdentity: View {
             VoiceAvatarImage(image: image, diameter: 20)
         } else {
             VoiceAccentGlyph(accent: accent, scale: .small)
-        }
-    }
-}
-
-/// The minimal presentation: the phase glyph, falling back to the identity
-/// mark once the content is stale.
-///
-/// The fallback is what keeps this slot from rendering nothing at all.
-/// ``VoicePhaseGlyph`` draws no view when stale, which is correct wherever
-/// something else remains on screen, and wrong here: this circle *is* the whole
-/// island in the shared presentation, so an empty one reads as a broken app
-/// rather than as an activity with nothing to claim. Identity is the right
-/// thing to fall back to, for the same reason the Lock Screen keeps the avatar
-/// and drops the phase: the session's existence is not the part in doubt.
-struct VoiceMinimalPresentation: View {
-    let state: VoiceSessionAttributes.ContentState
-    let isStale: Bool
-    var avatarImageData: Data?
-
-    var body: some View {
-        if isStale {
-            VoiceCompactIdentity(
-                accent: state.accentColor,
-                avatarImageData: avatarImageData
-            )
-        } else {
-            VoicePhaseGlyph(state: state, isStale: false, scale: .small)
         }
     }
 }
