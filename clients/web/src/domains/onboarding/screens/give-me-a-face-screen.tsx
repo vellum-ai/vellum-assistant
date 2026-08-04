@@ -34,7 +34,7 @@ import {
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { resolveAvatarVoice } from "@/domains/onboarding/onboarding-avatar-voices";
-import { useManagedVoices } from "@/lib/tts/use-managed-voices";
+import { useUnscopedManagedVoices } from "@/lib/tts/use-managed-voices";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
@@ -150,8 +150,8 @@ export function GiveMeAFaceScreen({
   // from the catalog's hosted sample. Samples are static provider-side assets,
   // so an audition costs no synthesis and no credits. The catalog comes
   // straight from the platform, so the audition is live as soon as this step
-  // is — it does not wait on the assistant hatching in the background.
-  const { voices, loading: voicesLoading } = useManagedVoices();
+  // is, independent of the assistant hatching in the background.
+  const { voices, loading: voicesLoading } = useUnscopedManagedVoices();
   const centeredVoice = useMemo(
     () => (centerChar == null ? null : resolveAvatarVoice(centerChar, voices)),
     [centerChar, voices],
@@ -164,7 +164,7 @@ export function GiveMeAFaceScreen({
   const auditioning =
     centeredVoice !== null && previewingModel === centeredVoice.model;
   // Disabled-and-still-coming, as opposed to disabled because the catalog
-  // failed — those want different affordances.
+  // failed. Those want different affordances.
   const voicePending = !centeredVoice && voicesLoading;
 
   function toggleVoice() {

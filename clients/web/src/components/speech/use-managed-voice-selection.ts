@@ -104,7 +104,7 @@ export function useManagedVoiceSelection(
     providerCatalog?.providers?.find((p) => p.id === "vellum")
       ?.supportsVoiceSelection === true;
 
-  const { voices, defaultModel } = useManagedVoices({
+  const { voices, defaultModel } = useManagedVoices(assistantId, {
     enabled: enabled && isManaged,
   });
 

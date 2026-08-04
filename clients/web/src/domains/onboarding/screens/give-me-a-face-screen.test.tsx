@@ -60,9 +60,9 @@ const DANIEL = {
 let catalog: Array<typeof SARAH> = [];
 let voicesLoading = false;
 mock.module("@/lib/tts/use-managed-voices", () => ({
-  // The catalog comes from the platform, not from an assistant — the hook
-  // takes no assistant id, so the audition does not wait on a hatch.
-  useManagedVoices: () => ({
+  // The audition reads the platform directly, taking no assistant id, so it
+  // does not wait on a hatch.
+  useUnscopedManagedVoices: () => ({
     voices: catalog,
     defaultModel: catalog[0]?.model ?? null,
     fetched: catalog.length > 0,
@@ -185,7 +185,7 @@ describe("GiveMeAFaceScreen voice audition", () => {
 
   test("stays inert, and reports no voice, without a catalog", () => {
     const onContinue = mock(() => {});
-    // The catalog failed or served nothing — no voice to audition.
+    // The catalog failed or served nothing, so there is no voice to audition.
     catalog = [];
     renderScreen({ onContinue });
 
@@ -205,7 +205,7 @@ describe("GiveMeAFaceScreen voice audition", () => {
     voicesLoading = true;
     renderScreen();
 
-    // Still unclickable — there is nothing to play yet — but marked busy so it
+    // Still unclickable (there is nothing to play yet) but marked busy, so it
     // presents as loading rather than as a broken control.
     const button = hearButton();
     expect(button.getAttribute("aria-busy")).toBe("true");

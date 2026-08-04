@@ -55,12 +55,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     initialData: daemonConfigData,
   }),
   configGetQueryKey: () => ["config-get-test"],
-}));
-// The managed-voice catalog comes from the platform, not the daemon. The card
-// offers no voices when this query has no data, which is the state most of
-// these tests exercise.
-mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
-  managedSpeechTtsVoicesRetrieveOptions: () => ({
+  // The card falls back to the static managed-voice catalog when this
+  // query has no data, which is the state these tests exercise.
+  ttsManagedvoicesGetOptions: () => ({
     queryKey: ["tts-managed-voices-test"],
     queryFn: () =>
       Promise.resolve(managedVoicesData ?? { voices: [], defaultModel: null }),
