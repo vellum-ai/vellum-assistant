@@ -29,6 +29,7 @@ import { hostAppControlExecutor } from "./executors/host-app-control-executor";
 import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
 import { shutdownSharedCuHelper } from "./sidecar/shared-cu-helper";
 import { getSessionToken } from "./session-token-store";
+import { installPresenceMonitor, type PresenceState } from "./presence";
 import log from "./logger";
 
 // ---------------------------------------------------------------------------
@@ -396,10 +397,32 @@ function handleLockfileChange(lockfile: Lockfile): void {
 }
 
 // ---------------------------------------------------------------------------
+// Presence reporting
+// ---------------------------------------------------------------------------
+
+/**
+ * Fan a presence report out to every connected assistant: the lockfile can
+ * hold several (local and cloud) and the desktop is equally attended for all
+ * of them.
+ *
+ * Each post is fire-and-forget (postJson carries its own timeout) so a slow
+ * or unreachable daemon can't stall the reporter or its siblings, and
+ * allSettled keeps one failure from surfacing as an unhandled rejection. A
+ * dropped report is the safe direction: with no presence record on file the
+ * daemon lets the mobile push through.
+ */
+function reportPresence(state: PresenceState): void {
+  void Promise.allSettled(
+    Array.from(connections.values(), (conn) => conn.poster.postPresence({ state })),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public install / teardown
 // ---------------------------------------------------------------------------
 
 let unsubscribe: (() => void) | null = null;
+let stopPresenceMonitor: (() => void) | null = null;
 
 /**
  * Wire the host proxy bridge into the app lifecycle. Call once from
@@ -428,7 +451,13 @@ export function installHostProxyBridge(
   const browserExecutor = new HostBrowserExecutor();
   setExecutor("host_browser", browserExecutor);
 
+  // Not gated on there being any connections: the monitor is cheap, and one
+  // added later by handleLockfileChange picks up the next poll tick.
+  stopPresenceMonitor = installPresenceMonitor(reportPresence);
+
   return () => {
+    stopPresenceMonitor?.();
+    stopPresenceMonitor = null;
     unsubscribe?.();
     unsubscribe = null;
     for (const assistantId of [...connections.keys()]) {
@@ -460,6 +489,8 @@ export const __testing = {
   disconnectAssistant,
   handleLockfileChange,
   reset() {
+    stopPresenceMonitor?.();
+    stopPresenceMonitor = null;
     for (const assistantId of [...connections.keys()]) {
       disconnectAssistant(assistantId);
     }

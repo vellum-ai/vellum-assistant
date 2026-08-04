@@ -52,6 +52,21 @@ mock.module("./session-token-store", () => ({
   getSessionToken: () => mockSessionToken,
 }));
 
+// Stub the presence monitor, capturing the reporter the router installs so
+// tests can drive reports without a real powerMonitor or poll interval.
+type PresenceState = import("./presence").PresenceState;
+let presenceReporter: ((state: PresenceState) => void) | null = null;
+const mockPresenceTeardown = mock(() => {});
+const mockInstallPresenceMonitor = mock(
+  (onReport: (state: PresenceState) => void) => {
+    presenceReporter = onReport;
+    return mockPresenceTeardown;
+  },
+);
+mock.module("./presence", () => ({
+  installPresenceMonitor: mockInstallPresenceMonitor,
+}));
+
 const { HostProxySseClient } = await import("./host-proxy-sse");
 const { HostProxyPoster } = await import("./host-proxy-poster");
 const {
@@ -88,6 +103,34 @@ const mockGatewayTokenFetch = async (input: string | URL | Request) => {
 };
 globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
 
+type Connection = NonNullable<ReturnType<typeof __testing.connections.get>>;
+
+/**
+ * Register a connection whose poster records the presence states it receives,
+ * or rejects to stand in for an unreachable daemon.
+ */
+function addPresenceConnection(
+  assistantId: string,
+  opts: { reject?: boolean } = {},
+): PresenceState[] {
+  const received: PresenceState[] = [];
+  const poster = {
+    postPresence: async ({ state }: { state: PresenceState }) => {
+      if (opts.reject) {
+        throw new Error("daemon unreachable");
+      }
+      received.push(state);
+      return true;
+    },
+  };
+  __testing.connections.set(assistantId, {
+    sse: { disconnect: () => {} },
+    poster,
+    fingerprint: `test:${assistantId}`,
+  } as unknown as Connection);
+  return received;
+}
+
 /** Create a poster that captures the first POST body for assertions. */
 function capturingPoster(): { poster: InstanceType<typeof HostProxyPoster>; body: () => Record<string, unknown> | null } {
   let postedBody: Record<string, unknown> | null = null;
@@ -117,6 +160,9 @@ describe("host-proxy-router", () => {
     );
     mockSessionToken = "test-session-token";
     globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
+    presenceReporter = null;
+    mockInstallPresenceMonitor.mockClear();
+    mockPresenceTeardown.mockClear();
   });
 
   // -- Local lifecycle ----------------------------------------------------
@@ -569,6 +615,88 @@ describe("host-proxy-router", () => {
       __testing.dispatchMessage({ type: "host_teleport_request" }, poster);
 
       expect(mockLogWarn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -- Presence reporting --------------------------------------------------
+
+  describe("presence reporting", () => {
+    test("installs the monitor even with no assistants connected", () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      expect(mockInstallPresenceMonitor).toHaveBeenCalledTimes(1);
+      expect(presenceReporter).not.toBeNull();
+      expect(__testing.connections.size).toBe(0);
+      expect(() => presenceReporter?.("away")).not.toThrow();
+    });
+
+    test("posts presence to every connected assistant", async () => {
+      const presencePosts: { url: string; body: string }[] = [];
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/clients/presence")) {
+          presencePosts.push({ url, body: String(init?.body) });
+          return new Response("ok");
+        }
+        return mockGatewayTokenFetch(input);
+      }) as typeof globalThis.fetch;
+
+      installHostProxyBridge(fakeCliResolver);
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "local-1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
+        ],
+        activeAssistant: "local-1",
+      });
+      await flush();
+
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(presencePosts.map((post) => post.url).sort()).toEqual([
+        "http://127.0.0.1:9001/v1/clients/presence",
+        "https://platform.vellum.ai/v1/assistants/cloud-1/clients/presence",
+      ]);
+      expect(JSON.parse(presencePosts[0]!.body)).toEqual({ state: "idle" });
+    });
+
+    test("keeps reporting to siblings when one poster rejects", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const unreachable = addPresenceConnection("a1", { reject: true });
+      const first = addPresenceConnection("a2");
+      const second = addPresenceConnection("a3");
+
+      expect(() => presenceReporter?.("active")).not.toThrow();
+      await flush();
+
+      expect(unreachable).toEqual([]);
+      expect(first).toEqual(["active"]);
+      expect(second).toEqual(["active"]);
+    });
+
+    test("posts every report, including repeats of the same state", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const received = addPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      presenceReporter?.("active");
+      presenceReporter?.("active");
+      await flush();
+
+      expect(received).toEqual(["active", "active", "active"]);
+    });
+
+    test("bridge teardown stops presence reporting", async () => {
+      const teardown = installHostProxyBridge(fakeCliResolver);
+      const received = addPresenceConnection("a1");
+
+      teardown();
+      expect(mockPresenceTeardown).toHaveBeenCalledTimes(1);
+
+      presenceReporter?.("active");
+      await flush();
+      expect(received).toEqual([]);
     });
   });
 
