@@ -8,105 +8,27 @@
  * after switching conversations, reloading, or reopening from history.
  */
 
-import { Check, Pencil, SkipForward } from "lucide-react";
-
 import type { AnsweredQuestion } from "@vellumai/assistant-api";
+import {
+  hasRenderableAnswer,
+  resolveAnswers,
+} from "@/domains/chat/answered-question";
+import { AnsweredQuestionRow } from "@/domains/chat/components/answered-question-row";
 import { Card, Typography } from "@vellumai/design-library";
 
 export interface AnsweredQuestionCardProps {
   answered: AnsweredQuestion;
 }
 
-/** The rendered answer for one question, resolved against the options as asked. */
-interface ResolvedAnswer {
-  questionId: string;
-  question: string;
-  description?: string;
-  /** What the user chose, already resolved to display text. */
-  answer: string;
-  kind: "option" | "free_text" | "skipped";
-  /** The chosen option's own description, when it had one. */
-  answerDescription?: string;
-}
-
-/**
- * Whether an answered record has anything to show. A record with no questions
- * renders nothing, so a caller that hides the raw tool chip in favor of this
- * card must gate on this rather than on the field's presence: keying off
- * presence alone would leave a tool call rendering neither the card nor the
- * chip, dropping the step out of the transcript entirely. The daemon cannot
- * write an empty record (the prompter rejects an empty batch), but a truncated
- * or hand-edited persisted row satisfies the wire schema, which validates the
- * shape and not the arity.
- */
-export function hasRenderableAnswer(
-  answered: AnsweredQuestion | undefined,
-): answered is AnsweredQuestion {
-  return answered !== undefined && answered.questions.length > 0;
-}
-
-/**
- * Pair each question with its response. Ordering follows `questions`, not
- * `responses`, so a record whose arrays disagree (a truncated or hand-edited
- * row) still renders every question rather than dropping the tail. A question
- * with no matching response reads as skipped, which is what an unanswered entry
- * in a settled batch means.
- */
-export function resolveAnswers(answered: AnsweredQuestion): ResolvedAnswer[] {
-  const byQuestionId = new Map(
-    answered.responses.map((response) => [response.questionId, response]),
-  );
-  return answered.questions.map((question) => {
-    const response = byQuestionId.get(question.id);
-    if (response?.decision === "option") {
-      const option = question.options.find(
-        (candidate) => candidate.id === response.optionId,
-      );
-      return {
-        questionId: question.id,
-        question: question.question,
-        description: question.description,
-        kind: "option",
-        // An unresolvable option id means the persisted record and the asked
-        // options disagree; show the raw id rather than an empty row.
-        answer: option?.label ?? response.optionId ?? "Unknown option",
-        answerDescription: option?.description,
-      };
-    }
-    // Blank free text means the user skipped. The card cannot submit an empty
-    // answer (`handleSubmitFreeText` returns early on blank input), so the only
-    // way one reaches here is the legacy single-question wire shape, which has
-    // no `skip` kind and coerces a skip to `free_text` with empty text. Reading
-    // it as free text would render a blank answer row.
-    if (response?.decision === "free_text" && response.text?.trim()) {
-      return {
-        questionId: question.id,
-        question: question.question,
-        description: question.description,
-        kind: "free_text",
-        answer: response.text,
-      };
-    }
-    return {
-      questionId: question.id,
-      question: question.question,
-      description: question.description,
-      kind: "skipped",
-      answer: "Skipped",
-    };
-  });
-}
-
 export function AnsweredQuestionCard({ answered }: AnsweredQuestionCardProps) {
   if (!hasRenderableAnswer(answered)) {
     return null;
   }
-  const resolved = resolveAnswers(answered);
 
   return (
     <Card data-testid="answered-question-card">
       <div className="flex flex-col gap-3">
-        {resolved.map((item) => (
+        {resolveAnswers(answered).map((item) => (
           <div key={item.questionId} className="flex flex-col gap-1.5">
             <Typography
               variant="body-medium-default"
@@ -124,61 +46,10 @@ export function AnsweredQuestionCard({ answered }: AnsweredQuestionCardProps) {
                 {item.description}
               </Typography>
             )}
-            <AnsweredRow item={item} />
+            <AnsweredQuestionRow item={item} />
           </div>
         ))}
       </div>
     </Card>
-  );
-}
-
-/**
- * One answer row. The leading glyph distinguishes the three shapes at a glance
- * and mirrors the interactive card's iconography: a check for a chosen option,
- * a pencil for typed text, a skip arrow for a question left unanswered.
- */
-function AnsweredRow({ item }: { item: ResolvedAnswer }) {
-  const Glyph =
-    item.kind === "option"
-      ? Check
-      : item.kind === "free_text"
-        ? Pencil
-        : SkipForward;
-  const isSkipped = item.kind === "skipped";
-  return (
-    <div className="flex items-start gap-2 rounded-md bg-[var(--surface-base)] px-3 py-2">
-      <span
-        aria-hidden="true"
-        className={`mt-0.5 flex shrink-0 items-center justify-center ${
-          isSkipped
-            ? "text-[color:var(--content-tertiary)]"
-            : "text-[color:var(--primary-base)]"
-        }`}
-      >
-        <Glyph className="h-3.5 w-3.5" />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <Typography
-          variant="body-medium-default"
-          as="span"
-          className={
-            isSkipped
-              ? "text-[color:var(--content-tertiary)]"
-              : "text-[color:var(--content-default)]"
-          }
-        >
-          {item.answer}
-        </Typography>
-        {item.answerDescription && (
-          <Typography
-            variant="body-small-default"
-            as="span"
-            className="text-[color:var(--content-tertiary)]"
-          >
-            {item.answerDescription}
-          </Typography>
-        )}
-      </span>
-    </div>
   );
 }
