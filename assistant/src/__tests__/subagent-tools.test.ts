@@ -127,13 +127,16 @@ const findTool = (name: string) =>
 /**
  * Inject a fake subagent into the singleton manager so tool executors
  * can find it. Uses the same private-internals trick as the notify tests.
+ *
+ * `rehydrated` is a manager-entry property rather than a state field, so it is
+ * passed alongside the state overrides and applied to the entry.
  */
 function injectSubagent(
   manager: SubagentManager,
   subagentId: string,
   parentConversationId: string,
   status: SubagentState["status"] = "running",
-  overrides: Partial<SubagentState> = {},
+  overrides: Partial<SubagentState> & { rehydrated?: boolean } = {},
 ): SubagentState {
   const internals = manager as unknown as {
     subagents: Map<
@@ -142,11 +145,13 @@ function injectSubagent(
         conversation: unknown;
         state: SubagentState;
         parentSendToClient: () => void;
+        rehydrated?: boolean;
       }
     >;
     parentToChildren: Map<string, Set<string>>;
     labelIndex: Map<string, string>;
   };
+  const { rehydrated, ...stateOverrides } = overrides;
   const state: SubagentState = {
     config: {
       id: subagentId,
@@ -159,7 +164,7 @@ function injectSubagent(
     isFork: false,
     createdAt: Date.now(),
     usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    ...overrides,
+    ...stateOverrides,
   };
   const fakeConversation = {
     abort: () => {},
@@ -208,9 +213,10 @@ function injectSubagent(
   // A rehydrated entry is metadata rebuilt from the durable row, so it never
   // has a live conversation behind it.
   internals.subagents.set(subagentId, {
-    conversation: state.rehydrated ? null : fakeConversation,
+    conversation: rehydrated ? null : fakeConversation,
     state,
     parentSendToClient: () => {},
+    ...(rehydrated ? { rehydrated: true } : {}),
   });
   if (!internals.parentToChildren.has(parentConversationId)) {
     internals.parentToChildren.set(parentConversationId, new Set());
@@ -1887,7 +1893,7 @@ describe("Subagent read stats footer", () => {
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe(
-        "Refactored the parser.\n\n[stats: 5 tool calls, 4 succeeded, files written: 2]",
+        "Refactored the parser.\n\n[stats: 5 tool calls, 4 succeeded, files written via file_write/file_edit: 2]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -1931,7 +1937,7 @@ describe("Subagent read stats footer", () => {
       );
       expect(result.content).toContain("no text output");
       expect(result.content).toContain(
-        "[stats: 3 tool calls, 3 succeeded, files written: 1]",
+        "[stats: 3 tool calls, 3 succeeded, files written via file_write/file_edit: 1]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -1979,7 +1985,7 @@ describe("Subagent read stats footer", () => {
         makeContext(ownerConversation),
       );
       expect(result.content).toBe(
-        "Applied the follow-up guidance.\n\n[stats: 5 tool calls, 4 succeeded, files written: 1]",
+        "Applied the follow-up guidance.\n\n[stats: 5 tool calls, 4 succeeded, files written via file_write/file_edit: 1]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -2062,7 +2068,7 @@ describe("Subagent read while a queued follow-up turn is still in flight", () =>
       );
       expect(result.content).toBe(
         "Initial run output.\n\nApplied the follow-up guidance.\n\n" +
-          "[stats: 5 tool calls, 5 succeeded, files written: 1]",
+          "[stats: 5 tool calls, 5 succeeded, files written via file_write/file_edit: 1]",
       );
       expect(result.content).not.toContain("still processing");
     } finally {
@@ -2130,7 +2136,7 @@ describe("Subagent read while a queued follow-up turn is still in flight", () =>
       expect(result.content).toBe(
         "Initial run output.\n\n" +
           `${SUBAGENT_READ_STILL_PROCESSING}\n\n` +
-          "[stats: 2 tool calls, 2 succeeded, files written: 1]",
+          "[stats: 2 tool calls, 2 succeeded, files written via file_write/file_edit: 1]",
       );
     } finally {
       drain.processing = false;
@@ -2154,7 +2160,7 @@ describe("Subagent read while a queued follow-up turn is still in flight", () =>
       );
       expect(Date.now() - startedAt).toBeLessThan(500);
       expect(result.content).toBe(
-        "Ran to completion.\n\n[stats: 1 tool call, 1 succeeded, files written: 0]",
+        "Ran to completion.\n\n[stats: 1 tool call, 1 succeeded, files written via file_write/file_edit: 0]",
       );
     } finally {
       mockGetMessages = () => null;

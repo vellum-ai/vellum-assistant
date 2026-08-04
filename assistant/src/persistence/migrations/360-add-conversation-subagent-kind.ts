@@ -8,9 +8,10 @@ const SPAWN_MODE_COLUMN = "subagent_spawn_mode";
  * Add `subagent_role` and `subagent_spawn_mode` columns to `conversations`.
  *
  * Both are nullable, free-form strings describing the subagent that owns the
- * conversation: the role it was spawned with (`general`, `researcher`,
- * `coder`, `planner`, `investigator`, `advisor`) and how it was spawned
- * (`regular`, `fork`, `advisor_consult`, `voice_continuation`). NULL for
+ * conversation: the role it was spawned with and how it was spawned. The
+ * accepted values, and what each one means, are documented once on
+ * `SubagentRole` / `SubagentSpawnMode` in `subagent/types.ts`; the columns
+ * take whatever the row carried, including role names retired since. NULL for
  * every conversation that is not a subagent.
  *
  * Together they make delegated LLM spend separable. Every subagent variety
@@ -36,11 +37,24 @@ const SPAWN_MODE_COLUMN = "subagent_spawn_mode";
  * pre-migration), so those rows backfill as `fork`, a small, bounded
  * inaccuracy confined to the backfill window.
  *
+ * The backfill needs `subagents(conversation_id)` indexed, which migration 311
+ * did not create: both statements look the `subagents` table up once per
+ * `conversations` row, so unindexed they are a full scan of `subagents` per
+ * row and the whole step is quadratic. Migrations run during startup and block
+ * readiness, so on a long-lived assistant that is a multi-minute stall at
+ * boot. The index is created here rather than appended as a later migration
+ * because it has to exist BEFORE these statements run; it also serves the
+ * by-conversation lookup in `subagent-store.ts`, which scanned until now.
+ *
  * Idempotent: guarded with `tableHasColumn` so a crash between the `ALTER
  * TABLE` and the checkpoint write doesn't cause a duplicate-column error on
- * the next boot, and the backfill only fills NULL rows for the same reason.
+ * the next boot, `IF NOT EXISTS` on the index, and the backfill only fills
+ * NULL rows for the same reason.
  */
 export function migrateAddConversationSubagentKind(database: DrizzleDb): void {
+  database.run(
+    `CREATE INDEX IF NOT EXISTS idx_subagents_conversation_id ON subagents(conversation_id)`,
+  );
   if (!tableHasColumn(database, "conversations", ROLE_COLUMN)) {
     database.run(`ALTER TABLE conversations ADD COLUMN ${ROLE_COLUMN} TEXT`);
   }

@@ -5,7 +5,6 @@ import {
   formatSubagentToolStats,
   SUBAGENT_READ_STILL_PROCESSING,
   SUBAGENT_STATS_UNAVAILABLE,
-  type SubagentState,
 } from "../../subagent/types.js";
 import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
@@ -25,30 +24,23 @@ import {
  * guidance is still being processed, which makes both the transcript above and
  * these counts an interim reading, so the footer says so.
  *
- * The counters live in memory only, so a subagent rebuilt from its durable row
- * says they are unavailable rather than reporting zero calls, which would read
- * as "this subagent did nothing". That covers both a row the manager never
- * held (its window dropped it) and one the startup rehydration loaded back in:
- * the rehydrated entry is in the manager like any other, so `state.rehydrated`
- * is what separates it from a run this process actually executed. A live entry
- * with no stats never reached the end of a run, so it has nothing measured to
- * report and claims nothing.
+ * The manager owns the whole answer, including why there are no counters: they
+ * live in memory only, so a subagent rebuilt from its durable row says they are
+ * unavailable rather than reporting zero calls, which would read as "this
+ * subagent did nothing", while a live run that never reached its harvest has
+ * nothing measured to report and claims nothing.
  */
-function statsFooter(
-  subagentId: string,
-  state: SubagentState,
-  settled: boolean,
-): string {
+function statsFooter(subagentId: string, settled: boolean): string {
   const note = settled ? "" : `\n\n${SUBAGENT_READ_STILL_PROCESSING}`;
-  const stats =
-    getSubagentManager().currentToolStats(subagentId) ?? state.stats;
-  if (stats) {
-    return `${note}\n\n${formatSubagentToolStats(stats)}`;
+  const reading = getSubagentManager().currentToolStats(subagentId);
+  switch (reading.kind) {
+    case "counted":
+      return `${note}\n\n${formatSubagentToolStats(reading.stats)}`;
+    case "unrecoverable":
+      return `${note}\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
+    default:
+      return note;
   }
-  if (state.rehydrated) {
-    return `${note}\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
-  }
-  return note;
 }
 
 // `last_n` is deliberately UNDECLARED (loose passthrough): the executor's
@@ -161,7 +153,7 @@ export async function executeSubagentRead(
     }
   }
 
-  const footer = statsFooter(subagentId, state, settled);
+  const footer = statsFooter(subagentId, settled);
 
   if (messageTexts.length === 0) {
     return {

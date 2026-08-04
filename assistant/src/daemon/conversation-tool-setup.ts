@@ -347,6 +347,10 @@ export function createToolExecutor(
     stats.succeeded++;
     // Both file tools name their target `path`. A Set dedupes repeated edits
     // of the same file, so the count reads as "files touched", not "writes".
+    // These two are the only writes with a path to attribute: a builder can
+    // also write through the shell, a document tool, or an MCP tool, and those
+    // are invisible here, which is why the footer names the two tools it
+    // counts (see `formatSubagentToolStats`).
     if (toolName === "file_write" || toolName === "file_edit") {
       const target = toolInput.path;
       if (typeof target === "string" && target.length > 0) {
