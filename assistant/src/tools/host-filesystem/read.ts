@@ -35,7 +35,12 @@ import type {
  * "untargeted".
  */
 export const hostFileReadInputSchema = z.looseObject({
-  path: z.string().min(1).describe("Absolute path to the host file to read"),
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "Absolute path on the guardian's device. Their filesystem is separate from your workspace — workspace paths do not resolve here.",
+    ),
   offset: z
     .number()
     .describe("Line number to start reading from (1-indexed)")
@@ -58,7 +63,7 @@ export const hostFileReadInputSchema = z.looseObject({
 export const hostFileReadTool = {
   name: "host_file_read",
   description:
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). For files on your own machine, use file_read instead.",
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). Their device has its own filesystem — this is also how you retrieve a file a `host_bash` command produced there. For files on your own machine, use file_read instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,

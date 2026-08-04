@@ -992,6 +992,24 @@ describe("buildSystemPrompt", () => {
         const result = buildSystemPrompt();
         expect(result).not.toContain("Container guidance body.");
       });
+
+      test("draws the host/workspace filesystem boundary alongside it", () => {
+        // The containerized section mandates that everything be written under
+        // the workspace dir. Without its counterpart, that mandate is what
+        // sends a host_bash command to a workspace path that does not exist
+        // on the user's machine.
+        process.env.IS_CONTAINERIZED = "true";
+        const result = buildSystemPrompt();
+        expect(result).toContain("Two Filesystems");
+        expect(result).toContain("host_file_read");
+        expect(result).not.toContain("{{workspaceDir}}");
+      });
+
+      test("omits the filesystem boundary when not containerized", () => {
+        delete process.env.IS_CONTAINERIZED;
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("Two Filesystems");
+      });
     });
 
     describe("cli-reference section (slot 03)", () => {

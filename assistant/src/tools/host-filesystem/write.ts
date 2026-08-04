@@ -24,7 +24,12 @@ import type {
  * non-string (or empty) value means "untargeted".
  */
 export const hostFileWriteInputSchema = z.looseObject({
-  path: z.string().min(1).describe("Absolute host path to the file to write"),
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "Absolute path on the guardian's device to write. Their filesystem is separate from your workspace — workspace paths do not resolve here.",
+    ),
   content: z.string().describe("The content to write to the file"),
   target_client_id: z
     .string()
@@ -38,7 +43,7 @@ export const hostFileWriteInputSchema = z.looseObject({
 export const hostFileWriteTool = {
   name: "host_file_write",
   description:
-    "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.",
+    "Write content to a file on your guardian's device, creating it if it does not exist. Their device has its own filesystem — this is how you push a file out to it, since your workspace is not visible there. For files on your own machine, use file_write instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,

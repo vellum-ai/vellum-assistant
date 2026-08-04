@@ -25,7 +25,12 @@ import type {
  * a non-string (or empty) value means "untargeted".
  */
 export const hostFileEditInputSchema = z.looseObject({
-  path: z.string().min(1).describe("Absolute host path to the file to edit"),
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "Absolute path on the guardian's device to edit. Their filesystem is separate from your workspace — workspace paths do not resolve here.",
+    ),
   old_string: z
     .string()
     .min(1, { message: "old_string must not be empty" })
