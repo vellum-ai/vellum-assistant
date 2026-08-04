@@ -94,6 +94,11 @@ function describeTunnels(tunnels: NgrokTunnel[]): string {
     .join(", ");
 }
 
+/** Diagnostic for a running ngrok agent whose tunnels all miss the target port. */
+function staleAgentDiagnostic(tunnels: NgrokTunnel[], port: number): string {
+  return `an ngrok agent is already running but tunnels a different local port (${describeTunnels(tunnels)}), not ${port}. It was likely started before the tunnel edge unification or by an external process.`;
+}
+
 /** Recovery copy for a saved domain whose reservation may have lapsed. */
 function savedDomainRecoveryHint(domain: string): string {
   return `The saved ngrok domain '${domain}' (ingress.ngrok.domain in the workspace config) may no longer be reserved. Run \`vellum tunnel --provider ngrok --clear-domain\` to drop it and tunnel without one.`;
@@ -199,9 +204,7 @@ export function hasWebhookIntegrations(
  * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
  * configured that require a public ingress URL.
  */
-export function hasWebhookIntegrationsConfigured(
-  workspaceDir: string,
-): boolean {
+function hasWebhookIntegrationsConfigured(workspaceDir: string): boolean {
   try {
     return hasWebhookIntegrations(loadRawConfig(workspaceDir));
   } catch {
@@ -273,7 +276,7 @@ export async function maybeStartNgrokTunnel(
     // the edge unification, or by an external process). Spawning a second
     // agent would collide (ERR_NGROK_334) on single-agent plans, so skip.
     console.warn(
-      `   ⚠ An ngrok agent is already running but tunnels a different local port (${describeTunnels(runningTunnels)}), not ${targetPort}. It was likely started before the tunnel edge unification or by an external process. Stop that ngrok agent, then run \`vellum tunnel --provider ngrok\` to tunnel the local edge.`,
+      `   ⚠ ${staleAgentDiagnostic(runningTunnels, targetPort)} Stop that ngrok agent, then run \`vellum tunnel --provider ngrok\` to tunnel the local edge.`,
     );
     return null;
   }
@@ -298,7 +301,7 @@ export async function maybeStartNgrokTunnel(
     return ngrokProcess;
   } catch {
     console.warn(
-      `   ⚠ Could not start ngrok tunnel. Webhook integrations may not work until you run \`vellum tunnel\`.`,
+      `   ⚠ Could not start ngrok tunnel. Webhook integrations may not work until you run \`vellum tunnel --provider ngrok\`.`,
     );
     if (savedDomain) {
       console.warn(`   ⚠ ${savedDomainRecoveryHint(savedDomain)}`);
@@ -362,9 +365,7 @@ export async function runNgrokTunnel(
   if (!existingUrl && runningTunnels.length > 0) {
     // Spawning a second agent would collide (ERR_NGROK_334) on single-agent
     // plans; fail loudly instead, matching the domain-mismatch path.
-    console.error(
-      `Error: an ngrok agent is already running but tunnels a different local port (${describeTunnels(runningTunnels)}), not ${port}. It was likely started before the tunnel edge unification or by an external process.`,
-    );
+    console.error(`Error: ${staleAgentDiagnostic(runningTunnels, port)}`);
     console.error(
       "Stop the existing ngrok agent first, then re-run this command to tunnel the local edge.",
     );

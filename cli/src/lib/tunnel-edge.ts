@@ -14,8 +14,7 @@ import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
  * Retry policy for the flag lookup inside the tunnel-edge restore. The gateway
  * has typically been up for milliseconds at this point and answers
  * `503 {"status":"starting"}` (or refuses connections) until its startup
- * completes, so a single lookup races it. Mutable so tests can shrink the
- * window.
+ * completes, so a single lookup races it.
  */
 export const WEB_INGRESS_FLAG_RETRY = {
   attempts: 15,
@@ -28,8 +27,7 @@ export const WEB_INGRESS_FLAG_RETRY = {
  */
 function wantsWebIngress(config: Record<string, unknown>): boolean {
   const ingress = config.ingress as
-    | { enabled?: unknown; publicBaseUrl?: unknown }
-    | undefined;
+    { enabled?: unknown; publicBaseUrl?: unknown } | undefined;
   return (
     ingress?.enabled === true &&
     typeof ingress.publicBaseUrl === "string" &&

@@ -206,8 +206,8 @@ export async function status(target: NginxIngressTarget): Promise<void> {
   const state = readIngressState(workspaceDir);
   const listenPort = state?.listenPort ?? getNginxIngressPort();
   const mode = formatEdgeMode(state?.includeWebApp ?? true);
-  // The recorded gateway port is what the running edge proxies; a record
-  // predating the field cannot be verified.
+  // The recorded gateway port is what the running edge proxies; a state
+  // record without gatewayPort is unverified.
   const gatewayLine =
     state?.gatewayPort !== undefined
       ? `http://127.0.0.1:${state.gatewayPort}`
