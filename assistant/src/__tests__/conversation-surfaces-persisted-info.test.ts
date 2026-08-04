@@ -20,10 +20,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
 
 // Import must come AFTER mock.module so the surface module picks up the
 // mocked persistence functions.
-const { findPersistedSurfaceType } =
+const { findPersistedSurfaceInfo } =
   await import("../daemon/conversation-surfaces.js");
 
-const CONVERSATION_ID = "conv-persisted-type-1";
+const CONVERSATION_ID = "conv-persisted-info-1";
 
 function seedRows(rows: Array<{ id: string; content: unknown[] }>): void {
   getMessagesImpl = () =>
@@ -37,7 +37,7 @@ function seedRows(rows: Array<{ id: string; content: unknown[] }>): void {
     }));
 }
 
-describe("findPersistedSurfaceType", () => {
+describe("findPersistedSurfaceInfo", () => {
   beforeEach(() => {
     getMessagesImpl = () => [];
   });
@@ -58,9 +58,52 @@ describe("findPersistedSurfaceType", () => {
       },
     ]);
 
-    expect(findPersistedSurfaceType(CONVERSATION_ID, "surface-choice-1")).toBe(
-      "choice",
+    expect(
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1")
+        ?.surfaceType,
+    ).toBe("choice");
+  });
+
+  test("returns the data of a persisted ui_surface block", () => {
+    seedRows([
+      {
+        id: "msg-1",
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-confirm-1",
+            surfaceType: "confirmation",
+            data: { message: "Delete it?", confirmLabel: "Delete forever" },
+          },
+        ],
+      },
+    ]);
+
+    expect(
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-confirm-1")?.data,
+    ).toEqual({ message: "Delete it?", confirmLabel: "Delete forever" });
+  });
+
+  test("reports no data when the block carries no object data", () => {
+    seedRows([
+      {
+        id: "msg-1",
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-dataless-1",
+            surfaceType: "choice",
+          },
+        ],
+      },
+    ]);
+
+    const info = findPersistedSurfaceInfo(
+      CONVERSATION_ID,
+      "surface-dataless-1",
     );
+    expect(info?.surfaceType).toBe("choice");
+    expect(info?.data).toBeUndefined();
   });
 
   test("returns undefined for an unknown surfaceId", () => {
@@ -79,7 +122,7 @@ describe("findPersistedSurfaceType", () => {
     ]);
 
     expect(
-      findPersistedSurfaceType(CONVERSATION_ID, "surface-missing"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-missing"),
     ).toBeUndefined();
   });
 
@@ -87,7 +130,7 @@ describe("findPersistedSurfaceType", () => {
     seedRows([]);
 
     expect(
-      findPersistedSurfaceType(CONVERSATION_ID, "surface-choice-1"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1"),
     ).toBeUndefined();
   });
 
@@ -114,11 +157,12 @@ describe("findPersistedSurfaceType", () => {
     ]);
 
     expect(
-      findPersistedSurfaceType(CONVERSATION_ID, "surface-compacted-1"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-compacted-1")
+        ?.surfaceType,
     ).toBe("choice");
   });
 
-  test("returns undefined when the block carries no string surfaceType", () => {
+  test("reports no surfaceType when the block carries no string one", () => {
     seedRows([
       {
         id: "msg-1",
@@ -128,9 +172,12 @@ describe("findPersistedSurfaceType", () => {
       },
     ]);
 
-    expect(
-      findPersistedSurfaceType(CONVERSATION_ID, "surface-typeless-1"),
-    ).toBeUndefined();
+    const info = findPersistedSurfaceInfo(
+      CONVERSATION_ID,
+      "surface-typeless-1",
+    );
+    expect(info).toBeDefined();
+    expect(info?.surfaceType).toBeUndefined();
   });
 
   test("returns undefined rather than throwing when the DB read fails", () => {
@@ -139,7 +186,7 @@ describe("findPersistedSurfaceType", () => {
     };
 
     expect(
-      findPersistedSurfaceType(CONVERSATION_ID, "surface-choice-1"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1"),
     ).toBeUndefined();
   });
 });
