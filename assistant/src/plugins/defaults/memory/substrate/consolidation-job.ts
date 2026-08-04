@@ -97,6 +97,7 @@ import { getWorkspaceDir } from "../paths.js";
 import {
   CONSOLIDATION_TIMEOUT_MS,
   getConsolidationLockPath,
+  readLockHolder,
   releaseLock,
   tryAcquireLock,
 } from "./consolidation-lock.js";
@@ -319,6 +320,16 @@ export async function memoryV2ConsolidateJob(
     log.warn({ lockPath, holder }, "consolidation skipped: lock already held");
     return { kind: "locked", holder };
   }
+  // Read our own payload back as the owner token: `releaseLock` below is
+  // owner-verified, so a lock that was stale-classified and taken over by a
+  // newer run mid-execution is never unlinked out from under that newer run.
+  const ownerToken = readLockHolder(lockPath) ?? undefined;
+  // Set when the run timed out and the underlying turn did NOT stop within
+  // the abort grace window: the abandoned turn can still be writing
+  // `memory/**`, so releasing the lock would let a second consolidation run
+  // concurrently with it. The lock is deliberately left held; the stale-lock
+  // TTL (or the zombie process exiting) reclaims it.
+  let abandonedRunStillWriting = false;
 
   try {
     // Step 2: bail on empty buffer. Nothing for the agent to consolidate.
@@ -458,6 +469,27 @@ export async function memoryV2ConsolidateJob(
     });
 
     if (!runResult.ok) {
+      // A timed-out run is cooperatively aborted by the runner; when the
+      // turn still refused to stop within the grace window it may keep
+      // writing memory files, so the lock must outlive this handler (see
+      // `abandonedRunStillWriting` above).
+      if (
+        runResult.errorKind === "timeout" &&
+        runResult.workStopped === false
+      ) {
+        abandonedRunStillWriting = true;
+        // Free the lock promptly (owner-verified) once the zombie finally
+        // settles, instead of waiting out the stale-lock TTL. If the TTL
+        // reaper (or a takeover) got there first, the owner check makes
+        // this a no-op.
+        void runResult.workSettled?.then(() => {
+          log.info(
+            { lockPath },
+            "consolidation: timed-out run settled late; releasing its lock",
+          );
+          releaseLock(lockPath, ownerToken);
+        });
+      }
       // Billing turn failures (`PROVIDER_BILLING` covers both exhausted
       // managed credits and BYOK provider-account credits) are
       // non-retryable and select the scheduler's long backoff curve;
@@ -471,6 +503,7 @@ export async function memoryV2ConsolidateJob(
           errorKind: runResult.errorKind,
           failureCode: runResult.failureCode,
           failureKind,
+          abandonedRunStillWriting,
           err: runResult.error?.message,
         },
         "consolidation run failed; follow-ups skipped",
@@ -576,7 +609,18 @@ export async function memoryV2ConsolidateJob(
       noProgress: false,
     };
   } finally {
-    releaseLock(lockPath);
+    if (abandonedRunStillWriting) {
+      // The timed-out turn is still executing: keep the lock so no second
+      // consolidation overlaps its writes. Reclamation is the stale-lock
+      // classifier's job (PID death, or the TTL for a wedged-but-alive
+      // process).
+      log.warn(
+        { lockPath },
+        "consolidation: leaving lock held for a timed-out run that has not stopped",
+      );
+    } else {
+      releaseLock(lockPath, ownerToken);
+    }
   }
 }
 

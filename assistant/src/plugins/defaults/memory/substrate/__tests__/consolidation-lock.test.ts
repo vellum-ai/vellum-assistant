@@ -29,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getConsolidationLockPath,
+  readLockHolder,
   releaseLock,
   STALE_LOCK_TTL_MS,
   tryAcquireLock,
@@ -132,5 +133,50 @@ describe("releaseLock", () => {
   test("is a no-op when the lock file is absent", () => {
     expect(existsSync(lockPath)).toBe(false);
     expect(() => releaseLock(lockPath)).not.toThrow();
+  });
+
+  test("owner-verified release removes the lock while the payload still matches", () => {
+    expect(tryAcquireLock(lockPath, "consolidation")).toBeNull();
+    const ownerToken = readLockHolder(lockPath);
+    expect(ownerToken).not.toBeNull();
+
+    releaseLock(lockPath, ownerToken!);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("owner-verified release refuses to unlink a lock held by a different owner", () => {
+    expect(tryAcquireLock(lockPath, "consolidation")).toBeNull();
+    const ownerToken = readLockHolder(lockPath)!;
+
+    // A takeover re-wrote the lock: the original owner's token no longer
+    // matches, so its release must be a no-op.
+    const newerHolder = `${process.pid} ${Date.now()} consolidation-newer`;
+    writeFileSync(lockPath, `${newerHolder}\n`);
+
+    releaseLock(lockPath, ownerToken);
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(newerHolder);
+  });
+
+  test("owner-verified release is a no-op when the lock is already gone", () => {
+    expect(tryAcquireLock(lockPath)).toBeNull();
+    const ownerToken = readLockHolder(lockPath)!;
+    releaseLock(lockPath);
+    expect(() => releaseLock(lockPath, ownerToken)).not.toThrow();
+  });
+});
+
+describe("readLockHolder", () => {
+  test("returns the trimmed payload of a held lock", () => {
+    expect(tryAcquireLock(lockPath, "consolidation")).toBeNull();
+    const holder = readLockHolder(lockPath);
+    expect(holder).toStartWith(`${process.pid} `);
+    expect(holder).toEndWith(" consolidation");
+  });
+
+  test("returns null for a missing or empty lock file", () => {
+    expect(readLockHolder(lockPath)).toBeNull();
+    writeFileSync(lockPath, "");
+    expect(readLockHolder(lockPath)).toBeNull();
   });
 });

@@ -94,6 +94,27 @@ mock.module("../pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => preFirstMessageGateOpen,
 }));
 
+// Conversation registry stub for the timeout-cancellation path: the runner
+// looks up the live conversation to signal its abort controller. Tests
+// register an abort recorder here; absent ids mean "not resident" (no-op).
+const abortCalls: Array<{ conversationId: string; reason: unknown }> = [];
+let registeredAbortableConversation:
+  | { conversationId: string; onAbort?: () => void }
+  | undefined;
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (id: string) => {
+    if (registeredAbortableConversation?.conversationId !== id) {
+      return undefined;
+    }
+    return {
+      abort: (reason: unknown) => {
+        abortCalls.push({ conversationId: id, reason });
+        registeredAbortableConversation?.onAbort?.();
+      },
+    };
+  },
+}));
+
 // Import after mocks are in place.
 const { runBackgroundJob } = await import("../background-job-runner.js");
 const { bufferIfDeferred, resetDeferredForTest } =
@@ -125,6 +146,8 @@ beforeEach(() => {
   processMessageCalls.length = 0;
   emitCalls.length = 0;
   addMessageCalls.length = 0;
+  abortCalls.length = 0;
+  registeredAbortableConversation = undefined;
   resetDeferredForTest();
   preFirstMessageGateOpen = true;
   processMessageImpl = async () => ({ messageId: "msg-1" });
@@ -310,7 +333,9 @@ describe("runBackgroundJob", () => {
     // Never resolve — force timeout to win the race.
     processMessageImpl = () => new Promise(() => {});
 
-    const result = await runBackgroundJob(baseOpts({ timeoutMs: 50 }));
+    const result = await runBackgroundJob(
+      baseOpts({ timeoutMs: 50, timeoutAbortGraceMs: 20 }),
+    );
 
     expect(result.ok).toBe(false);
     expect(result.errorKind).toBe("timeout");
@@ -320,6 +345,67 @@ describe("runBackgroundJob", () => {
     expect(
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("timeout");
+  });
+
+  test("timeout: signals the live conversation's abort controller and reports workStopped=true when the turn settles", async () => {
+    // The turn hangs until it observes the abort, then settles: the
+    // cooperative-cancellation contract.
+    let settleWork: (() => void) | undefined;
+    processMessageImpl = () =>
+      new Promise((resolve) => {
+        settleWork = () => resolve({ messageId: "msg-aborted" });
+      });
+    registeredAbortableConversation = {
+      conversationId: STUB_CONVERSATION_ID,
+      onAbort: () => settleWork?.(),
+    };
+
+    const result = await runBackgroundJob(
+      baseOpts({ timeoutMs: 50, timeoutAbortGraceMs: 500 }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("timeout");
+    expect(result.workStopped).toBe(true);
+    expect(result.workSettled).toBeUndefined();
+    expect(abortCalls).toHaveLength(1);
+    expect(abortCalls[0]!.conversationId).toBe(STUB_CONVERSATION_ID);
+    expect(abortCalls[0]!.reason).toMatchObject({
+      kind: "signal_cancel",
+      source: "backgroundJobTimeout:test-job",
+    });
+  });
+
+  test("timeout: a turn that ignores the abort reports workStopped=false and exposes workSettled", async () => {
+    let settleWork: (() => void) | undefined;
+    processMessageImpl = () =>
+      new Promise((resolve) => {
+        settleWork = () => resolve({ messageId: "msg-late" });
+      });
+    registeredAbortableConversation = {
+      conversationId: STUB_CONVERSATION_ID,
+      // No onAbort: the turn keeps running through the grace window.
+    };
+
+    const result = await runBackgroundJob(
+      baseOpts({ timeoutMs: 50, timeoutAbortGraceMs: 20 }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("timeout");
+    expect(result.workStopped).toBe(false);
+    expect(result.workSettled).toBeDefined();
+    expect(abortCalls).toHaveLength(1);
+
+    // The late settlement is observable through the exposed handle.
+    let settled = false;
+    const settledProbe = result.workSettled!.then(() => {
+      settled = true;
+    });
+    expect(settled).toBe(false);
+    settleWork!();
+    await settledProbe;
+    expect(settled).toBe(true);
   });
 
   test("suppressFailureNotifications: failure returns ok=false but emits nothing", async () => {
@@ -520,7 +606,11 @@ describe("runBackgroundJob", () => {
       };
 
       const result = await runBackgroundJob(
-        baseOpts({ deferNotifications: true, timeoutMs: 30 }),
+        baseOpts({
+          deferNotifications: true,
+          timeoutMs: 30,
+          timeoutAbortGraceMs: 20,
+        }),
       );
 
       expect(result.ok).toBe(false);
@@ -556,7 +646,11 @@ describe("runBackgroundJob", () => {
       processMessageImpl = () => new Promise(() => {});
 
       const result = await runBackgroundJob(
-        baseOpts({ deferNotifications: true, timeoutMs: 20 }),
+        baseOpts({
+          deferNotifications: true,
+          timeoutMs: 20,
+          timeoutAbortGraceMs: 20,
+        }),
       );
       expect(result.ok).toBe(false);
 

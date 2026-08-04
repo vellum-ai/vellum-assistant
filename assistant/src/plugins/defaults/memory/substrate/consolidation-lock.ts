@@ -228,13 +228,47 @@ function holderStaleReason(holder: string): StaleReason | null {
 }
 
 /**
+ * Read the lock file's current holder payload (trimmed), or `null` when the
+ * file is missing or unreadable. An acquirer reads its own payload back right
+ * after a successful `tryAcquireLock` to obtain the owner token it must
+ * present to `releaseLock`.
+ */
+export function readLockHolder(lockPath: string): string | null {
+  try {
+    const holder = readFileSync(lockPath, "utf-8").trim();
+    return holder.length > 0 ? holder : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Idempotent unlink of the lock file. Called from the caller's `finally`
  * block so a crash in the run path doesn't leave the lock stranded. ENOENT is
  * swallowed
  * because the lock may have been released by an operator or never created
  * (acquire failed before reaching the lock-write step).
+ *
+ * `expectedHolder` makes the release owner-verified: when provided, the lock
+ * is unlinked only while its current payload still matches, so a caller
+ * whose lock was taken over (stale-classified and re-acquired by a newer
+ * run) cannot release the newer holder's lock. Omitting it preserves the
+ * unconditional unlink for callers that positively own the file.
  */
-export function releaseLock(lockPath: string): void {
+export function releaseLock(lockPath: string, expectedHolder?: string): void {
+  if (expectedHolder !== undefined) {
+    const current = readLockHolder(lockPath);
+    if (current === null) {
+      return;
+    }
+    if (current !== expectedHolder) {
+      log.warn(
+        { lockPath, expectedHolder, currentHolder: current },
+        "consolidation: skipping lock release; lock is now held by a different owner",
+      );
+      return;
+    }
+  }
   try {
     unlinkSync(lockPath);
   } catch (err) {

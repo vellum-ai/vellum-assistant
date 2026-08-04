@@ -28,6 +28,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -71,6 +72,8 @@ let runnerImpl: () => Promise<{
   errorKind?: string;
   failureCode?: string;
   skipReason?: string;
+  workStopped?: boolean;
+  workSettled?: Promise<void>;
 }> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
@@ -745,6 +748,83 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     // Lock must still be released on the failure path so the next
     // scheduled consolidation can re-attempt.
     expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("timeout whose turn stopped cooperatively releases the lock", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("Background job 'memory-consolidation' timed out"),
+      errorKind: "timeout",
+      workStopped: true,
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("run_failed");
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("timeout whose turn is STILL RUNNING keeps the lock held, then releases on late settlement", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    let settleLateWork: (() => void) | undefined;
+    const workSettled = new Promise<void>((resolve) => {
+      settleLateWork = resolve;
+    });
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("Background job 'memory-consolidation' timed out"),
+      errorKind: "timeout",
+      workStopped: false,
+      workSettled,
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("run_failed");
+    // The abandoned turn may still be writing memory files: the lock must
+    // outlive the handler so no overlapping consolidation can start.
+    expect(existsSync(lockPath())).toBe(true);
+
+    // Late settlement frees the lock without waiting for the stale TTL.
+    settleLateWork!();
+    await workSettled;
+    // The release continuation runs on the microtask queue after settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("late settlement release is owner-verified: a taken-over lock is not clobbered", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    let settleLateWork: (() => void) | undefined;
+    const workSettled = new Promise<void>((resolve) => {
+      settleLateWork = resolve;
+    });
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("Background job 'memory-consolidation' timed out"),
+      errorKind: "timeout",
+      workStopped: false,
+      workSettled,
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(result.kind).toBe("run_failed");
+    expect(existsSync(lockPath())).toBe(true);
+
+    // Simulate a stale-TTL takeover by a newer run while the zombie lingers.
+    const newerHolder = `${process.pid} ${Date.now()} consolidation-newer\n`;
+    writeFileSync(lockPath(), newerHolder);
+
+    settleLateWork!();
+    await workSettled;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The zombie's late release must NOT unlink the newer holder's lock.
+    expect(existsSync(lockPath())).toBe(true);
+    expect(readFileSync(lockPath(), "utf-8")).toBe(newerHolder);
   });
 
   test("does NOT emit a notification signal when the runner fails (suppression honored)", async () => {
