@@ -522,7 +522,18 @@ async function handleCancelSchedule(
   headers?: Record<string, string>,
 ) {
   await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
-  const cancelled = await cancelSchedule(id);
+  let cancelled: boolean;
+  try {
+    cancelled = await cancelSchedule(id);
+  } catch (err) {
+    // Store-layer refusals (plugin-sourced rows, for which cancellation is a
+    // permanent latch) are caller mistakes with an actionable message, not
+    // daemon faults.
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
   if (!cancelled) {
     throw new NotFoundError("Schedule not found or not cancellable");
   }

@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
@@ -43,6 +45,7 @@ import {
   upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
 import { UserError } from "../util/errors.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 await initializeDb();
 
@@ -1515,12 +1518,20 @@ describe("owner-defer provenance", () => {
 // ── Plugin-declared schedules ───────────────────────────────────────
 
 describe("declared schedules", () => {
+  const SOURCE_KEY = "plugin:example/daily";
+  const examplePluginDir = () => join(getWorkspacePluginsDir(), "example");
+
+  // setUserEnabled's enable path probes the declaration's on-disk presence,
+  // so the suite keeps a flat-file declaration in place for SOURCE_KEY;
+  // ghost-row tests remove it.
   beforeEach(() => {
     getDb().run("DELETE FROM cron_runs");
     getDb().run("DELETE FROM cron_jobs");
+    rmSync(examplePluginDir(), { recursive: true, force: true });
+    const schedulesDir = join(examplePluginDir(), "schedules");
+    mkdirSync(schedulesDir, { recursive: true });
+    writeFileSync(join(schedulesDir, "daily.md"), "declaration");
   });
-
-  const SOURCE_KEY = "plugin:example/daily";
 
   function makeDefinition(
     overrides: Partial<DeclaredScheduleDefinition> = {},
@@ -1743,6 +1754,69 @@ describe("declared schedules", () => {
     await expect(setUserEnabled(imperative.id, null)).rejects.toThrow(
       UserError,
     );
+  });
+
+  test("upsert rewrites a moved script path without touching timing", async () => {
+    const created = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({
+        mode: "script",
+        message: "",
+        script: "sh '/workspace-a/plugins/example/schedules/daily/index.sh'",
+      }),
+    );
+
+    // Same definition hash: relocation moves the absolute entrypoint path
+    // while the schedules/-relative content is unchanged.
+    const updated = await upsertDeclaredSchedule(
+      SOURCE_KEY,
+      makeDefinition({
+        mode: "script",
+        message: "",
+        script: "sh '/workspace-b/plugins/example/schedules/daily/index.sh'",
+      }),
+    );
+
+    expect(updated.script).toBe(
+      "sh '/workspace-b/plugins/example/schedules/daily/index.sh'",
+    );
+    expect(updated.definitionHash).toBe("hash-1");
+    expect(updated.nextRunAt).toBe(created.nextRunAt);
+  });
+
+  test("cancelSchedule refuses sourced rows", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    const before = rawJob(created.id);
+
+    await expect(cancelSchedule(created.id)).rejects.toThrow(UserError);
+    await expect(cancelSchedule(created.id)).rejects.toThrow(
+      /managed by a plugin/,
+    );
+    expect(rawJob(created.id)).toEqual(before);
+  });
+
+  test("enabling a row whose declaration is gone records the override without re-arming", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    await setUserEnabled(created.id, false);
+    rmSync(examplePluginDir(), { recursive: true, force: true });
+
+    const result = await setUserEnabled(created.id, true);
+
+    expect(result!.userEnabled).toBe(true);
+    expect(result!.enabled).toBe(false);
+  });
+
+  test("a directory-form declaration also satisfies the enable probe", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    await setUserEnabled(created.id, false);
+    const schedulesDir = join(examplePluginDir(), "schedules");
+    rmSync(join(schedulesDir, "daily.md"));
+    mkdirSync(join(schedulesDir, "daily"), { recursive: true });
+
+    const result = await setUserEnabled(created.id, true);
+
+    expect(result!.enabled).toBe(true);
+    expect(result!.nextRunAt).toBeGreaterThan(Date.now());
   });
 
   test("updateSchedule refuses sourced rows", async () => {

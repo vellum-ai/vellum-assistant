@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../heartbeat/heartbeat-service.js", () => ({
@@ -66,6 +68,7 @@ import {
   listSchedules,
   upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 await initializeDb();
 
@@ -1372,11 +1375,18 @@ describe("PATCH /schedules/:id — description", () => {
 // ── Plugin-sourced schedules ──────────────────────────────────────────────
 
 describe("plugin-sourced schedules over routes", () => {
+  const SOURCE_KEY = "plugin:example-plugin/daily-digest";
+
+  // The store's enable path probes the declaration's on-disk presence before
+  // re-arming, so the suite keeps a flat-file declaration in place.
   beforeEach(() => {
     clearTables();
+    const pluginDir = join(getWorkspacePluginsDir(), "example-plugin");
+    rmSync(pluginDir, { recursive: true, force: true });
+    const schedulesDir = join(pluginDir, "schedules");
+    mkdirSync(schedulesDir, { recursive: true });
+    writeFileSync(join(schedulesDir, "daily-digest.md"), "declaration");
   });
-
-  const SOURCE_KEY = "plugin:example-plugin/daily-digest";
 
   function seedSourcedSchedule(
     overrides: Partial<DeclaredScheduleDefinition> = {},
@@ -1492,6 +1502,17 @@ describe("plugin-sourced schedules over routes", () => {
     await expect(remove()).rejects.toThrow(BadRequestError);
     await expect(remove()).rejects.toThrow(
       "This schedule is managed by a plugin and cannot be deleted. Disable it instead, or remove the plugin's schedule file.",
+    );
+  });
+
+  test("cancel on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id/cancel", "POST");
+    const cancel = () => route.handler({ pathParams: { id: sourced.id } });
+
+    await expect(cancel()).rejects.toThrow(BadRequestError);
+    await expect(cancel()).rejects.toThrow(
+      "This schedule is managed by a plugin and cannot be cancelled. Disable it instead via the enabled toggle.",
     );
   });
 });
