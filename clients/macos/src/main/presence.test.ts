@@ -78,10 +78,26 @@ afterEach(() => {
   globalThis.clearInterval = originalClearInterval;
 });
 
+// Install emits one report straight away; tests that assert on what follows
+// drop it so their expectations name only the transitions they exercise.
+const install = (): { reports: string[]; teardown: () => void } => {
+  const reports: string[] = [];
+  const teardown = installPresenceMonitor((state) => reports.push(state));
+  reports.length = 0;
+  return { reports, teardown };
+};
+
 describe("installPresenceMonitor", () => {
-  test("reports active when idle time is below the threshold", () => {
+  test("reports once at install, before the first poll tick", () => {
     const reports: string[] = [];
+    idleSeconds = 0;
     installPresenceMonitor((state) => reports.push(state));
+
+    expect(reports).toEqual(["active"]);
+  });
+
+  test("reports active when idle time is below the threshold", () => {
+    const { reports } = install();
 
     idleSeconds = IDLE_THRESHOLD_MS / 1000 - 1;
     intervalCallback?.();
@@ -90,8 +106,7 @@ describe("installPresenceMonitor", () => {
   });
 
   test("reports idle when idle time reaches the threshold", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     idleSeconds = IDLE_THRESHOLD_MS / 1000;
     intervalCallback?.();
@@ -100,8 +115,7 @@ describe("installPresenceMonitor", () => {
   });
 
   test("reports away immediately on lock-screen, ignoring the idle timer", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     idleSeconds = 0;
     fire("lock-screen");
@@ -110,8 +124,7 @@ describe("installPresenceMonitor", () => {
   });
 
   test("reports away immediately on suspend", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     idleSeconds = 0;
     fire("suspend");
@@ -120,8 +133,7 @@ describe("installPresenceMonitor", () => {
   });
 
   test("returns to active on unlock-screen", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     idleSeconds = 0;
     fire("lock-screen");
@@ -131,8 +143,7 @@ describe("installPresenceMonitor", () => {
   });
 
   test("stays away across poll ticks while locked", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     fire("lock-screen");
     intervalCallback?.();
@@ -140,9 +151,65 @@ describe("installPresenceMonitor", () => {
     expect(reports).toEqual(["away", "away"]);
   });
 
+  test("stays away when a locked machine suspends and resumes", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("suspend");
+    fire("resume");
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away", "away", "away"]);
+  });
+
+  test("returns to active once the lock screen clears after a resume", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("suspend");
+    fire("resume");
+    fire("unlock-screen");
+
+    expect(reports).toEqual(["away", "away", "away", "active"]);
+  });
+
+  test("stays away when a suspend arrives without a lock", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("suspend");
+    intervalCallback?.();
+    fire("resume");
+
+    expect(reports).toEqual(["away", "away", "active"]);
+  });
+
+  test("reports away when the login session resigns", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("user-did-resign-active");
+    intervalCallback?.();
+    fire("user-did-become-active");
+
+    expect(reports).toEqual(["away", "away", "active"]);
+  });
+
+  test("user-did-become-active does not clear the lock", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("user-did-become-active");
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away", "away"]);
+  });
+
   test("reports on every poll tick even with no state change", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     idleSeconds = 0;
     intervalCallback?.();
@@ -154,8 +221,7 @@ describe("installPresenceMonitor", () => {
   });
 
   test("degrades to idle, never active, when the idle read throws", () => {
-    const reports: string[] = [];
-    installPresenceMonitor((state) => reports.push(state));
+    const { reports } = install();
 
     idleThrows = true;
     intervalCallback?.();
@@ -164,9 +230,8 @@ describe("installPresenceMonitor", () => {
   });
 
   test("teardown clears the interval and detaches every listener", () => {
-    const reports: string[] = [];
-    const teardown = installPresenceMonitor((state) => reports.push(state));
-    expect(listenerCount()).toBe(5);
+    const { reports, teardown } = install();
+    expect(listenerCount()).toBe(6);
 
     teardown();
 
@@ -174,6 +239,7 @@ describe("installPresenceMonitor", () => {
     expect(listenerCount()).toBe(0);
 
     fire("lock-screen");
+    fire("user-did-resign-active");
     expect(reports).toEqual([]);
   });
 });

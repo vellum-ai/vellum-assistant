@@ -2,7 +2,7 @@ import { powerMonitor } from "electron";
 
 /**
  * Desktop presence, derived from system-wide HID idle time plus screen
- * lock and suspend.
+ * lock, suspend, and login-session activation.
  *
  * Presence is deliberately NOT window focus. The question this answers is
  * whether a Mac notification banner will reach the user, so someone typing
@@ -29,10 +29,19 @@ export const POLL_INTERVAL_MS = 30_000;
 export const installPresenceMonitor = (
   onReport: (state: PresenceState) => void,
 ): (() => void) => {
+  // Three independently owned reasons the desktop is unreachable, each
+  // cleared only by its paired event. A locked machine that sleeps and wakes
+  // is still locked, and becoming the foreground login session says nothing
+  // about whether the lock screen is up.
   let locked = false;
+  let suspended = false;
+  // Assumed active until macOS reports another login session took over:
+  // getSystemIdleTime is system-wide, so that session's input would
+  // otherwise read as this user's.
+  let sessionActive = true;
 
   const evaluate = (): PresenceState => {
-    if (locked) {
+    if (locked || suspended || !sessionActive) {
       return "away";
     }
     try {
@@ -49,21 +58,46 @@ export const installPresenceMonitor = (
     onReport(evaluate());
   };
 
-  const onLocked = (): void => {
+  const onLockScreen = (): void => {
     locked = true;
     report();
   };
 
-  const onUnlocked = (): void => {
+  const onUnlockScreen = (): void => {
     locked = false;
     report();
   };
 
-  powerMonitor.on("lock-screen", onLocked);
-  powerMonitor.on("suspend", onLocked);
-  powerMonitor.on("unlock-screen", onUnlocked);
-  powerMonitor.on("resume", onUnlocked);
-  powerMonitor.on("user-did-become-active", onUnlocked);
+  const onSuspend = (): void => {
+    suspended = true;
+    report();
+  };
+
+  const onResume = (): void => {
+    suspended = false;
+    report();
+  };
+
+  const onSessionBecameActive = (): void => {
+    sessionActive = true;
+    report();
+  };
+
+  const onSessionResigned = (): void => {
+    sessionActive = false;
+    report();
+  };
+
+  powerMonitor.on("lock-screen", onLockScreen);
+  powerMonitor.on("unlock-screen", onUnlockScreen);
+  powerMonitor.on("suspend", onSuspend);
+  powerMonitor.on("resume", onResume);
+  powerMonitor.on("user-did-become-active", onSessionBecameActive);
+  powerMonitor.on("user-did-resign-active", onSessionResigned);
+
+  // Seeds the daemon before the first tick, so a message sent right after
+  // launch is judged against real presence rather than none.
+  report();
 
   // Reports on every tick, not only on transitions: the daemon expires
   // presence after a staleness bound, so a transition-only reporter would
@@ -73,10 +107,11 @@ export const installPresenceMonitor = (
 
   return (): void => {
     clearInterval(timer);
-    powerMonitor.off("lock-screen", onLocked);
-    powerMonitor.off("suspend", onLocked);
-    powerMonitor.off("unlock-screen", onUnlocked);
-    powerMonitor.off("resume", onUnlocked);
-    powerMonitor.off("user-did-become-active", onUnlocked);
+    powerMonitor.off("lock-screen", onLockScreen);
+    powerMonitor.off("unlock-screen", onUnlockScreen);
+    powerMonitor.off("suspend", onSuspend);
+    powerMonitor.off("resume", onResume);
+    powerMonitor.off("user-did-become-active", onSessionBecameActive);
+    powerMonitor.off("user-did-resign-active", onSessionResigned);
   };
 };
