@@ -1,9 +1,7 @@
-import { Search, SquarePen, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import {
   Fragment,
   useCallback,
-  useLayoutEffect,
-  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -12,22 +10,17 @@ import {
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import { SIDEBAR_SECTION_TITLE_TEXT_CLASSES } from "@/components/sidebar-nav-geometry";
 import {
-  SIDEBAR_CHIP_GAP,
-  SIDEBAR_ROW_PADDING_X,
-  SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-} from "@/components/sidebar-nav-geometry";
-import {
-  CollapsedGroupIcon,
   getGroupIndicatorState,
   GroupIndicatorDot,
 } from "@/domains/chat/components/collapsed-group-icon";
+import { CollapsedRailSections } from "@/domains/chat/components/collapsed-rail-sections";
 import {
   ConversationListProvider,
   type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
 import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
-import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import {
@@ -35,10 +28,10 @@ import {
   ConversationRowList,
 } from "@/domains/chat/components/conversation-nav-section";
 import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
+import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in-nav";
+import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
 import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
-import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
-import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
 import { useScrolledPast } from "@/domains/chat/hooks/use-scrolled-past";
@@ -49,12 +42,6 @@ import {
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
-import {
-  RECENTS_SECTION_ICON,
-  RECENTS_SECTION_LABEL,
-  sectionIcon,
-} from "@/domains/chat/utils/sidebar-section-icon";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { Button, cn, SideMenu } from "@vellumai/design-library";
 
@@ -240,8 +227,6 @@ export function AssistantSideMenu({
     attentionConversationIds,
   });
 
-  const pinnedApps = usePinnedAppsStore.use.pinnedApps();
-
   const isCollapsedRail = collapsed && variant === "rail";
 
   // --- Overlay bottom reserve ---
@@ -258,37 +243,9 @@ export function AssistantSideMenu({
   // enough that it is there by the time the curated layer is off screen.
   const scrolledPast = useScrolledPast(bodyElement, 400);
 
-  const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
+  // Reported by SideMenuOverlayBottomColumn; only read while the overlay
+  // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
-
-  useLayoutEffect(() => {
-    if (variant !== "overlay") {
-      setOverlayBottomColumnHeight(0);
-      return;
-    }
-
-    const el = overlayBottomColumnRef.current;
-    if (!el) {
-      return;
-    }
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
-      setOverlayBottomColumnHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [variant]);
 
   // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
 
@@ -440,106 +397,22 @@ export function AssistantSideMenu({
   // split into Chats + channel sub-sections (grouped by Channel).
   const conversationsMenu = buildGroupMenu("Conversations", sidebar.flatList);
 
-  // --- Built-in navigation ---
-  // Assistant cluster leads, pinned apps follow beneath New Chat, separated
-  // by a divider. On the rail this block lives in the non-scrolling header;
-  // on the overlay it renders at the top of the body so the whole menu
-  // scrolls as one surface (Figma 6764:6745).
-
+  // Rendered in the rail's non-scrolling header, or at the top of the
+  // overlay's body so the whole menu scrolls as one surface; the block's
+  // composition rules live on SideMenuBuiltInNav.
   const builtInNav = (
-    <>
-      {/* The assistant cluster: the avatar-colored assistant row with the
-          New Chat row (avatar-tinted, plus + label; icon-only tile on the
-          collapsed rail) beneath it, so the identity leads and the action
-          hangs off it. No divider when
-          expanded; breathing room below instead. On the collapsed rail
-          the separator provides the section break, so the margin drops
-          and the header's own gap (8px) plus the separator's margin keeps
-          the divider ~12px off the cluster (Figma 7257:135812). The
-          overlay drawer skips the New Chat row — its floating New Chat
-          pill already owns that action in the thumb zone. */}
-      <div className={isCollapsedRail ? undefined : "mb-2"}>
-        <AssistantNavItem
-          assistantId={assistantId ?? null}
-          label={assistantName || "Your Assistant"}
-          active={isIntelligenceActive}
-          collapsed={collapsed}
-          onSelect={
-            onOpenIntelligence
-              ? () => {
-                  onOpenIntelligence();
-                  onClose?.();
-                }
-              : undefined
-          }
-          onNewConversation={
-            variant === "rail" && onStartNewConversation
-              ? () => {
-                  onStartNewConversation();
-                  onClose?.();
-                }
-              : undefined
-          }
-        />
-      </div>
-      {pinnedApps.length > 0 ? (
-        <>
-          {/* Not the accordion's "Conversations"/"Pinned" title component: this
-              block lives outside `CollapsibleNavSection.Root` entirely (in
-              the non-scrolling rail header, or the overlay's top-of-body),
-              so it's just the same label styling, non-interactive. */}
-          {!isCollapsedRail ? (
-            <div
-              // Same title treatment as "Pinned"/"Conversations" (collapsible-
-              // nav-section.tsx's non-collapsible branch): the mobile
-              // text/height/padding classes below aren't decorative, they
-              // match that component's, so the two read as one style.
-              //
-              // The trailing -mb-1/-mb-[10px] shaves off the parent's own
-              // gap (8px on the rail, 16px on the overlay): additive since
-              // flex `gap` doesn't collapse with margins, so this works in
-              // both contexts. Mobile (always the overlay) shaves more,
-              // halving the 16px gap to Lucky Dip below instead of the
-              // 12px this leaves elsewhere.
-              className={cn(
-                "flex h-[30px] max-md:h-auto items-center rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5 -mb-1 max-md:-mb-[10px]",
-                SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
-              )}
-              style={{
-                paddingLeft: SIDEBAR_ROW_PADDING_X,
-                paddingRight: SIDEBAR_ROW_PADDING_X,
-                gap: SIDEBAR_CHIP_GAP,
-              }}
-            >
-              Pinned Apps
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-[4px]">
-            {pinnedApps.map((app) => (
-              <PinnedAppNavItem
-                key={app.appId}
-                app={app}
-                collapsed={collapsed}
-                active={activeAppId === app.appId}
-                onOpen={
-                  onOpenApp
-                    ? (appId) => {
-                        onOpenApp(appId);
-                        onClose?.();
-                      }
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-          <SideMenu.Separator />
-        </>
-      ) : null}
-      {/* The collapsed rail separates the cluster (or, when pinned apps
-          exist, the pinned-apps block above) from the group icons below it
-          (Figma 7257:135826). */}
-      {isCollapsedRail ? <SideMenu.Separator /> : null}
-    </>
+    <SideMenuBuiltInNav
+      assistantId={assistantId ?? null}
+      assistantName={assistantName}
+      collapsed={collapsed}
+      variant={variant}
+      isIntelligenceActive={isIntelligenceActive}
+      onOpenIntelligence={onOpenIntelligence}
+      onStartNewConversation={onStartNewConversation}
+      activeAppId={activeAppId}
+      onOpenApp={onOpenApp}
+      onClose={onClose}
+    />
   );
 
   // --- JSX ---
@@ -622,58 +495,13 @@ export function AssistantSideMenu({
             </div>
           ) : null}
           {isCollapsedRail ? (
-            /* The rail shows the same sections in the same order, as icons.
-               Nothing here is type-aware - order and labels come straight
-               from `sidebar.sections`, so the rail can't drift from the
-               expanded list the way two hand-maintained orders would. */
-            <div className="flex flex-col items-center gap-2">
-              {sidebar.sections.map((section) => (
-                <CollapsedGroupIcon
-                  key={section.key}
-                  icon={sectionIcon(section)}
-                  label={section.label}
-                  disabled={section.all.length === 0}
-                  indicatorState={getGroupIndicatorState(
-                    section.all,
-                    processingConversationIds,
-                    attentionConversationIds,
-                  )}
-                >
-                  {(close, scrollParent) => (
-                    <CollapsedGroupFlyout
-                      title={section.label}
-                      conversations={section.all}
-                      onClosePopover={close}
-                      scrollParent={scrollParent}
-                    />
-                  )}
-                </CollapsedGroupIcon>
-              ))}
-              {/* The flat list has no section of its own to draw, so the rail
-                  gives it one icon - otherwise the All view's conversations
-                  would be unreachable while collapsed. */}
-              {sidebar.viewMode === "all" ? (
-                <CollapsedGroupIcon
-                  icon={RECENTS_SECTION_ICON}
-                  label={RECENTS_SECTION_LABEL}
-                  disabled={sidebar.flatList.length === 0}
-                  indicatorState={getGroupIndicatorState(
-                    sidebar.flatList,
-                    processingConversationIds,
-                    attentionConversationIds,
-                  )}
-                >
-                  {(close, scrollParent) => (
-                    <CollapsedGroupFlyout
-                      title={RECENTS_SECTION_LABEL}
-                      conversations={sidebar.flatList}
-                      onClosePopover={close}
-                      scrollParent={scrollParent}
-                    />
-                  )}
-                </CollapsedGroupIcon>
-              ) : null}
-            </div>
+            <CollapsedRailSections
+              sections={sidebar.sections}
+              viewMode={sidebar.viewMode}
+              flatList={sidebar.flatList}
+              processingConversationIds={processingConversationIds}
+              attentionConversationIds={attentionConversationIds}
+            />
           ) : (
             /* Right-clicking the list (including the empty space below the
                last section) creates a group, so the affordance covers the
@@ -779,69 +607,13 @@ export function AssistantSideMenu({
         </SideMenu.Body>
 
         {variant === "overlay" ? (
-          /* Overlay: the footer bar is replaced by floating action pills so
-             the primary actions sit in the thumb zone without spending two
-             fixed rows (Figma 6764:6745). `pointer-events-none` on the
-             container keeps the list scrollable between/around the pills.
-             The container offsets itself by the bottom safe-area inset
-             because the overlay sheet runs full-bleed to the physical
-             screen edge — this keeps the pills above the home indicator
-             while letting their drop shadows fade out naturally instead of
-             being clipped at a safe-area boundary. */
-          <div
-            ref={overlayBottomColumnRef}
-            className="pointer-events-none absolute inset-x-4 z-10 flex flex-col gap-4"
-            style={{
-              bottom:
-                "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
-            }}
-          >
-            {/* `empty:hidden` collapses the row when the tip card renders
-               null, so the column gap adds no phantom spacing. */}
-            {tipCard ? (
-              <div
-                data-slot="tip-card-wrapper"
-                className="pointer-events-auto empty:hidden"
-              >
-                {tipCard}
-              </div>
-            ) : null}
-            {/* Grid, not flex: a plain `flex-1` on both children doesn't
-               actually split them evenly here, since the Preferences pill
-               (wrapped in its own div, see `footerAction` below) and the New
-               Chat button (a flex item directly) don't carry the same
-               content-based automatic minimum size, so equal flex-grow still
-               resolves to unequal widths. `minmax(0,1fr)` tracks are immune
-               to that: each column is forced to the same size regardless of
-               its content or DOM depth. */}
-            <div
-              className={cn(
-                "grid items-center gap-4",
-                footerAction
-                  ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-                  : "grid-cols-1",
-              )}
-            >
-              {footerAction ? (
-                <div className="pointer-events-auto min-w-0">
-                  {footerAction}
-                </div>
-              ) : null}
-              {onStartNewConversation ? (
-                <Button
-                  variant="primary"
-                  className="pointer-events-auto h-10 w-full rounded-full px-4 shadow-[var(--shadow-lg)]"
-                  leftIcon={<SquarePen />}
-                  onClick={() => {
-                    onStartNewConversation();
-                    onClose?.();
-                  }}
-                >
-                  New Chat
-                </Button>
-              ) : null}
-            </div>
-          </div>
+          <SideMenuOverlayBottomColumn
+            tipCard={tipCard}
+            footerAction={footerAction}
+            onStartNewConversation={onStartNewConversation}
+            onClose={onClose}
+            onHeightChange={setOverlayBottomColumnHeight}
+          />
         ) : footerAction || tipCard ? (
           // `pt-0`, and a flush separator, so the conversation list runs right
           // up to the rule instead of trailing off into dead space.
