@@ -581,7 +581,7 @@ describe("normalizeSlackAppMention with display name", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe(
-      "@unknown-user @Leo please look",
+      "@unknown-user (U123BOT) @Leo please look",
     );
     expect(result!.event.message.content).not.toContain("<@ULEO>");
     expect(result!.event.message.content).not.toContain("ULEO");
@@ -607,11 +607,12 @@ describe("normalizeSlackAppMention with display name", () => {
     );
 
     expect(result).not.toBeNull();
+    // The fallback keeps each raw user id so the identity survives the
+    // failed lookup; the token form itself must still never leak.
     expect(result!.event.message.content).toBe(
-      "@unknown-user @unknown-user please look",
+      "@unknown-user (U123BOT) @unknown-user (UFAIL) please look",
     );
     expect(result!.event.message.content).not.toContain("<@UFAIL>");
-    expect(result!.event.message.content).not.toContain("UFAIL");
   });
 
   test("omits displayName when bot token is not configured", () => {

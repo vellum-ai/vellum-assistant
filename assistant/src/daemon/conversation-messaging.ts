@@ -537,6 +537,9 @@ export function buildSlackMetaForPersistence(params: {
     ...(candidate.actorExternalUserId
       ? { actorExternalUserId: candidate.actorExternalUserId }
       : {}),
+    ...(typeof candidate.rawText === "string" && candidate.rawText
+      ? { rawText: candidate.rawText }
+      : {}),
     ...buildSlackTimezoneMetadata(candidate),
   };
   return writeSlackMetadata(slackMeta);

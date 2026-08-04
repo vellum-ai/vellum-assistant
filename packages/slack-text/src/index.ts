@@ -199,12 +199,13 @@ function renderUserMention(
     return `@${embeddedLabel}`;
   }
 
-  const fallback = sanitizeLabel(options.userFallbackLabel, "unknown-user");
-  const resolvedLabel = sanitizeLabel(options.userLabels?.[id], fallback);
-  if (resolvedLabel === id) {
-    return `@${fallback}`;
+  const resolvedLabel = sanitizeOptionalLabel(options.userLabels?.[id]);
+  if (resolvedLabel && resolvedLabel !== id) {
+    return `@${resolvedLabel}`;
   }
-  return `@${resolvedLabel}`;
+
+  const fallback = sanitizeLabel(options.userFallbackLabel, "unknown-user");
+  return `@${fallback} (${id})`;
 }
 
 function renderChannelReference(
@@ -233,7 +234,11 @@ function renderChannelReference(
     return `#${resolvedLabel}`;
   }
 
-  return `#${fallback}`;
+  // Unresolvable references keep the raw id next to the fallback label so the
+  // routing information the mention carries survives the failed lookup (a
+  // reader or the model can still identify the target), and a later render
+  // against a warmer cache upgrades it to the real name.
+  return `#${fallback} (${channelId})`;
 }
 
 function renderSpecialReference(content: string): string {

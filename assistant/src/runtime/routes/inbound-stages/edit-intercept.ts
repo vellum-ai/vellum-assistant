@@ -48,6 +48,13 @@ export interface EditInterceptParams {
   canonicalAssistantId: string;
   assistantId: string;
   content: string | undefined;
+  /**
+   * Slack-specific: the edit's verbatim text with mention markup, forwarded by
+   * the gateway only when the edited text carries mention tokens. Replaces the
+   * stored `slackMeta.rawText`; when absent, the stale `rawText` is cleared so
+   * projection cannot resurrect pre-edit mentions.
+   */
+  slackRawText?: string;
   /** Channel ID for channel-level interaction tracking. */
   channelId?: string;
 }
@@ -71,6 +78,7 @@ export async function handleEditIntercept(
     canonicalAssistantId,
     assistantId,
     content,
+    slackRawText,
   } = params;
 
   // Dedup the edit event itself (retried edited_message webhooks)
@@ -159,6 +167,7 @@ export async function handleEditIntercept(
         sourceMessageId,
         sourceThreadId,
         newContent,
+        slackRawText,
       });
     } else {
       updateMessageContent(original.messageId, newContent);
@@ -223,6 +232,7 @@ function applySlackEditMetadata(params: {
   sourceMessageId: string;
   sourceThreadId?: string;
   newContent: string;
+  slackRawText?: string;
 }): void {
   const {
     messageId,
@@ -230,6 +240,7 @@ function applySlackEditMetadata(params: {
     sourceMessageId,
     sourceThreadId,
     newContent,
+    slackRawText,
   } = params;
 
   const row = getMessageById(messageId);
@@ -247,18 +258,26 @@ function applySlackEditMetadata(params: {
   // would produce a record missing the required fields and fail subsequent
   // `readSlackMetadata` calls. Seed defaults from the lookup-derived facts
   // so the post-merge value is always a valid `SlackMessageMetadata`.
-  const mergedSlackMeta = mergeSlackMetadata(existingSlackMeta ?? null, {
-    ...(parsedExisting
-      ? {}
-      : {
-          source: "slack" as const,
-          channelId: conversationExternalId,
-          channelTs: sourceMessageId,
-          ...(sourceThreadId ? { threadTs: sourceThreadId } : {}),
-          eventKind: "message" as const,
-        }),
-    editedAt,
-  });
+  // `rawText` must track the edit's own text: replaced when the edit carries
+  // mention markup, deleted when it does not. A stale value would make
+  // projection re-render the pre-edit text over the edited content.
+  const mergedSlackMeta = mergeSlackMetadata(
+    existingSlackMeta ?? null,
+    {
+      ...(parsedExisting
+        ? {}
+        : {
+            source: "slack" as const,
+            channelId: conversationExternalId,
+            channelTs: sourceMessageId,
+            ...(sourceThreadId ? { threadTs: sourceThreadId } : {}),
+            eventKind: "message" as const,
+          }),
+      ...(slackRawText ? { rawText: slackRawText } : {}),
+      editedAt,
+    },
+    slackRawText ? undefined : { deleteKeys: ["rawText"] },
+  );
 
   updateMessageContentAndMetadata(messageId, newContent, {
     slackMeta: mergedSlackMeta,

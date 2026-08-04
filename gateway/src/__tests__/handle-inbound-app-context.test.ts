@@ -152,4 +152,26 @@ describe("handle-inbound app context", () => {
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
     expect(runtimePayloads[0]!.sourceMetadata).not.toHaveProperty("appContext");
   });
+
+  test("forwards source.rawText as sourceMetadata.slackRawText verbatim", async () => {
+    await handleInbound(
+      makeConfig(),
+      makeSlackEvent({ rawText: "post this in <#C99XYZ|prod-models>" }),
+      ROUTING,
+    );
+
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(runtimePayloads[0]!.sourceMetadata!.slackRawText).toBe(
+      "post this in <#C99XYZ|prod-models>",
+    );
+  });
+
+  test("omits slackRawText when the event carries no rawText", async () => {
+    await handleInbound(makeConfig(), makeSlackEvent(), ROUTING);
+
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(runtimePayloads[0]!.sourceMetadata).not.toHaveProperty(
+      "slackRawText",
+    );
+  });
 });

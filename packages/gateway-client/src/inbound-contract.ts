@@ -76,6 +76,15 @@ export const SourceMetadataSchema = z
     actorTeamId: z.string().optional(),
 
     /**
+     * Slack-specific: the message text verbatim from the Slack event, mention
+     * markup (`<#C…>`, `<@U…>`) intact. Present only when the text contains
+     * mention tokens. The daemon persists it on the message's `slackMeta` so
+     * mention names can be re-rendered at projection time against a fresher
+     * cache; `content` remains the ingress-rendered form.
+     */
+    slackRawText: z.string().optional(),
+
+    /**
      * Slack-specific: what the sender had open when they messaged the app,
      * ordered by relevance. Slack attaches this to `message.im` once the app
      * subscribes to `app_context_changed` (which requires `agent_view`), so a

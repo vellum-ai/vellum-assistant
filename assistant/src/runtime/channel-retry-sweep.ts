@@ -190,9 +190,15 @@ function buildReplaySlackInbound(params: {
     return undefined;
   }
   const appContext = params.sourceMetadata?.appContext;
+  const rawText =
+    typeof params.sourceMetadata?.slackRawText === "string" &&
+    params.sourceMetadata.slackRawText.length > 0
+      ? params.sourceMetadata.slackRawText
+      : undefined;
   return {
     channelId: params.externalChatId,
     channelTs,
+    ...(rawText ? { rawText } : {}),
     ...(Array.isArray(appContext?.entities) && appContext.entities.length > 0
       ? { appContext }
       : {}),

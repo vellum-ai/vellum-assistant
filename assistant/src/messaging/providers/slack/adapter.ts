@@ -5,15 +5,8 @@
  * implements the MessagingProvider interface.
  */
 
-import { createHash } from "node:crypto";
+import { renderSlackTextForModel } from "@vellumai/slack-text";
 
-import {
-  buildSlackChannelLabelMap,
-  buildSlackUserLabelMap,
-  renderSlackTextForModel,
-} from "@vellumai/slack-text";
-
-import { findContactChannel } from "../../../contacts/contact-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { isProviderConnected } from "../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
@@ -36,48 +29,20 @@ import * as slack from "./client.js";
 import {
   classifyConversationType,
   isPrivateConversation,
-  slackUserDisplayName,
 } from "./conversation-utils.js";
+import {
+  buildMentionLabels,
+  type NormalizedSlackUserInfo,
+  resolveUserInfo,
+  resolveUserName,
+  type SlackMentionLabels,
+} from "./mention-labels.js";
 import type {
   SlackConversation,
   SlackMessage,
   SlackSearchMatch,
-  SlackUser,
 } from "./types.js";
 import { SlackApiError } from "./web-api-transport.js";
-
-interface NormalizedSlackUserInfo {
-  displayName: string;
-  timezone?: string;
-  timezoneLabel?: string;
-  timezoneOffsetSeconds?: number;
-}
-
-interface SlackUserInfoLookupResult {
-  info: NormalizedSlackUserInfo;
-  cacheable: boolean;
-}
-
-const PERMANENT_USER_INFO_SLACK_ERRORS = new Set([
-  "account_inactive",
-  "ekm_access_denied",
-  "missing_scope",
-  "not_allowed_token_type",
-  "user_not_found",
-  "user_not_visible",
-]);
-
-// Cache normalized Slack user facts to avoid repeated API calls within a session.
-const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
-
-/**
- * Cache resolved channel names for inline `<#C…>` mention rendering, same
- * lifetime and keying discipline as {@link userInfoCache}. Holds `undefined`
- * for channels this auth provably cannot resolve (not found / no permission)
- * so a wall of history mentioning an inaccessible channel doesn't re-fire a
- * doomed lookup per message batch.
- */
-const channelNameCache = new Map<string, Promise<string | undefined>>();
 
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
@@ -243,163 +208,6 @@ async function runReadWithFallback<T>(
   }
 }
 
-async function resolveUserName(
-  auth: OAuthConnection | string,
-  userId: string,
-): Promise<string> {
-  return (await resolveUserInfo(auth, userId)).displayName;
-}
-
-async function resolveUserInfo(
-  auth: OAuthConnection | string,
-  userId: string,
-): Promise<NormalizedSlackUserInfo> {
-  if (!userId) {
-    return { displayName: "unknown" };
-  }
-  const cacheKey = slackUserInfoCacheKey(auth, userId);
-  const cached = userInfoCache.get(cacheKey);
-  if (cached) {
-    return (await cached).info;
-  }
-
-  const resolved = resolveUserInfoUncached(auth, userId).then(
-    (result) => {
-      if (!result.cacheable) {
-        userInfoCache.delete(cacheKey);
-      }
-      return result;
-    },
-    (err) => {
-      userInfoCache.delete(cacheKey);
-      throw err;
-    },
-  );
-  userInfoCache.set(cacheKey, resolved);
-  return (await resolved).info;
-}
-
-async function resolveUserInfoUncached(
-  auth: OAuthConnection | string,
-  userId: string,
-): Promise<SlackUserInfoLookupResult> {
-  let contactDisplayName: string | undefined;
-  try {
-    const result = findContactChannel({
-      channelType: "slack",
-      address: userId,
-    });
-    if (result) {
-      contactDisplayName = result.contact.displayName;
-    }
-  } catch {
-    // Contact lookup failures are non-fatal — fall through to API
-  }
-
-  try {
-    const resp = await slack.userInfo(auth, userId);
-    return {
-      info: normalizeSlackUserInfo(resp.user, contactDisplayName),
-      cacheable: true,
-    };
-  } catch (err) {
-    return {
-      info: { displayName: contactDisplayName ?? userId },
-      cacheable: isPermanentSlackUserInfoFailure(err),
-    };
-  }
-}
-
-function isPermanentSlackUserInfoFailure(err: unknown): boolean {
-  return (
-    err instanceof SlackApiError &&
-    PERMANENT_USER_INFO_SLACK_ERRORS.has(err.slackError)
-  );
-}
-
-function slackAuthCacheScope(auth: OAuthConnection | string): string {
-  return typeof auth === "string"
-    ? `token:${createHash("sha256").update(auth).digest("hex")}`
-    : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
-}
-
-function slackUserInfoCacheKey(
-  auth: OAuthConnection | string,
-  userId: string,
-): string {
-  return `${slackAuthCacheScope(auth)}:user:${userId}`;
-}
-
-/**
- * Resolve a channel's display name for inline mention rendering, cached per
- * auth scope. Returns undefined when the channel has no name (DMs) or this
- * auth cannot see it; transient failures are not cached so a later batch
- * retries.
- */
-async function resolveChannelName(
-  auth: OAuthConnection | string,
-  channelId: string,
-): Promise<string | undefined> {
-  if (!channelId) {
-    return undefined;
-  }
-  const cacheKey = `${slackAuthCacheScope(auth)}:channel:${channelId}`;
-  const cached = channelNameCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const resolved = slack.conversationInfo(auth, channelId).then(
-    (resp) => trimNonEmpty(resp.channel.name),
-    (err: unknown) => {
-      // Cache the definitive "this auth cannot resolve it" answers; drop
-      // everything else so transient failures retry on the next batch.
-      const permanent =
-        err instanceof SlackApiError &&
-        (err.category === "channel_not_found" || err.category === "permission");
-      if (!permanent) {
-        channelNameCache.delete(cacheKey);
-      }
-      return undefined;
-    },
-  );
-  channelNameCache.set(cacheKey, resolved);
-  return resolved;
-}
-
-function normalizeSlackUserInfo(
-  user: SlackUser,
-  contactDisplayName: string | undefined,
-): NormalizedSlackUserInfo {
-  const displayName =
-    contactDisplayName || slackUserDisplayName(user) || user.id;
-  const timezone = trimNonEmpty(user.tz);
-  const timezoneLabel = trimNonEmpty(user.tz_label);
-  const timezoneOffsetSeconds =
-    typeof user.tz_offset === "number" && Number.isFinite(user.tz_offset)
-      ? user.tz_offset
-      : undefined;
-  return {
-    displayName,
-    ...(timezone ? { timezone } : {}),
-    ...(timezoneLabel ? { timezoneLabel } : {}),
-    ...(timezoneOffsetSeconds !== undefined ? { timezoneOffsetSeconds } : {}),
-  };
-}
-
-function trimNonEmpty(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-export function __resetSlackMentionCachesForTests(): void {
-  userInfoCache.clear();
-  channelNameCache.clear();
-}
-
 function slackUserInfoMetadata(
   userInfo: NormalizedSlackUserInfo | undefined,
 ): Record<string, unknown> {
@@ -546,32 +354,6 @@ async function mapSlackMessages(
     );
   }
   return messages;
-}
-
-interface SlackMentionLabels {
-  userLabels: Record<string, string>;
-  channelLabels: Record<string, string>;
-}
-
-/**
- * Resolve display labels for every user and channel mentioned inline in the
- * given texts, so bare `<@U…>` / `<#C…>` tokens render as names instead of
- * falling back to `@unknown-user` / `#unknown-channel`. Pipe-form tokens
- * carry their own label and are skipped by the map builders.
- */
-async function buildMentionLabels(
-  auth: OAuthConnection | string,
-  textValues: readonly (string | undefined)[],
-): Promise<SlackMentionLabels> {
-  const [userLabels, channelLabels] = await Promise.all([
-    buildSlackUserLabelMap(textValues, (userId) =>
-      resolveUserName(auth, userId),
-    ),
-    buildSlackChannelLabelMap(textValues, (channelId) =>
-      resolveChannelName(auth, channelId),
-    ),
-  ]);
-  return { userLabels, channelLabels };
 }
 
 async function mapSearchMatches(

@@ -172,6 +172,69 @@ describe("Slack edit propagation", () => {
     expect(slackMeta!.editedAt!).toBeGreaterThanOrEqual(t0);
   });
 
+  test("replaces slackMeta.rawText with the edit's own raw text", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.6001",
+      initialContent: "see #old-channel",
+    });
+
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "see #new-channel",
+      slackRawText: "see <#CNEW123|new-channel>",
+    });
+
+    const after = readMessageRow(seeded.messageId);
+    const outer = JSON.parse(after.metadata!);
+    const slackMeta = readSlackMetadata(outer.slackMeta);
+    expect(slackMeta?.rawText).toBe("see <#CNEW123|new-channel>");
+  });
+
+  test("clears a stale slackMeta.rawText when the edit carries no mention tokens", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.6002",
+      initialContent: "see #old-channel",
+    });
+
+    // First edit introduces a rawText …
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "see #old-channel again",
+      slackRawText: "see <#COLD456|old-channel> again",
+    });
+
+    // … and a second, mention-free edit must delete it, or projection would
+    // resurrect the pre-edit mention over the edited content.
+    await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "never mind, plain text now",
+    });
+
+    const after = readMessageRow(seeded.messageId);
+    expect(after.content).toBe("never mind, plain text now");
+    const outer = JSON.parse(after.metadata!);
+    const slackMeta = readSlackMetadata(outer.slackMeta);
+    expect(slackMeta).not.toBeNull();
+    expect(slackMeta!.rawText).toBeUndefined();
+  });
+
   test("threaded Slack edits use the threaded conversation key and preserve thread metadata", async () => {
     const conversationExternalId = "C0123CHANNEL";
     const threadTs = "1234.0000";

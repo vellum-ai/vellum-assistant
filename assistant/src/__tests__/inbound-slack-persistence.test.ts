@@ -176,6 +176,33 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
     expect(slackMeta!.actorExternalUserId).toBe("U_ALICE");
   });
 
+  test("Slack message: slackMeta.rawText persists the verbatim mention markup from slackInbound", async () => {
+    const ctx = createTestContext({
+      userMessageChannel: "slack",
+      assistantMessageChannel: "slack",
+    });
+
+    await persistQueuedMessageBody(ctx, {
+      content: "post this in #unknown-channel going forward",
+      requestId: "req-rawtext",
+      metadata: {
+        slackInbound: {
+          channelId: "C0123CHANNEL",
+          channelTs: "1700000020.333333",
+          rawText: "post this in <#C99XYZ|prod-models> going forward",
+        },
+      },
+    });
+
+    const slackMeta = readPersistedSlackMeta();
+    expect(slackMeta).not.toBeNull();
+    // Projection surfaces re-render mention names from this field; dropping
+    // it here would make the ingress bake permanent for the row.
+    expect(slackMeta!.rawText).toBe(
+      "post this in <#C99XYZ|prod-models> going forward",
+    );
+  });
+
   test("Slack top-level message: slackMeta has no threadTs", async () => {
     const ctx = createTestContext({
       userMessageChannel: "slack",

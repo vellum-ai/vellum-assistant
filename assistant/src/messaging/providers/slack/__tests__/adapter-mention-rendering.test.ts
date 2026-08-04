@@ -30,10 +30,8 @@ mock.module("../../../../contacts/contacts-write.js", () => ({
   upsertContactChannel: upsertContactChannelMock,
 }));
 
-import {
-  __resetSlackMentionCachesForTests,
-  slackProvider,
-} from "../adapter.js";
+import { slackProvider } from "../adapter.js";
+import { __resetSlackMentionCachesForTests } from "../mention-labels.js";
 
 const originalFetch = globalThis.fetch;
 let userInfoCalls: string[] = [];
@@ -385,7 +383,9 @@ describe("Slack adapter mention rendering", () => {
     const messages = await slackProvider.getHistory(undefined, "C_HISTORY");
 
     expect(messages).toHaveLength(1);
-    expect(messages[0].text).toBe("History for @Leo and @unknown-user");
+    expect(messages[0].text).toBe(
+      "History for @Leo and @unknown-user (UMISSING)",
+    );
     expect(messages[0].sender).toEqual({ id: "USENDER", name: "Sender" });
     expect(messages[0].threadId).toBe("1700000000.000100");
     expect(messages[0].replyCount).toBe(2);
@@ -588,9 +588,12 @@ describe("Slack adapter mention rendering", () => {
       "C_PRIVATE_MENTION",
     );
 
-    expect(first[0].text).toBe("see #unknown-channel for details");
-    expect(second[0].text).toBe("see #unknown-channel for details");
-    expect(first[0].text).not.toContain("CINVISIBLE1");
+    expect(first[0].text).toBe(
+      "see #unknown-channel (CINVISIBLE1) for details",
+    );
+    expect(second[0].text).toBe(
+      "see #unknown-channel (CINVISIBLE1) for details",
+    );
     // channel_not_found is a definitive answer for this auth: one lookup,
     // not one per history read.
     expect(channelInfoCalls.filter((id) => id === "CINVISIBLE1")).toHaveLength(
@@ -619,7 +622,7 @@ describe("Slack adapter mention rendering", () => {
 
     expect(result.messages).toHaveLength(1);
     expect(result.messages[0].text).toBe(
-      "Search result for @Leo and @unknown-user",
+      "Search result for @Leo and @unknown-user (UMISSING)",
     );
     expect(result.messages[0].sender).toEqual({
       id: "USENDER",

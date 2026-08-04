@@ -8,6 +8,8 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
+import { renderSlackTextForModel } from "@vellumai/slack-text";
+
 import {
   getApp,
   getAppDirPath,
@@ -32,6 +34,10 @@ import {
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
+import {
+  resolveSlackMentionLabelsForTexts,
+  type SlackMentionLabels,
+} from "../messaging/providers/slack/mention-labels.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -1068,7 +1074,10 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
  *   disambiguate speakers in multi-party channels); `null` otherwise so the
  *   renderer drops the redundant `@user` placeholder.
  */
-function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
+function rowToRenderable(
+  row: SlackTranscriptInputRow,
+  mentionLabels?: SlackMentionLabels,
+): RenderableSlackMessage {
   let slackMeta: ReturnType<typeof readSlackMetadata> = null;
   let provenanceTrustClass: TrustClass | undefined;
   if (row.metadata) {
@@ -1128,6 +1137,22 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   } catch {
     // Plain string row (legacy) — no structured blocks to preserve.
     plainText = Array.isArray(row.content) ? "" : row.content;
+  }
+
+  // Rows that carry the verbatim Slack text (mention markup intact) render it
+  // here with the current label cache instead of trusting the name resolution
+  // baked into `content` at ingress, so a mention that resolved late (or a
+  // renamed channel) projects its current name. This runs BEFORE the
+  // `wrapContentForModel` fencing in the transcript renderer, preserving the
+  // ingress pipeline's render-then-fence order, and resolved labels are
+  // bracket-stripped by the renderer's sanitizer, so a hostile channel or
+  // user name cannot forge fence boundaries.
+  const rawText = slackMeta?.rawText;
+  if (rawText && slackMeta?.eventKind === "message" && !slackMeta.deletedAt) {
+    const projected = renderSlackTextForModel(rawText, mentionLabels ?? {});
+    if (projected.trim().length > 0) {
+      plainText = projected;
+    }
   }
 
   // Attachment-only rows (images, files) carry no text block, so the
@@ -1208,10 +1233,11 @@ function getCanonicalConfiguredSlackBotUserId(): string | null {
 
 function rowsToRenderableSlackMessages(
   rows: SlackTranscriptInputRow[],
+  mentionLabels?: SlackMentionLabels,
 ): RenderableSlackMessage[] {
   const canonicalConfiguredBotUserId = getCanonicalConfiguredSlackBotUserId();
   return rows
-    .map(rowToRenderable)
+    .map((row) => rowToRenderable(row, mentionLabels))
     .filter(
       (message) =>
         !isSlackAssistantThreadPlaceholder(
@@ -1239,9 +1265,11 @@ function rowsToRenderableSlackMessages(
 export function assembleSlackChronologicalMessages(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
+  options: { mentionLabels?: SlackMentionLabels } = {},
 ): Message[] | null {
   return (
-    assembleSlackChronologicalContext(rows, capabilities)?.messages ?? null
+    assembleSlackChronologicalContext(rows, capabilities, options)?.messages ??
+    null
   );
 }
 
@@ -1397,12 +1425,13 @@ function assembleSlackChronologicalContext(
   capabilities: ChannelCapabilities,
   options: {
     contextSummary?: string | null;
+    mentionLabels?: SlackMentionLabels;
   } = {},
 ): SlackChronologicalContext | null {
   if (capabilities.channel !== "slack") {
     return null;
   }
-  const renderable = rowsToRenderableSlackMessages(rows);
+  const renderable = rowsToRenderableSlackMessages(rows, options.mentionLabels);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
   // Drop previously-refused exchanges — a persisted safety-classifier refusal
   // and the prompt that tripped it — so the model isn't re-fed a refusal it
@@ -1469,6 +1498,7 @@ export function loadSlackChronologicalMessages(
     contextSummary?: string | null;
     contextCompactedMessageCount?: number;
     slackContextCompactionWatermarkTs?: string | null;
+    mentionLabels?: SlackMentionLabels;
   } = {},
 ): Message[] | null {
   return (
@@ -1497,6 +1527,7 @@ export function loadSlackChronologicalContext(
     contextSummary?: string | null;
     contextCompactedMessageCount?: number;
     slackContextCompactionWatermarkTs?: string | null;
+    mentionLabels?: SlackMentionLabels;
   } = {},
 ): SlackChronologicalContext | null {
   if (capabilities.channel !== "slack") {
@@ -1516,6 +1547,47 @@ export function loadSlackChronologicalContext(
     contextSummary: resolveCapabilities(options.trustClass).canAccessMemory
       ? options.contextSummary
       : null,
+    mentionLabels: options.mentionLabels,
+  });
+}
+
+/**
+ * Resolve mention labels for every persisted Slack raw text in the
+ * conversation, bounded by the mention-label module's projection timeout.
+ *
+ * Async companion to the sync transcript loaders: the agent loop awaits this
+ * once at turn start and freezes the result on the conversation
+ * (`currentTurnSlackMentionLabels`), so every sync assembly in the turn
+ * (chronological transcript, active-thread focus block, compaction basis)
+ * renders mentions identically without re-resolving.
+ *
+ * Returns empty label maps when the conversation has no raw texts, so callers
+ * can pass the result through unconditionally.
+ */
+export async function resolveSlackMentionLabelsForConversation(
+  conversationId: string,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    timeoutMs?: number;
+  } = {},
+): Promise<SlackMentionLabels> {
+  const loader = options.loader ?? defaultGetMessages;
+  const rawTexts: string[] = [];
+  for (const row of loader(conversationId)) {
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    });
+    if (meta?.rawText) {
+      rawTexts.push(meta.rawText);
+    }
+  }
+  if (rawTexts.length === 0) {
+    return { userLabels: {}, channelLabels: {} };
+  }
+  return resolveSlackMentionLabelsForTexts(rawTexts, {
+    ...(options.timeoutMs !== undefined
+      ? { timeoutMs: options.timeoutMs }
+      : {}),
   });
 }
 
@@ -1669,6 +1741,7 @@ function buildActiveThreadBlockFromRenderable(
 export function assembleSlackActiveThreadFocusBlock(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
+  options: { mentionLabels?: SlackMentionLabels } = {},
 ): string | null {
   if (capabilities.channel !== "slack") {
     return null;
@@ -1680,7 +1753,7 @@ export function assembleSlackActiveThreadFocusBlock(
   if (capabilities.chatType !== "channel") {
     return null;
   }
-  const renderable = rowsToRenderableSlackMessages(rows);
+  const renderable = rowsToRenderableSlackMessages(rows, options.mentionLabels);
   const activeThreadTs = detectActiveThreadTs(renderable);
   if (!activeThreadTs) {
     return null;
@@ -1702,6 +1775,7 @@ export function loadSlackActiveThreadFocusBlock(
     trustClass?: TrustClass;
     contextCompactedMessageCount?: number;
     slackContextCompactionWatermarkTs?: string | null;
+    mentionLabels?: SlackMentionLabels;
   } = {},
 ): string | null {
   if (capabilities.channel !== "slack") {
@@ -1720,7 +1794,9 @@ export function loadSlackActiveThreadFocusBlock(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
   );
-  return assembleSlackActiveThreadFocusBlock(rows, capabilities);
+  return assembleSlackActiveThreadFocusBlock(rows, capabilities, {
+    mentionLabels: options.mentionLabels,
+  });
 }
 
 /**
@@ -2319,6 +2395,7 @@ export async function applyRuntimeInjections(
           liveConversation?.contextCompactedMessageCount,
         slackContextCompactionWatermarkTs:
           liveConversation?.slackContextCompactionWatermarkTs,
+        mentionLabels: liveConversation?.currentTurnSlackMentionLabels,
       })
     : null;
 
@@ -2338,6 +2415,7 @@ export async function applyRuntimeInjections(
           liveConversation?.contextCompactedMessageCount,
         slackContextCompactionWatermarkTs:
           liveConversation?.slackContextCompactionWatermarkTs,
+        mentionLabels: liveConversation?.currentTurnSlackMentionLabels,
       })
     : null;
 

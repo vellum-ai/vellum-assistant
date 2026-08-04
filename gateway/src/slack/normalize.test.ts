@@ -806,10 +806,39 @@ describe("Slack text rendering in normalized message content", () => {
     );
 
     expect(result).not.toBeNull();
+    // The fallback keeps the raw channel id so the routing information the
+    // mention carries survives the failed lookup and can heal at projection.
     expect(result!.event.message.content).toBe(
-      "please continue in #unknown-channel",
+      "please continue in #unknown-channel (CUNKNOWN)",
     );
-    expect(result!.event.message.content).not.toContain("CUNKNOWN");
+  });
+
+  it("forwards the verbatim text as source.rawText when it carries mention tokens", () => {
+    const config = makeConfig();
+    const event = makeChannelEvent({
+      text: "route this to <#C123ABC> and ping <@U456DEF>",
+    });
+
+    const result = normalizeSlackChannelMessage(event, "evt-raw-text", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.rawText).toBe(
+      "route this to <#C123ABC> and ping <@U456DEF>",
+    );
+  });
+
+  it("omits source.rawText for token-free text", () => {
+    const config = makeConfig();
+    const event = makeChannelEvent({ text: "no mentions here" });
+
+    const result = normalizeSlackChannelMessage(
+      event,
+      "evt-no-raw-text",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.rawText).toBeUndefined();
   });
 });
 
@@ -1401,6 +1430,29 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.event.source.messageId).not.toBe(
       result!.event.message.externalMessageId,
     );
+  });
+
+  it("forwards the edit's verbatim text as source.rawText when it carries mention tokens", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+    });
+    const withTokens = normalizeSlackMessageEdit(
+      makeMessageChangedEvent({ text: "moved to <#C99XYZ|prod-models>" }),
+      "Ev-edit-raw-1",
+      config,
+    );
+    expect(withTokens!.event.source.rawText).toBe(
+      "moved to <#C99XYZ|prod-models>",
+    );
+
+    const withoutTokens = normalizeSlackMessageEdit(
+      makeMessageChangedEvent({ text: "plain edited text" }),
+      "Ev-edit-raw-2",
+      config,
+    );
+    expect(withoutTokens!.event.source.rawText).toBeUndefined();
   });
 
   it("uses message ts as threadTs for top-level channel edits", () => {

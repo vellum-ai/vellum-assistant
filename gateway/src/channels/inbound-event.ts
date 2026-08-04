@@ -62,6 +62,15 @@ interface InboundEventBase<C extends InboundChannelId> {
     threadId?: string;
     channelName?: string;
     /**
+     * Slack-specific: the message text verbatim from the Slack event, mention
+     * markup (`<#C…>`, `<@U…>`, `<!…>`) intact. Present only when the text
+     * contains mention tokens, so the daemon can persist the un-baked form and
+     * re-render names at projection time against a fresher cache than the one
+     * available on this hot ingress path. `message.content` stays the
+     * best-effort rendered form for every consumer that does not re-render.
+     */
+    rawText?: string;
+    /**
      * Slack-specific: what the sender had open when they messaged the app,
      * ordered by relevance. `value` is an id string for channel / canvas /
      * list entities, and an object for `slack#/types/message_context`, which

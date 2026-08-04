@@ -6,6 +6,7 @@ import {
 } from "./message-schemas.js";
 import {
   renderSlackInboundText,
+  slackRawTextForForwarding,
   type SlackTextRenderContext,
 } from "./render-text.js";
 import { slackUserActorFields, slackBotSenderInfo } from "./actor.js";
@@ -53,6 +54,7 @@ function buildNormalizedSlackMessage(
     : undefined;
   const botSender = slackBotSenderInfo(event, userInfo);
   const content = renderSlackInboundText(event.text ?? "", renderContext);
+  const rawText = slackRawTextForForwarding(event.text);
   const threadTs =
     event.thread_ts ?? (shape.fallbackThreadToTs ? event.ts : undefined);
 
@@ -105,6 +107,7 @@ function buildNormalizedSlackMessage(
         messageId: event.ts,
         ...(shape.chatType ? { chatType: shape.chatType } : {}),
         ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
+        ...(rawText ? { rawText } : {}),
         ...(appContext ? { appContext } : {}),
       },
       raw: rawEvent,

@@ -111,6 +111,7 @@ import {
 import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
+  resolveSlackMentionLabelsForConversation,
   resolveTurnInboundActorContext,
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
@@ -750,6 +751,14 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
+    // Freeze the turn's Slack mention labels before the first transcript
+    // assembly (mirrors `currentTurnTemporalSnapshot`): the resolution is
+    // async and timeout-bounded, while every assembly in the turn is sync
+    // and must render mentions identically.
+    if (isSlackConversation) {
+      ctx.currentTurnSlackMentionLabels =
+        await resolveSlackMentionLabelsForConversation(ctx.conversationId);
+    }
     const loadCurrentSlackChronologicalContext =
       (): SlackChronologicalContext | null => {
         if (!isSlackConversation) {
@@ -764,6 +773,7 @@ export async function runAgentLoopImpl(
             contextCompactedMessageCount: ctx.contextCompactedMessageCount,
             slackContextCompactionWatermarkTs:
               ctx.slackContextCompactionWatermarkTs,
+            mentionLabels: ctx.currentTurnSlackMentionLabels,
           },
         );
       };

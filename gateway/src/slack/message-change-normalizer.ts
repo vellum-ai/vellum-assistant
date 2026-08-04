@@ -6,6 +6,7 @@ import {
 } from "./message-schemas.js";
 import {
   renderSlackInboundText,
+  slackRawTextForForwarding,
   type SlackTextRenderContext,
 } from "./render-text.js";
 import type { GatewayConfig } from "../config.js";
@@ -56,6 +57,7 @@ export function normalizeSlackMessageEdit(
   if (isRejection(routing)) return null;
 
   const content = renderSlackInboundText(edited.text ?? "", renderContext);
+  const rawText = slackRawTextForForwarding(edited.text);
 
   // Each edit event gets a unique externalMessageId so the dedup pipeline
   // does not discard subsequent edits of the same Slack message.
@@ -81,6 +83,7 @@ export function normalizeSlackMessageEdit(
         messageId: edited.ts,
         ...(isDm ? {} : { chatType: "channel" }),
         ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
+        ...(rawText ? { rawText } : {}),
       },
       raw: rawEvent,
     },

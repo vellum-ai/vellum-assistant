@@ -63,6 +63,15 @@ export const slackMessageMetadataSchema = z.object({
   timestampTimezoneLabel: z.string().optional(),
   speakerTimezoneLabel: z.string().optional(),
   eventKind: z.enum(["message", "reaction"]),
+  /**
+   * The inbound message text verbatim from the Slack event, mention markup
+   * (`<#C…>`, `<@U…>`) intact. Present only when the text carries mention
+   * tokens. Projection surfaces render this with a current label cache in
+   * preference to the row's ingress-rendered `content`, so a mention that
+   * failed to resolve at ingress heals once the channel/user becomes
+   * resolvable. A Slack edit replaces or clears it together with `content`.
+   */
+  rawText: z.string().optional(),
   reaction: slackReactionMetadataSchema.optional(),
   editedAt: z.number().optional(),
   deletedAt: z.number().optional(),
@@ -326,16 +335,21 @@ function parseRawObject(
  * `readSlackMetadata` calls accept the result.
  *
  * `undefined` patch fields are ignored (use a sentinel like `0` to explicitly
- * reset a numeric field). If `existing` is `null`/`undefined` or does not
- * parse as a JSON object, the base is empty and the patch must supply the
- * required Slack fields (`channelId`, `channelTs`, `eventKind`) for the
- * output to round-trip through `readSlackMetadata`.
+ * reset a numeric field, or `opts.deleteKeys` to remove a field outright). If
+ * `existing` is `null`/`undefined` or does not parse as a JSON object, the
+ * base is empty and the patch must supply the required Slack fields
+ * (`channelId`, `channelTs`, `eventKind`) for the output to round-trip
+ * through `readSlackMetadata`.
  */
 export function mergeSlackMetadata(
   existing: string | null | undefined,
   patch: Partial<SlackMessageMetadata>,
+  opts?: { deleteKeys?: ReadonlyArray<keyof SlackMessageMetadata> },
 ): string {
   const base = parseRawObject(existing);
+  for (const key of opts?.deleteKeys ?? []) {
+    delete base[key];
+  }
   const cleanedPatch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
     if (value !== undefined) {

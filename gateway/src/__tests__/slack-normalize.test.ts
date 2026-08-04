@@ -114,7 +114,7 @@ describe("normalizeSlackAppMention", () => {
     const result = await normalizeSlackAppMention(event, "evt-006", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("@unknown-user");
+    expect(result!.event.message.content).toBe("@unknown-user (U123BOT)");
   });
 
   test("renders bot and human mentions side by side", async () => {
@@ -143,7 +143,7 @@ describe("normalizeSlackAppMention", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe(
-      "@unknown-user @unknown-user can you check?",
+      "@unknown-user (UBOT) @unknown-user (UUNKNOWN) can you check?",
     );
   });
 
@@ -296,7 +296,9 @@ describe("Slack inbound mention rendering", () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.content).toBe("@unknown-user @leo hello");
+    expect(result!.event.message.content).toBe(
+      "@unknown-user (UBOT) @leo hello",
+    );
   });
 
   test("message edits render bot and human mentions and preserve edit metadata", () => {

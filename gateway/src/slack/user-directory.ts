@@ -351,8 +351,8 @@ async function fetchSlackConversationInfo(
  * Resolve a Slack channel name via `conversations.info`.
  * Results are cached to avoid repeated API calls.
  *
- * Returns undefined on failure so callers can fall back to
- * `#unknown-channel` without leaking raw channel IDs into model context.
+ * Returns undefined on failure so callers can fall back to the renderer's
+ * id-carrying `#unknown-channel (C…)` label.
  */
 export async function resolveSlackChannel(
   channelId: string,

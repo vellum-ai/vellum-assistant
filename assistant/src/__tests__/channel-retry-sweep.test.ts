@@ -521,6 +521,77 @@ describe("channel-retry-sweep", () => {
     expect(capturedContent).toContain("channel: C0456DEF");
   });
 
+  test("replays the verbatim Slack rawText from the captured slackInbound", async () => {
+    seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "post this in #unknown-channel going forward",
+      externalChatId: "C7654323",
+      channelTs: "1700000000.000500",
+      slackInbound: {
+        channelId: "C7654323",
+        channelTs: "1700000000.000500",
+        rawText: "post this in <#C99XYZ|prod-models> going forward",
+      },
+    });
+
+    let capturedOptions: { slackInbound?: Record<string, unknown> } | undefined;
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      capturedOptions = options as { slackInbound?: Record<string, unknown> };
+      const messageId = "message-rawtext-slack";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // The replayed turn must persist the same rawText the live turn would
+    // have, or a retried message loses its projection source and the baked
+    // fallback becomes permanent for that row.
+    expect(capturedOptions?.slackInbound?.rawText).toBe(
+      "post this in <#C99XYZ|prod-models> going forward",
+    );
+  });
+
+  test("recovers rawText from sourceMetadata when the capture never ran", async () => {
+    seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "post this in #unknown-channel going forward",
+      externalChatId: "C7654324",
+      channelTs: "1700000000.000600",
+      sourceMetadata: {
+        slackRawText: "post this in <#C99XYZ> going forward",
+      },
+    });
+
+    let capturedOptions: { slackInbound?: Record<string, unknown> } | undefined;
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      capturedOptions = options as { slackInbound?: Record<string, unknown> };
+      const messageId = "message-rawtext-recovered";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    expect(capturedOptions?.slackInbound?.rawText).toBe(
+      "post this in <#C99XYZ> going forward",
+    );
+  });
+
   test("skips retry delivery when a dedup replay's sibling event already owns delivery", async () => {
     const eventId = seedFailedSlackEvent({
       trustClass: "guardian",

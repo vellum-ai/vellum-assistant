@@ -4193,6 +4193,8 @@ paths:
                       type: string
                     actorTeamId:
                       type: string
+                    slackRawText:
+                      type: string
                     appContext:
                       type: object
                       properties:

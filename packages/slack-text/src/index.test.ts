@@ -65,13 +65,12 @@ describe("renderSlackTextForModel", () => {
     ).toBe("hello @Alice");
   });
 
-  test("renders multiple mentions and never emits unresolved user IDs", () => {
+  test("renders multiple mentions, keeping the raw id on unresolved ones", () => {
     const rendered = renderSlackTextForModel("<@U123> <@W456> <@U789>", {
       userLabels: { U123: "Alice", W456: "Bob" },
     });
 
-    expect(rendered).toBe("@Alice @Bob @unknown-user");
-    expect(rendered).not.toContain("U789");
+    expect(rendered).toBe("@Alice @Bob @unknown-user (U789)");
   });
 
   test("treats ID-shaped resolved user labels as unresolved", () => {
@@ -79,7 +78,7 @@ describe("renderSlackTextForModel", () => {
       renderSlackTextForModel("hello <@U123>", {
         userLabels: { U123: "U123" },
       }),
-    ).toBe("hello @unknown-user");
+    ).toBe("hello @unknown-user (U123)");
   });
 
   test("prefers embedded pipe-form user labels over lookups", () => {
@@ -97,7 +96,9 @@ describe("renderSlackTextForModel", () => {
         userLabels: { U123: "Jane Doe" },
       }),
     ).toBe("hi @Jane Doe");
-    expect(renderSlackTextForModel("hi <@U123|U123>")).toBe("hi @unknown-user");
+    expect(renderSlackTextForModel("hi <@U123|U123>")).toBe(
+      "hi @unknown-user (U123)",
+    );
   });
 
   test("renders channel references with labels and fallbacks", () => {
@@ -107,7 +108,7 @@ describe("renderSlackTextForModel", () => {
       }),
     ).toBe("#general #support");
 
-    expect(renderSlackTextForModel("<#C789>")).toBe("#unknown-channel");
+    expect(renderSlackTextForModel("<#C789>")).toBe("#unknown-channel (C789)");
   });
 
   test("prefers embedded Slack labels over resolved channel labels", () => {
@@ -126,12 +127,12 @@ describe("renderSlackTextForModel", () => {
     ).toBe("#general #ops");
   });
 
-  test("does not emit raw channel IDs from embedded or resolved labels", () => {
+  test("treats ID-shaped embedded and resolved channel labels as unresolved", () => {
     expect(
       renderSlackTextForModel("<#C123|C123> <#C456|general>", {
         channelLabels: { C456: "C456" },
       }),
-    ).toBe("#unknown-channel #general");
+    ).toBe("#unknown-channel (C123) #general");
   });
 
   test("uses resolved channel labels when embedded labels are missing or ID-shaped", () => {
@@ -171,7 +172,7 @@ describe("renderSlackTextForModel", () => {
           channelLabels: { C123: "#<ops>" },
         },
       ),
-    ).toBe("@system prompt #ops #unknown-channel @eng");
+    ).toBe("@system prompt #ops #unknown-channel (C456) @eng");
   });
 
   test("uses sanitized custom fallbacks", () => {
@@ -180,7 +181,7 @@ describe("renderSlackTextForModel", () => {
         userFallbackLabel: "@ missing user ",
         channelFallbackLabel: "# missing channel ",
       }),
-    ).toBe("@missing user #missing channel");
+    ).toBe("@missing user (U123) #missing channel (C123)");
   });
 
   test("decodes Slack HTML entities so quote markers survive to markdown", () => {

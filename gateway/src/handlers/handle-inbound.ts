@@ -295,6 +295,12 @@ export async function handleInbound(
           isStranger: event.actor.isStranger,
           isRestricted: event.actor.isRestricted,
           ...(event.actor.teamId ? { actorTeamId: event.actor.teamId } : {}),
+          // The verbatim Slack text with mention markup intact, so the runtime
+          // can persist the un-baked form and re-render mention names at
+          // projection time; absent on every other channel.
+          ...(event.source.rawText
+            ? { slackRawText: event.source.rawText }
+            : {}),
           // What the sender had open in Slack when they sent the message. The
           // runtime renders it into the turn so deictic references ("summarize
           // this") resolve; absent on every other channel.

@@ -8,6 +8,7 @@ import {
   type ClientMetadataField,
   sanitizeClientMetadataValue,
 } from "@vellumai/service-contracts/client-metadata";
+import { renderSlackTextForModel } from "@vellumai/slack-text";
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
@@ -93,6 +94,7 @@ import {
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
+import { resolveSlackMentionLabelsForTexts } from "../../messaging/providers/slack/mention-labels.js";
 import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
@@ -761,9 +763,54 @@ function buildQueuedMessagePayloads(
     });
 }
 
-export function handleListMessages({
+/**
+ * Substitute a projected Slack text into a stored message content value,
+ * replacing the first `text` block (or the whole value for plain-string
+ * rows) while leaving attachment/file blocks untouched. Returns the input
+ * unchanged when the projected text is empty or the shape is unrecognized.
+ */
+function projectSlackRawTextIntoContent(
+  content: unknown,
+  projectedText: string,
+): unknown {
+  if (projectedText.trim().length === 0) {
+    return content;
+  }
+  const replaceFirstTextBlock = (blocks: unknown[]): unknown[] => {
+    let replaced = false;
+    return blocks.map((block) => {
+      if (
+        !replaced &&
+        block !== null &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "text"
+      ) {
+        replaced = true;
+        return { ...(block as object), text: projectedText };
+      }
+      return block;
+    });
+  };
+  if (Array.isArray(content)) {
+    return replaceFirstTextBlock(content);
+  }
+  if (typeof content === "string") {
+    try {
+      const parsedContent: unknown = JSON.parse(content);
+      if (Array.isArray(parsedContent)) {
+        return JSON.stringify(replaceFirstTextBlock(parsedContent));
+      }
+    } catch {
+      // Plain-string legacy row; fall through to whole-value replacement.
+    }
+    return projectedText;
+  }
+  return content;
+}
+
+export async function handleListMessages({
   queryParams,
-}: RouteHandlerArgs): Record<string, unknown> {
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
   const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
 
@@ -1005,19 +1052,28 @@ export function handleListMessages({
         // Ignore malformed metadata
       }
     }
-    const slackMessage = buildSlackHistoryMessage(
-      readSlackMetadataFromMessageMetadata(msg.metadata),
-      {
-        role: msg.role,
-        assistantDisplayName: assistantSlackDisplayName,
-      },
-    );
+    const slackMeta = readSlackMetadataFromMessageMetadata(msg.metadata);
+    const slackMessage = buildSlackHistoryMessage(slackMeta, {
+      role: msg.role,
+      assistantDisplayName: assistantSlackDisplayName,
+    });
 
     // `visibleFilter` has already dropped every non-renderable role, so the
     // only values reaching here are `user` and `assistant`; narrow the raw DB
     // `string` to the wire union.
     const role: "user" | "assistant" =
       msg.role === "assistant" ? "assistant" : "user";
+
+    // The verbatim Slack text (mention markup intact) for rows that carry it,
+    // re-rendered against current labels below so the transcript shows the
+    // mention's current name rather than whatever resolution happened to
+    // succeed at ingress.
+    const slackRawText =
+      role === "user" &&
+      slackMeta?.eventKind === "message" &&
+      slackMeta.deletedAt === undefined
+        ? slackMeta.rawText
+        : undefined;
 
     return {
       id: msg.id,
@@ -1032,9 +1088,18 @@ export function handleListMessages({
       systemCard,
       providerError,
       slackMessage,
+      slackRawText,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
   });
+
+  // Bounded label resolution for the raw texts collected above: warm caches
+  // resolve in a microtask, a cold cache pays at most the timeout once, and
+  // failures degrade to the renderer's id-carrying fallback labels.
+  const slackMentionLabels = await resolveSlackMentionLabelsForTexts(
+    parsed.map((m) => m.slackRawText),
+    { timeoutMs: 1_000 },
+  );
 
   // Confirmation context layered onto rendered tool calls at render time: the
   // derived scope ladder for scope-aware tools, and any in-flight prompt read
@@ -1112,8 +1177,17 @@ export function handleListMessages({
       const att = aligned.refIndexToAttachment.get(refIdx);
       return att ? toAttachmentBlockRef(att) : null;
     });
+    // Rows carrying the verbatim Slack text re-render their mention markup
+    // against the labels resolved above; only text blocks are touched, so the
+    // attachment refs collected from the stored content stay aligned.
+    const contentForRender = m.slackRawText
+      ? projectSlackRawTextIntoContent(
+          m.content,
+          renderSlackTextForModel(m.slackRawText, slackMentionLabels),
+        )
+      : m.content;
     const rendered = renderHistoryContent(
-      m.content,
+      contentForRender,
       attachmentBlocks,
       m.id ?? undefined,
     );

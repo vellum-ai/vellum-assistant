@@ -712,6 +712,11 @@ export async function handleChannelInbound({
       canonicalAssistantId,
       assistantId,
       content,
+      ...(sourceChannel === "slack" &&
+      typeof sourceMetadata?.slackRawText === "string" &&
+      sourceMetadata.slackRawText.length > 0
+        ? { slackRawText: sourceMetadata.slackRawText }
+        : {}),
       channelId: resolvedMember?.channelId,
     });
   }
@@ -1363,6 +1368,12 @@ export async function handleChannelInbound({
         Array.isArray(sourceMetadata?.appContext?.entities)
           ? sourceMetadata.appContext.entities
           : undefined;
+      const slackRawText =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.slackRawText === "string" &&
+        sourceMetadata.slackRawText.length > 0
+          ? sourceMetadata.slackRawText
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1390,6 +1401,7 @@ export async function handleChannelInbound({
                   slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
                 speakerTimezoneLabel: slackSpeakerTimezoneLabel,
               }),
+              ...(slackRawText ? { rawText: slackRawText } : {}),
               ...(slackAppContextEntities?.length
                 ? { appContext: { entities: slackAppContextEntities } }
                 : {}),

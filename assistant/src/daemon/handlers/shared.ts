@@ -151,6 +151,15 @@ export interface SlackInboundMessageMetadata {
   /** Compact timezone label appended to the rendered speaker name. */
   speakerTimezoneLabel?: string;
   /**
+   * The message text verbatim from the Slack event, mention markup intact,
+   * forwarded by the gateway only when the text contains mention tokens.
+   * Persisted into `slackMeta` so projection surfaces (chronological
+   * transcript, messages GET) re-render mention names against a refreshable
+   * cache instead of trusting the name resolution that happened to succeed
+   * at ingress.
+   */
+  rawText?: string;
+  /**
    * What the sender had open in Slack when they sent this message. Carried
    * here so it lands on the stored ingress payload alongside the rest of
    * `slackInbound`, letting the retry sweep render a replayed turn with the

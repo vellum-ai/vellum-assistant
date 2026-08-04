@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import type { SlackMentionLabels } from "../messaging/providers/slack/mention-labels.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -140,6 +141,7 @@ import {
   getSlackWatermarkAdvanceForRowPrefix,
   type InboundActorContext,
   loadSlackChronologicalContext,
+  resolveSlackMentionLabelsForConversation,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -659,6 +661,16 @@ export class Conversation {
     clientTimezone: string | null;
     timeSinceLastMessage: string | null;
   };
+  /**
+   * Per-turn frozen Slack mention labels (user/channel names resolved for the
+   * conversation's persisted raw texts), captured by the agent loop at turn
+   * start like {@link currentTurnTemporalSnapshot}. Every sync transcript
+   * assembly in the turn (chronological transcript, active-thread focus
+   * block, compaction basis) reads THIS so mention rendering is stable within
+   * the turn and never blocks a sync path on Slack API resolution.
+   * @internal
+   */
+  currentTurnSlackMentionLabels?: SlackMentionLabels;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -2275,6 +2287,14 @@ export class Conversation {
               contextCompactedMessageCount: this.contextCompactedMessageCount,
               slackContextCompactionWatermarkTs:
                 this.slackContextCompactionWatermarkTs,
+              // Compaction can run outside a turn (no frozen per-turn
+              // labels), so resolve fresh in that case: the summarized
+              // history should carry projected names, not stale bakes.
+              mentionLabels:
+                this.currentTurnSlackMentionLabels ??
+                (await resolveSlackMentionLabelsForConversation(
+                  this.conversationId,
+                )),
             },
           )
         : null;
