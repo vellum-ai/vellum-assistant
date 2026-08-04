@@ -136,6 +136,11 @@ const scheduleSchema = z.object({
   wakeConversationId: z.string().nullable(),
   workflowName: z.string().nullable(),
   isOneShot: z.boolean(),
+  // A deferred wake ("remind me about this tomorrow") is an ordinary schedule
+  // row created by the defer path, distinguishable only by `createdBy`, which
+  // is not otherwise projected. Clients need it to separate the user's named
+  // schedules from their reminders when listing what a change affects.
+  isDeferred: z.boolean(),
 });
 
 const scheduleRunSchema = z.object({
@@ -272,6 +277,7 @@ function serializeSchedule(
     wakeConversationId: j.wakeConversationId,
     workflowName: j.workflowName,
     isOneShot: isOneShotForDisplay(j),
+    isDeferred: isDeferSchedule(j.createdBy),
   };
 }
 
@@ -316,8 +322,11 @@ function handleGetSchedule(id: string) {
  * and re-snapshot semantics apply exactly as they do to a single-row PATCH.
  * Deferred-wake rows are moved too, since a defer inherits the profile of the
  * conversation it was created in and would otherwise be the one row left
- * dangling. Moving one is a guardian-owned state change, so the whole call
- * requires owner authority as soon as a wake row is in scope.
+ * dangling. Callers that warn a user before deleting a profile must count
+ * those rows as well, which is what `include_all` plus the serialized
+ * `isDeferred` flag on the list route are for. Moving one is a guardian-owned
+ * state change, so the whole call requires owner authority as soon as a wake
+ * row is in scope.
  */
 async function handleReassignScheduleInferenceProfile(
   body: Record<string, unknown>,

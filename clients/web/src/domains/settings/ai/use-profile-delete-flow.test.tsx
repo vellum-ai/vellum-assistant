@@ -35,7 +35,14 @@ let reassignFails = false;
 let scheduleScanFails = false;
 let profilesState: Record<string, ProfileEntry> = {};
 let activeProfileState: string | null = null;
-let schedulesByProfile: Record<string, Array<{ name: string }>> = {};
+let schedulesByProfile: Record<
+  string,
+  Array<{ name: string; isDeferred: boolean }>
+> = {};
+let scheduleQueries: Array<Record<string, string> | undefined> = [];
+/** When true, the scan parks until `releaseScheduleScan()` is called. */
+let holdScheduleScan = false;
+let releaseScheduleScan: (() => void) | null = null;
 
 function configPayload(): ConfigGetResponse {
   return {
@@ -64,8 +71,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     return { data: configPayload() };
   },
   schedulesGet: async (options?: {
-    query?: { inference_profile?: string };
+    query?: { inference_profile?: string; include_all?: string };
   }) => {
+    scheduleQueries.push(options?.query);
+    if (holdScheduleScan) {
+      await new Promise<void>((resolve) => {
+        releaseScheduleScan = resolve;
+      });
+    }
     if (scheduleScanFails) {
       throw new Error("network down");
     }
@@ -95,12 +108,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { configGetQueryKey } = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
-const { ProfilesSection } = await import(
-  "@/domains/settings/ai/profiles-section"
-);
+const { configGetQueryKey } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
+const { ProfilesSection } =
+  await import("@/domains/settings/ai/profiles-section");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -223,6 +234,9 @@ beforeEach(() => {
   scheduleScanFails = false;
   activeProfileState = "balanced";
   schedulesByProfile = {};
+  scheduleQueries = [];
+  holdScheduleScan = false;
+  releaseScheduleScan = null;
   profilesState = {
     balanced: {
       label: "Balanced",
@@ -275,8 +289,8 @@ describe("profile delete flow - schedule scan", () => {
 
   test("schedules pinned to the profile open the dialog and are named", async () => {
     schedulesByProfile["my-custom"] = [
-      { name: "Morning digest" },
-      { name: "Inbox triage" },
+      { name: "Morning digest", isDeferred: false },
+      { name: "Inbox triage", isDeferred: false },
     ];
     renderSection();
     await clickDelete("My Custom");
@@ -291,6 +305,7 @@ describe("profile delete flow - schedule scan", () => {
   test("a long schedule list is truncated with an 'and N more' tail", async () => {
     schedulesByProfile["my-custom"] = Array.from({ length: 12 }, (_, i) => ({
       name: `Schedule ${i + 1}`,
+      isDeferred: false,
     }));
     renderSection();
     await clickDelete("My Custom");
@@ -300,6 +315,55 @@ describe("profile delete flow - schedule scan", () => {
     expect(document.body.textContent).toContain("Schedule 5");
     expect(document.body.textContent).not.toContain("Schedule 6");
     expect(document.body.textContent).toContain("and 7 more");
+  });
+
+  test("the scan asks for hidden rows so its count matches what moves", async () => {
+    renderSection();
+    await clickDelete("My Custom");
+
+    await waitFor(() => {
+      expect(scheduleQueries.length).toBe(1);
+    });
+    expect(scheduleQueries[0]).toEqual({
+      inference_profile: "my-custom",
+      include_all: "true",
+    });
+  });
+
+  test("deferred reminders are counted alongside the named schedules", async () => {
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+      { name: "Deferred wake", isDeferred: true },
+      { name: "Deferred wake", isDeferred: true },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(document.body.textContent).toContain(
+      "runs 1 schedule and 2 deferred reminders",
+    );
+    // Reminders share one generated name, so they are counted, never listed.
+    expect(document.body.textContent).toContain("Morning digest");
+    expect(document.body.textContent).not.toContain("Deferred wake");
+  });
+
+  test("deferred reminders alone are enough to open the dialog", async () => {
+    schedulesByProfile["my-custom"] = [
+      { name: "Deferred wake", isDeferred: true },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(document.body.textContent).toContain("runs 1 deferred reminder");
+    expect(configPatchBodies.length).toBe(0);
+
+    fireEvent.click(confirmButton());
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    expect(reassignBodies).toEqual([{ from: "my-custom", to: "balanced" }]);
   });
 
   test("a failed schedule scan warns instead of deleting blind", async () => {
@@ -315,9 +379,49 @@ describe("profile delete flow - schedule scan", () => {
   });
 });
 
+describe("profile delete flow - pending state", () => {
+  test("the row and its kebab go inert while the scan is in flight", async () => {
+    holdScheduleScan = true;
+    renderSection();
+    await clickDelete("My Custom");
+
+    const kebab = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Actions for My Custom"]',
+      );
+      if (!el?.disabled) {
+        throw new Error("kebab is not disabled yet");
+      }
+      return el;
+    });
+    const row = kebab.closest('[data-slot="list-row"]');
+    expect(row?.className).toContain("opacity-60");
+
+    // Only the profile being deleted goes inert.
+    const otherKebab = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Actions for Other Custom"]',
+    );
+    expect(otherKebab?.disabled).toBe(false);
+
+    act(() => {
+      releaseScheduleScan?.();
+    });
+    await waitFor(() => {
+      expect(
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="Actions for Other Custom"]',
+        ),
+      ).not.toBeNull();
+      expect(configPatchBodies.length).toBe(1);
+    });
+  });
+});
+
 describe("profile delete flow - replacement preselection", () => {
   test("the current default profile is preselected", async () => {
-    schedulesByProfile["my-custom"] = [{ name: "Morning digest" }];
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
     renderSection();
     await clickDelete("My Custom");
     await waitForDialog();
@@ -327,7 +431,9 @@ describe("profile delete flow - replacement preselection", () => {
   });
 
   test("the managed default stays offered alongside the user profiles", async () => {
-    schedulesByProfile["my-custom"] = [{ name: "Morning digest" }];
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
     renderSection();
     await clickDelete("My Custom");
     await waitForDialog();
@@ -341,7 +447,9 @@ describe("profile delete flow - replacement preselection", () => {
 
 describe("profile delete flow - reassign then delete", () => {
   test("schedules move to the replacement before the profile is deleted", async () => {
-    schedulesByProfile["my-custom"] = [{ name: "Morning digest" }];
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
     renderSection();
     await clickDelete("My Custom");
     await waitForDialog();
@@ -352,9 +460,7 @@ describe("profile delete flow - reassign then delete", () => {
     await waitFor(() => {
       expect(configPatchBodies.length).toBe(1);
     });
-    expect(reassignBodies).toEqual([
-      { from: "my-custom", to: "other-custom" },
-    ]);
+    expect(reassignBodies).toEqual([{ from: "my-custom", to: "other-custom" }]);
     expect(configPatchBodies[0]).toEqual({
       llm: {
         profiles: { "my-custom": null },
@@ -364,7 +470,9 @@ describe("profile delete flow - reassign then delete", () => {
   });
 
   test("a failed schedule move blocks the delete and surfaces the error", async () => {
-    schedulesByProfile["my-custom"] = [{ name: "Morning digest" }];
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
     reassignFails = true;
     renderSection();
     await clickDelete("My Custom");

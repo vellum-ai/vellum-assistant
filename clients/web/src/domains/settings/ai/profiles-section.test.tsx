@@ -80,7 +80,10 @@ const actualSdk = await import("@/generated/daemon/sdk.gen");
 
 // The delete flow scans for schedules pinned to the profile before it deletes
 // anything, so this section's kebab tests need a schedule list to resolve.
-let schedulesByProfile: Record<string, Array<{ name: string }>> = {};
+let schedulesByProfile: Record<
+  string,
+  Array<{ name: string; isDeferred: boolean }>
+> = {};
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...actualSdk,
@@ -97,10 +100,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     return { data: { ok: true } };
   },
   schedulesGet: async (options?: {
-    query?: { inference_profile?: string };
+    query?: { inference_profile?: string; include_all?: string };
   }) => ({
     data: {
-      schedules: schedulesByProfile[options?.query?.inference_profile ?? ""] ?? [],
+      schedules:
+        schedulesByProfile[options?.query?.inference_profile ?? ""] ?? [],
     },
   }),
 }));
@@ -378,7 +382,9 @@ describe("ProfilesSection - kebab menus", () => {
     clickMenuItem(menu, "Delete");
 
     await waitFor(() => {
-      expect(document.body.textContent).toContain("Choose a Replacement Profile");
+      expect(document.body.textContent).toContain(
+        "Choose a Replacement Profile",
+      );
     });
     expect(configPatchBodies.length).toBe(0);
   });

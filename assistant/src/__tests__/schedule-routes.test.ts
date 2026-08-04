@@ -1573,6 +1573,50 @@ describe("GET /schedules - inference_profile filter", () => {
     expect(unfiltered.schedules).toHaveLength(2);
   });
 
+  test("flags deferred rows so a caller can count them without naming them", async () => {
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({
+      queryParams: { inference_profile: "cost-optimized", include_all: "true" },
+    })) as { schedules: Array<{ name: string; isDeferred: boolean }> };
+
+    // The count a delete warning shows must match what the reassign moves, so
+    // the deferred row has to be visible AND separable from the named ones.
+    expect(result.schedules).toHaveLength(2);
+    expect(
+      result.schedules.filter((s) => !s.isDeferred).map((s) => s.name),
+    ).toEqual(["Cheap digest"]);
+    expect(result.schedules.filter((s) => s.isDeferred)).toHaveLength(1);
+
+    const reassign = findRoute("schedules/reassign-profile", "POST");
+    const moved = (await reassign.handler({
+      body: {
+        from: "cost-optimized",
+        to: resolveDefaultScheduleInferenceProfile()!,
+      },
+      headers: { "x-vellum-principal-type": "local" },
+    })) as { reassigned: number };
+    expect(moved.reassigned).toBe(result.schedules.length);
+  });
+
   test("returns nothing for a profile no schedule is pinned to", async () => {
     await createSchedule({
       name: "Default schedule",

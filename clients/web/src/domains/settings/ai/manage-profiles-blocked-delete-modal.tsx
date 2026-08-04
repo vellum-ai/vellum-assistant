@@ -15,8 +15,14 @@ export interface BlockedDeleteState {
   label: string;
   isActive: boolean;
   callSiteIds: string[];
-  /** Names of the schedules pinned to this profile. */
+  /** Names of the user's own schedules pinned to this profile. */
   scheduleNames: string[];
+  /**
+   * Deferred reminders pinned to this profile. They share one generated name,
+   * so they are counted rather than listed, but they move with everything else
+   * and so must be counted.
+   */
+  deferredReminderCount: number;
   /**
    * The schedule lookup did not complete, so `scheduleNames` says nothing
    * about what is pinned. The dialog says so rather than implying a clean
@@ -57,8 +63,15 @@ function buildSummary(blocked: BlockedDeleteState): string {
       `is used by ${pluralize(blocked.callSiteIds.length, "action override")}`,
     );
   }
+  const runs: string[] = [];
   if (blocked.scheduleNames.length > 0) {
-    uses.push(`runs ${pluralize(blocked.scheduleNames.length, "schedule")}`);
+    runs.push(pluralize(blocked.scheduleNames.length, "schedule"));
+  }
+  if (blocked.deferredReminderCount > 0) {
+    runs.push(pluralize(blocked.deferredReminderCount, "deferred reminder"));
+  }
+  if (runs.length > 0) {
+    uses.push(`runs ${joinClauses(runs)}`);
   }
   if (uses.length === 0) {
     return `Choose a replacement profile for "${display}". Anything still pointing at it moves there before it is deleted.`;

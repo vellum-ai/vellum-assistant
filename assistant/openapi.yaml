@@ -25596,6 +25596,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -25627,6 +25629,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Schedule objects
                 required:
@@ -25810,6 +25813,8 @@ paths:
                           - type: "null"
                       isOneShot:
                         type: boolean
+                      isDeferred:
+                        type: boolean
                     required:
                       - id
                       - name
@@ -25841,6 +25846,7 @@ paths:
                       - wakeConversationId
                       - workflowName
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: The created schedule
                 required:
@@ -25976,6 +25982,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26007,6 +26015,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26139,6 +26148,8 @@ paths:
                           - type: "null"
                       isOneShot:
                         type: boolean
+                      isDeferred:
+                        type: boolean
                     required:
                       - id
                       - name
@@ -26170,6 +26181,7 @@ paths:
                       - wakeConversationId
                       - workflowName
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: Schedule object
                 required:
@@ -26362,6 +26374,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26393,6 +26407,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26528,6 +26543,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26559,6 +26576,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26694,6 +26712,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26725,6 +26745,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26997,6 +27018,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -27028,6 +27051,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:

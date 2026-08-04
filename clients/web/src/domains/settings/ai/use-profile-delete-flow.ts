@@ -27,6 +27,12 @@ export interface ProfileDeleteFlow {
    * the profile: the active selection, a call-site override, or a schedule.
    */
   requestDelete: (name: string) => void;
+  /**
+   * Profile whose reference scan is in flight, or null. Delete affordances
+   * render their in-flight state from this: the scan is a round trip, so
+   * without it the action reads as a dead button.
+   */
+  pendingDeleteName: string | null;
   /** Spread onto a `<BlockedDeleteModal />` render. */
   blockedDeleteModalProps: {
     blocked: BlockedDeleteState | null;
@@ -93,8 +99,12 @@ export function useProfileDeleteFlow(
   const [error, setError] = useState<string | null>(null);
   const [replacement, setReplacement] = useState("");
   const [saving, setSaving] = useState(false);
-  // Nothing renders from this, and a second click must see it within the same
-  // tick, so it is a ref rather than state.
+  const [pendingDeleteName, setPendingDeleteName] = useState<string | null>(
+    null,
+  );
+  // Mirrors `pendingDeleteName` for the re-entrancy check only. A second click
+  // in the same tick would still read the pre-render state value, so the guard
+  // reads the ref and the UI reads the state.
   const scanning = useRef(false);
 
   /**
@@ -150,27 +160,40 @@ export function useProfileDeleteFlow(
       .map(([id]) => id);
 
     let scheduleNames: string[] = [];
+    let deferredReminderCount = 0;
     let scheduleLookupFailed = false;
     try {
       const data = await queryClient.fetchQuery({
         ...schedulesGetOptions({
           path: { assistant_id: assistantId },
-          query: { inference_profile: name },
+          // include_all so the count the user is shown is the count the
+          // reassign actually moves: deferred reminders are hidden from the
+          // list by default but are moved like any other row.
+          query: { inference_profile: name, include_all: "true" },
         }),
         retry: false,
         staleTime: 0,
       });
-      scheduleNames = (data.schedules ?? []).map((s) => s.name);
+      const rows = data.schedules ?? [];
+      // Deferred reminders all carry the same generated name, so they are
+      // counted rather than listed; the user's own schedules are named.
+      scheduleNames = rows.filter((s) => !s.isDeferred).map((s) => s.name);
+      deferredReminderCount = rows.filter((s) => s.isDeferred).length;
     } catch (err) {
       // An unknown schedule list is not a reason to delete blind: fall through
       // to the dialog so the user is told the check did not complete and the
       // reassign still runs against whatever is pinned.
-      captureError(err, { context: "settings-ai-profile-delete-schedule-scan" });
+      captureError(err, {
+        context: "settings-ai-profile-delete-schedule-scan",
+      });
       scheduleLookupFailed = true;
     }
 
     const hasReferences =
-      isActive || blockedCallSiteIds.length > 0 || scheduleNames.length > 0;
+      isActive ||
+      blockedCallSiteIds.length > 0 ||
+      scheduleNames.length > 0 ||
+      deferredReminderCount > 0;
     if (!hasReferences && !scheduleLookupFailed) {
       await deleteNow(name);
       return;
@@ -182,6 +205,7 @@ export function useProfileDeleteFlow(
       isActive,
       callSiteIds: blockedCallSiteIds,
       scheduleNames,
+      deferredReminderCount,
       scheduleLookupFailed,
     });
     setReplacement(defaultReplacementFor(name));
@@ -197,8 +221,10 @@ export function useProfileDeleteFlow(
       return;
     }
     scanning.current = true;
+    setPendingDeleteName(name);
     void scanAndOpen(name).finally(() => {
       scanning.current = false;
+      setPendingDeleteName(null);
     });
   }
 
@@ -212,7 +238,11 @@ export function useProfileDeleteFlow(
     // Schedules move first so the profile is never gone while a schedule still
     // names it. A failed scan also runs this, since the reassign is a no-op
     // when nothing is pinned and the alternative is deleting blind.
-    if (blocked.scheduleNames.length > 0 || blocked.scheduleLookupFailed) {
+    if (
+      blocked.scheduleNames.length > 0 ||
+      blocked.deferredReminderCount > 0 ||
+      blocked.scheduleLookupFailed
+    ) {
       try {
         await reassignScheduleInferenceProfile(
           assistantId,
@@ -268,6 +298,7 @@ export function useProfileDeleteFlow(
 
   return {
     requestDelete,
+    pendingDeleteName,
     blockedDeleteModalProps: {
       blocked,
       availableReplacements: replacementCandidates(blocked?.name ?? null),
