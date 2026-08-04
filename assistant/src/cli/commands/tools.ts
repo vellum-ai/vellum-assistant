@@ -40,13 +40,15 @@ interface ToolsGetResponse {
 }
 
 /**
- * What to print above the table when `--agent` landed on a different subagent
- * type than the value asked for, or `undefined` when it named a type outright
- * (or resolved a live subagent id, which carries no resolution block).
+ * What to report when `--agent` landed on a different subagent type than the
+ * value asked for, or `undefined` when it named a type outright (or resolved a
+ * live subagent id, which carries no resolution block).
  *
  * A listing that came from an older name or from a persona fallback looks
  * exactly like one asked for by name, so without this line a typo reads as a
- * researcher's tool surface with nothing saying the value was not a type.
+ * researcher's tool surface with nothing saying the value was not a type. It
+ * goes to stderr so it reaches a person without entering the `--json` stream,
+ * whose stdout contract is the tool array on its own.
  */
 function agentResolutionLine(agent?: ResolvedAgentInfo): string | undefined {
   if (agent?.alias) {
@@ -89,13 +91,16 @@ export function registerToolsCommand(program: Command): void {
             }
 
             const tools = response.result?.tools ?? [];
+            const resolutionLine = agentResolutionLine(response.result?.agent);
 
             if (opts.json) {
-              console.log(JSON.stringify(response.result ?? {}, null, 2));
+              if (resolutionLine) {
+                console.error(resolutionLine);
+              }
+              console.log(JSON.stringify(tools, null, 2));
               return;
             }
 
-            const resolutionLine = agentResolutionLine(response.result?.agent);
             if (resolutionLine) {
               console.log(`${resolutionLine}\n`);
             }

@@ -36,11 +36,18 @@ const TOOL_ENTRY = {
   source: "core",
 };
 
-async function runList(args: string[]): Promise<string> {
-  const lines: string[] = [];
+async function runListStreams(
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  const out: string[] = [];
+  const err: string[] = [];
   const originalLog = console.log;
+  const originalError = console.error;
   console.log = (...parts: unknown[]) => {
-    lines.push(parts.map(String).join(" "));
+    out.push(parts.map(String).join(" "));
+  };
+  console.error = (...parts: unknown[]) => {
+    err.push(parts.map(String).join(" "));
   };
   try {
     const program = new Command();
@@ -49,8 +56,13 @@ async function runList(args: string[]): Promise<string> {
     await program.parseAsync(["node", "assistant", "tools", "list", ...args]);
   } finally {
     console.log = originalLog;
+    console.error = originalError;
   }
-  return lines.join("\n");
+  return { stdout: out.join("\n"), stderr: err.join("\n") };
+}
+
+async function runList(args: string[]): Promise<string> {
+  return (await runListStreams(args)).stdout;
 }
 
 describe("assistant tools list --agent", () => {
@@ -121,7 +133,7 @@ describe("assistant tools list --agent", () => {
     expect(output.startsWith("NAME")).toBe(true);
   });
 
-  test("--json carries the whole payload, resolution block included", async () => {
+  test("--json stdout stays the tool array, with the resolution line on stderr", async () => {
     const result = {
       names: [TOOL_ENTRY.name],
       schemas: { file_read: { type: "object" } },
@@ -134,8 +146,26 @@ describe("assistant tools list --agent", () => {
     };
     ipcResponse = { ok: true, result };
 
-    const output = await runList(["--agent", "subagent_typo", "--json"]);
+    const { stdout, stderr } = await runListStreams([
+      "--agent",
+      "subagent_typo",
+      "--json",
+    ]);
 
-    expect(JSON.parse(output)).toEqual(result);
+    // Piping stdout must keep yielding a bare array: scripts iterate it.
+    expect(JSON.parse(stdout)).toEqual([TOOL_ENTRY]);
+    expect(stderr).toContain("is not a subagent type");
+  });
+
+  test("--json without --agent prints the tool array and nothing else", async () => {
+    ipcResponse = {
+      ok: true,
+      result: { names: [TOOL_ENTRY.name], schemas: {}, tools: [TOOL_ENTRY] },
+    };
+
+    const { stdout, stderr } = await runListStreams(["--json"]);
+
+    expect(JSON.parse(stdout)).toEqual([TOOL_ENTRY]);
+    expect(stderr).toBe("");
   });
 });
