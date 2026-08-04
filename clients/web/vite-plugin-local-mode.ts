@@ -1,4 +1,5 @@
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import type { Plugin, Connect, ViteDevServer } from "vite";
@@ -22,7 +23,9 @@ import {
   unpairAssistant,
   getGuardianAccessToken,
   resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
   type CliInvocation,
 } from "@vellumai/local-mode";
 
@@ -105,6 +108,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
         guardianTokenMiddleware(config.configDir, baseDir, env),
       );
       server.middlewares.use(gatewayProxyMiddleware(config.lockfilePaths));
+      server.middlewares.use(pairedGatewayProxyMiddleware(config.lockfilePaths));
       server.middlewares.use(accountSpaFallback(server));
     },
   };
@@ -901,34 +905,95 @@ function gatewayProxyMiddleware(
     }
 
     const { target } = decision;
-    const proxyOptions: http.RequestOptions = {
-      hostname: "127.0.0.1",
-      port: target.port,
-      path: target.path,
-      method: req.method,
-      headers: { ...req.headers, host: `127.0.0.1:${target.port}` },
-    };
-
-    const proxyReq = http.request(proxyOptions, (proxyRes) => {
-      // Drop the upstream's `transfer-encoding` before re-emitting: Node's http
-      // server sets its own when we pipe the streamed body, so copying the
-      // gateway's `chunked` too yields a duplicate ("too many transfer
-      // encodings"). A strict downstream proxy (the `vel up` Caddy edge)
-      // rejects that with 502 — fatal for the SSE `/events` stream, whose
-      // failure drives a client reconnect + full-refetch loop.
-      const headers = { ...proxyRes.headers };
-      delete headers["transfer-encoding"];
-      res.writeHead(proxyRes.statusCode ?? 502, headers);
-      proxyRes.pipe(res);
-    });
-
-    proxyReq.on("error", () => {
-      if (!res.headersSent) {
-        res.statusCode = 502;
-        res.end("Gateway proxy error");
-      }
-    });
-
-    req.pipe(proxyReq);
+    pipeGatewayProxy(
+      req,
+      res,
+      http,
+      {
+        hostname: "127.0.0.1",
+        port: target.port,
+        path: target.path,
+        method: req.method,
+        headers: { ...req.headers, host: `127.0.0.1:${target.port}` },
+      },
+      "Gateway proxy error",
+    );
   };
+}
+
+// Paired-gateway data plane (`/__gateway-paired/{assistantId}/*`): same
+// posture as the loopback gateway proxy above, but the target is the remote
+// gateway an imported pairing recorded as its `runtimeUrl`. The lockfile's
+// paired entries are the allowlist. The `Origin` header is removed entirely on
+// this server-to-server hop; the guardian `Authorization` bearer passes
+// through untouched for the remote gateway to validate.
+function pairedGatewayProxyMiddleware(
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const decision = resolvePairedGatewayProxyTarget(req.url ?? "", () =>
+      readPairedGatewayTargets(lockfilePaths),
+    );
+    if (decision.kind === "pass") {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (decision.kind === "unknown-assistant") {
+      res.statusCode = 403;
+      res.end("Assistant is not paired in lockfile");
+      return;
+    }
+
+    const target = new URL(decision.url);
+    const requestHeaders = { ...req.headers, host: target.host };
+    delete requestHeaders.origin;
+    pipeGatewayProxy(
+      req,
+      res,
+      target.protocol === "https:" ? https : http,
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || undefined,
+        path: target.pathname + target.search,
+        method: req.method,
+        headers: requestHeaders,
+      },
+      "Paired gateway proxy error",
+    );
+  };
+}
+
+// One streamed hop for both gateway data-plane proxies. Drops the upstream's
+// `transfer-encoding` before re-emitting: Node's http server sets its own when
+// we pipe the streamed body, so copying the gateway's `chunked` too yields a
+// duplicate ("too many transfer encodings"). A strict downstream proxy (the
+// `vel up` Caddy edge) rejects that with 502, fatal for the SSE `/events`
+// stream, whose failure drives a client reconnect + full-refetch loop.
+function pipeGatewayProxy(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  transport: Pick<typeof http, "request">,
+  options: http.RequestOptions,
+  errorMessage: string,
+): void {
+  const proxyReq = transport.request(options, (proxyRes) => {
+    const headers = { ...proxyRes.headers };
+    delete headers["transfer-encoding"];
+    res.writeHead(proxyRes.statusCode ?? 502, headers);
+    proxyRes.pipe(res);
+  });
+
+  proxyReq.on("error", () => {
+    if (!res.headersSent) {
+      res.statusCode = 502;
+      res.end(errorMessage);
+    }
+  });
+
+  req.pipe(proxyReq);
 }

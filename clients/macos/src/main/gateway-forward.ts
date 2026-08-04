@@ -1,7 +1,12 @@
-import { resolveGatewayProxyTarget } from "@vellumai/local-mode";
+import {
+  resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
+} from "@vellumai/local-mode";
 
 /**
- * Pure planning for the gateway data-plane proxy (`/assistant/__gateway/{port}/*`).
+ * Pure planning for the gateway data-plane proxies: the loopback
+ * `/assistant/__gateway/{port}/*` forward and the paired-remote
+ * `/assistant/__gateway-paired/{assistantId}/*` forward.
  *
  * Lives in its own file — like `app-protocol.ts` — so the URL/header logic is
  * testable without importing `src/main/index.ts` (which evaluates the full
@@ -73,6 +78,52 @@ export function planGatewayForward(
       return {
         kind: "forward",
         url: `http://127.0.0.1:${port}${targetPath}`,
+        method: request.method,
+        headers,
+        hasBody: request.method !== "GET" && request.method !== "HEAD",
+      };
+    }
+  }
+}
+
+/**
+ * Resolve a renderer request to a paired-gateway proxy plan
+ * (`/assistant/__gateway-paired/{assistantId}/*`), reusing the shared
+ * lockfile-pairing decision so the security boundary is defined once for every
+ * host: only assistants the user actually imported are reachable.
+ *
+ * On `forward`, the request's `Origin` is removed entirely. This is a
+ * server-to-server hop to a remote gateway, so the renderer's `app://` origin
+ * must not be sent, and unlike the loopback forward there is no
+ * loopback-origin gate to satisfy. The remaining headers (notably the
+ * guardian `Authorization` bearer) pass through unchanged; the remote gateway
+ * validates the bearer by signature and audience.
+ */
+export function planPairedGatewayForward(
+  request: GatewayForwardRequest,
+  getTargets: () => Map<string, string>,
+): GatewayForwardPlan {
+  const url = new URL(request.url);
+  const decision = resolvePairedGatewayProxyTarget(
+    url.pathname + url.search,
+    getTargets,
+  );
+
+  switch (decision.kind) {
+    case "pass":
+      return { kind: "pass" };
+    case "unknown-assistant":
+      return {
+        kind: "reject",
+        status: 403,
+        message: "Assistant is not paired in lockfile",
+      };
+    case "forward": {
+      const headers = new Headers(request.headers);
+      headers.delete("origin");
+      return {
+        kind: "forward",
+        url: decision.url,
         method: request.method,
         headers,
         hasBody: request.method !== "GET" && request.method !== "HEAD",

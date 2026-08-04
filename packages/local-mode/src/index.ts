@@ -62,9 +62,15 @@ export {
   parseGatewayUrl,
   readAllowedGatewayPorts,
   resolveGatewayProxyTarget,
+  parsePairedGatewayUrl,
+  readPairedGatewayTargets,
+  resolvePairedGatewayProxyTarget,
 } from "./gateway-proxy";
 export type {
   GatewayTarget,
   GatewayParseResult,
   GatewayProxyDecision,
+  PairedGatewayTarget,
+  PairedGatewayParseResult,
+  PairedGatewayProxyDecision,
 } from "./gateway-proxy";
