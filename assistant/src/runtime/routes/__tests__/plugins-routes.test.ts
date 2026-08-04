@@ -1883,7 +1883,7 @@ function inspection(
     remoteError: overrides.remoteError ?? null,
     surfaces:
       overrides.surfaces === undefined
-        ? { skills: [], hooks: ["post-model-call"], tools: [] }
+        ? { skills: [], hooks: ["post-model-call"], tools: [], schedules: [] }
         : overrides.surfaces,
   };
 }

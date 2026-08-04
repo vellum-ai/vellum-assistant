@@ -20,6 +20,7 @@ import type {
   PluginRemoteInfo,
 } from "../lib/inspect-plugin.js";
 import type {
+  ConfirmStagedInstall,
   InstallPluginOptions,
   PluginFetchSource,
 } from "../lib/install-from-github.js";
@@ -37,6 +38,7 @@ import {
 } from "../lib/plugin-constants.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import type { PluginPinHistoryEntry } from "../lib/plugin-pin-history.js";
+import type { PluginScheduleSurface } from "../lib/plugin-surfaces.js";
 import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
@@ -99,6 +101,11 @@ const libs = {
       "../lib/search-plugins.js",
     ) as typeof import("../lib/search-plugins.js");
   },
+  get surfaces() {
+    return loadModule(
+      "../lib/plugin-surfaces.js",
+    ) as typeof import("../lib/plugin-surfaces.js");
+  },
   get uninstall() {
     return loadModule(
       "../lib/uninstall-plugin.js",
@@ -157,6 +164,13 @@ export function registerPluginsCommand(program: Command): void {
             const usesMarketplaceGit =
               !direct && Boolean(opts.pin || opts.ref || opts.allowUnreviewed);
 
+            // Consent gate the installers run between staging and finalize:
+            // a plugin that declares schedules gets them listed and, unless
+            // --force, must be confirmed before anything lands on disk that
+            // the daemon's schedule reconciler could arm.
+            const confirmStaged: ConfirmStagedInstall = (staged) =>
+              confirmDeclaredSchedules(staged, Boolean(opts.force));
+
             let result;
             let untrusted = false;
             if (!direct && !usesMarketplaceGit) {
@@ -167,7 +181,7 @@ export function registerPluginsCommand(program: Command): void {
               if (libs.catalogLocal.arePlatformFeaturesEnabled()) {
                 result = await libs.installPlatform.installPluginViaPlatform(
                   { name: nameOrUrl, force: opts.force },
-                  { fetch: globalThis.fetch.bind(globalThis) },
+                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
                 );
               } else {
                 const source =
@@ -190,7 +204,7 @@ export function registerPluginsCommand(program: Command): void {
                       ref: source.ref,
                     },
                   },
-                  { fetch: globalThis.fetch.bind(globalThis) },
+                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
                 );
               }
             } else {
@@ -210,6 +224,7 @@ export function registerPluginsCommand(program: Command): void {
               }
               result = await libs.installGitHub.installPlugin(installOpts, {
                 fetch: globalThis.fetch.bind(globalThis),
+                confirmStaged,
               });
             }
             log.info(
@@ -231,6 +246,11 @@ export function registerPluginsCommand(program: Command): void {
               `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
             );
           } catch (err) {
+            if (err instanceof libs.installGitHub.PluginInstallDeclinedError) {
+              // The consent gate already printed the outcome and set the exit
+              // code; the install was aborted with nothing left on disk.
+              return;
+            }
             if (err instanceof libs.installGitHub.PluginAlreadyInstalledError) {
               console.error(`${err.message}\nPass --force to overwrite.`);
               process.exitCode = 1;
@@ -936,6 +956,64 @@ function printUntrustedPluginWarning(
 }
 
 /**
+ * List a staged plugin's declared schedules and ask for consent. Schedules run
+ * automatically once armed, so an install may not add any silently: the user
+ * either confirms the listing or passes --force. Returns whether the install
+ * may proceed; a refusal's user-facing outcome (message + exit code) is fully
+ * handled here, so the caller aborts without further output.
+ */
+async function confirmDeclaredSchedules(
+  staged: { name: string; stagingDir: string },
+  force: boolean,
+): Promise<boolean> {
+  const { schedules } = libs.surfaces.detectPluginSurfaces(staged.stagingDir);
+  if (schedules.length === 0) {
+    return true;
+  }
+  console.log(
+    `Plugin "${staged.name}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
+  );
+  for (const row of formatScheduleRows(schedules)) {
+    console.log(`  ${row}`);
+  }
+  console.log(
+    "Schedules run automatically in the background once the plugin is installed.",
+  );
+  if (force) {
+    return true;
+  }
+  const result = await confirmPrompt({
+    question: `Install "${staged.name}" and allow these schedules? [y/N] `,
+    isTTY: Boolean(process.stdin.isTTY),
+    refuseNonInteractiveMessage: `Refusing to install "${staged.name}" non-interactively: it declares schedules. Pass --force to confirm.`,
+  });
+  if (result === "non-interactive") {
+    process.exitCode = 1;
+    return false;
+  }
+  if (result === "denied") {
+    console.log("Install cancelled.");
+    return false;
+  }
+  return true;
+}
+
+/** Aligned `name  cadence  (mode)` rows for a declared-schedules listing. */
+function formatScheduleRows(
+  schedules: readonly PluginScheduleSurface[],
+): string[] {
+  if (schedules.length === 0) {
+    return [];
+  }
+  const nameW = Math.max(...schedules.map((s) => s.name.length));
+  const cadenceW = Math.max(...schedules.map((s) => s.cadence.length));
+  const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
+  return schedules.map(
+    (s) => `${pad(s.name, nameW)}  ${pad(s.cadence, cadenceW)}  (${s.mode})`,
+  );
+}
+
+/**
  * Render a plugin's marketplace-pin history as a table: the pinned commit (short
  * SHA), when it was promoted, and a marker for the pin currently active. An
  * empty history reports that none was found.
@@ -1124,6 +1202,7 @@ function formatInspection(inspection: PluginInspection): string[] {
     surfaceBlock("skills", surfaces.skills);
     surfaceBlock("hooks", surfaces.hooks);
     surfaceBlock("tools", surfaces.tools);
+    surfaceBlock("schedules", formatScheduleRows(surfaces.schedules));
   }
 
   for (const issue of local?.issues ?? []) {
