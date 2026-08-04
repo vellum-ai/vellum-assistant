@@ -6,6 +6,7 @@ import {
   resolveTargetAssistant,
   type AssistantEntry,
 } from "../lib/assistant-config";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import {
   getDefaultWorkspaceDir,
@@ -33,9 +34,10 @@ interface TunnelArgs {
   clearDomain: boolean;
 }
 
+const FLAGS_WITH_VALUES = ["--provider", "--domain"] as const;
+
 function parseArgs(): TunnelArgs {
   const args = process.argv.slice(3);
-  let assistantName: string | null = null;
   let provider: TunnelProvider = DEFAULT_PROVIDER;
   let domain: string | null = null;
   let clearDomain = false;
@@ -147,13 +149,13 @@ function parseArgs(): TunnelArgs {
     } else if (arg.startsWith("-")) {
       console.error(`Error: Unknown option '${arg}'.`);
       process.exit(1);
-    } else if (!assistantName) {
-      assistantName = arg;
-    } else {
-      console.error(`Error: Unexpected argument '${arg}'.`);
-      process.exit(1);
     }
   }
+
+  // Joins all positionals so unquoted multi-word display names resolve as one
+  // identifier (cli/AGENTS.md "Assistant targeting convention").
+  const assistantName =
+    parseAssistantTargetArg(args, FLAGS_WITH_VALUES) ?? null;
 
   if (domain && provider !== "ngrok") {
     console.error(
@@ -186,13 +188,19 @@ interface LocalTunnelTarget {
   workspaceDir: string;
 }
 
+/** Container topologies whose gateway runs on this machine without host `resources`. */
+function isLocalContainerEntry(entry: AssistantEntry): boolean {
+  return entry.cloud === "docker" || entry.cloud === "apple-container";
+}
+
 /**
  * Map an entry to its local tunnel target, or null when it has no locally
  * reachable gateway (e.g. platform-hosted). Entries with `resources` carry
- * their own gateway port and instance workspace. Docker entries run locally
- * without host resources: their gateway port comes from localUrl/runtimeUrl
- * and their ingress state lives in the default workspace, matching the
- * `vellum nginx-ingress` resolution for the same topology.
+ * their own gateway port and instance workspace. Local container entries
+ * (docker, apple-container) run locally without host resources: their gateway
+ * port comes from localUrl/runtimeUrl and their ingress state lives in the
+ * default workspace, matching the `vellum nginx-ingress` resolution for the
+ * same topology.
  */
 function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
   if (entry.resources) {
@@ -202,7 +210,7 @@ function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
       workspaceDir: join(entry.resources.instanceDir, ".vellum", "workspace"),
     };
   }
-  if (entry.cloud === "docker") {
+  if (isLocalContainerEntry(entry)) {
     const gatewayPort = parseGatewayPortFromEntryUrls(entry);
     if (gatewayPort !== undefined) {
       return { entry, gatewayPort, workspaceDir: getDefaultWorkspaceDir() };

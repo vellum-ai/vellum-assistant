@@ -108,6 +108,15 @@ function makeDockerEntry(assistantId = "docker-1"): AssistantEntry {
   };
 }
 
+/** A macOS-app-managed entry: local container gateway, no `resources`. */
+function makeAppleContainerEntry(assistantId = "apple-1"): AssistantEntry {
+  return {
+    assistantId,
+    runtimeUrl: "http://localhost:8030",
+    cloud: "apple-container",
+  };
+}
+
 /** Point the default workspace dir at a temp dir; returns that dir. */
 function useTempDefaultWorkspaceDir(): string {
   const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-tunnel-ws-"));
@@ -443,6 +452,85 @@ describe("tunnel edge targeting", () => {
     expect(runNgrokTunnelMock).toHaveBeenCalledWith({
       port: EDGE_PORT,
       assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("an unquoted multi-word display name resolves the local assistant", async () => {
+    const local = makeLocalEntry();
+    local.name = "Ada Lovelace";
+    writeLockfile([makeCloudEntry(), local], "cloud-1");
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "Ada",
+      "Lovelace",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    const workspaceDir = join(
+      local.resources!.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("a positional apple-container assistant name tunnels via its runtimeUrl gateway port", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const local = makeLocalEntry();
+    writeLockfile([local, makeAppleContainerEntry()], local.assistantId);
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "apple-1",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "apple-1",
+      workspaceDir,
+      gatewayPort: 8030,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "apple-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active cloud assistant falls back to a sole apple-container entry with a note", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const cloud = makeCloudEntry();
+    writeLockfile([cloud, makeAppleContainerEntry()], cloud.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel. " +
+        "Tunneling the local assistant 'apple-1' instead.",
+    );
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "apple-1",
+      workspaceDir,
+      gatewayPort: 8030,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "apple-1",
       workspaceDir,
     });
   });
