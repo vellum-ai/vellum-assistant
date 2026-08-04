@@ -95,6 +95,16 @@ interface BaseSubscriberEntry {
   connectionId: string;
 }
 
+export type DesktopPresenceState = "active" | "idle" | "away";
+
+export interface ClientPresence {
+  state: DesktopPresenceState;
+  /** When the client entered this state. Preserved across re-reports. */
+  since: Date;
+  /** When the daemon last heard from the client. Drives staleness. */
+  reportedAt: Date;
+}
+
 interface ClientEntry extends BaseSubscriberEntry {
   type: "client";
   clientId: string;
@@ -111,6 +121,11 @@ interface ClientEntry extends BaseSubscriberEntry {
    * service-token connections that have no principal.
    */
   actorPrincipalId?: string;
+  /**
+   * Last desktop presence reported by this client, for clients that report it.
+   * In-memory only, so consumers must fail open when it is absent.
+   */
+  presence?: ClientPresence;
 }
 
 interface ProcessEntry extends BaseSubscriberEntry {
@@ -521,6 +536,32 @@ export class AssistantEventHub {
         entry.lastActiveAt = now;
       }
     }
+  }
+
+  /**
+   * Record the desktop presence state reported by a client. `since` is kept
+   * when the state is unchanged, so consumers can tell how long the client has
+   * held it; `reportedAt` always advances. Returns true when at least one
+   * active client entry matched.
+   */
+  setClientPresence(clientId: string, state: DesktopPresenceState): boolean {
+    const now = new Date();
+    let matched = false;
+    for (const entry of this.subscribers) {
+      if (
+        entry.active &&
+        entry.type === "client" &&
+        entry.clientId === clientId
+      ) {
+        entry.presence = {
+          state,
+          since: entry.presence?.state === state ? entry.presence.since : now,
+          reportedAt: now,
+        };
+        matched = true;
+      }
+    }
+    return matched;
   }
 
   /**
