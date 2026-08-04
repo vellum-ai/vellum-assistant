@@ -19,13 +19,22 @@
  *   pass lookup-only for anything the turn-start sweep already captioned, so
  *   keeping both hooks is cheap.
  * - Images + non-vision model + NO vision profile: for the background memory
- *   call sites (`memoryRetrospective`, `memoryV2Consolidation`) fail the call
- *   closed (`decision: "fail"`) so the run surfaces a retryable failure
- *   instead of silently sending a request the provider will reject; a failed
- *   retrospective wake leaves the memory cursor untouched, so the work is
- *   retried once a capable route exists. Every other call site falls through
- *   unchanged, preserving the reactive `post-model-call` recovery and its
- *   fail-open placeholder behavior for user-facing turns.
+ *   call sites (`memoryRetrospective`, `memoryV2Consolidation`) substitute
+ *   the fail-open text placeholders (deterministic preprocessing: the same
+ *   stand-ins the reactive recovery produces, minus the wasted provider
+ *   round-trip). The pass still runs, so a workspace whose only models are
+ *   text-only keeps forming memories from the window's text; the trigger is
+ *   deterministic, so failing the call instead would stall that
+ *   conversation's memory cursor permanently. Every other call site falls
+ *   through unchanged, preserving the reactive `post-model-call` recovery
+ *   and its fail-open placeholder behavior for user-facing turns.
+ *
+ * The preventive check reads the profile override as settled at THIS hook's
+ * position in the chain; a later user-land hook that reroutes the call to a
+ * text-only profile bypasses it (default hooks dispatch before user hooks).
+ * That leak is caught by the reactive `post-model-call` recovery, which
+ * placeholders the rejected media and retries, so the boundary stays
+ * defense-in-depth rather than a single gate.
  *
  * Every non-trivial decision emits a structured log line with the call site,
  * resolved profile/model, media count, and decision.
@@ -45,12 +54,12 @@ import {
 import { findVisionProfile } from "../src/vision-caption.js";
 
 /**
- * Background memory call sites whose callers own failure handling and retry:
- * a failed run is re-attempted later, so failing closed loses no work, while
- * silently sending media to a non-vision route would either reject the run
- * with an opaque provider error or degrade extraction quality invisibly.
+ * Background memory call sites that get deterministic media preprocessing at
+ * this boundary even when no vision profile exists: their runs enter
+ * `AgentLoop.run` without the turn-start sweep, so this hook is the only
+ * placeholder pass their outbound payload gets before the provider call.
  */
-const FAIL_CLOSED_MEMORY_CALL_SITES: ReadonlySet<LLMCallSite> = new Set([
+const BACKGROUND_MEMORY_CALL_SITES: ReadonlySet<LLMCallSite> = new Set([
   "memoryRetrospective",
   "memoryV2Consolidation",
 ]);
@@ -106,29 +115,34 @@ const preModelCall: HookFunction<PreModelCallContext> = async (ctx) => {
     return;
   }
 
-  if (ctx.callSite != null && FAIL_CLOSED_MEMORY_CALL_SITES.has(ctx.callSite)) {
-    ctx.decision = "fail";
-    ctx.failureReason =
-      `Model call for background call site "${ctx.callSite}" carries ` +
-      `${mediaBlocks} image block(s), but its resolved model ` +
-      `("${modelKey}") does not support image input and no vision-capable ` +
-      `profile is configured to caption them. Configure a vision-capable ` +
-      `model profile, or route the "${ctx.callSite}" call site to a ` +
-      `vision-capable model; the run will be retried.`;
-    ctx.logger.error(
+  if (ctx.callSite != null && BACKGROUND_MEMORY_CALL_SITES.has(ctx.callSite)) {
+    // No vision profile anywhere: substitute the fail-open placeholders (a
+    // null vision profile makes the sweep emit its static stand-in text
+    // instead of captions). The pass proceeds and still extracts the
+    // window's text; failing the call here would be a deterministic
+    // permanent stall for the conversation's memory cursor, since a retry
+    // can never do better until the configuration itself changes.
+    const placeholdered = await captionOutboundImagesInMessages(
+      ctx.messages,
+      ctx.conversationId,
+      null,
+      ctx.logger,
+    );
+    ctx.logger.warn(
       {
         plugin: "image-fallback",
         callSite: ctx.callSite,
         modelProfileKey: modelKey,
         mediaBlocks,
-        decision: "fail_closed",
+        placeholdered,
+        decision: "placeholdered",
       },
-      "Failing background memory model call closed: outbound media, non-vision model, and no vision profile to caption with",
+      "Replaced outbound image blocks with static placeholders for background memory call: no vision-capable profile is configured to caption them",
     );
     return;
   }
 
-  // No vision profile and not a fail-closed call site: fall through with the
+  // No vision profile and not a background memory call site: fall through with the
   // request untouched. The turn-start sweep has already placeholdered what it
   // saw, and the reactive post-model-call recovery handles a provider
   // rejection of anything that leaked past it.

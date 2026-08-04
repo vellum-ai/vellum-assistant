@@ -1,8 +1,9 @@
 /**
  * Unit tests for the image-fallback plugin's `pre-model-call` hook: the
  * wire-boundary guard that captions outbound images bound for a non-vision
- * model, fails the background memory call sites closed when no vision profile
- * exists to caption with, and passes everything else through untouched.
+ * model, substitutes static placeholders for the background memory call
+ * sites when no vision profile exists to caption with, and passes everything
+ * else through untouched.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -198,7 +199,7 @@ describe("image-fallback pre-model-call outbound guard", () => {
     expect(second.messages[0].content[0].type).toBe("text");
   });
 
-  test("text-only outbound history is untouched, even on a fail-closed call site with no vision profile", async () => {
+  test("text-only outbound history is untouched, even on a background memory call site with no vision profile", async () => {
     mockProfiles = [];
     visionProfiles = new Set();
     const messages = [userMessage({ type: "text", text: "just text" })];
@@ -212,8 +213,11 @@ describe("image-fallback pre-model-call outbound guard", () => {
   });
 
   test.each(["memoryRetrospective", "memoryV2Consolidation"] as const)(
-    "fails %s closed when images meet a non-vision model and no vision profile exists",
+    "substitutes static placeholders for %s when images meet a non-vision model and no vision profile exists",
     async (callSite) => {
+      // Failing the call here instead would stall the conversation's memory
+      // cursor permanently: the trigger (no vision profile configured) is
+      // deterministic, so every retry would fail identically.
       mockProfiles = [];
       visionProfiles = new Set();
       const messages = [userMessage(makeImage())];
@@ -221,12 +225,18 @@ describe("image-fallback pre-model-call outbound guard", () => {
 
       await preModelCall(ctx);
 
-      expect(ctx.decision).toBe("fail");
-      expect(ctx.failureReason).toContain(callSite);
-      expect(ctx.failureReason).toContain("text-only-profile");
-      expect(ctx.failureReason).toContain("vision-capable");
-      // The wire payload is not mutated; the loop never sends it.
-      expect(ctx.messages[0].content[0].type).toBe("image");
+      expect(ctx.decision).toBe("proceed");
+      expect(ctx.failureReason).toBeNull();
+      const blocks = ctx.messages[0].content;
+      expect(blocks.some((b) => b.type === "image")).toBe(false);
+      expect(
+        blocks.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("[Image: no vision-capable model configured"),
+        ),
+      ).toBe(true);
+      // Deterministic preprocessing: no provider round-trip is burned.
       expect(captionProviderCalls).toBe(0);
     },
   );
@@ -244,7 +254,7 @@ describe("image-fallback pre-model-call outbound guard", () => {
     expect(ctx.messages[0].content[0].type).toBe("image");
   });
 
-  test("a fail-closed call site with a vision profile captions instead of failing", async () => {
+  test("a background memory call site with a vision profile captions instead of placeholdering", async () => {
     const messages = [userMessage(makeImage())];
     const ctx = makeCtx({ messages, callSite: "memoryRetrospective" });
 

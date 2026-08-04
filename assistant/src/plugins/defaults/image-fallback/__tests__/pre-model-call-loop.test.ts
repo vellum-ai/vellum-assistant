@@ -10,7 +10,8 @@
  *   with NO image blocks on the wire, proactively (no rejection round-trip)
  * - text-only history: untouched
  * - non-vision model, no vision profile, `memoryRetrospective` call site: the
- *   run fails observably before any provider call (retryable fail-closed)
+ *   provider receives static placeholders with NO image blocks on the wire,
+ *   and the run completes (a text-only workspace keeps forming memories)
  * - same, `mainAgent` call site: unchanged fall-through to the provider (the
  *   reactive post-model-call recovery keeps ownership)
  */
@@ -225,7 +226,11 @@ describe("agent loop capability-aware media routing (image-fallback pre-model-ca
     expect(captionProviderCalls).toBe(0);
   });
 
-  test("memoryRetrospective fails closed when no vision profile can caption for a non-vision model", async () => {
+  test("memoryRetrospective gets static placeholders when no vision profile can caption for a non-vision model", async () => {
+    // A failed call here would be a deterministic permanent stall for the
+    // conversation's memory cursor (no retry can succeed until a vision
+    // profile is configured), so the boundary substitutes the fail-open
+    // placeholders and lets the pass extract the window's text.
     mockProfiles = [];
     visionProfiles = new Set();
     const { calls, events } = await runLoop([userMessage(makeImage())], {
@@ -233,22 +238,22 @@ describe("agent loop capability-aware media routing (image-fallback pre-model-ca
       modelProfileKey: "text-only-profile",
     });
 
-    // The provider is never called with the media-bearing request.
-    expect(calls).toHaveLength(0);
-    const errorEvent = events.find((e) => e.type === "error");
-    expect(errorEvent).toBeDefined();
-    if (errorEvent?.type !== "error") {
-      throw new Error("type narrowing");
-    }
-    expect(errorEvent.error.message).toContain("memoryRetrospective");
-    expect(errorEvent.error.message).toContain("text-only-profile");
-    const exitEvent = events.find((e) => e.type === "agent_loop_exit");
-    if (exitEvent?.type !== "agent_loop_exit") {
-      throw new Error("expected an agent_loop_exit event");
-    }
-    // The turn ends through the ordinary error path, which background callers
-    // treat as a failed (and therefore retryable) run.
-    expect(exitEvent.reason).toBe("error");
+    // The provider is called exactly once, with no image blocks on the wire
+    // and the static placeholder in their place.
+    expect(calls).toHaveLength(1);
+    expect(hasImageBlocks(calls[0])).toBe(false);
+    expect(
+      calls[0].some((m) =>
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("[Image: no vision-capable model configured"),
+        ),
+      ),
+    ).toBe(true);
+    // No vision call was burned producing the placeholders.
+    expect(captionProviderCalls).toBe(0);
+    expect(events.find((e) => e.type === "error")).toBeUndefined();
   });
 
   test("mainAgent with no vision profile falls through to the provider unchanged", async () => {

@@ -106,15 +106,16 @@ import workspacePkg from "./workspace/package.json" with { type: "json" };
  * turn-start sweep. The `pre-model-call` hook guards the wire boundary every
  * provider call crosses (including background wakes, which skip
  * `user-prompt-submit`): outbound images bound for a non-vision model are
- * captioned proactively, and the background memory call sites fail closed
- * when no vision profile exists to caption with. The `post-model-call` hook
+ * captioned proactively, and the background memory call sites get static
+ * placeholders when no vision profile exists to caption with, so those
+ * passes complete on text-only workspaces. The `post-model-call` hook
  * backstops raw images that reach the provider anyway (messages joining an
  * in-flight turn, catalog entries that call a model vision-capable when its
  * serving endpoint rejects images): on a vision-not-supported rejection it
  * captions the working history and retries, bounded to one pass per turn,
  * with the `stop` hook clearing the recovery bound on a terminal stop.
  * Fail-open with a placeholder when no vision profile is configured or
- * captioning fails (outside the fail-closed memory call sites). A
+ * captioning fails. A
  * read-through content-hash cache (in-memory LRU over a plugin-owned SQLite
  * file, opened by `init` in the plugin's storage dir and closed by
  * `shutdown`) avoids re-captioning the same image across turns, compactions,
