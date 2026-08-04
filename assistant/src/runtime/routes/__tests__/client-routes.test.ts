@@ -8,7 +8,10 @@
  *
  * POST /v1/clients/presence (report_client_presence) records presence keyed
  * off the `x-vellum-client-id` header, and applies the same ownership posture:
- * only the actor that owns the target client may report its presence.
+ * only the actor that owns the target client may report its presence. The
+ * handler resolves the client before comparing owners, so an unconnected
+ * clientId (a report racing an SSE reconnect) and a connected-but-unowned one
+ * are distinct paths that both answer `{ recorded: false }`.
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -185,7 +188,9 @@ describe("report_client_presence route", () => {
     );
   });
 
-  test("returns recorded false when no connected client matches", () => {
+  test("returns recorded false when the reported client is not connected", () => {
+    registerClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
     const handler = findHandler("report_client_presence");
     const result = handler({
       headers: {
@@ -196,6 +201,9 @@ describe("report_client_presence route", () => {
     }) as { recorded: boolean };
 
     expect(result).toEqual({ recorded: false });
+    expect(
+      assistantEventHub.getClientById("client-A1")?.presence,
+    ).toBeUndefined();
   });
 
   test("returns recorded false when the caller does not own the client", () => {
@@ -277,6 +285,21 @@ describe("report_client_presence route", () => {
     expect(assistantEventHub.getClientById("client-A1")?.presence?.state).toBe(
       "idle",
     );
+  });
+
+  test("dev-bypass mode returns recorded false for an unconnected client", () => {
+    fakeHttpAuthDisabled = true;
+
+    const handler = findHandler("report_client_presence");
+    const result = handler({
+      headers: {
+        "x-vellum-client-id": "client-gone",
+        "x-vellum-actor-principal-id": "user-A",
+      },
+      body: { state: "idle" },
+    }) as { recorded: boolean };
+
+    expect(result).toEqual({ recorded: false });
   });
 
   test("throws BadRequestError when the client-id header is missing", () => {
