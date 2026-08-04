@@ -193,8 +193,14 @@ describe("diagnostics capture base64 stripping", () => {
     expect(logsText).not.toContain(bigBase64);
     expect(logsText).toContain("[stripped data URI image/png,");
     expect(logsText).toContain("[stripped base64,");
-    // The diagnostic signal survives.
-    expect(logsText).toContain("look at this photo");
+    // The diagnostic signal survives IN BOTH SURFACES: transcript items
+    // embed the same message objects clientMessages lists, and a shared
+    // reference is not a cycle. Each capture surface must carry the full
+    // message, so the text and both stripped markers appear twice.
+    expect(logsText).not.toContain("[cyclic]");
+    expect(logsText.split("look at this photo").length - 1).toBe(4);
+    expect(logsText.split("[stripped data URI image/png,").length - 1).toBe(2);
+    expect(logsText.split("[stripped base64,").length - 1).toBe(2);
     expect(logsText).toContain('"photo.png"');
   });
 
@@ -241,6 +247,29 @@ describe("stripBulkBase64", () => {
   test("preserves long prose", () => {
     const prose = "The quick brown fox jumps over the lazy dog. ".repeat(500);
     expect(stripBulkBase64(prose)).toBe(prose);
+  });
+
+  test("traverses shared references in full; flags only true cycles", () => {
+    // The capture's real shape: the same message object referenced from two
+    // sibling arrays. Both occurrences must survive intact.
+    const message = { id: "m1", text: "hello" };
+    const shared = stripBulkBase64({
+      clientMessages: [message],
+      transcriptItems: [{ kind: "message", message }],
+    }) as {
+      clientMessages: unknown[];
+      transcriptItems: { message: unknown }[];
+    };
+    expect(shared.clientMessages[0]).toEqual({ id: "m1", text: "hello" });
+    expect(shared.transcriptItems[0].message).toEqual({
+      id: "m1",
+      text: "hello",
+    });
+
+    // A genuine cycle is replaced instead of recursing forever.
+    const cyclic: Record<string, unknown> = { id: "c1" };
+    cyclic.self = cyclic;
+    expect(stripBulkBase64(cyclic)).toEqual({ id: "c1", self: "[cyclic]" });
   });
 
   test("strips long pure-base64 strings", () => {

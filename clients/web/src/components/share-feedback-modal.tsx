@@ -196,7 +196,7 @@ const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
  * tokens) are below the length floor. The marker keeps the mime type and
  * length, which is the diagnostically useful part.
  */
-export function stripBulkBase64(value: unknown, seen = new WeakSet()): unknown {
+export function stripBulkBase64(value: unknown, path = new WeakSet()): unknown {
   if (typeof value === "string") {
     const dataUri = DATA_URI_RE.exec(value);
     if (dataUri) {
@@ -210,17 +210,26 @@ export function stripBulkBase64(value: unknown, seen = new WeakSet()): unknown {
   if (value === null || typeof value !== "object") {
     return value;
   }
-  if (seen.has(value)) {
+  // `path` holds only the current recursion ancestry, so a true cycle is
+  // replaced while shared (sibling) references are traversed in full. The
+  // capture leans on shared references by construction: transcript items
+  // embed the same message objects `clientMessages` lists, and both copies
+  // must survive. JSON.stringify duplicates shared references the same way.
+  if (path.has(value)) {
     return "[cyclic]";
   }
-  seen.add(value);
+  path.add(value);
+  let out: unknown;
   if (Array.isArray(value)) {
-    return value.map((v) => stripBulkBase64(v, seen));
+    out = value.map((v) => stripBulkBase64(v, path));
+  } else {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = stripBulkBase64(v, path);
+    }
+    out = obj;
   }
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) {
-    out[k] = stripBulkBase64(v, seen);
-  }
+  path.delete(value);
   return out;
 }
 
