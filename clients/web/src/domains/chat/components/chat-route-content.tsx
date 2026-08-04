@@ -442,8 +442,8 @@ export function ChatMainPanel({
     void navigate(routes.settings.ai);
   }, [navigate]);
 
-  const pushToBillingSettings = useCallback(() => {
-    void navigate(routes.settings.usageBilling);
+  const pushToDailyLimitSettings = useCallback(() => {
+    void navigate(routes.settings.usageBillingDailyLimit);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -1235,7 +1235,7 @@ export function ChatMainPanel({
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (
