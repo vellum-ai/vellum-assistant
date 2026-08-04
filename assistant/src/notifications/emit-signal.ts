@@ -36,7 +36,7 @@ import {
   type DeterministicCheckContext,
   runDeterministicChecks,
 } from "./deterministic-checks.js";
-import { createEvent, updateEventDedupeKey } from "./events-store.js";
+import { createEvent, setEventDedupeKey } from "./events-store.js";
 import { writeHomeFeedItemForSignal } from "./home-feed-side-effect.js";
 import { dispatchDecision } from "./runtime-dispatch.js";
 import type {
@@ -226,6 +226,13 @@ export interface EmitSignalResult {
   dispatched: boolean;
   reason: string;
   deliveryResults: NotificationDeliveryResult[];
+  /**
+   * True when the pipeline threw before reaching a verdict. Dispatch, dedupe,
+   * suppression, and a blocked deterministic check are all verdicts. Callers
+   * that latch their own guard on a completed emit branch on this flag;
+   * `reason` is a human-facing log string and never a control signal.
+   */
+  pipelineFailed: boolean;
 }
 
 /**
@@ -244,6 +251,10 @@ export async function emitNotificationSignal<TEventName extends string>(
   params: EmitSignalParams<TEventName>,
 ): Promise<EmitSignalResult> {
   const signalId = uuid();
+
+  // The event row claims `params.dedupeKey` when it lands, and the failure
+  // path below releases that claim.
+  let eventPersisted = false;
 
   const signal: NotificationSignal<TEventName> = {
     signalId,
@@ -285,8 +296,10 @@ export async function emitNotificationSignal<TEventName extends string>(
         dispatched: false,
         reason: "Signal deduplicated at event store level",
         deliveryResults: [],
+        pipelineFailed: false,
       };
     }
+    eventPersisted = true;
 
     // Step 1.5: Source-active pre-gate. visibleInSourceNow is a hard invariant
     // the decision engine cannot override, and it depends only on the signal —
@@ -307,6 +320,7 @@ export async function emitNotificationSignal<TEventName extends string>(
         dispatched: false,
         reason: `Signal suppressed: ${sourceActiveCheck.reason}`,
         deliveryResults: [],
+        pipelineFailed: false,
       };
     }
 
@@ -427,7 +441,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     // only the producer's dedupeKey, which may be null).
     if (decision.dedupeKey && !params.dedupeKey) {
       try {
-        updateEventDedupeKey(signalId, decision.dedupeKey);
+        setEventDedupeKey(signalId, decision.dedupeKey);
       } catch (err) {
         log.warn(
           { err, signalId },
@@ -458,6 +472,7 @@ export async function emitNotificationSignal<TEventName extends string>(
           dispatched: false,
           reason: `Signal blocked by deterministic checks: ${checkResult.reason}`,
           deliveryResults: [],
+          pipelineFailed: false,
         };
       }
     }
@@ -511,6 +526,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       dispatched: dispatchResult.dispatched,
       reason: dispatchResult.reason,
       deliveryResults: dispatchResult.deliveryResults,
+      pipelineFailed: false,
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -518,6 +534,20 @@ export async function emitNotificationSignal<TEventName extends string>(
       { err: errMsg, signalId, sourceEventName: params.sourceEventName },
       "Signal pipeline failed",
     );
+    // The persisted event claimed this signal's dedupe key before the
+    // pipeline threw. Leaving the claim in place makes every retry
+    // short-circuit as a duplicate of an emit that never reached a verdict,
+    // so release it. The row itself stays as the audit trail of the attempt.
+    if (eventPersisted) {
+      try {
+        setEventDedupeKey(signalId, null);
+      } catch (releaseErr) {
+        log.warn(
+          { err: releaseErr, signalId },
+          "Failed to release the dedupe key of a failed signal",
+        );
+      }
+    }
     if (params.throwOnError) {
       throw err instanceof Error ? err : new Error(errMsg);
     }
@@ -527,6 +557,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       dispatched: false,
       reason: `Signal pipeline failed: ${errMsg}`,
       deliveryResults: [],
+      pipelineFailed: true,
     };
   }
 }

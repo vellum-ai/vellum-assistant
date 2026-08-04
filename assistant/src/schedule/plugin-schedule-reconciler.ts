@@ -158,8 +158,29 @@ async function runReconcilePass(): Promise<void> {
   // kept out of `erroredKeys` above: an errored key preserves its last-good
   // row, while a manifest failure must let the disarm loop pause the rows.
   for (const error of [...errors, ...manifestFailures]) {
+    if (isCompletedRecurrence(error, existingByKey.get(error.sourceKey))) {
+      continue;
+    }
     emitDefinitionError(error);
   }
+}
+
+/**
+ * True when an `ended` recurrence is the expected end of a bounded schedule
+ * rather than something to tell the user about. Its row has already stopped,
+ * either latched by the engine on the last occurrence or disabled by the
+ * user, so no firing was lost. An ended declaration whose row is still armed
+ * does lose firings, and one with no row at all arrives dead; both surface.
+ */
+function isCompletedRecurrence(
+  error: DeclarationError,
+  row: ScheduleJob | undefined,
+): boolean {
+  return (
+    error.kind === "ended" &&
+    row !== undefined &&
+    (!row.enabled || row.nextRunAt === 0)
+  );
 }
 
 /**
@@ -208,6 +229,7 @@ async function collectDesiredDeclarations(): Promise<{
           scheduleName: declared.scheduleName,
           sourceKey: declared.sourceKey,
           reason,
+          kind: "invalid",
         });
       }
       continue;
@@ -276,10 +298,10 @@ async function emitDefinitionSignal(
       contextPayload,
       attentionHints: DEFINITION_NOTIFICATION_HINTS,
     });
-    // emitNotificationSignal resolves (never rejects) with `dispatched:
-    // false` and a "Signal pipeline failed" reason on a pipeline error;
-    // every other outcome, including dedupe and suppression, is a verdict.
-    return !result.reason.startsWith("Signal pipeline failed");
+    // emitNotificationSignal resolves (never rejects) and flags a pipeline
+    // error as `pipelineFailed`; every other outcome, including dedupe and
+    // suppression, is a verdict.
+    return !result.pipelineFailed;
   } catch (err) {
     log.warn(
       { err, sourceKey, sourceEventName },

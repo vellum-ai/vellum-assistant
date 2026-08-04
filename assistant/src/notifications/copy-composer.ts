@@ -50,13 +50,32 @@ function str(value: unknown, fallback: string): string {
 
 /**
  * Read an untrusted payload string for interpolation into copy: sanitized
- * like an identity field, falling back when the value is absent, not a
- * string, or sanitizes down to nothing.
+ * like an identity field, undefined when the value is absent, not a string,
+ * or sanitizes down to nothing.
  */
+function optionalSanitizedPayloadField(value: unknown): string | undefined {
+  return typeof value === "string"
+    ? nonEmpty(sanitizeIdentityField(value))
+    : undefined;
+}
+
+/** {@link optionalSanitizedPayloadField} with a fallback for the empty case. */
 function sanitizedPayloadField(value: unknown, fallback: string): string {
-  const sanitized =
-    typeof value === "string" ? sanitizeIdentityField(value).trim() : "";
-  return sanitized.length > 0 ? sanitized : fallback;
+  return optionalSanitizedPayloadField(value) ?? fallback;
+}
+
+/**
+ * Plugin and schedule names from a `schedule.*` payload, with the fallbacks
+ * every schedule template shares.
+ */
+function schedulePayloadNames(payload: Record<string, unknown>): {
+  scheduleName: string;
+  pluginName: string;
+} {
+  return {
+    scheduleName: sanitizedPayloadField(payload.scheduleName, "a schedule"),
+    pluginName: sanitizedPayloadField(payload.pluginName, "A plugin"),
+  };
 }
 
 /**
@@ -131,15 +150,8 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   // plugin-authored declaration files, so they are sanitized like any other
   // untrusted actor-controlled string before interpolation.
   "schedule.declared": (payload) => {
-    const scheduleName = sanitizedPayloadField(
-      payload.scheduleName,
-      "a schedule",
-    );
-    const pluginName = sanitizedPayloadField(payload.pluginName, "A plugin");
-    const cadence =
-      typeof payload.cadence === "string"
-        ? nonEmpty(sanitizeIdentityField(payload.cadence))
-        : undefined;
+    const { scheduleName, pluginName } = schedulePayloadNames(payload);
+    const cadence = optionalSanitizedPayloadField(payload.cadence);
     const cadenceSuffix = cadence ? ` (${cadence})` : "";
     return {
       title: `New plugin schedule: ${scheduleName}`,
@@ -148,11 +160,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "schedule.definition_changed": (payload) => {
-    const scheduleName = sanitizedPayloadField(
-      payload.scheduleName,
-      "a schedule",
-    );
-    const pluginName = sanitizedPayloadField(payload.pluginName, "A plugin");
+    const { scheduleName, pluginName } = schedulePayloadNames(payload);
     return {
       title: `Plugin schedule changed: ${scheduleName}`,
       body: `Plugin "${pluginName}" changed the definition of its schedule "${scheduleName}".`,
@@ -160,11 +168,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "schedule.definition_error": (payload) => {
-    const scheduleName = sanitizedPayloadField(
-      payload.scheduleName,
-      "a schedule",
-    );
-    const pluginName = sanitizedPayloadField(payload.pluginName, "A plugin");
+    const { scheduleName, pluginName } = schedulePayloadNames(payload);
     const reason = sanitizeMessagePreview(
       str(payload.reason, "the declaration is invalid"),
     );

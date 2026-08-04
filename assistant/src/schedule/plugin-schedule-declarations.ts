@@ -86,11 +86,29 @@ export interface ScheduleDeclaration {
   definitionHash: string;
 }
 
+/**
+ * Why a declaration did not load.
+ *
+ * `invalid` is a broken declaration and needs a fix in the plugin. `ended` is
+ * a well-formed recurrence with nothing left to fire, its COUNT consumed or
+ * its UNTIL past. A bounded schedule that ran to completion reaches that
+ * state on its own, so the reconciler surfaces it only when the row it
+ * belongs to is still armed, or when there is no row at all.
+ */
+export type DeclarationErrorKind = "invalid" | "ended";
+
 export interface DeclarationError {
   pluginName: string;
   scheduleName: string;
   sourceKey: string;
   reason: string;
+  kind: DeclarationErrorKind;
+}
+
+/** A declaration that did not load, before it is keyed to a plugin. */
+interface DeclarationFailure {
+  error: string;
+  kind?: DeclarationErrorKind;
 }
 
 export interface ParsedPluginSchedules {
@@ -147,7 +165,7 @@ const scheduleConfigSchema = z
 
 function parseScheduleConfig(
   raw: unknown,
-): { config: PluginScheduleConfig } | { error: string } {
+): { config: PluginScheduleConfig } | DeclarationFailure {
   const result = scheduleConfigSchema.safeParse(raw);
   if (!result.success) {
     const detail = result.error.issues
@@ -201,8 +219,10 @@ function parseScheduleConfig(
   if (resolved.syntax === "rrule") {
     // A syntactically valid recurrence can still be exhausted (UNTIL in the
     // past, COUNT consumed). Such a schedule has no firing left, so it fails
-    // closed here as a declaration error rather than surviving to throw on
-    // every reconcile upsert.
+    // closed here rather than surviving to throw on every reconcile upsert.
+    // The `ended` kind separates it from a broken declaration, since a
+    // bounded recurrence that simply ran its course is not something the
+    // plugin author has to fix.
     try {
       computeNextRunAt({
         syntax: resolved.syntax,
@@ -213,6 +233,7 @@ function parseScheduleConfig(
       return {
         error:
           "expression has no upcoming occurrences: the recurrence has already ended",
+        kind: "ended",
       };
     }
   }
@@ -308,7 +329,7 @@ interface ParsedDeclarationBody {
 function parseFlatDeclaration(
   schedulesDir: string,
   fileName: string,
-): ParsedDeclarationBody | { error: string } {
+): ParsedDeclarationBody | DeclarationFailure {
   const content = readFileSync(join(schedulesDir, fileName), "utf8");
   const parsed = parseFrontmatterFields(content);
   if (!parsed) {
@@ -341,7 +362,7 @@ function parseFlatDeclaration(
 function parseDirectoryDeclaration(
   schedulesDir: string,
   dirName: string,
-): ParsedDeclarationBody | { error: string } {
+): ParsedDeclarationBody | DeclarationFailure {
   const dirPath = join(schedulesDir, dirName);
   const children = readdirSync(dirPath, { withFileTypes: true });
 
@@ -439,12 +460,17 @@ export function parsePluginScheduleDeclarations(
 
   const declarations: ScheduleDeclaration[] = [];
   const errors: DeclarationError[] = [];
-  const fail = (scheduleName: string, reason: string): void => {
+  const fail = (
+    scheduleName: string,
+    reason: string,
+    kind: DeclarationErrorKind = "invalid",
+  ): void => {
     errors.push({
       pluginName,
       scheduleName,
       sourceKey: pluginScheduleSourceKey(pluginName, scheduleName),
       reason,
+      kind,
     });
   };
 
@@ -479,9 +505,9 @@ export function parsePluginScheduleDeclarations(
 
   const parseOne = (
     name: string,
-    parse: () => ParsedDeclarationBody | { error: string },
+    parse: () => ParsedDeclarationBody | DeclarationFailure,
   ): void => {
-    let result: ParsedDeclarationBody | { error: string };
+    let result: ParsedDeclarationBody | DeclarationFailure;
     try {
       result = parse();
     } catch (err) {
@@ -490,7 +516,7 @@ export function parsePluginScheduleDeclarations(
       };
     }
     if ("error" in result) {
-      fail(name, result.error);
+      fail(name, result.error, result.kind);
       return;
     }
     declarations.push({

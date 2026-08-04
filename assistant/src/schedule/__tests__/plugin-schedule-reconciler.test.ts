@@ -30,6 +30,7 @@ mock.module("../../notifications/emit-signal.js", () => ({
       dispatched: true,
       reason: "test",
       deliveryResults: [],
+      pipelineFailed: false,
       ...(emitResultOverride ?? {}),
     };
   },
@@ -92,6 +93,22 @@ function digestMd(body: string): string {
     "---",
     "",
     body,
+    "",
+  ].join("\n");
+}
+
+/**
+ * A digest declaration whose recurrence has nothing left to fire: five daily
+ * occurrences, all of them in 2020. Well-formed, just finished.
+ */
+function endedDigestMd(): string {
+  return [
+    "---",
+    'expression: "DTSTART:20200101T090000Z\\nRRULE:FREQ=DAILY;COUNT=5"',
+    "expression_syntax: rrule",
+    "---",
+    "",
+    "Summarize the day.",
     "",
   ].join("\n");
 }
@@ -537,6 +554,7 @@ describe("reconcilePluginSchedules", () => {
     writePlugin("news", { "digest.md": "Just a body, no config." });
     emitResultOverride = {
       dispatched: false,
+      pipelineFailed: true,
       reason: "Signal pipeline failed: transient outage",
     };
 
@@ -552,10 +570,69 @@ describe("reconcilePluginSchedules", () => {
     expect(emittedSignals).toHaveLength(2);
   });
 
+  test("a completed bounded recurrence stays silent across passes", async () => {
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+
+    // The engine latches an exhausted recurrence in one write: disabled,
+    // next run zeroed, last run stamped.
+    getRawDb().run(
+      "UPDATE cron_jobs SET enabled = 0, next_run_at = 0, last_run_at = ? WHERE id = ?",
+      [Date.now(), created.id],
+    );
+    const latched = rawJob(created.id);
+    emittedSignals.length = 0;
+
+    // The declaration is unchanged in spirit: its last occurrence simply
+    // passed, so the parser now reports it as ended.
+    writePlugin("news", { "digest.md": endedDigestMd() });
+    await reconcilePluginSchedules();
+    await reconcilePluginSchedules();
+
+    expect(rawJob(created.id)).toEqual(latched);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("an ended recurrence on a still-armed row surfaces the error", async () => {
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    await reconcilePluginSchedules();
+    expect(listDeclaredSchedules()[0]!.enabled).toBe(true);
+    emittedSignals.length = 0;
+
+    // The armed row expects more firings; an upgrade that ends the
+    // recurrence stops them, which the user has to hear about.
+    writePlugin("news", { "digest.md": endedDigestMd() });
+    await reconcilePluginSchedules();
+
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe(
+      "schedule.definition_error",
+    );
+  });
+
+  test("a freshly installed declaration that is already expired errors", async () => {
+    writePlugin("news", { "digest.md": endedDigestMd() });
+
+    await reconcilePluginSchedules();
+
+    expect(listDeclaredSchedules()).toHaveLength(0);
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe(
+      "schedule.definition_error",
+    );
+    const payload = emittedSignals[0]!.contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.reason).toContain("no upcoming occurrences");
+  });
+
   test("a suppressed error emit still latches the day guard", async () => {
     writePlugin("news", { "digest.md": "Just a body, no config." });
     emitResultOverride = {
       dispatched: false,
+      pipelineFailed: false,
       reason: "Signal blocked by deterministic checks: quiet hours",
     };
 

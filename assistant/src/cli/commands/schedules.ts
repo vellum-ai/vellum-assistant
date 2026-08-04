@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
-import { pluginNameFromScheduleSourceKey } from "../../util/schedule-source-key.js";
+import { describeScheduleSource } from "../../util/schedule-source-key.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { formatCostUsd } from "../lib/cli-output.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -118,7 +118,7 @@ export function registerSchedulesCommand(program: Command): void {
             name: schedule.name,
             enabled: schedule.enabled ? "enabled" : "disabled",
             mode: schedule.mode,
-            source: describeSource(schedule.sourceKey),
+            source: describeScheduleSource(schedule.sourceKey) ?? "",
             schedule: describeSchedule(schedule),
             nextRun: formatTimestamp(schedule.nextRunAt),
             lastStatus: schedule.lastStatus ?? "—",
@@ -240,7 +240,7 @@ export function registerSchedulesCommand(program: Command): void {
             ["Retry backoff", formatDuration(schedule.retryBackoffMs)],
             ["Timeout", formatDuration(schedule.timeoutMs)],
             ["Source conversation", schedule.createdFromConversationId ?? "—"],
-            ["Plugin", describeSource(schedule.sourceKey) || "-"],
+            ["Plugin", describeScheduleSource(schedule.sourceKey) ?? "-"],
           ];
           const labelWidth = Math.max(...fields.map(([label]) => label.length));
           for (const [label, value] of fields) {
@@ -785,17 +785,6 @@ async function toggleScheduleEnabled(
   }
 
   log.info(`${enabled ? "Enabled" : "Disabled"} schedule: ${scheduleId}`);
-}
-
-/**
- * Plugin attribution for the list's SOURCE column: the owning plugin's name,
- * the raw key when it does not parse, blank for imperative schedules.
- */
-function describeSource(sourceKey: string | null | undefined): string {
-  if (!sourceKey) {
-    return "";
-  }
-  return pluginNameFromScheduleSourceKey(sourceKey) ?? sourceKey;
 }
 
 function describeSchedule(schedule: ScheduleRecord): string {

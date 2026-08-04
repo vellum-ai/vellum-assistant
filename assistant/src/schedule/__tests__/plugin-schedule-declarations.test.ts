@@ -316,6 +316,7 @@ describe("parsePluginScheduleDeclarations", () => {
       });
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("invalid cron expression");
+      expect(errors[0]!.kind).toBe("invalid");
     });
 
     test("RRULE without DTSTART errors", () => {
@@ -384,6 +385,22 @@ describe("parsePluginScheduleDeclarations", () => {
       );
       expect(declarations).toEqual([]);
       expect(errors[0]!.reason).toContain("no upcoming occurrences");
+      // A well-formed recurrence with nothing left to fire, not a mistake:
+      // the reconciler stays quiet about it once the row has stopped.
+      expect(errors[0]!.kind).toBe("ended");
+    });
+
+    test("a COUNT-bounded RRULE with every occurrence consumed reports 'ended'", () => {
+      const pluginDir = makePlugin({
+        "consumed.md":
+          '---\nexpression: "DTSTART:20200101T090000Z\\nRRULE:FREQ=DAILY;COUNT=5"\nexpression_syntax: rrule\n---\nHi.',
+      });
+      const { declarations, errors } = parsePluginScheduleDeclarations(
+        pluginDir,
+        "p",
+      );
+      expect(declarations).toEqual([]);
+      expect(errors[0]!.kind).toBe("ended");
     });
 
     test("empty prompt body errors", () => {
