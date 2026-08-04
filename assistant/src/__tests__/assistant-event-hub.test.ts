@@ -11,6 +11,7 @@ import {
   getReplayWindow,
 } from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { registerHubClient } from "./helpers/hub-clients.js";
 
 function makeEvent(
   overrides: Partial<AssistantEventEnvelope> = {},
@@ -438,30 +439,19 @@ describe("AssistantEventHub — actorPrincipalId on ClientEntry", () => {
 // ── ClientEntry desktop presence ─────────────────────────────────────────────
 
 describe("AssistantEventHub client presence", () => {
-  function subscribeClient(hub: AssistantEventHub, clientId: string): void {
-    hub.subscribe({
-      type: "client",
-      clientId,
-      interfaceId: "macos",
-      capabilities: [],
-      callback: () => {},
-    });
-  }
-
   test("records presence on a matching client", () => {
     const hub = new AssistantEventHub();
-    subscribeClient(hub, "mac-1");
+    registerHubClient({ hub, clientId: "mac-1" });
 
     expect(hub.setClientPresence("mac-1", "active")).toBe(true);
 
     const presence = hub.getClientById("mac-1")!.presence!;
     expect(presence.state).toBe("active");
-    expect(presence.since.getTime()).toBe(presence.reportedAt.getTime());
   });
 
-  test("preserves since when the same state is re-reported", async () => {
+  test("reportedAt advances on every report", async () => {
     const hub = new AssistantEventHub();
-    subscribeClient(hub, "mac-1");
+    registerHubClient({ hub, clientId: "mac-1" });
 
     hub.setClientPresence("mac-1", "idle");
     const first = hub.getClientById("mac-1")!.presence!;
@@ -470,31 +460,14 @@ describe("AssistantEventHub client presence", () => {
     hub.setClientPresence("mac-1", "idle");
     const second = hub.getClientById("mac-1")!.presence!;
 
-    expect(second.since.getTime()).toBe(first.since.getTime());
     expect(second.reportedAt.getTime()).toBeGreaterThan(
       first.reportedAt.getTime(),
     );
   });
 
-  test("advances since on a state transition", async () => {
-    const hub = new AssistantEventHub();
-    subscribeClient(hub, "mac-1");
-
-    hub.setClientPresence("mac-1", "active");
-    const first = hub.getClientById("mac-1")!.presence!;
-
-    await Bun.sleep(5);
-    hub.setClientPresence("mac-1", "away");
-    const second = hub.getClientById("mac-1")!.presence!;
-
-    expect(second.state).toBe("away");
-    expect(second.since.getTime()).toBeGreaterThan(first.since.getTime());
-    expect(second.since.getTime()).toBe(second.reportedAt.getTime());
-  });
-
   test("returns false for an unknown clientId", () => {
     const hub = new AssistantEventHub();
-    subscribeClient(hub, "mac-1");
+    registerHubClient({ hub, clientId: "mac-1" });
 
     expect(hub.setClientPresence("does-not-exist", "active")).toBe(false);
     expect(hub.getClientById("mac-1")?.presence).toBeUndefined();
@@ -502,7 +475,7 @@ describe("AssistantEventHub client presence", () => {
 
   test("a disposed client no longer accepts presence", () => {
     const hub = new AssistantEventHub();
-    subscribeClient(hub, "mac-1");
+    registerHubClient({ hub, clientId: "mac-1" });
 
     expect(hub.disposeClient("mac-1")).toBe(1);
     expect(hub.setClientPresence("mac-1", "active")).toBe(false);

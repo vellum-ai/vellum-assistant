@@ -24,6 +24,10 @@ mock.module("../../../config/env.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────
 
+import {
+  clearHubClients,
+  registerHubClient,
+} from "../../../__tests__/helpers/hub-clients.js";
 import { assistantEventHub } from "../../assistant-event-hub.js";
 import { ROUTES } from "../client-routes.js";
 import { BadRequestError } from "../errors.js";
@@ -59,21 +63,11 @@ function registerClient(args: {
   clientId: string;
   actorPrincipalId?: string;
 }): void {
-  assistantEventHub.subscribe({
-    type: "client",
+  registerHubClient({
     clientId: args.clientId,
-    interfaceId: "macos",
     capabilities: ["host_bash", "host_file", "host_cu"],
     actorPrincipalId: args.actorPrincipalId,
-    callback: () => {},
   });
-}
-
-function clearHub(): void {
-  const ids = assistantEventHub.listClients().map((c) => c.clientId);
-  for (const id of ids) {
-    assistantEventHub.disposeClient(id);
-  }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -81,7 +75,7 @@ function clearHub(): void {
 describe("list_clients route — same-user filter", () => {
   beforeEach(() => {
     fakeHttpAuthDisabled = false;
-    clearHub();
+    clearHubClients();
   });
 
   test("returns only clients owned by the calling actor", () => {
@@ -170,7 +164,7 @@ describe("list_clients route — same-user filter", () => {
 describe("report_client_presence route", () => {
   beforeEach(() => {
     fakeHttpAuthDisabled = false;
-    clearHub();
+    clearHubClients();
   });
 
   test("records presence against the client named by the header", () => {
