@@ -4,27 +4,12 @@
  * the title, and suppressed entirely when it would only restate that title.
  */
 
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
 /** Shortest continuation worth showing after the title's prefix is removed. */
 const MIN_PREVIEW_LENGTH = 12;
-
-/**
- * Opening fence of a code block, allowing up to 3 leading spaces. The second
- * group is the info string, which decides whether a backtick run really opens
- * a block (see `matchFenceOpen`).
- */
-const CODE_FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-
-/**
- * Closing fence of a code block. Nothing but whitespace may follow the fence
- * run, so a line that carries trailing text is code rather than a close.
- */
-const CODE_FENCE_CLOSE_PATTERN = /^ {0,3}(`{3,}|~{3,})\s*$/;
-
-/** ATX heading, blockquote, or list bullet at the start of a line. */
-const BLOCK_MARKER_PATTERN = /^ {0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/;
-
-/** A GFM table delimiter row, plus thematic breaks and blank lines. */
-const STRUCTURAL_ROW_PATTERN = /^[\s|:-]*$/;
 
 /**
  * Inline punctuation ignored when comparing a preview to a title: emphasis,
@@ -39,6 +24,38 @@ const INLINE_MARK_PUNCTUATION = "*_`~";
  */
 const SENTENCE_PUNCTUATION = ".,;:!?-";
 
+/**
+ * The parts of a markdown node the flattener reads. Structural rather than
+ * imported so the walk stays tolerant of node types remark adds.
+ */
+interface MarkdownNode {
+  type: string;
+  value?: string;
+  alt?: string | null;
+  children?: MarkdownNode[];
+}
+
+/**
+ * Node types that carry inline content. Inline siblings run together with no
+ * separator; every other node is a block and is spaced away from its
+ * neighbours.
+ */
+const INLINE_NODE_TYPES = new Set([
+  "break",
+  "delete",
+  "emphasis",
+  "footnoteReference",
+  "image",
+  "imageReference",
+  "inlineCode",
+  "link",
+  "linkReference",
+  "strong",
+  "text",
+]);
+
+const markdownParser = unified().use(remarkParse).use(remarkGfm);
+
 function isSentencePunctuation(char: string): boolean {
   return SENTENCE_PUNCTUATION.includes(char);
 }
@@ -52,107 +69,78 @@ function trimTrailingSentencePunctuation(value: string): string {
 }
 
 /**
- * Turn multi-line markdown into a single line, dropping block syntax while
- * keeping inline emphasis (`**bold**`, `*em*`, backtick code, links) so the
- * result can be rendered as inline markdown.
- *
- * This is the web-side counterpart to the deblocking in
- * `assistant/src/util/short-title.ts`. Web cannot import daemon code, so the
- * two are kept in step by hand.
+ * Turn multi-line markdown into a single line, dropping block structure and
+ * code while keeping inline emphasis (`**bold**`, `*em*`, backtick code) so
+ * the result can be rendered as inline markdown. A link contributes its text
+ * and drops its destination.
  */
 function flattenMarkdownBlocks(summary: string): string {
-  const lines = summary.replace(/\r\n?/g, "\n").split("\n");
-  const kept: string[] = [];
-  let openFence: string | null = null;
-  let openFenceContainer = "";
+  const tree = markdownParser.parse(summary) as MarkdownNode;
+  return flattenNode(tree).replace(/\s+/g, " ").trim();
+}
 
-  for (const line of lines) {
-    if (openFence !== null) {
-      const inside = stripFenceContainer(line, openFenceContainer);
-      const close =
-        inside === null
-          ? undefined
-          : CODE_FENCE_CLOSE_PATTERN.exec(inside)?.[1];
-      if (
-        close !== undefined &&
-        close[0] === openFence[0] &&
-        close.length >= openFence.length
-      ) {
-        openFence = null;
+/** The single-line text a node contributes to the preview. */
+function flattenNode(node: MarkdownNode): string {
+  switch (node.type) {
+    case "code":
+    case "html":
+    case "thematicBreak":
+    case "yaml": {
+      return "";
+    }
+    case "text": {
+      return node.value ?? "";
+    }
+    case "inlineCode": {
+      const value = node.value ?? "";
+      return value.length === 0 ? "" : `\`${value}\``;
+    }
+    case "break": {
+      return " ";
+    }
+    case "strong": {
+      const inner = flattenChildren(node);
+      return inner.length === 0 ? "" : `**${inner}**`;
+    }
+    case "emphasis": {
+      const inner = flattenChildren(node);
+      return inner.length === 0 ? "" : `*${inner}*`;
+    }
+    case "delete":
+    case "link":
+    case "linkReference": {
+      return flattenChildren(node);
+    }
+    case "image":
+    case "imageReference": {
+      const alt = node.alt ?? "";
+      return alt.trim().length === 0 ? "" : alt;
+    }
+    default: {
+      if (node.children !== undefined) {
+        return flattenChildren(node);
       }
-      // A block that never closes swallows the rest of the summary.
-      continue;
+      return node.value ?? "";
     }
-    // Container markers come off first so a fence nested in a blockquote or a
-    // list item is recognized the same way a top-level one is.
-    const stripped = stripBlockMarkers(line);
-    const opener = matchFenceOpen(stripped);
-    if (opener !== null) {
-      openFence = opener;
-      openFenceContainer = line.slice(0, line.length - stripped.length);
-      continue;
-    }
-    if (STRUCTURAL_ROW_PATTERN.test(stripped)) {
-      continue;
-    }
-    kept.push(stripped);
   }
-
-  return kept.join(" ").replace(/\s+/g, " ").trim();
 }
 
 /**
- * The fence run that opens a code block on `line`, or `null` when the line is
- * ordinary text.
- *
- * A backtick fence's info string may not itself contain a backtick, so a line
- * that opens with a backtick run and carries another one later is prose around
- * an inline code span. Tilde fences carry no such restriction.
+ * Concatenate what a node's children contribute, separating each block from
+ * the one before it with a single space. Children that contribute nothing,
+ * such as a dropped code block, never introduce a separator of their own.
  */
-function matchFenceOpen(line: string): string | null {
-  const match = CODE_FENCE_OPEN_PATTERN.exec(line);
-  if (match === null) {
-    return null;
-  }
-  const [, fence, info] = match;
-  if (fence.startsWith("`") && info.includes("`")) {
-    return null;
-  }
-  return fence;
-}
-
-/**
- * The part of `line` that sits inside the container holding an open fence, or
- * `null` when the line is not a continuation of that container and so cannot
- * close the fence.
- *
- * `container` is the literal marker run that preceded the opening fence. A
- * continuation line either repeats it verbatim, the way a blockquote does, or
- * replaces it with indentation of the same width, the way a list item does.
- * Only those two forms are accepted, so a line of code that happens to look
- * like a bulleted fence is never mistaken for the closing delimiter.
- */
-function stripFenceContainer(line: string, container: string): string | null {
-  if (container.length === 0) {
-    return line;
-  }
-  if (line.startsWith(container)) {
-    return line.slice(container.length);
-  }
-  const lead = line.slice(0, container.length);
-  if (lead.length === container.length && /^[ \t]+$/.test(lead)) {
-    return line.slice(container.length);
-  }
-  return null;
-}
-
-/** Peel leading block markers off a line, including nested ones like `> - x`. */
-function stripBlockMarkers(line: string): string {
-  let result = line;
-  let previous = "";
-  while (result !== previous) {
-    previous = result;
-    result = result.replace(BLOCK_MARKER_PATTERN, "");
+function flattenChildren(node: MarkdownNode): string {
+  let result = "";
+  for (const child of node.children ?? []) {
+    const text = flattenNode(child);
+    if (text.length === 0) {
+      continue;
+    }
+    if (result.length > 0 && !INLINE_NODE_TYPES.has(child.type)) {
+      result += " ";
+    }
+    result += text;
   }
   return result;
 }
@@ -164,54 +152,25 @@ interface NormalizedCharacter {
   end: number;
 }
 
-/** Text range of an inline link and the end of the whole `[text](url)` run. */
-interface InlineLinkSpan {
-  textStart: number;
-  textEnd: number;
-  end: number;
-}
-
 /**
  * Emit the comparison form of `value` one character at a time, recording where
  * each character ends in the source. Emphasis, code span, and strikethrough
- * punctuation is dropped, a link is reduced to its text, whitespace runs
- * collapse to a single space, and leading whitespace is skipped.
+ * punctuation is dropped, whitespace runs collapse to a single space, and
+ * leading whitespace is skipped.
  *
  * Comparison and slicing both read this one walk, so the offset a slice cuts
- * at can never drift from what the comparison removed. Every character of a
- * link's text reports the end of the whole link, which keeps a cut inside that
- * text from stranding the destination in the output.
+ * at can never drift from what the comparison removed.
  */
 function normalizedCharacters(value: string): NormalizedCharacter[] {
   const characters: NormalizedCharacter[] = [];
-  let index = 0;
   let previousWasSpace = false;
-  let linkTextEnd = -1;
-  let linkEnd = -1;
 
-  while (index < value.length) {
-    if (index === linkTextEnd) {
-      index = linkEnd;
-      linkTextEnd = -1;
-      linkEnd = -1;
-      continue;
-    }
-    if (linkEnd === -1) {
-      const link = matchInlineLink(value, index);
-      if (link !== null) {
-        linkTextEnd = link.textEnd;
-        linkEnd = link.end;
-        index = link.textStart;
-        continue;
-      }
-    }
-
+  for (let index = 0; index < value.length; index += 1) {
     const char = value[index];
-    index += 1;
     if (INLINE_MARK_PUNCTUATION.includes(char)) {
       continue;
     }
-    const end = linkEnd === -1 ? index : linkEnd;
+    const end = index + 1;
     if (/\s/.test(char)) {
       if (previousWasSpace || characters.length === 0) {
         continue;
@@ -227,48 +186,6 @@ function normalizedCharacters(value: string): NormalizedCharacter[] {
   }
 
   return characters;
-}
-
-/**
- * Match an inline link `[text](destination)` at `start`, or return `null` when
- * the brackets never close into one.
- */
-function matchInlineLink(value: string, start: number): InlineLinkSpan | null {
-  if (value[start] !== "[") {
-    return null;
-  }
-
-  let bracketDepth = 0;
-  let textEnd = -1;
-  for (let index = start; index < value.length; index += 1) {
-    const char = value[index];
-    if (char === "[") {
-      bracketDepth += 1;
-    } else if (char === "]") {
-      bracketDepth -= 1;
-      if (bracketDepth === 0) {
-        textEnd = index;
-        break;
-      }
-    }
-  }
-  if (textEnd === -1 || value[textEnd + 1] !== "(") {
-    return null;
-  }
-
-  let parenDepth = 0;
-  for (let index = textEnd + 1; index < value.length; index += 1) {
-    const char = value[index];
-    if (char === "(") {
-      parenDepth += 1;
-    } else if (char === ")") {
-      parenDepth -= 1;
-      if (parenDepth === 0) {
-        return { textStart: start + 1, textEnd, end: index + 1 };
-      }
-    }
-  }
-  return null;
 }
 
 /**
@@ -334,13 +251,16 @@ function stripSliceDebris(value: string): string {
  * True when `value` opens with `prefix` and that prefix ends on a word
  * boundary, so a title of "Deploy" is not read as a prefix of "Deployment
  * queue is backed up".
+ *
+ * Combining marks count as part of the preceding word, so a decomposed letter
+ * straddling the cut ("Cafe" against "Café") is not a boundary.
  */
 function startsWithWholeWords(value: string, prefix: string): boolean {
   if (!value.startsWith(prefix)) {
     return false;
   }
   const next = value[prefix.length];
-  return next === undefined || !/[\p{L}\p{N}]/u.test(next);
+  return next === undefined || !/[\p{L}\p{M}\p{N}]/u.test(next);
 }
 
 /**

@@ -94,22 +94,40 @@ describe("resolvePreview", () => {
     ).toBe("before rerunning the deploy.");
   });
 
-  test("cuts past a whole link when the title ends inside its text", () => {
+  test("keeps link text the title only partly covers", () => {
     expect(
       resolvePreview(
         "Read docs",
         "Read [docs and specs](https://example.com) before the next deploy.",
       ),
-    ).toBe("before the next deploy.");
+    ).toBe("and specs before the next deploy.");
   });
 
-  test("keeps a link the title does not cover", () => {
+  test("unwraps a link the title does not cover", () => {
     expect(
       resolvePreview(
         "Nightly backup",
         "See [the report](https://example.com) for volume details.",
       ),
-    ).toBe("See [the report](https://example.com) for volume details.");
+    ).toBe("See the report for volume details.");
+  });
+
+  test("unwraps a reference link to its text", () => {
+    expect(
+      resolvePreview(
+        "Nightly backup",
+        "See [the report][r] for volume details.\n\n[r]: https://example.com",
+      ),
+    ).toBe("See the report for volume details.");
+  });
+
+  test("does not strand a destination holding an escaped closing paren", () => {
+    const preview = resolvePreview(
+      "Read docs",
+      "Read [docs](a\\)) before rerunning the deploy.",
+    );
+    expect(preview).toBe("before rerunning the deploy.");
+    expect(preview?.startsWith(")")).toBe(false);
   });
 
   test("returns null when strikethrough wraps the whole title", () => {
@@ -185,6 +203,15 @@ describe("resolvePreview", () => {
     ).toBe("Head of the log: Rerun the job.");
   });
 
+  test("closes a blockquoted fence whose marker carries no space", () => {
+    const preview = resolvePreview(
+      "Build log",
+      "Head:\n> ```\n> payload\n>```\nAfter",
+    );
+    expect(preview).toBe("Head: After");
+    expect(preview).not.toContain("payload");
+  });
+
   test("drops a fenced code block nested in a list item", () => {
     expect(
       resolvePreview(
@@ -212,10 +239,10 @@ describe("resolvePreview", () => {
     expect(preview).not.toContain("secret payload");
   });
 
-  test("treats a backtick run with a backticked info string as prose", () => {
+  test("treats a backtick run with a backticked info string as an inline span", () => {
     expect(
       resolvePreview("Status check", "```code``` is the reported value"),
-    ).toBe("```code``` is the reported value");
+    ).toBe("`code` is the reported value");
   });
 
   test("still opens a tilde fence whose info string holds a backtick", () => {
@@ -260,13 +287,25 @@ describe("resolvePreview", () => {
     ).toBe("Head of the log:");
   });
 
-  test("drops GFM table delimiter rows", () => {
-    expect(
-      resolvePreview(
-        "Table",
-        "| Job | State |\n| --- | :---: |\n| api | failed |",
-      ),
-    ).toBe("| Job | State | | api | failed |");
+  test("flattens a GFM table to its cell text", () => {
+    const preview = resolvePreview(
+      "Table",
+      "| Job | State |\n| --- | :---: |\n| api | failed |",
+    );
+    expect(preview).toBe("Job State api failed");
+    expect(preview).not.toContain("---");
+  });
+
+  test("drops thematic breaks written with asterisks", () => {
+    const preview = resolvePreview("Rollout notes", "Before\n\n***\n\nAfter");
+    expect(preview).toBe("Before After");
+    expect(preview).not.toContain("***");
+  });
+
+  test("drops thematic breaks written with underscores", () => {
+    const preview = resolvePreview("Rollout notes", "Before\n\n___\n\nAfter");
+    expect(preview).toBe("Before After");
+    expect(preview).not.toContain("___");
   });
 
   test("handles CRLF line endings", () => {
@@ -291,5 +330,15 @@ describe("resolvePreview", () => {
     expect(resolvePreview("Deploy", "Deployment queue is backed up")).toBe(
       "Deployment queue is backed up",
     );
+  });
+
+  test("does not split a decomposed letter away from its combining mark", () => {
+    const combiningAcute = "\u0301";
+    const summary = `Cafe${combiningAcute} outage affected the api worker`;
+    expect(summary).toBe(summary.normalize("NFD"));
+
+    const preview = resolvePreview("Cafe", summary);
+    expect(preview).toBe(summary);
+    expect(preview?.startsWith(combiningAcute)).toBe(false);
   });
 });
