@@ -90,6 +90,8 @@ mock.module("@qdrant/js-client-rest", () => ({
 
 const { classifyDenseLaneFailure, denseLane, denseLaneScored, OVERSAMPLE } =
   await import("../dense.js");
+const { EmbeddingWorkerDiedError } =
+  await import("../../../../../persistence/embeddings/embedding-types.js");
 const { SECTION_COLLECTION, _resetSectionDenseStoreForTests } =
   await import("../section-dense-store.js");
 
@@ -373,6 +375,17 @@ describe("classifyDenseLaneFailure", () => {
     expect(classifyDenseLaneFailure(new Error("Qdrant timeout"))).toBe(
       "dense_query_failed",
     );
+  });
+
+  /**
+   * The typed error is the origin signal; the message fallback exists for the
+   * rerank worker and serialized errors. A typed error with an arbitrary
+   * message must classify as a worker death on the type alone.
+   */
+  test("classifies the typed error without relying on message text", () => {
+    expect(
+      classifyDenseLaneFailure(new EmbeddingWorkerDiedError("anything")),
+    ).toBe("embed_worker_died");
   });
 
   test("handles a non-Error throw without losing the classification", () => {

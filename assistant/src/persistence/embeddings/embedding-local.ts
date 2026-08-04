@@ -22,6 +22,7 @@ import {
   type EmbeddingBackend,
   type EmbeddingInput,
   type EmbeddingRequestOptions,
+  EmbeddingWorkerDiedError,
   normalizeEmbeddingInput,
 } from "./embedding-types.js";
 
@@ -32,6 +33,12 @@ interface WorkerResponse {
   type?: string;
   vectors?: number[][];
   error?: string;
+  /**
+   * Set on the two resolution sites that know the child is gone (observed
+   * exit, and a failed pipe write), so `embed()` can throw the typed
+   * {@link EmbeddingWorkerDiedError} instead of encoding the fault as text.
+   */
+  workerDied?: boolean;
 }
 
 /**
@@ -371,7 +378,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         const batch = texts.slice(i, i + batchSize);
         const response = await this.sendRequest(batch);
         if (response.error) {
-          throw new Error(`Embedding worker error: ${response.error}`);
+          const message = `Embedding worker error: ${response.error}`;
+          throw response.workerDied
+            ? new EmbeddingWorkerDiedError(message)
+            : new Error(message);
         }
         if (!response.vectors) {
           throw new Error("Embedding worker returned no vectors");
@@ -424,7 +434,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     this.pendingRequests.delete(id);
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err, model: this.model }, "Embedding worker pipe write failed");
-    pending.resolve({ id, error: `worker pipe write failed: ${message}` });
+    pending.resolve({
+      id,
+      error: `worker pipe write failed: ${message}`,
+      workerDied: true,
+    });
     this.disposeIfIdle();
   }
 
@@ -739,6 +753,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       for (const [, pending] of this.pendingRequests) {
         pending.resolve({
           error: "Embedding worker process exited unexpectedly",
+          workerDied: true,
         });
       }
       this.pendingRequests.clear();

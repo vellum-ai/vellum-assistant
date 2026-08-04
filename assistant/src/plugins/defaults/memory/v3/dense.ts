@@ -17,6 +17,7 @@
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { isEmbeddingDimensionAvailable } from "../../../../persistence/embeddings/embedding-backend.js";
+import { isEmbeddingWorkerDeath } from "../../../../persistence/embeddings/embedding-types.js";
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
 import {
@@ -31,33 +32,17 @@ const log = getLogger("memory-v3-dense-lane");
 export type DenseLaneFailureCause = "embed_worker_died" | "dense_query_failed";
 
 /**
- * Message fragments an embedding backend produces when its worker is gone.
- *
- * A dead worker reaches the lane in two shapes, and both must classify the
- * same way or alerting under-counts the fault. The child exiting while a
- * request is in flight resolves it with "worker process exited unexpectedly";
- * a child already gone when the next request is written fails the pipe first
- * and resolves with "worker pipe write failed". Both are the same underlying
- * fault, distinguished only by whether the death beat the write.
- */
-const WORKER_DEATH_MESSAGES = [
-  "worker process exited unexpectedly",
-  "worker pipe write failed",
-];
-
-/**
  * Distinguish a dead embed worker from any other dense-lane failure.
  *
  * Both degrade the turn to zero semantic recall, but they warrant different
  * responses: a dead worker is a fault to investigate, while a query failure is
- * usually a transient backend condition. The match is on message text because
- * the backend resolves these as strings rather than typed errors
- * (`embedding-local.ts`), so the coupling is deliberate and pinned by tests
- * that use the exact messages the backend emits.
+ * usually a transient backend condition. The knowledge of what a worker death
+ * looks like lives with the backend that produces it
+ * ({@link isEmbeddingWorkerDeath}); this maps that answer onto the lane's
+ * cause vocabulary.
  */
 export function classifyDenseLaneFailure(err: unknown): DenseLaneFailureCause {
-  const message = err instanceof Error ? err.message : String(err);
-  return WORKER_DEATH_MESSAGES.some((m) => message.includes(m))
+  return isEmbeddingWorkerDeath(err)
     ? "embed_worker_died"
     : "dense_query_failed";
 }

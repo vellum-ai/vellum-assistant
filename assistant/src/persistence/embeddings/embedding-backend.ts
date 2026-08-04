@@ -26,6 +26,7 @@ import {
   embeddingInputContentHash,
   type EmbeddingProviderName,
   type EmbeddingRequestOptions,
+  isEmbeddingWorkerDeath,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
   type SparseEmbedding,
@@ -764,10 +765,27 @@ export async function resolveBackendDimension(
     if (extractHttpStatus(err) === 402) {
       recordBillingBlock();
     }
-    log.warn(
-      { err, provider: backend.provider, model: backend.model },
-      "Embedding-dimension availability probe failed; treating as degraded",
-    );
+    // The probe runs before the lane's real embed, so a worker that dies here
+    // degrades the turn without ever reaching the lane's own classification.
+    // Preserve the visibility contract at this earlier failure point: a dead
+    // worker is a fault and logs at error with the same cause tag; anything
+    // else stays an ordinary degraded-probe warning.
+    if (isEmbeddingWorkerDeath(err)) {
+      log.error(
+        {
+          err,
+          provider: backend.provider,
+          model: backend.model,
+          cause: "embed_worker_died",
+        },
+        "embedding worker died during the dimension probe; dense recall degrades this turn",
+      );
+    } else {
+      log.warn(
+        { err, provider: backend.provider, model: backend.model },
+        "Embedding-dimension availability probe failed; treating as degraded",
+      );
+    }
     return null;
   }
 }

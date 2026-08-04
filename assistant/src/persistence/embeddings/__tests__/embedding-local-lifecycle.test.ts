@@ -29,6 +29,7 @@ import {
   listWorkerProcesses,
   LocalEmbeddingBackend,
 } from "../embedding-local.js";
+import { EmbeddingWorkerDiedError } from "../embedding-types.js";
 
 /** Reach past `private`, which is compile-time only, so tests drive real state. */
 type Internals = any;
@@ -261,6 +262,21 @@ describe("broken worker pipe", () => {
 
     await expect(backend.embed(["hello"])).rejects.toThrow(
       /worker pipe write failed/,
+    );
+  });
+
+  /**
+   * The fault is typed at its origin: the backend knows the child is gone, so
+   * `embed()` throws {@link EmbeddingWorkerDiedError} rather than encoding the
+   * fact only as message text for consumers to parse back out.
+   */
+  test("a dead-worker embed rejects with the typed error", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.workerProc = brokenPipeProc();
+    backend.ensureInitialized = async () => {};
+
+    await expect(backend.embed(["hello"])).rejects.toBeInstanceOf(
+      EmbeddingWorkerDiedError,
     );
   });
 

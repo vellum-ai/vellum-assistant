@@ -116,3 +116,44 @@ export interface EmbeddingBackend {
  * input (and therefore the in-memory vector cache identity).
  */
 export const EMBEDDING_DIMENSION_PROBE_TEXT = "embedding dimension probe";
+
+/**
+ * Thrown by an embedding backend when its worker subprocess is gone: either
+ * the child exited while a request was in flight, or it was already dead when
+ * the next request hit the pipe. Typed at the origin so consumers that need to
+ * distinguish a dead worker from an ordinary backend failure check the type
+ * rather than parsing message text.
+ */
+export class EmbeddingWorkerDiedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbeddingWorkerDiedError";
+  }
+}
+
+/**
+ * Message fragments a worker-owning backend emits when its child is gone. The
+ * fallback for errors that are not {@link EmbeddingWorkerDiedError}: the rerank
+ * worker reports its deaths with the same phrasing but does not yet throw the
+ * typed error, and an error that crossed a serialization boundary arrives as a
+ * plain object. Both shapes describe the same fault, distinguished only by
+ * whether the death beat the write.
+ */
+const WORKER_DEATH_MESSAGE_FRAGMENTS = [
+  "worker process exited unexpectedly",
+  "worker pipe write failed",
+];
+
+/**
+ * Whether an error means a worker subprocess died, as opposed to any other
+ * embedding failure. The two need different responses: a dead worker is a
+ * fault to investigate, while most other failures are transient backend
+ * conditions.
+ */
+export function isEmbeddingWorkerDeath(err: unknown): boolean {
+  if (err instanceof EmbeddingWorkerDiedError) {
+    return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return WORKER_DEATH_MESSAGE_FRAGMENTS.some((m) => message.includes(m));
+}
