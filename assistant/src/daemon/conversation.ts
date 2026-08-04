@@ -496,6 +496,14 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /**
+   * The firing's `cron_runs.id` when a schedule triggered the current turn.
+   * Exposed on the live conversation so the tool context can forward it to
+   * delegated LLM work (subagent spawns and messages), whose usage rows then
+   * attribute to the same firing.
+   * @internal
+   */
+  currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;

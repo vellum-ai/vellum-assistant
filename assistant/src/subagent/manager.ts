@@ -994,6 +994,11 @@ export class SubagentManager {
         ...(managed.state.config.forceOverrideProfile
           ? { forceOverrideProfile: true }
           : {}),
+        // Stamp the child's usage with the firing that spawned it so schedule
+        // cost reporting sees delegated spend.
+        ...(managed.state.config.cronRunId
+          ? { cronRunId: managed.state.config.cronRunId }
+          : {}),
       });
 
       // Agent loop completed successfully.
@@ -1281,9 +1286,19 @@ export class SubagentManager {
 
   // ── Send message to subagent ──────────────────────────────────────────
 
+  /**
+   * Deliver a follow-up message to a live subagent.
+   *
+   * `opts.cronRunId` is the firing that produced THIS message, not the one the
+   * subagent was spawned under: a continuation turn's spend belongs to the
+   * firing that asked for it. Only the immediately-processed turn carries it,
+   * since a queued message drains through the conversation's own queue, which
+   * holds no per-message run options.
+   */
   async sendMessage(
     subagentId: string,
     content: string,
+    opts?: { cronRunId?: string | null },
   ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
     const trimmed = content?.trim();
     if (!trimmed) {
@@ -1322,6 +1337,7 @@ export class SubagentManager {
           ...(managed.state.config.forceOverrideProfile
             ? { forceOverrideProfile: true }
             : {}),
+          ...(opts?.cronRunId ? { cronRunId: opts.cronRunId } : {}),
         })
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");

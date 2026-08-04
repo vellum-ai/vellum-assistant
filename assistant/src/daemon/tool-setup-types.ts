@@ -195,6 +195,13 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    */
   currentTurnOverrideProfile?: string;
   /**
+   * Per-turn snapshot of the schedule firing's `cron_runs.id`, set by
+   * `runAgentLoopImpl` from its `cronRunId` option. Propagated into
+   * `ToolContext.cronRunId` so tools that spawn further LLM work carry the
+   * stamp into the delegated turns and their usage attributes to the firing.
+   */
+  currentTurnCronRunId?: string | null;
+  /**
    * Whether the current turn has no human present to answer clarification
    * prompts. Resolved once per turn by the agent loop — honoring an explicit
    * per-run `isInteractive` option (e.g. scheduled/background turns) over the

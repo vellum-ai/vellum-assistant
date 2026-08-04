@@ -176,6 +176,13 @@ export interface SubagentConfig {
    */
   forceOverrideProfile?: boolean;
   /**
+   * The `cron_runs.id` of the schedule firing that spawned this subagent.
+   * Passed into the subagent's `runAgentLoop` so its usage rows carry the same
+   * stamp as the parent turn's and schedule cost reporting sees the delegated
+   * spend. Unset for spawns that no schedule triggered.
+   */
+  cronRunId?: string | null;
+  /**
    * Tool-use id of the `skill_execute` call that spawned this subagent.
    * Forwarded into the `subagent_spawned` event so the client can anchor the
    * inline subagent card to the exact spawn tool call.

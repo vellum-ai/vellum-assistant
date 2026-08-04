@@ -417,6 +417,14 @@ export interface ToolContext {
    */
   overrideProfile?: string;
   /**
+   * The firing's `cron_runs.id` when a schedule triggered this turn, `null`
+   * otherwise. Tools that spawn further LLM work (`subagent_spawn`,
+   * `subagent_message`) forward it so the delegated usage rows carry the same
+   * stamp and attribute to the firing rather than dropping out of schedule
+   * cost reporting.
+   */
+  cronRunId?: string | null;
+  /**
    * The LLM call site of the turn currently executing this tool (`mainAgent`,
    * `heartbeatAgent`, scheduled work, etc.). `subagent_spawn` reads it to
    * default a spawned subagent's inference profile to the profile the invoking
