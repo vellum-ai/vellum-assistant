@@ -217,8 +217,10 @@ export function SkillsReferenceSubagentContent() {
               <strong>Advisor.</strong> A one-shot, read-only second opinion,
               and the one kind your assistant reaches for on its own judgment:
               to pressure-test a plan, when it&apos;s stuck, or as a final check
-              before calling a task done. It has no tools; it reasons from your
-              context and replies with focused guidance.
+              before calling a task done. It reasons from your context and can
+              read and search the files in your workspace to check a fact, then
+              replies with focused guidance. It never changes anything, and it
+              cannot see your other conversations.
             </li>
           </ul>
         </section>
@@ -281,10 +283,12 @@ export function SkillsReferenceSubagentContent() {
                   <td className="px-3 py-2">
                     <strong>Advisor</strong>
                   </td>
-                  <td className="px-3 py-2">None</td>
                   <td className="px-3 py-2">
-                    A no-tools, one-shot strategic review that your assistant
-                    waits on
+                    Read-only fact checking: reading and searching the files in
+                    your workspace
+                  </td>
+                  <td className="px-3 py-2">
+                    A one-shot strategic review that your assistant waits on
                   </td>
                 </tr>
               </tbody>

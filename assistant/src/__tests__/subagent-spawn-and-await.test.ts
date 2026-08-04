@@ -399,6 +399,49 @@ describe("SubagentManager.spawnAndAwait", () => {
     expect(chunks).toEqual(["Hello ", "(pondering) ", "world"]);
   });
 
+  test("reports tool activity via onProgress, which onText never sees", async () => {
+    // A subagent executing a tool streams no delta, so a caller bounding the
+    // run by an idle window has no signal from onText alone. onProgress is that
+    // signal, and it is a strict superset: text deltas count as progress too.
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "done" }] },
+      ],
+      emitDeltas: [
+        { type: "assistant_text_delta", text: "Reading " } as AssistantEvent,
+        {
+          type: "tool_use_start",
+          toolName: "file_read",
+          input: { path: "a.ts" },
+        } as unknown as AssistantEvent,
+        {
+          type: "tool_output_chunk",
+          chunk: "export const a = 1;",
+        } as unknown as AssistantEvent,
+        {
+          type: "tool_result",
+          result: "export const a = 1;",
+        } as unknown as AssistantEvent,
+        // Lifecycle chatter is not progress.
+        { type: "subagent_status_changed" } as AssistantEvent,
+      ],
+    };
+
+    const chunks: string[] = [];
+    let progressCount = 0;
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(makeConfig(), () => {}, {
+      onText: (chunk) => chunks.push(chunk),
+      onProgress: () => {
+        progressCount++;
+      },
+    });
+
+    // One text delta plus three tool events; the status event is excluded.
+    expect(progressCount).toBe(4);
+    expect(chunks).toEqual(["Reading "]);
+  });
+
   test("aborting the provided signal rejects the run", async () => {
     nextConversationConfig = { waitForAbort: true };
 

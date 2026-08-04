@@ -276,8 +276,8 @@ export interface ConversationConstructorOptions {
    * Give this conversation's LLM calls provider-native (server-side) web
    * search when the resolved provider supports it (see
    * {@link AgentLoopConfig.enableNativeWebSearch}). Set by the subagent manager
-   * for the tool-less advisor consult so it can ground guidance with live web
-   * access; non-native providers get nothing. Defaults to false.
+   * for the advisor consult so it can ground guidance with live web access;
+   * non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
   /**
