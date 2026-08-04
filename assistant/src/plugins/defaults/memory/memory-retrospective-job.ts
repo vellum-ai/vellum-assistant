@@ -46,6 +46,7 @@ import {
   type ConversationRow,
   deleteConversation,
   getConversation,
+  getConversationProcessingStartedAt,
   isConversationProcessing,
 } from "@vellumai/plugin-api";
 
@@ -72,7 +73,6 @@ import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
-  upsertMemoryRetrospectiveJob,
 } from "../../../persistence/jobs-store.js";
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
@@ -112,15 +112,17 @@ const log = getLogger("memory-retrospective-job");
 const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
 
 /**
- * Fallback delay for re-upserting a run that was skipped because the source
- * conversation was mid-turn. The PRIMARY requeue is event-driven: the
- * mid-turn skip leaves `lastRunAt` unbumped, so the message-indexing pass on
- * the turn's final assistant message re-enqueues immediately. This timed row
- * only covers a turn that aborts without ever persisting another message.
- * Each retried attempt re-checks the processing flag and re-upserts at the
- * same cadence, so the loop self-resolves when the turn ends.
+ * Age past which a source conversation's persisted `processing_started_at`
+ * stamp is treated as stranded rather than live, and the retrospective
+ * proceeds despite it. A turn-end flag clear can fail and be swallowed under
+ * DB-lock contention while the daemon stays up, and the monitor-process
+ * reaper only clears flags older than the daemon's boot time, so an
+ * in-process stranded flag otherwise blocks a conversation's retrospectives
+ * indefinitely. Proceeding risks only forking a half-finished display turn
+ * (a review-quality concern; the fork copies complete persisted turns), which
+ * is strictly better than never forming memories for the conversation again.
  */
-export const SOURCE_PROCESSING_REQUEUE_DELAY_MS = 60_000;
+export const STALE_SOURCE_PROCESSING_OVERRIDE_MS = 6 * 60 * 60 * 1000;
 
 /** Watchdog check_name for the per-run retrospective outcome counter. */
 const MEMORY_RETROSPECTIVE_RUN_CHECK_NAME = "memory_retrospective_run";
@@ -132,6 +134,7 @@ export type MemoryRetrospectiveOutcome =
   | { kind: "source_dormant" }
   | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
+  | { kind: "no_usable_output"; reason?: string; conversationId?: string }
   | {
       kind: "invoked";
       backgroundConversationId: string;
@@ -186,7 +189,9 @@ export async function memoryRetrospectiveJob(
   }
   emitRunOutcome(
     outcome.kind,
-    outcome.kind === "wake_failed" ? outcome.reason : undefined,
+    outcome.kind === "wake_failed" || outcome.kind === "no_usable_output"
+      ? outcome.reason
+      : undefined,
   );
   return outcome;
 }
@@ -271,34 +276,36 @@ export async function runForkBasedRetrospective(
   // persisted message — including the turn's final assistant message — so an
   // unbumped `lastRunAt` lets that turn-end pass re-enqueue with no cooldown
   // suppression. That is the primary, event-driven requeue: the retrospective
-  // runs right after the colliding turn completes. Mid-turn attempts are
-  // cheap no-ops (existence + processing check) that recur at most once per
-  // persisted message and coalesce into a single pending row via the upsert.
-  // The timed re-upsert below is a fallback for a turn that aborts without
-  // ever indexing another message (the lifecycle/disposal enqueue remains
-  // the last-resort net). Both state pointers stay untouched, so nothing is
-  // lost. Returning (not throwing) keeps the jobs-worker from
-  // retry-with-backoff.
+  // runs right after the colliding turn completes. The `source_processing`
+  // outcome maps to a bounded deferral of the SAME job row at the worker
+  // (see `resolveRetrospectiveOutcome` in `job-handlers.ts`); turn-end
+  // trigger upserts coalesce onto that pending row, so the event-driven
+  // retry keeps its immediacy while a stranded flag can no longer mint an
+  // unbounded stream of fresh rows. Both state pointers stay untouched, so
+  // nothing is lost.
+  //
+  // Stranded-flag override: a swallowed turn-end flag clear leaves the
+  // persisted stamp set while the daemon stays up, where the monitor
+  // process's boot-time-fenced reaper never touches it. A stamp older than
+  // `STALE_SOURCE_PROCESSING_OVERRIDE_MS` is treated as stranded and the run
+  // proceeds; a set-but-stampless flag reads as live (deferral bounds it).
   if (await isConversationProcessing(sourceConversationId)) {
-    try {
-      upsertMemoryRetrospectiveJob(
-        { conversationId: sourceConversationId },
-        Date.now() + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
-      );
+    const processingStartedAt =
+      await getConversationProcessingStartedAt(sourceConversationId);
+    const stale =
+      processingStartedAt != null &&
+      startedAtMs - processingStartedAt > STALE_SOURCE_PROCESSING_OVERRIDE_MS;
+    if (!stale) {
       log.info(
-        {
-          sourceConversationId,
-          requeueDelayMs: SOURCE_PROCESSING_REQUEUE_DELAY_MS,
-        },
-        "memory-retrospective (fork): source conversation is mid-turn; requeued",
+        { sourceConversationId, processingStartedAt },
+        "memory-retrospective (fork): source conversation is mid-turn; deferring",
       );
-    } catch (err) {
-      log.warn(
-        { err, sourceConversationId },
-        "memory-retrospective (fork): mid-turn fallback requeue failed; relying on the turn-end trigger check",
-      );
+      return { kind: "source_processing" };
     }
-    return { kind: "source_processing" };
+    log.warn(
+      { sourceConversationId, processingStartedAt },
+      "memory-retrospective (fork): processing flag is stale beyond the override window; proceeding despite it",
+    );
   }
 
   const state = getRetrospectiveState(sourceConversationId);
@@ -544,25 +551,53 @@ export async function runForkBasedRetrospective(
   }
 
   if (wakeSucceeded) {
-    return await finalizeSuccessfulRetrospective({
-      config,
-      sourceConversationId,
-      retrospectiveConversationId: forkId,
-      cutoffMessageId,
-      newMessageCount: newMessages.length,
-      prior,
-      priorRemembers,
-      logFields: {
-        kind: "fork",
-        windowStartTimestamp,
-        durationMs: Date.now() - startedAtMs,
-      },
-    });
+    // Fail-closed finalization: `invoked: true` proves only that the wake
+    // went live, not that the run produced anything. The agent loop swallows
+    // provider rejections into a normal no-output return, an exhausted output
+    // budget can stop a run before any visible text or tool call, and a
+    // model may reply with analysis (or nothing) without saving. Advancement
+    // past the window therefore requires POSITIVE durable evidence from THIS
+    // run: at least one memory-writing tool call persisted on the fork's
+    // post-boundary tail. The evidence read is run-specific by construction
+    // (`loadRetrospectiveRunMessages` scopes to rows after the fork
+    // boundary), so a prior run's persisted saves can never satisfy it, and
+    // it reads the DB rather than the returned history, so a checkpoint that
+    // went live and persisted saves counts even when a later in-loop repair
+    // rebased the returned tail. A run with no durable evidence follows the
+    // wake-failure path: cursor, remembered log, and the prior retrospective
+    // (the dedup baseline) stay untouched and the window remains retryable.
+    const runEvidence = await collectRetrospectiveRunEvidence(forkId);
+    if (runEvidence.durableToolCallCount === 0) {
+      log.warn(
+        {
+          sourceConversationId,
+          forkId,
+          newMessageCount: newMessages.length,
+        },
+        "memory-retrospective (fork): run produced no durable memory writes; leaving window retryable",
+      );
+    } else {
+      return await finalizeSuccessfulRetrospective({
+        config,
+        sourceConversationId,
+        retrospectiveConversationId: forkId,
+        cutoffMessageId,
+        newMessageCount: newMessages.length,
+        prior,
+        priorRemembers,
+        runRemembers: runEvidence.remembers,
+        logFields: {
+          kind: "fork",
+          windowStartTimestamp,
+          durationMs: Date.now() - startedAtMs,
+        },
+      });
+    }
   }
 
-  // Wake failed. Bump `lastRunAt` only so the cooldown gate applies, leave
-  // `lastProcessedMessageId` alone so the next attempt re-processes the
-  // same messages. Then clean up the orphan fork.
+  // Wake failed or produced no usable output. Bump `lastRunAt` only so the
+  // cooldown gate applies, leave `lastProcessedMessageId` alone so the next
+  // attempt re-processes the same messages. Then clean up the orphan fork.
   await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
   await safeDeleteRetrospectiveConversation(
     forkId,
@@ -573,6 +608,13 @@ export async function runForkBasedRetrospective(
     throw threw;
   }
 
+  if (wakeSucceeded) {
+    return {
+      kind: "no_usable_output",
+      reason: failureReason ?? "run persisted no memory-writing tool call",
+      conversationId: forkId,
+    };
+  }
   return {
     kind: "wake_failed",
     reason: failureReason,
@@ -781,6 +823,12 @@ async function finalizeSuccessfulRetrospective(args: {
   newMessageCount: number;
   prior: PriorRetrospective | null;
   priorRemembers: string[];
+  /**
+   * The `remember` contents extracted from this run's persisted tail by the
+   * caller's usable-output check; passed through so the evidence that gated
+   * advancement is exactly the evidence folded into the log.
+   */
+  runRemembers: string[];
   /** Per-kind extras for the success log line (e.g. `kind`, fork anchor). */
   logFields: Record<string, unknown>;
 }): Promise<MemoryRetrospectiveOutcome> {
@@ -792,12 +840,10 @@ async function finalizeSuccessfulRetrospective(args: {
     newMessageCount,
     prior,
     priorRemembers,
+    runRemembers,
     logFields,
   } = args;
 
-  const runRemembers = await extractRetrospectiveRunRemembers(
-    retrospectiveConversationId,
-  );
   await upsertRetrospectiveState({
     conversationId: sourceConversationId,
     lastProcessedMessageId: cutoffMessageId,
@@ -990,15 +1036,81 @@ async function collectPriorRetrospectiveRemembers(
 async function extractRetrospectiveRunRemembers(
   conversationId: string,
 ): Promise<string[]> {
+  return (await collectRetrospectiveRunEvidence(conversationId)).remembers;
+}
+
+/**
+ * Tool names whose persisted `tool_use` blocks count as durable memory work
+ * for the fail-closed advancement gate: `remember` writes the memory buffer,
+ * `scaffold_managed_skill` writes a managed skill. Read-only tools on the
+ * retrospective allowlist (`skill_load`, `find_similar_skills`) deliberately
+ * do not qualify: a run that only browsed produced nothing durable.
+ */
+const DURABLE_RETROSPECTIVE_TOOLS: ReadonlySet<string> = new Set([
+  "remember",
+  "scaffold_managed_skill",
+]);
+
+/**
+ * Read the durable evidence a retrospective run persisted: its `remember`
+ * contents plus a count of every memory-writing tool call on the run's
+ * post-boundary tail. A load failure (`runMessages == null`) reports zero
+ * durable calls, which the advancement gate treats as "not proven usable"
+ * (fail-closed, the window stays retryable).
+ */
+async function collectRetrospectiveRunEvidence(
+  conversationId: string,
+): Promise<{ remembers: string[]; durableToolCallCount: number }> {
   const conv = await getConversation(conversationId);
   const runMessages = await loadRetrospectiveRunMessages(
     conversationId,
     conv?.source ?? null,
   );
   if (runMessages == null) {
-    return [];
+    return { remembers: [], durableToolCallCount: 0 };
   }
-  return extractRememberContents(runMessages);
+  return {
+    remembers: extractRememberContents(runMessages),
+    durableToolCallCount: countDurableToolUses(runMessages),
+  };
+}
+
+/**
+ * Count persisted `tool_use` blocks whose `name` is in
+ * {@link DURABLE_RETROSPECTIVE_TOOLS} across the run's assistant rows.
+ * Robust to malformed content JSON the same way `extractRememberContents` is.
+ */
+function countDurableToolUses(messages: MessageLike[]): number {
+  let count = 0;
+  for (const msg of messages) {
+    if (msg.role !== "assistant") {
+      continue;
+    }
+    let blocks: unknown = msg.content;
+    if (typeof blocks === "string") {
+      try {
+        blocks = JSON.parse(blocks);
+      } catch {
+        continue;
+      }
+    }
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const b = block as Record<string, unknown>;
+      if (
+        b.type === "tool_use" &&
+        DURABLE_RETROSPECTIVE_TOOLS.has(String(b.name))
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 interface MessageLike {
