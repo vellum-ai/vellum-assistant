@@ -82,6 +82,17 @@ mock.module("@/lib/auth/hard-navigate", () => ({
   hardNavigate: hardNavigateMock,
 }));
 
+// Post-resume request counter, stubbed so a test can make it throw and prove
+// the interceptor still returns its request.
+let noteDaemonApiRequestImpl: (url: string) => void = () => {};
+const noteDaemonApiRequestMock = mock((url: string) => {
+  noteDaemonApiRequestImpl(url);
+});
+mock.module("@/lib/telemetry/resume-request-counter", () => ({
+  noteDaemonApiRequest: noteDaemonApiRequestMock,
+  subscribeResumeRequestCounter: () => () => {},
+}));
+
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import {
@@ -1666,5 +1677,47 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
       String(PLATFORM_AUTH_MAX_REDIRECTS),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-resume request counting
+// ---------------------------------------------------------------------------
+
+describe("api-interceptors / post-resume request counting", () => {
+  beforeEach(() => {
+    noteDaemonApiRequestMock.mockClear();
+    noteDaemonApiRequestImpl = () => {};
+  });
+
+  afterEach(() => {
+    noteDaemonApiRequestImpl = () => {};
+    setSelfHostedConnection(null);
+  });
+
+  test("notes daemon requests", async () => {
+    const url = "https://platform.test/v1/assistants/a1/conversations";
+    await daemonRequestInterceptor(new Request(url));
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+    expect(noteDaemonApiRequestMock.mock.calls.at(-1)?.[0]).toBe(url);
+  });
+
+  test("does not note platform requests", async () => {
+    await requestInterceptor(new Request("https://platform.test/v1/probe"));
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("a throwing counter leaves the request path intact", async () => {
+    noteDaemonApiRequestImpl = () => {
+      throw new Error("counter down");
+    };
+    const input = new Request(
+      "https://platform.test/v1/assistants/a1/messages",
+    );
+
+    const output = await daemonRequestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
   });
 });

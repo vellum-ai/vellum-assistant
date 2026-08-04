@@ -46,6 +46,7 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { noteDaemonApiRequest } from "@/lib/telemetry/resume-request-counter";
 import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
@@ -304,12 +305,24 @@ export function authorizeRemoteGatewayRequest(
  *   clients (only allowlisted segments are forwarded; platform-owned
  *   routes like maintenance-mode, system-events, etc. fall through
  *   to Django).
+ * @param countResumeRequests `true` for the daemon + gateway clients, whose
+ *   traffic is what the post-resume request burst is measured on. Platform and
+ *   auth requests are deliberately left uncounted.
  */
 function createInterceptor({
   skipSegmentAllowlist = false,
   allowRemoteGatewayDirect = false,
+  countResumeRequests = false,
 } = {}) {
   return async (request: Request): Promise<Request> => {
+    if (countResumeRequests) {
+      try {
+        noteDaemonApiRequest(request.url);
+      } catch {
+        // Telemetry must never fail a request.
+      }
+    }
+
     const newRequest = new Request(request);
 
     // Per-tab client identity — sent on *every* request (GET included)
@@ -384,6 +397,7 @@ export const requestInterceptor = createInterceptor();
 export const daemonRequestInterceptor = createInterceptor({
   skipSegmentAllowlist: true,
   allowRemoteGatewayDirect: true,
+  countResumeRequests: true,
 });
 
 /**
