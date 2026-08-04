@@ -893,7 +893,17 @@ function useAssistantBannerConfig(): BannerConfig | null {
     return localHealthBanner;
   }
 
-  if (electron && connectivityState === "backend-unreachable") {
+  // The main-process probe only watches the lockfile-active local
+  // assistant's loopback gateway. A platform session must not surface it —
+  // the probe may be watching a stale/stopped local entry while the
+  // platform assistant is reachable (operational-status covers it below).
+  const localBackendSession =
+    assistantState.kind === "active" && assistantState.isLocal;
+  if (
+    electron &&
+    localBackendSession &&
+    connectivityState === "backend-unreachable"
+  ) {
     return {
       tone: "error",
       title: "Trying to reach Vellum…",

@@ -121,6 +121,52 @@ describe("connectivity-probe", () => {
     expect(backendReachableCalls).toEqual([true]);
   });
 
+  test("sets backend reachable=true when a cloud assistant carries leftover local resources", async () => {
+    // Lockfile merges preserve `resources` across cloud transitions, so a
+    // platform entry can carry a stale gatewayPort. It must not be
+    // loopback-probed — that port belongs to a stopped local runtime.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            resources: { gatewayPort: 7830 },
+          },
+        ],
+        activeAssistant: "cloud-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("probes docker assistants over their loopback gateway", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            resources: { gatewayPort: 7840 },
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["http://127.0.0.1:7840/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
   test("does not change reachability when lockfile cannot be read", async () => {
     mockLockfileData = { ok: false };
 
