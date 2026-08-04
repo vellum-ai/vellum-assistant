@@ -591,7 +591,10 @@ export const INGRESS_READY_TIMEOUT_MS = 5_000;
  * master records its pid under our prefix within milliseconds, while one that
  * lost the bind exits. Bounds the wait for whichever happens first.
  */
-const OWNERSHIP_SETTLE_TIMEOUT_MS = 2_000;
+// The settle window must outlast nginx's internal bind-retry loop (5 attempts
+// with 500ms sleeps) so a contested bind resolves to a child exit rather than
+// a timeout while the child is still retrying.
+const OWNERSHIP_SETTLE_TIMEOUT_MS = 4_000;
 const OWNERSHIP_SETTLE_INTERVAL_MS = 100;
 
 /**
@@ -761,6 +764,14 @@ export async function startRemoteWebIngress(opts: {
       return { status: "started", listenPort, webDistDir, version };
     }
     if (Date.now() >= deadline) {
+      // The child is alive but never proved ownership. Kill it before rolling
+      // back: it may still be inside nginx's bind-retry loop, and an orphan
+      // that later wins the bind would serve with no recorded state.
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // Already gone; the rollback below clears any remaining state.
+      }
       break;
     }
     await new Promise((resolve) =>

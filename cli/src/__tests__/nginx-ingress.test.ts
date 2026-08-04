@@ -1150,6 +1150,41 @@ describe("startRemoteWebIngress", () => {
 
     expect(result.status).toBe("port-conflict");
   });
+
+  test(
+    "a child still retrying its bind at the settle deadline is killed before rollback",
+    async () => {
+      const ws = makeWorkspace();
+      mockNginxInstalled();
+      mockWebDistMissing();
+      const kills: string[] = [];
+      // Alive for the whole settle window (nginx retrying its bind), never
+      // writes a pid file; an orphan left running could win the bind later.
+      spawnMock.mockImplementation((() => {
+        return {
+          unref: () => {},
+          exitCode: null,
+          pid: SPAWNED_NGINX_PID,
+          once: () => {},
+          kill: (signal: string) => {
+            kills.push(signal);
+            return true;
+          },
+        } as unknown as ChildProcess;
+      }) as unknown as typeof childProcess.spawn);
+
+      const result = await startRemoteWebIngress({
+        workspaceDir: ws,
+        gatewayPort: 7830,
+        listenPort: 7845,
+        includeWebApp: false,
+      });
+
+      expect(result.status).toBe("port-conflict");
+      expect(kills).toEqual(["SIGTERM"]);
+    },
+    10_000,
+  );
 });
 
 describe("ensureTunnelEdge", () => {
