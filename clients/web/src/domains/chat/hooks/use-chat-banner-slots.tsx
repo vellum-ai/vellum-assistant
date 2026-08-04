@@ -10,8 +10,8 @@ import { type ReactNode, useMemo } from "react";
 
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
-import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
+import { NativeAppBanner } from "@/components/nudges/native-app-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
@@ -50,7 +50,7 @@ export function useChatBannerSlots({
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
     showBanner,
-    isOnIOS,
+    nativeAppPlatform,
     nudge,
     showGitHubBanner,
     githubNudge,
@@ -62,8 +62,9 @@ export function useChatBannerSlots({
     if (showBanner) {
       return (
         <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
-          {isOnIOS ? (
-            <IOSAppBanner
+          {nativeAppPlatform ? (
+            <NativeAppBanner
+              platform={nativeAppPlatform}
               onDownload={nudge.handleDownload}
               onDismiss={nudge.handleBannerDismiss}
             />
@@ -99,7 +100,7 @@ export function useChatBannerSlots({
     return null;
   }, [
     showBanner,
-    isOnIOS,
+    nativeAppPlatform,
     nudge,
     showGitHubBanner,
     githubNudge,

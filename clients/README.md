@@ -22,6 +22,8 @@ surfaces.
 
 The Android app is a Capacitor shell that lives in [`android/`](./android/);
 it follows the same remote web app loading model as iOS.
+Physical-device release sign-off uses the
+[`Android and iOS parity QA checklist`](./android/docs/PARITY_QA.md).
 
 ## What belongs here
 

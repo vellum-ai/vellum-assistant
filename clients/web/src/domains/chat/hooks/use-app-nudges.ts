@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { type DisplayMessage } from "@/domains/chat/types/types";
 import { hasAnyInteractiveSurface } from "@/domains/chat/utils/chat";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
-  readIOSAssistantTurnsSeen,
-  incrementIOSAssistantTurnsSeen,
-  useIOSNudgeState,
-  IOS_APP_BANNER_MIN_TURNS,
-} from "@/hooks/use-ios-app-nudge";
+  getNativeAppPromotion,
+  incrementNativeAppAssistantTurnsSeen,
+  NATIVE_APP_BANNER_MIN_TURNS,
+  readNativeAppAssistantTurnsSeen,
+  useNativeAppNudgeState,
+  type NativeAppPlatform,
+} from "@/hooks/use-native-app-nudge";
 import {
   readMacOsAssistantTurnsSeen,
   incrementMacOsAssistantTurnsSeen,
@@ -29,6 +30,11 @@ import {
   ensureFirstSeenAt,
   type DiscordNudgeState,
 } from "@/hooks/use-discord-nudge";
+import {
+  useIsAndroidWeb,
+  useIsIOSWeb,
+  useIsMacOSWeb,
+} from "@/runtime/platform-detection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,10 +48,10 @@ interface PlatformNudgeState {
 
 /**
  * Aggregated nudge visibility and handlers for every nudge surface
- * (iOS/macOS app download, GitHub star, Discord community).
+ * (native mobile/macOS app download, GitHub star, Discord community).
  *
  * Mutual-exclusivity rules:
- * 1. Only one platform nudge shows at a time (iOS xor macOS).
+ * 1. Only one platform nudge shows at a time.
  * 2. GitHub nudge surfaces only once the platform nudge is resolved.
  * 3. Discord nudge surfaces only once GitHub is resolved, with a cooldown.
  * 4. All nudges are suppressed while an interactive surface (choice, form,
@@ -54,14 +60,18 @@ interface PlatformNudgeState {
  *    banner above the composer (LUM-2777).
  */
 export interface AppNudgesState {
-  /** True when the current browser is iOS Safari (non-native). */
+  /** True when the current iOS browser is eligible for custom promotion. */
   isOnIOS: boolean;
+  /** True when Android web promotion is configured for this deployment. */
+  isOnAndroid: boolean;
   /** True when the current browser is macOS Safari or Chrome (non-native). */
   isOnMacOS: boolean;
   /** True when any platform app-download nudge could apply. */
   isOnNudgePlatform: boolean;
 
-  /** The active platform nudge (iOS or macOS). Handlers are platform-specific. */
+  /** Mobile platform for the active native-app promotion, when applicable. */
+  nativeAppPlatform: NativeAppPlatform | null;
+  /** The active platform nudge. Handlers are platform-specific. */
   nudge: PlatformNudgeState;
   /** Whether the main-area app-download banner should render. */
   showBanner: boolean;
@@ -80,7 +90,7 @@ export interface AppNudgesState {
 // ---------------------------------------------------------------------------
 
 /**
- * Manages the full nudge stack: platform app-download (iOS/macOS), GitHub
+ * Manages the full nudge stack: platform app-download, GitHub
  * star, and Discord community join. Tracks completed assistant turns to
  * gate the platform nudge behind a minimum-turn threshold, then cascades
  * visibility through the GitHub and Discord nudges with mutual-exclusivity
@@ -103,10 +113,17 @@ export function useAppNudges(
   // Platform detection
   // -------------------------------------------------------------------------
   const isOnIOS = useIsIOSWeb();
+  const isOnAndroid =
+    useIsAndroidWeb() && getNativeAppPromotion("android") !== null;
   const isOnMacOS = useIsMacOSWeb();
-  const isOnNudgePlatform = isOnIOS || isOnMacOS;
-  const nudgeMinTurns = isOnIOS
-    ? IOS_APP_BANNER_MIN_TURNS
+  const nativeAppPlatform: NativeAppPlatform | null = isOnIOS
+    ? "ios"
+    : isOnAndroid
+      ? "android"
+      : null;
+  const isOnNudgePlatform = nativeAppPlatform !== null || isOnMacOS;
+  const nudgeMinTurns = nativeAppPlatform
+    ? NATIVE_APP_BANNER_MIN_TURNS
     : MAC_APP_BANNER_MIN_TURNS;
 
   // -------------------------------------------------------------------------
@@ -116,9 +133,11 @@ export function useAppNudges(
 
   useEffect(() => {
     setAssistantTurnsSeen(
-      isOnIOS ? readIOSAssistantTurnsSeen() : readMacOsAssistantTurnsSeen(),
+      nativeAppPlatform
+        ? readNativeAppAssistantTurnsSeen(nativeAppPlatform)
+        : readMacOsAssistantTurnsSeen(),
     );
-  }, [isOnIOS]);
+  }, [nativeAppPlatform]);
 
   useEffect(() => {
     if (!isOnNudgePlatform) {
@@ -153,8 +172,11 @@ export function useAppNudges(
     }
 
     if (newlyCompleted > 0) {
-      if (isOnIOS) {
-        incrementIOSAssistantTurnsSeen(newlyCompleted);
+      if (nativeAppPlatform) {
+        incrementNativeAppAssistantTurnsSeen(
+          nativeAppPlatform,
+          newlyCompleted,
+        );
       } else {
         incrementMacOsAssistantTurnsSeen(newlyCompleted);
       }
@@ -164,7 +186,7 @@ export function useAppNudges(
     messages,
     liveAssistantMessageId,
     isOnNudgePlatform,
-    isOnIOS,
+    nativeAppPlatform,
     assistantTurnsSeen,
     nudgeMinTurns,
   ]);
@@ -178,15 +200,21 @@ export function useAppNudges(
   const hasActiveInteractiveSurface = hasAnyInteractiveSurface(messages);
 
   // -------------------------------------------------------------------------
-  // Platform nudge (iOS xor macOS)
+  // Platform nudge
   // -------------------------------------------------------------------------
-  const iosNudge = useIOSNudgeState();
+  const iosNudge = useNativeAppNudgeState("ios");
+  const androidNudge = useNativeAppNudgeState("android");
   const macNudge = useMacOsNudgeState();
-  const nudge = isOnIOS ? iosNudge : macNudge;
+  const nudge =
+    nativeAppPlatform === "ios"
+      ? iosNudge
+      : nativeAppPlatform === "android"
+        ? androidNudge
+        : macNudge;
 
-  // macOS is time-based (shows ~24h after first seen); iOS stays turn-based.
-  const bannerEligible = isOnIOS
-    ? assistantTurnsSeen >= IOS_APP_BANNER_MIN_TURNS
+  // macOS is time-based; native mobile promotion is turn-based.
+  const bannerEligible = nativeAppPlatform
+    ? assistantTurnsSeen >= NATIVE_APP_BANNER_MIN_TURNS
     : macNudge.ageEligible;
 
   const showBanner =
@@ -270,8 +298,10 @@ export function useAppNudges(
 
   return {
     isOnIOS,
+    isOnAndroid,
     isOnMacOS,
     isOnNudgePlatform,
+    nativeAppPlatform,
     nudge,
     showBanner,
     githubNudge,
