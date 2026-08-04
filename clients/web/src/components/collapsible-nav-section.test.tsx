@@ -112,12 +112,12 @@ describe("CollapsibleNavSection", () => {
     expect(html).not.toContain("lucide-clock");
   });
 
-  // Regression: a polish pass once made the title a plain drag-only label,
-  // leaving the small chevron as the sole toggle target. The whole title
-  // row must be the accordion trigger - click toggles,
+  // The whole title row is the accordion trigger - click toggles,
   // click-and-hold-and-move drags - and it must be the ONLY trigger:
   // a second Radix trigger for the same item duplicates the trigger id
-  // and gives keyboard/screen-reader users two stops per section.
+  // and gives keyboard/screen-reader users two stops per section, and a
+  // title that is not a trigger leaves the chevron as the sole, tiny
+  // toggle target.
   test("the title is the section's one accessible trigger; the chevron is decorative", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     const container = document.createElement("div");
