@@ -360,6 +360,82 @@ describe("tunnel edge targeting", () => {
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
 
+  test("--clear-domain drops the saved domain and runs domainless", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    const workspaceDir = join(
+      entry.resources!.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "config.json"),
+      JSON.stringify({ ingress: { ngrok: { domain: "dead.ngrok.app" } } }),
+    );
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "ngrok",
+      "--clear-domain",
+    ];
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain("Cleared the saved ngrok domain");
+    const config = JSON.parse(
+      readFileSync(join(workspaceDir, "config.json"), "utf-8"),
+    ) as { ingress?: { ngrok?: { domain?: string } } };
+    expect(config.ingress?.ngrok).toBeUndefined();
+    // The run proceeds domainless: no `domain` key reaches runNgrokTunnel.
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("rejects --clear-domain combined with --domain", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "ngrok",
+      "--domain",
+      "foo.ngrok.app",
+      "--clear-domain",
+    ];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("--clear-domain cannot be combined with --domain");
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects --clear-domain with a non-ngrok provider", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "cloudflare",
+      "--clear-domain",
+    ];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "--clear-domain is only supported with --provider ngrok",
+    );
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
   test("errors when --domain is missing its value", async () => {
     process.argv = [
       "bun",
@@ -479,10 +555,11 @@ describe("ngrok --domain spawn args", () => {
 
   test("runNgrokTunnel spawns ngrok with --domain and persists the domain", async () => {
     const ws = makeWorkspace({});
-    // The unrelated-port tunnel is listed first both before and after the
-    // spawn; only the tunnel matching the target port and domain may be saved.
+    // The pre-spawn listing is empty (any running tunnel would abort the run);
+    // post-spawn, only the tunnel matching the target port and domain may be
+    // saved even with an unrelated-port tunnel listed first.
     mockNgrokApiFetch([
-      { tunnels: [unrelatedPortTunnel] },
+      { tunnels: [] },
       {
         tunnels: [
           unrelatedPortTunnel,
@@ -652,6 +729,84 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.publicBaseUrl).toBeUndefined();
     // …and the reserved domain stays saved as standing intent.
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
+  });
+
+  test("maybeStartNgrokTunnel skips when an existing agent tunnels a different port", async () => {
+    const ws = makeWorkspace({
+      telegram: { botUsername: "example_bot" },
+    });
+    // A stale pre-upgrade agent still tunnels the raw gateway port; the edge
+    // port (18080) has no tunnel.
+    mockTunnelListFetch("https://stale.ngrok-free.app", "localhost:7830");
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation(
+      (...a: unknown[]) => {
+        warnings.push(a.join(" "));
+      },
+    );
+
+    let child: unknown;
+    try {
+      child = await realNgrok.maybeStartNgrokTunnel(18080, ws);
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(child).toBeNull();
+    expect(spawnMock).not.toHaveBeenCalled();
+    const combined = warnings.join("\n");
+    expect(combined).toContain("different local port");
+    expect(combined).toContain(
+      "https://stale.ngrok-free.app -> localhost:7830",
+    );
+    expect(combined).toContain("not 18080");
+    expect(combined).toContain("vellum tunnel --provider ngrok");
+
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress?: { publicBaseUrl?: string } };
+    expect(config.ingress?.publicBaseUrl).toBeUndefined();
+  });
+
+  test("runNgrokTunnel fails loudly when an existing agent tunnels a different port", async () => {
+    const ws = makeWorkspace({});
+    mockTunnelListFetch("https://stale.ngrok-free.app", "localhost:7830");
+
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    try {
+      await expect(
+        realNgrok.runNgrokTunnel({ port: 18080, workspaceDir: ws }),
+      ).rejects.toThrow("exit:1");
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    const combined = errors.join("\n");
+    expect(combined).toContain("different local port");
+    expect(combined).toContain(
+      "https://stale.ngrok-free.app -> localhost:7830",
+    );
+    expect(combined).toContain("not 18080");
+    expect(combined).toContain("Stop the existing ngrok agent");
+    expect(spawnMock).not.toHaveBeenCalled();
+
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress?: { publicBaseUrl?: string } };
+    expect(config.ingress?.publicBaseUrl).toBeUndefined();
   });
 
   test("maybeStartNgrokTunnel passes the saved domain to the spawn args", async () => {
