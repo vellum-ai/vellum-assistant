@@ -16,13 +16,6 @@ const MIN_CONTRAST = 3;
 const KNOWN_THEMES = ["light", "dark", "velvet"];
 const TONES = ["positive", "negative"];
 
-/**
- * The `theme:tone` pairings whose `-on-weak` token is not a copy of `-strong`:
- * dark `--system-negative-strong` does not clear 3:1 on the dark
- * `--system-negative-weak` fill, so the on-weak token is a lighter tone there.
- */
-const DIVERGENT_ON_WEAK = new Set(["dark:negative"]);
-
 const css = readFileSync(join(import.meta.dir, "tokens.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
   "",
@@ -103,20 +96,28 @@ describe("system on-weak tokens", () => {
 
   // Contrast alone cannot catch this: an on-weak token left behind by an edit
   // to its -strong counterpart can still clear 3:1 while showing the wrong
-  // colour next to every other use of that tone.
-  test("each -on-weak token copies its -strong counterpart", () => {
-    const onWeak: Record<string, string> = {};
-    const strong: Record<string, string> = {};
+  // colour next to every other use of that tone. The exception is derived
+  // rather than listed, so a pairing only escapes the equality check while its
+  // -strong tone genuinely fails on the -weak fill. Lighten a -weak fill until
+  // -strong clears the floor and the pairing is held to equality again.
+  test("each -on-weak token copies its -strong counterpart unless -strong fails", () => {
+    const actual: Record<string, string> = {};
+    const expected: Record<string, string> = {};
     for (const [theme, tokens] of themes) {
       for (const tone of TONES) {
+        const strong = tokens[`--system-${tone}-strong`];
+        const weak = tokens[`--system-${tone}-weak`];
+        const onWeak = tokens[`--system-${tone}-on-weak`];
         const pairing = `${theme}:${tone}`;
-        if (DIVERGENT_ON_WEAK.has(pairing)) {
-          continue;
+        if (contrastRatio(strong, weak) >= MIN_CONTRAST) {
+          actual[pairing] = onWeak;
+          expected[pairing] = strong;
+        } else {
+          actual[pairing] = onWeak === strong ? "copies -strong" : "diverges";
+          expected[pairing] = "diverges";
         }
-        onWeak[pairing] = tokens[`--system-${tone}-on-weak`];
-        strong[pairing] = tokens[`--system-${tone}-strong`];
       }
     }
-    expect(onWeak).toEqual(strong);
+    expect(actual).toEqual(expected);
   });
 });
