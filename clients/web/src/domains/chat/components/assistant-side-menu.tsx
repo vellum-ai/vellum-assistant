@@ -56,7 +56,7 @@ import {
 } from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, cn, ConfirmDialog, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -302,15 +302,6 @@ export function AssistantSideMenu({
     onReorder: sidebar.onReorderSections,
   });
 
-  // "Archive All…" arms this instead of archiving outright; the ConfirmDialog
-  // at the root of this component performs the archive on confirm. One click
-  // must never clear a whole section from the sidebar (LUM-3036). Snapshotted
-  // at menu-click time so the set the user confirmed is the set archived.
-  const [pendingArchiveAll, setPendingArchiveAll] = useState<{
-    groupName: string;
-    conversations: Conversation[];
-  } | null>(null);
-
   // Header actions for a sidebar section. Every section gets the same shape —
   // Pinned, Chats, each channel section, and each custom group — so the bulk
   // actions are identical everywhere and the only per-section difference is
@@ -335,7 +326,7 @@ export function AssistantSideMenu({
       ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
       : false,
     onArchiveAll: onArchiveAllInGroup
-      ? () => setPendingArchiveAll({ groupName, conversations })
+      ? () => onArchiveAllInGroup(groupName, conversations)
       : undefined,
     hasConversations: conversations.length > 0,
     onRename: options?.onRename,
@@ -866,30 +857,6 @@ export function AssistantSideMenu({
           </SideMenu.Footer>
         ) : null}
       </SideMenu>
-      <ConfirmDialog
-        open={pendingArchiveAll !== null}
-        title="Archive All"
-        message={
-          pendingArchiveAll
-            ? `Archive ${
-                pendingArchiveAll.conversations.length === 1
-                  ? "the conversation"
-                  : `all ${pendingArchiveAll.conversations.length} conversations`
-              } in “${pendingArchiveAll.groupName}”? Archived conversations leave the sidebar but stay available from search.`
-            : ""
-        }
-        confirmLabel="Archive All"
-        onConfirm={() => {
-          if (pendingArchiveAll) {
-            onArchiveAllInGroup?.(
-              pendingArchiveAll.groupName,
-              pendingArchiveAll.conversations,
-            );
-          }
-          setPendingArchiveAll(null);
-        }}
-        onCancel={() => setPendingArchiveAll(null)}
-      />
     </ConversationListProvider>
   );
 }

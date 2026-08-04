@@ -94,6 +94,10 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import {
+  ArchiveAllConfirmDialog,
+  useArchiveAllConfirmation,
+} from "./components/archive-all-confirm-dialog";
 import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
 
@@ -578,6 +582,19 @@ export function ChatLayout({
     prePinGroupIdsRef,
   });
 
+  // The sidebar's "Archive All…" routes through this confirmation gate; the
+  // ArchiveAllConfirmDialog mounted below (with the other sidebar dialogs)
+  // runs the archive on confirm (LUM-3036).
+  const {
+    pending: pendingArchiveAll,
+    requestArchiveAll,
+    confirmArchiveAll,
+    cancelArchiveAll,
+  } = useArchiveAllConfirmation({
+    assistantId,
+    archiveAllInGroup: handleArchiveAllInGroup,
+  });
+
   // The move-to-group menu's "New group…" item and the group actions menu's
   // "Rename" open the shared NameInputDialog through the request store; the
   // GroupNameDialogFromStore connector (mounted below) performs the
@@ -890,7 +907,7 @@ export function ChatLayout({
       onRenameGroup={handleRequestRenameGroup}
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
-      onArchiveAllInGroup={handleArchiveAllInGroup}
+      onArchiveAllInGroup={requestArchiveAll}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       onMoveToGroup={handleMoveToGroup}
@@ -1147,6 +1164,11 @@ export function ChatLayout({
       <OnboardingAvatarApplier />
 
       <RenameDialogFromStore assistantId={assistantId} />
+      <ArchiveAllConfirmDialog
+        pending={pendingArchiveAll}
+        onConfirm={confirmArchiveAll}
+        onCancel={cancelArchiveAll}
+      />
       <GroupNameDialogFromStore
         createGroup={createGroup}
         renameGroup={renameGroup}
