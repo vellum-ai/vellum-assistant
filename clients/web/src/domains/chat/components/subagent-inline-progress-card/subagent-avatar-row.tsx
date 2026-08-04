@@ -24,11 +24,14 @@ export function SubagentAvatarRow({
 }: SubagentAvatarRowProps) {
   const overflowCount = subagentIds.length - MAX_VISIBLE_SUBAGENT_AVATARS;
 
-  // The row wraps because it can outgrow a phone-width transcript column. At
-  // the six-avatar cap the badges, the overflow chip, and the Details label
-  // need more than the 343px a 375px viewport leaves after the transcript's
-  // px-4, and the transcript wrapper is `contain-content`, so an unwrapped row
-  // loses the Details affordance to clipping rather than overflowing visibly.
+  // The row wraps because it can outgrow the transcript column. At the
+  // six-avatar cap the badges, the overflow chip, and the Details label need
+  // about 401px, more than every phone in portrait leaves after the
+  // transcript's px-4 (a 430px viewport leaves ~398px), and more than a narrow
+  // transcript leaves on desktop once the detail panel is dragged out to
+  // `minLeftWidth` (`chat-content-layout.tsx`). The transcript wrapper is
+  // `contain-content`, so an unwrapped row loses the Details affordance to
+  // clipping rather than overflowing visibly.
   return (
     <button
       type="button"
@@ -43,10 +46,11 @@ export function SubagentAvatarRow({
           <SubagentAvatarBadge key={id} subagentId={id} />
         ))}
 
+        {/* Carries the badges' own footprint so the row reads as one family. */}
         {overflowCount > 0 && (
           <div
             data-testid="subagent-avatar-row-overflow"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-active)]"
+            className="flex h-8 w-[2.875rem] items-center justify-center rounded-full bg-[var(--surface-active)]"
           >
             <Typography
               variant="body-small-default"

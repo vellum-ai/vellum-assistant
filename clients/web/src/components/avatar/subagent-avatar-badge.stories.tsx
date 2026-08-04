@@ -7,6 +7,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect } from "react";
 
 import { SubagentAvatarBadge } from "@/components/avatar/subagent-avatar-badge";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -16,34 +17,10 @@ import {
 } from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
 
-/** Fixed so seeded entries never vary between renders. */
 const SPAWNED_AT = 1_717_000_000_000;
 
 function storyId(status: SubagentStatus): string {
   return `story-subagent-${status}`;
-}
-
-/**
- * Reset the store, then seed one entry per status. Resetting first is what
- * keeps entries from accumulating as stories re-render or swap.
- *
- * The seeded entries carry no `parentConversationId`, and `useActiveSubagentIds`
- * deliberately treats those as visible in every conversation, so they have to be
- * torn down after each story or the three active ones leak into unrelated
- * stories and make them render activity affordances they do not expect.
- */
-function seedEveryStatus() {
-  const store = useSubagentStore.getState();
-  store.reset();
-  for (const status of SubagentStatusSchema.options) {
-    store.spawnSubagent({
-      subagentId: storyId(status),
-      label: "Research Agent",
-      objective: "Find the answer",
-      timestamp: SPAWNED_AT,
-    });
-    store.changeStatus({ subagentId: storyId(status), status });
-  }
 }
 
 /** One badge plus its status name, so the stories read without a legend. */
@@ -61,17 +38,58 @@ function BadgeSample({ status }: { status: SubagentStatus }) {
   );
 }
 
+/**
+ * Seeds one entry per status on mount and removes exactly those ids on
+ * unmount. Seeding belongs to the story's own lifecycle rather than a shared
+ * `beforeEach` because the project renders `autodocs`, which mounts every
+ * story in this file at once: a teardown that reset the whole store would
+ * blank the badges of whichever stories were still on screen.
+ *
+ * The removal is not optional. The seeded entries carry no
+ * `parentConversationId`, and `useActiveSubagentIds` deliberately treats those
+ * as visible in every conversation, so any that outlived this story would make
+ * unrelated stories render activity affordances they do not expect. An entry
+ * with no parent message and no tool-use id sits only in `byId` and
+ * `orderedIds`, so those two are the whole cleanup.
+ */
+function EveryStatusRow() {
+  useEffect(() => {
+    const { spawnSubagent } = useSubagentStore.getState();
+    for (const status of SubagentStatusSchema.options) {
+      spawnSubagent({
+        subagentId: storyId(status),
+        label: "Research Agent",
+        objective: "Find the answer",
+        timestamp: SPAWNED_AT,
+        status,
+      });
+    }
+
+    return () => {
+      const seeded = new Set(SubagentStatusSchema.options.map(storyId));
+      useSubagentStore.setState((state) => ({
+        byId: Object.fromEntries(
+          Object.entries(state.byId).filter(([id]) => !seeded.has(id)),
+        ),
+        orderedIds: state.orderedIds.filter((id) => !seeded.has(id)),
+      }));
+    };
+  }, []);
+
+  return (
+    <div className="flex flex-wrap items-start gap-1">
+      {SubagentStatusSchema.options.map((status) => (
+        <BadgeSample key={status} status={status} />
+      ))}
+    </div>
+  );
+}
+
 const meta: Meta<typeof SubagentAvatarBadge> = {
   title: "Components/SubagentAvatarBadge",
   component: SubagentAvatarBadge,
   parameters: {
     layout: "padded",
-  },
-  beforeEach: () => {
-    seedEveryStatus();
-    return () => {
-      useSubagentStore.getState().reset();
-    };
   },
 };
 
@@ -85,29 +103,7 @@ type Story = StoryObj<typeof SubagentAvatarBadge>;
  * collapsed avatar row ships with (`subagent-avatar-row.tsx`).
  */
 export const AllStatuses: Story = {
-  render: () => (
-    <div className="flex flex-wrap items-start gap-1">
-      {SubagentStatusSchema.options.map((status) => (
-        <BadgeSample key={status} status={status} />
-      ))}
-    </div>
-  ),
-};
-
-/**
- * The three pill fills next to each other: the neutral `--surface-lift` while
- * in flight, `--system-positive-weak` on success, `--system-negative-weak` on
- * failure. Spaced apart so the a11y addon has each tint paired with its glyph
- * colour, which the tightly packed `AllStatuses` row makes hard to compare.
- */
-export const TerminalTints: Story = {
-  render: () => (
-    <div className="flex flex-wrap items-start gap-6">
-      {(["running", "completed", "failed"] as const).map((status) => (
-        <BadgeSample key={status} status={status} />
-      ))}
-    </div>
-  ),
+  render: () => <EveryStatusRow />,
 };
 
 /**

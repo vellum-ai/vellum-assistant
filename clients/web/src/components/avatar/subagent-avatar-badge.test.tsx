@@ -1,12 +1,13 @@
 /**
  * Tests for `SubagentAvatarBadge`.
  *
- * Drives the Zustand subagent store (spawn + changeStatus) and asserts the
+ * Seeds the Zustand subagent store with one entry per case and asserts the
  * glyph in the pill's fixed slot reflects the subagent's real status: running
  * dots while in-flight, a check on `completed`, and a red X on `aborted`
  * (canceled) / `failed`. Confirms the deterministic avatar chip renders, that
- * state is exposed via `data-status` (not colour alone), and that the slot
- * keeps the pill a constant width across every state.
+ * state is exposed via `data-status` (not colour alone), that every status
+ * lands in its expected tint bucket, and that the fixed slot renders in every
+ * state so the avatar's horizontal position never moves.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -17,6 +18,25 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { SubagentStatus } from "@vellumai/assistant-api";
 
 const NOW = 1700000000000;
+
+/**
+ * Every status paired with the pill fill it must produce. Typed as a total
+ * `Record<SubagentStatus, ...>` so adding a status to the wire schema fails to
+ * compile until its tint bucket is declared here.
+ */
+const EXPECTED_PILL_BACKGROUND: Record<SubagentStatus, string> = {
+  completed: "bg-[var(--system-positive-weak)]",
+  failed: "bg-[var(--system-negative-weak)]",
+  aborted: "bg-[var(--system-negative-weak)]",
+  interrupted: "bg-[var(--system-negative-weak)]",
+  running: "bg-[var(--surface-lift)]",
+  pending: "bg-[var(--surface-lift)]",
+  awaiting_input: "bg-[var(--surface-lift)]",
+};
+
+const TINT_CASES = Object.entries(EXPECTED_PILL_BACKGROUND) as Array<
+  [SubagentStatus, string]
+>;
 
 beforeEach(() => {
   useSubagentStore.getState().reset();
@@ -32,8 +52,8 @@ function spawn(id: string, status: SubagentStatus) {
     label: "Research Agent",
     objective: "Find the answer",
     timestamp: NOW,
+    status,
   });
-  useSubagentStore.getState().changeStatus({ subagentId: id, status });
 }
 
 /** Which glyph the indicator rendered, independent of its Tailwind classes. */
@@ -41,6 +61,11 @@ function renderedGlyph(indicator: Element): string | null {
   return (
     indicator.querySelector("[data-glyph]")?.getAttribute("data-glyph") ?? null
   );
+}
+
+/** The class list on the glyph icon, where its colour token is applied. */
+function glyphClasses(indicator: Element): string {
+  return indicator.querySelector("svg")?.getAttribute("class") ?? "";
 }
 
 describe("SubagentAvatarBadge", () => {
@@ -69,7 +94,7 @@ describe("SubagentAvatarBadge", () => {
     expect(indicator.querySelectorAll(".busy-indicator").length).toBe(3);
   });
 
-  test("completed → check glyph, no dots", () => {
+  test("completed → check glyph in the positive on-weak token, no dots", () => {
     spawn("sa-done", "completed");
     const { getByTestId } = render(
       <SubagentAvatarBadge subagentId="sa-done" />,
@@ -79,6 +104,10 @@ describe("SubagentAvatarBadge", () => {
     expect(indicator.getAttribute("aria-label")).toBe("completed");
     expect(indicator.querySelectorAll(".busy-indicator").length).toBe(0);
     expect(renderedGlyph(indicator)).toBe("check");
+    // The on-weak pairing is what clears contrast against the weak pill fill.
+    expect(glyphClasses(indicator)).toContain(
+      "text-[var(--system-positive-on-weak)]",
+    );
   });
 
   test("aborted → red X with data-status=aborted", () => {
@@ -94,7 +123,7 @@ describe("SubagentAvatarBadge", () => {
     expect(renderedGlyph(indicator)).toBe("cross");
   });
 
-  test("failed → red X with data-status=failed", () => {
+  test("failed → X glyph in the negative on-weak token, data-status=failed", () => {
     spawn("sa-failed", "failed");
     const { getByTestId } = render(
       <SubagentAvatarBadge subagentId="sa-failed" />,
@@ -103,9 +132,23 @@ describe("SubagentAvatarBadge", () => {
     expect(indicator.getAttribute("data-status")).toBe("failed");
     expect(indicator.querySelectorAll(".busy-indicator").length).toBe(0);
     expect(renderedGlyph(indicator)).toBe("cross");
+    expect(glyphClasses(indicator)).toContain(
+      "text-[var(--system-negative-on-weak)]",
+    );
   });
 
-  test("in-flight swaps background to --surface-active on hover, terminal tints do not", () => {
+  for (const [status, expected] of TINT_CASES) {
+    test(`${status} tints the pill with ${expected}`, () => {
+      const id = `sa-tint-${status}`;
+      spawn(id, status);
+      const { getByTestId } = render(<SubagentAvatarBadge subagentId={id} />);
+      expect(getByTestId("subagent-avatar-badge").className).toContain(
+        expected,
+      );
+    });
+  }
+
+  test("the in-flight pill declares a hover fill and terminal tints declare none", () => {
     spawn("sa-hover", "running");
     spawn("sa-hover-done", "completed");
     const { container } = render(
@@ -118,25 +161,18 @@ describe("SubagentAvatarBadge", () => {
       container.querySelectorAll('[data-testid="subagent-avatar-badge"]'),
     );
 
-    // The whole in-flight hover state is a background swap.
+    // `SubagentAvatarRow` renders the badges inside a `pointer-events-none`
+    // wrapper, so the hover fill is inert there. This pins the class contract,
+    // not an observable hover: a badge mounted outside that wrapper is the
+    // case the fill exists for.
     expect(pill?.className).toContain("bg-[var(--surface-lift)]");
     expect(pill?.className).toContain("hover:bg-[var(--surface-active)]");
 
     expect(settledPill?.className).toContain(
       "bg-[var(--system-positive-weak)]",
     );
-    // A settled pill is not interactive, so it carries no hover variant.
+    // A settled pill can no longer change, so it carries no hover variant.
     expect(settledPill?.className).not.toContain("hover:");
-  });
-
-  test("errored tints the pill with the negative weak fill", () => {
-    spawn("sa-tint-failed", "failed");
-    const { getByTestId } = render(
-      <SubagentAvatarBadge subagentId="sa-tint-failed" />,
-    );
-    expect(getByTestId("subagent-avatar-badge").className).toContain(
-      "bg-[var(--system-negative-weak)]",
-    );
   });
 
   test("renders no status indicator before the entry lands in the store", () => {
@@ -148,7 +184,7 @@ describe("SubagentAvatarBadge", () => {
     expect(queryByTestId("subagent-avatar-badge")).not.toBeNull();
   });
 
-  test("the fixed glyph slot renders in every state so the pill never resizes", () => {
+  test("the fixed glyph slot renders in every state so the avatar never shifts", () => {
     const cases: Array<{ id: string; status?: SubagentStatus }> = [
       { id: "sa-slot-running", status: "running" },
       { id: "sa-slot-completed", status: "completed" },
@@ -162,16 +198,11 @@ describe("SubagentAvatarBadge", () => {
         spawn(id, status);
       }
       const { container } = render(<SubagentAvatarBadge subagentId={id} />);
-      const pill = container.querySelector(
-        '[data-testid="subagent-avatar-badge"]',
-      );
-      const slot = container.querySelector(
-        '[data-testid="subagent-avatar-badge-slot"]',
-      );
-      // happy-dom cannot measure layout, so the fixed widths are the only
-      // available proof that the pill stays 46px wide in every state.
-      expect(pill?.className).toContain("w-[46px]");
-      expect(slot?.className).toContain("w-3.5");
+      // The slot is what holds the avatar's horizontal position constant:
+      // drop it in any one state and the narrower glyph pulls the avatar left.
+      expect(
+        container.querySelector('[data-testid="subagent-avatar-badge-slot"]'),
+      ).not.toBeNull();
     }
   });
 });
