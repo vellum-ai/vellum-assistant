@@ -253,6 +253,9 @@ describe("upsertFromApi", () => {
     expect(entry.isPaired).toBe(true);
     expect(entry.runtimeUrl).toBe("https://desk.example.com");
     expect(entry.cloud).toBe("paired");
+    // The API's is_local claim must not reclassify a paired entry.
+    expect(entry.isLocal).toBe(false);
+    expect(entry.isPlatformHosted).toBe(false);
   });
 
   it("preserves a lockfile-seeded runtimeVersion on refresh", () => {

@@ -157,20 +157,22 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         assistantsHydrated: true,
         assistants: assistants.map((a) => {
           const lockfileFields = getLockfileFields(a.id);
+          const isPaired = lockfileFields.isPaired ?? false;
           return {
             id: a.id,
             name: a.name,
             hatchedAt: a.created,
             cloud: lockfileFields.cloud,
             runtimeVersion: lockfileFields.runtimeVersion,
+            runtimeUrl: lockfileFields.runtimeUrl,
             currentReleaseVersion: a.current_release_version,
             releaseChannel: a.release_channel,
             isActiveLockfileAssistant: lockfileFields.isActiveLockfileAssistant,
-            isLocal: a.is_local,
-            isPlatformHosted: !a.is_local,
-            // API-sourced entries are never paired; paired entries only ever
-            // arrive via the lockfile subscription.
-            isPaired: false,
+            // A paired entry is neither local nor platform-hosted, whatever
+            // the API's is_local claims — classification follows the lockfile.
+            isLocal: isPaired ? false : a.is_local,
+            isPlatformHosted: isPaired ? false : !a.is_local,
+            isPaired,
           };
         }),
       }),
@@ -179,39 +181,40 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
 
     upsertFromApi: (assistant) =>
       set((state) => {
+        const idx = state.assistants.findIndex((a) => a.id === assistant.id);
+        const prior = idx >= 0 ? state.assistants[idx] : undefined;
+        const lockfileFields = getLockfileFields(assistant.id);
+        // The API payload omits lockfile-sourced fields; preserve them across
+        // lifecycle refreshes. A paired entry is neither local nor
+        // platform-hosted, whatever the API's is_local claims.
+        const isPaired = lockfileFields.isPaired ?? prior?.isPaired ?? false;
         const entry: ResolvedAssistant = {
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
-          isLocal: assistant.is_local,
-          isPlatformHosted: !assistant.is_local,
-          isPaired: false,
+          isLocal: isPaired ? false : assistant.is_local,
+          isPlatformHosted: isPaired ? false : !assistant.is_local,
+          isPaired,
         };
-        const idx = state.assistants.findIndex((a) => a.id === assistant.id);
-        if (idx >= 0) {
+        if (prior) {
           const next = [...state.assistants];
-          const lockfileFields = getLockfileFields(assistant.id);
-          // The API payload omits lockfile-sourced fields; preserve them across
-          // lifecycle refreshes.
           next[idx] = {
             ...entry,
-            cloud: lockfileFields.cloud ?? next[idx]!.cloud,
-            organizationId: next[idx]!.organizationId,
+            cloud: lockfileFields.cloud ?? prior.cloud,
+            organizationId: prior.organizationId,
             runtimeVersion:
-              lockfileFields.runtimeVersion ?? next[idx]!.runtimeVersion,
-            runtimeUrl: lockfileFields.runtimeUrl ?? next[idx]!.runtimeUrl,
-            isPaired: lockfileFields.isPaired ?? next[idx]!.isPaired,
+              lockfileFields.runtimeVersion ?? prior.runtimeVersion,
+            runtimeUrl: lockfileFields.runtimeUrl ?? prior.runtimeUrl,
             isActiveLockfileAssistant:
               lockfileFields.isActiveLockfileAssistant ??
-              next[idx]!.isActiveLockfileAssistant,
+              prior.isActiveLockfileAssistant,
           };
           return { assistants: next };
         }
         // New entry: the API payload omits lockfile-sourced fields, but the
         // lockfile may already know them.
-        const lockfileFields = getLockfileFields(assistant.id);
         return {
           assistants: [
             ...state.assistants,
@@ -221,7 +224,6 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               organizationId: lockfileFields.organizationId,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
-              isPaired: lockfileFields.isPaired ?? false,
               isActiveLockfileAssistant:
                 lockfileFields.isActiveLockfileAssistant,
             },
