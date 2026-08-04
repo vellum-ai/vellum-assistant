@@ -368,13 +368,18 @@ export function flushPendingSurfaceDataPersists(conversationId?: string): void {
  * to pending on the next history reseed. Finding no block to write IS safe: a
  * standalone surface owns none, so nothing can revert.
  *
- * One window escapes that rule. A surface still in `ctx.currentTurnSurfaces`
- * has no persisted block yet; its block is appended when the turn's message
- * lands, without `completed`. A click inside that window reports safe here and
- * still reverts on the next reseed.
+ * A surface still in `ctx.currentTurnSurfaces` owns no persisted block either,
+ * but one is coming: the turn-finalization appenders build it from that
+ * snapshot. The completion is stamped onto the snapshot so the appended block
+ * carries it, instead of landing as a fresh pending card the next reseed
+ * reactivates.
  */
 export function markSurfaceCompleted(
-  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  ctx: {
+    conversationId: string;
+    messages?: Array<{ content: unknown }>;
+    currentTurnSurfaces?: CurrentTurnSurface[];
+  },
   surfaceId: string,
   summary: string,
 ): boolean {
@@ -390,6 +395,16 @@ export function markSurfaceCompleted(
       hit.block.completed = true;
       hit.block.completionSummary = summary;
       updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
+    } else {
+      // Mutated in place so a later `ui_update` that respreads the entry
+      // carries the completion forward.
+      const pendingSnapshot = ctx.currentTurnSurfaces?.find(
+        (s) => s.surfaceId === surfaceId,
+      );
+      if (pendingSnapshot) {
+        pendingSnapshot.completed = true;
+        pendingSnapshot.completionSummary = summary;
+      }
     }
   } catch (err) {
     // Error, not warn: a silent failure here presents as the user's answer being discarded.

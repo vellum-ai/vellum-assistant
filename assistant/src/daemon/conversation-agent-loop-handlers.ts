@@ -837,6 +837,12 @@ export function buildPersistedAssistantContent(
       display: surface.display,
       ...(surface.persistent ? { persistent: true } : {}),
       ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
+      // A surface answered before this write lands owns no persisted block for
+      // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+      ...(surface.completed ? { completed: true } : {}),
+      ...(surface.completionSummary
+        ? { completionSummary: surface.completionSummary }
+        : {}),
     } as unknown as ContentBlock);
   }
   return withSurfaces.map((block) => {
@@ -2607,6 +2613,12 @@ function annotatePersistedAssistantMessage(
         // client `ui_surface_show` message.
         ...(surface.activationMoment
           ? { activationMoment: surface.activationMoment }
+          : {}),
+        // A surface answered before this write lands owns no persisted block for
+        // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+        ...(surface.completed ? { completed: true } : {}),
+        ...(surface.completionSummary
+          ? { completionSummary: surface.completionSummary }
           : {}),
       } as unknown as ContentBlock);
     }
