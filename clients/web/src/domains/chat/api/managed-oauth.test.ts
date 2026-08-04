@@ -12,15 +12,19 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { oauthCompletionStorageKey } from "@/lib/auth/oauth-popup";
 
-mock.module("@/generated/api/sdk.gen", () => ({
-  assistantsOauthStartCreate: mock(async () => ({
+const startCreateMock = mock(
+  async (_options: { body: { requested_scopes: string[] } }) => ({
     data: {
       connect_url:
         "https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=x&redirect_uri=y",
     },
     error: null,
     response: new Response(),
-  })),
+  }),
+);
+
+mock.module("@/generated/api/sdk.gen", () => ({
+  assistantsOauthStartCreate: startCreateMock,
   assistantsOauthConnectionsList: mock(async () => ({
     data: [],
     error: null,
@@ -67,6 +71,7 @@ let requestIds: string[];
  * specific in-flight connect via its `storage` completion channel.
  */
 beforeEach(() => {
+  startCreateMock.mockClear();
   requestIds = [];
   let counter = 0;
   globalThis.crypto.randomUUID = (() => {
@@ -87,6 +92,17 @@ beforeEach(() => {
   });
   window.open = openSpy as unknown as typeof window.open;
 });
+
+/**
+ * Flush microtasks until the start endpoint has been invoked — the connect
+ * flow awaits identity resolution and a connections baseline first.
+ */
+async function waitForStartCall(): Promise<void> {
+  for (let i = 0; i < 100 && startCreateMock.mock.calls.length === 0; i += 1) {
+    await Promise.resolve();
+  }
+  expect(startCreateMock).toHaveBeenCalledTimes(1);
+}
 
 /** Settle an in-flight connect through the localStorage completion channel. */
 function settleFailed(requestId: string): void {
@@ -147,5 +163,35 @@ describe("connectManagedOAuthProvider dedupe", () => {
     expect(openSpy).toHaveBeenCalledTimes(2);
     settleFailed(requestIds[1]!);
     await second;
+  });
+});
+
+describe("connectManagedOAuthProvider requested scopes", () => {
+  test("requestedScopes are sent as requested_scopes in the start body", async () => {
+    const requestedScopes = [
+      "https://www.googleapis.com/auth/tasks",
+      "https://www.googleapis.com/auth/calendar",
+    ];
+    const connect = connectManagedOAuthProvider({ ...OPTS, requestedScopes });
+
+    await waitForStartCall();
+    expect(startCreateMock.mock.calls[0]?.[0].body.requested_scopes).toEqual(
+      requestedScopes,
+    );
+
+    settleFailed(requestIds[0]!);
+    await connect;
+  });
+
+  test("omitting requestedScopes sends an empty requested_scopes array", async () => {
+    const connect = connectManagedOAuthProvider(OPTS);
+
+    await waitForStartCall();
+    expect(startCreateMock.mock.calls[0]?.[0].body.requested_scopes).toEqual(
+      [],
+    );
+
+    settleFailed(requestIds[0]!);
+    await connect;
   });
 });

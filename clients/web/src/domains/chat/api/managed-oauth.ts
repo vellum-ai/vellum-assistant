@@ -34,6 +34,12 @@ export interface ManagedOAuthConnectOptions {
   assistantId: string;
   providerKey: string;
   providerLabel: string;
+  /**
+   * Full replacement set: when present, the platform uses exactly these
+   * scopes instead of its defaults (it does not merge). Omit to use the
+   * platform's default scopes.
+   */
+  requestedScopes?: string[];
 }
 
 export type ManagedOAuthConnectResult =
@@ -124,12 +130,13 @@ async function startManagedOAuth(
   providerKey: string,
   requestId: string,
   native: boolean,
+  requestedScopes: string[] | undefined,
 ): Promise<string> {
   const redirectAfterConnect = `${routes.account.oauth.popupComplete}?requestId=${requestId}${native ? "&native=1" : ""}`;
   const { data, error, response } = await assistantsOauthStartCreate({
     path: { assistant_id: assistantId, provider: providerKey },
     body: {
-      requested_scopes: [],
+      requested_scopes: requestedScopes ?? [],
       redirect_after_connect: redirectAfterConnect,
     },
     throwOnError: false,
@@ -164,6 +171,7 @@ function runManagedOAuthConnect({
   assistantId,
   providerKey,
   providerLabel,
+  requestedScopes,
 }: ManagedOAuthConnectOptions): Promise<ManagedOAuthConnectResult> {
   const requestId = crypto.randomUUID();
   const native = isNativePlatform();
@@ -345,6 +353,7 @@ function runManagedOAuthConnect({
           providerKey,
           requestId,
           native,
+          requestedScopes,
         );
 
         if (native) {
@@ -408,7 +417,9 @@ const inFlightManagedOAuthConnects = new Map<
  * flipped to "Connected" even though the account did connect (JARVIS-1286).
  *
  * Returning the already-running promise means repeat triggers latch onto the
- * one popup + one listener set that will actually resolve.
+ * one popup + one listener set that will actually resolve — even when the
+ * repeat trigger's `requestedScopes` differ, since two concurrent connects
+ * for the same provider are inherently conflicting regardless of scopes.
  */
 export function connectManagedOAuthProvider(
   options: ManagedOAuthConnectOptions,
