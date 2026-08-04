@@ -836,7 +836,7 @@ graph LR
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled<br/>routing_intent: single_channel |<br/>multi_channel | all_channels<br/>routing_hints_json (free-form)"]
-        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
+        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>source_key: plugin-declared provenance<br/>definition_hash, user_enabled<br/>Legacy alias: scheduleJobs"]
         SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
@@ -860,6 +860,43 @@ graph LR
 ```
 
 ---
+
+## Plugin-Declared Schedules — Declaration → Reconciler → cron_jobs
+
+Plugins contribute recurring schedules as a surface: files under
+`<pluginDir>/schedules/`, either flat `<name>.md` (YAML frontmatter config,
+body is the prompt, runs as `execute`) or a `<name>/` directory
+(`config.json` plus exactly one `index.md` or `index.sh` entrypoint).
+Ambiguity fails closed: basename collisions, zero/multiple/unsupported
+entrypoints, and malformed config produce per-schedule `DeclarationError`s
+without affecting siblings (`src/schedule/plugin-schedule-declarations.ts`).
+
+A level-based reconciler (`src/schedule/plugin-schedule-reconciler.ts`)
+converges declarations into ordinary `cron_jobs` rows keyed by the nullable
+`source_key` column (`plugin:<plugin>/<name>`). Rows with `source_key IS
+NULL` are imperative schedules the reconciler never touches. Triggers: a
+startup pass in `daemon/lifecycle.ts` (after plugin init, before the
+scheduler starts), the end of `reconcilePluginSourcesNow()` in
+`plugins/mtime-cache.ts` (install/uninstall/upgrade and sentinel-driven
+changes), and a 60s backstop sweep registered with the HTTP server's
+background sweeps.
+
+Ownership boundaries: the reconciler owns definition columns (expression,
+timezone, message/script, retry policy, `definition_hash`); the execution
+engine owns runtime columns (`next_run_at`, `status`, `last_*`,
+`retry_count`) and its latches are never overridden; the user owns
+`user_enabled`, a sticky override consulted when computing effective
+`enabled`. Nothing ever writes to plugin files. Execution itself is
+unchanged — declared rows fire through the same `claimDueSchedules` path as
+imperative ones.
+
+Consent and surfacing: CLI install/upgrade list declared schedules and
+prompt before finalizing; unattended daemon-route installs are covered by
+`schedule.declared` arrival notifications, with `schedule.definition_changed`
+and `schedule.definition_error` covering upgrades and broken declarations
+(events registered in `notifications/signal.ts`, deterministic templates in
+`notifications/copy-composer.ts`). Settings routes, CLI, and web render
+plugin-sourced rows read-only except the enabled toggle.
 
 ---
 
