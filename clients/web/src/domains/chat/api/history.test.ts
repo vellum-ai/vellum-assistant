@@ -33,7 +33,7 @@ interface CapturedRequest {
 
 function makeJsonResponse(
   body: unknown,
-  init: { status?: number; contentLength?: number } = {},
+  init: { status?: number; contentLength?: number | string } = {},
 ): Response {
   const status = init.status ?? 200;
   return new Response(JSON.stringify(body), {
@@ -549,6 +549,31 @@ describe("fetch diagnostics", () => {
     const details = lastDiagnostic("history_page_fetch");
     expect(details.bytes).toBeNull();
     expectDurationMs(details);
+  });
+
+  test("bytes is null for a malformed content-length, never NaN", async () => {
+    nextResponse = makeJsonResponse(
+      { messages: [], hasMore: false },
+      { contentLength: "not-a-number" },
+    );
+
+    await fetchLatestHistoryPage("asst-1", "K");
+
+    const details = lastDiagnostic("history_page_fetch");
+    expect(details.bytes).toBeNull();
+    expect(Number.isNaN(details.bytes)).toBe(false);
+  });
+
+  test("bytes is null for a blank content-length, never zero", async () => {
+    nextResponse = makeJsonResponse(
+      { messages: [], hasMore: false },
+      { contentLength: "" },
+    );
+
+    await fetchLatestHistoryPage("asst-1", "K");
+
+    const details = lastDiagnostic("history_page_fetch");
+    expect(details.bytes).toBeNull();
   });
 
   test("history_page_fetch_error carries durationMs and bytes", async () => {

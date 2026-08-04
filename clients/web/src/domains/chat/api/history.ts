@@ -17,6 +17,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { readContentLength } from "@/utils/content-length";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
@@ -108,8 +109,7 @@ async function fetchPaginatedHistory(
 
   assertHasResponse(response, error, "Failed to fetch history");
   const durationMs = Math.round(performance.now() - startedAt);
-  const contentLength = response.headers.get("content-length");
-  const bytes = contentLength === null ? null : Number(contentLength);
+  const bytes = readContentLength(response);
   if (!response.ok) {
     recordDiagnostic("history_page_fetch_error", {
       assistantId,
