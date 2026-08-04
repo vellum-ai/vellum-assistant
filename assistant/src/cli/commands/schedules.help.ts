@@ -68,8 +68,9 @@ Arguments:
 Behavior:
   Prints every stored field of the schedule: name, description, mode,
   expression/syntax, timezone, enabled state, status, next/last run times,
-  message or script body, inference profile (shown as 'default (mainAgent)'
-  when none is pinned), routing intent, and retry policy. Works for
+  message or script body, inference profile (shown as 'none (mainAgent
+  call-site default)' when no named profile resolves), routing intent, and
+  retry policy. Works for
   deferred schedules that 'assistant schedules list' hides by default.
   Aliased as 'inspect'.
 
@@ -149,7 +150,7 @@ Examples:
         {
           flags: "--profile <name>",
           description:
-            "Inference profile (llm.profiles key) the schedule's runs use; defaults to the mainAgent model selection when omitted",
+            "Inference profile (llm.profiles key) the schedule's runs use; when omitted the schedule is pinned to your current default profile",
         },
         {
           flags: "--no-enabled",
@@ -170,8 +171,9 @@ Options:
   --timeout-ms <ms>         Script timeout override in ms (--mode script).
   -t, --timezone <tz>       IANA timezone applied to the expression.
   --profile <name>          Inference profile (llm.profiles key) the schedule's
-                            runs use. When omitted, runs use the default —
-                            the mainAgent call site's model selection.
+                            runs use. When omitted, the schedule is pinned to
+                            your current default profile so its model stays
+                            put when that default changes.
   --no-enabled              Create the schedule disabled. Defaults to enabled.
   --json                    Output the updated schedule list as compact JSON.
 
@@ -279,12 +281,12 @@ Examples:
         {
           flags: "--profile <name>",
           description:
-            "Inference profile (llm.profiles key) the schedule's runs use; the default when unset is the mainAgent model selection",
+            "Inference profile (llm.profiles key) the schedule's runs use",
         },
         {
           flags: "--clear-profile",
           description:
-            "Clear the inference profile and revert to the default mainAgent model selection",
+            "Re-pin the schedule to your current default inference profile",
         },
         {
           flags: "--json",
@@ -310,11 +312,11 @@ Options:
   --clear-timeout           Remove the timeout override (mutually exclusive
                             with --timeout-ms).
   --profile <name>          Inference profile (llm.profiles key) the schedule's
-                            runs use. When no profile is set, runs use the
-                            default — the mainAgent call site's model selection.
-  --clear-profile           Remove the inference profile and revert to the
-                            default mainAgent model selection (mutually
-                            exclusive with --profile).
+                            runs use. Every schedule is pinned to one, so its
+                            model stays put when your default changes.
+  --clear-profile           Re-pin the schedule to your current default
+                            inference profile (mutually exclusive with
+                            --profile).
   --json                    Output the updated schedule list as compact JSON.
 
 Arguments:
