@@ -173,7 +173,10 @@ export function registerPluginsCommand(program: Command): void {
             // --force, must be confirmed before anything lands on disk that
             // the daemon's schedule reconciler could arm.
             const confirmStaged: ConfirmStagedInstall = (staged) =>
-              confirmDeclaredSchedules(staged, Boolean(opts.force), "install");
+              confirmDeclaredSchedules(staged, "install", {
+                force: Boolean(opts.force),
+                json: false,
+              });
 
             let result;
             let untrusted = false;
@@ -737,19 +740,24 @@ export function registerPluginsCommand(program: Command): void {
               result = daemon.result;
               upgradedViaDaemon = true;
             } else if (daemon.statusCode === undefined) {
-              log.debug(
-                { name, error: daemon.error },
-                "upgrade could not reach the daemon; upgrading locally",
-              );
+              // The CLI logger writes debug to stdout, which would corrupt
+              // --json output, so under --json the same note goes to stderr.
+              // The CLI logger drops structured fields either way.
+              const fallbackNote =
+                "upgrade could not reach the daemon; upgrading locally";
+              if (opts.json) {
+                console.error(fallbackNote);
+              } else {
+                log.debug({ name, error: daemon.error }, fallbackNote);
+              }
               // The local path stages in this process, so it gets the same
               // consent gate as install: declared schedules are listed and
               // confirmed (or --force) before the staged tree goes live.
               const confirmStaged: ConfirmStagedInstall = (staged) =>
-                confirmDeclaredSchedules(
-                  staged,
-                  Boolean(opts.force),
-                  "upgrade",
-                );
+                confirmDeclaredSchedules(staged, "upgrade", {
+                  force: Boolean(opts.force),
+                  json: Boolean(opts.json),
+                });
               result = await libs.upgrade.upgradePlugin(
                 {
                   name,
@@ -997,6 +1005,31 @@ function printUntrustedPluginWarning(
 }
 
 /**
+ * The declared-schedules block for a plugin tree: a heading plus one aligned
+ * row per schedule, or null when the plugin declares none. Callers own the
+ * output stream and any per-row annotation.
+ */
+async function buildDeclaredScheduleListing(
+  pluginName: string,
+  pluginDir: string,
+): Promise<{
+  heading: string;
+  rows: string[];
+  schedules: readonly PluginScheduleSurface[];
+} | null> {
+  const { schedules } = libs.surfaces.detectPluginSurfaces(pluginDir);
+  if (schedules.length === 0) {
+    return null;
+  }
+  const describeCron = await loadCronDescriber();
+  return {
+    heading: `Plugin "${pluginName}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
+    rows: formatScheduleRows(schedules, describeCron),
+    schedules,
+  };
+}
+
+/**
  * List a staged plugin's declared schedules and ask for consent. Schedules run
  * automatically once armed, so neither an install nor an upgrade may add any
  * silently: the user either confirms the listing or passes --force. Returns
@@ -1006,24 +1039,33 @@ function printUntrustedPluginWarning(
  */
 async function confirmDeclaredSchedules(
   staged: { name: string; stagingDir: string },
-  force: boolean,
   action: "install" | "upgrade",
+  opts: { force: boolean; json: boolean },
 ): Promise<boolean> {
-  const { schedules } = libs.surfaces.detectPluginSurfaces(staged.stagingDir);
-  if (schedules.length === 0) {
+  const listing = await buildDeclaredScheduleListing(
+    staged.name,
+    staged.stagingDir,
+  );
+  if (!listing) {
     return true;
   }
-  const describeCron = await loadCronDescriber();
-  console.log(
-    `Plugin "${staged.name}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
-  );
-  for (const row of formatScheduleRows(schedules, describeCron)) {
-    console.log(`  ${row}`);
+  // The listing is human output. Under --json it goes to stderr so it cannot
+  // corrupt the JSON document the caller parses off stdout.
+  const write = (line: string): void => {
+    if (opts.json) {
+      console.error(line);
+    } else {
+      console.log(line);
+    }
+  };
+  write(listing.heading);
+  for (const row of listing.rows) {
+    write(`  ${row}`);
   }
-  console.log(
+  write(
     "Schedules run automatically in the background once the plugin is installed.",
   );
-  if (force) {
+  if (opts.force) {
     return true;
   }
   const verb = action === "install" ? "Install" : "Upgrade";
@@ -1145,16 +1187,13 @@ async function printDeclaredSchedulesAfterUpgrade(
   target: string,
   previousNames: ReadonlySet<string>,
 ): Promise<void> {
-  const { schedules } = libs.surfaces.detectPluginSurfaces(target);
-  if (schedules.length === 0) {
+  const listing = await buildDeclaredScheduleListing(name, target);
+  if (!listing) {
     return;
   }
-  const describeCron = await loadCronDescriber();
+  const { heading, rows, schedules } = listing;
   console.log("");
-  console.log(
-    `Plugin "${name}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
-  );
-  const rows = formatScheduleRows(schedules, describeCron);
+  console.log(heading);
   schedules.forEach((schedule, index) => {
     const marker = previousNames.has(schedule.name) ? "" : "  [new]";
     console.log(`  ${rows[index]}${marker}`);

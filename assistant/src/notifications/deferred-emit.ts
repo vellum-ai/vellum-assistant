@@ -82,6 +82,7 @@ export function bufferIfDeferred(
       dispatched: false,
       reason: "Notification dropped: background job did not complete",
       deliveryResults: [],
+      pipelineFailed: false,
     };
   }
   entry.items.push(params);
@@ -91,6 +92,7 @@ export function bufferIfDeferred(
     dispatched: false,
     reason: "Notification deferred until background job completes",
     deliveryResults: [],
+    pipelineFailed: false,
   };
 }
 

@@ -9,14 +9,15 @@
 const PLUGIN_SOURCE_KEY_RE = /^plugin:([^/]+)\//;
 
 /**
- * The owning plugin's name from a schedule row's `source_key`, or `null` when
- * the row is imperative (no key) or the key does not match the format.
+ * Display attribution for a schedule row: the owning plugin's name, the raw
+ * key when it does not match the format so provenance is never silently
+ * dropped, or null when the row is imperative.
  */
-export function pluginNameFromScheduleSourceKey(
+export function describeScheduleSource(
   sourceKey: string | null | undefined,
 ): string | null {
   if (!sourceKey) {
     return null;
   }
-  return PLUGIN_SOURCE_KEY_RE.exec(sourceKey)?.[1] ?? null;
+  return PLUGIN_SOURCE_KEY_RE.exec(sourceKey)?.[1] ?? sourceKey;
 }

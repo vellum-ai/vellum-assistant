@@ -13,6 +13,8 @@
  *     with the untrusted warning printed before the schedule listing
  *   - upgrade's local fallback runs the same consent gate with upgrade
  *     wording, while a daemon-routed upgrade never reaches it
+ *   - under --json the consent listing goes to stderr, leaving stdout a pure
+ *     JSON document
  *   - inspect renders the schedules surface block
  *
  * The installers are replaced by fakes that stage a fixture tree and run the
@@ -468,6 +470,28 @@ describe("plugins upgrade - declared-schedules consent (local fallback)", () => 
     expect(confirmCalls.length).toBe(0);
     expect(r.stdout).toContain('Plugin "example" declares 2 schedules:');
     expect(r.stdout).toContain('Upgraded "example"');
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("--json --force leaves stdout as pure JSON and lists on stderr", async () => {
+    stageFixture = writeScheduleFixture;
+
+    const r = await runCommand([
+      "plugins",
+      "upgrade",
+      "example",
+      "--json",
+      "--force",
+    ]);
+
+    expect(confirmCalls.length).toBe(0);
+    expect(r.stderr).toContain('Plugin "example" declares 2 schedules:');
+    expect(r.stderr).toContain("daily-report");
+    expect(r.stdout).not.toContain("declares");
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      name: "example",
+      outcome: "upgraded",
+    });
     expect(r.exitCode).toBe(0);
   });
 
