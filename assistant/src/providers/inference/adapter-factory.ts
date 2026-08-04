@@ -38,6 +38,7 @@ import { isVellumManagedConnection } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
+import { effectiveConnectionAuth } from "./auth.js";
 import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
@@ -245,9 +246,11 @@ export function createAdapterFromConnection(
   function makeCredentialRefresher(): () => Promise<Provider | null> {
     let lastAuth = JSON.stringify(resolvedAuth);
     return async (): Promise<Provider | null> => {
-      const refreshedAuth = await resolveAuth(connection.auth, provider, {
-        baseUrl: connection.baseUrl,
-      });
+      const refreshedAuth = await resolveAuth(
+        effectiveConnectionAuth(connection),
+        provider,
+        { baseUrl: connection.baseUrl },
+      );
       if (!refreshedAuth.ok) {
         return null;
       }
