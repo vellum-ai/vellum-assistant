@@ -4,7 +4,8 @@
  * The ring holds 200 entries, so a multi-page drain must contribute a bounded
  * handful of them: the first page (the request that gates first paint), one
  * summary, and one entry per failed page. These tests pin that budget, plus
- * the one aggregate watchdog event each drain puts on the telemetry rail.
+ * the one aggregate watchdog event each drain puts on the telemetry rail and
+ * the single entry each standalone first-page fetch contributes.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -18,14 +19,20 @@ const emitClientPerfEventMock = mock(
   (_checkName: string, _value: number, _detail?: Record<string, unknown>) => {},
 );
 
+// `mock.module` replaces the module process-wide, so it has to stand in for the
+// full export surface or an unrelated importer picks up an undefined binding.
 mock.module("@/lib/telemetry/client-perf", () => ({
   emitClientPerfEvent: emitClientPerfEventMock,
+  setClientPerfBootId: () => {},
+  __resetClientPerfForTests: () => {},
 }));
 
 const {
   listArchivedConversations,
   listBackgroundConversations,
+  listBackgroundConversationsFirstPage,
   listConversations,
+  listConversationsFirstPage,
   listOriginChannelConversations,
   listScheduledConversations,
 } = await import("@/utils/conversation-list-fetchers");
@@ -68,18 +75,20 @@ function stubPages(fixtures: PageFixture[]): { offsets: number[] } {
         throw new Error(`test setup has no fixture for request ${index}`);
       }
       const status = fixture.status ?? 200;
+      const ok = status < 400;
       const body = {
         conversations: fixture.ids.map(makeRaw),
         hasMore: fixture.hasMore,
       };
       return {
-        data: status === 200 ? body : null,
-        error: status === 200 ? null : { message: "boom" },
+        data: ok ? body : null,
+        error: ok ? null : { message: "boom" },
         response: new Response(JSON.stringify(body), {
           status,
-          headers: fixture.contentLength
-            ? { "content-length": fixture.contentLength }
-            : {},
+          headers:
+            fixture.contentLength === undefined
+              ? {}
+              : { "content-length": fixture.contentLength },
         }),
       };
     },
@@ -215,6 +224,26 @@ describe("conversation list drain diagnostics", () => {
     expect(withHeader.events[1]?.details.totalBytes).toBe(4096);
   });
 
+  test("bytes is null for a malformed or blank content-length", async () => {
+    stubPages([
+      { ids: ["c-0"], hasMore: false, contentLength: "not-a-number" },
+    ]);
+    const malformed = await diagnosticsDuring(() =>
+      listConversations(ASSISTANT_ID),
+    );
+
+    expect(malformed.events[0]?.details.bytes).toBeNull();
+    expect(malformed.events[1]?.details.totalBytes).toBeNull();
+
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "" }]);
+    const blank = await diagnosticsDuring(() =>
+      listConversations(ASSISTANT_ID),
+    );
+
+    expect(blank.events[0]?.details.bytes).toBeNull();
+    expect(blank.events[1]?.details.totalBytes).toBeNull();
+  });
+
   test("every recorded detail value is a scalar or null", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
@@ -236,6 +265,67 @@ describe("conversation list drain diagnostics", () => {
   });
 });
 
+describe("first-page fetch diagnostics", () => {
+  test("records a page entry with the response's real status and bytes", async () => {
+    stubPages([
+      { ids: ["c-0", "c-1"], hasMore: true, status: 206, contentLength: "128" },
+    ]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listConversationsFirstPage(ASSISTANT_ID),
+    );
+
+    expect(events.map((e) => e.kind)).toEqual(["conversation_list_page_fetch"]);
+    expect(events[0]?.details).toMatchObject({
+      assistantId: ASSISTANT_ID,
+      offset: 0,
+      status: 206,
+      count: 2,
+      hasMore: true,
+      bytes: 128,
+      conversationType: null,
+    });
+    expect(typeof events[0]?.details.durationMs).toBe("number");
+    // A single page is not a drain, so nothing reaches the telemetry rail.
+    expect(emitClientPerfEventMock.mock.calls).toHaveLength(0);
+  });
+
+  test("labels the background bucket's entry with its conversation type", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "12" }]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listBackgroundConversationsFirstPage(ASSISTANT_ID),
+    );
+
+    expect(events[0]?.details).toMatchObject({
+      offset: 0,
+      status: 200,
+      conversationType: "background",
+      bytes: 12,
+    });
+  });
+
+  test("bytes is null for a malformed content-length", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "abc" }]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listConversationsFirstPage(ASSISTANT_ID),
+    );
+
+    expect(events[0]?.details.bytes).toBeNull();
+  });
+
+  test("returns only the public page shape, with no timing fields", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: true, contentLength: "128" }]);
+
+    const page = await listConversationsFirstPage(ASSISTANT_ID);
+
+    expect(Object.keys(page).sort()).toEqual(["conversations", "hasMore"]);
+    expect(page.hasMore).toBe(true);
+    expect(page.conversations).toHaveLength(1);
+  });
+});
+
 describe("conversation list drain telemetry", () => {
   test("a 3-page drain emits one client_list.drain, not one per page", async () => {
     stubPages([
@@ -252,10 +342,10 @@ describe("conversation list drain telemetry", () => {
     expect(typeof emits[0]?.value).toBe("number");
     expect(emits[0]?.detail).toEqual({
       outcome: "ok",
-      pages: "3",
-      rows: "3",
-      max_page_ms: expect.any(String),
-      total_bytes: "350",
+      pages: 3,
+      rows: 3,
+      max_page_ms: expect.any(Number),
+      total_bytes: 350,
       list_kind: "foreground",
     });
   });
@@ -269,7 +359,7 @@ describe("conversation list drain telemetry", () => {
     expect(emits).toHaveLength(1);
     expect(emits[0]?.detail).toMatchObject({
       outcome: "ok",
-      pages: "1",
+      pages: 1,
       list_kind: "background",
     });
   });
@@ -293,7 +383,7 @@ describe("conversation list drain telemetry", () => {
     expect(emits).toHaveLength(1);
     expect(emits[0]?.detail).toMatchObject({
       outcome: "ok",
-      pages: "1",
+      pages: 1,
       list_kind: "origin_channel",
     });
   });
@@ -316,7 +406,7 @@ describe("conversation list drain telemetry", () => {
     ]);
   });
 
-  test("the detail bag carries no assistant id, and unknown bytes when content-length is absent", async () => {
+  test("the detail bag carries no assistant id, and null bytes when content-length is absent", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false }]);
 
     await listConversations(ASSISTANT_ID);
@@ -328,7 +418,18 @@ describe("conversation list drain telemetry", () => {
       expect(key.toLowerCase()).not.toContain("assistant");
     }
     expect(Object.values(detail)).not.toContain(ASSISTANT_ID);
-    expect(detail.total_bytes).toBe("unknown");
+    expect(detail.total_bytes).toBeNull();
+  });
+
+  test("the numeric detail fields ride as raw numbers, not strings", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "64" }]);
+
+    await listConversations(ASSISTANT_ID);
+
+    const detail = drainEmits()[0]!.detail;
+    for (const key of ["pages", "rows", "max_page_ms", "total_bytes"]) {
+      expect(typeof detail[key]).toBe("number");
+    }
   });
 
   test("a failing drain emits outcome error and still rethrows", async () => {
@@ -347,8 +448,8 @@ describe("conversation list drain telemetry", () => {
     expect(emits).toHaveLength(1);
     expect(emits[0]?.detail).toMatchObject({
       outcome: "error",
-      pages: "1",
-      rows: "1",
+      pages: 1,
+      rows: 1,
       list_kind: "foreground",
     });
   });
