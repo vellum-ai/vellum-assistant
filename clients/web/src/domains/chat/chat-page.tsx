@@ -19,6 +19,11 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useIsSessionInitializing } from "@/stores/auth-store";
+import {
+  markBoot,
+  markBootBlocked,
+  type BootBlockedReason,
+} from "@/lib/telemetry/boot-telemetry";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { Button } from "@vellumai/design-library";
 
@@ -67,6 +72,39 @@ export function ChatPage() {
     resetStuckConnecting();
     lifecycleService.retryAssistant();
   }, [resetStuckConnecting]);
+
+  // Boot telemetry terminal outcome, or `null` while the page is still
+  // resolving. A boot in flight must be neither a success nor a failure until
+  // it settles, and "still resolving" deliberately covers more than the
+  // "Connecting…" placeholder: `initializing` (first-run setup),
+  // `cleaning_up` (teardown), and a `transient` lifecycle error all recover
+  // into chat on their own, so reporting them as terminal would count the same
+  // first-run boot in both the numerator and the denominator of the success
+  // rate. If one of them never clears, the boot-telemetry deadline reports the
+  // waterfall as unsettled, which is the accurate signal.
+  const selfHostedBlocked =
+    assistantState.kind === "self_hosted" &&
+    (!selfHostedChatEnabled || conversationListIsError);
+  const bootOutcome: BootBlockedReason | "interactive" | null = connectingStuck
+    ? "stuck_connecting"
+    : assistantState.kind === "error" && !assistantState.transient
+      ? "lifecycle_error"
+      : selfHostedBlocked
+        ? "self_hosted_unavailable"
+        : shouldRenderChat
+          ? "interactive"
+          : null;
+
+  useEffect(() => {
+    if (bootOutcome === null) {
+      return;
+    }
+    if (bootOutcome === "interactive") {
+      markBoot("chat_interactive");
+      return;
+    }
+    markBootBlocked(bootOutcome);
+  }, [bootOutcome]);
 
   const lastConnectingReasonRef = useRef<string | null>(null);
   useEffect(() => {
