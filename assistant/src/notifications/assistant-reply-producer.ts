@@ -27,6 +27,7 @@ import {
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import { isDesktopAttended } from "../runtime/desktop-presence.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import {
@@ -36,6 +37,9 @@ import {
 
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
+
+/** Gates the desktop-attended suppression below, on by default. */
+const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
 
 /**
  * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
@@ -91,6 +95,23 @@ function readSuppressionMarkers(
     return validated;
   }
   return metadataJson ? safeParseRecord(metadataJson) : undefined;
+}
+
+/**
+ * Desktop attendance, kept fail-open here: a presence read that fails has to
+ * send the push, not reach the producer's catch and silence it.
+ *
+ * No `actorPrincipalId`: the platform delivers this push to the assistant
+ * owner's device tokens, and a pod has exactly one owner, so any attended
+ * macOS client is that owner's.
+ */
+function readDesktopAttended(rlog: pino.Logger): boolean {
+  try {
+    return isDesktopAttended();
+  } catch (err) {
+    rlog.warn({ err }, "Desktop presence read failed; treating as unattended");
+    return false;
+  }
 }
 
 export async function emitAssistantReplyNotification(params: {
@@ -182,6 +203,11 @@ export async function emitAssistantReplyNotification(params: {
       collapseWhitespace(conversation.title ?? ""),
     );
 
+    // Read as close to the emit as possible: nothing short-circuits on it.
+    const desktopAttended =
+      isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
+      readDesktopAttended(rlog);
+
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
       sourceChannel: "vellum",
@@ -196,10 +222,10 @@ export async function emitAssistantReplyNotification(params: {
         // opting into v2.
         urgency: "medium",
         isAsyncBackground: false,
-        // The daemon cannot tell "still viewing" from "just left" at turn end.
-        // The viewing-on-iPhone case is covered by iOS suppressing remote
-        // pushes while the app is foregrounded.
-        visibleInSourceNow: false,
+        // An attended Mac answers the desktop half; iOS suppressing remote
+        // pushes while foregrounded covers the iPhone half. Read weakly, as
+        // "at the machine this landed on": the Mac banner reaches them there.
+        visibleInSourceNow: desktopAttended,
       },
       contextPayload: {
         ...(requestedTitle ? { requestedTitle } : {}),
