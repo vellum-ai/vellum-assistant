@@ -12,7 +12,6 @@ import {
 import { getIsContainerized } from "../../../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../../../util/fs-symlinks.js";
 import { getDotEnvPath } from "../../../util/platform.js";
-import { getSkillDirectories } from "./skill-directories.js";
 
 /**
  * Result type shared by both sandbox and host path policies.
@@ -284,37 +283,11 @@ function securityDirDenial(target: SandboxTarget): PathResult | null {
   return null;
 }
 
-/**
- * Whether the target lands inside a directory belonging to a cataloged skill.
- *
- * Containment is judged on the symlink-canonicalized target against the
- * canonicalized skill directories, so a symlink inside a skill directory that
- * points elsewhere is not covered: it resolves outside the skill directory
- * and stays out of bounds.
- */
-function isWithinSkillDirectory(target: SandboxTarget): boolean {
-  return getSkillDirectories().some((directory) =>
-    isWithinDir(target.realResolved, directory),
-  );
-}
-
-/**
- * Escapes from the boundary directory a policy tolerates. Both default to
- * denial: a target that leaves the boundary is out of bounds unless an
- * allowance covers it.
- */
-interface BoundaryEscapes {
-  /** Any out-of-boundary target (non-containerized host fallback). */
-  host: boolean;
-  /** Out-of-boundary targets that land inside a cataloged skill directory. */
-  skillDirectories: boolean;
-}
-
 function evaluateSandboxPolicy(
   rawPath: string,
   boundaryDir: string,
   options: { mustExist?: boolean } | undefined,
-  escapes: BoundaryEscapes,
+  allowOutOfBounds: boolean,
 ): PathResult {
   const target = resolveSandboxTarget(
     rawPath,
@@ -322,11 +295,7 @@ function evaluateSandboxPolicy(
     options?.mustExist ?? true,
   );
 
-  if (
-    isOutOfBounds(target) &&
-    !escapes.host &&
-    !(escapes.skillDirectories && isWithinSkillDirectory(target))
-  ) {
+  if (!allowOutOfBounds && isOutOfBounds(target)) {
     return outOfBoundsFailure(rawPath, target);
   }
 
@@ -363,15 +332,12 @@ export function sandboxPolicy(
   boundaryDir: string,
   options?: { mustExist?: boolean },
 ): PathResult {
-  return evaluateSandboxPolicy(rawPath, boundaryDir, options, {
-    host: false,
-    skillDirectories: false,
-  });
+  return evaluateSandboxPolicy(rawPath, boundaryDir, options, false);
 }
 
 /**
- * Sandbox policy that permits out-of-workspace targets on non-containerized
- * installs.
+ * Write-side sandbox policy: permits out-of-workspace targets on
+ * non-containerized installs.
  *
  * Identical to {@link sandboxPolicy} for in-bounds targets. A target that
  * escapes the boundary is allowed with host-style validation: the basename
@@ -382,50 +348,55 @@ export function sandboxPolicy(
  * FileRiskClassifier), so an escape reaching this policy has already been
  * threshold-approved or user-approved.
  *
- * In containerized mode the boundary stays hard: the container filesystem is
- * not the host, and the host_file_* proxy tools are the escape hatch for the
- * guardian's device.
+ * In containerized mode the boundary stays hard for writes: the container
+ * filesystem is the install tree the assistant runs from, and the
+ * host_file_* proxy tools are the escape hatch for the guardian's device.
  */
 export function sandboxPolicyWithHostFallback(
   rawPath: string,
   boundaryDir: string,
   options?: { mustExist?: boolean },
 ): PathResult {
-  return evaluateSandboxPolicy(rawPath, boundaryDir, options, {
-    host: hostFallbackAllowed(),
-    skillDirectories: false,
-  });
-}
-
-function hostFallbackAllowed(): boolean {
-  return !getIsContainerized() && securityDirConfigMirrorable();
+  return evaluateSandboxPolicy(
+    rawPath,
+    boundaryDir,
+    options,
+    !getIsContainerized() && securityDirConfigMirrorable(),
+  );
 }
 
 /**
- * Read-side sandbox policy: {@link sandboxPolicyWithHostFallback} plus a
- * read-only allowance for files inside the directory of a cataloged skill.
+ * Read-side sandbox policy: the working directory bounds where the assistant
+ * *writes*, not what it may look at.
  *
- * Skill bodies point the model at their own reference files by absolute path
- * (see `listReferenceFiles`), and skills installed outside the workspace
- * (bundled skills in the install tree, plugin-resident skills) sit beyond the
- * boundary. The allowance keeps those reads on the file tools instead of
- * pushing them through a shell.
+ * Everything the process can open, it may read. A containerized install owns
+ * its whole filesystem (the workspace, the install tree it runs from, `/tmp`),
+ * and `bash cat` already reads all of it at Low risk, so denying the file
+ * tools the same reach only pushes reads through a shell. A bare-metal install
+ * reaches the host filesystem, which the permission lane classifies as
+ * elevated risk before execution (see the gateway FileRiskClassifier). Either
+ * way the boundary is not what protects secrets.
  *
- * Every other protection is unchanged: the target is symlink-canonicalized
- * before containment is judged, so a symlink inside a skill directory cannot
- * reach outside it, and the basename denylist plus the service security
- * directories still apply. Write-side policies do not take this allowance:
- * skill directories stay read-only to the file tools.
+ * What protects them is unchanged and applies to every read: the service
+ * security directories (gateway trust material, CES credential keys, the
+ * daemon dotenv) stay denied outright, as does the basename denylist, on both
+ * the logical and the symlink-resolved path. When that deny set cannot be
+ * mirrored faithfully (see {@link securityDirConfigMirrorable}), reads fail
+ * closed to the hard boundary rather than escape it unprotected.
+ *
+ * Write-side policies do not take this allowance.
  */
 export function sandboxReadPolicy(
   rawPath: string,
   boundaryDir: string,
   options?: { mustExist?: boolean },
 ): PathResult {
-  return evaluateSandboxPolicy(rawPath, boundaryDir, options, {
-    host: hostFallbackAllowed(),
-    skillDirectories: true,
-  });
+  return evaluateSandboxPolicy(
+    rawPath,
+    boundaryDir,
+    options,
+    securityDirConfigMirrorable(),
+  );
 }
 
 // ---------------------------------------------------------------------------
