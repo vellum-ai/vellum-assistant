@@ -1929,7 +1929,8 @@ function ensureToolResultRowReserved(
  * `tool_result` blocks of one turn in a single message. `seq` is the position
  * stamped on the triggering `tool_result` event, captured by the caller before
  * any await so it reflects exactly the content now durable in the row.
- * Indexing and the buffer drain are deferred to `finalizePendingToolResultRow`.
+ * Indexing, the JSONL disk-view sync, and the buffer drain are deferred to
+ * `finalizePendingToolResultRow`, which projects the grouped row exactly once.
  */
 async function persistPendingToolResultRow(
   state: EventHandlerState,
@@ -1962,10 +1963,6 @@ async function persistPendingToolResultRow(
       );
   if (persisted) {
     recordConversationPersistedSeq(deps.ctx.conversationId, seq);
-  }
-  const conv = getConversation(deps.ctx.conversationId);
-  if (conv != null) {
-    syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
   }
 }
 
