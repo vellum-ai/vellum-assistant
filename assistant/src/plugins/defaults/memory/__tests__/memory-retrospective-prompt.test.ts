@@ -176,7 +176,32 @@ describe("promptOverridePath", () => {
     writeFileSync(overridePath, "Just remember the good parts.\n");
     expect(
       buildForkInstruction(makeArgs({ promptOverridePath: overridePath })),
-    ).toBe("Just remember the good parts.\n");
+    ).toBe(
+      "Just remember the good parts.\n\n\n" +
+        `If nothing new is worth saving, reply with exactly "${MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}" and stop.`,
+    );
+  });
+
+  test("an override that drops the no-findings mandate still carries the finalizer's exact-reply contract", () => {
+    // The finalizer advances a no-findings window only on a persisted reply
+    // that trims to exactly MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT. An
+    // override author who never read that code would otherwise stall every
+    // no-findings window forever, so the mandate must survive any override.
+    const overridePath = join(dir, "mandate-free.md");
+    writeFileSync(
+      overridePath,
+      "Review the window and save what matters. If nothing matters, do nothing.\n",
+    );
+    const out = buildForkInstruction(
+      makeArgs({ promptOverridePath: overridePath }),
+    );
+    expect(out).toContain(
+      `reply with exactly "${MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}"`,
+    );
+    // The mandate references the same constant the finalizer compares
+    // against, so the two cannot drift; guard the constant's exact value here
+    // to make an accidental rewording loud.
+    expect(MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT).toBe("Nothing new to save.");
   });
 
   test("missing override file falls back to the bundled rendering", () => {

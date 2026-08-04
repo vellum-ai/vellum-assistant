@@ -1216,6 +1216,9 @@ function collectSuccessfulToolResultIds(messages: MessageLike[]): Set<string> {
         continue;
       }
       const b = block as Record<string, unknown>;
+      // guard:allow-tool-result-only: success evidence for locally-executed
+      // durable memory tools; server-side web_search_tool_result never
+      // corresponds to a durable write and carries no is_error flag.
       if (
         b.type === "tool_result" &&
         typeof b.tool_use_id === "string" &&
