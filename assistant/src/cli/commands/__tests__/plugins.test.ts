@@ -24,8 +24,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { Command } from "commander";
-
 import type { ConfirmPromptOptions } from "../../lib/confirm-prompt.js";
 import type { PluginInspection } from "../../lib/inspect-plugin.js";
 import type {
@@ -33,6 +31,8 @@ import type {
   InstallPluginOptions,
   InstallPluginResult,
 } from "../../lib/install-from-github.js";
+import type { CliCommandRunResult } from "./cli-test-harness.js";
+import { runCliCommand } from "./cli-test-harness.js";
 
 // ---------------------------------------------------------------------------
 // Mock state
@@ -156,67 +156,22 @@ function writeScheduleFixture(dir: string): void {
   writeFileSync(join(dir, "schedules", "cleanup", "index.sh"), "#!/bin/sh\n");
 }
 
-async function runCommand(args: string[]): Promise<{
-  stdout: string;
-  stderr: string;
-  /** stdout + stderr lines in emission order, for cross-stream ordering. */
-  events: string[];
-  exitCode: number;
-}> {
-  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-  const originalConsoleLog = console.log;
-  const originalConsoleError = console.error;
-  const stdoutChunks: string[] = [];
-  const stderrChunks: string[] = [];
-  const events: string[] = [];
-
-  process.stdout.write = ((chunk: unknown) => {
-    const text = typeof chunk === "string" ? chunk : String(chunk);
-    stdoutChunks.push(text);
-    events.push(text);
-    return true;
-  }) as typeof process.stdout.write;
-  console.log = (...logArgs: unknown[]) => {
-    const text = logArgs.map(String).join(" ") + "\n";
-    stdoutChunks.push(text);
-    events.push(text);
+/** Stage a single flat schedule declaration with the given raw expression. */
+function stageFlatSchedule(
+  name: string,
+  expression: string,
+): (dir: string) => void {
+  return (dir) => {
+    mkdirSync(join(dir, "schedules"), { recursive: true });
+    writeFileSync(
+      join(dir, "schedules", `${name}.md`),
+      `---\nexpression: "${expression}"\n---\nBody.\n`,
+    );
   };
-  console.error = (...logArgs: unknown[]) => {
-    const text = logArgs.map(String).join(" ") + "\n";
-    stderrChunks.push(text);
-    events.push(text);
-  };
+}
 
-  process.exitCode = 0;
-
-  try {
-    const program = new Command();
-    program.exitOverride();
-    program.configureOutput({
-      writeErr: () => {},
-      writeOut: (str: string) => stdoutChunks.push(str),
-    });
-    registerPluginsCommand(program);
-    await program.parseAsync(["node", "assistant", ...args]);
-  } catch {
-    if (process.exitCode === 0) {
-      process.exitCode = 1;
-    }
-  } finally {
-    process.stdout.write = originalStdoutWrite;
-    console.log = originalConsoleLog;
-    console.error = originalConsoleError;
-  }
-
-  const exitCode = process.exitCode ?? 0;
-  process.exitCode = 0;
-
-  return {
-    stdout: stdoutChunks.join(""),
-    stderr: stderrChunks.join(""),
-    events,
-    exitCode,
-  };
+function runCommand(args: string[]): Promise<CliCommandRunResult> {
+  return runCliCommand(registerPluginsCommand, args);
 }
 
 const savedDisablePlatform = process.env.VELLUM_DISABLE_PLATFORM;
@@ -349,6 +304,36 @@ describe("plugins install - declared-schedules consent", () => {
     expect(listingIdx).toBeGreaterThan(warningIdx);
 
     expect(r.stdout).toContain('Installed untrusted plugin "example-repo"');
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("strips terminal escape sequences from the listed declarations", async () => {
+    // The cadence carries a clear-screen CSI plus an OSC title write, aimed at
+    // rewriting the consent prompt. YAML's \u escapes decode to real bytes.
+    stageFixture = stageFlatSchedule(
+      "sneaky",
+      "0 9 * * *\\u001b[2J\\u001b]0;pwned\\u0007 SAFE",
+    );
+    confirmResults = ["confirmed"];
+
+    const r = await runCommand(["plugins", "install", "example"]);
+
+    expect(r.stdout).toContain("sneaky");
+    expect(r.stdout).toContain("SAFE");
+    expect(r.stdout).not.toContain("\u001b");
+    expect(r.stdout).not.toContain("\u0007");
+    expect(r.stdout).not.toContain("pwned");
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("caps listing cell width so a long expression cannot flood the prompt", async () => {
+    stageFixture = stageFlatSchedule("wall", `0 9 * * * ${"x".repeat(200)}`);
+    confirmResults = ["confirmed"];
+
+    const r = await runCommand(["plugins", "install", "example"]);
+
+    expect(r.stdout).not.toContain("x".repeat(60));
+    expect(r.stdout).toContain("...");
     expect(r.exitCode).toBe(0);
   });
 

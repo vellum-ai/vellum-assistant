@@ -93,7 +93,7 @@ export interface ParsedPluginSchedules {
   errors: DeclarationError[];
 }
 
-export function pluginScheduleSourceKey(
+function pluginScheduleSourceKey(
   pluginName: string,
   scheduleName: string,
 ): string {

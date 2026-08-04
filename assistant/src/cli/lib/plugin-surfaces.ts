@@ -56,9 +56,12 @@ export interface PluginSurfaces {
    * a flat `<name>.md` with YAML frontmatter (mode `execute`), or a `<name>/`
    * directory with a `config.json` plus exactly one `index.md` (`execute`) or
    * `index.sh` (`script`) entrypoint. This is a display surface, not the arming
-   * path: ambiguous or unsupported declarations (a basename in both forms, a
-   * bad entrypoint set, an unreadable config, a missing `expression`) are
-   * skipped rather than reported as errors.
+   * path: structurally malformed declarations (a basename in both forms, a bad
+   * entrypoint set, an empty prompt body, frontmatter in a directory-form
+   * `index.md`, an unreadable config, a missing `expression`) are skipped
+   * rather than reported as errors. Detection stays permissive beyond
+   * structure: `expression` validity is not checked CLI-side, so a declaration
+   * whose expression the daemon rejects is still listed here.
    */
   readonly schedules: readonly PluginScheduleSurface[];
 }
@@ -139,7 +142,7 @@ function readConfigExpression(config: unknown): string | null {
 /**
  * Read the cadence of a flat `<name>.md` declaration: the `expression` field of
  * its YAML frontmatter. `null` when the file is unreadable, carries no
- * frontmatter, or declares no expression.
+ * frontmatter, has an empty prompt body, or declares no expression.
  */
 function readFlatScheduleCadence(filePath: string): string | null {
   let content: string;
@@ -150,6 +153,9 @@ function readFlatScheduleCadence(filePath: string): string | null {
   }
   const match = FRONTMATTER_REGEX.exec(content);
   if (!match) {
+    return null;
+  }
+  if (!content.slice(match[0].length).trim()) {
     return null;
   }
   let fields: unknown;
@@ -165,7 +171,8 @@ function readFlatScheduleCadence(filePath: string): string | null {
  * Read a `<name>/` directory declaration: `config.json` supplies the cadence
  * and the single `index.md`/`index.sh` entrypoint decides the mode. `null` for
  * anything the loader would refuse (zero or multiple `index.*` entries, an
- * unsupported entrypoint, an unreadable config, a missing expression).
+ * unsupported entrypoint, an `index.md` carrying frontmatter or an empty
+ * prompt body, an unreadable config, a missing expression).
  */
 function readDirectorySchedule(
   dirPath: string,
@@ -185,6 +192,19 @@ function readDirectorySchedule(
   const entrypoint = entrypoints[0]!;
   if (entrypoint !== "index.md" && entrypoint !== "index.sh") {
     return null;
+  }
+  if (entrypoint === "index.md") {
+    let body: string;
+    try {
+      body = readFileSync(join(dirPath, "index.md"), "utf8");
+    } catch {
+      return null;
+    }
+    // Directory-form config belongs in config.json, so the loader refuses an
+    // index.md with frontmatter; it also refuses an empty prompt body.
+    if (FRONTMATTER_REGEX.test(body) || !body.trim()) {
+      return null;
+    }
   }
   let config: unknown;
   try {

@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import type { CliCommandRunResult } from "./cli-test-harness.js";
+import { runCliCommand } from "./cli-test-harness.js";
+
 let ipcCalls: Array<{ method: string; params?: Record<string, unknown> }> = [];
 let mockIpcResult: {
   ok: boolean;
@@ -41,43 +44,8 @@ mock.module("../../../util/logger.js", () => ({
 
 const { registerSchedulesCommand } = await import("../schedules.js");
 
-async function runCommand(
-  args: string[],
-): Promise<{ stdout: string; exitCode: number }> {
-  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-  const stdoutChunks: string[] = [];
-
-  process.stdout.write = ((chunk: unknown) => {
-    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-    return true;
-  }) as typeof process.stdout.write;
-
-  process.exitCode = 0;
-
-  try {
-    const program = new Command();
-    program.exitOverride();
-    program.configureOutput({
-      writeErr: () => {},
-      writeOut: (str: string) => stdoutChunks.push(str),
-    });
-    registerSchedulesCommand(program);
-    await program.parseAsync(["node", "assistant", ...args]);
-  } catch {
-    if (process.exitCode === 0) {
-      process.exitCode = 1;
-    }
-  } finally {
-    process.stdout.write = originalStdoutWrite;
-  }
-
-  const exitCode = process.exitCode ?? 0;
-  process.exitCode = 0;
-
-  return {
-    exitCode,
-    stdout: stdoutChunks.join(""),
-  };
+function runCommand(args: string[]): Promise<CliCommandRunResult> {
+  return runCliCommand(registerSchedulesCommand, args);
 }
 
 beforeEach(() => {
