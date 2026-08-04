@@ -5,7 +5,7 @@ export interface RenderSlackTextOptions {
   channelFallbackLabel?: string;
 }
 
-const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)>/g;
+const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 const SLACK_CHANNEL_REFERENCE_RE = /<#([CDG][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
 export function extractSlackUserMentionIds(text: string): string[] {
@@ -107,7 +107,14 @@ export async function buildSlackUserLabelMap(
 
   for (const text of texts) {
     if (!text) continue;
-    for (const id of extractSlackUserMentionIds(text)) {
+    for (const match of text.matchAll(SLACK_USER_MENTION_RE)) {
+      const id = match[1];
+      // A pipe-form mention carrying a usable embedded label renders from
+      // that label directly; only queue a lookup when the label is missing,
+      // empty, or ID-shaped. Mirrors the channel builder below.
+      const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
+      const sanitizedEmbeddedLabel = sanitizeOptionalLabel(embeddedLabel);
+      if (sanitizedEmbeddedLabel && sanitizedEmbeddedLabel !== id) continue;
       if (seen.has(id)) continue;
       seen.add(id);
       ids.push(id);

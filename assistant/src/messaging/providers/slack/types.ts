@@ -27,6 +27,7 @@ export interface SlackBotsInfoResponse extends SlackApiResponse {
 export interface SlackConversation {
   id: string;
   name?: string;
+  name_normalized?: string;
   is_channel?: boolean;
   is_group?: boolean;
   is_im?: boolean;

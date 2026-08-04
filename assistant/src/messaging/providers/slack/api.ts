@@ -19,7 +19,11 @@ import type { KnownBlock } from "@slack/types";
 import type { SlackStreamTask } from "@vellumai/gateway-client";
 
 import { resolveSlackAuth, type SlackAuthIdentity } from "./auth.js";
-import type { SlackApiResponse } from "./types.js";
+import { conversationInfo } from "./client.js";
+import type {
+  SlackApiResponse,
+  SlackConversationInfoResponse,
+} from "./types.js";
 import {
   SlackApiError,
   slackRequest,
@@ -31,14 +35,6 @@ interface SlackOutboundApiResponse extends SlackApiResponse {
   ts?: string;
   upload_url?: string;
   file_id?: string;
-}
-
-interface SlackConversationsInfoResponse extends SlackApiResponse {
-  channel?: {
-    id?: unknown;
-    name?: unknown;
-    name_normalized?: unknown;
-  };
 }
 
 export interface SlackConversationInfo {
@@ -246,7 +242,7 @@ function normalizeSlackString(value: unknown): string | undefined {
 }
 
 function parseSlackConversationInfo(
-  data: SlackConversationsInfoResponse,
+  data: SlackConversationInfoResponse,
 ): SlackConversationInfo | null {
   const id = normalizeSlackString(data.channel?.id);
   if (!id) {
@@ -279,7 +275,6 @@ function parseSlackConversationInfo(
 export async function getSlackConversationInfo(
   channelId: string,
 ): Promise<SlackConversationInfo | null> {
-  const query = { channel: channelId };
   const botAuth = await resolveSlackAuth("bot");
   if (!botAuth) {
     throw new Error("Slack bot token not configured");
@@ -287,11 +282,7 @@ export async function getSlackConversationInfo(
 
   try {
     return parseSlackConversationInfo(
-      await slackRequest<SlackConversationsInfoResponse>(
-        botAuth,
-        "conversations.info",
-        { query },
-      ),
+      await conversationInfo(botAuth, channelId),
     );
   } catch (err) {
     if (
@@ -309,11 +300,7 @@ export async function getSlackConversationInfo(
       throw err;
     }
     return parseSlackConversationInfo(
-      await slackRequest<SlackConversationsInfoResponse>(
-        userAuth,
-        "conversations.info",
-        { query },
-      ),
+      await conversationInfo(userAuth, channelId),
     );
   }
 }
