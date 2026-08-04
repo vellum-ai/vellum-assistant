@@ -168,8 +168,8 @@ export function GiveMeAFaceScreen({
   }
 
   // Reroll both the name and the centered avatar's traits, each guaranteed to
-  // differ from the current one. The name counts as a deliberate pick, so —
-  // like editing — it sticks across avatar cycling instead of being
+  // differ from the current one. The name counts as a deliberate pick, so
+  // (like editing) it sticks across avatar cycling instead of being
   // re-prefilled from the centered avatar.
   function randomizeCharacter() {
     nameCustomized.current = true;
