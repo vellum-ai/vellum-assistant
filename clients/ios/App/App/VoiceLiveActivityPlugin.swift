@@ -170,7 +170,12 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             if let running = self.activity {
-                await running.update(Self.content(state))
+                let alert = self.alertConfiguration(for: state)
+                self.lastApprovalRequestId = state.approvalRequestId
+                await running.update(
+                    Self.content(state),
+                    alertConfiguration: alert
+                )
                 call.resolve(["started": true])
                 return
             }
@@ -201,6 +206,12 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                     pushType: .token
                 )
                 self.activity = requested
+                // A fresh activity has alerted for nothing yet, and its opening
+                // content is almost never a wait. Seeding from it rather than
+                // clearing keeps the one case that is — a session started while
+                // a decision was already outstanding — from alerting again on
+                // its first update.
+                self.lastApprovalRequestId = state.approvalRequestId
                 self.observePushToken(of: requested)
                 call.resolve(["started": true])
             } catch {
@@ -226,13 +237,58 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         Task { @MainActor [weak self] in
-            guard let running = self?.activity else {
+            guard let self, let running = self.activity else {
                 call.resolve()
                 return
             }
-            await running.update(Self.content(state))
+            let alert = self.alertConfiguration(for: state)
+            self.lastApprovalRequestId = state.approvalRequestId
+            await running.update(Self.content(state), alertConfiguration: alert)
             call.resolve()
         }
+    }
+
+    /// The `approvalRequestId` of the last content pushed, so a *new* wait can
+    /// be told from a repaint of one already on screen.
+    @MainActor private var lastApprovalRequestId = ""
+
+    /// The alert to raise with this update, or `nil` for a silent one.
+    ///
+    /// **Exactly one thing alerts: a decision the turn has just started waiting
+    /// on.** A Live Activity update is silent by default, which is right for
+    /// every other field here — a session moves through `listening`,
+    /// `thinking`, and `speaking` many times a minute, and a phase change that
+    /// buzzed the phone would make the island unbearable inside one call.
+    ///
+    /// A pending approval is the opposite case. The turn is *blocked*, the card
+    /// that would normally carry it is behind a lock screen, and the daemon's
+    /// fallback decides for the user in 45 seconds. A silent update there is a
+    /// question asked of someone who was never told they were asked.
+    ///
+    /// Gated on the id *changing* to a non-empty value, not on it being
+    /// non-empty: a wait outlives several pushes (a parallel tool starting, an
+    /// accent arriving late), and re-alerting on each would be one prompt
+    /// buzzing repeatedly.
+    @MainActor
+    private func alertConfiguration(
+        for state: VoiceSessionAttributes.ContentState
+    ) -> AlertConfiguration? {
+        guard !state.approvalRequestId.isEmpty,
+              state.approvalRequestId != lastApprovalRequestId
+        else {
+            return nil
+        }
+        // The title and body are the alert's own words, not the activity's, and
+        // there is no passthrough to use: `detail` is written for a glance at a
+        // running session ("Running a command — needs your okay"), while this is
+        // a notification banner that has to make sense on its own. Kept generic
+        // for the same reason the activity line names no arguments — it can be
+        // read by anyone holding the phone.
+        return AlertConfiguration(
+            title: "Waiting on you",
+            body: "Your assistant needs permission to continue.",
+            sound: .default
+        )
     }
 
     // MARK: - end
