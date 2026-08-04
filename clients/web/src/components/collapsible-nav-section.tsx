@@ -1,5 +1,5 @@
 import { ChevronDown, type LucideIcon } from "lucide-react";
-import { type DragEvent, type ReactNode, type Ref } from "react";
+import { useRef, type DragEvent, type ReactNode, type Ref } from "react";
 
 import { BottomSheet, ContextMenu } from "@vellumai/design-library";
 import {
@@ -23,14 +23,15 @@ import { isPointerCoarse } from "@/utils/pointer";
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
  *
- *   - No leading icon. The whole title row is a toggle target: a click
+ *   - No leading icon. The title row is the one toggle target: a click
  *     expands or collapses the section, while click-and-hold-and-move
  *     still drags it (see `drag`): HTML5 drag only starts on movement,
- *     so the two coexist on one surface. The chevron button on the
- *     trailing edge, left of the "…", is a second toggle target with the
- *     same wiring, revealed only on hover, not on click-then-release
- *     focus, which would otherwise linger after the click that
- *     opened/closed it, and not just because the section is open.
+ *     so the two coexist on one surface. The chevron on the trailing
+ *     edge, left of the "…", is a decorative indicator that forwards its
+ *     clicks to that trigger, revealed only on hover, not on
+ *     click-then-release focus, which would otherwise linger after the
+ *     click that opened/closed it, and not just because the section is
+ *     open.
  *   - Optional `trailing` slot for an ellipsis menu or other per-row
  *     affordance. Pointer events are isolated so clicking trailing
  *     content doesn't toggle the section.
@@ -40,8 +41,8 @@ import { isPointerCoarse } from "@/utils/pointer";
  *     pointer type — Radix `ContextMenu` alone renders a pointer-positioned
  *     popover on touch, which is the wrong surface on mobile. Mirrors the
  *     conversation-row long-press pattern.
- *   - No hover background on the title; the chevron button's own hover
- *     state is the affordance.
+ *   - No hover background on the title; the chevron's own hover box is
+ *     the affordance.
  *
  * Usage:
  *
@@ -204,6 +205,10 @@ function CollapsibleNavSectionSection({
   collapsible = true,
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
+  // The chevron forwards its clicks to the title trigger, keeping one
+  // accessible toggle per section.
+  const titleTriggerRef = useRef<HTMLButtonElement>(null);
+
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
@@ -228,12 +233,12 @@ function CollapsibleNavSectionSection({
           the New Chat plus and the assistant eyes. Only the vertical
           metrics grow on mobile. */}
       {collapsible ? (
-        // The toggle target: a click anywhere on the title row expands or
-        // collapses the section, while click-and-hold-and-move drags it
+        // The one toggle target: a click anywhere on the title row expands
+        // or collapses the section, while click-and-hold-and-move drags it
         // (native HTML5 drag on the header div, see `drag` below). The
-        // chevron in the trailing cluster is a second, pointer-only
-        // toggle with the same wiring.
+        // chevron in the trailing cluster forwards its clicks here.
         <Collapsible.Trigger
+          ref={titleTriggerRef}
           data-slot="collapsible-nav-section-title"
           className={cn(
             "h-[30px] max-md:h-auto",
@@ -286,15 +291,21 @@ function CollapsibleNavSectionSection({
       {collapsible || trailing ? (
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
           {collapsible ? (
-            // A second toggle target with the same wiring as the title:
-            // the chevron's own button and hover box, left of the "…".
-            // Pointer-only: out of the tab order and the accessibility
-            // tree, since the title trigger is the accessible toggle and
-            // a second stop would announce every section twice.
-            <Collapsible.Trigger
+            // Decorative disclosure indicator with the title trigger's own
+            // hover box, left of the "…". Not a trigger itself: the section
+            // has exactly one accessible toggle (the title), so the chevron
+            // stays out of the accessibility tree and forwards pointer
+            // clicks to that trigger instead. A second Radix trigger here
+            // would duplicate the item's trigger id and announce every
+            // section twice.
+            <span
+              data-slot="collapsible-nav-section-chevron"
               aria-hidden
-              tabIndex={-1}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
+              onClick={(event) => {
+                event.stopPropagation();
+                titleTriggerRef.current?.click();
+              }}
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
             >
               <ChevronDown
                 size={12}
@@ -307,7 +318,7 @@ function CollapsibleNavSectionSection({
                   "group-data-[state=open]/section:rotate-180",
                 )}
               />
-            </Collapsible.Trigger>
+            </span>
           ) : null}
           {trailing ? (
             <span
