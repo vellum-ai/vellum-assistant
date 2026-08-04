@@ -113,6 +113,17 @@ function SeededStores({
 
 const meta: Meta<CreditWallStoryArgs> = {
   title: "Upsell Walls/Credit Wall",
+  // Opted out of the global `autodocs` tag. The card resolves its CTA from
+  // module-singleton Zustand stores, so N variants cannot co-exist: the docs
+  // page mounts every story at once and whichever effect ran last decides the
+  // arm, plan and gate for all of them. In practice the last story here is the
+  // self-hosted one, which gated every card to `null` and rendered the page as
+  // five empty boxes. Isolating the seed per instance is not possible while the
+  // source of truth is a module singleton, so the variants are canvas-only,
+  // where exactly one is mounted at a time. `Upsell Walls/Overview` carries the
+  // side-by-side comparison instead, built on the presentational primitive fed
+  // with this card's real exported copy.
+  tags: ["!autodocs"],
   parameters: { layout: "padded" },
   argTypes: {
     arm: { control: "radio", options: ["control", "upgrade-cta"] },
