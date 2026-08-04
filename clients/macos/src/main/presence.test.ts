@@ -325,6 +325,32 @@ describe("installPresenceMonitor", () => {
     expect(reports).toEqual(["active", "away"]);
   });
 
+  test("a throw partway through attaching unwinds the earlier listeners", () => {
+    const staleReports: string[] = [];
+    attachFailsOn = "resume";
+    expect(() =>
+      installPresenceMonitor((state) => staleReports.push(state)),
+    ).toThrow();
+
+    // The three that went up before the failure hold live closures for a
+    // monitor nobody has a teardown for, so none of them may survive the call.
+    expect(listenerCount()).toBe(0);
+    expect(powerOffMock).toHaveBeenCalledTimes(3);
+    expect(intervalCallback).toBeNull();
+
+    attachFailsOn = null;
+    idleSeconds = 0;
+    const reports: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
+
+    // Exactly one set, and the failed install's callback stays silent.
+    expect(listenerCount()).toBe(6);
+    fire("lock-screen");
+    fire("suspend");
+    expect(reports).toEqual(["active", "away", "away"]);
+    expect(staleReports).toEqual([]);
+  });
+
   test("a fresh install works again after teardown", () => {
     const { teardown } = install();
     teardown();
