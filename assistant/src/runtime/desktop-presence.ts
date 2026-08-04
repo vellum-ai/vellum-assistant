@@ -16,8 +16,11 @@ import { assistantEventHub } from "./assistant-event-hub.js";
 
 const log = getLogger("desktop-presence");
 
-/** Must exceed the client's report interval with margin, so a single dropped report does not read as absent. */
-export const PRESENCE_STALE_AFTER_MS = 3 * 60_000;
+/**
+ * Bounds how long suppression can outlive the Mac going to sleep or dropping
+ * off, while still tolerating two dropped reports at the 30s report interval.
+ */
+export const PRESENCE_STALE_AFTER_MS = 90_000;
 
 export interface DesktopAttendanceOptions {
   /**
