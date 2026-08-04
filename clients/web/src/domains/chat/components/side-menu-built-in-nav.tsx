@@ -82,13 +82,13 @@ export function SideMenuBuiltInNav({
       </div>
       {pinnedApps.length > 0 ? (
         <>
-          {/* Not the accordion's "Threads"/"Pinned" title component: this
+          {/* Not the accordion's "Conversations"/"Pinned" title component: this
               block lives outside `CollapsibleNavSection.Root` entirely (in
               the non-scrolling rail header, or the overlay's top-of-body),
               so it's just the same label styling, non-interactive. */}
           {!isCollapsedRail ? (
             <div
-              // Same title treatment as "Pinned"/"Threads" (collapsible-
+              // Same title treatment as "Pinned"/"Conversations" (collapsible-
               // nav-section.tsx's non-collapsible branch): the mobile
               // text/height/padding classes below aren't decorative, they
               // match that component's, so the two read as one style.

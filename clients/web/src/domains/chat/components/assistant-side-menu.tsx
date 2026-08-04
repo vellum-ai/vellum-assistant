@@ -30,7 +30,7 @@ import {
 import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
 import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in-nav";
 import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
-import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
+import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
@@ -148,15 +148,16 @@ function SearchButton() {
  *     • Your Assistant → Intelligence view, with New Chat beneath it
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
- *     • [ All | Grouped ] - the view switch, first and sticky
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
  *     • ───────────────  - when anything is curated above it; drags to
  *       resize Pinned while that section is expanded
- *     • All view: every remaining conversation as one headerless,
+ *     • Conversations  - the persistent header; its "…" menu carries the
+ *       "Group by" dropdown (None | Channel)
+ *     • Group by None: every remaining conversation as one headerless,
  *       virtualized list, newest first
- *     • Grouped view: Chats ▾ then one collapsible section per origin
- *       channel (Slack, Telegram, WhatsApp, …)
+ *     • Group by Channel: Chats ▾ then one collapsible section per
+ *       origin channel (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -365,13 +366,13 @@ export function AssistantSideMenu({
     });
   };
 
-  // List/Groups switch, in the persistent "Threads" header's menu.
-  const viewAsFooter = (
+  // Grouping dropdown, in the persistent "Conversations" header's menu.
+  const groupByFooter = (
     <div className="px-2 pb-1">
       <div className={cn("mt-3 mb-2", SIDEBAR_SECTION_TITLE_TEXT_CLASSES)}>
-        View As
+        Group by
       </div>
-      <SidebarViewModeToggle
+      <SidebarViewModeSelect
         value={sidebar.viewMode}
         onChange={sidebar.onViewModeChange}
       />
@@ -385,17 +386,16 @@ export function AssistantSideMenu({
       groupMenu={sectionMenu(section)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot(section.all)}
-      scrollParent={bodyElement ?? undefined}
     />
   );
 
-  // The persistent "Threads" header: same bulk-action menu shape as a
+  // The persistent "Conversations" header: same bulk-action menu shape as a
   // section's, minus move-up/down since it isn't a member of
   // `sidebar.sections`. Scoped to `flatList` regardless of view mode:
   // that's every conversation neither pinned nor in a custom group, the same
-  // set whether it's currently rendered as one list (List view) or split
-  // into Chats + channel sub-sections (Grouped view).
-  const conversationsMenu = buildGroupMenu("Threads", sidebar.flatList);
+  // set whether it's currently rendered as one list (grouped by None) or
+  // split into Chats + channel sub-sections (grouped by Channel).
+  const conversationsMenu = buildGroupMenu("Conversations", sidebar.flatList);
 
   // Rendered in the rail's non-scrolling header, or at the top of the
   // overlay's body so the whole menu scrolls as one surface; the block's
@@ -468,8 +468,7 @@ export function AssistantSideMenu({
                      the outer edge instead of cutting through the content, and
                      takes over the horizontal inset the root would have given
                      it, so rows sit exactly where they did. No top inset: the
-                     sticky view switch sits flush against the header, and any
-                     padding here would be a gap it has to cancel. */
+                     first section sits flush against the header. */
                   "-mx-4 gap-4 px-4"
           }
           style={
@@ -487,12 +486,9 @@ export function AssistantSideMenu({
         >
           {/* The overlay puts the assistant cluster at the top of the
               scrollport rather than in a fixed header, so it owns the inset
-              that keeps it clear of the floating close and search glyphs. It
-              lives here rather than on the scrollport because the sticky view
-              switch sticks to the scrollport's content box: any padding there
-              would park the switch that far down and open a strip above it
-              for rows to scroll through. `gap-4` restates the body's own gap,
-              which wrapping these into one flex item would otherwise drop. */}
+              that keeps it clear of the floating close and search glyphs.
+              `gap-4` restates the body's own gap, which wrapping these into
+              one flex item would otherwise drop. */}
           {variant === "overlay" ? (
             <div className="flex flex-col gap-4 pt-3 max-md:pt-4">
               {builtInNav}
@@ -527,14 +523,15 @@ export function AssistantSideMenu({
                 onValueChange={sidebar.onOpenSectionsChange}
               >
                 {/* Pinned and the custom groups: the user's own curation,
-                    identical in both views. A divider between each pair, so
-                    Pinned's own boundary reads the same as the curated
-                    block's outer one below. */}
+                    identical in both views. One divider under Pinned; the
+                    custom groups flow together with nothing between them,
+                    and the block's own rule below marks the boundary to
+                    Conversations. */}
                 {sidebar.sections
                   .slice(0, sidebar.curatedSectionCount)
-                  .map((section, index) => (
+                  .map((section, index, curated) => (
                     <Fragment key={section.key}>
-                      {index > 0 ? (
+                      {index > 0 && curated[index - 1]?.type === "pinned" ? (
                         // 2px closer to the section below than the
                         // separator's own default my-1 (4px) gives.
                         <SideMenu.Separator style={{ marginBottom: 2 }} />
@@ -559,23 +556,23 @@ export function AssistantSideMenu({
                     className="h-px w-full bg-[var(--border-base)]"
                   />
                 ) : null}
-                {/* "Threads" is the persistent header for everything
+                {/* "Conversations" is the persistent header for everything
                     that isn't Pinned or a custom group: it never swaps out
-                    for "Chats". In List view its content is the flat list;
-                    in Grouped view, Chats and each channel section nest
-                    inside it instead of sitting as its top-level siblings,
-                    keeping their own headers/collapse behavior. Same
-                    bulk-action menu machinery as a section's, minus
-                    move-up/down since it isn't a member of
-                    `sidebar.sections`. */}
+                    for "Chats". Grouped by All, its content is the flat
+                    list; grouped by Channels, Chats and each channel
+                    section nest inside it instead of sitting as its
+                    top-level siblings, keeping their own headers/collapse
+                    behavior. Same bulk-action menu machinery as a
+                    section's, minus move-up/down since it isn't a member
+                    of `sidebar.sections`. */}
                 <ConversationNavSection
                   value="conversations"
-                  label="Threads"
+                  label="Conversations"
                   collapsible={false}
                   trailing={
                     <GroupActionsMenu
-                      label="Threads"
-                      footer={viewAsFooter}
+                      label="Conversations"
+                      footer={groupByFooter}
                       {...conversationsMenu}
                     />
                   }
