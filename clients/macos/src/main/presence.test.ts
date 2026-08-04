@@ -1,0 +1,245 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// `powerMonitor`'s subscriptions are captured by name so the test can fire
+// them at will, and `off` removes them so teardown is observable.
+type PowerListener = () => void;
+const powerListeners = new Map<string, Set<PowerListener>>();
+const powerOnMock = mock((event: string, listener: PowerListener) => {
+  const existing = powerListeners.get(event) ?? new Set<PowerListener>();
+  existing.add(listener);
+  powerListeners.set(event, existing);
+});
+const powerOffMock = mock((event: string, listener: PowerListener) => {
+  powerListeners.get(event)?.delete(listener);
+});
+
+let idleSeconds = 0;
+let idleThrows = false;
+const getSystemIdleTimeMock = mock(() => {
+  if (idleThrows) {
+    throw new Error("idle read failed");
+  }
+  return idleSeconds;
+});
+
+mock.module("electron", () => ({
+  powerMonitor: {
+    on: powerOnMock,
+    off: powerOffMock,
+    getSystemIdleTime: getSystemIdleTimeMock,
+  },
+}));
+
+const { IDLE_THRESHOLD_MS, POLL_INTERVAL_MS, installPresenceMonitor } =
+  await import("./presence");
+
+const fire = (event: string): void => {
+  for (const listener of powerListeners.get(event) ?? []) {
+    listener();
+  }
+};
+
+const listenerCount = (): number => {
+  let total = 0;
+  for (const listeners of powerListeners.values()) {
+    total += listeners.size;
+  }
+  return total;
+};
+
+// Fake timers so the poll loop is deterministic.
+let intervalCallback: (() => void) | null = null;
+let intervalDelay: number | null = null;
+const clearIntervalMock = mock((_id: unknown) => undefined);
+const originalSetInterval = globalThis.setInterval;
+const originalClearInterval = globalThis.clearInterval;
+
+beforeEach(() => {
+  powerListeners.clear();
+  powerOnMock.mockClear();
+  powerOffMock.mockClear();
+  getSystemIdleTimeMock.mockClear();
+  idleSeconds = 0;
+  idleThrows = false;
+  intervalCallback = null;
+  intervalDelay = null;
+  clearIntervalMock.mockClear();
+  globalThis.setInterval = ((cb: () => void, delay: number) => {
+    intervalCallback = cb;
+    intervalDelay = delay;
+    return 1 as unknown as ReturnType<typeof setInterval>;
+  }) as unknown as typeof setInterval;
+  globalThis.clearInterval =
+    clearIntervalMock as unknown as typeof clearInterval;
+});
+
+afterEach(() => {
+  globalThis.setInterval = originalSetInterval;
+  globalThis.clearInterval = originalClearInterval;
+});
+
+// Install emits one report straight away; tests that assert on what follows
+// drop it so their expectations name only the transitions they exercise.
+const install = (): { reports: string[]; teardown: () => void } => {
+  const reports: string[] = [];
+  const teardown = installPresenceMonitor((state) => reports.push(state));
+  reports.length = 0;
+  return { reports, teardown };
+};
+
+describe("installPresenceMonitor", () => {
+  test("reports once at install, before the first poll tick", () => {
+    const reports: string[] = [];
+    idleSeconds = 0;
+    installPresenceMonitor((state) => reports.push(state));
+
+    expect(reports).toEqual(["active"]);
+  });
+
+  test("reports active when idle time is below the threshold", () => {
+    const { reports } = install();
+
+    idleSeconds = IDLE_THRESHOLD_MS / 1000 - 1;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["active"]);
+  });
+
+  test("reports idle when idle time reaches the threshold", () => {
+    const { reports } = install();
+
+    idleSeconds = IDLE_THRESHOLD_MS / 1000;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["idle"]);
+  });
+
+  test("reports away immediately on lock-screen, ignoring the idle timer", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+
+    expect(reports).toEqual(["away"]);
+  });
+
+  test("reports away immediately on suspend", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("suspend");
+
+    expect(reports).toEqual(["away"]);
+  });
+
+  test("returns to active on unlock-screen", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("unlock-screen");
+
+    expect(reports).toEqual(["away", "active"]);
+  });
+
+  test("stays away across poll ticks while locked", () => {
+    const { reports } = install();
+
+    fire("lock-screen");
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away"]);
+  });
+
+  test("stays away when a locked machine suspends and resumes", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("suspend");
+    fire("resume");
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away", "away", "away"]);
+  });
+
+  test("returns to active once the lock screen clears after a resume", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("suspend");
+    fire("resume");
+    fire("unlock-screen");
+
+    expect(reports).toEqual(["away", "away", "away", "active"]);
+  });
+
+  test("stays away when a suspend arrives without a lock", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("suspend");
+    intervalCallback?.();
+    fire("resume");
+
+    expect(reports).toEqual(["away", "away", "active"]);
+  });
+
+  test("reports away when the login session resigns", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("user-did-resign-active");
+    intervalCallback?.();
+    fire("user-did-become-active");
+
+    expect(reports).toEqual(["away", "away", "active"]);
+  });
+
+  test("user-did-become-active does not clear the lock", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    fire("user-did-become-active");
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away", "away"]);
+  });
+
+  test("reports on every poll tick even with no state change", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    intervalCallback?.();
+    intervalCallback?.();
+    intervalCallback?.();
+
+    expect(reports).toEqual(["active", "active", "active"]);
+    expect(intervalDelay).toBe(POLL_INTERVAL_MS);
+  });
+
+  test("degrades to idle, never active, when the idle read throws", () => {
+    const { reports } = install();
+
+    idleThrows = true;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["idle"]);
+  });
+
+  test("teardown clears the interval and detaches every listener", () => {
+    const { reports, teardown } = install();
+    expect(listenerCount()).toBe(6);
+
+    teardown();
+
+    expect(clearIntervalMock).toHaveBeenCalledTimes(1);
+    expect(listenerCount()).toBe(0);
+
+    fire("lock-screen");
+    fire("user-did-resign-active");
+    expect(reports).toEqual([]);
+  });
+});
