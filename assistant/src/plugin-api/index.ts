@@ -113,6 +113,7 @@ export type {
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  PreModelCallDecision,
   ShutdownContext,
   StopContext,
   ToolContext,

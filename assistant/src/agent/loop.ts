@@ -1619,17 +1619,27 @@ export class AgentLoop {
           signal,
         };
 
-        // Let plugins edit the outbound request and opt this call into deferred
-        // output streaming. Runs for every provider call; hooks self-gate on
-        // call site / conversation. Fail-open: a throwing hook leaves the
-        // request unchanged and streaming live.
+        // Let plugins edit the outbound request (system prompt and wire
+        // messages), opt this call into deferred output streaming, or fail the
+        // call outright. Runs for every provider call; hooks self-gate on
+        // call site / conversation. Fail-open for hook THROWS: a throwing hook
+        // leaves the request unchanged and streaming live. A hook that must
+        // stop the call instead sets `decision: "fail"` on the context; the
+        // loop then ends the turn through its normal error path (below,
+        // outside this catch) instead of sending.
+        let outboundMessages = providerHistory;
+        let preModelCallFailure: Error | null = null;
         try {
           const preModelCtx: PreModelCallInputContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
             modelProfile: effectiveOverrideProfile ?? null,
+            modelProfileKey: options.modelProfileKey ?? null,
+            messages: providerHistory,
             deferAssistantOutput: false,
+            decision: "proceed",
+            failureReason: null,
           };
           const finalPreModelCtx = await traceAsyncSection(
             "agent-loop:pre-model-call-hook",
@@ -1669,11 +1679,40 @@ export class AgentLoop {
           // The hook owns the policy (it sees `callSite`/conversation and
           // self-gates); the loop honors whatever it decides.
           deferAssistantOutput = finalPreModelCtx.deferAssistantOutput;
+          // Adopt a rewritten wire payload. The hook pipeline hands hooks a
+          // deep clone of the context, so the settled array never aliases
+          // `history`: only what goes on the wire changes, the loop's own
+          // history bookkeeping is untouched. The pipeline's output schema
+          // already discarded any hook mutation carrying malformed messages.
+          if (Array.isArray(finalPreModelCtx.messages)) {
+            outboundMessages = finalPreModelCtx.messages;
+          }
+          if (finalPreModelCtx.decision === "fail") {
+            preModelCallFailure = new Error(
+              finalPreModelCtx.failureReason ??
+                "A pre-model-call hook failed this model call",
+            );
+          }
         } catch (preModelCallError) {
           rlog.error(
             { err: preModelCallError },
             "pre-model-call hook failed — proceeding with the original request",
           );
+        }
+
+        // Honor a hook-chain `decision: "fail"` before anything is sent or a
+        // persistence row is reserved. Thrown here (not inside the hook
+        // try/catch, which contains hook errors fail-open) so the turn ends
+        // through the loop's normal error path: `error` event, stop hook,
+        // exit reason "error". Background callers that retry failed runs
+        // (memory retrospective/consolidation wakes) observe an ordinary
+        // failed run.
+        if (preModelCallFailure) {
+          rlog.warn(
+            { err: preModelCallFailure, callSite },
+            "pre-model-call hook failed the model call; ending the turn without sending",
+          );
+          throw preModelCallFailure;
         }
 
         // Announce the LLM-call boundary so downstream handlers (the
@@ -1703,7 +1742,7 @@ export class AgentLoop {
         let response: ProviderResponse;
         try {
           response = await traceAsyncSection("agent-loop:provider-send", () =>
-            this.provider.sendMessage(providerHistory, providerOptions),
+            this.provider.sendMessage(outboundMessages, providerOptions),
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1721,7 +1760,7 @@ export class AgentLoop {
             // misrepresent both.
             const rawRequest = {
               provider: this.provider.name,
-              messages: providerHistory,
+              messages: outboundMessages,
               tools: providerOptions.tools,
               systemPrompt: providerOptions.systemPrompt,
               config: providerOptions.config,
