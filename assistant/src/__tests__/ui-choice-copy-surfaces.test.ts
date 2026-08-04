@@ -204,6 +204,7 @@ describe("choice and copy_block surface proxying", () => {
       providerKey: "google",
       displayName: "Google",
       description: "Connect Gmail for this task.",
+      requestedScopes: ["gmail.readonly"],
     });
     expect(ctx.pendingSurfaceActions.get(showMessage.surfaceId)).toEqual({
       surfaceType: "oauth_connect",
