@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
-import { migrateAddConversationSubagentKind } from "./361-add-conversation-subagent-kind.js";
+import { migrateAddConversationSubagentKind } from "./362-add-conversation-subagent-kind.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -51,7 +51,7 @@ function columnInfo(sqlite: Database) {
   }>;
 }
 
-describe("migration 361: conversations subagent role / spawn mode", () => {
+describe("migration 362: conversations subagent role / spawn mode", () => {
   test("adds both columns, nullable", () => {
     const { sqlite, db } = createTestDb();
     const before = columnInfo(sqlite).map((c) => c.name);

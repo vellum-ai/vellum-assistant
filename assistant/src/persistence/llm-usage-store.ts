@@ -262,7 +262,7 @@ export interface UnreportedUsageEvent extends UsageEvent {
    * Role of the subagent that owns this LLM call's conversation, from
    * `SUBAGENT_ROLE_REGISTRY`. Null for every LLM call that did not run inside
    * a subagent conversation, and for subagent conversations created before
-   * migration 361 whose `subagents` row had already been disposed.
+   * migration 362 whose `subagents` row had already been disposed.
    */
   subagentRole: string | null;
   /**
@@ -372,7 +372,7 @@ export function queryUnreportedUsageEvents(
       // the cutoff (child creation for subagent spawns, fork boundary
       // message for retrospective forks). Same eligibility filter as
       // `turnIndex` above.
-      // Stamped on the conversation row at spawn (migration 361) rather than
+      // Stamped on the conversation row at spawn (migration 362) rather than
       // joined from `subagents`, whose rows are deleted on dispose while this
       // watermark query can trail far behind after an ingest outage.
       subagentRole: conversations.subagentRole,
