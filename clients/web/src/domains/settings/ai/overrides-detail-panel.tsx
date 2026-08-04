@@ -226,6 +226,22 @@ export function OverridesDetailPanel({
     [tierEdits, persistedTierOverrides],
   );
 
+  // The default an unpinned row displays and toggle-on seeds from. A tier
+  // touched this session shows its pending edit optimistically; an
+  // untouched tier trusts the catalog's resolved winner (`defaultProfile`)
+  // rather than the raw persisted remap, which resolution may have skipped
+  // (disabled or incomplete target).
+  const displayedDefaultFor = useCallback(
+    (cs: CallSiteEntry): string | undefined => {
+      const shippedTier = cs.shippedDefaultProfile;
+      if (supportsTierOverrides && shippedTier && shippedTier in tierEdits) {
+        return tierEdits[shippedTier] ?? shippedTier;
+      }
+      return cs.defaultProfile;
+    },
+    [supportsTierOverrides, tierEdits],
+  );
+
   const tierOverridesDirty = useMemo(
     () =>
       Object.entries(tierEdits).some(
@@ -389,19 +405,11 @@ export function OverridesDetailPanel({
         return;
       }
       const cs = gatedCallSites.find((c) => c.id === id);
-      // Seed from the effective default the row is displaying, not the
-      // catalog's persisted winner: with an unsaved tier remap pending the
-      // ghost dropdown shows the remap target, and pinning must match what
-      // the user sees (`cs.defaultProfile` is computed daemon-side from the
-      // persisted config only).
-      const shippedTier = cs?.shippedDefaultProfile;
-      const displayedDefault =
-        (supportsTierOverrides && shippedTier
-          ? effectiveTierRemap(shippedTier)
-          : null) ?? cs?.defaultProfile;
+      // Seed from the same default the row is displaying so the pin
+      // matches what the user sees.
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
-        displayedDefault,
+        cs ? displayedDefaultFor(cs) : undefined,
       );
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
@@ -419,8 +427,7 @@ export function OverridesDetailPanel({
       gatedCallSites,
       orderedProfiles,
       selectableInferenceProviders,
-      supportsTierOverrides,
-      effectiveTierRemap,
+      displayedDefaultFor,
     ],
   );
 
@@ -739,13 +746,13 @@ export function OverridesDetailPanel({
                         }
                         return d.profile ?? "";
                       })();
-                      // Provenance for an unpinned site on a tier-overrides
-                      // daemon builds from the shipped tier plus its remap;
-                      // `defaultProfile` (the effective winner) already IS
-                      // the remapped profile there, so deriving from it
-                      // would lose the tier. A remapped site renders the
-                      // effective profile in a ghost dropdown (picking from
-                      // it creates a pin) instead of caption text. A pinned
+                      // An unpinned site on a tier-overrides daemon whose
+                      // displayed default diverges from its shipped tier
+                      // renders that default in a ghost dropdown (picking
+                      // from it creates a pin) with tier provenance as the
+                      // caption. `displayedDefaultFor` trusts the resolver's
+                      // winner for untouched tiers, so a remap resolution
+                      // skipped never renders as if it applied. A pinned
                       // site keeps the winner caption: the pin outranks the
                       // remap, so tier provenance would claim an effect the
                       // resolver doesn't apply.
@@ -755,10 +762,11 @@ export function OverridesDetailPanel({
                       let ghost: { profile: string; caption: string } | null =
                         null;
                       if (supportsTierOverrides && shippedTier && !pinned) {
-                        const tierRemap = effectiveTierRemap(shippedTier);
-                        if (tierRemap) {
+                        const displayed =
+                          displayedDefaultFor(cs) ?? shippedTier;
+                        if (displayed !== shippedTier) {
                           ghost = {
-                            profile: tierRemap,
+                            profile: displayed,
                             caption: `via ${profileLabelFor(shippedTier)} default`,
                           };
                         } else {

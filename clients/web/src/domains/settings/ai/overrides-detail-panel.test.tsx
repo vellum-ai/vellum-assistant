@@ -457,13 +457,27 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     },
   };
 
-  function renderTierPanel(config: unknown = TIER_CONFIG) {
-    servedCatalog = TIER_CATALOG;
+  // Fixture catalog with `id`'s resolved winner replaced, mirroring what
+  // the daemon reports when a persisted remap (or fallback) won resolution.
+  function withWinner(id: string, winner: string) {
+    return {
+      ...TIER_CATALOG,
+      callSites: TIER_CATALOG.callSites.map((cs) =>
+        cs.id === id ? { ...cs, defaultProfile: winner } : cs,
+      ),
+    };
+  }
+
+  function renderTierPanel(
+    config: unknown = TIER_CONFIG,
+    catalog: unknown = TIER_CATALOG,
+  ) {
+    servedCatalog = catalog;
     servedConfig = config;
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 0 } },
     });
-    client.setQueryData([{ _id: "configLlmCallsitesGet" }], TIER_CATALOG);
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], catalog);
     client.setQueryData([{ _id: "configGet" }], config);
     return render(
       createElement(
@@ -530,12 +544,15 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
   });
 
   test("clearing a persisted remap sends null for that tier", async () => {
-    renderTierPanel({
-      llm: {
-        ...TIER_CONFIG.llm,
-        defaultProfileOverrides: { "cost-optimized": "my-byok" },
+    renderTierPanel(
+      {
+        llm: {
+          ...TIER_CONFIG.llm,
+          defaultProfileOverrides: { "cost-optimized": "my-byok" },
+        },
       },
-    });
+      withWinner("heartbeatAgent", "my-byok"),
+    );
     await waitFor(() => {
       expect(renderedText()).toContain("Defaults");
     });
@@ -569,12 +586,15 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
   }
 
   test("a remapped unpinned row shows a ghost dropdown, toggle stays off", async () => {
-    renderTierPanel({
-      llm: {
-        ...TIER_CONFIG.llm,
-        defaultProfileOverrides: { balanced: "my-byok" },
+    renderTierPanel(
+      {
+        llm: {
+          ...TIER_CONFIG.llm,
+          defaultProfileOverrides: { balanced: "my-byok" },
+        },
       },
-    });
+      withWinner("workflowLeaf", "my-byok"),
+    );
     await waitFor(() => {
       expect(renderedText()).toContain("via Balanced default");
     });
@@ -586,12 +606,15 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
   });
 
   test("picking from the ghost dropdown creates a real pin", async () => {
-    renderTierPanel({
-      llm: {
-        ...TIER_CONFIG.llm,
-        defaultProfileOverrides: { balanced: "my-byok" },
+    renderTierPanel(
+      {
+        llm: {
+          ...TIER_CONFIG.llm,
+          defaultProfileOverrides: { balanced: "my-byok" },
+        },
       },
-    });
+      withWinner("workflowLeaf", "my-byok"),
+    );
     await waitFor(() => {
       expect(renderedText()).toContain("via Balanced default");
     });
@@ -657,12 +680,15 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
   });
 
   test("untouched ghost rows serialize no per-action pins", async () => {
-    renderTierPanel({
-      llm: {
-        ...TIER_CONFIG.llm,
-        defaultProfileOverrides: { balanced: "my-byok" },
+    renderTierPanel(
+      {
+        llm: {
+          ...TIER_CONFIG.llm,
+          defaultProfileOverrides: { balanced: "my-byok" },
+        },
       },
-    });
+      withWinner("workflowLeaf", "my-byok"),
+    );
     await waitFor(() => {
       expect(renderedText()).toContain("via Balanced default");
     });
@@ -684,6 +710,24 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     const body = configPatchBodies[0] as { llm: Record<string, unknown> };
     expect("callSites" in body.llm).toBe(false);
     expect("defaultProfileOverrides" in body.llm).toBe(false);
+  });
+
+  test("a remap the resolver skipped renders the shipped default, not the raw remap", async () => {
+    // The persisted remap targets a profile resolution skipped (disabled or
+    // incomplete), so the catalog's winner stays the shipped tier. The row
+    // must render the plain default caption, not a ghost dropdown claiming
+    // the remap applied.
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { "cost-optimized": "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+    expect(renderedText()).not.toContain("via Speed default");
+    expect(renderedText()).toContain("Default: Speed");
   });
 
   test("Reset clears per-action pins but keeps the tier remaps", async () => {
