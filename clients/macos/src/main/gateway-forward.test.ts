@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  executeGatewayForwardPlan,
   planGatewayForward,
   planPairedGatewayForward,
+  type GatewayForwardPlan,
 } from "./gateway-forward";
+import {
+  PROXY_ERROR_HEADER,
+  PROXY_NETWORK_ERROR_CODE,
+} from "./platform-forward";
 
 const allow =
   (...ports: number[]) =>
@@ -203,5 +209,170 @@ describe("planPairedGatewayForward", () => {
     }
     expect(plan.headers.get("authorization")).toBe("Bearer guardian-token");
     expect(plan.headers.get("accept")).toBe("text/event-stream");
+  });
+});
+
+describe("executeGatewayForwardPlan", () => {
+  const noBody = { body: null };
+  const quietRetries = { sleep: async () => {}, onError: () => {} };
+
+  const forwardPlan = (
+    planner: () => GatewayForwardPlan,
+  ): Extract<GatewayForwardPlan, { kind: "forward" }> => {
+    const plan = planner();
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
+    return plan;
+  };
+
+  const loopbackPlan = (method = "GET") =>
+    forwardPlan(() =>
+      planGatewayForward(
+        request("/__gateway/8080/v1/foo", { method }),
+        allow(8080),
+      ),
+    );
+
+  const pairedPlan = (method = "GET") =>
+    forwardPlan(() =>
+      planPairedGatewayForward(
+        request("/__gateway-paired/abc/v1/foo", { method }),
+        pair({ abc: "https://gw.example.com" }),
+      ),
+    );
+
+  const rejectingFetcher =
+    (message: string, calls?: { count: number }) => async () => {
+      if (calls) {
+        calls.count += 1;
+      }
+      throw new Error(message);
+    };
+
+  test("returns null on a pass plan so the caller serves static assets", () => {
+    expect(
+      executeGatewayForwardPlan({ kind: "pass" }, noBody, async () => {
+        throw new Error("must not fetch");
+      }),
+    ).toBeNull();
+  });
+
+  test("turns a reject plan into its error response", async () => {
+    const result = executeGatewayForwardPlan(
+      { kind: "reject", status: 403, message: "Forbidden" },
+      noBody,
+      async () => {
+        throw new Error("must not fetch");
+      },
+    );
+    if (!(result instanceof Response)) {
+      throw new Error("expected a Response");
+    }
+    expect(result.status).toBe(403);
+    expect(await result.text()).toBe("Forbidden");
+  });
+
+  test("forwards with manual redirects and a half-duplex streamed body", async () => {
+    const body = new ReadableStream<Uint8Array>();
+    const seen: { url: string; init: RequestInit & { duplex?: "half" } }[] = [];
+    const plan = loopbackPlan("POST");
+    await executeGatewayForwardPlan(plan, { body }, async (url, init) => {
+      seen.push({ url, init });
+      return new Response("ok");
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe("http://127.0.0.1:8080/v1/foo");
+    expect(seen[0]!.init.method).toBe("POST");
+    expect(seen[0]!.init.headers).toBe(plan.headers);
+    expect(seen[0]!.init.body).toBe(body);
+    expect(seen[0]!.init.duplex).toBe("half");
+    expect(seen[0]!.init.redirect).toBe("manual");
+  });
+
+  test("omits body and duplex for bodiless requests", async () => {
+    const seen: (RequestInit & { duplex?: "half" })[] = [];
+    await executeGatewayForwardPlan(pairedPlan(), noBody, async (_url, init) => {
+      seen.push(init);
+      return new Response("ok");
+    });
+
+    expect(seen[0]!.body).toBeUndefined();
+    expect(seen[0]!.duplex).toBeUndefined();
+    expect(seen[0]!.redirect).toBe("manual");
+  });
+
+  test("passes the upstream Response through by identity, body unconsumed", async () => {
+    // SSE and chunked transfers rely on the streaming Response reaching the
+    // renderer verbatim; buffering here would stall live streams.
+    const upstream = new Response(new ReadableStream<Uint8Array>(), {
+      headers: { "content-type": "text/event-stream" },
+    });
+    const result = await executeGatewayForwardPlan(
+      pairedPlan(),
+      noBody,
+      async () => upstream,
+    );
+
+    expect(result).toBe(upstream);
+    expect(upstream.bodyUsed).toBe(false);
+  });
+
+  test("a loopback fetch rejection propagates to the caller", async () => {
+    const result = executeGatewayForwardPlan(
+      loopbackPlan(),
+      noBody,
+      rejectingFetcher("net::ERR_CONNECTION_REFUSED"),
+    );
+    await expect(result as Promise<Response>).rejects.toThrow(
+      "net::ERR_CONNECTION_REFUSED",
+    );
+  });
+
+  test("a paired fetch rejection becomes the structured 502", async () => {
+    const result = await executeGatewayForwardPlan(
+      pairedPlan(),
+      noBody,
+      rejectingFetcher("net::ERR_TUNNEL_CONNECTION_FAILED"),
+      quietRetries,
+    );
+
+    if (!(result instanceof Response)) {
+      throw new Error("expected a Response");
+    }
+    expect(result.status).toBe(502);
+    expect(result.headers.get("content-type")).toBe("application/json");
+    expect(result.headers.get(PROXY_ERROR_HEADER)).toBe("network");
+    const body = (await result.json()) as Record<string, unknown>;
+    expect(body.code).toBe(PROXY_NETWORK_ERROR_CODE);
+    expect(typeof body.detail).toBe("string");
+    expect(body.detail).not.toContain("net::");
+  });
+
+  test("a paired GET retries a transient failure once, then returns the 502", async () => {
+    const calls = { count: 0 };
+    const result = await executeGatewayForwardPlan(
+      pairedPlan(),
+      noBody,
+      rejectingFetcher("net::ERR_NETWORK_CHANGED", calls),
+      quietRetries,
+    );
+
+    expect(calls.count).toBe(2);
+    expect((result as Response).status).toBe(502);
+  });
+
+  test("a paired POST is not retried: its body stream is single-use", async () => {
+    const calls = { count: 0 };
+    const result = await executeGatewayForwardPlan(
+      pairedPlan("POST"),
+      noBody,
+      rejectingFetcher("net::ERR_NETWORK_CHANGED", calls),
+      quietRetries,
+    );
+
+    expect(calls.count).toBe(1);
+    expect((result as Response).status).toBe(502);
   });
 });

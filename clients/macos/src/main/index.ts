@@ -23,9 +23,10 @@ import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
+  executeGatewayForwardPlan,
   planGatewayForward,
   planPairedGatewayForward,
-  type GatewayForwardPlan,
+  type GatewayForwardFetcher,
 } from "./gateway-forward";
 import {
   fetchForwardPlanWithRetry,
@@ -294,34 +295,8 @@ const fileExists = async (candidate: string): Promise<boolean> => {
   }
 };
 
-/**
- * Turn a gateway forward plan into its effect: `null` on `pass` so the caller
- * serves the request as a static asset, otherwise the plan's rejection or a
- * single `net.fetch` whose streaming `Response` is returned verbatim,
- * preserving SSE and chunked transfers (Electron's `stream: true` scheme
- * privilege). The plan owns the allowlist and header decisions.
- */
-const executeGatewayForwardPlan = (
-  plan: GatewayForwardPlan,
-  request: GlobalRequest,
-): Promise<Response> | Response | null => {
-  switch (plan.kind) {
-    case "pass":
-      return null;
-    case "reject":
-      return new Response(plan.message, { status: plan.status });
-    case "forward":
-      return net.fetch(plan.url, {
-        method: plan.method,
-        headers: plan.headers,
-        body: plan.hasBody ? request.body : undefined,
-        // Stream the request body instead of buffering it; required by the
-        // fetch spec whenever a `ReadableStream` body is supplied.
-        ...(plan.hasBody ? { duplex: "half" } : {}),
-        redirect: "manual",
-      });
-  }
-};
+const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
+  net.fetch(url, init);
 
 /**
  * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
@@ -334,7 +309,11 @@ const forwardGatewayRequest = async (
   request: GlobalRequest,
   getAllowedPorts: () => Set<number>,
 ): Promise<Response | null> =>
-  executeGatewayForwardPlan(planGatewayForward(request, getAllowedPorts), request);
+  executeGatewayForwardPlan(
+    planGatewayForward(request, getAllowedPorts),
+    request,
+    gatewayForwardFetcher,
+  );
 
 /**
  * Forward a paired-gateway data-plane request
@@ -347,7 +326,11 @@ const forwardPairedGatewayRequest = async (
   request: GlobalRequest,
   getTargets: () => Map<string, string>,
 ): Promise<Response | null> =>
-  executeGatewayForwardPlan(planPairedGatewayForward(request, getTargets), request);
+  executeGatewayForwardPlan(
+    planPairedGatewayForward(request, getTargets),
+    request,
+    gatewayForwardFetcher,
+  );
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
