@@ -1,7 +1,8 @@
 /**
- * Tests for how the research runner opens its side conversation: the prompt is
- * posted hidden (see `lib/side-conversation-message.ts`), and a resumed run
- * re-posts only when the turn never started.
+ * Tests for how the research runner opens its side conversation: it is minted
+ * `background` so it never enters the foreground list, the prompt is posted
+ * hidden (see `lib/side-conversation-message.ts`), and a resumed run re-posts
+ * only when the turn never started.
  *
  * Hidden rows are filtered out of `/messages`, so "did the prompt land?" reads
  * the turn's own state (still processing, or rows already produced) instead of
@@ -25,7 +26,13 @@ interface PostCall {
   body: { conversationId: string; hidden?: boolean };
 }
 
+interface CreateCall {
+  path: { assistant_id: string };
+  body: { conversationType?: string; title?: string };
+}
+
 let postCalls: PostCall[] = [];
+let createCalls: CreateCall[] = [];
 let getCalls = 0;
 let listed: { processing?: boolean; messages: unknown[] } = { messages: [] };
 
@@ -37,7 +44,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   pluginsSearchGet: () => ok({ matches: [] }),
   pluginsInstallPost: () => ok({}),
   telemetryIngestPost: () => ok({}),
-  conversationsPost: () => ok({ id: "conv-fresh" }),
+  conversationsPost: (opts: CreateCall) => {
+    createCalls.push(opts);
+    return ok({ id: "conv-fresh" });
+  },
   conversationsByIdArchivePost: () => ok({}),
   messagesGet: () => {
     getCalls += 1;
@@ -71,6 +81,7 @@ function renderRunner() {
 
 afterEach(() => {
   postCalls = [];
+  createCalls = [];
   getCalls = 0;
   listed = { messages: [] };
 });
@@ -87,6 +98,31 @@ async function whenResumeDecided(): Promise<void> {
 }
 
 describe("research prompt send", () => {
+  test("mints the side conversation as background", async () => {
+    // The regression this guards: a `standard` row is visible until the
+    // end-of-run archive wins the race, so the user can land on a thread whose
+    // only rendered content is an assistant intro.
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+        conversationTitle: "Getting to know Alice",
+      });
+    });
+
+    await waitFor(() => {
+      expect(createCalls).toHaveLength(1);
+    });
+    expect(createCalls[0]?.body.conversationType).toBe("background");
+    expect(createCalls[0]?.body.title).toBe("Getting to know Alice");
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+
   test("posts the prompt as a hidden machine signal", async () => {
     const { result } = renderRunner();
 

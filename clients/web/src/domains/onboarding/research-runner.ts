@@ -621,10 +621,13 @@ export function useResearchRunner(): UseResearchRunner {
           const startFreshConversation = async (): Promise<
             string | undefined
           > => {
+            // `background` creates the row outside the daemon's default
+            // `standard` list, so it never appears in Recents and can never be
+            // selected as the landing conversation.
             const conversation = await conversationsPost({
               path: { assistant_id: assistantId },
               body: {
-                conversationType: "standard",
+                conversationType: "background",
                 ...(conversationTitle ? { title: conversationTitle } : {}),
               },
               throwOnError: false,
