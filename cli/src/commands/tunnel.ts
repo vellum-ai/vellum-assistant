@@ -4,7 +4,7 @@ import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
 import { getDefaultWorkspaceDir } from "../lib/ingress-config.js";
-import { ensureTunnelEdge } from "../lib/nginx-ingress.js";
+import { ensureTunnelEdge, formatEdgeMode } from "../lib/nginx-ingress.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
@@ -211,7 +211,7 @@ export async function tunnel(): Promise<void> {
 
   console.log(
     `${edge.started ? "Started" : "Reusing"} the nginx edge on 127.0.0.1:${edge.port} ` +
-      `(${edge.includesWebApp ? "serves remote web and webhooks" : "serves webhooks only"}).`,
+      `(serves ${formatEdgeMode(edge.includesWebApp)}).`,
   );
 
   const baseTunnelOpts = {

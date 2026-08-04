@@ -81,7 +81,6 @@ import {
   buildIngressNginxConfig,
   buildRemoteWebIndexHtml,
   ensureTunnelEdge,
-  resolveTunnelTargetPort,
   startRemoteWebIngress,
   stopIngressNginx,
 } from "../lib/nginx-ingress.js";
@@ -341,79 +340,6 @@ describe("nginx ingress process state", () => {
     const dir = join(workspaceDir, "data", "ingress");
     return `nginx: master process nginx -p ${dir} -c ${join(dir, "nginx.conf")} -g daemon off;`;
   }
-
-  /** A PID guaranteed dead: a short-lived child that has already exited. */
-  function deadPid(): number {
-    const result = childProcess.spawnSync("sh", ["-c", "exit 0"]);
-    if (!result.pid) throw new Error("failed to spawn probe process");
-    return result.pid;
-  }
-
-  test("falls back to the gateway port when no ingress state exists", () => {
-    const ws = makeWorkspace();
-    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
-      port: 7830,
-      viaIngress: false,
-    });
-  });
-
-  test("falls back when ingress state exists but the process is dead", () => {
-    const ws = makeWorkspace();
-    writeIngressState(ws, 7841);
-    writePidFile(ws, deadPid());
-    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
-      port: 7830,
-      viaIngress: false,
-    });
-  });
-
-  test("falls back when the recorded PID belongs to a non-nginx process", () => {
-    const ws = makeWorkspace();
-    writeIngressState(ws, 7841);
-    writePidFile(ws, process.pid);
-    execFileSyncMock.mockReturnValue("bun test");
-    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
-      port: 7830,
-      viaIngress: false,
-    });
-  });
-
-  test("falls back when the recorded PID belongs to another nginx instance", () => {
-    const ws = makeWorkspace();
-    writeIngressState(ws, 7841);
-    writePidFile(ws, process.pid);
-    execFileSyncMock.mockReturnValue(
-      "nginx: master process nginx -p /tmp/other-ingress -c /tmp/other-ingress/nginx.conf",
-    );
-    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
-      port: 7830,
-      viaIngress: false,
-    });
-  });
-
-  test("targets the ingress when state exists and the PID is this nginx", () => {
-    const ws = makeWorkspace();
-    writeIngressState(ws, 7841);
-    writePidFile(ws, process.pid);
-    execFileSyncMock.mockReturnValue(nginxCommand(ws));
-    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
-      port: 7841,
-      viaIngress: true,
-    });
-  });
-
-  test("falls back when nginx ingress is not preferred", () => {
-    const ws = makeWorkspace();
-    writeIngressState(ws, 7841);
-    writePidFile(ws, process.pid);
-    execFileSyncMock.mockReturnValue(nginxCommand(ws));
-    expect(
-      resolveTunnelTargetPort(ws, 7830, { preferNginxIngress: false }),
-    ).toEqual({
-      port: 7830,
-      viaIngress: false,
-    });
-  });
 
   test("clears ingress state after nginx is confirmed stopped", async () => {
     const ws = makeWorkspace();
@@ -1245,6 +1171,34 @@ describe("ensureTunnelEdge", () => {
       listenPort: REQUESTED_PORT,
       includeWebApp: false,
       gatewayPort: 7830,
+    });
+  });
+
+  test("forwards onStarting so callers can print progress", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    isFeatureFlagEnabledMock.mockImplementation(async () => false);
+    const onStarting = mock(
+      (_info: {
+        version: string;
+        webDistDir: string | null;
+        listenPort: number;
+      }) => {},
+    );
+
+    await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      onStarting,
+    });
+
+    expect(onStarting).toHaveBeenCalledWith({
+      version: NGINX_VERSION,
+      webDistDir: null,
+      listenPort: REQUESTED_PORT,
     });
   });
 

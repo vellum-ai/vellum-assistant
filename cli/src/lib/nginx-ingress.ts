@@ -16,7 +16,6 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-import { GATEWAY_PORT } from "./constants.js";
 import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
@@ -25,11 +24,11 @@ import { waitForDaemonReady } from "./http-client.js";
 import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
 
 /**
- * CLI-managed nginx reverse proxy that fronts the gateway for remote web
- * ingress: browser → tunnel (TLS) → nginx@127.0.0.1 → gateway@127.0.0.1.
+ * CLI-managed nginx reverse proxy that fronts the gateway as the canonical
+ * tunnel target: browser → tunnel (TLS) → nginx@127.0.0.1 → gateway@127.0.0.1.
  *
- * While this proxy is running, `vellum tunnel` targets nginx's loopback listen
- * port instead of the gateway port.
+ * `vellum tunnel` (and the wake restore path) bring this edge up via
+ * `ensureTunnelEdge` and always front its loopback listen port.
  */
 
 export const DEFAULT_NGINX_INGRESS_PORT = 7840;
@@ -413,7 +412,7 @@ export function isIngressRunning(workspaceDir: string): boolean {
   return getIngressPid(workspaceDir) !== null;
 }
 
-interface IngressState {
+export interface IngressState {
   listenPort: number;
   /** Edge mode: SPA + proxy (true) or webhooks-only proxy (false). */
   includeWebApp: boolean;
@@ -426,7 +425,7 @@ interface IngressState {
   gatewayPort?: number;
 }
 
-function readIngressState(workspaceDir: string): IngressState | null {
+export function readIngressState(workspaceDir: string): IngressState | null {
   const config = loadRawConfig(workspaceDir);
   const ingress = config.ingress as Record<string, unknown> | undefined;
   const nginx = ingress?.nginx as Record<string, unknown> | undefined;
@@ -588,10 +587,11 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 export const INGRESS_READY_TIMEOUT_MS = 5_000;
 
 /**
- * Outcome of an attempt to bring up the remote-web nginx ingress edge. Callers
- * render their own messaging per variant: `nginx-ingress up` prints
- * install/build guidance and exits non-zero, while the wake restore path warns
- * and continues.
+ * Outcome of an attempt to bring up the nginx ingress edge. Callers render
+ * their own messaging per variant: `ensureTunnelEdge` maps failure variants to
+ * thrown errors with actionable text, which `vellum tunnel` and
+ * `nginx-ingress up` print before exiting non-zero while the wake restore path
+ * warns and continues.
  */
 export type StartRemoteWebIngressResult =
   | {
@@ -618,8 +618,8 @@ export type StartRemoteWebIngressResult =
  * restarted with the requested config.
  *
  * Pure mechanism: it performs no console output and never exits the process, so
- * both the `nginx-ingress up` command and the wake restore path can share one
- * implementation and map the returned result to their own UX.
+ * every edge caller (`vellum tunnel`, `nginx-ingress up`, the wake restore
+ * path) can share one implementation and map the returned result to its own UX.
  */
 export async function startRemoteWebIngress(opts: {
   workspaceDir: string;
@@ -735,6 +735,11 @@ async function resolveEdgeIncludesWebApp(
   }
 }
 
+/** User-facing label for the edge mode, shared by every edge status line. */
+export function formatEdgeMode(includesWebApp: boolean): string {
+  return includesWebApp ? "remote web + webhooks" : "webhooks only";
+}
+
 /**
  * Bring up the nginx edge as the canonical tunnel target and return the listen
  * port a tunnel should front.
@@ -754,6 +759,12 @@ export async function ensureTunnelEdge(opts: {
   assistantId: string | undefined;
   workspaceDir: string;
   gatewayPort: number;
+  /** Forwarded to `startRemoteWebIngress` for caller progress output. */
+  onStarting?: (info: {
+    version: string;
+    webDistDir: string | null;
+    listenPort: number;
+  }) => void;
 }): Promise<{ port: number; started: boolean; includesWebApp: boolean }> {
   const includeWebApp = opts.assistantId
     ? await resolveEdgeIncludesWebApp(opts.assistantId, opts.gatewayPort)
@@ -763,6 +774,7 @@ export async function ensureTunnelEdge(opts: {
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
     includeWebApp,
+    ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
   });
 
   switch (result.status) {
@@ -824,25 +836,4 @@ export async function ensureTunnelEdge(opts: {
           `Check the nginx log: ${result.logPath}`,
       );
   }
-}
-
-/**
- * Resolve the local port a tunnel should target: the nginx ingress when it is
- * recorded AND its process is alive, otherwise the gateway port directly
- * (unchanged behavior when the proxy is not running).
- */
-export function resolveTunnelTargetPort(
-  workspaceDir: string,
-  gatewayPort: number = GATEWAY_PORT,
-  opts: { preferNginxIngress?: boolean } = {},
-): { port: number; viaIngress: boolean } {
-  if (opts.preferNginxIngress === false) {
-    return { port: gatewayPort, viaIngress: false };
-  }
-
-  const state = readIngressState(workspaceDir);
-  if (state && isIngressRunning(workspaceDir)) {
-    return { port: state.listenPort, viaIngress: true };
-  }
-  return { port: gatewayPort, viaIngress: false };
 }

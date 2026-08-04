@@ -38,7 +38,7 @@ import {
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
 import { loadRawConfig } from "../lib/ingress-config.js";
-import { ensureTunnelEdge } from "../lib/nginx-ingress.js";
+import { ensureTunnelEdge, formatEdgeMode } from "../lib/nginx-ingress.js";
 import type { ChildProcess } from "child_process";
 
 export async function wake(): Promise<void> {
@@ -518,9 +518,9 @@ export async function restoreTunnelEdgeAndAutoTunnel(
       });
       tunnelTargetPort = edge.port;
       console.log(
-        `   Tunnel edge ${edge.started ? "started" : "already running"} on 127.0.0.1:${edge.port} (${
-          edge.includesWebApp ? "remote web + webhooks" : "webhooks only"
-        }).`,
+        `   Tunnel edge ${edge.started ? "started" : "already running"} on 127.0.0.1:${edge.port} (${formatEdgeMode(
+          edge.includesWebApp,
+        )}).`,
       );
     } catch (err) {
       console.warn(
