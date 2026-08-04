@@ -26,6 +26,7 @@ import {
   resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
+  sanitizePairedForwardHeaders,
   type CliInvocation,
 } from "@vellumai/local-mode";
 
@@ -112,6 +113,46 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(accountSpaFallback(server));
     },
   };
+}
+
+function respondJson(
+  res: http.ServerResponse,
+  status: number,
+  body: unknown,
+): void {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * Buffer and parse a JSON request body. An empty body resolves to `{}` (the
+ * per-field validation reports what's missing); malformed JSON resolves to
+ * `null`.
+ */
+function readJsonBody(
+  req: http.IncomingMessage,
+): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(
+          JSON.parse(Buffer.concat(chunks).toString()) as Record<
+            string,
+            unknown
+          >,
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+  });
 }
 
 function rejectUnlessLocalEndpointRequest(
@@ -404,40 +445,23 @@ function retireMiddleware(
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-          };
-          assistantId = body.assistantId;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
       if (!isActiveAssistant(lockfilePaths, assistantId)) {
-        res.statusCode = 403;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: "Can only retire the active local assistant",
-          }),
-        );
+        respondJson(res, 403, {
+          ok: false,
+          error: "Can only retire the active local assistant",
+        });
         return;
       }
 
@@ -445,26 +469,20 @@ function retireMiddleware(
       try {
         invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
 
-      runRetire(invocation, assistantId, {
+      void runRetire(invocation, assistantId, {
         platformToken: getDevPlatformToken() ?? undefined,
       }).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok ? { ok: true } : { ok: false, error: result.error },
-          ),
+        respondJson(
+          res,
+          result.ok ? 200 : result.status,
+          result.ok ? { ok: true } : { ok: false, error: result.error },
         );
       });
     });
@@ -493,40 +511,25 @@ function unpairMiddleware(
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-          };
-          assistantId = body.assistantId;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
       const result = unpairAssistant(lockfilePaths, configDir, assistantId);
-      res.statusCode = result.ok ? 200 : result.status;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify(
-          result.ok
-            ? { ok: true, lockfile: result.lockfile }
-            : { ok: false, error: result.error },
-        ),
+      respondJson(
+        res,
+        result.ok ? 200 : result.status,
+        result.ok
+          ? { ok: true, lockfile: result.lockfile }
+          : { ok: false, error: result.error },
       );
     });
   };
@@ -551,28 +554,15 @@ function sleepMiddleware(baseDir: string): Connect.NextHandleFunction {
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-          };
-          assistantId = body.assistantId;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
@@ -580,24 +570,18 @@ function sleepMiddleware(baseDir: string): Connect.NextHandleFunction {
       try {
         invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
 
-      runSleep(invocation, assistantId).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok ? { ok: true } : { ok: false, error: result.error },
-          ),
+      void runSleep(invocation, assistantId).then((result) => {
+        respondJson(
+          res,
+          result.ok ? 200 : result.status,
+          result.ok ? { ok: true } : { ok: false, error: result.error },
         );
       });
     });
@@ -620,31 +604,16 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      let repairGuardian = false;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-            repairGuardian?: boolean;
-          };
-          assistantId = body.assistantId;
-          repairGuardian = body.repairGuardian === true;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      const repairGuardian = body.repairGuardian === true;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
@@ -652,26 +621,22 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
       try {
         invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
 
-      runWake(invocation, assistantId, { repairGuardian }).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
+      void runWake(invocation, assistantId, { repairGuardian }).then(
+        (result) => {
+          respondJson(
+            res,
+            result.ok ? 200 : result.status,
             result.ok ? { ok: true } : { ok: false, error: result.error },
-          ),
-        );
-      });
+          );
+        },
+      );
     });
   };
 }
@@ -924,8 +889,9 @@ function gatewayProxyMiddleware(
 // Paired-gateway data plane (`/__gateway-paired/{assistantId}/*`): same
 // posture as the loopback gateway proxy above, but the target is the remote
 // gateway an imported pairing recorded as its `runtimeUrl`. The lockfile's
-// paired entries are the allowlist. The `Origin` header is removed entirely on
-// this server-to-server hop; the guardian `Authorization` bearer passes
+// paired entries are the allowlist. Browser-ambient headers (`Origin`,
+// `Referer`, `Cookie`, `Sec-Fetch-*`) are stripped on this server-to-server
+// hop via the shared sanitizer; the guardian `Authorization` bearer passes
 // through untouched for the remote gateway to validate.
 function pairedGatewayProxyMiddleware(
   lockfilePaths: string[],
@@ -942,15 +908,28 @@ function pairedGatewayProxyMiddleware(
       return;
     }
 
-    if (decision.kind === "unknown-assistant") {
-      res.statusCode = 403;
-      res.end("Assistant is not paired in lockfile");
+    if (decision.kind === "reject") {
+      res.statusCode = decision.status;
+      res.end(decision.message);
       return;
     }
 
     const target = new URL(decision.url);
-    const requestHeaders = { ...req.headers, host: target.host };
-    delete requestHeaders.origin;
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value === undefined) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          headers.append(name, item);
+        }
+      } else {
+        headers.set(name, value);
+      }
+    }
+    sanitizePairedForwardHeaders(headers);
+    headers.set("host", target.host);
     pipeGatewayProxy(
       req,
       res,
@@ -961,7 +940,7 @@ function pairedGatewayProxyMiddleware(
         port: target.port || undefined,
         path: target.pathname + target.search,
         method: req.method,
-        headers: requestHeaders,
+        headers: Object.fromEntries(headers.entries()),
       },
       "Paired gateway proxy error",
     );

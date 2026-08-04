@@ -77,6 +77,23 @@ export function resolveCloud(raw: {
 }
 
 /**
+ * Whether an entry's `runtimeUrl` is one a serving host can forward to: an
+ * absolute http(s) URL. Shared by the renderer's paired-gateway URL derivation
+ * and the host-side paired allowlist reader so the two can't drift.
+ */
+export function isUsableRuntimeUrl(url: unknown): boolean {
+  if (typeof url !== "string" || url === "") {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Per-instance resources for a local assistant: the renderer-facing subset of
  * ports, the instance directory, and the local runtime install metadata.
  * Richer host-only fields (other ports, the signing key) live on the CLI's

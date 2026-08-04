@@ -9,7 +9,14 @@ import {
   readPairedGatewayTargets,
   resolveGatewayProxyTarget,
   resolvePairedGatewayProxyTarget,
+  sanitizePairedForwardHeaders,
 } from "../gateway-proxy";
+
+const pairedRejection = {
+  kind: "reject",
+  status: 403,
+  message: "Assistant is not paired in lockfile",
+} as const;
 
 const allow =
   (...ports: number[]) =>
@@ -132,14 +139,14 @@ describe("parsePairedGatewayUrl", () => {
     expect(parsePairedGatewayUrl("/__gateway-paired/abc/v1/foo")).toEqual({
       match: true,
       valid: true,
-      target: { assistantId: "abc", path: "/v1/foo" },
+      target: { assistantId: "abc", path: "/v1/foo", search: "" },
     });
     expect(
       parsePairedGatewayUrl("/assistant/__gateway-paired/abc/v1/foo"),
     ).toEqual({
       match: true,
       valid: true,
-      target: { assistantId: "abc", path: "/v1/foo" },
+      target: { assistantId: "abc", path: "/v1/foo", search: "" },
     });
   });
 
@@ -147,7 +154,28 @@ describe("parsePairedGatewayUrl", () => {
     expect(parsePairedGatewayUrl("/__gateway-paired/abc")).toEqual({
       match: true,
       valid: true,
-      target: { assistantId: "abc", path: "/" },
+      target: { assistantId: "abc", path: "/", search: "" },
+    });
+  });
+
+  test("splits the query off the id instead of swallowing it", () => {
+    expect(parsePairedGatewayUrl("/__gateway-paired/abc?x=1")).toEqual({
+      match: true,
+      valid: true,
+      target: { assistantId: "abc", path: "/", search: "?x=1" },
+    });
+  });
+
+  test("carries the query through on a pathful tail and drops a fragment", () => {
+    expect(parsePairedGatewayUrl("/__gateway-paired/abc/v1/foo?x=1#frag")).toEqual({
+      match: true,
+      valid: true,
+      target: { assistantId: "abc", path: "/v1/foo", search: "?x=1" },
+    });
+    expect(parsePairedGatewayUrl("/__gateway-paired/abc/v1#frag")).toEqual({
+      match: true,
+      valid: true,
+      target: { assistantId: "abc", path: "/v1", search: "" },
     });
   });
 
@@ -155,7 +183,7 @@ describe("parsePairedGatewayUrl", () => {
     expect(parsePairedGatewayUrl("/__gateway-paired/a%20b/v1")).toEqual({
       match: true,
       valid: true,
-      target: { assistantId: "a b", path: "/v1" },
+      target: { assistantId: "a b", path: "/v1", search: "" },
     });
   });
 
@@ -164,6 +192,33 @@ describe("parsePairedGatewayUrl", () => {
       match: true,
       valid: false,
     });
+  });
+
+  test("rejects dot segments in the tail, raw or percent-encoded", () => {
+    for (const url of [
+      "/__gateway-paired/abc/../secrets",
+      "/__gateway-paired/abc/v1/../../secrets",
+      "/__gateway-paired/abc/./v1",
+      "/__gateway-paired/abc/%2e%2e/secrets",
+      "/__gateway-paired/abc/%2E%2E/secrets",
+      "/__gateway-paired/abc/%2e/v1",
+      "/__gateway-paired/abc/v1/%zz",
+    ]) {
+      expect(parsePairedGatewayUrl(url)).toEqual({
+        match: true,
+        valid: false,
+      });
+    }
+  });
+
+  test("does not treat dot-containing filenames as traversal", () => {
+    expect(parsePairedGatewayUrl("/__gateway-paired/abc/v1/file.json")).toEqual(
+      {
+        match: true,
+        valid: true,
+        target: { assistantId: "abc", path: "/v1/file.json", search: "" },
+      },
+    );
   });
 
   test("does not match non-paired pathnames", () => {
@@ -191,6 +246,30 @@ describe("resolvePairedGatewayProxyTarget", () => {
         pair({ abc: "https://gw.example.com" }),
       ),
     ).toEqual({ kind: "forward", url: "https://gw.example.com/v1/foo?x=1" });
+  });
+
+  test("forwards a query on a pathless tail instead of treating it as part of the id", () => {
+    expect(
+      resolvePairedGatewayProxyTarget(
+        "/__gateway-paired/abc?x=1",
+        pair({ abc: "https://gw.example.com" }),
+      ),
+    ).toEqual({ kind: "forward", url: "https://gw.example.com/?x=1" });
+  });
+
+  test("rejects a dot-segment traversal tail", () => {
+    expect(
+      resolvePairedGatewayProxyTarget(
+        "/__gateway-paired/abc/../../secrets",
+        pair({ abc: "https://gw.example.com/edge" }),
+      ),
+    ).toEqual(pairedRejection);
+    expect(
+      resolvePairedGatewayProxyTarget(
+        "/__gateway-paired/abc/%2e%2e/secrets",
+        pair({ abc: "https://gw.example.com/edge" }),
+      ),
+    ).toEqual(pairedRejection);
   });
 
   test("strips the runtimeUrl's trailing slashes and keeps its path prefix", () => {
@@ -223,7 +302,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
         "/__gateway-paired/unknown/v1",
         pair({ abc: "https://gw.example.com" }),
       ),
-    ).toEqual({ kind: "unknown-assistant" });
+    ).toEqual(pairedRejection);
   });
 
   test("rejects a malformed percent-encoded id", () => {
@@ -232,7 +311,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
         "/__gateway-paired/%zz/v1",
         pair({ "%zz": "https://gw.example.com" }),
       ),
-    ).toEqual({ kind: "unknown-assistant" });
+    ).toEqual(pairedRejection);
   });
 
   test("never reads the allowlist for non-paired paths", () => {
@@ -329,5 +408,63 @@ describe("readPairedGatewayTargets", () => {
     expect(
       readPairedGatewayTargets(["/nonexistent/assistants.json"]),
     ).toEqual(new Map());
+  });
+
+  test("stops at the first parseable lockfile even when it yields no targets", () => {
+    // The unpair write path targets the first lockfile path
+    // (writeRawLockfile), so the allowlist must not fall through to a stale
+    // legacy file just because the written file has no paired entries left.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "paired-gateway-test-"));
+    const primary = path.join(dir, "assistants.json");
+    const legacy = path.join(dir, "legacy-assistants.json");
+    try {
+      fs.writeFileSync(primary, JSON.stringify({ assistants: [] }));
+      fs.writeFileSync(
+        legacy,
+        JSON.stringify({
+          assistants: [
+            {
+              assistantId: "paired-a",
+              cloud: "paired",
+              runtimeUrl: "https://gw.example.com",
+            },
+          ],
+        }),
+      );
+      expect(readPairedGatewayTargets([primary, legacy])).toEqual(new Map());
+      // A missing primary still falls through to the legacy file.
+      fs.rmSync(primary);
+      expect(readPairedGatewayTargets([primary, legacy])).toEqual(
+        new Map([["paired-a", "https://gw.example.com"]]),
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sanitizePairedForwardHeaders", () => {
+  test("strips Origin, Referer, Cookie, and Sec-Fetch-* but keeps the bearer", () => {
+    const headers = new Headers({
+      origin: "http://localhost:5173",
+      referer: "http://localhost:5173/assistant",
+      cookie: "sessionid=abc",
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-dest": "empty",
+      authorization: "Bearer guardian-token",
+      accept: "text/event-stream",
+      "content-type": "application/json",
+    });
+    sanitizePairedForwardHeaders(headers);
+    expect(headers.has("origin")).toBe(false);
+    expect(headers.has("referer")).toBe(false);
+    expect(headers.has("cookie")).toBe(false);
+    expect(headers.has("sec-fetch-site")).toBe(false);
+    expect(headers.has("sec-fetch-mode")).toBe(false);
+    expect(headers.has("sec-fetch-dest")).toBe(false);
+    expect(headers.get("authorization")).toBe("Bearer guardian-token");
+    expect(headers.get("accept")).toBe("text/event-stream");
+    expect(headers.get("content-type")).toBe("application/json");
   });
 });

@@ -1,3 +1,5 @@
+import { isUsableRuntimeUrl } from "@vellumai/local-mode/contract";
+
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   clearSelectedAssistantId,
@@ -669,24 +671,8 @@ function expectsPairedGateway(assistant: LockfileAssistant): boolean {
 }
 
 /** Same-origin proxy path for a paired assistant's remote gateway. */
-export function pairedGatewayProxyUrl(assistantId: string): string {
+function pairedGatewayProxyUrl(assistantId: string): string {
   return `/assistant/__gateway-paired/${encodeURIComponent(assistantId)}`;
-}
-
-/**
- * Whether a paired entry records a `runtimeUrl` the serving host can forward
- * to: an absolute http(s) URL.
- */
-function hasUsablePairedRuntimeUrl(assistant: LockfileAssistant): boolean {
-  if (!assistant.runtimeUrl) {
-    return false;
-  }
-  try {
-    const url = new URL(assistant.runtimeUrl);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -708,7 +694,7 @@ export function getPairedGatewayUrl(
   if (!assistant || !expectsPairedGateway(assistant)) {
     return undefined;
   }
-  if (!hasUsablePairedRuntimeUrl(assistant)) {
+  if (!isUsableRuntimeUrl(assistant.runtimeUrl)) {
     return undefined;
   }
   return pairedGatewayProxyUrl(assistant.assistantId);
@@ -720,7 +706,7 @@ export function getPairedGatewayUrl(
  * gateway proxy for paired entries, `undefined` otherwise.
  */
 export function getAuthGatewayIngressUrl(
-  assistant: LockfileAssistant | undefined = getSelectedAssistant(),
+  assistant: LockfileAssistant | undefined,
 ): string | undefined {
   const base = getLocalGatewayUrl(assistant) ?? getPairedGatewayUrl(assistant);
   if (!base) {
