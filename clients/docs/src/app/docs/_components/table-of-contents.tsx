@@ -228,14 +228,16 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
         </div>
       </div>
       <style>{`
-        .docs-toc-peek {
-          transition: transform 200ms ease;
-        }
-        .docs-toc-peek-wrapper:hover .docs-toc-peek {
-          transform: translateY(-6px) rotate(-3deg);
-        }
-        .docs-toc-peek-wrapper:hover .docs-toc-peek-bubble {
-          transform: translateY(-2px);
+        @media (prefers-reduced-motion: no-preference) {
+          .docs-toc-peek {
+            transition: transform 200ms ease;
+          }
+          .docs-toc-peek-wrapper:hover .docs-toc-peek {
+            transform: translateY(-6px) rotate(-3deg);
+          }
+          .docs-toc-peek-wrapper:hover .docs-toc-peek-bubble {
+            transform: translateY(-2px);
+          }
         }
       `}</style>
     </div>

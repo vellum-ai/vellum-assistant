@@ -187,7 +187,12 @@ export function PeekCharacter({ size }: { size: number }) {
       height={size}
       viewBox={`0 0 ${size} ${size}`}
       className="docs-peek-character"
-      style={{ transformOrigin: "center" }}
+      style={{
+        transformOrigin: "center",
+        // The body reaches the viewBox edges, so the idle twitch rotation
+        // draws past them and would otherwise be clipped flat.
+        overflow: "visible",
+      }}
     >
       <g
         style={{
