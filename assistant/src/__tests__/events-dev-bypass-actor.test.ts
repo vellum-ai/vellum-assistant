@@ -22,6 +22,9 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 
 let fakeHttpAuthDisabled = false;
 let fakeGuardianPrincipalId: string | undefined = undefined;
+// Set when the IO-free cache snapshot is cold but the async (gateway-backed)
+// lookup would still resolve — the state the registration backfill repairs.
+let fakeAsyncGuardianPrincipalId: string | undefined = undefined;
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => fakeHttpAuthDisabled,
@@ -37,6 +40,14 @@ mock.module("../runtime/local-actor-identity.js", () => ({
       return rawHeader;
     }
     return fakeGuardianPrincipalId;
+  },
+  resolveActorPrincipalIdForLocalGuardian: async (
+    rawHeader: string | undefined,
+  ) => {
+    if (rawHeader !== "dev-bypass" || !fakeHttpAuthDisabled) {
+      return rawHeader;
+    }
+    return fakeAsyncGuardianPrincipalId;
   },
 }));
 
@@ -81,6 +92,7 @@ describe("events SSE registration — dev-bypass actor translation", () => {
   test("registers without principalId when dev-bypass is set but no guardian is bound", () => {
     fakeHttpAuthDisabled = true;
     fakeGuardianPrincipalId = undefined;
+    fakeAsyncGuardianPrincipalId = undefined;
 
     const ac = new AbortController();
     const hub = new AssistantEventHub();
@@ -157,6 +169,77 @@ describe("events SSE registration — dev-bypass actor translation", () => {
 
     const entry = hub.getClientById("service-client-004");
     expect(entry?.actorPrincipalId).toBe("service-account-A");
+
+    ac.abort();
+  });
+
+  test("backfills the principal when the sync cache was cold but the async lookup resolves", async () => {
+    // A client that connects before the guardian-delivery cache is warm
+    // registers with no principal at all. Host proxies fail closed on a
+    // missing target principal, so the desktop shows up in `clients list`
+    // while host_bash and computer use both refuse it — for the whole life
+    // of the connection, since nothing re-runs the resolution. The handler
+    // retries asynchronously and fills the gap in place.
+    fakeHttpAuthDisabled = true;
+    fakeGuardianPrincipalId = undefined;
+    fakeAsyncGuardianPrincipalId = "guardian-real-id";
+
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "cold-cache-client-005",
+          "x-vellum-interface-id": "macos",
+          "x-vellum-actor-principal-id": "dev-bypass",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    expect(
+      hub.getActorPrincipalIdForClient("cold-cache-client-005"),
+    ).toBeUndefined();
+
+    // Let the async lookup settle.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hub.getActorPrincipalIdForClient("cold-cache-client-005")).toBe(
+      "guardian-real-id",
+    );
+
+    ac.abort();
+  });
+
+  test("backfill never reassigns a principal the client already registered with", async () => {
+    fakeHttpAuthDisabled = true;
+    fakeGuardianPrincipalId = "guardian-real-id";
+    fakeAsyncGuardianPrincipalId = "some-other-principal";
+
+    const ac = new AbortController();
+    const hub = new AssistantEventHub();
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "warm-cache-client-006",
+          "x-vellum-interface-id": "macos",
+          "x-vellum-actor-principal-id": "dev-bypass",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hub.getActorPrincipalIdForClient("warm-cache-client-006")).toBe(
+      "guardian-real-id",
+    );
 
     ac.abort();
   });

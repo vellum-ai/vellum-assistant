@@ -1416,9 +1416,7 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("signed in as a different user");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -1444,9 +1442,7 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("no authenticated actor");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -1473,7 +1469,7 @@ describe("HostCuProxy", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
+        "registered without an authenticated user",
       );
       expect(sentMessages).toHaveLength(0);
     });

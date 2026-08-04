@@ -4,7 +4,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
-import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
+import {
+  getEffectiveEnabledPluginSet,
+  resolveTurnActorPrincipalId,
+} from "./conversation-tool-setup.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const DEFAULT_NAMES = getAllDefaultPlugins().map((p) => p.manifest.name);
 
@@ -91,5 +95,69 @@ describe("getEffectiveEnabledPluginSet", () => {
       });
       expect(set?.has("default-memory")).toBe(true);
     });
+  });
+});
+
+describe("resolveTurnActorPrincipalId", () => {
+  // The principal this returns is what host proxies compare against the
+  // principal a desktop client registered with. Reading the trust context's
+  // guardian principal instead made every turn whose trust resolution
+  // degraded look like a cross-user attempt.
+  const guardianTrust: Pick<TrustContext, "guardianPrincipalId"> = {
+    guardianPrincipalId: "guardian-1",
+  };
+  const noGuardianTrust: Pick<TrustContext, "guardianPrincipalId"> = {};
+
+  test("prefers the turn's actor principal", () => {
+    expect(
+      resolveTurnActorPrincipalId(
+        {
+          currentTurnSourceActorPrincipalId: "actor-1",
+          currentTurnAuthContext: {
+            actorPrincipalId: "actor-2",
+          } as never,
+        },
+        guardianTrust,
+      ),
+    ).toBe("actor-1");
+  });
+
+  test("falls back through the turn and resting auth contexts", () => {
+    expect(
+      resolveTurnActorPrincipalId(
+        { currentTurnAuthContext: { actorPrincipalId: "actor-2" } as never },
+        guardianTrust,
+      ),
+    ).toBe("actor-2");
+    expect(
+      resolveTurnActorPrincipalId(
+        { authContext: { actorPrincipalId: "actor-3" } as never },
+        guardianTrust,
+      ),
+    ).toBe("actor-3");
+  });
+
+  test("keeps the guardian principal as the last fallback", () => {
+    // Channel turns carry a channel identity as the actor and the guardian
+    // principal is what the desktop registered with, so they must keep
+    // resolving through the trust context.
+    expect(resolveTurnActorPrincipalId({}, guardianTrust)).toBe("guardian-1");
+  });
+
+  test("returns the actor even when trust resolved without a guardian principal", () => {
+    // The regression: a service-principal turn (bare guardian trust, no
+    // principal) or degraded trust resolution used to submit no principal at
+    // all, so the same-actor gate rejected on missing_source and host_bash
+    // reported an actor mismatch on a single-user desktop.
+    expect(
+      resolveTurnActorPrincipalId(
+        { currentTurnSourceActorPrincipalId: "actor-1" },
+        noGuardianTrust,
+      ),
+    ).toBe("actor-1");
+  });
+
+  test("returns undefined when no identity is known at all", () => {
+    expect(resolveTurnActorPrincipalId({}, noGuardianTrust)).toBeUndefined();
   });
 });

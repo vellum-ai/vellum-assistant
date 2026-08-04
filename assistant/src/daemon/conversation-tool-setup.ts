@@ -80,6 +80,7 @@ import {
 } from "./doordash-steps.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-tool-setup");
 
@@ -220,6 +221,47 @@ export function isRefusedInReadOnlyPass(
   return !(READ_ONLY_ALLOWED_TOOLS.has(name) && ownerKind === "default");
 }
 
+// ── resolveTurnActorPrincipalId ──────────────────────────────────────
+
+/**
+ * The actor principal that owns the current turn, for host-proxy routing.
+ *
+ * This is the value host proxies compare against the principal a desktop
+ * client registered with when it opened its SSE stream — so it must be the
+ * turn's *actor*, resolved exactly as `Conversation.getTurnActorPrincipalId`
+ * and the CU dispatch path in `conversation-surfaces.ts` resolve it. The
+ * trust context's `guardianPrincipalId` is a different thing: it is populated
+ * only once trust resolution has matched the actor to a vellum guardian
+ * binding, and it stays undefined whenever that resolution degrades (an
+ * unreachable gateway, binding drift after a DB reset) or the turn arrives
+ * with no actor at all (service principals, which are given a bare guardian
+ * trust context carrying no principal).
+ *
+ * Reading the guardian principal here made those cases indistinguishable from
+ * a genuine cross-user attempt: the tool submitted no source principal, the
+ * same-actor gate rejected on `missing_source`, and `host_bash` told a
+ * single-user desktop that the submitting actor did not match its own
+ * client's actor. Guardian principal remains the last fallback so channel
+ * turns — where the actor is a channel identity and the guardian principal is
+ * what the desktop registered with — keep resolving as they did.
+ */
+export function resolveTurnActorPrincipalId(
+  ctx: Pick<
+    ToolSetupContext,
+    | "currentTurnSourceActorPrincipalId"
+    | "currentTurnAuthContext"
+    | "authContext"
+  >,
+  turnTrust: Pick<TrustContext, "guardianPrincipalId">,
+): string | undefined {
+  return (
+    ctx.currentTurnSourceActorPrincipalId ??
+    ctx.currentTurnAuthContext?.actorPrincipalId ??
+    ctx.authContext?.actorPrincipalId ??
+    turnTrust.guardianPrincipalId
+  );
+}
+
 // ── createToolExecutor ───────────────────────────────────────────────
 
 /**
@@ -357,7 +399,7 @@ export function createToolExecutor(
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
       requestOrigin: ctx.currentTurnRequestOrigin,
-      sourceActorPrincipalId: turnTrust.guardianPrincipalId,
+      sourceActorPrincipalId: resolveTurnActorPrincipalId(ctx, turnTrust),
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
