@@ -61,6 +61,33 @@ async function queryNgrokTunnels(): Promise<NgrokTunnel[] | null> {
   }
 }
 
+/** Whether a tunnel targets the given local port, under any addr spelling. */
+function tunnelTargetsPort(tunnel: NgrokTunnel, targetPort: number): boolean {
+  const targetAddrs = [
+    `localhost:${targetPort}`,
+    `127.0.0.1:${targetPort}`,
+    `http://localhost:${targetPort}`,
+    `http://127.0.0.1:${targetPort}`,
+  ];
+  return targetAddrs.includes(tunnel.config?.addr ?? "");
+}
+
+/** Pick the tunnel for the target port (and domain, when set), HTTPS first. */
+function pickMatchingTunnel(
+  tunnels: NgrokTunnel[],
+  targetPort: number,
+  domain?: string,
+): string | null {
+  const matches = tunnels.filter(
+    (t) =>
+      tunnelTargetsPort(t, targetPort) &&
+      (!domain || urlMatchesDomain(t.public_url, domain)),
+  );
+  const httpsTunnel = matches.find((t) => t.public_url.startsWith("https://"));
+  if (httpsTunnel) return httpsTunnel.public_url;
+  return matches.find((t) => t.public_url)?.public_url ?? null;
+}
+
 /**
  * Find an existing ngrok tunnel that targets the given local address.
  * Returns the HTTPS public URL if found, null otherwise.
@@ -70,31 +97,7 @@ export async function findExistingTunnel(
 ): Promise<string | null> {
   const tunnels = await queryNgrokTunnels();
   if (!tunnels || tunnels.length === 0) return null;
-
-  const targetAddrs = [
-    `localhost:${targetPort}`,
-    `127.0.0.1:${targetPort}`,
-    `http://localhost:${targetPort}`,
-    `http://127.0.0.1:${targetPort}`,
-  ];
-
-  // Prefer HTTPS tunnel
-  for (const t of tunnels) {
-    const addr = t.config?.addr ?? "";
-    if (targetAddrs.includes(addr) && t.public_url.startsWith("https://")) {
-      return t.public_url;
-    }
-  }
-
-  // Fall back to any tunnel pointing at the target
-  for (const t of tunnels) {
-    const addr = t.config?.addr ?? "";
-    if (targetAddrs.includes(addr) && t.public_url) {
-      return t.public_url;
-    }
-  }
-
-  return null;
+  return pickMatchingTunnel(tunnels, targetPort);
 }
 
 /** Whether a tunnel public URL's host equals the given reserved domain. */
@@ -156,22 +159,21 @@ export function startNgrokProcess(
 }
 
 /**
- * Poll the ngrok local API until an HTTPS tunnel URL appears.
+ * Poll the ngrok local API until a tunnel appears for the target port (and
+ * reserved domain, when one is requested), preferring HTTPS.
  * Returns the public URL, or throws if the timeout is exceeded.
  */
 export async function waitForNgrokUrl(
+  targetPort: number,
+  domain?: string,
   timeoutMs: number = NGROK_POLL_TIMEOUT_MS,
 ): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const tunnels = await queryNgrokTunnels();
     if (tunnels && tunnels.length > 0) {
-      // Prefer HTTPS
-      const httpsTunnel = tunnels.find((t) =>
-        t.public_url.startsWith("https://"),
-      );
-      if (httpsTunnel) return httpsTunnel.public_url;
-      if (tunnels[0]?.public_url) return tunnels[0].public_url;
+      const url = pickMatchingTunnel(tunnels, targetPort, domain);
+      if (url) return url;
     }
     await new Promise((r) => setTimeout(r, NGROK_POLL_INTERVAL_MS));
   }
@@ -243,12 +245,13 @@ export async function maybeStartNgrokTunnel(
   const existingUrl = await findExistingTunnel(targetPort);
   if (existingUrl) {
     if (savedDomain && !urlMatchesDomain(existingUrl, savedDomain)) {
-      // Spawning a second agent with --domain would not help: the local API
-      // polling would still surface the old tunnel. Adopt the working tunnel
-      // so webhooks keep flowing, but make the mismatch visible.
+      // Spawning a second agent would collide (ERR_NGROK_334), and saving the
+      // mismatched URL would clobber the reserved-domain intent. Leave the
+      // tunnel running but refuse to bless it in config.
       console.warn(
-        `   ⚠ Existing ngrok tunnel ${existingUrl} does not match the reserved domain '${savedDomain}'. Using it anyway — stop the running ngrok agent and run \`vellum tunnel --provider ngrok --domain ${savedDomain}\` to bind the reserved domain.`,
+        `   ⚠ Existing ngrok tunnel ${existingUrl} does not match the reserved domain '${savedDomain}'. Ignoring it. Stop the running ngrok agent and run \`vellum tunnel --provider ngrok --domain ${savedDomain}\` to bind the reserved domain.`,
       );
+      return null;
     }
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl);
@@ -268,7 +271,7 @@ export async function maybeStartNgrokTunnel(
   ngrokProcess.unref();
 
   try {
-    const publicUrl = await waitForNgrokUrl();
+    const publicUrl = await waitForNgrokUrl(targetPort, savedDomain);
     saveIngressUrl(workspaceDir, publicUrl);
     console.log(`   Tunnel established: ${publicUrl}`);
 
@@ -291,7 +294,10 @@ export interface RunNgrokTunnelOptions {
   preferNginxIngress?: boolean;
   /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
   assistantId?: string;
-  /** Reserved ngrok domain to bind. Persisted so wake restores reuse it. */
+  /**
+   * Reserved ngrok domain to bind. Persisted so wake restores reuse it.
+   * When omitted, a previously saved domain is reused without being rewritten.
+   */
   domain?: string;
 }
 
@@ -332,12 +338,19 @@ export async function runNgrokTunnel(
     );
   }
 
+  // The saved domain is standing intent: a run without --domain reuses it,
+  // and only an explicit --domain rewrites it.
+  const domain = opts.domain ?? loadNgrokDomain(workspaceDir) ?? undefined;
+  if (domain && !opts.domain) {
+    console.log(`Using saved ngrok domain: ${domain}`);
+  }
+
   // Check for an existing ngrok tunnel pointing at the gateway
   const existingUrl = await findExistingTunnel(port);
   if (existingUrl) {
-    if (opts.domain && !urlMatchesDomain(existingUrl, opts.domain)) {
+    if (domain && !urlMatchesDomain(existingUrl, domain)) {
       console.error(
-        `Error: an ngrok tunnel is already running on port ${port} at ${existingUrl}, which does not match the requested domain '${opts.domain}'.`,
+        `Error: an ngrok tunnel is already running on port ${port} at ${existingUrl}, which does not match the ${opts.domain ? "requested" : "saved"} domain '${domain}'.`,
       );
       console.error(
         "Stop the existing ngrok agent first, then re-run this command to bind the reserved domain.",
@@ -346,7 +359,9 @@ export async function runNgrokTunnel(
     }
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
-    saveNgrokDomain(workspaceDir, opts.domain ?? null);
+    if (opts.domain) {
+      saveNgrokDomain(workspaceDir, opts.domain);
+    }
     console.log("Ingress URL saved to config.");
     console.log("");
     console.log(
@@ -365,7 +380,7 @@ export async function runNgrokTunnel(
 
   let publicUrl: string | undefined;
 
-  const ngrokProcess = startNgrokProcess(port, undefined, opts.domain);
+  const ngrokProcess = startNgrokProcess(port, undefined, domain);
 
   const cleanup = () => {
     if (!ngrokProcess.killed) {
@@ -412,7 +427,7 @@ export async function runNgrokTunnel(
   });
 
   try {
-    publicUrl = await waitForNgrokUrl();
+    publicUrl = await waitForNgrokUrl(port, domain);
   } catch (err) {
     cleanup();
     throw err;
@@ -425,7 +440,9 @@ export async function runNgrokTunnel(
   // The domain is standing intent, not tunnel state: cleanup clears the
   // ingress URL but leaves the domain saved for wake/daemon restores.
   saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
-  saveNgrokDomain(workspaceDir, opts.domain ?? null);
+  if (opts.domain) {
+    saveNgrokDomain(workspaceDir, opts.domain);
+  }
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");

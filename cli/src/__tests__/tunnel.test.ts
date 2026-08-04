@@ -334,21 +334,7 @@ describe("ngrok --domain spawn args", () => {
     spawnMock.mockClear();
     lastChild = null;
     delete process.env.IS_CONTAINERIZED;
-    // ngrok local API stub: one tunnel on an unrelated port, so
-    // findExistingTunnel adopts nothing while waitForNgrokUrl immediately
-    // sees an HTTPS URL for the freshly spawned process.
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          tunnels: [
-            {
-              public_url: "https://foo.ngrok.app",
-              config: { addr: "localhost:65500" },
-            },
-          ],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )) as unknown as typeof globalThis.fetch;
+    mockNgrokApiFetch([{ tunnels: [] }]);
   });
 
   afterEach(() => {
@@ -370,8 +356,45 @@ describe("ngrok --domain spawn args", () => {
     return ws;
   }
 
+  interface StubTunnel {
+    public_url: string;
+    config: { addr: string };
+  }
+
+  /** ngrok local API stub replaying one response per call, last one repeated. */
+  function mockNgrokApiFetch(responses: { tunnels: StubTunnel[] }[]): void {
+    let call = 0;
+    globalThis.fetch = (async () => {
+      const body = responses[Math.min(call, responses.length - 1)];
+      call++;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  const unrelatedPortTunnel: StubTunnel = {
+    public_url: "https://unrelated.ngrok.app",
+    config: { addr: "localhost:65500" },
+  };
+
   test("runNgrokTunnel spawns ngrok with --domain and persists the domain", async () => {
     const ws = makeWorkspace({});
+    // The unrelated-port tunnel is listed first both before and after the
+    // spawn; only the tunnel matching the target port and domain may be saved.
+    mockNgrokApiFetch([
+      { tunnels: [unrelatedPortTunnel] },
+      {
+        tunnels: [
+          unrelatedPortTunnel,
+          {
+            public_url: "https://foo.ngrok.app",
+            config: { addr: "localhost:7831" },
+          },
+        ],
+      },
+    ]);
 
     const run = realNgrok.runNgrokTunnel({
       port: 7831,
@@ -472,7 +495,7 @@ describe("ngrok --domain spawn args", () => {
     });
     // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
     // listener is registered and the promise settles. Earlier tests leak
-    // SIGINT handlers that call process.exit — no-op it while pumping.
+    // SIGINT handlers that call process.exit, so no-op it while pumping.
     const exitSpy = spyOn(process, "exit").mockImplementation((() =>
       undefined) as never);
     const pump = setInterval(() => process.emit("SIGINT"), 10);
@@ -491,7 +514,7 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
   });
 
-  test("maybeStartNgrokTunnel warns and adopts a mismatched existing tunnel without spawning", async () => {
+  test("maybeStartNgrokTunnel rejects a mismatched existing tunnel without adopting or spawning", async () => {
     const ws = makeWorkspace({
       telegram: { botUsername: "example_bot" },
       ingress: { ngrok: { domain: "foo.ngrok.app" } },
@@ -514,15 +537,20 @@ describe("ngrok --domain spawn args", () => {
 
     expect(child).toBeNull();
     expect(spawnMock).not.toHaveBeenCalled();
-    expect(warnings.join("\n")).toContain(
+    const combined = warnings.join("\n");
+    expect(combined).toContain("https://other.ngrok-free.app");
+    expect(combined).toContain(
       "does not match the reserved domain 'foo.ngrok.app'",
+    );
+    expect(combined).toContain(
+      "vellum tunnel --provider ngrok --domain foo.ngrok.app",
     );
 
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),
     ) as { ingress: { publicBaseUrl?: string; ngrok?: { domain?: string } } };
-    // The working tunnel is still adopted so webhooks keep flowing…
-    expect(config.ingress.publicBaseUrl).toBe("https://other.ngrok-free.app");
+    // The mismatched tunnel is not blessed in config…
+    expect(config.ingress.publicBaseUrl).toBeUndefined();
     // …and the reserved domain stays saved as standing intent.
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
   });
@@ -532,6 +560,18 @@ describe("ngrok --domain spawn args", () => {
       telegram: { botUsername: "example_bot" },
       ingress: { ngrok: { domain: "foo.ngrok.app" } },
     });
+    mockNgrokApiFetch([
+      { tunnels: [] },
+      {
+        tunnels: [
+          unrelatedPortTunnel,
+          {
+            public_url: "https://foo.ngrok.app",
+            config: { addr: "localhost:7830" },
+          },
+        ],
+      },
+    ]);
 
     const child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
 
@@ -548,5 +588,50 @@ describe("ngrok --domain spawn args", () => {
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);
+
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress: { publicBaseUrl?: string } };
+    expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
+  });
+
+  test("runNgrokTunnel without --domain reuses the saved domain and does not delete it", async () => {
+    const ws = makeWorkspace({
+      ingress: { ngrok: { domain: "foo.ngrok.app" } },
+    });
+    mockNgrokApiFetch([
+      { tunnels: [] },
+      {
+        tunnels: [
+          {
+            public_url: "https://foo.ngrok.app",
+            config: { addr: "localhost:7831" },
+          },
+        ],
+      },
+    ]);
+
+    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
+    try {
+      await run;
+    } finally {
+      clearInterval(pump);
+    }
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+    expect(args).toEqual([
+      "http",
+      "7831",
+      "--log=stdout",
+      "--domain=foo.ngrok.app",
+    ]);
+
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress: { publicBaseUrl?: string; ngrok?: { domain?: string } } };
+    expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
+    expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
   });
 });
