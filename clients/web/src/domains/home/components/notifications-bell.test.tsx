@@ -1,13 +1,23 @@
 /**
  * Tests for `NotificationsBell`.
  *
- * Uses `renderToStaticMarkup` (SSR) like `preferences-menu.test.tsx`: only
- * the trigger is exercisable — Radix Popover/BottomSheet content is not
- * rendered when `open={false}`. The unread dot lives on the trigger, so
- * that's exactly the surface these tests pin down.
+ * The trigger tests use `renderToStaticMarkup` (SSR) like
+ * `preferences-menu.test.tsx`: the unread dot lives on the trigger, which is
+ * all Radix renders while the popover is closed. The panel tests render into
+ * happy-dom and click the trigger open, since the rows only mount with it.
+ *
+ * Assertions target text and test ids, never class strings: those drift with
+ * styling and turn behaviour tests into styling tests.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -82,9 +92,20 @@ function renderBell(): string {
   return renderToStaticMarkup(createElement(NotificationsBell));
 }
 
+async function openBell(): Promise<void> {
+  render(<NotificationsBell />);
+  fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
+  // Radix measures and positions the panel after the click, off a promise.
+  await act(async () => {});
+}
+
 beforeEach(() => {
   isMobileRef.value = false;
   feedRef.items = [];
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("NotificationsBell unread dot", () => {
@@ -130,5 +151,47 @@ describe("NotificationsBell unread dot", () => {
     const html = renderBell();
     expect(html).toContain(UNREAD_DOT);
     expect(html).toContain(UNREAD_LABEL);
+  });
+});
+
+describe("NotificationsBell panel", () => {
+  test("renders each row as a card with category, title, and preview", async () => {
+    feedRef.items = [
+      feedItem({
+        category: "background",
+        title: "Watcher job failed",
+        summary: "The watcher job could not reach the upstream service.",
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByText("Background")).toBeTruthy();
+    expect(screen.getByText("Watcher job failed")).toBeTruthy();
+    expect(
+      screen.getByText("The watcher job could not reach the upstream service."),
+    ).toBeTruthy();
+  });
+
+  test("keeps its own unread dot distinct from the rows'", async () => {
+    feedRef.items = [feedItem({ status: "new" })];
+
+    await openBell();
+
+    expect(screen.getByTestId("notifications-bell-unread-dot")).toBeTruthy();
+    expect(screen.getByTestId("home-recap-row-unread-dot")).toBeTruthy();
+  });
+
+  test("keeps the panel header and bulk actions", async () => {
+    feedRef.items = [feedItem({ status: "new" })];
+
+    await openBell();
+
+    expect(screen.getByRole("heading", { name: "Notifications" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View all" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Mark all as read" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear all" })).toBeTruthy();
   });
 });
