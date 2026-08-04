@@ -22,6 +22,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import type { Conversation } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
@@ -129,12 +130,32 @@ export type ConversationListPage = {
   hasMore: boolean;
 };
 
+/**
+ * A page plus what it cost to fetch. The timings stay internal to this module
+ * so the public {@link ConversationListPage} contract is unchanged.
+ */
+type TimedConversationListPage = ConversationListPage & {
+  durationMs: number;
+  /** `content-length` in bytes, or null when the server omits the header. */
+  bytes: number | null;
+};
+
+function readContentLength(response: Response): number | null {
+  const header = response.headers.get("content-length");
+  if (header === null) {
+    return null;
+  }
+  const bytes = Number(header);
+  return Number.isFinite(bytes) ? bytes : null;
+}
+
 async function fetchConversationListPage(
   assistantId: string,
   offset: number,
   options: FetchConversationListOptions = {},
-): Promise<ConversationListPage> {
+): Promise<TimedConversationListPage> {
   const { conversationType, archiveStatus, originChannel } = options;
+  const startedAt = performance.now();
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
     query: {
@@ -147,7 +168,16 @@ async function fetchConversationListPage(
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to list conversations.");
+  const durationMs = Math.round(performance.now() - startedAt);
   if (!response.ok) {
+    recordDiagnostic("conversation_list_page_fetch_error", {
+      assistantId,
+      offset,
+      status: response.status,
+      durationMs,
+      conversationType: conversationType ?? null,
+      archiveStatus: archiveStatus ?? null,
+    });
     const msg = extractErrorMessage(
       error,
       response,
@@ -159,6 +189,8 @@ async function fetchConversationListPage(
   return {
     conversations: (data?.conversations ?? []).map(toConversation),
     hasMore: data?.hasMore ?? false,
+    durationMs,
+    bytes: readContentLength(response),
   };
 }
 
@@ -169,29 +201,68 @@ async function fetchConversationList(
   const all: Conversation[] = [];
   const seen = new Set<string>();
 
-  for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
-    const offset = page * CONVERSATION_LIST_PAGE_SIZE;
-    const { conversations, hasMore } = await fetchConversationListPage(
+  // A full drain can be dozens of pages, so only the first page (the one that
+  // gates first paint) and a single summary reach the 200-entry ring.
+  const drainStartedAt = performance.now();
+  let pages = 0;
+  let maxPageMs = 0;
+  let totalBytes: number | null = null;
+
+  const recordDrain = (outcome: "ok" | "error"): void => {
+    recordDiagnostic("conversation_list_drain", {
       assistantId,
-      offset,
-      options,
-    );
-    for (const conversation of conversations) {
-      if (!seen.has(conversation.conversationId)) {
-        seen.add(conversation.conversationId);
-        all.push(conversation);
+      outcome,
+      pages,
+      rows: all.length,
+      totalMs: Math.round(performance.now() - drainStartedAt),
+      maxPageMs,
+      totalBytes,
+      conversationType: options.conversationType ?? null,
+    });
+  };
+
+  try {
+    for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
+      const offset = page * CONVERSATION_LIST_PAGE_SIZE;
+      const { conversations, hasMore, durationMs, bytes } =
+        await fetchConversationListPage(assistantId, offset, options);
+      pages++;
+      maxPageMs = Math.max(maxPageMs, durationMs);
+      if (bytes !== null) {
+        totalBytes = (totalBytes ?? 0) + bytes;
+      }
+      if (page === 0) {
+        recordDiagnostic("conversation_list_page_fetch", {
+          assistantId,
+          offset: 0,
+          status: 200,
+          count: conversations.length,
+          hasMore,
+          durationMs,
+          bytes,
+        });
+      }
+      for (const conversation of conversations) {
+        if (!seen.has(conversation.conversationId)) {
+          seen.add(conversation.conversationId);
+          all.push(conversation);
+        }
+      }
+
+      if (!hasMore) {
+        break;
+      }
+
+      if (conversations.length === 0) {
+        break;
       }
     }
-
-    if (!hasMore) {
-      break;
-    }
-
-    if (conversations.length === 0) {
-      break;
-    }
+  } catch (error) {
+    recordDrain("error");
+    throw error;
   }
 
+  recordDrain("ok");
   return all;
 }
 
