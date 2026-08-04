@@ -201,6 +201,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             organizationId: next[idx]!.organizationId,
             runtimeVersion:
               lockfileFields.runtimeVersion ?? next[idx]!.runtimeVersion,
+            runtimeUrl: lockfileFields.runtimeUrl ?? next[idx]!.runtimeUrl,
+            isPaired: lockfileFields.isPaired ?? next[idx]!.isPaired,
             isActiveLockfileAssistant:
               lockfileFields.isActiveLockfileAssistant ??
               next[idx]!.isActiveLockfileAssistant,
@@ -218,6 +220,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               cloud: lockfileFields.cloud,
               organizationId: lockfileFields.organizationId,
               runtimeVersion: lockfileFields.runtimeVersion,
+              runtimeUrl: lockfileFields.runtimeUrl,
+              isPaired: lockfileFields.isPaired ?? false,
               isActiveLockfileAssistant:
                 lockfileFields.isActiveLockfileAssistant,
             },
@@ -280,6 +284,8 @@ function getLockfileFields(assistantId: string): {
   cloud?: string;
   organizationId?: string;
   runtimeVersion?: string;
+  runtimeUrl?: string;
+  isPaired?: boolean;
   isActiveLockfileAssistant?: boolean;
 } {
   const lockfile = useLockfileStore.getState().lockfile;
@@ -291,6 +297,8 @@ function getLockfileFields(assistantId: string): {
     cloud: entry?.cloud,
     organizationId: entry?.organizationId,
     runtimeVersion: entry?.resources?.runtimeVersion,
+    runtimeUrl: entry?.runtimeUrl,
+    isPaired: entry ? isPairedAssistant(entry) : undefined,
     isActiveLockfileAssistant: lockfile
       ? activeLockfileAssistantId === assistantId
       : undefined,

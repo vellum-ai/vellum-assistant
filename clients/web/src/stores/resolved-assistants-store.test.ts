@@ -228,6 +228,33 @@ describe("upsertFromApi", () => {
     expect(entry.releaseChannel).toBe("preview");
   });
 
+  it("preserves paired classification and runtimeUrl on refresh", () => {
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [
+        {
+          assistantId: "paired-desk",
+          cloud: "paired",
+          runtimeUrl: "https://desk.example.com",
+        },
+      ],
+      activeAssistant: null,
+    });
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "paired-desk",
+      name: "Desk (refreshed)",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.isPaired).toBe(true);
+    expect(entry.runtimeUrl).toBe("https://desk.example.com");
+    expect(entry.cloud).toBe("paired");
+  });
+
   it("preserves a lockfile-seeded runtimeVersion on refresh", () => {
     useResolvedAssistantsStore.getState().setFromLockfile({
       assistants: [localAssistant],
