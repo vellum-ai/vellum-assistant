@@ -24,6 +24,17 @@ mock.module("@/assistant/avatar-api", () => ({
   saveCharacterTraits: saveCharacterTraitsMock,
 }));
 
+let configPatchOk = true;
+const configPatchCalls: unknown[] = [];
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  configPatch: async (opts: unknown) => {
+    configPatchCalls.push(opts);
+    return {
+      response: { ok: configPatchOk, status: configPatchOk ? 200 : 500 },
+    };
+  },
+}));
+
 const {
   OnboardingAvatarApplier,
   getAvatarApplyRetryDelayMs,
@@ -34,7 +45,12 @@ describe("OnboardingAvatarApplier", () => {
   beforeEach(() => {
     saveCharacterTraitsImpl = async () => true;
     saveCharacterTraitsMock.mockClear();
-    useOnboardingFocusStore.setState({ pendingAvatarTraits: null });
+    configPatchOk = true;
+    configPatchCalls.length = 0;
+    useOnboardingFocusStore.setState({
+      pendingAvatarTraits: null,
+      pendingAvatarVoice: null,
+    });
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
   });
 
@@ -63,6 +79,60 @@ describe("OnboardingAvatarApplier", () => {
 
     await waitFor(() =>
       expect(saveCharacterTraitsMock).toHaveBeenCalledWith("asst-1", TRAITS),
+    );
+    expect(useOnboardingFocusStore.getState().pendingAvatarTraits).toEqual(
+      TRAITS,
+    );
+  });
+
+  test("applies the avatar's voice alongside its face", async () => {
+    useOnboardingFocusStore.getState().setPendingAvatarTraits(TRAITS);
+    useOnboardingFocusStore.getState().setPendingAvatarVoice("aura-2-luna-en");
+    useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
+
+    render(<OnboardingAvatarApplier />);
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]).toEqual({
+      path: { assistant_id: "asst-1" },
+      body: {
+        services: {
+          tts: { providers: { vellum: { model: "aura-2-luna-en" } } },
+        },
+      },
+      throwOnError: false,
+    });
+    await waitFor(() =>
+      expect(useOnboardingFocusStore.getState().pendingAvatarVoice).toBeNull(),
+    );
+  });
+
+  test("patches no voice when the catalog never resolved one", async () => {
+    useOnboardingFocusStore.getState().setPendingAvatarTraits(TRAITS);
+    useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
+
+    render(<OnboardingAvatarApplier />);
+
+    await waitFor(() =>
+      expect(useOnboardingFocusStore.getState().pendingAvatarTraits).toBeNull(),
+    );
+    // Nothing to say beyond the platform default the assistant already has.
+    expect(configPatchCalls.length).toBe(0);
+  });
+
+  test("keeps the handoff queued when the voice write fails", async () => {
+    configPatchOk = false;
+    useOnboardingFocusStore.getState().setPendingAvatarTraits(TRAITS);
+    useOnboardingFocusStore.getState().setPendingAvatarVoice("aura-2-luna-en");
+    useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
+
+    render(<OnboardingAvatarApplier />);
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    // Face and voice are one pick, so a half-landed handoff stays staged for
+    // the retry rather than clearing on the traits alone.
+    expect(useOnboardingFocusStore.getState().pendingAvatarVoice).toBe(
+      "aura-2-luna-en",
     );
     expect(useOnboardingFocusStore.getState().pendingAvatarTraits).toEqual(
       TRAITS,

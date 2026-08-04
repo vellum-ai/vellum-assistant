@@ -1,7 +1,7 @@
 /**
  * Pins that `applyPersonality` persists the raw dial positions as the
  * `data/personality-sliders.json` workspace sidecar — the About Assistant
- * personality page and the overview's radar read it, so skipping the save
+ * personality page and the overview's signature read it, so skipping the save
  * left both empty after onboarding (the prose rewrite alone loses the
  * numbers). Kept separate from `apply-personality.test.ts` so the pure
  * message-builder tests stay free of module mocks.

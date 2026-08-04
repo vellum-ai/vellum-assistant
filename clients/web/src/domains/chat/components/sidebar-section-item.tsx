@@ -20,9 +20,7 @@
  * the section drag wiring - is uniform, and comes in already resolved. The
  * row list is the other near-exception: every section caps and scrolls
  * within itself except Pinned, which grows to fit its own rows instead
- * (see `unbounded` on `ConversationRowList`), and Chats, which scrolls
- * against the sidebar body instead, same as the flat list in List view
- * (see `scrollParent`).
+ * (see `unbounded` on `ConversationRowList`).
  */
 
 import type { ReactNode } from "react";
@@ -44,26 +42,14 @@ export interface SidebarSectionItemProps {
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: ReactNode;
-  /**
-   * Sidebar body element to scroll Chats against instead of capping it.
-   * Ignored by every other section type.
-   */
-  scrollParent?: HTMLElement;
 }
 
 /**
- * Row-list props for a section. All three branches carry the same keys so
- * the spread below stays a single object type rather than a union.
+ * Row-list props for a section. Both branches carry the same keys so the
+ * spread below stays a single object type rather than a union.
  */
-function rowListPropsFor(section: SidebarSection, scrollParent?: HTMLElement) {
-  if (section.type === "recents") {
-    // Chats scrolls against the sidebar body instead of capping and
-    // scrolling within itself, same as the flat list in List view - the
-    // two render the same underlying conversations, just grouped
-    // differently, so they should feel identical to scroll through.
-    return { items: section.all, dragSection: undefined, scrollParent };
-  }
-  if (section.type === "channel") {
+function rowListPropsFor(section: SidebarSection) {
+  if (section.type === "recents" || section.type === "channel") {
     return { items: section.all, dragSection: undefined };
   }
   return {
@@ -78,7 +64,6 @@ export function SidebarSectionItem({
   groupMenu,
   drag,
   collapsedIndicator,
-  scrollParent,
 }: SidebarSectionItemProps) {
   return (
     <ConversationNavSection
@@ -95,13 +80,12 @@ export function SidebarSectionItem({
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator}
       drag={drag}
-      // Pinned is the user's own curation, always at the top: collapsing
-      // it away would hide the thing the section exists to surface. It's
-      // also the one section that never caps/scrolls internally: it grows
-      // to fit its own rows instead.
-      collapsible={section.type !== "pinned"}
+      // Pinned collapses like every other section (one component, one
+      // behavior; its open state defaults open and persists like the
+      // rest). It is the one section that never caps/scrolls internally:
+      // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
-      {...rowListPropsFor(section, scrollParent)}
+      {...rowListPropsFor(section)}
     />
   );
 }

@@ -40,5 +40,10 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      # `bun run test` is vitest, whose config covers only the Storybook
+      # browser project; this step runs the package's bun:test unit files.
+      - name: Unit tests
+        run: bun run test:unit
+
       - name: Test
         run: bun run test

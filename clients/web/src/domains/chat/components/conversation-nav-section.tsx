@@ -8,14 +8,12 @@
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
  * Nothing paginates: the rows just keep going. What differs is where they
- * scroll. A channel section or custom group caps at
- * {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls within itself, since an
- * uncapped busy section would push its neighbours off screen. Pinned opts
- * out via `unbounded` instead (expected to stay short, and grows to fit its
- * rows). The flat list and Chats instead scroll against the sidebar body
- * they already fill (`scrollParent`), which keeps the rail to a single
- * scrollbar - the two render the same underlying conversations, just
- * grouped differently, so they scroll the same way too.
+ * scroll. A section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls
+ * within itself, since an uncapped busy section would push its neighbours off
+ * screen, unless it opts out via `unbounded` (Pinned: expected to stay
+ * short, and grows to fit its rows instead). The flat list instead scrolls
+ * against the sidebar body it already fills (`scrollParent`), which keeps
+ * the rail to a single scrollbar.
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
@@ -66,16 +64,15 @@ export interface ConversationRowListProps {
   dragSiblings?: Conversation[];
   /**
    * Scroll against this ancestor rather than bounding the list. Only the flat
-   * list and Chats pass it: both already fill the sidebar body (directly, or
-   * nested in the persistent "Conversations" header), so opening a scroller of
-   * their own would put a second scrollbar in the rail.
+   * list passes it: it already fills the sidebar body, so opening a scroller
+   * of its own would put a second scrollbar in the rail.
    */
   scrollParent?: HTMLElement;
   /**
    * Skips {@link SIDEBAR_SECTION_MAX_HEIGHT} entirely: the list grows to fit
    * every row instead of capping and scrolling within itself. Pinned is the
    * one section that wants this, the user's own curation, expected to stay
-   * short - and (unlike a channel section, which still caps and scrolls
+   * short - and (unlike Chats or a channel section, which cap and scroll
    * internally) not something that should ever push its neighbours off
    * screen.
    */

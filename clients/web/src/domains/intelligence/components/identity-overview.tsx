@@ -65,7 +65,7 @@ import {
   buildIdentitySections,
   type IdentitySection,
 } from "./identity-sections";
-import { PersonalityRadar } from "./personality-radar";
+import { PersonalitySignature } from "./personality-signature";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
@@ -180,8 +180,6 @@ const PHOTO_OVERLAY_STYLE = {
   // value = the theme's hover wash pre-composited over the dark card.
   "--card-hover": "#2d3339",
   "--card-accent": "#bd4900",
-  "--radar-fill": "#fea973",
-  "--radar-fill-opacity": "0.1",
   "--card-flood-fg": "#fdfdfc",
   "--content-default": "#fdfdfc",
   "--content-strong": "#fdfdfc",
@@ -510,17 +508,17 @@ function SectionCard({
         }`}
       >
         {floodOverlay}
-        {/* The Personality card fills with the radar of the persisted
-            slider values; bento only (`gridArea`). The blob reads the
+        {/* The Personality card fills with the signature of the persisted
+            slider values; bento only (`gridArea`). The mark reads the
             `--card-accent` var, so it flips to the contrast tone while
-            flooded along with the grid/labels (currentColor). */}
-        {gridArea && stat?.radar && (
+            flooded along with the rule and labels (currentColor). */}
+        {gridArea && stat?.signature && (
           <span
             className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
                 : photoBackdrop
-                  ? // On the photo backdrop the radar grid/labels read in
+                  ? // On the photo backdrop the rule and labels read in
                     // white (Figma 7219-160964), not the muted secondary.
                     "text-[var(--content-default)]"
                   : "text-[var(--content-secondary)]"
@@ -531,7 +529,10 @@ function SectionCard({
                 : undefined
             }
           >
-            <PersonalityRadar values={stat.radar} className="h-auto w-full" />
+            <PersonalitySignature
+              values={stat.signature}
+              className="h-auto w-full"
+            />
           </span>
         )}
         {isFeatureCard ? (
@@ -865,7 +866,7 @@ function OverviewBento({
   if (!useBento) {
     // Stacked (mobile) layout per Figma 7259-169032: greeting + avatar,
     // a compact Schedules row (title · count › ), the Personality card
-    // with the full radar, then the remaining sections as a two-column
+    // with the full signature, then the remaining sections as a two-column
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
@@ -876,7 +877,7 @@ function OverviewBento({
     const scheduleCount = schedulesStat
       ? schedulesStat.items.length + schedulesStat.more
       : undefined;
-    const radar = stats["personality"]?.radar;
+    const signature = stats["personality"]?.signature;
     // Same feature-card chrome as the bento's Personality/Schedules
     // cards: translucent glass on the photo backdrop, themed otherwise.
     const featureCardClass = `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
@@ -959,7 +960,7 @@ function OverviewBento({
                     {personalitySection.label}
                   </span>
                 </span>
-                {radar && (
+                {signature && (
                   <span
                     className={`flex items-center justify-center ${
                       photoBackdrop
@@ -967,8 +968,8 @@ function OverviewBento({
                         : "text-[var(--content-secondary)]"
                     }`}
                   >
-                    <PersonalityRadar
-                      values={radar}
+                    <PersonalitySignature
+                      values={signature}
                       className="h-auto w-full"
                     />
                   </span>
@@ -992,7 +993,7 @@ function OverviewBento({
     );
   }
 
-  // Priority layout: Personality owns the left column (radar centered in
+  // Priority layout: Personality owns the left column (signature centered in
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.

@@ -29,6 +29,13 @@ export interface CallSiteOverrideRowProps {
   displayName: string;
   description?: string;
   defaultProfileLabel: string | null;
+  /**
+   * Effective profile for an unpinned row whose tier default is remapped:
+   * renders a muted dropdown showing `profile` with `caption` as provenance.
+   * Picking from it creates a real pin via the normal draft path; the toggle
+   * stays off until then because it strictly means "explicitly pinned".
+   */
+  ghost?: { profile: string; caption: string } | null;
   draft: CallSiteOverrideDraft | null;
   profileOptions: ProfileOption[];
   onDraftChange: (id: string, draft: CallSiteOverrideDraft | null) => void;
@@ -44,12 +51,14 @@ export function CallSiteOverrideRow({
   displayName,
   description,
   defaultProfileLabel,
+  ghost,
   draft,
   profileOptions,
   onDraftChange,
   onToggle,
 }: CallSiteOverrideRowProps) {
   const overrideOn = isDraftActive(draft);
+  const shownGhost = overrideOn ? null : (ghost ?? null);
 
   const profileVal = (() => {
     if (!draft || !overrideOn) {
@@ -117,21 +126,28 @@ export function CallSiteOverrideRow({
           {description && (
             <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
               {description}
-              {defaultProfileLabel && (
+              {(shownGhost || defaultProfileLabel) && (
                 <span className="ml-1.5 text-body-small-default text-[var(--content-tertiary)] opacity-60">
-                  &middot; Default: {defaultProfileLabel}
+                  &middot;{" "}
+                  {shownGhost
+                    ? shownGhost.caption
+                    : `Default: ${defaultProfileLabel}`}
                 </span>
               )}
             </p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {overrideOn && (
+          {/* Ghost pinning depends on `Dropdown` firing onChange when the
+              already-selected option is re-picked (how a user pins the shown
+              value). `Select`, its planned replacement, is silent on
+              re-selection, so a migration must keep that path working. */}
+          {(overrideOn || shownGhost) && (
             <Dropdown
-              value={profileVal}
+              value={shownGhost ? shownGhost.profile : profileVal}
               onChange={handleProfilePickerChange}
               options={profileOptions}
-              className="w-44"
+              className={shownGhost ? "w-44 opacity-60" : "w-44"}
               menuMinWidth={280}
               menuAlign="end"
             />

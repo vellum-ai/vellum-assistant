@@ -49,6 +49,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
+        registerPlugin(AndroidPushRegistrationPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         super.onCreate(savedInstanceState);

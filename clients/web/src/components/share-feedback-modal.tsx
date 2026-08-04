@@ -184,6 +184,54 @@ const DATA_URI_RE = /^data:([^;,]+);base64,/i;
 const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /**
+ * Marker (or transformed leaf) to emit in place of `value`, or `null` to
+ * leave primitives as-is and descend into objects/arrays.
+ */
+type CaptureVisitor = (value: unknown) => { replacement: unknown } | null;
+
+/**
+ * Depth-first structural map over a diagnostics snapshot.
+ *
+ * The `path` set holds only the current recursion ancestry, so a true cycle
+ * is replaced with `"[cyclic]"` while shared (sibling) references are
+ * traversed in full. The capture leans on shared references by construction:
+ * transcript items embed the same message objects `clientMessages` lists.
+ * JSON.stringify duplicates shared references the same way.
+ *
+ * Every capture pass (base64 stripping, message deduplication) is a visitor
+ * over this one walker, so traversal and cycle handling have a single home.
+ */
+function deepMapCapture(
+  value: unknown,
+  visit: CaptureVisitor,
+  path = new WeakSet<object>(),
+): unknown {
+  const hit = visit(value);
+  if (hit) {
+    return hit.replacement;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (path.has(value)) {
+    return "[cyclic]";
+  }
+  path.add(value);
+  let out: unknown;
+  if (Array.isArray(value)) {
+    out = value.map((v) => deepMapCapture(v, visit, path));
+  } else {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = deepMapCapture(v, visit, path);
+    }
+    out = obj;
+  }
+  path.delete(value);
+  return out;
+}
+
+/**
  * Replace bulk binary payloads in a diagnostics snapshot with size markers.
  *
  * Message state carries image bytes in two shapes: `data:` URIs (derived
@@ -196,41 +244,57 @@ const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
  * tokens) are below the length floor. The marker keeps the mime type and
  * length, which is the diagnostically useful part.
  */
-export function stripBulkBase64(value: unknown, path = new WeakSet()): unknown {
-  if (typeof value === "string") {
-    const dataUri = DATA_URI_RE.exec(value);
+export function stripBulkBase64(value: unknown): unknown {
+  return deepMapCapture(value, (v) => {
+    if (typeof v !== "string") {
+      return null;
+    }
+    const dataUri = DATA_URI_RE.exec(v);
     if (dataUri) {
-      return `[stripped data URI ${dataUri[1]}, ${value.length} chars]`;
+      return {
+        replacement: `[stripped data URI ${dataUri[1]}, ${v.length} chars]`,
+      };
     }
-    if (value.length >= BULK_BASE64_MIN_CHARS && PURE_BASE64_RE.test(value)) {
-      return `[stripped base64, ${value.length} chars]`;
+    if (v.length >= BULK_BASE64_MIN_CHARS && PURE_BASE64_RE.test(v)) {
+      return { replacement: `[stripped base64, ${v.length} chars]` };
     }
-    return value;
+    return null;
+  });
+}
+
+/**
+ * Replace transcript-item message objects that are identical (by reference)
+ * to a `clientMessages` entry with a pointer marker, so the capture carries
+ * each message once. Matching is object identity, which is exactly how the
+ * duplication arises: transcript items embed the same `DisplayMessage`
+ * instances `clientMessages` lists. A structurally-equal copy is not
+ * identity-matched and is captured in full, so any divergence between the
+ * two surfaces survives; only true duplicates collapse.
+ */
+export function dedupeAgainstClientMessages(
+  transcriptItems: unknown,
+  clientMessages: unknown,
+): unknown {
+  if (!Array.isArray(clientMessages)) {
+    return transcriptItems;
   }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  // `path` holds only the current recursion ancestry, so a true cycle is
-  // replaced while shared (sibling) references are traversed in full. The
-  // capture leans on shared references by construction: transcript items
-  // embed the same message objects `clientMessages` lists, and both copies
-  // must survive. JSON.stringify duplicates shared references the same way.
-  if (path.has(value)) {
-    return "[cyclic]";
-  }
-  path.add(value);
-  let out: unknown;
-  if (Array.isArray(value)) {
-    out = value.map((v) => stripBulkBase64(v, path));
-  } else {
-    const obj: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      obj[k] = stripBulkBase64(v, path);
+  const refs = new Map<object, string>();
+  clientMessages.forEach((m, i) => {
+    if (m && typeof m === "object") {
+      const id = (m as { id?: unknown }).id;
+      refs.set(m, typeof id === "string" ? id : `index ${i}`);
     }
-    out = obj;
-  }
-  path.delete(value);
-  return out;
+  });
+
+  return deepMapCapture(transcriptItems, (v) => {
+    if (v === null || typeof v !== "object") {
+      return null;
+    }
+    const ref = refs.get(v);
+    return ref !== undefined
+      ? { replacement: `[deduplicated: see clientMessages ${ref}]` }
+      : null;
+  });
 }
 
 function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
@@ -444,9 +508,17 @@ async function buildClientLogsFile(
             ._vellumDebug?.chat
         : null;
     if (debugApi) {
+      const clientMessages = debugApi.getClientMessages?.() ?? null;
+      const transcriptItems = debugApi.getTranscriptItems?.() ?? null;
       const triagePayload = {
-        clientMessages: debugApi.getClientMessages?.() ?? null,
-        transcriptItems: debugApi.getTranscriptItems?.() ?? null,
+        clientMessages,
+        // Transcript items embed the same message objects `clientMessages`
+        // lists; carry the item-layer structure (kinds, keys, ordering) with
+        // pointers instead of a second full copy of every message.
+        transcriptItems: dedupeAgainstClientMessages(
+          transcriptItems,
+          clientMessages,
+        ),
         // Ephemeral interaction prompts (secret / confirmation /
         // contact-request / question) render as transcript trailer rows
         // outside any message's `contentBlocks`, so they're invisible in
