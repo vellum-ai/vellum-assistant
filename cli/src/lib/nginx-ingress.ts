@@ -754,11 +754,15 @@ export async function startRemoteWebIngress(opts: {
   // names a live ingress nginx of ours (owns the port).
   const deadline = Date.now() + OWNERSHIP_SETTLE_TIMEOUT_MS;
   for (;;) {
-    if (childExited()) break;
+    if (childExited()) {
+      break;
+    }
     if (getIngressPid(opts.workspaceDir) !== null) {
       return { status: "started", listenPort, webDistDir, version };
     }
-    if (Date.now() >= deadline) break;
+    if (Date.now() >= deadline) {
+      break;
+    }
     await new Promise((resolve) =>
       setTimeout(resolve, OWNERSHIP_SETTLE_INTERVAL_MS),
     );
