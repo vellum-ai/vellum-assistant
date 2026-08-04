@@ -154,7 +154,7 @@ function toolContext(overrides: Partial<ToolContext>): ToolContext {
   } as ToolContext;
 }
 
-describe("executeSubagentSpawn — cronRunId forwarding", () => {
+describe("executeSubagentSpawn: cronRunId forwarding", () => {
   test("forwards the turn's cronRunId into the SubagentConfig", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
@@ -200,7 +200,7 @@ describe("executeSubagentSpawn — cronRunId forwarding", () => {
   });
 });
 
-describe("SubagentManager — cronRunId reaches the child's agent loop", () => {
+describe("SubagentManager: cronRunId reaches the child's agent loop", () => {
   test("passes the config's cronRunId into the spawned subagent's runAgentLoop", async () => {
     capturedRunAgentLoopOptions.length = 0;
 
