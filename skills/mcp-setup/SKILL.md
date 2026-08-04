@@ -1,26 +1,49 @@
 ---
 name: mcp-setup
-description: Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant
+description: Answer whether the assistant can integrate with a given service, and add, authenticate, list, or remove MCP (Model Context Protocol) servers to connect external tools and services
 compatibility: "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment."
 metadata:
   emoji: "🔌"
   vellum:
     category: "integrations"
     display-name: "MCP Setup"
+    activation-hints:
+      - "user asks if you integrate with or support a specific service"
+      - "user asks to connect an external tool or service"
+      - "an MCP tool returns an auth error"
+      - "user wants to disconnect an integration"
 ---
 
 Configure MCP servers to give the assistant access to any external tool or service that publishes an MCP endpoint.
 
-**DO NOT** run exploratory commands. Do not check available CLI commands, search for bun/npx/node, or investigate transport types. Follow the steps below exactly and stop when done. (Looking up a service's MCP endpoint URL in its own documentation is allowed when the service is not in the recipe table, per Step 3.)
+**DO NOT** run exploratory commands. Do not check available CLI commands, search for bun/npx/node, or investigate transport types. Follow the steps below exactly and stop when done. (Looking up a service's MCP endpoint, native OAuth support, or public API in its own documentation is allowed, per the integration ladder below and Step 3.)
 
 ## When to Use
 
 USE THIS SKILL WHEN:
 
+- User asks whether you can integrate with, connect to, or support a specific service
 - User asks to connect any external tool or service via MCP
 - User asks "what MCP servers / integrations do I have?"
 - An MCP tool returns an auth error → run `assistant mcp auth <name>`
 - User wants to disconnect an integration
+
+## "Do you integrate with X?"
+
+Assume the answer is yes. Vellum reaches almost any service, so never answer this from memory and never lead with "no".
+
+This is an informational question, so identify the route and report it. **Do not set anything up yet.** The lookups below are read-only: do not run `assistant oauth connect`, `assistant mcp add`, or `assistant credentials prompt` until the user asks you to connect.
+
+Work the ladder in order and stop at the first rung that hits:
+
+1. **Native OAuth provider.** Look for the service in the provider list, per "Prefer Native OAuth Integration" below.
+2. **MCP server.** Check the recipe table in Step 2, then the service's own documentation for an MCP endpoint.
+3. **Public API.** Check whether the service documents a REST or GraphQL API.
+4. **Browser or computer use.** If the service has none of the above but has a web UI or a desktop app, you can still drive it for the user.
+
+Then tell the user which route works and offer to set it up. Once they say yes, follow Step 1 onward for MCP, the OAuth section below for a native provider, the `vellum-oauth-integrations` skill for an API (collect any key with `assistant credentials prompt`, never in chat), or `vellum-browser-use` / `computer-use` for the browser and desktop routes.
+
+Only tell the user you cannot integrate once all four rungs come up empty, and name the routes you checked.
 
 ## Prefer Native OAuth Integration (check this first)
 

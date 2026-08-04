@@ -508,7 +508,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-08-03T23:08:27.000Z"
+      "updatedAt": "2026-08-03T23:57:15.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -563,16 +563,22 @@
     {
       "id": "mcp-setup",
       "name": "mcp-setup",
-      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant",
+      "description": "Answer whether the assistant can integrate with a given service, and add, authenticate, list, or remove MCP (Model Context Protocol) servers to connect external tools and services",
       "metadata": {
         "emoji": "🔌",
         "vellum": {
           "category": "integrations",
-          "display-name": "MCP Setup"
+          "display-name": "MCP Setup",
+          "activation-hints": [
+            "user asks if you integrate with or support a specific service",
+            "user asks to connect an external tool or service",
+            "an MCP tool returns an auth error",
+            "user wants to disconnect an integration"
+          ]
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-08-03T23:52:21.000Z"
     },
     {
       "id": "meme-generator",
