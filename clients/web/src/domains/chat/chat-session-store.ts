@@ -49,6 +49,7 @@ import {
 } from "@/domains/chat/transcript/rolling-snapshot";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
+import { noteConversationSwitchStarted } from "@/lib/telemetry/switch-telemetry";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
@@ -515,6 +516,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     const usageByConversation = needsHydration
       ? loadContextWindowUsageMap(assistantId)
       : state.contextWindowUsageByConversation;
+
+    // Start the paint measurement at the same instant the transcript blanks.
+    noteConversationSwitchStarted(activeConversationId);
 
     set({
       snapshot: null,

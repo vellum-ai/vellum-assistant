@@ -56,6 +56,7 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { noteSwitchTranscriptPainted } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -507,6 +508,21 @@ export function ChatMainPanel({
   useEffect(() => {
     recordCommit();
   });
+
+  // Closes the switch measurement `switchToConversation` opened. That action
+  // blanks the snapshot and sets `isLoadingHistory` in one commit, so the first
+  // render that is not an empty loading transcript is the incoming
+  // conversation's first paint. It runs from an ancestor effect
+  // (`ActiveChatView`), which React commits after this one, so the render that
+  // first carries the new id finds no pending window and measures nothing.
+  const switchTranscriptPainted = !(isLoadingHistory && messages.length === 0);
+  useEffect(() => {
+    if (switchTranscriptPainted && activeConversationId) {
+      noteSwitchTranscriptPainted(activeConversationId, {
+        hadHistory: messages.length > 0,
+      });
+    }
+  }, [switchTranscriptPainted, activeConversationId, messages.length]);
 
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking
