@@ -291,6 +291,12 @@ async function buildPassthroughBatch(
     if (candidate.transport?.clientOs !== head.transport?.clientOs) {
       break;
     }
+    // Same head-wins problem for the app on screen: batching a message sent
+    // while a different app was open would run it against the head's
+    // `visible_app`, pointing "the app" at the wrong one.
+    if (candidate.transport?.visibleAppId !== head.transport?.visibleAppId) {
+      break;
+    }
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
       break;
     }
@@ -318,10 +324,11 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
-// ── Steer repair ────────────────────────────────────────────────────
+// ── Steer / interrupt repair ────────────────────────────────────────
 
 /**
- * When a steer-to-message abort interrupts an in-flight tool call, the
+ * When a steer-to-message abort (or a user interrupt with messages still
+ * queued behind the stopped turn) cuts off an in-flight tool call, the
  * conversation history may end with an assistant message containing one
  * or more `tool_use` blocks that have no corresponding `tool_result`.
  * LLM providers reject this sequence. This helper scans the tail of the
@@ -329,10 +336,12 @@ async function buildPassthroughBatch(
  * unmatched `tool_use` blocks.
  */
 function repairPendingToolUseBlocks(conversation: Conversation): void {
-  if (!conversation.pendingSteerRepair) {
+  const steered = conversation.pendingSteerRepair;
+  if (!steered && !conversation.pendingInterruptRepair) {
     return;
   }
   conversation.pendingSteerRepair = false;
+  conversation.pendingInterruptRepair = false;
 
   const messages = conversation.messages;
   if (messages.length === 0) {
@@ -375,15 +384,18 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
     {
       conversationId: conversation.conversationId,
       pendingToolUseCount: pendingToolUseIds.length,
+      trigger: steered ? "steer" : "interrupt",
     },
-    "Injecting synthetic tool_result for pending tool_use blocks after steer",
+    "Injecting synthetic tool_result for pending tool_use blocks",
   );
 
   // Build a single user message with tool_result blocks for all pending IDs.
   const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
     type: "tool_result" as const,
     tool_use_id: toolUseId,
-    content: "Tool execution was interrupted by user steering.",
+    content: steered
+      ? "Tool execution was interrupted by user steering."
+      : "Tool execution was interrupted by the user.",
     is_error: true,
   }));
   conversation.messages.push({
@@ -729,6 +741,7 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
     conversation.applyClientOsFromTransport(next.transport);
+    conversation.applyVisibleAppFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -1309,6 +1322,7 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
     conversation.applyClientOsFromTransport(head.transport);
+    conversation.applyVisibleAppFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;

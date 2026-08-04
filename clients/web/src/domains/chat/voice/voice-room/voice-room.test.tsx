@@ -378,8 +378,12 @@ describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
 
 const roomDialog = () =>
   screen.queryByRole("dialog", { name: "Voice session" });
-const exitButton = () =>
-  screen.queryByRole("button", { name: "Exit voice session" });
+/** The control row's ✕: the room's only way to end a session. */
+const endButton = () =>
+  screen.queryByRole("button", { name: "End voice session" });
+/** The corner chevron: dismisses the room, leaves the call running. */
+const minimizeButton = () =>
+  screen.queryByRole("button", { name: "Minimize voice room" });
 
 describe("VoiceRoom — visibility", () => {
   test("renders nothing when no session is active", () => {
@@ -391,7 +395,7 @@ describe("VoiceRoom — visibility", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(roomDialog()).not.toBeNull();
-    expect(exitButton()).not.toBeNull();
+    expect(minimizeButton()).not.toBeNull();
     expect(screen.getByTestId("voice-avatar").textContent).toBe(ASSISTANT_ID);
   });
 
@@ -573,20 +577,34 @@ describe("VoiceRoom: mobile sheet", () => {
     removeHeader();
   });
 
-  test("opening does not land focus on the exit", () => {
+  test("opening does not land focus on the corner control", () => {
     // Radix focuses the first focusable child on open, which is the top-right
-    // exit. That lit its focus ring and popped its "End voice session"
-    // tooltip, so the first thing a freshly opened room said was how to leave
-    // it. Focus belongs on the sheet itself.
+    // minimize. That lit its focus ring and popped its tooltip, so the first
+    // thing a freshly opened room said was how to leave it. Focus belongs on
+    // the sheet itself.
     const removeHeader = mountHeader();
     startOwnedSession("listening");
     render(<VoiceRoom variant="sheet" />);
 
     const sheet = screen.getByRole("dialog", { name: "Voice session" });
-    const exit = screen.getByRole("button", { name: "Exit voice session" });
-    expect(document.activeElement).not.toBe(exit);
+    expect(document.activeElement).not.toBe(minimizeButton());
     expect(document.activeElement).toBe(sheet);
     removeHeader();
+  });
+
+  test("wears a grabber, the affordance for the pull-down", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    expect(screen.queryByTestId("voice-room-grabber")).not.toBeNull();
+    removeHeader();
+  });
+
+  test("the other variants have no grabber — nothing to pull", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(screen.queryByTestId("voice-room-grabber")).toBeNull();
   });
 
   test("with no header present the sheet rests at the top edge", () => {
@@ -828,26 +846,39 @@ describe("VoiceRoom — listening waves", () => {
   });
 });
 
-describe("VoiceRoom — exit", () => {
-  test("✕ click ends the session via controls.stop", () => {
+describe("VoiceRoom — ending the call", () => {
+  test("the row's ✕ ends the session via controls.stop", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    fireEvent.click(exitButton()!);
+    fireEvent.click(endButton()!);
     expect(controls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("the exit control renders even with no assistant resolved", () => {
+  test("the room's controls render even with no assistant resolved", () => {
     startOwnedSession("listening");
     useLiveVoiceStore.setState({ assistantId: null });
     render(<VoiceRoom />);
-    expect(exitButton()).not.toBeNull();
+    expect(endButton()).not.toBeNull();
+    expect(minimizeButton()).not.toBeNull();
     expect(screen.getByTestId("voice-avatar").textContent).toBe("no-assistant");
+  });
+
+  test("nothing else in the room ends a call", () => {
+    // One end control, in one place. The corner used to be a second, which put
+    // the irreversible act where muscle memory reaches without looking.
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    fireEvent.click(minimizeButton()!);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 });
 
 // The three things a caller does mid-call sit in one centred row: mute the
-// mic, stop the assistant talking, show the transcript. Ending the session is
-// deliberately NOT among them.
+// mic, stop the assistant talking, end the session. Minimizing is NOT
+// among them — it lives in the corner.
 describe("VoiceRoom: centred session controls", () => {
   const controlRow = () => screen.getByTestId("voice-room-controls");
 
@@ -866,29 +897,32 @@ describe("VoiceRoom: centred session controls", () => {
     for (const name of [
       "Mute microphone",
       "Mute assistant",
-      "Show transcript",
+      "End voice session",
     ]) {
       expect(row.contains(screen.getByRole("button", { name }))).toBe(true);
     }
   });
 
-  test("ending the session stays out of the row, in the top-right", () => {
-    // Grouping a destructive control with three reversible toggles invites the
-    // one mis-tap that cannot be undone.
+  test("the end control is toned apart from the reversible toggles beside it", () => {
+    // Three identical circles, one of which cannot be undone, is how the row
+    // collects the mis-tap. The mutes are neutral until engaged; this is not.
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    const exit = screen.getByRole("button", { name: "Exit voice session" });
-    expect(controlRow().contains(exit)).toBe(false);
+    expect(endButton()!.className).toContain("red");
+    expect(
+      screen.getByRole("button", { name: "Mute microphone" }).className,
+    ).not.toContain("red");
+  });
+
+  test("minimizing stays out of the row, in the top-right", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(controlRow().contains(minimizeButton())).toBe(false);
   });
 });
 
 describe("VoiceRoom — minimize (session keeps running)", () => {
-  const minimizeButton = () =>
-    screen.queryByRole("button", { name: "Show transcript" });
-
-  test("show transcript dismisses the room without ending the session", () => {
-    // Minimizing IS revealing the conversation, so the control is named for
-    // what the user wants rather than for what the window does.
+  test("the corner chevron dismisses the room without ending the session", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     fireEvent.click(minimizeButton()!);
@@ -897,11 +931,11 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
     expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("no bare minimize control remains", () => {
+  test("no 'show transcript' control remains", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(
-      screen.queryByRole("button", { name: "Minimize voice room" }),
+      screen.queryByRole("button", { name: "Show transcript" }),
     ).toBeNull();
   });
 
@@ -944,16 +978,13 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
 });
 
 describe("VoiceRoom: top-right corner", () => {
-  test("holds the exit and nothing else", () => {
+  test("holds the minimize and nothing else", () => {
     // The corner is down to one control. A cluster of small chrome competed
-    // with the room's own cast, so the in-session settings gear was deleted
-    // along with the minimize it sat beside; voice and listening language are
-    // picked in Settings.
+    // with the room's own cast, so the in-session settings gear was deleted;
+    // voice and listening language are picked in Settings.
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    expect(
-      screen.getByRole("button", { name: "Exit voice session" }),
-    ).toBeDefined();
+    expect(minimizeButton()).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
   });
@@ -1104,8 +1135,8 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     // still shows while listening (centered, behind the eyes).
     expect(screen.queryByTestId("voice-avatar")).toBeNull();
     expect(screen.getByTestId("listening-waves")).toBeTruthy();
-    // The exit control stays available regardless of look.
-    expect(exitButton()).not.toBeNull();
+    // The corner control stays available regardless of look.
+    expect(minimizeButton()).not.toBeNull();
   });
 
   function renderCharacterAt(state: LiveVoiceSessionState) {

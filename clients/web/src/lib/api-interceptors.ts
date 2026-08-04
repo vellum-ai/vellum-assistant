@@ -53,6 +53,7 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import {
+  hasLivePlatformSession,
   isAuthenticated,
   isSettledSessionRejection,
 } from "@/stores/session-status";
@@ -406,11 +407,32 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * token), clears the cached gateway tokens from localStorage and
  * reloads the page so the app acquires a fresh token on startup.
  *
- * A sessionStorage cooldown prevents infinite reload loops when the
- * gateway consistently rejects tokens (e.g. after a misconfiguration).
+ * A sessionStorage cooldown spaces the attempts, and a sessionStorage
+ * attempt budget stops them. The cooldown alone only paces a gateway that
+ * rejects every token (a mismatched signing key, say): the page reloads
+ * once per cooldown for as long as the app stays open, which reaches the
+ * user as an app that restarts itself every ten minutes and never settles.
+ * Past the budget the 401 is handed back untouched, so the normal error
+ * path surfaces it and the tray's re-pair action stays available.
+ *
+ * The budget is spent permanently until the gateway demonstrates that it
+ * works: a 2xx from the ingress origin clears it. Elapsed time deliberately
+ * does not, because a gateway that is still rejecting every token would
+ * otherwise earn a fresh budget out of every quiet spell and reload forever
+ * in bursts. A reload that genuinely fixed the session produces that 2xx on
+ * its next request, so a transient rejection is not charged for recovering.
+ *
+ * Both keys live in sessionStorage, so quitting and reopening the app also
+ * grants a fresh budget.
+ *
+ * Installed on `daemonClient` only. `gatewayClient` does not carry this
+ * interceptor, so 401s raised through the generated gateway SDK are not
+ * recovered here; see the registrations at the bottom of this file.
  */
 const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
+const GW_401_MAX_RELOADS = 3;
 
 // In-memory latch: once recovery fires, all subsequent 401s in the same
 // page lifecycle are no-ops. Resets naturally on reload.
@@ -424,12 +446,6 @@ export function resetGw401RecoveryFlag(): void {
 export function localGatewayAuthRecoveryInterceptor(
   response: Response,
 ): Response {
-  if (response.status !== 401) {
-    return response;
-  }
-  if (gw401RecoveryFired) {
-    return response;
-  }
   if (!isLocalClient()) {
     return response;
   }
@@ -438,22 +454,54 @@ export function localGatewayAuthRecoveryInterceptor(
     return response;
   }
 
-  // Only recover from 401s that originated from the local gateway.
-  // Daemon requests that don't match ASSISTANT_PATH_RE are not rewritten
-  // and hit the platform instead — their 401s are handled elsewhere.
+  // Only act on responses that originated from the local gateway. Daemon
+  // requests that don't match ASSISTANT_PATH_RE are not rewritten and hit
+  // the platform instead; their 401s are handled elsewhere.
   if (!response.url.startsWith(ingressUrl)) {
     return response;
   }
 
+  // The gateway answering a request is the only evidence that the token it
+  // was rejecting has been replaced by a working one, so it is the only
+  // thing that restores the budget. `/readyz` probes use a bare `fetch`
+  // rather than this client, so an unauthenticated liveness check cannot
+  // stand in for a real one.
+  if (response.ok) {
+    try {
+      sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+      sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    } catch {
+      // sessionStorage unavailable; the budget check below fails closed.
+    }
+    return response;
+  }
+
+  if (response.status !== 401) {
+    return response;
+  }
+  if (gw401RecoveryFired) {
+    return response;
+  }
+
   try {
+    const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
+    const attempts = Number.isFinite(stored) ? stored : 0;
+
+    // A spent budget means reloading has not made this gateway work, and
+    // nothing since has shown that it does; let the 401 through to the
+    // error path.
+    if (attempts >= GW_401_MAX_RELOADS) {
+      return response;
+    }
     const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
     if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
       return response;
     }
     sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
   } catch {
-    // sessionStorage unavailable — cannot enforce cooldown, skip reload
-    // to avoid infinite reload loops.
+    // sessionStorage unavailable: cannot enforce cooldown or budget, skip
+    // reload to avoid infinite reload loops.
     return response;
   }
 
@@ -469,9 +517,52 @@ export function localGatewayAuthRecoveryInterceptor(
 // permission-403 that left the session live is still caught later.
 let platformAuthRecoveryFired = false;
 
+/**
+ * Caps the login redirects below. The redirect is a full page load, so the
+ * in-memory latch cannot count round trips and a destination that bounces back
+ * and rejects again would drive them without bound. Only a confirmed platform
+ * session restores the budget; sessionStorage means a relaunch grants a fresh
+ * one.
+ */
+const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
+const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAuthRecoveryFlag(): void {
   platformAuthRecoveryFired = false;
+}
+
+/**
+ * Spend one redirect. False when the budget is exhausted, or when
+ * sessionStorage is unavailable so an uncountable environment fails closed.
+ */
+function claimPlatformAuthRedirect(): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_AUTH_MAX_REDIRECTS) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_AUTH_REDIRECT_KEY, String(attempts + 1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore the budget. Gated on a confirmed platform session by the caller: the
+ * platform serves some routes (client feature flags) to anonymous visitors, so
+ * a 2xx alone does not mean the session works.
+ */
+function clearPlatformAuthRedirectBudget(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
 }
 
 async function recoverFromPlatformSessionRejection(): Promise<void> {
@@ -483,7 +574,10 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
-    if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+    if (
+      !isAuthenticated(useAuthStore.getState().sessionStatus) &&
+      claimPlatformAuthRedirect()
+    ) {
       hardNavigate(
         `${routes.account.login}?returnTo=${encodeURIComponent(
           window.location.pathname + window.location.search,
@@ -509,8 +603,27 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
  * {@link localGatewayAuthRecoveryInterceptor}.
+ *
+ * A platform request that succeeds against a confirmed session restores the
+ * redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
+  const ingressUrl = getSelfHostedIngressUrl();
+  const fromSelfHostedGateway =
+    !!ingressUrl && response.url.startsWith(ingressUrl);
+
+  if (response.ok) {
+    // A working self-hosted gateway says nothing about the platform session,
+    // and neither does a route the platform serves anonymously.
+    if (
+      !fromSelfHostedGateway &&
+      hasLivePlatformSession(useAuthStore.getState().platformSession)
+    ) {
+      clearPlatformAuthRedirectBudget();
+    }
+    return response;
+  }
+
   if (
     !isSettledSessionRejection({ ok: response.ok, status: response.status })
   ) {
@@ -522,8 +635,7 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
     return response;
   }
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl && response.url.startsWith(ingressUrl)) {
+  if (fromSelfHostedGateway) {
     return response;
   }
 
@@ -578,6 +690,12 @@ daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Gateway client uses the same routing as daemon — all gateway endpoints
 // are proxied through the same self-hosted ingress / platform gateway path.
+//
+// It deliberately does NOT carry `localGatewayAuthRecoveryInterceptor`: a
+// 401 raised through the generated gateway SDK is surfaced to the caller
+// rather than triggering a reload. Adding it here would widen the set of
+// responses that can restart the app, which is the opposite of what the
+// recovery budget is for, so it is tracked separately.
 gatewayClient.interceptors.request.use(daemonRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
 gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);

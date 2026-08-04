@@ -737,13 +737,20 @@ export async function runAgentLoopImpl(
         if (entry.surfaceType === "dynamic_page") {
           continue;
         }
+        // Persist before announcing: a client told the card was dismissed
+        // while the write failed would watch the next reseed revert it.
+        // An unannounced dismissal keeps its pending entry so client and
+        // daemon agree the card is still live and the one-interactive-surface
+        // gate keeps holding; the next user message sweeps it again.
+        if (!markSurfaceCompleted(ctx, surfaceId, "Dismissed")) {
+          continue;
+        }
         onEvent({
           type: "ui_surface_complete",
           conversationId: ctx.conversationId,
           surfaceId,
           summary: "Dismissed",
         });
-        markSurfaceCompleted(ctx, surfaceId, "Dismissed");
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
     }
@@ -960,6 +967,10 @@ export async function runAgentLoopImpl(
     // assembly reads this frozen copy to avoid leaking a queued message's
     // `client_os` into the in-flight turn.
     ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
+
+    // Freeze the app the client had in view at turn start, for the same
+    // anti-race reason as `client_os` above.
+    ctx.currentTurnVisibleAppId = ctx.visibleAppId ?? undefined;
 
     // Resolve the effective profile key for this turn and detect changes.
     // `modelProfileKey` is the actual profile used for this turn. The
@@ -1741,6 +1752,15 @@ export async function runAgentLoopImpl(
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
+    // The app on screen is view state owned by the message that reported it,
+    // not durable conversation state: nothing tells the daemon when the user
+    // closes an app. Clear both copies at turn end so a later turn that brings
+    // no client transport (a scheduled wake, a background follow-up) cannot
+    // claim the user is looking at an app they may have closed. Every inbound
+    // send re-applies it from transport before its own turn, including the
+    // queue drain, so live turns are unaffected.
+    ctx.visibleAppId = undefined;
+    ctx.currentTurnVisibleAppId = undefined;
     // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
     // before drainQueue so queued/drained turns on a reused conversation can't
     // inherit stale in-task-run scope from the turn that just finished.

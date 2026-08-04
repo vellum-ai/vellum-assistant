@@ -35,8 +35,6 @@ mock.module("../messaging/providers/slack/client.js", () => ({
     listUsersCalls.push({ cursor });
     return listUsersPages[listUsersCalls.length - 1];
   },
-  // auth.ts imports SlackApiError from the client; export it from the mock.
-  SlackApiError: class SlackApiError extends Error {},
 }));
 
 // ---------------------------------------------------------------------------

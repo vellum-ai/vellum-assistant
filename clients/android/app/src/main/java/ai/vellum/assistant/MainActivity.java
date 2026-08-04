@@ -23,6 +23,7 @@ public class MainActivity extends BridgeActivity {
 
     private AlertDialog unreachableDialog;
     private URI effectiveServer;
+    private URI pendingAppLink;
     private ConnectDeepLink pendingConnect;
     private boolean pendingNewChat;
     private Intent pendingVoiceLaunch;
@@ -44,8 +45,10 @@ public class MainActivity extends BridgeActivity {
             pendingConnect = consumeConnectIntent(getIntent());
         }
         configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
+        pendingAppLink = consumeAppLinkIntent(getIntent());
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(AndroidNotificationSettingsPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         super.onCreate(savedInstanceState);
@@ -53,12 +56,21 @@ public class MainActivity extends BridgeActivity {
         if (bridge != null) {
             bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
         }
+        deliverPendingAppLink();
         deliverPendingConnect();
         deliverPendingNewChat();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
+        URI appLink = consumeAppLinkIntent(intent);
+        if (appLink != null) {
+            super.onNewIntent(withoutData(intent));
+            pendingAppLink = appLink;
+            deliverPendingAppLink();
+            return;
+        }
+
         VoiceDeepLink.Command voiceCommand = VoiceDeepLink.parse(
             intent,
             getString(R.string.vellum_auth_scheme)
@@ -140,6 +152,27 @@ public class MainActivity extends BridgeActivity {
             && ConnectDeepLink.handles(intent.getDataString(), getString(R.string.vellum_auth_scheme));
     }
 
+    private URI consumeAppLinkIntent(Intent intent) {
+        if (
+            intent == null
+                || !Intent.ACTION_VIEW.equals(intent.getAction())
+                || effectiveServer != null
+                || pendingConnect != null
+        ) {
+            return null;
+        }
+        URI appLink = AndroidAppLink.parse(
+            intent.getDataString(),
+            getString(R.string.vellum_auth_host)
+        );
+        if (appLink == null) {
+            return null;
+        }
+        intent.setData(null);
+        setIntent(withoutData(intent));
+        return appLink;
+    }
+
     private Intent withoutData(Intent intent) {
         Intent sanitized = intent == null ? new Intent() : new Intent(intent);
         sanitized.setData(null);
@@ -151,6 +184,19 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         bridge.getWebView().loadUrl(pendingConnect.pairPage().toASCIIString());
+    }
+
+    private void deliverPendingAppLink() {
+        if (pendingAppLink == null || bridge == null) {
+            return;
+        }
+        if (effectiveServer != null || pendingConnect != null) {
+            pendingAppLink = null;
+            return;
+        }
+        URI appLink = pendingAppLink;
+        pendingAppLink = null;
+        bridge.getWebView().loadUrl(appLink.toASCIIString());
     }
 
     private void finishPendingConnect(String loadedUrl) {

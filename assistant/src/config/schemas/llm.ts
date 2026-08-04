@@ -10,7 +10,6 @@ import {
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
-  INTERNAL_PROFILE_KEYS,
 } from "../default-profile-names.js";
 
 /**
@@ -658,6 +657,15 @@ export const LLMSchema = z
     // are seeded into the user's on-disk config by migration 040, not at
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
+    // Per-tier remap of the shipped call-site defaults: every call site whose
+    // `CALL_SITE_DEFAULTS` profile is <tier> resolves through the named
+    // profile instead of the tier's intent × provider matrix body. A
+    // per-call-site pin (`llm.callSites.*.profile`) still wins over the
+    // remap, and an unusable remap target falls through to the stock tier
+    // resolution (see `selectWinningProfile`).
+    defaultProfileOverrides: z
+      .partialRecord(z.enum(DEFAULT_PROFILE_KEYS), z.string().min(1))
+      .default({}),
     activeProfile: z.string().min(1).optional(),
     // The profile the advisor role consults when spawned as a subagent (chosen
     // under Models & Services). It is excluded from the chat-profile pickers so
@@ -714,22 +722,26 @@ export const LLMSchema = z
       ...Object.keys(config.profiles ?? {}),
       ...DEFAULT_PROFILE_KEYS,
     ]);
-    // Internal profiles exist only to be named by a call site, so they are
-    // valid reference targets there and nowhere else — never for
-    // `activeProfile`/`advisorProfile`, which are user-facing selections.
-    const callSiteProfileNames = new Set([
-      ...profileNames,
-      ...INTERNAL_PROFILE_KEYS,
-    ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) {
         continue;
       }
-      if (!callSiteProfileNames.has(siteConfig.profile)) {
+      if (!profileNames.has(siteConfig.profile)) {
         ctx.addIssue({
           code: "custom",
           path: ["callSites", siteId, "profile"],
           message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" is not defined in llm.profiles`,
+        });
+      }
+    }
+    for (const [tier, profileName] of Object.entries(
+      config.defaultProfileOverrides ?? {},
+    )) {
+      if (profileName != null && !profileNames.has(profileName)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["defaultProfileOverrides", tier],
+          message: `Profile "${profileName}" referenced by llm.defaultProfileOverrides.${tier} is not defined in llm.profiles`,
         });
       }
     }

@@ -1159,22 +1159,41 @@ describe("ChatComposer — live-voice integration", () => {
     expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
   });
 
-  test("owned active session swaps the action row for the voice bar (mutual exclusion by absence)", () => {
+  test("owned active session adds the voice bar and keeps the composer usable", () => {
     // GIVEN a live-voice session owned by this composer's conversation
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
 
     // WHEN the composer renders
-    const { getByRole, queryByLabelText } = renderVoiceComposer();
+    const { getByRole, getByLabelText, queryByLabelText } =
+      renderVoiceComposer();
 
-    // THEN the voice bar replaces the whole action row — attach, both mic
-    // buttons, and send are gone, so the two capture flows can't coexist
+    // THEN the voice bar is mounted alongside the action row, not in place of
+    // it: send is still there, so the user can type and send mid-session
     expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    expect(getByLabelText("Send message")).toBeTruthy();
+    // ...while both voice entry points are gone — the bar is the session's
+    // control, and a second mic capture flow must not be startable
     expect(queryByLabelText("Start voice mode")).toBeNull();
     expect(queryByLabelText("Start voice input")).toBeNull();
-    expect(queryByLabelText("Send message")).toBeNull();
     // ...and the old inline transcript strip is gone for good
     expect(queryByLabelText("Live voice transcript")).toBeNull();
+  });
+
+  test("the voice bar sits above the composer card, not inside it", () => {
+    // GIVEN a live-voice session owned by this composer's conversation
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders
+    const { container, getByRole } = renderVoiceComposer();
+
+    // THEN the bar is outside the form: inside it, it would be part of the
+    // card the user is typing into rather than a surface stacked above it
+    const bar = getByRole("group", { name: "Voice session" });
+    const form = container.querySelector('[data-slot="chat-composer"]');
+    expect(form).not.toBeNull();
+    expect(form?.contains(bar)).toBe(false);
   });
 
   test("session owned by another conversation leaves this composer untouched (pill is the surface)", () => {
@@ -1217,7 +1236,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
   });
 
-  test("owned session keeps the textarea mounted but inert", () => {
+  test("owned session leaves the textarea usable", () => {
     // GIVEN a live-voice session owned by this composer's conversation
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
@@ -1225,12 +1244,11 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the composer renders
     const { container } = renderVoiceComposer();
 
-    // THEN the textarea stays mounted (VoiceLiveTranscript renders into its
-    // grid cell once speech streams) but is disabled so focus/typing can't
-    // fight the session
+    // THEN the textarea is mounted and editable: typing alongside a live
+    // session is the point of the bar sitting above the card
     const textarea = container.querySelector("textarea");
     expect(textarea).not.toBeNull();
-    expect((textarea as HTMLTextAreaElement).disabled).toBe(true);
+    expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
   });
 
   test("voice bar ✕ ends the session even when the composer is busy", () => {
@@ -1263,7 +1281,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveControls.release).not.toHaveBeenCalled();
   });
 
-  test("voice session hides the textarea and its placeholder", () => {
+  test("voice session keeps the textarea row on screen", () => {
     // GIVEN a listening session owned by this composer
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
@@ -1271,10 +1289,10 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the bar renders
     const { container } = renderVoiceComposer();
 
-    // THEN the textarea row is collapsed: it is disabled for the session's
-    // duration, so its placeholder invited an interaction that cannot happen.
+    // THEN the textarea row stays: the placeholder now invites an interaction
+    // that works, so collapsing the row would take away a live control.
     const textarea = container.querySelector("textarea");
-    expect(textarea?.closest("div.hidden")).not.toBeNull();
+    expect(textarea?.closest("div.hidden")).toBeNull();
   });
 
   test("dictation active hides the live-voice button (reverse mutual exclusion)", () => {
@@ -1432,16 +1450,16 @@ describe("ChatComposer — live-voice integration", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Live-voice transcript in the composer text area (Light 55)
+// The composer's text area during a live-voice session
 //
-// An owned live-voice session collapses the textarea row for its whole
-// duration — the textarea is disabled throughout, so its placeholder would
-// invite an interaction that cannot happen. When the show-your-words pref is
-// on and speech is streaming, the display-only `VoiceLiveTranscript` takes
-// that same grid cell and the row stays mounted to carry it.
+// The session's surface is the bar above the card, so the text area is an
+// ordinary text area throughout: mounted, editable, and never given over to
+// the user's own speech. "Show the words you say" is served by the room's
+// transcript instead — minimizing is the gesture that puts the user back on
+// the thread rather than on their words.
 //
 // The textarea's own `className` is not the signal: the row wrapping it is
-// what carries `hidden`, so assertions go through `textareaRowHidden`.
+// what would carry `hidden`, so assertions go through `textareaRowHidden`.
 // ---------------------------------------------------------------------------
 
 /** Whether the grid row wrapping the textarea is collapsed. */
@@ -1453,8 +1471,8 @@ function textareaRowHidden(container: HTMLElement): boolean {
   return textarea.closest("div.hidden") !== null;
 }
 
-describe("ChatComposer — live-voice transcript area", () => {
-  test("streaming speech hides the textarea and renders the transcript in its place", () => {
+describe("ChatComposer — text area during a live-voice session", () => {
+  test("streaming speech never takes the text area, even with the pref on", () => {
     // GIVEN a listening owned session with an in-flight partial transcript,
     // and the user opted in to seeing their own words
     useTurnStore.setState(INITIAL_TURN_STATE);
@@ -1464,47 +1482,16 @@ describe("ChatComposer — live-voice transcript area", () => {
       .getState()
       .setPartialTranscript("this is a text that I am just speaking");
 
-    // WHEN the composer renders
-    const { container, getByLabelText } = renderVoiceComposer();
-
-    // THEN the transcript region shows the speech as composer text...
-    const region = getByLabelText("Voice transcript");
-    expect(region.textContent).toContain(
+    // THEN the composer stays a composer: the speech is not painted into it,
+    // and the input it would have displaced is still usable
+    const { container, queryByLabelText } = renderVoiceComposer();
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(container.textContent).not.toContain(
       "this is a text that I am just speaking",
     );
-    // ...with a caret, in place of the visually hidden (still-mounted,
-    // still-uneditable) textarea
-    expect(
-      region.querySelector('[data-testid="voice-transcript-caret"]'),
-    ).toBeTruthy();
+    expect(textareaRowHidden(container)).toBe(false);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).toContain("hidden");
-    expect(textarea.disabled).toBe(true);
-  });
-
-  test("streaming speech does NOT render the transcript when the show-your-words pref is off (default)", () => {
-    // GIVEN a listening owned session streaming speech, but the user has kept
-    // "Show the words you say" OFF (the default) — the composer must not
-    // surface their spoken words
-    useTurnStore.setState(INITIAL_TURN_STATE);
-    // `showUserTranscript` defaults to false in the per-test reset; make the
-    // intent explicit here.
-    useVoicePrefsStore.setState({ showUserTranscript: false });
-    seedLiveVoiceSession("listening");
-    useLiveVoiceStore
-      .getState()
-      .setPartialTranscript("this is a text that I am just speaking");
-
-    // WHEN the composer renders
-    const { container, queryByLabelText } = renderVoiceComposer();
-
-    // THEN no transcript region mounts, and with nothing to put in that cell
-    // the whole row collapses — the disabled textarea's placeholder must not
-    // show through for the session's duration
-    expect(queryByLabelText("Voice transcript")).toBeNull();
-    expect(textareaRowHidden(container)).toBe(true);
-    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.disabled).toBe(true);
+    expect(textarea.disabled).toBe(false);
   });
 
   test("speech from a session owned by another thread never streams into this composer", () => {
@@ -1526,21 +1513,7 @@ describe("ChatComposer — live-voice transcript area", () => {
     expect(textarea.disabled).toBe(false);
   });
 
-  test("empty transcript collapses the row rather than showing a dead placeholder", () => {
-    // GIVEN an active owned session with no speech yet
-    useTurnStore.setState(INITIAL_TURN_STATE);
-    seedLiveVoiceSession("listening");
-
-    // WHEN the composer renders
-    const { container, queryByLabelText } = renderVoiceComposer();
-
-    // THEN there is nothing to occupy the cell, so the row collapses and the
-    // voice bar stands alone
-    expect(queryByLabelText("Voice transcript")).toBeNull();
-    expect(textareaRowHidden(container)).toBe(true);
-  });
-
-  test("textarea is restored after the session ends, even with a leftover final transcript", () => {
+  test("textarea is untouched after the session ends, even with a leftover final transcript", () => {
     // GIVEN the session has ended (store back to idle, final text lingering)
     useTurnStore.setState(INITIAL_TURN_STATE);
     useLiveVoiceStore.getState().setFinalTranscript("what I said last");
@@ -1549,16 +1522,13 @@ describe("ChatComposer — live-voice transcript area", () => {
     const { container, queryByLabelText } = renderVoiceComposer();
 
     // THEN the composer behaves normally: no transcript region, and the row
-    // is back with an editable textarea
+    // is there with an editable textarea
     expect(queryByLabelText("Voice transcript")).toBeNull();
     expect(textareaRowHidden(container)).toBe(false);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(false);
   });
 
-  // The ghost-suffix mirror and the live transcript share the same grid cell,
-  // so a suggestion painted during a session would overlay the streaming
-  // speech. The composer suppresses the ghost while it owns the session.
   test("ghost suffix renders normally with no active session (baseline)", () => {
     // GIVEN an empty draft and a pending autocomplete suggestion, no session
     const html = renderComposer({
@@ -1570,8 +1540,11 @@ describe("ChatComposer — live-voice transcript area", () => {
     expect(html).toContain("ghost completion text");
   });
 
-  test("owned live-voice session suppresses the ghost suffix (no overlay on the transcript)", () => {
-    // GIVEN a listening session this composer owns and a pending suggestion
+  test("an owned live-voice session keeps the ghost suffix", () => {
+    // GIVEN a listening session this composer owns and a pending suggestion.
+    // The ghost used to be suppressed because the streaming transcript shared
+    // its grid cell; nothing renders there now, and the draft is a real draft
+    // for the session's duration, so the suggestion is as useful as ever.
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
 
@@ -1580,8 +1553,7 @@ describe("ChatComposer — live-voice transcript area", () => {
       suggestion: "ghost completion text",
     });
 
-    // THEN the ghost is gone — the shared grid cell is left for the streaming
-    // transcript, not the suggestion overlay
-    expect(container.textContent).not.toContain("ghost completion text");
+    // THEN the ghost paints as it would without a session
+    expect(container.textContent).toContain("ghost completion text");
   });
 });

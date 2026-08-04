@@ -77,7 +77,13 @@ export function PinnedAppNavItem({
           event.stopPropagation();
           unpin(app.appId);
         }}
-        className="absolute top-1/2 right-[6px] flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] group-hover/pinned-app:opacity-100 focus-visible:opacity-100"
+        // Desktop-only affordance: touch has no hover to reveal it first, so
+        // without this a tap in this invisible 20px corner would unpin the
+        // app instead of opening the row. Touch already has the swipe/
+        // long-press path for unpin (see `trailingActions` below).
+        // `focus-visible:pointer-events-auto` keeps it reachable for
+        // switch-control/keyboard nav on a touch device.
+        className="absolute top-1/2 right-[6px] flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] group-hover/pinned-app:opacity-100 focus-visible:opacity-100 pointer-coarse:pointer-events-none pointer-coarse:focus-visible:pointer-events-auto"
       >
         <PinOff size={12} aria-hidden />
       </button>

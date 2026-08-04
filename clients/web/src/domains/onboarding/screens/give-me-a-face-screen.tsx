@@ -24,6 +24,7 @@ import {
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
+import { randomCharacterTraits } from "@/utils/avatar-random";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
 import { Button } from "@vellumai/design-library/components/button";
@@ -69,6 +70,8 @@ export function GiveMeAFaceScreen({
   const ensureGenerated = useOnboardingAvatarPoolStore.use.ensureGenerated();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const setSelectedIndex = useOnboardingAvatarPoolStore.use.setSelectedIndex();
+  const setCharacterTraits =
+    useOnboardingAvatarPoolStore.use.setCharacterTraits();
 
   useEffect(() => {
     if (components) {
@@ -164,10 +167,11 @@ export function GiveMeAFaceScreen({
     }
   }
 
-  // Roll a random name from the pool (different from the current one). Counts as
-  // a deliberate pick, so — like editing — it sticks across avatar cycling
-  // instead of being re-prefilled from the centered avatar.
-  function randomizeName() {
+  // Reroll both the name and the centered avatar's traits, each guaranteed to
+  // differ from the current one. The name counts as a deliberate pick, so
+  // (like editing) it sticks across avatar cycling instead of being
+  // re-prefilled from the centered avatar.
+  function randomizeCharacter() {
     nameCustomized.current = true;
     setName((current) => {
       const options = ASSISTANT_NAMES.filter(
@@ -176,6 +180,17 @@ export function GiveMeAFaceScreen({
       const pool = options.length > 0 ? options : ASSISTANT_NAMES;
       return pool[Math.floor(Math.random() * pool.length)]!;
     });
+    if (components && arrangement && centeredTraits) {
+      let traits = randomCharacterTraits(components);
+      while (
+        traits.bodyShape === centeredTraits.bodyShape &&
+        traits.eyeStyle === centeredTraits.eyeStyle &&
+        traits.color === centeredTraits.color
+      ) {
+        traits = randomCharacterTraits(components);
+      }
+      setCharacterTraits(arrangement.centerChar, traits);
+    }
   }
 
   const arrowClass =
@@ -282,9 +297,9 @@ export function GiveMeAFaceScreen({
                 </button>
                 <button
                   type="button"
-                  onClick={randomizeName}
-                  aria-label="Shuffle name"
-                  title="Shuffle name"
+                  onClick={randomizeCharacter}
+                  aria-label="Shuffle name and appearance"
+                  title="Shuffle name and appearance"
                   className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
                 >
                   <Dices className="h-5 w-5" />

@@ -32,9 +32,11 @@ mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
   },
 }));
 
-const { VoiceComposerBar } =
+const { COMPOSER_RADIUS_CLASS, VoiceComposerBar } =
   await import("@/domains/chat/components/chat-composer/voice-composer-bar");
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { VoiceSurfacePaint } from "@/domains/chat/voice/voice-room/voice-surface-paint";
+import { toneForBg } from "@/utils/avatar-tone";
 
 afterEach(() => {
   cleanup();
@@ -42,6 +44,17 @@ afterEach(() => {
 
 const INPUT_LEVEL = 0.5;
 const OUTPUT_LEVEL = 0.25;
+
+/** The paint a session on a dark avatar color resolves to. The default here. */
+const DARK_PAINT: VoiceSurfacePaint = {
+  bgHex: "#123524",
+  tone: toneForBg("#123524"),
+};
+/** The same, for an avatar color light enough to flip the chrome. */
+const LIGHT_PAINT: VoiceSurfacePaint = {
+  bgHex: "#F3E8C8",
+  tone: toneForBg("#F3E8C8"),
+};
 
 function renderBar(
   state: LiveVoiceSessionState,
@@ -51,9 +64,8 @@ function renderBar(
     onEnd?: () => void;
     outputMuted?: boolean;
     onToggleOutputMute?: () => void;
-    fillIsLight?: boolean;
+    paint?: VoiceSurfacePaint | null;
     onExpand?: () => void;
-    standalone?: boolean;
   },
 ) {
   return render(
@@ -66,9 +78,8 @@ function renderBar(
       onEnd={overrides?.onEnd ?? (() => {})}
       outputMuted={overrides?.outputMuted ?? false}
       onToggleOutputMute={overrides?.onToggleOutputMute ?? (() => {})}
-      fillIsLight={overrides?.fillIsLight ?? false}
+      paint={overrides?.paint === undefined ? DARK_PAINT : overrides.paint}
       onExpand={overrides?.onExpand}
-      standalone={overrides?.standalone}
     />,
   );
 }
@@ -212,14 +223,36 @@ describe("VoiceComposerBar: no transient stop", () => {
 });
 
 describe("VoiceComposerBar — expand to room", () => {
-  test("renders with onExpand wired and fires it", () => {
+  test("the centre reopens the room", () => {
+    // The way back is the band, not a fourth icon: it is the bar's largest
+    // region, and seeing the session again is the likeliest thing to want
+    // from a minimized one.
     const onExpand = mock(() => {});
     renderBar("listening", { onExpand });
     fireEvent.click(screen.getByRole("button", { name: "Open voice room" }));
     expect(onExpand).toHaveBeenCalledTimes(1);
   });
 
-  test("absent without onExpand (pop-out windows)", () => {
+  test("the centre is the flexible middle, not a chip beside the icons", () => {
+    renderBar("listening", { onExpand: () => {} });
+    const { className } = screen.getByRole("button", {
+      name: "Open voice room",
+    });
+    expect(className).toContain("flex-1");
+    expect(className).toContain("self-stretch");
+  });
+
+  test("no separate expand control remains", () => {
+    // It was a fourth icon on a rail of 16px targets; the centre replaced it.
+    renderBar("listening", { onExpand: () => {} });
+    const icons = screen
+      .getAllByRole("button")
+      .filter((b) => b.className.includes("--room-fg-muted"));
+    expect(icons).toHaveLength(3);
+  });
+
+  test("inert without onExpand (pop-out windows)", () => {
+    // A button that opens nothing is worse than no button.
     renderBar("listening");
     expect(
       screen.queryByRole("button", { name: "Open voice room" }),
@@ -243,20 +276,44 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     expect(lastBandProps).not.toBeNull();
   });
 
-  test("standalone takes the composer's footprint, otherwise it is a control row", () => {
-    // Owning the card, the block holds the height the composer it replaced
-    // had, so minimizing does not shift the thread above it. Sharing the card
-    // with the live transcript, it stays a row under it.
-    const { unmount } = renderBar("listening", { standalone: true });
-    expect(
-      screen.getByRole("group", { name: "Voice session" }).className,
-    ).toContain("h-[5.25rem]");
-    unmount();
-
+  test("is a single control row, not a composer-sized block", () => {
+    // The bar sits above a composer that stays on screen and usable, so it
+    // takes one control row's height rather than standing in for the
+    // composer's own footprint the way it used to.
     renderBar("listening");
-    expect(
-      screen.getByRole("group", { name: "Voice session" }).className,
-    ).not.toContain("h-[5.25rem]");
+    const { className } = screen.getByRole("group", { name: "Voice session" });
+    expect(className).toContain("h-10");
+    expect(className).not.toContain("h-[5.25rem]");
+  });
+
+  test("takes the chat input's corners, not the header pill's capsule", () => {
+    // The pill is round because it turns up on pages the session did not start
+    // on and has to read as a visitor from another thread. Stacked on its own
+    // conversation's composer there is nothing foreign to announce, so the bar
+    // matches the card under it and the two read as one control area.
+    renderBar("listening");
+    const { className } = screen.getByRole("group", { name: "Voice session" });
+    expect(className).toContain(COMPOSER_RADIUS_CLASS);
+    expect(className).not.toContain("rounded-full");
+  });
+
+  test("paints itself in the room's fill rather than inheriting a card's", () => {
+    // The composer under it keeps the app's normal surface now, so the fill
+    // and the `--room-*` chrome contract have to travel with the bar.
+    renderBar("listening", { paint: LIGHT_PAINT });
+    const group = screen.getByRole("group", { name: "Voice session" });
+    expect(group.getAttribute("style")).toContain(LIGHT_PAINT.bgHex);
+    expect(group.getAttribute("data-theme")).toBe("light");
+  });
+
+  test("holds the app's own surface until the avatar color resolves", () => {
+    // `useVoiceSurfacePaint` returns null while the query is in flight; a bar
+    // that painted on that read would flash the ambient dark and then the
+    // avatar color.
+    renderBar("listening", { paint: null });
+    const group = screen.getByRole("group", { name: "Voice session" });
+    expect(group.className).toContain("bg-[var(--surface-lift)]");
+    expect(group.getAttribute("data-theme")).toBeNull();
   });
 
   test("controls are toned for the avatar color, not theme tokens", () => {
@@ -266,7 +323,6 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     for (const name of [
       "Mute microphone",
       "Mute assistant",
-      "Open voice room",
       "End voice session",
     ]) {
       expect(screen.getByRole("button", { name }).className).toContain(
@@ -300,16 +356,17 @@ describe("VoiceComposerBar — structure and accessibility", () => {
   });
 
   test("the block holds the room's control set, and nothing else", () => {
-    // Same four as the room, in the same reading order: the two mutes (one per
-    // direction of the conversation), the way back into the room, and end.
+    // The room's own three, in the same reading order — the two mutes (one per
+    // direction of the conversation) and end — with the way back into the room
+    // sitting between them as the band it is drawn on.
     renderBar("listening", { onExpand: () => {} });
     const names = screen
       .getAllByRole("button")
       .map((b) => b.getAttribute("aria-label"));
     expect(names).toEqual([
       "Mute microphone",
-      "Mute assistant",
       "Open voice room",
+      "Mute assistant",
       "End voice session",
     ]);
   });
@@ -367,7 +424,7 @@ describe("VoiceComposerBar: muted controls stay visible", () => {
   });
 
   test("a light fill gets the deep red instead of the pale one", () => {
-    renderBar("listening", { muted: true, fillIsLight: true });
+    renderBar("listening", { muted: true, paint: LIGHT_PAINT });
     const style =
       screen
         .getByRole("button", { name: "Unmute microphone" })

@@ -1,11 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
-import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
-import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
-import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
 
 interface BubbleAttachmentsProps {
@@ -22,46 +19,21 @@ interface BubbleAttachmentsProps {
  * compact {@link MessageAttachmentSquare} chip. Both kinds are clickable and
  * open the full-screen {@link AttachmentPreviewModal}.
  *
- * Distinct from {@link MessageAttachments}, the legacy separate-strip renderer
- * still used for assistant messages, which renders every attachment as a chip.
+ * Every attachment renders - this surface is deliberately uncapped, unlike the
+ * assistant strip ({@link MessageAttachments}), which collapses past a limit
+ * behind an overflow tile.
  */
 export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  // Ids whose previewUrl the browser failed to decode (e.g. a HEIC blob on a
-  // Chromium renderer). Those fall back to the chip instead of the browser's
-  // broken-image glyph.
-  const [failedImageIds, setFailedImageIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const markImageFailed = useCallback((id: string) => {
-    setFailedImageIds((prev) => new Set(prev).add(id));
-  }, []);
-
-  // A failed inline decode leaves a dead previewUrl (e.g. an undecodable HEIC
-  // blob on Chromium). Nulling it by id across the whole array — which is also
-  // forwarded as the modal's `siblingAttachments` — makes the chip, the modal,
-  // and gallery navigation all refetch stored bytes instead of the broken blob.
-  const previewAttachments = useMemo(
-    () =>
-      attachments.map((att) =>
-        failedImageIds.has(att.id) ? { ...att, previewUrl: null } : att,
-      ),
-    [attachments, failedImageIds],
-  );
-
-  const { openPreview, previewModal } = useAttachmentPreview(
-    assistantId,
-    previewAttachments,
-  );
-
-  const handleDownload = useCallback(
-    (att: DisplayAttachment) => {
-      void downloadAttachment(att, assistantId);
-    },
-    [assistantId],
-  );
+  const {
+    displayAttachments,
+    renderSquare,
+    openPreview,
+    markImageFailed,
+    previewModal,
+  } = useAttachmentSquares({ attachments, assistantId });
 
   if (attachments.length === 0) {
     return null;
@@ -70,7 +42,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   return (
     <>
       <div className="flex flex-col gap-2">
-        {previewAttachments.map((att, index) => {
+        {displayAttachments.map((att, index) => {
           const isInlineImage =
             classifyAttachment(att.mimeType, att.filename) === "image" &&
             att.previewUrl != null;
@@ -98,21 +70,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
             );
           }
 
-          return (
-            <MessageAttachmentSquare
-              key={att.id}
-              filename={att.filename}
-              mimeType={att.mimeType}
-              sizeBytes={att.sizeBytes}
-              previewUrl={att.previewUrl}
-              thumbnailUrl={att.thumbnailUrl}
-              onPreview={() => openPreview(att)}
-              // Download falls back to previewUrl when the daemon content fetch
-              // is unavailable, so it takes the unsanitized attachment — a blob
-              // that can't be *rendered* is still valid bytes to save.
-              onDownload={() => handleDownload(attachments[index]!)}
-            />
-          );
+          return renderSquare(att, index);
         })}
       </div>
       {previewModal}

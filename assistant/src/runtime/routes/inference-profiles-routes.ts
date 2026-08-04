@@ -296,7 +296,8 @@ function fragmentFromBody(
 
 /**
  * Enumerate every live reference to profile `name` in the raw `llm` config
- * block: `activeProfile`, `advisorProfile`, each `callSites.<id>.profile`, and
+ * block: `activeProfile`, `advisorProfile`, each `callSites.<id>.profile`,
+ * each `defaultProfileOverrides.<tier>`, and
  * every mix arm (`profiles.<mix>.mix[].profile`). Deleting a profile while any
  * of these point at it would leave a dangling reference that `LLMSchema`'s
  * superRefine rejects on the next load — silently resetting the user's chat
@@ -321,6 +322,14 @@ export function collectProfileReferences(
     for (const [siteId, siteConfig] of Object.entries(callSites)) {
       if (asPlainObject(siteConfig)?.profile === name) {
         refs.push(`llm.callSites.${siteId}`);
+      }
+    }
+  }
+  const tierOverrides = asPlainObject(llm.defaultProfileOverrides);
+  if (tierOverrides) {
+    for (const [tier, target] of Object.entries(tierOverrides)) {
+      if (target === name) {
+        refs.push(`llm.defaultProfileOverrides.${tier}`);
       }
     }
   }
@@ -741,7 +750,7 @@ export const ROUTES: RouteDefinition[] = [
       "404": { description: "Profile not found" },
       "409": {
         description:
-          "Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm",
+          "Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a mix arm",
       },
     },
     handler: handleDeleteProfile,

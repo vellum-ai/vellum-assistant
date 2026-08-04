@@ -15,6 +15,7 @@ import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import {
   CollapsedGroupIcon,
@@ -34,7 +35,7 @@ import {
   ConversationRowList,
 } from "@/domains/chat/components/conversation-nav-section";
 import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
-import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
+import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
@@ -46,14 +47,8 @@ import {
   type SidebarSection,
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
-import { SidebarSectionResizeHandle } from "@/domains/chat/components/sidebar-section-resize-handle";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
-import {
-  resetPinnedSectionHeight,
-  savePinnedSectionHeight,
-  usePinnedSectionHeight,
-} from "@/domains/chat/utils/sidebar-pinned-height";
 import {
   RECENTS_SECTION_ICON,
   RECENTS_SECTION_LABEL,
@@ -61,7 +56,7 @@ import {
 } from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -166,15 +161,16 @@ function SearchButton() {
  *     • Your Assistant → Intelligence view, with New Chat beneath it
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
- *     • [ All | Grouped ] - the view switch, first and sticky
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
  *     • ───────────────  - when anything is curated above it; drags to
  *       resize Pinned while that section is expanded
- *     • All view: every remaining conversation as one headerless,
+ *     • Conversations  - the persistent header; its "…" menu carries the
+ *       "Group by" dropdown (None | Channel)
+ *     • Group by None: every remaining conversation as one headerless,
  *       virtualized list, newest first
- *     • Grouped view: Chats ▾ then one collapsible section per origin
- *       channel (Slack, Telegram, WhatsApp, …)
+ *     • Group by Channel: Chats ▾ then one collapsible section per
+ *       origin channel (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -247,21 +243,6 @@ export function AssistantSideMenu({
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   const isCollapsedRail = collapsed && variant === "rail";
-
-  // --- Pinned section resize ---
-  // The section list's one rule doubles as the Pinned section's resize
-  // handle. During a drag the handle drives the bounded row list through
-  // this ref (no per-frame React state); the released height persists per
-  // assistant. Pinned is non-collapsible (its content renders through a
-  // plain div, not `Collapsible.Content`), so the ref always reaches a node
-  // once Pinned exists, so resizability shouldn't depend on
-  // `effectiveOpenSections`, which can still carry a stale "no pinned" key
-  // for a user who collapsed it before that change shipped.
-  const pinnedListRef = useRef<HTMLDivElement | null>(null);
-  const pinnedListMaxHeight = usePinnedSectionHeight(assistantId);
-  const pinnedResizable = sidebar.sections.some(
-    (section) => section.type === "pinned",
-  );
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
@@ -428,16 +409,13 @@ export function AssistantSideMenu({
     });
   };
 
-  // List/Groups switch, in the persistent "Threads" header's menu.
-  const viewAsFooter = (
-    <div className="mt-2 px-2 pb-1">
-      <div
-        className="mb-1.5 text-label-small-default text-[var(--content-tertiary)]"
-        style={{ fontSize: 12 }}
-      >
-        View As
+  // Grouping dropdown, in the persistent "Conversations" header's menu.
+  const groupByFooter = (
+    <div className="px-2 pb-1">
+      <div className={cn("mt-3 mb-2", SIDEBAR_SECTION_TITLE_TEXT_CLASSES)}>
+        Group by
       </div>
-      <SidebarViewModeToggle
+      <SidebarViewModeSelect
         value={sidebar.viewMode}
         onChange={sidebar.onViewModeChange}
       />
@@ -451,20 +429,16 @@ export function AssistantSideMenu({
       groupMenu={sectionMenu(section)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot(section.all)}
-      listRef={section.type === "pinned" ? pinnedListRef : undefined}
-      listMaxHeight={
-        section.type === "pinned" ? pinnedListMaxHeight : undefined
-      }
     />
   );
 
-  // The persistent "Threads" header: same bulk-action menu shape as a
+  // The persistent "Conversations" header: same bulk-action menu shape as a
   // section's, minus move-up/down since it isn't a member of
   // `sidebar.sections`. Scoped to `flatList` regardless of view mode:
   // that's every conversation neither pinned nor in a custom group, the same
-  // set whether it's currently rendered as one list (List view) or split
-  // into Chats + channel sub-sections (Grouped view).
-  const conversationsMenu = buildGroupMenu("Threads", sidebar.flatList);
+  // set whether it's currently rendered as one list (grouped by None) or
+  // split into Chats + channel sub-sections (grouped by Channel).
+  const conversationsMenu = buildGroupMenu("Conversations", sidebar.flatList);
 
   // --- Built-in navigation ---
   // Assistant cluster leads, pinned apps follow beneath New Chat, separated
@@ -484,7 +458,7 @@ export function AssistantSideMenu({
           the divider ~12px off the cluster (Figma 7257:135812). The
           overlay drawer skips the New Chat row — its floating New Chat
           pill already owns that action in the thumb zone. */}
-      <div className={isCollapsedRail ? undefined : "mb-4"}>
+      <div className={isCollapsedRail ? undefined : "mb-2"}>
         <AssistantNavItem
           assistantId={assistantId ?? null}
           label={assistantName || "Your Assistant"}
@@ -510,21 +484,31 @@ export function AssistantSideMenu({
       </div>
       {pinnedApps.length > 0 ? (
         <>
-          {/* Not the accordion's "Threads"/"Pinned" title component: this
+          {/* Not the accordion's "Conversations"/"Pinned" title component: this
               block lives outside `CollapsibleNavSection.Root` entirely (in
               the non-scrolling rail header, or the overlay's top-of-body),
               so it's just the same label styling, non-interactive. */}
           {!isCollapsedRail ? (
             <div
-              className="flex h-[30px] items-center rounded-[6px] py-[6px] text-left text-body-medium-lighter text-[var(--content-tertiary)]"
+              // Same title treatment as "Pinned"/"Conversations" (collapsible-
+              // nav-section.tsx's non-collapsible branch): the mobile
+              // text/height/padding classes below aren't decorative, they
+              // match that component's, so the two read as one style.
+              //
+              // The trailing -mb-1/-mb-[10px] shaves off the parent's own
+              // gap (8px on the rail, 16px on the overlay): additive since
+              // flex `gap` doesn't collapse with margins, so this works in
+              // both contexts. Mobile (always the overlay) shaves more,
+              // halving the 16px gap to Lucky Dip below instead of the
+              // 12px this leaves elsewhere.
+              className={cn(
+                "flex h-[30px] max-md:h-auto items-center rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5 -mb-1 max-md:-mb-[10px]",
+                SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+              )}
               style={{
                 paddingLeft: SIDEBAR_ROW_PADDING_X,
                 paddingRight: SIDEBAR_ROW_PADDING_X,
                 gap: SIDEBAR_CHIP_GAP,
-                // Shaves 4px off the parent's own gap (8px on the rail,
-                // 16px on the overlay): additive since flex `gap` doesn't
-                // collapse with margins, so this works in both contexts.
-                marginBottom: -4,
               }}
             >
               Pinned Apps
@@ -611,8 +595,7 @@ export function AssistantSideMenu({
                      the outer edge instead of cutting through the content, and
                      takes over the horizontal inset the root would have given
                      it, so rows sit exactly where they did. No top inset: the
-                     sticky view switch sits flush against the header, and any
-                     padding here would be a gap it has to cancel. */
+                     first section sits flush against the header. */
                   "-mx-4 gap-4 px-4"
           }
           style={
@@ -630,12 +613,9 @@ export function AssistantSideMenu({
         >
           {/* The overlay puts the assistant cluster at the top of the
               scrollport rather than in a fixed header, so it owns the inset
-              that keeps it clear of the floating close and search glyphs. It
-              lives here rather than on the scrollport because the sticky view
-              switch sticks to the scrollport's content box: any padding there
-              would park the switch that far down and open a strip above it
-              for rows to scroll through. `gap-4` restates the body's own gap,
-              which wrapping these into one flex item would otherwise drop. */}
+              that keeps it clear of the floating close and search glyphs.
+              `gap-4` restates the body's own gap, which wrapping these into
+              one flex item would otherwise drop. */}
           {variant === "overlay" ? (
             <div className="flex flex-col gap-4 pt-3 max-md:pt-4">
               {builtInNav}
@@ -715,14 +695,15 @@ export function AssistantSideMenu({
                 onValueChange={sidebar.onOpenSectionsChange}
               >
                 {/* Pinned and the custom groups: the user's own curation,
-                    identical in both views. A divider between each pair, so
-                    Pinned's own boundary reads the same as the curated
-                    block's outer one below. */}
+                    identical in both views. One divider under Pinned; the
+                    custom groups flow together with nothing between them,
+                    and the block's own rule below marks the boundary to
+                    Conversations. */}
                 {sidebar.sections
                   .slice(0, sidebar.curatedSectionCount)
-                  .map((section, index) => (
+                  .map((section, index, curated) => (
                     <Fragment key={section.key}>
-                      {index > 0 ? (
+                      {index > 0 && curated[index - 1]?.type === "pinned" ? (
                         // 2px closer to the section below than the
                         // separator's own default my-1 (4px) gives.
                         <SideMenu.Separator style={{ marginBottom: 2 }} />
@@ -734,36 +715,36 @@ export function AssistantSideMenu({
                     conversations begin. Absent when nothing is curated yet, so
                     a fresh sidebar never opens on a stray line. Sits on the
                     root's own gap, pulled up 2px so the curated block's last
-                    row sits closer to it than the root's default gap-3. */}
+                    row sits closer to it than the root's default gap-3.
+                    Static: Pinned no longer caps/scrolls (it's `unbounded`
+                    now, see `ConversationRowList`), so there's nothing left
+                    to resize here. */}
                 {sidebar.curatedSectionCount > 0 ? (
-                  <div style={{ marginTop: -2 }}>
-                    <SidebarSectionResizeHandle
-                      targetRef={pinnedListRef}
-                      resizable={pinnedResizable}
-                      onCommit={(height) =>
-                        savePinnedSectionHeight(assistantId, height)
-                      }
-                      onReset={() => resetPinnedSectionHeight(assistantId)}
-                    />
-                  </div>
+                  <div
+                    data-slot="sidebar-section-rule"
+                    role="separator"
+                    aria-orientation="horizontal"
+                    style={{ marginTop: -2 }}
+                    className="h-px w-full bg-[var(--border-base)]"
+                  />
                 ) : null}
-                {/* "Threads" is the persistent header for everything
+                {/* "Conversations" is the persistent header for everything
                     that isn't Pinned or a custom group: it never swaps out
-                    for "Chats". In List view its content is the flat list;
-                    in Grouped view, Chats and each channel section nest
-                    inside it instead of sitting as its top-level siblings,
-                    keeping their own headers/collapse behavior. Same
-                    bulk-action menu machinery as a section's, minus
-                    move-up/down since it isn't a member of
-                    `sidebar.sections`. */}
+                    for "Chats". Grouped by All, its content is the flat
+                    list; grouped by Channels, Chats and each channel
+                    section nest inside it instead of sitting as its
+                    top-level siblings, keeping their own headers/collapse
+                    behavior. Same bulk-action menu machinery as a
+                    section's, minus move-up/down since it isn't a member
+                    of `sidebar.sections`. */}
                 <ConversationNavSection
                   value="conversations"
-                  label="Threads"
+                  label="Conversations"
                   collapsible={false}
                   trailing={
                     <GroupActionsMenu
-                      label="Threads"
-                      footer={viewAsFooter}
+                      label="Conversations"
+                      footer={groupByFooter}
                       {...conversationsMenu}
                     />
                   }
@@ -825,14 +806,31 @@ export function AssistantSideMenu({
                 {tipCard}
               </div>
             ) : null}
-            <div className="flex items-center justify-center gap-4">
+            {/* Grid, not flex: a plain `flex-1` on both children doesn't
+               actually split them evenly here, since the Preferences pill
+               (wrapped in its own div, see `footerAction` below) and the New
+               Chat button (a flex item directly) don't carry the same
+               content-based automatic minimum size, so equal flex-grow still
+               resolves to unequal widths. `minmax(0,1fr)` tracks are immune
+               to that: each column is forced to the same size regardless of
+               its content or DOM depth. */}
+            <div
+              className={cn(
+                "grid items-center gap-4",
+                footerAction
+                  ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+                  : "grid-cols-1",
+              )}
+            >
               {footerAction ? (
-                <div className="pointer-events-auto flex-1">{footerAction}</div>
+                <div className="pointer-events-auto min-w-0">
+                  {footerAction}
+                </div>
               ) : null}
               {onStartNewConversation ? (
                 <Button
                   variant="primary"
-                  className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                  className="pointer-events-auto h-10 w-full rounded-full px-4 shadow-[var(--shadow-lg)]"
                   leftIcon={<SquarePen />}
                   onClick={() => {
                     onStartNewConversation();

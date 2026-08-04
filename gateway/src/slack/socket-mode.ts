@@ -85,6 +85,54 @@ const MAX_BACKOFF_MS = 30_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * TTL for a thread root armed from the assistant's own top-level post.
+ *
+ * Deliberately shorter than {@link ACTIVE_THREAD_TTL_MS} because these roots
+ * are speculative: the assistant opens one on every heartbeat or triage turn
+ * and most are never replied to. Four hours covers a same-session or
+ * after-lunch reply while letting untouched roots lapse before the next day's
+ * posts compound on them.
+ *
+ * This bounds only roots nobody engaged with. The moment a human reply is
+ * admitted, `normalizeAndEmit` re-arms the thread through `trackThread` at the
+ * full inbound TTL, so a root that becomes a real conversation immediately
+ * gets the normal lifetime.
+ */
+const OUTBOUND_ROOT_THREAD_TTL_MS = 4 * 60 * 60 * 1_000;
+
+/**
+ * Message subtypes that still count as the assistant saying something a human
+ * can reply to, and so may arm a thread root.
+ *
+ * `classifySlackEvent` reports `kind: "message"` for bot-authored system
+ * subtypes too (`channel_join`, `channel_topic`, ...); those open no
+ * conversation and must not arm anything. `thread_broadcast` is absent because
+ * it always carries a `thread_ts` and therefore takes the thread-reply arm.
+ *
+ * `bot_message` is here because it is a real post, just attributed to an app
+ * rather than a user. Reaching this set at all means the self-filter already
+ * matched the event to our own `bot_id`, so another app's `bot_message` never
+ * gets this far.
+ */
+const ROOT_ARMING_SUBTYPES = new Set(["file_share", "bot_message"]);
+
+/**
+ * How often to retry `auth.test` while the bot identity is still incomplete.
+ *
+ * Identity is otherwise refreshed only when a WebSocket opens, and Slack
+ * Socket Mode holds a connection for around an hour, so an install that starts
+ * during a Slack blip would run that long on a persisted identity. That is
+ * survivable for the `user`-attributed shape (`botUserId` comes from the same
+ * persisted row) but leaves `botId` unresolved, and an own `bot_message` echo
+ * arriving in that window is not recognized as ours, so it arms no root. This
+ * bounds that window to roughly a minute without gating ingestion on identity,
+ * which would trade a narrow arming gap for a total Slack outage during any
+ * `auth.test` blip.
+ */
+const IDENTITY_RETRY_INTERVAL_MS = 60_000;
+
 const SLACK_RESOLVE_TIMEOUT_MS = 3_000;
 
 /**
@@ -122,6 +170,21 @@ export type SlackSocketModeConfig = {
    * startups load it without depending on a successful API call.
    */
   botUserId?: string;
+  /**
+   * Bot's own Slack `bot_id` (a `B…` app identity, distinct from the `U…`
+   * user id above). Slack attributes a post to one or the other depending on
+   * how it was sent: a plain `chat.postMessage` carries `user`, while a post
+   * with a `username` / `icon_*` override, or through an incoming webhook,
+   * arrives as `subtype: "bot_message"` with `bot_id` and no `user` at all.
+   * Holding both is what lets the self-filter recognize every shape of our
+   * own echo, and matching the exact id is what keeps *other* bots' posts
+   * from being mistaken for ours.
+   *
+   * Resolved alongside `botUserId` via `auth.test` and persisted with it.
+   * Optional: absent for a token whose `auth.test` predates this field, in
+   * which case the `bot_message` arm simply never matches (fail-closed).
+   */
+  botId?: string;
   /** Bot's display name, resolved at startup via auth.test. */
   botUsername?: string;
   /** Slack workspace/team name, resolved at startup via auth.test. */
@@ -183,6 +246,12 @@ export class SlackSocketModeClient {
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
   private emitQueues: Map<string, Promise<void>> | undefined = new Map();
+  /**
+   * Whether `auth.test` has answered authoritatively in this process. Gates
+   * the identity short-circuit: see `resolveBotIdentity`.
+   */
+  private identityResolvedFromApi = false;
+  private identityRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     config: SlackSocketModeConfig,
@@ -199,6 +268,10 @@ export class SlackSocketModeClient {
     this.startDedupCleanup();
 
     await this.resolveBotIdentity();
+    // A transient auth.test failure leaves identity incomplete; keep retrying
+    // on a timer so the gap is bounded by a minute rather than by the life of
+    // the Socket Mode connection.
+    this.scheduleIdentityRetry();
     await this.connect();
   }
 
@@ -222,8 +295,59 @@ export class SlackSocketModeClient {
    * token cannot self-heal. Server-side errors (internal_error, fatal_error)
    * are treated as transient and fall through to persistence.
    */
+  /**
+   * True while `auth.test` still has something to tell us. False once it has
+   * answered authoritatively in this process, or when the config already
+   * carries every identity field.
+   */
+  private identityNeedsResolution(): boolean {
+    if (this.identityResolvedFromApi) return false;
+    return !(
+      this.config.botUserId &&
+      this.config.botUsername &&
+      this.config.botId
+    );
+  }
+
+  /**
+   * Keep retrying identity resolution on a timer while it is incomplete.
+   *
+   * Without this the only retry is a WebSocket open, so a persisted-identity
+   * fallback survives for the life of a Socket Mode connection. See
+   * {@link IDENTITY_RETRY_INTERVAL_MS} for why this bounds the window rather
+   * than gating event processing on it.
+   */
+  private scheduleIdentityRetry(): void {
+    if (this.identityRetryTimer) {
+      clearTimeout(this.identityRetryTimer);
+      this.identityRetryTimer = null;
+    }
+    if (!this.running || !this.identityNeedsResolution()) {
+      return;
+    }
+    this.identityRetryTimer = setTimeout(() => {
+      this.identityRetryTimer = null;
+      void this.resolveBotIdentity()
+        .catch((err: unknown) => {
+          log.warn({ err }, "Slack identity retry failed");
+        })
+        .finally(() => {
+          this.scheduleIdentityRetry();
+        });
+    }, IDENTITY_RETRY_INTERVAL_MS);
+    // Never hold the process open for a retry.
+    this.identityRetryTimer.unref?.();
+  }
+
   private async resolveBotIdentity(): Promise<void> {
-    if (this.config.botUserId && this.config.botUsername) {
+    // Short-circuit on having had an authoritative answer, not on the fields
+    // being populated. Those differ exactly once: an install that upgrades
+    // during a Slack blip falls back to a persisted identity written before
+    // `botId` existed, so `botUserId` / `botUsername` are set while `botId` is
+    // not. Keying on presence would return here on every later reconnect and
+    // leave the `bot_message` self-filter disabled until a full restart, which
+    // reopens the echo gap for precisely the installs that hit a bad upgrade.
+    if (!this.identityNeedsResolution()) {
       return;
     }
 
@@ -239,6 +363,7 @@ export class SlackSocketModeClient {
         user_id?: string;
         user?: string;
         team?: string;
+        bot_id?: string;
       };
 
       if (!data.ok) {
@@ -273,15 +398,28 @@ export class SlackSocketModeClient {
         if (data.team) {
           this.config.teamName = data.team;
         }
+        if (data.bot_id) {
+          this.config.botId = data.bot_id;
+        }
         warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
 
         // Persist for future startups.
         if (data.user_id) {
+          const metadata: Record<string, unknown> = {};
+          if (data.team) metadata.teamName = data.team;
+          if (data.bot_id) metadata.botId = data.bot_id;
           this.store.setBotIdentity({
             userId: data.user_id,
             username: data.user ?? null,
-            metadata: data.team ? { teamName: data.team } : null,
+            metadata: Object.keys(metadata).length > 0 ? metadata : null,
           });
+        }
+
+        // Only a resolution that actually yielded an identity counts as
+        // authoritative; an `ok` response without `user_id` taught us nothing
+        // and must not disable the retry.
+        if (data.user_id) {
+          this.identityResolvedFromApi = true;
         }
 
         log.info(
@@ -289,6 +427,7 @@ export class SlackSocketModeClient {
             botUserId: data.user_id,
             botUsername: data.user,
             teamName: data.team,
+            botId: data.bot_id,
           },
           "Resolved Slack bot identity via auth.test",
         );
@@ -313,8 +452,12 @@ export class SlackSocketModeClient {
     if (persisted) {
       this.config.botUserId = persisted.userId;
       this.config.botUsername = persisted.username ?? this.config.botUsername;
-      const meta = persisted.metadata as { teamName?: string } | null;
+      const meta = persisted.metadata as {
+        teamName?: string;
+        botId?: string;
+      } | null;
       this.config.teamName = meta?.teamName ?? this.config.teamName;
+      this.config.botId = meta?.botId ?? this.config.botId;
       log.info(
         {
           botUserId: persisted.userId,
@@ -338,6 +481,10 @@ export class SlackSocketModeClient {
     this.running = false;
     this.connecting = false;
     this.stopDedupCleanup();
+    if (this.identityRetryTimer) {
+      clearTimeout(this.identityRetryTimer);
+      this.identityRetryTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -630,39 +777,181 @@ export class SlackSocketModeClient {
   }
 
   /**
-   * Side-effect-only handler for the bot's own thread replies. The event
-   * itself is always dropped (the caller returns after this), but thread
-   * tracking is armed so follow-up human replies pass the active-thread
-   * filter.
+   * Extract the Slack `bot_id` an event is attributed to, mirroring
+   * `extractEventUser`'s per-kind field locations.
+   *
+   * Only messages carry one. A reaction is always attributed to a user even
+   * when an app adds it, so the reaction kinds have no `bot_id` to read.
    */
-  private maybeTrackBotOwnThreadReply(event: SlackInboundEvent): void {
+  private extractEventBotId(event: SlackInboundEvent): string | undefined {
+    const classified = classifySlackEvent(event);
+    if (!classified) {
+      return undefined;
+    }
+    switch (classified.kind) {
+      case "message_changed":
+        return classified.event.message?.bot_id;
+      case "message_deleted":
+        return classified.event.previous_message?.bot_id;
+      case "reaction_added":
+      case "reaction_removed":
+        return undefined;
+      default:
+        return classified.event.bot_id;
+    }
+  }
+
+  /**
+   * True when an event is the echo of something this assistant itself posted.
+   *
+   * Slack attributes a post to a user or to an app depending on how it was
+   * sent, and both shapes are ours:
+   *
+   *   - **`user` matches our bot user**: a plain `chat.postMessage` with a
+   *     bot token, which is what every current outbound path produces.
+   *   - **`bot_id` matches our app, with no `user`**: the `bot_message`
+   *     shape Slack emits for a post carrying a `username` / `icon_*`
+   *     override, sent through an incoming webhook, or made by a classic
+   *     app. Slack's own reference points current apps at `bot_id` /
+   *     `bot_profile` rather than this subtype, so it is the uncommon shape,
+   *     but it is the one that silently bypassed every self-filter.
+   *
+   * The `bot_id` arm is deliberately narrow. It requires an exact match
+   * against our resolved id and the absence of a `user`, so another app's
+   * posts are never mistaken for ours (which would arm roots in channels the
+   * assistant merely observes), and an unresolved `botId` matches nothing.
+   */
+  private isOwnBotEvent(event: SlackInboundEvent): boolean {
+    const eventUser = this.extractEventUser(event);
+    if (eventUser) {
+      return eventUser === this.config.botUserId;
+    }
+    const botId = this.config.botId;
+    if (!botId) {
+      return false;
+    }
+    return this.extractEventBotId(event) === botId;
+  }
+
+  /**
+   * Side-effect-only handler for the bot's own posts. The event itself is
+   * always dropped (the caller returns after this), but thread tracking is
+   * armed so follow-up human replies pass the active-thread filter.
+   *
+   * Two cases, because both open a conversation a human can reply into:
+   *
+   *   - **Thread reply** (`thread_ts` present): arms that thread at the full
+   *     TTL. The bot joining a thread is a participation signal as strong as
+   *     an inbound one.
+   *   - **Top-level post** (no `thread_ts`): arms the post's own `ts` as a
+   *     speculative thread root, at the shorter
+   *     {@link OUTBOUND_ROOT_THREAD_TTL_MS}. Without this a bot-initiated
+   *     conversation arms nothing at all and every reply under it is dropped
+   *     by the active-thread filter (LUM-2941).
+   *
+   * Keyed on the echo rather than on the sending code path, so it holds for
+   * every outbound route: the Slack skill's raw `chat.postMessage`, the
+   * messaging adapter, and the gateway's own posts alike. Both of Slack's
+   * attribution shapes reach here, because `isOwnBotEvent` matches our bot
+   * user *and* our `bot_id`.
+   *
+   * What remains is the inference itself: this reads the gateway's own
+   * outbound echo to decide that the assistant opened a conversation. Routing
+   * outbound through the gateway (LUM-2942) replaces it with registration at
+   * send time and makes this handler deletable.
+   */
+  private maybeTrackBotOwnPost(event: SlackInboundEvent): void {
     if (this.config.threadMode !== "mention_then_thread") {
       return;
     }
 
-    // Only a plain thread reply arms tracking. app_mentions, edits, deletes,
+    // Only a plain message arms tracking. app_mentions, edits, deletes,
     // and reactions do not.
     const classified = classifySlackEvent(event);
     if (!classified || classified.kind !== "message") {
       return;
     }
-    const { channel, thread_ts: threadTs } = classified.event;
-    if (!threadTs || !channel) {
+    const {
+      channel,
+      thread_ts: threadTs,
+      ts,
+      channel_type: channelType,
+      subtype,
+    } = classified.event;
+    if (!channel) {
       return;
     }
 
-    if (this.store.isThreadDetached(threadTs)) {
+    if (threadTs) {
+      if (this.store.isThreadDetached(threadTs)) {
+        log.info(
+          { channel, threadTs },
+          "Skipped tracking bot's own reply in explicitly muted thread",
+        );
+        return;
+      }
+      // Not `trackThread`: the assistant replying to itself is not human
+      // engagement, so it must not promote one of its own speculative roots
+      // into the catch-up fan-out. See `trackThreadAfterBotReply`.
+      this.store.trackThreadAfterBotReply(
+        threadTs,
+        channel,
+        ACTIVE_THREAD_TTL_MS,
+        OUTBOUND_ROOT_THREAD_TTL_MS,
+      );
       log.info(
         { channel, threadTs },
-        "Skipped tracking bot's own reply in explicitly muted thread",
+        "Tracked thread after bot's own thread reply",
       );
       return;
     }
 
-    this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
+    if (!ts) {
+      return;
+    }
+
+    // A system subtype (`channel_join` and friends) still classifies as
+    // `kind: "message"`, but the bot did not say anything repliable.
+    if (subtype !== undefined && !ROOT_ARMING_SUBTYPES.has(subtype)) {
+      return;
+    }
+
+    // A root buys admission only where admission is otherwise gated. DMs and
+    // group DMs already admit every message without a tracked thread, so a
+    // root there would add a row and change nothing.
+    //
+    // Read the payload's own discriminators rather than calling
+    // `isDirectLikeChannel`: its observed-kind cache fallback fires a
+    // background `conversations.info` for any channel whose kind is not
+    // cached, and `recordSlackChannelKind` only learns `im` / `mpim`, so an
+    // ordinary channel would warm on every post the assistant makes. Message
+    // events always carry `channel_type`, so the fallback buys nothing on this
+    // path. If one ever arrives without it, the worst case is one useless root
+    // row in a group DM until the TTL lapses, which admits nothing that was
+    // not already admitted there.
+    if (
+      isSlackDmChannel(channel, channelType) ||
+      isSlackMpimChannel(channelType)
+    ) {
+      return;
+    }
+
+    if (this.store.isThreadDetached(ts)) {
+      log.info(
+        { channel, threadTs: ts },
+        "Skipped arming bot's own post as a root in an explicitly muted thread",
+      );
+      return;
+    }
+
+    this.store.armSpeculativeThreadRoot(
+      ts,
+      channel,
+      OUTBOUND_ROOT_THREAD_TTL_MS,
+    );
     log.info(
-      { channel, threadTs },
-      "Tracked thread after bot's own thread reply",
+      { channel, threadTs: ts },
+      "Armed thread root after bot's own top-level post",
     );
   }
 
@@ -897,12 +1186,11 @@ export class SlackSocketModeClient {
     // as inbound events (DM echoes, thread reply echoes, etc.). This is
     // the one structural filter point — every event with the bot as author
     // is dropped here, before any normalization or routing.
-    const eventUser = this.extractEventUser(event);
-    if (eventUser === botUserId) {
-      // Exception: the bot's own thread replies are used to arm thread
-      // tracking (so follow-up human replies are forwarded). This is a
-      // side effect only, the event itself is still dropped.
-      this.maybeTrackBotOwnThreadReply(event);
+    if (this.isOwnBotEvent(event)) {
+      // Exception: the bot's own posts are used to arm thread tracking (so
+      // follow-up human replies are forwarded). This is a side effect only,
+      // the event itself is still dropped.
+      this.maybeTrackBotOwnPost(event);
       return;
     }
 

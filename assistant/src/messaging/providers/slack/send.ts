@@ -20,12 +20,12 @@ import {
   callSlackApi,
   callSlackApiForm,
   completeSlackUpload,
-  SlackApiError,
   startSlackStream,
   stopSlackStream,
   uploadToSlackUrl,
 } from "./api.js";
 import { renderSlackBlocks } from "./render.js";
+import { SlackApiError } from "./web-api-transport.js";
 
 const log = getLogger("slack-send");
 

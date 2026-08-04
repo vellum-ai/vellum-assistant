@@ -27,6 +27,11 @@ def buildValue = { String name, String fallback = '' ->
         .getOrElse(fallback)
 }
 def buildText = { String name, String fallback = '' -> buildValue(name, fallback).trim() }
+def appLinkHosts = [
+    production: "www.vellum.ai",
+    staging: "staging-assistant.vellum.ai",
+    dev: "dev-assistant.vellum.ai",
+]
 
 def versionCodeInput = buildText('VELLUM_ANDROID_VERSION_CODE', '1')
 if (!(versionCodeInput ==~ /[1-9][0-9]*/) || versionCodeInput.toBigInteger() > 2100000000) {
@@ -70,27 +75,30 @@ android {
         production {
             dimension "environment"
             manifestPlaceholders = [
+                vellumAppLinkHost: appLinkHosts.production,
                 vellumAuthScheme: "vellum-assistant"
             ]
-            resValue "string", "vellum_auth_host", "www.vellum.ai"
+            resValue "string", "vellum_auth_host", appLinkHosts.production
             resValue "string", "vellum_auth_scheme", "vellum-assistant"
         }
         staging {
             dimension "environment"
             applicationIdSuffix ".staging"
             manifestPlaceholders = [
+                vellumAppLinkHost: appLinkHosts.staging,
                 vellumAuthScheme: "vellum-assistant-staging"
             ]
-            resValue "string", "vellum_auth_host", "staging-assistant.vellum.ai"
+            resValue "string", "vellum_auth_host", appLinkHosts.staging
             resValue "string", "vellum_auth_scheme", "vellum-assistant-staging"
         }
         dev {
             dimension "environment"
             applicationIdSuffix ".dev"
             manifestPlaceholders = [
+                vellumAppLinkHost: appLinkHosts.dev,
                 vellumAuthScheme: "vellum-assistant-dev"
             ]
-            resValue "string", "vellum_auth_host", "dev-assistant.vellum.ai"
+            resValue "string", "vellum_auth_host", appLinkHosts.dev
             resValue "string", "vellum_auth_scheme", "vellum-assistant-dev"
         }
     }

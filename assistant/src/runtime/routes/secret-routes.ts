@@ -756,8 +756,14 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       success: z.boolean(),
-      type: z.string(),
-      name: z.string(),
+      type: z.string().optional(),
+      name: z.string().optional(),
+      error: z
+        .string()
+        .optional()
+        .describe(
+          "Why the secret was not stored (e.g. provider-side API key validation failed). Present only when success is false.",
+        ),
     }),
     handler: handleAddSecret,
   },

@@ -149,6 +149,7 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import {
+  CODE_OWNED_PROFILE_NAMES,
   getEffectiveProfilesForProvider,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
@@ -690,6 +691,10 @@ const ConfigGetResponseSchema = z
             }).nullable(),
           )
           .optional(),
+        // Tier-to-profile remap of the shipped call-site defaults (see
+        // `defaultProfileOverrides` in `config/schemas/llm.ts`). Keys are
+        // default-profile tier keys; values are profile names.
+        defaultProfileOverrides: z.record(z.string(), z.string()).optional(),
         profileSession: z
           .object({
             defaultTtlSeconds: z.number().optional(),
@@ -794,6 +799,12 @@ const ConfigPatchRequestSchema = z
         advisorProfile: z.string().nullable().optional(),
         callSites: z
           .record(z.string(), CallSiteOverrideDraftSchema.nullable())
+          .optional(),
+        // `null` clears a tier's remap. Deep-merge deletion only covers
+        // object-valued keys, so `scrubClearedTierOverrides` turns the
+        // assigned null into a real delete before the write.
+        defaultProfileOverrides: z
+          .record(z.string(), z.string().nullable())
           .optional(),
         profileSession: z
           .object({
@@ -1536,6 +1547,28 @@ function seedSttProviderForSparseBlock(raw: Record<string, unknown>): void {
   stt.provider = getConfig().services.stt.provider;
 }
 
+/**
+ * `llm.defaultProfileOverrides` values are strings, and the deep-merge null
+ * sentinel only DELETES object-valued keys: against a string it assigns
+ * `null`, which `saveRawConfig` persists unvalidated. A persisted null
+ * fails `LLMSchema`'s `z.string().min(1)` on the next load and would only
+ * be cleared by the loader's issue-path recovery, so drop cleared tiers
+ * here and the null clear becomes a real delete.
+ */
+function scrubClearedTierOverrides(raw: Record<string, unknown>): void {
+  const tiers = readPlainObject(
+    readPlainObject(raw.llm)?.defaultProfileOverrides,
+  );
+  if (!tiers) {
+    return;
+  }
+  for (const [tier, value] of Object.entries(tiers)) {
+    if (value === null) {
+      delete tiers[tier];
+    }
+  }
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -1555,6 +1588,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
+  scrubClearedTierOverrides(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
@@ -1744,6 +1778,15 @@ async function handleReplaceInferenceProfile({
   ) {
     throw new BadRequestError(
       `Profile "${name}" is not currently available and cannot be edited.`,
+    );
+  }
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    // A code-owned profile resolves from the catalog whatever the workspace
+    // holds, so even a status re-enable would persist a stub that never
+    // governs anything. Reject the write rather than accept a silent no-op.
+    throw new BadRequestError(
+      `Profile "${name}" is code-owned and cannot be edited. ` +
+        `Duplicate it to a custom profile to customize.`,
     );
   }
   if (isManaged) {

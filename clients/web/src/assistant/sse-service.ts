@@ -149,40 +149,65 @@ export const sseService: SseService = {
       // request limiter. Reconciling has nothing to recover when we never went
       // live, so suppress it until the stream proves established.
       let everOpened = false;
+      // The stream these callbacks belong to, so a late signal from one that
+      // has already been replaced cannot act on behalf of the live one. The
+      // daemon closes a superseded connection as soon as its replacement
+      // registers (same clientId), and that close arrives here as an error on
+      // the OLD stream. Clearing `current` on it would blank the pointer to
+      // the healthy new stream, and the next trigger would open another
+      // connection, which closes that one in turn: a reconnect loop that
+      // sustains itself with no network fault at all.
+      let ownStream: EventStream | null = null;
+      const isLiveStream = (): boolean =>
+        ownStream === null || ownStream === current;
       const stream = subscribeEvents(
         assistantId,
         (envelope) => {
           publish("sse.event", envelope);
         },
         (err) => {
-          setCurrent(null);
-          setConnected(false);
-          publish("sse.closed", { reason: err.message });
           Sentry.addBreadcrumb({
             category: "event_bus.sse",
             level: "warning",
             message: err.message,
           });
+          if (!isLiveStream()) {
+            return;
+          }
+          setCurrent(null);
+          setConnected(false);
+          publish("sse.closed", { reason: err.message });
         },
         {
           onReconnect: (cause) => {
-            if (everOpened) {
+            if (everOpened && isLiveStream()) {
               publish("sse.opened", { assistantId, cause });
             }
           },
           onStreamOpen: () => {
+            const firstOpen = !everOpened;
             everOpened = true;
             setConnected(true);
+            // Announce the stream once it genuinely establishes rather than
+            // when its handle is created, so an attempt that never connects
+            // does not fan out a reconcile across every domain.
+            if (firstOpen && isLiveStream()) {
+              publish("sse.opened", { assistantId, cause: causeAtOpen });
+            }
           },
-          onStreamClose: () => setConnected(false),
+          onStreamClose: () => {
+            if (isLiveStream()) {
+              setConnected(false);
+            }
+          },
         },
       );
+      ownStream = stream;
       if (cancelled) {
         stream.cancel();
         return;
       }
       setCurrent(stream);
-      publish("sse.opened", { assistantId, cause: causeAtOpen });
     };
 
     const teardown = () => {

@@ -153,6 +153,23 @@ export interface TurnContext {
    * transport interface.
    */
   readonly clientOs?: string;
+  /**
+   * The app the client has open on screen, resolved from the id the client
+   * reports with each message. Rendered as the `visible_app:` line so the
+   * assistant can resolve "the app" to what the user is looking at instead of
+   * guessing or asking. Absent when no app is in view.
+   */
+  readonly visibleApp?: {
+    /** Canonical id the app tools key off (an opaque UUID for workspace apps). */
+    appId: string;
+    name: string;
+    /** Directory stem: the readable handle for an otherwise opaque id. */
+    slug: string;
+    /** Absolute path of the app's source directory. */
+    sourceDir: string;
+    /** Owning plugin, when the app is plugin-bundled rather than sandbox-built. */
+    pluginName?: string;
+  } | null;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**

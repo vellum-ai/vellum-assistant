@@ -11,27 +11,41 @@ import {
 } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { sniffMimeType } from "@/domains/chat/utils/mime-sniff";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
+/** Base64 characters decoded for sniffing: enough for every image signature. */
+const BASE64_HEAD_CHARS = 48;
+
+/** Decode the leading bytes of a base64 payload, or nothing when undecodable. */
+function decodeBase64Head(base64: string): Uint8Array {
+  const whole = base64.slice(0, BASE64_HEAD_CHARS);
+  const aligned = whole.slice(0, whole.length - (whole.length % 4));
+  if (aligned.length === 0) {
+    return new Uint8Array(0);
+  }
+  try {
+    const binary = atob(aligned);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return new Uint8Array(0);
+  }
+}
+
+/**
+ * MIME type of a raw base64 image payload. Tool-result images are images by
+ * construction, so a sniff that lands outside `image/*` (or comes back
+ * inconclusive) falls back to PNG rather than mislabelling the data URL.
+ */
 function inferImageMimeType(base64: string): string {
   const normalized = base64.replace(/\s/g, "");
-  if (normalized.startsWith("iVBORw0KGgo")) {
-    return "image/png";
-  }
-  if (normalized.startsWith("/9j/")) {
-    return "image/jpeg";
-  }
-  if (normalized.startsWith("UklGR")) {
-    return "image/webp";
-  }
-  if (normalized.startsWith("R0lGOD")) {
-    return "image/gif";
-  }
-  if (normalized.startsWith("Qk")) {
-    return "image/bmp";
-  }
-  return "image/png";
+  const sniffed = sniffMimeType(decodeBase64Head(normalized));
+  return sniffed?.startsWith("image/") ? sniffed : "image/png";
 }
 
 const DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,/i;

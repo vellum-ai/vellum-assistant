@@ -182,10 +182,10 @@ describe("RemoteWebPairingPage", () => {
     );
 
     expect(screen.getByText("Starting pairing")).not.toBeNull();
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
     expect(
-      container.querySelector(".animate-spin.text-blue-600"),
-    ).not.toBeNull();
-    expect(container.querySelector(".text-red-600")).toBeNull();
+      container.querySelector('[class*="--system-negative-strong"]'),
+    ).toBeNull();
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
   });
 
