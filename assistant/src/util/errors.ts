@@ -59,6 +59,22 @@ export class BackendUnavailableError extends BackendError {
 }
 
 /**
+ * An embedding worker subprocess died while an operation was in flight: the
+ * child exited with a request pending, or was already gone when the request
+ * hit the pipe. Distinct from {@link BackendUnavailableError}, which is thrown
+ * before attempting an operation; this is discovered during one. Consumers
+ * that must tell a dead worker apart from an ordinary backend failure check
+ * this type (via `isEmbeddingWorkerDeath` in
+ * `persistence/embeddings/embedding-types.ts`) rather than parsing messages.
+ */
+export class EmbeddingWorkerDiedError extends BackendError {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbeddingWorkerDiedError";
+  }
+}
+
+/**
  * A request or token-budget quota was exceeded.
  * Thrown by the provider rate-limiter and by domain-specific clients (e.g. DoorDash).
  */

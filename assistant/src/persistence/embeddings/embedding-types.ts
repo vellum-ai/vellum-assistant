@@ -1,5 +1,7 @@
 import { createHash } from "crypto";
 
+import { EmbeddingWorkerDiedError } from "../../util/errors.js";
+
 export type EmbeddingTaskType =
   | "SEMANTIC_SIMILARITY"
   | "CLASSIFICATION"
@@ -118,26 +120,21 @@ export interface EmbeddingBackend {
 export const EMBEDDING_DIMENSION_PROBE_TEXT = "embedding dimension probe";
 
 /**
- * Thrown by an embedding backend when its worker subprocess is gone: either
- * the child exited while a request was in flight, or it was already dead when
- * the next request hit the pipe. Typed at the origin so consumers that need to
- * distinguish a dead worker from an ordinary backend failure check the type
- * rather than parsing message text.
+ * The typed worker-death error is part of the shared `VellumError` hierarchy
+ * (`util/errors.ts`), where structured errors propagate to logging and
+ * monitoring. Re-exported here because this module is the embedding domain's
+ * public surface: backends throw it and consumers import it from the same
+ * place as the other embedding types.
  */
-export class EmbeddingWorkerDiedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EmbeddingWorkerDiedError";
-  }
-}
+export { EmbeddingWorkerDiedError } from "../../util/errors.js";
 
 /**
  * Message fragments a worker-owning backend emits when its child is gone. The
  * fallback for errors that are not {@link EmbeddingWorkerDiedError}: the rerank
- * worker reports its deaths with the same phrasing but does not yet throw the
- * typed error, and an error that crossed a serialization boundary arrives as a
- * plain object. Both shapes describe the same fault, distinguished only by
- * whether the death beat the write.
+ * worker reports its deaths with the same phrasing as plain errors, and an
+ * error that crossed a serialization boundary arrives untyped. Both fragments
+ * describe the same fault, distinguished only by whether the death beat the
+ * write.
  */
 const WORKER_DEATH_MESSAGE_FRAGMENTS = [
   "worker process exited unexpectedly",
