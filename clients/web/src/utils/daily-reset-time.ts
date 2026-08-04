@@ -19,7 +19,11 @@ export function dailyResetTimePhrase(
     hour: "numeric",
     minute: "2-digit",
     ...(timeZone ? { timeZone } : {}),
-  }).format(nextUtcMidnight);
+  })
+    .format(nextUtcMidnight)
+    // Some ICU builds separate the time from AM/PM with a narrow no-break
+    // space; normalize so the comparison and the copy are runtime-independent.
+    .replace(/ /g, " ");
   if (localTime === "12:00 AM") {
     return "midnight UTC";
   }
