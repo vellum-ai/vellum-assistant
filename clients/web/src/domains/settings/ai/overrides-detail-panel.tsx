@@ -260,19 +260,17 @@ export function OverridesDetailPanel({
     return q === "" || "advisor".includes(q) || "second opinion".includes(q);
   }, [search]);
 
-  const hasPersistedTierOverride =
-    supportsTierOverrides &&
-    Object.values(persistedTierOverrides).some((v) => v != null);
-
+  // Per-action pins only: Reset deliberately leaves the tier remaps alone
+  // (they are the user's intended defaults, cleared per-row instead), so
+  // tier state neither shows the button nor enters the reset patch.
   const hasAnyPersistedOverride = useMemo(
     () =>
-      hasPersistedTierOverride ||
       Object.entries(persistedOverrides).some(
         ([id, s]) =>
           gatedCallSiteIdSet.has(id) &&
           (s?.profile != null || s?.provider != null || s?.model != null),
       ),
-    [hasPersistedTierOverride, persistedOverrides, gatedCallSiteIdSet],
+    [persistedOverrides, gatedCallSiteIdSet],
   );
 
   const callSiteDraftsDirty = useMemo(() => {
@@ -500,22 +498,9 @@ export function OverridesDetailPanel({
       for (const id of Object.keys(drafts)) {
         resetPatch[id] = null;
       }
-      const tierResetPatch: Record<string, null> = {};
-      if (supportsTierOverrides) {
-        for (const tier of Object.keys(persistedTierOverrides)) {
-          tierResetPatch[tier] = null;
-        }
-      }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
-        body: {
-          llm: {
-            callSites: resetPatch,
-            ...(Object.keys(tierResetPatch).length > 0
-              ? { defaultProfileOverrides: tierResetPatch }
-              : {}),
-          },
-        },
+        body: { llm: { callSites: resetPatch } },
       });
       onClose();
       toast.success("Overrides reset.");
@@ -525,14 +510,7 @@ export function OverridesDetailPanel({
     } finally {
       setSaving(false);
     }
-  }, [
-    drafts,
-    supportsTierOverrides,
-    persistedTierOverrides,
-    onClose,
-    configMutation,
-    assistantId,
-  ]);
+  }, [drafts, onClose, configMutation, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -796,7 +774,11 @@ export function OverridesDetailPanel({
       <ConfirmDialog
         open={showResetConfirmation}
         title="Reset to Defaults"
-        message="Every task override will be reset and will follow your active profile. This cannot be undone."
+        message={
+          supportsTierOverrides
+            ? "Every action override will be reset and will follow its tier default above. Your tier choices are kept. This cannot be undone."
+            : "Every task override will be reset and will follow your active profile. This cannot be undone."
+        }
         confirmLabel="Reset to Defaults"
         destructive
         onConfirm={() => {

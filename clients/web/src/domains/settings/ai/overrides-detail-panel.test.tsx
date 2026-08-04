@@ -556,6 +556,37 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     });
   });
 
+  test("Reset clears per-action pins but keeps the tier remaps", async () => {
+    renderTierPanel({
+      llm: {
+        ...TIER_CONFIG.llm,
+        defaultProfileOverrides: { "cost-optimized": "my-byok" },
+      },
+    });
+    await waitFor(() => {
+      expect(renderedText()).toContain("Defaults");
+    });
+
+    fireEvent.click(getButton("Reset to Defaults"));
+    // Confirm dialog: the destructive confirm carries the same label.
+    const confirm = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((b) => b.textContent?.trim() === "Reset to Defaults")[1];
+    if (!confirm) {
+      throw new Error("expected the confirm dialog button");
+    }
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    // Per-action pins are nulled; the user's tier configuration is not an
+    // override to reset and must not be touched.
+    expect(body.llm.callSites).toBeTruthy();
+    expect("defaultProfileOverrides" in body.llm).toBe(false);
+  });
+
   test("an unknown assistant version falls back to a non-writing apply-to-all", async () => {
     useAssistantIdentityStore.getState().clearIdentity();
     renderTierPanel();
