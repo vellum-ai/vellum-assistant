@@ -142,7 +142,7 @@ describe("useSendMessage: a send that never reaches the server", () => {
   test("a send that fails while another turn is active is also kept", async () => {
     // The queue branch used to revert the row outright, so an ordinary message
     // sent while the assistant was busy still vanished on failure.
-    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "sending" });
+    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "streaming" });
     const { result } = renderSend();
 
     await act(async () => {
