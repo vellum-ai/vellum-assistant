@@ -421,8 +421,7 @@ function readIngressState(workspaceDir: string): IngressState | null {
   const nginx = ingress?.nginx as Record<string, unknown> | undefined;
   const listenPort = nginx?.listenPort;
   if (typeof listenPort !== "number") return null;
-  // A missing includeWebApp means an SPA edge (older state records only
-  // listenPort, and those edges always serve the SPA).
+  // A state record without includeWebApp represents an SPA edge.
   return { listenPort, includeWebApp: nginx?.includeWebApp !== false };
 }
 
