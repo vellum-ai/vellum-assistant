@@ -18,6 +18,9 @@
  * plugin source reconcile.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
@@ -80,7 +83,8 @@ async function runReconcilePass(): Promise<void> {
     return;
   }
 
-  const { desired, errors } = await collectDesiredDeclarations();
+  const { desired, errors, manifestFailures } =
+    await collectDesiredDeclarations();
 
   const existingByKey = new Map<string, ScheduleJob>();
   for (const row of listDeclaredSchedules()) {
@@ -92,10 +96,14 @@ async function runReconcilePass(): Promise<void> {
   for (const [sourceKey, { pluginName, declaration }] of desired) {
     const row = existingByKey.get(sourceKey);
     const definition = toDefinition(declaration);
-    const changesArmedRow =
-      row !== undefined &&
-      row.enabled &&
-      row.definitionHash !== definition.definitionHash;
+    const definitionChanged =
+      row !== undefined && row.definitionHash !== definition.definitionHash;
+    const changesArmedRow = definitionChanged && row.enabled;
+    // A definition change can also arm a row that was disarmed (e.g. an
+    // upgrade flipping the declared `enabled` from false to true). That
+    // transition gets the arrival notification below; a plain re-enable or
+    // reinstall re-link (hash unchanged) stays quiet.
+    const armsDisarmedRow = definitionChanged && !row.enabled;
     let applied: ScheduleJob;
     try {
       applied = await upsertDeclaredSchedule(sourceKey, definition);
@@ -109,13 +117,14 @@ async function runReconcilePass(): Promise<void> {
     if (changesArmedRow) {
       emitDefinitionChanged(pluginName, declaration);
     }
-    // A brand-new armed row must never appear silently: a daemon-route
+    // A row arming without consent must never be silent: a daemon-route
     // install/upgrade has no interactive consent prompt, and even a CLI
     // upgrade only confirms what it staged. The arrival notification is the
     // consent surface for those paths; a CLI install that already prompted
     // gets one redundant, hash-deduped notification. A re-linked row (its
-    // `source_key` already existed, e.g. reinstall or re-enable) is not new.
-    if (row === undefined && applied.enabled) {
+    // `source_key` already existed, e.g. reinstall or re-enable) is not new
+    // unless its definition change is what armed it.
+    if ((row === undefined || armsDisarmedRow) && applied.enabled) {
       emitScheduleDeclared(pluginName, declaration);
     }
   }
@@ -145,7 +154,10 @@ async function runReconcilePass(): Promise<void> {
     }
   }
 
-  for (const error of errors) {
+  // Manifest failures ride the same emit path as declaration errors but are
+  // kept out of `erroredKeys` above: an errored key preserves its last-good
+  // row, while a manifest failure must let the disarm loop pause the rows.
+  for (const error of [...errors, ...manifestFailures]) {
     emitDefinitionError(error);
   }
 }
@@ -155,35 +167,58 @@ async function runReconcilePass(): Promise<void> {
  * as the plugin source collector) and gather their schedule declarations.
  * Identity = the directory basename, mirroring `parsePluginManifest`.
  *
- * Disabled plugins are skipped entirely, so their declarations fall out of
- * the desired set and disarm. A plugin whose manifest fails
- * `parsePluginManifest` (unreadable or schema-invalid `package.json`) is
- * treated the same way: the runtime loader refuses to bring such a plugin up,
- * so its schedules must not stay armed either. The parse failure is logged
- * with attribution by `parsePluginManifest` itself.
+ * Disabled plugins and plugins without a `schedules/` directory are skipped
+ * entirely; in particular, only schedule-declaring plugins pay the manifest
+ * parse each pass. A schedule-declaring plugin whose manifest fails
+ * `parsePluginManifest` (unreadable or schema-invalid `package.json`) also
+ * contributes nothing to the desired set: the runtime loader refuses to
+ * bring such a plugin up, so its schedules must not stay armed either. Each
+ * of its declared schedules comes back in `manifestFailures` so the pause is
+ * surfaced with the same visibility as a bad declaration.
  */
 async function collectDesiredDeclarations(): Promise<{
   desired: Map<string, DesiredEntry>;
   errors: DeclarationError[];
+  manifestFailures: DeclarationError[];
 }> {
   const desired = new Map<string, DesiredEntry>();
   const errors: DeclarationError[] = [];
+  const manifestFailures: DeclarationError[] = [];
 
   for (const { name, dir } of listInstalledPluginDirs()) {
     if (isPluginDisabled(name)) {
       continue;
     }
-    if ((await parsePluginManifest(dir)) === undefined) {
+    if (!existsSync(join(dir, "schedules"))) {
       continue;
     }
     const parsed = parsePluginScheduleDeclarations(dir, name);
+    if ((await parsePluginManifest(dir, { quiet: true })) === undefined) {
+      const reason =
+        "the plugin's package.json could not be read or validated, so its schedules are paused";
+      for (const declared of [
+        ...parsed.declarations.map((d) => ({
+          scheduleName: d.name,
+          sourceKey: d.sourceKey,
+        })),
+        ...parsed.errors,
+      ]) {
+        manifestFailures.push({
+          pluginName: name,
+          scheduleName: declared.scheduleName,
+          sourceKey: declared.sourceKey,
+          reason,
+        });
+      }
+      continue;
+    }
     for (const declaration of parsed.declarations) {
       desired.set(declaration.sourceKey, { pluginName: name, declaration });
     }
     errors.push(...parsed.errors);
   }
 
-  return { desired, errors };
+  return { desired, errors, manifestFailures };
 }
 
 function toDefinition(
@@ -220,32 +255,45 @@ const DEFINITION_NOTIFICATION_HINTS: AttentionHints = {
   visibleInSourceNow: false,
 };
 
-function emitDefinitionSignal(
+/**
+ * Emit one definition-lifecycle signal. Resolves `true` when the pipeline
+ * reached a verdict (dispatched, deduplicated, or suppressed) and `false`
+ * when it failed outright, so a caller latching a dedupe guard can retry a
+ * transient failure on a later pass.
+ */
+async function emitDefinitionSignal(
   sourceEventName: string,
   sourceKey: string,
   dedupeKey: string,
   contextPayload: Record<string, unknown>,
-): void {
-  emitNotificationSignal({
-    sourceChannel: "scheduler",
-    sourceContextId: sourceKey,
-    sourceEventName,
-    dedupeKey,
-    contextPayload,
-    attentionHints: DEFINITION_NOTIFICATION_HINTS,
-  }).catch((err) => {
+): Promise<boolean> {
+  try {
+    const result = await emitNotificationSignal({
+      sourceChannel: "scheduler",
+      sourceContextId: sourceKey,
+      sourceEventName,
+      dedupeKey,
+      contextPayload,
+      attentionHints: DEFINITION_NOTIFICATION_HINTS,
+    });
+    // emitNotificationSignal resolves (never rejects) with `dispatched:
+    // false` and a "Signal pipeline failed" reason on a pipeline error;
+    // every other outcome, including dedupe and suppression, is a verdict.
+    return !result.reason.startsWith("Signal pipeline failed");
+  } catch (err) {
     log.warn(
       { err, sourceKey, sourceEventName },
       "Failed to emit schedule definition notification",
     );
-  });
+    return false;
+  }
 }
 
 /**
- * UTC day of the last definition-error emit per `sourceKey`. A persistently
- * broken declaration re-surfaces on every pass (60s sweep); the downstream
- * daily dedupe key would drop the repeats, but this guard skips the emit call
- * entirely so steady-state passes do no notification work.
+ * UTC day of the last completed definition-error emit per `sourceKey`. A
+ * persistently broken declaration re-surfaces on every pass (60s sweep); the
+ * downstream daily dedupe key would drop the repeats, but this guard skips
+ * the emit call entirely so steady-state passes do no notification work.
  */
 const definitionErrorEmittedDay = new Map<string, string>();
 
@@ -255,16 +303,18 @@ export function resetDefinitionErrorEmitGuardForTests(): void {
 }
 
 /**
- * Surface a malformed declaration. Deduped per schedule per UTC day so a
- * broken file doesn't spam on every pass.
+ * Surface a malformed declaration (or a manifest failure pausing one).
+ * Deduped per schedule per UTC day so a broken file doesn't spam on every
+ * pass. The day guard latches only after the emit resolves with a pipeline
+ * verdict; a transient pipeline failure is retried on the next pass instead
+ * of being silenced for the rest of the day.
  */
 function emitDefinitionError(error: DeclarationError): void {
   const day = new Date().toISOString().slice(0, 10);
   if (definitionErrorEmittedDay.get(error.sourceKey) === day) {
     return;
   }
-  definitionErrorEmittedDay.set(error.sourceKey, day);
-  emitDefinitionSignal(
+  void emitDefinitionSignal(
     "schedule.definition_error",
     error.sourceKey,
     `schedule-definition-error:${error.sourceKey}:${day}`,
@@ -274,7 +324,11 @@ function emitDefinitionError(error: DeclarationError): void {
       sourceKey: error.sourceKey,
       reason: error.reason,
     },
-  );
+  ).then((completed) => {
+    if (completed) {
+      definitionErrorEmittedDay.set(error.sourceKey, day);
+    }
+  });
 }
 
 /**
@@ -286,7 +340,7 @@ function emitDefinitionChanged(
   pluginName: string,
   declaration: ScheduleDeclaration,
 ): void {
-  emitDefinitionSignal(
+  void emitDefinitionSignal(
     "schedule.definition_changed",
     declaration.sourceKey,
     `schedule-definition-changed:${declaration.sourceKey}:${declaration.definitionHash}`,
@@ -299,16 +353,16 @@ function emitDefinitionChanged(
 }
 
 /**
- * Surface a declared schedule arming for the first time (its row was created
- * by this pass). Deduped by definition hash, so the CLI-install case (which
- * already prompted for consent) collapses to a single notification and
- * concurrent triggers emit once.
+ * Surface a declared schedule arming (its row was created by this pass, or a
+ * definition change armed a disarmed row). Deduped by definition hash, so
+ * the CLI-install case (which already prompted for consent) collapses to a
+ * single notification and concurrent triggers emit once.
  */
 function emitScheduleDeclared(
   pluginName: string,
   declaration: ScheduleDeclaration,
 ): void {
-  emitDefinitionSignal(
+  void emitDefinitionSignal(
     "schedule.declared",
     declaration.sourceKey,
     `schedule-declared:${declaration.sourceKey}:${declaration.definitionHash}`,

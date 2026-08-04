@@ -18,6 +18,9 @@ mock.module("../../background-wake/publisher.js", () => ({
 
 const emittedSignals: Array<Record<string, unknown>> = [];
 
+/** When set, merged into the next emit results (e.g. a failure reason). */
+let emitResultOverride: Record<string, unknown> | null = null;
+
 mock.module("../../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emittedSignals.push(params);
@@ -27,6 +30,7 @@ mock.module("../../notifications/emit-signal.js", () => ({
       dispatched: true,
       reason: "test",
       deliveryResults: [],
+      ...(emitResultOverride ?? {}),
     };
   },
 }));
@@ -100,6 +104,7 @@ describe("reconcilePluginSchedules", () => {
     getDb().run("DELETE FROM cron_jobs");
     rmSync(pluginsDir, { recursive: true, force: true });
     emittedSignals.length = 0;
+    emitResultOverride = null;
     resetDefinitionErrorEmitGuardForTests();
   });
 
@@ -254,6 +259,35 @@ describe("reconcilePluginSchedules", () => {
     expect(row.userEnabled).toBe(false);
   });
 
+  test("an upgrade that flips a disarmed declaration to enabled arms it and notifies", async () => {
+    writePlugin("news", {
+      "digest.md": [
+        "---",
+        'expression: "* * * * *"',
+        "enabled: false",
+        "---",
+        "",
+        "Summarize the day.",
+        "",
+      ].join("\n"),
+    });
+    await reconcilePluginSchedules();
+    expect(listDeclaredSchedules()[0]!.enabled).toBe(false);
+    expect(emittedSignals).toHaveLength(0);
+
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    await reconcilePluginSchedules();
+
+    const armed = listDeclaredSchedules()[0]!;
+    expect(armed.enabled).toBe(true);
+    expect(emittedSignals).toHaveLength(1);
+    const signal = emittedSignals[0]!;
+    expect(signal.sourceEventName).toBe("schedule.declared");
+    expect(signal.dedupeKey).toBe(
+      `schedule-declared:${DIGEST_KEY}:${armed.definitionHash}`,
+    );
+  });
+
   test("a user override enables a declaration shipped disabled", async () => {
     writePlugin("news", {
       "digest.md": [
@@ -371,7 +405,7 @@ describe("reconcilePluginSchedules", () => {
     expect(rows[0]!.sourceKey).toBe(DIGEST_KEY);
   });
 
-  test("a manifest-rejected plugin contributes nothing and its schedules disarm", async () => {
+  test("a manifest-rejected plugin disarms its schedules and surfaces the failure", async () => {
     const dir = writePlugin("news", {
       "digest.md": digestMd("Summarize the day."),
     });
@@ -388,7 +422,18 @@ describe("reconcilePluginSchedules", () => {
     const disarmed = listDeclaredSchedules()[0]!;
     expect(disarmed.id).toBe(created.id);
     expect(disarmed.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(0);
+    expect(emittedSignals).toHaveLength(1);
+    const signal = emittedSignals[0]!;
+    expect(signal.sourceEventName).toBe("schedule.definition_error");
+    const payload = signal.contextPayload as Record<string, unknown>;
+    expect(payload.pluginName).toBe("news");
+    expect(payload.scheduleName).toBe("digest");
+    expect(payload.sourceKey).toBe(DIGEST_KEY);
+    expect(payload.reason).toContain("package.json");
+
+    // The failure surfaces once per day, not per pass.
+    await reconcilePluginSchedules();
+    expect(emittedSignals).toHaveLength(1);
 
     // Restoring a valid manifest re-arms the row on the next pass.
     writeFileSync(
@@ -399,10 +444,24 @@ describe("reconcilePluginSchedules", () => {
     expect(listDeclaredSchedules()[0]!.enabled).toBe(true);
   });
 
-  test("a plugin with an unparseable package.json creates no rows", async () => {
+  test("a plugin with an unparseable package.json creates no rows and surfaces the failure", async () => {
     const dir = writePlugin("news", {
       "digest.md": digestMd("Summarize the day."),
     });
+    writeFileSync(join(dir, "package.json"), "{not json");
+
+    await reconcilePluginSchedules();
+
+    expect(listDeclaredSchedules()).toHaveLength(0);
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe(
+      "schedule.definition_error",
+    );
+  });
+
+  test("a broken manifest on a plugin without schedules stays silent", async () => {
+    const dir = join(pluginsDir, "quiet");
+    mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "package.json"), "{not json");
 
     await reconcilePluginSchedules();
@@ -467,6 +526,38 @@ describe("reconcilePluginSchedules", () => {
     expect(emittedSignals[0]!.sourceEventName).toBe(
       "schedule.definition_error",
     );
+
+    await reconcilePluginSchedules();
+    await reconcilePluginSchedules();
+
+    expect(emittedSignals).toHaveLength(1);
+  });
+
+  test("a pipeline-failed error emit does not latch the day guard; the next pass retries", async () => {
+    writePlugin("news", { "digest.md": "Just a body, no config." });
+    emitResultOverride = {
+      dispatched: false,
+      reason: "Signal pipeline failed: transient outage",
+    };
+
+    await reconcilePluginSchedules();
+    expect(emittedSignals).toHaveLength(1);
+
+    emitResultOverride = null;
+    await reconcilePluginSchedules();
+    expect(emittedSignals).toHaveLength(2);
+
+    // The completed retry latched the guard, so further passes stay quiet.
+    await reconcilePluginSchedules();
+    expect(emittedSignals).toHaveLength(2);
+  });
+
+  test("a suppressed error emit still latches the day guard", async () => {
+    writePlugin("news", { "digest.md": "Just a body, no config." });
+    emitResultOverride = {
+      dispatched: false,
+      reason: "Signal blocked by deterministic checks: quiet hours",
+    };
 
     await reconcilePluginSchedules();
     await reconcilePluginSchedules();
