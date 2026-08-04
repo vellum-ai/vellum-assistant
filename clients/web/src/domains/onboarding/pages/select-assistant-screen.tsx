@@ -276,6 +276,14 @@ export function SelectAssistantScreen() {
         ? await removePairedAssistantFromLockfile(removeTarget.id)
         : await removePlatformAssistantFromLockfile(removeTarget.id);
       if (result.ok) {
+        // The lockfile subscription reconciles the list and the selection,
+        // but not the lifecycle's active id: without this, navigating back
+        // to /assistant could admit the removed assistant with no
+        // connection behind it.
+        const resolvedStore = useResolvedAssistantsStore.getState();
+        if (resolvedStore.activeAssistantId === removeTarget.id) {
+          resolvedStore.setActiveAssistantId(null);
+        }
         removedThisVisitRef.current = true;
         setRemoveTarget(null);
       } else {

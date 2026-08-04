@@ -22,6 +22,10 @@ let searchParams = new URLSearchParams();
 let hasPlatformSessionValue = false;
 let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
+let activeAssistantIdValue: string | null = null;
+const setActiveAssistantIdMock = mock((id: string | null) => {
+  activeAssistantIdValue = id;
+});
 
 const removePairedAssistantFromLockfileMock = mock(
   async (_id: string): Promise<{ ok: boolean; error?: string }> => ({
@@ -137,6 +141,10 @@ mock.module("@/stores/organization-store", () => ({
 mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: {
     use: { assistants: () => assistantsValue },
+    getState: () => ({
+      activeAssistantId: activeAssistantIdValue,
+      setActiveAssistantId: setActiveAssistantIdMock,
+    }),
   },
 }));
 
@@ -257,6 +265,8 @@ describe("SelectAssistantScreen paired assistants", () => {
       ok: true,
     }));
     removePlatformAssistantFromLockfileMock.mockClear();
+    activeAssistantIdValue = null;
+    setActiveAssistantIdMock.mockClear();
   });
 
   afterEach(cleanup);
@@ -422,6 +432,39 @@ describe("SelectAssistantScreen paired assistants", () => {
       ),
     );
     expect(removePlatformAssistantFromLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("removing the lifecycle-active paired entry clears the active id", async () => {
+    localModeHostAvailableValue = true;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    activeAssistantIdValue = PAIRED_ID;
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(setActiveAssistantIdMock).toHaveBeenCalledWith(null),
+    );
+  });
+
+  test("removing a non-active paired entry leaves the active id alone", async () => {
+    localModeHostAvailableValue = true;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    activeAssistantIdValue = "some-other-assistant";
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removePairedAssistantFromLockfileMock).toHaveBeenCalled(),
+    );
+    expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
   });
 
   test("a paired removal failure surfaces the host error in the dialog", async () => {
