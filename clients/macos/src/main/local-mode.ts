@@ -17,6 +17,7 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  unpairAssistant,
   upsertLockfileAssistant,
   type CliInvocation,
   type LockfileWriteResult,
@@ -213,9 +214,9 @@ async function upgrade(
 // fields pass through untouched.
 const assistantRecord = z.record(z.string(), z.unknown());
 
-// `retire` and `guardianToken` both take a single assistant id and keep a
-// never-reject contract: a missing id resolves with a structured error the
-// renderer renders, rather than rejecting the invoke. The id is therefore
+// `retire`, `unpair`, and `guardianToken` each take a single assistant id and
+// keep a never-reject contract: a missing id resolves with a structured error
+// the renderer renders, rather than rejecting the invoke. The id is therefore
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
 
@@ -312,6 +313,20 @@ export const installLocalMode = (): void => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
     return retire(assistantId);
   });
+
+  handle(
+    "vellum:localMode:unpair",
+    assistantIdArgs,
+    ([assistantId]): LockfileWriteResult => {
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
+      const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+      return result.ok
+        ? { ok: true, lockfile: result.lockfile }
+        : { ok: false, error: result.error };
+    },
+  );
 
   handle("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
