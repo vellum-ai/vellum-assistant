@@ -299,7 +299,7 @@ describe("HostProxyPoster", () => {
 
   describe("postPresence", () => {
     test("sends correct URL, method, headers, and body", async () => {
-      const { fetchFn, captured } = createMockFetch();
+      const { fetchFn, captured } = createMockFetch(200, { recorded: true });
       const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postPresence({ state: "active" });
@@ -335,6 +335,56 @@ describe("HostProxyPoster", () => {
       const result = await poster.postPresence({ state: "away" });
 
       expect(result).toBe(false);
+    });
+
+    test("treats an accepted but unrecorded report as a failure", async () => {
+      // The daemon answers 200 with recorded false when it discarded the
+      // report. Scoring that as success is the silent death of the feature:
+      // every post accepted, nothing recorded, nothing logged.
+      const { fetchFn } = createMockFetch(200, { recorded: false });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+
+    test("returns false when the response omits recorded", async () => {
+      const { fetchFn } = createMockFetch(200, { accepted: true });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+
+    test("returns false without throwing on a malformed body", async () => {
+      const { fetchFn } = createMockFetch(200, "<html>not json</html>");
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+
+    test("returns false when the body is a bare JSON null", async () => {
+      const { fetchFn } = createMockFetch(200, null);
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+  });
+
+  describe("result posts ignore the response body", () => {
+    // The presence body parse must not have leaked into the generic path:
+    // every other endpoint still scores purely on the status.
+    test("a 2xx with an unrelated body still counts as success", async () => {
+      const { fetchFn } = createMockFetch(200, { recorded: false });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postBashResult({ requestId: "r1" })).toBe(true);
+      expect(await poster.postFileResult({ requestId: "f1" })).toBe(true);
+    });
+
+    test("a 2xx with a malformed body still counts as success", async () => {
+      const { fetchFn } = createMockFetch(200, "<html>not json</html>");
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postBashResult({ requestId: "r1" })).toBe(true);
     });
   });
 

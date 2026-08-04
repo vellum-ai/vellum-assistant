@@ -88,8 +88,61 @@ async function flush(ms = 20): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-// Mock globalThis.fetch for the /auth/token exchange (local gateway). Cloud
-// connections resolve their org from the lockfile, so they make no fetch here.
+/**
+ * Event-stream responses that stay open, so the SSE clients the router builds
+ * report connected the way they do against a live daemon. Presence posting is
+ * gated on that, and the seed rides the connected transition.
+ */
+const openEventStreams: ReadableStreamDefaultController<Uint8Array>[] = [];
+
+function openEventStream(): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      openEventStreams.push(controller);
+      controller.enqueue(new TextEncoder().encode(": ok\n\n"));
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+/** Drop every live stream, which is what a daemon restart looks like. */
+function closeEventStreams(): void {
+  const controllers = openEventStreams.splice(0, openEventStreams.length);
+  for (const controller of controllers) {
+    try {
+      controller.close();
+    } catch {
+      // Already closed.
+    }
+  }
+}
+
+// While set, event-stream requests park here, so a test can observe the window
+// where connect() has been called but no stream is live yet.
+let eventStreamGate: Promise<void> | null = null;
+let openEventStreamGate: (() => void) | null = null;
+
+function holdEventStreams(): () => void {
+  eventStreamGate = new Promise<void>((resolve) => {
+    openEventStreamGate = resolve;
+  });
+  return releaseEventStreams;
+}
+
+/** Let any parked event-stream request through. A no-op if none is held. */
+function releaseEventStreams(): void {
+  const open = openEventStreamGate;
+  eventStreamGate = null;
+  openEventStreamGate = null;
+  open?.();
+}
+
+// Mock globalThis.fetch for the /auth/token exchange (local gateway) and the
+// event streams. Cloud connections resolve their org from the lockfile, so
+// they make no token fetch here.
 const originalFetch = globalThis.fetch;
 const mockGatewayTokenFetch = async (input: string | URL | Request) => {
   const url = String(input);
@@ -99,21 +152,37 @@ const mockGatewayTokenFetch = async (input: string | URL | Request) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  if (url.endsWith("/events")) {
+    if (eventStreamGate) {
+      await eventStreamGate;
+    }
+    return openEventStream();
+  }
   return new Response("ok");
 };
 globalThis.fetch = mockGatewayTokenFetch as typeof globalThis.fetch;
 
 type Connection = NonNullable<ReturnType<typeof __testing.connections.get>>;
 
+/** A stand-in SSE whose connectedness a test can flip mid-run. */
+function fakeSse(): { isConnected: boolean; disconnect: () => void } {
+  return { isConnected: true, disconnect: () => {} };
+}
+
 /**
  * Register a connection whose poster records the presence states it receives.
  * `opts` is read on every post, so a test holding the object can flip a
  * connection between healthy and unreachable mid-run: `reject` stands in for
- * a throw, `ok: false` for the non-2xx that postJson folds into `false`.
+ * a throw, `ok: false` for the failure postPresence folds every non-2xx,
+ * throw, and unrecorded reply into.
  */
 function addPresenceConnection(
   assistantId: string,
-  opts: { reject?: boolean; ok?: boolean } = {},
+  opts: {
+    reject?: boolean;
+    ok?: boolean;
+    sse?: ReturnType<typeof fakeSse>;
+  } = {},
 ): PresenceState[] {
   const received: PresenceState[] = [];
   const poster = {
@@ -129,7 +198,7 @@ function addPresenceConnection(
     },
   };
   __testing.connections.set(assistantId, {
-    sse: { disconnect: () => {} },
+    sse: opts.sse ?? fakeSse(),
     poster,
     fingerprint: `test:${assistantId}`,
   } as unknown as Connection);
@@ -138,7 +207,7 @@ function addPresenceConnection(
 
 /**
  * Route presence POSTs into a captured list, leaving every other request
- * (the gateway token exchange) on its normal mock.
+ * (the gateway token exchange, the event streams) on its normal mock.
  */
 function capturePresencePosts(): { url: string; body: string }[] {
   const posts: { url: string; body: string }[] = [];
@@ -146,7 +215,10 @@ function capturePresencePosts(): { url: string; body: string }[] {
     const url = String(input);
     if (url.endsWith("/clients/presence")) {
       posts.push({ url, body: String(init?.body) });
-      return new Response("ok");
+      return new Response(JSON.stringify({ recorded: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     return mockGatewayTokenFetch(input);
   }) as typeof globalThis.fetch;
@@ -184,6 +256,10 @@ function capturingPoster(): { poster: InstanceType<typeof HostProxyPoster>; body
 describe("host-proxy-router", () => {
   afterEach(() => {
     __testing.reset();
+    // After reset nothing wants to reconnect, so the streams can be dropped
+    // without the clients redialing into the next test.
+    releaseEventStreams();
+    closeEventStreams();
     lockfileListener = null;
     mockGetGuardianAccessToken.mockReset();
     mockGetGuardianAccessToken.mockImplementation(
@@ -698,6 +774,75 @@ describe("host-proxy-router", () => {
         "https://platform.vellum.ai/v1/assistants/cloud-1/clients/presence",
       ]);
       expect(JSON.parse(presencePosts[0]!.body)).toEqual({ state: "idle" });
+    });
+
+    test("holds the seed until the SSE stream is live", async () => {
+      const presencePosts = capturePresencePosts();
+      const releaseStreams = holdEventStreams();
+
+      installHostProxyBridge(fakeCliResolver);
+      presenceReporter?.("idle");
+      await flush();
+
+      lockfileListener?.(MIXED_LOCKFILE);
+      await flush();
+
+      // Both connections exist and have called connect(), but no stream is up
+      // yet, so the daemon has no subscriber to attribute a report to.
+      expect(__testing.connections.size).toBe(2);
+      expect(presencePosts).toEqual([]);
+
+      releaseStreams();
+      await flush();
+
+      expect(presencePosts.map((post) => post.url).sort()).toEqual([
+        "http://127.0.0.1:9001/v1/clients/presence",
+        "https://platform.vellum.ai/v1/assistants/cloud-1/clients/presence",
+      ]);
+      expect(JSON.parse(presencePosts[0]!.body)).toEqual({ state: "idle" });
+    });
+
+    test("re-seeds when a dropped SSE stream reconnects", async () => {
+      const presencePosts = capturePresencePosts();
+
+      installHostProxyBridge(fakeCliResolver);
+      presenceReporter?.("idle");
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "cloud-1", cloud: "vellum", runtimeUrl: "https://platform.vellum.ai" },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+      expect(presencePosts).toHaveLength(1);
+
+      // A dropped stream takes the daemon's subscriber and its presence record
+      // with it, so the reconnect has to say it again.
+      closeEventStreams();
+      await flush(1_500);
+
+      expect(presencePosts.length).toBeGreaterThanOrEqual(2);
+      expect(JSON.parse(presencePosts[1]!.body)).toEqual({ state: "idle" });
+    });
+
+    test("skips posts while the SSE stream is down", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const sse = fakeSse();
+      const received = addPresenceConnection("a1", { sse });
+
+      presenceReporter?.("active");
+      await flush();
+      expect(received).toEqual(["active"]);
+
+      mockLogWarn.mockClear();
+      sse.isConnected = false;
+      presenceReporter?.("idle");
+      await flush();
+
+      // Nothing sent, and nothing logged: an unattributable report is not a
+      // presence failure, and no record on file lets the push through.
+      expect(received).toEqual(["active"]);
+      expect(mockLogWarn).not.toHaveBeenCalled();
     });
 
     test("sends nothing to a new connection before any report", async () => {

@@ -204,17 +204,25 @@ let lastPresenceState: PresenceState | null = null;
 /**
  * Post one report, logging only the first failure of a run.
  *
- * postPresence folds every non-2xx and every throw into `false`, so a daemon
- * that stops accepting reports would otherwise take presence down in total
- * silence. Warning on each attempt instead would put a line in the log every
- * poll interval for the length of the outage, so the connection stays quiet
- * until a post succeeds and re-arms the warning.
+ * postPresence folds every non-2xx, every throw, and every reply that says the
+ * report was accepted but not recorded into `false`, so a daemon that stops
+ * recording reports would otherwise take presence down in total silence.
+ * Warning on each attempt instead would put a line in the log every poll
+ * interval for the length of the outage, so the connection stays quiet until a
+ * post succeeds and re-arms the warning.
  */
 async function postPresenceTo(
   assistantId: string,
   conn: AssistantConnection,
   state: PresenceState,
 ): Promise<void> {
+  // The daemon attributes a report to the client behind its live SSE stream,
+  // so a report sent while the stream is down is discarded anyway. Skipping is
+  // also the fail-open direction: with no presence record the push goes out.
+  if (!conn.sse.isConnected) {
+    return;
+  }
+
   let posted = false;
   try {
     posted = await conn.poster.postPresence({ state });
@@ -252,10 +260,14 @@ function reportPresence(state: PresenceState): void {
 }
 
 /**
- * Report to an assistant the moment it joins. A monitor report only reaches
- * whoever is connected when it fires, and a local assistant connects
- * asynchronously, so without this the common desktop case would go
- * unreported until the next poll tick.
+ * Report to an assistant the moment its SSE stream goes live. A monitor report
+ * only reaches whoever is connected when it fires, so without this a stream
+ * that comes up between poll ticks would go unreported until the next one.
+ *
+ * Keyed to the stream rather than to the connection being created, because the
+ * daemon can only attribute a report once it has this client's subscriber. The
+ * same reason makes it fire on reconnects: the daemon dropped the subscriber
+ * and its presence record with it.
  */
 function seedPresence(assistantId: string): void {
   if (lastPresenceState === null) {
@@ -371,14 +383,19 @@ async function connectLocalAssistant(
   const eventsUrl = `http://127.0.0.1:${gatewayPort}/v1/events`;
   const endpointBase = `http://127.0.0.1:${gatewayPort}/v1`;
 
-  const sse = new HostProxySseClient({ eventsUrl, authHeaders, onRefreshToken });
+  const sse = new HostProxySseClient({
+    eventsUrl,
+    authHeaders,
+    onRefreshToken,
+    onConnected: () => seedPresence(assistantId),
+  });
   const poster = new HostProxyPoster({ endpointBase, authHeaders });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
-  sse.connect();
 
+  // Registered before the stream opens so the onConnected seed can find it.
   connections.set(assistantId, { sse, poster, fingerprint: localFingerprint(gatewayPort) });
-  seedPresence(assistantId);
+  sse.connect();
   log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
 }
 
@@ -410,18 +427,22 @@ function connectCloudAssistant(
   const eventsUrl = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/events`;
   const endpointBase = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}`;
 
-  const sse = new HostProxySseClient({ eventsUrl, authHeaders });
+  const sse = new HostProxySseClient({
+    eventsUrl,
+    authHeaders,
+    onConnected: () => seedPresence(assistantId),
+  });
   const poster = new HostProxyPoster({ endpointBase, authHeaders });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
-  sse.connect();
 
+  // Registered before the stream opens so the onConnected seed can find it.
   connections.set(assistantId, {
     sse,
     poster,
     fingerprint: cloudFingerprint(runtimeUrl, organizationId),
   });
-  seedPresence(assistantId);
+  sse.connect();
   log.info("[host-proxy-router] connected to cloud assistant", { assistantId, runtimeUrl, organizationId });
 }
 
