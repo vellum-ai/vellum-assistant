@@ -6,9 +6,19 @@
  * instead of an anecdote: one `client_resume.request_count` event per resume,
  * carrying the total and a per-endpoint-group breakdown.
  *
- * Only whole windows are reported. A backgrounding truncates the burst and
- * freezes the WKWebView's timers, so a window that spans a background is a
- * contaminated sample and is dropped rather than emitted.
+ * Only whole windows are reported. `app.hidden` is the primary defence: a
+ * backgrounding truncates the burst and freezes the host's timers, so the open
+ * window is dropped rather than emitted. The `openedAt` staleness checks, one
+ * on the resume edge and one in the timer callback, are the fallback for a
+ * suspension that fires no hidden edge at all: desktop system sleep with a
+ * focused tab, and the WKWebView paths that suspend without a visibility
+ * change. Their timers thaw far past the window's span, so the observed age of
+ * the window is the only thing left that gives them away.
+ *
+ * {@link installResumeRequestCounter} runs from `lib/api-interceptors.ts`
+ * module scope, before React renders, so the counter's `app.resume` handler is
+ * registered ahead of every subscriber the React tree adds and the requests
+ * those subscribers fire synchronously on resume land inside the window.
  *
  * Metadata only. Endpoint labels come from a closed set; raw pathnames and
  * URLs are never stored or emitted.
@@ -94,7 +104,7 @@ type ResumeWindow = {
   /** Monotonic open time, used to detect a window whose timer was frozen. */
   openedAt: number;
   total: number;
-  byGroup: Record<string, number>;
+  byGroup: Partial<Record<EndpointGroup, number>>;
   signal: AppResumeSignal;
 };
 
@@ -114,6 +124,13 @@ function openWindow(signal: AppResumeSignal): void {
     const closed = resumeWindow;
     resumeWindow = null;
     if (!closed) {
+      return;
+    }
+    // Fallback for a suspension that fired no `app.hidden`. A frozen timer
+    // thaws long past the span it was scheduled for, so its counts cover the
+    // whole suspension rather than the `window_ms` they would be labelled
+    // with. Discard the contaminated sample instead of emitting it.
+    if (performance.now() - closed.openedAt >= WINDOW_MS * 2) {
       return;
     }
     // A zero here is the signal we are looking for once the storm is fixed,
@@ -152,19 +169,39 @@ export function noteDaemonApiRequest(url: string): void {
   resumeWindow.byGroup[group] = (resumeWindow.byGroup[group] ?? 0) + 1;
 }
 
+let installed = false;
+
 /**
  * Opens a counting window on each `app.resume` and drops it on `app.hidden`.
- * Returns an unsubscribe that also drops any window still open, without
- * emitting.
+ * Idempotent.
+ *
+ * Called from `lib/api-interceptors.ts` module scope rather than from a React
+ * effect, and the ordering is the whole point. React runs descendant effects
+ * before ancestor ones, so a subscriber registered from inside the tree (the
+ * timezone sync, the runtime-upgrade banner) would run ahead of a counter
+ * registered in `RootLayout`, and the daemon requests it fires synchronously in
+ * its own `app.resume` handler would land before the window opened. `main.tsx`
+ * imports the interceptor module for its side effects before React renders, so
+ * installing there puts this handler first.
+ *
+ * The subscription lasts for the document. Nothing owns it that could unmount,
+ * and it holds no per-consumer state: two bus handlers and one module-level
+ * window. That is the same document lifetime the interceptors it installs
+ * alongside already have.
  */
-export function subscribeResumeRequestCounter(): () => void {
-  const unsubscribeResume = subscribe("app.resume", ({ signal }) => {
+export function installResumeRequestCounter(): void {
+  if (installed) {
+    return;
+  }
+  installed = true;
+
+  subscribe("app.resume", ({ signal }) => {
     if (resumeWindow) {
       // iOS publishes both a visibility and an app_state resume for a single
       // foreground; the first edge wins so the burst is counted once. A window
       // older than its own span is one whose timer was frozen while the app was
-      // backgrounded: its counts belong to an earlier foreground, so drop it
-      // and start a fresh window for this resume.
+      // suspended: its counts belong to an earlier foreground, so drop it and
+      // start a fresh window for this resume.
       if (performance.now() - resumeWindow.openedAt < WINDOW_MS) {
         return;
       }
@@ -176,17 +213,16 @@ export function subscribeResumeRequestCounter(): () => void {
   // A backgrounding cuts the burst short, so whatever the window has counted so
   // far is a partial sample. Drop it rather than emit a number that reads as a
   // quiet resume.
-  const unsubscribeHidden = subscribe("app.hidden", () => {
+  subscribe("app.hidden", () => {
     cancelOpenWindow();
   });
-
-  return () => {
-    unsubscribeResume();
-    unsubscribeHidden();
-    cancelOpenWindow();
-  };
 }
 
+/**
+ * Drops the open window and clears the install latch. Pairs with the bus's
+ * `__resetForTesting()`, which drops the handlers themselves.
+ */
 export function __resetResumeRequestCounterForTests(): void {
   cancelOpenWindow();
+  installed = false;
 }

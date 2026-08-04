@@ -2,11 +2,13 @@
  * Pins the post-resume request counter's contract:
  *   - one window per foreground, even when iOS publishes two resume signals;
  *   - a backgrounding drops the window instead of emitting a partial sample;
- *   - a window whose timer was frozen while backgrounded is replaced, so the
- *     next foreground gets its own window attributed to its own signal;
+ *   - a window whose timer was frozen while suspended is replaced on the next
+ *     resume, and discarded outright when the frozen timer thaws first;
+ *   - requests a later-registered resume subscriber fires synchronously are
+ *     counted, which is what installing at module scope buys;
  *   - only requests inside the window are counted;
  *   - endpoint labels come from the closed set, never a raw path;
- *   - a zero-count window still emits, and unsubscribe cancels silently.
+ *   - a zero-count window still emits.
  *
  * bun:test has no fake-timer API, so `setTimeout` / `clearTimeout` are swapped
  * for a capturing stub and fired by hand, the same idiom
@@ -28,12 +30,14 @@ mock.module("@/lib/telemetry/client-perf", () => ({
   __resetClientPerfForTests: () => {},
 }));
 
-const { publish, __resetForTesting } = await import("@/lib/event-bus");
+const { publish, subscribe, __resetForTesting } = await import(
+  "@/lib/event-bus"
+);
 const {
   __resetResumeRequestCounterForTests,
+  installResumeRequestCounter,
   isResumeWindowOpen,
   noteDaemonApiRequest,
-  subscribeResumeRequestCounter,
 } = await import("./resume-request-counter");
 
 const originalSetTimeout = globalThis.setTimeout;
@@ -103,9 +107,9 @@ afterEach(() => {
   performance.now = originalPerformanceNow;
 });
 
-describe("subscribeResumeRequestCounter", () => {
+describe("installResumeRequestCounter", () => {
   test("counts one window across the iOS double-publish", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "visibility" });
     publish("app.resume", { signal: "app_state" });
 
@@ -120,11 +124,46 @@ describe("subscribeResumeRequestCounter", () => {
     expect(detail.window_ms).toBe(10_000);
     expect(detail.signal).toBe("visibility");
     expect(lastDelay).toBe(10_000);
-    unsubscribe();
+  });
+
+  test("counts requests a later-registered resume handler fires synchronously", () => {
+    installResumeRequestCounter();
+    // Stands in for a subscriber the React tree registers (the timezone sync,
+    // the runtime-upgrade banner): it fires daemon requests synchronously from
+    // inside its own `app.resume` handler. Production guarantees this ordering
+    // by installing the counter from module scope, before React mounts.
+    const unsubscribeSubscriber = subscribe("app.resume", () => {
+      noteDaemonApiRequest("https://api.test/v1/assistants/a1/config");
+      noteDaemonApiRequest("https://api.test/v1/assistants/a1/home");
+    });
+
+    publish("app.resume", { signal: "app_state" });
+    fireTimers();
+
+    expect(lastEmit().value).toBe(2);
+    expect(byGroup()).toEqual({ config: 1, home: 1 });
+    unsubscribeSubscriber();
+  });
+
+  test("a resume handler registered before the counter is not counted", () => {
+    // The bus dispatches in registration order, so this is the ordering the
+    // counter has to beat: the head of the burst is gone before the window
+    // opens. Pins why the install happens at module scope rather than from a
+    // React effect, which descendant subscribers would run ahead of.
+    const unsubscribeSubscriber = subscribe("app.resume", () => {
+      noteDaemonApiRequest("https://api.test/v1/assistants/a1/config");
+    });
+    installResumeRequestCounter();
+
+    publish("app.resume", { signal: "app_state" });
+    fireTimers();
+
+    expect(lastEmit().value).toBe(0);
+    unsubscribeSubscriber();
   });
 
   test("ignores requests before the window opens and after it closes", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
 
     publish("app.resume", { signal: "visibility" });
@@ -134,11 +173,10 @@ describe("subscribeResumeRequestCounter", () => {
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
     expect(emitClientPerfEventMock).toHaveBeenCalledTimes(1);
     expect(lastEmit().value).toBe(1);
-    unsubscribe();
   });
 
   test("drops the window on app.hidden without emitting", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "app_state" });
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
 
@@ -148,11 +186,10 @@ describe("subscribeResumeRequestCounter", () => {
     expect(pendingTimers.size).toBe(0);
     fireTimers();
     expect(emitClientPerfEventMock).not.toHaveBeenCalled();
-    unsubscribe();
   });
 
   test("counts the next foreground after a hidden edge", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "visibility" });
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
     publish("app.hidden", { signal: "visibility" });
@@ -165,11 +202,10 @@ describe("subscribeResumeRequestCounter", () => {
     expect(lastEmit().value).toBe(1);
     expect(lastEmit().detail.signal).toBe("app_state");
     expect(byGroup()).toEqual({ skills: 1 });
-    unsubscribe();
   });
 
   test("replaces a window whose timer was frozen while backgrounded", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "visibility" });
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
 
@@ -185,11 +221,25 @@ describe("subscribeResumeRequestCounter", () => {
     expect(value).toBe(1);
     expect(detail.signal).toBe("app_state");
     expect(byGroup()).toEqual({ integrations: 1 });
-    unsubscribe();
+  });
+
+  test("drops a window whose frozen timer thaws long after its span", () => {
+    installResumeRequestCounter();
+    publish("app.resume", { signal: "visibility" });
+    noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
+
+    // Desktop system sleep with a focused tab fires no visibilitychange, so
+    // nothing cancels the window; the timer freezes and thaws minutes later,
+    // with counts spanning the whole sleep rather than the labelled 10s.
+    nowMs = 300_000;
+    fireTimers();
+
+    expect(emitClientPerfEventMock).not.toHaveBeenCalled();
+    expect(isResumeWindowOpen()).toBe(false);
   });
 
   test("keeps the first window when the second resume lands inside its span", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "visibility" });
 
     nowMs = 9_999;
@@ -199,11 +249,10 @@ describe("subscribeResumeRequestCounter", () => {
 
     expect(emitClientPerfEventMock).toHaveBeenCalledTimes(1);
     expect(lastEmit().detail.signal).toBe("visibility");
-    unsubscribe();
   });
 
   test("labels endpoints from the closed set and emits no path strings", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "app_state" });
 
     noteDaemonApiRequest("/v1/assistants/x/conversations?limit=50");
@@ -220,11 +269,10 @@ describe("subscribeResumeRequestCounter", () => {
     expect(serialized).not.toContain("assistants");
     expect(serialized).not.toContain("http");
     expect(serialized).not.toContain("frobnicate");
-    unsubscribe();
   });
 
   test("labels the daemon's high-traffic segments instead of pooling them", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "app_state" });
 
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/integrations");
@@ -246,34 +294,20 @@ describe("subscribeResumeRequestCounter", () => {
     for (const count of Object.values(byGroup())) {
       expect(typeof count).toBe("number");
     }
-    unsubscribe();
   });
 
   test("emits a zero-count window", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "online" });
     fireTimers();
 
     expect(emitClientPerfEventMock).toHaveBeenCalledTimes(1);
     expect(lastEmit().value).toBe(0);
     expect(byGroup()).toEqual({});
-    unsubscribe();
-  });
-
-  test("unsubscribe cancels an open window without emitting", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
-    publish("app.resume", { signal: "visibility" });
-    noteDaemonApiRequest("https://api.test/v1/assistants/a1/messages");
-
-    unsubscribe();
-    fireTimers();
-
-    expect(emitClientPerfEventMock).not.toHaveBeenCalled();
-    expect(pendingTimers.size).toBe(0);
   });
 
   test("opens a fresh window on the next resume", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "visibility" });
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/events");
     fireTimers();
@@ -285,13 +319,12 @@ describe("subscribeResumeRequestCounter", () => {
     expect(emitClientPerfEventMock).toHaveBeenCalledTimes(2);
     expect(lastEmit().value).toBe(1);
     expect(byGroup()).toEqual({ config: 1 });
-    unsubscribe();
   });
 });
 
 describe("noteDaemonApiRequest", () => {
   test("never throws on a malformed url", () => {
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     publish("app.resume", { signal: "visibility" });
 
     expect(() => {
@@ -301,7 +334,6 @@ describe("noteDaemonApiRequest", () => {
 
     expect(lastEmit().value).toBe(1);
     expect(byGroup()).toEqual({ other: 1 });
-    unsubscribe();
   });
 
   test("is a no-op outside a window", () => {
@@ -316,7 +348,7 @@ describe("isResumeWindowOpen", () => {
   test("tracks the window so callers can skip work on the request path", () => {
     expect(isResumeWindowOpen()).toBe(false);
 
-    const unsubscribe = subscribeResumeRequestCounter();
+    installResumeRequestCounter();
     expect(isResumeWindowOpen()).toBe(false);
 
     publish("app.resume", { signal: "visibility" });
@@ -324,6 +356,5 @@ describe("isResumeWindowOpen", () => {
 
     fireTimers();
     expect(isResumeWindowOpen()).toBe(false);
-    unsubscribe();
   });
 });

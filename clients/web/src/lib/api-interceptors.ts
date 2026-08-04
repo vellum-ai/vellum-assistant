@@ -21,7 +21,9 @@
  * error state).
  *
  * Import this module for its side effects in the app entrypoint
- * (`main.tsx`) so interceptors are installed before any API call fires.
+ * (`main.tsx`) so interceptors are installed before any API call fires. The
+ * same import installs the post-resume request counter these interceptors feed,
+ * which needs to be subscribed to `app.resume` before React mounts.
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
@@ -47,6 +49,7 @@ import {
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
+  installResumeRequestCounter,
   isResumeWindowOpen,
   noteDaemonApiRequest,
 } from "@/lib/telemetry/resume-request-counter";
@@ -355,7 +358,9 @@ function createInterceptor({
     if (isDaemonClient) {
       return true;
     }
-    return isDaemonBoundPath(url) && platformFeaturesGateAllows(outgoing);
+    return (
+      isDaemonBoundPath(url) && platformFeaturesGateAllows(outgoing) === "allow"
+    );
   }
 
   const route = async (request: Request): Promise<Request> => {
@@ -743,6 +748,14 @@ export function daemonErrorInterceptor(
   return toApiError(error, response);
 }
 
+// Register the post-resume counting window here, alongside the interceptors
+// that feed it. `main.tsx` imports this module for its side effects before
+// React renders, so the counter's `app.resume` handler lands ahead of every
+// subscriber the React tree adds and the requests they fire synchronously on
+// resume are counted. See the function's docstring for why a React effect
+// cannot give that guarantee.
+installResumeRequestCounter();
+
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
@@ -797,34 +810,44 @@ function arePlatformFeaturesEnabled(): boolean {
 }
 
 /**
- * Whether {@link platformFeaturesGate} forwards this request.
+ * What {@link platformFeaturesGate} does with a request. A deny carries the
+ * reason it was denied, so the gate reports it without re-probing the mode this
+ * function already looked at; a third reason cannot be mislabelled as one of
+ * the existing two.
+ */
+type PlatformGateDecision = "allow" | "deny_remote_gateway" | "deny_local";
+
+/**
+ * The decision {@link platformFeaturesGate} reaches for this request.
  *
  * Takes the request as the gate sees it: the gate is registered after
  * {@link requestInterceptor}, so a self-hosted rewrite (gateway origin, bearer
  * auth) has already happened by the time it runs.
  */
-function platformFeaturesGateAllows(request: Request): boolean {
+function platformFeaturesGateAllows(request: Request): PlatformGateDecision {
   if (isRemoteGatewayMode()) {
-    return (
+    const hasBearer =
       request.headers
         .get("Authorization")
         ?.toLowerCase()
-        .startsWith("bearer ") ?? false
-    );
+        .startsWith("bearer ") ?? false;
+    return hasBearer ? "allow" : "deny_remote_gateway";
   }
 
   if (!isLocalClient()) {
-    return true;
+    return "allow";
   }
   if (arePlatformFeaturesEnabled()) {
-    return true;
+    return "allow";
   }
 
   const ingressUrl = getSelfHostedIngressUrl();
   if (!ingressUrl) {
-    return false;
+    return "deny_local";
   }
-  return new URL(request.url).origin === new URL(ingressUrl).origin;
+  return new URL(request.url).origin === new URL(ingressUrl).origin
+    ? "allow"
+    : "deny_local";
 }
 
 /**
@@ -838,11 +861,12 @@ function platformFeaturesGateAllows(request: Request): boolean {
  * Exported for direct unit testing.
  */
 export function platformFeaturesGate(request: Request): Request {
-  if (platformFeaturesGateAllows(request)) {
+  const decision = platformFeaturesGateAllows(request);
+  if (decision === "allow") {
     return request;
   }
 
-  const remoteGateway = isRemoteGatewayMode();
+  const remoteGateway = decision === "deny_remote_gateway";
   console.debug(
     remoteGateway
       ? "remote-gateway mode, no-op platform request:"

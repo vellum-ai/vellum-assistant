@@ -91,11 +91,16 @@ const noteDaemonApiRequestMock = mock((url: string) => {
   noteDaemonApiRequestImpl(url);
 });
 const isResumeWindowOpenMock = mock(() => resumeWindowOpen);
+// `installResumeRequestCounter` is stubbed for surface parity only. The module
+// under test calls it at module scope, and ESM imports are hoisted above these
+// `mock.module` calls, so that one call already ran against the real
+// implementation before the stub took over. It subscribes to the bus and
+// nothing here publishes to it.
 mock.module("@/lib/telemetry/resume-request-counter", () => ({
   __resetResumeRequestCounterForTests: () => {},
+  installResumeRequestCounter: () => {},
   isResumeWindowOpen: isResumeWindowOpenMock,
   noteDaemonApiRequest: noteDaemonApiRequestMock,
-  subscribeResumeRequestCounter: () => () => {},
 }));
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
@@ -867,6 +872,9 @@ describe("api-interceptors / platform features gate", () => {
     const input = new Request("https://platform.test/v1/organizations/");
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(true);
+    expect((output.signal.reason as DOMException).message).toBe(
+      "Platform features disabled in local mode",
+    );
   });
 
   test("passes through gateway-rewritten requests when platform is disabled", () => {
@@ -893,6 +901,9 @@ describe("api-interceptors / platform features gate", () => {
     );
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(true);
+    expect((output.signal.reason as DOMException).message).toBe(
+      "Platform routes disabled in remote-gateway mode",
+    );
   });
 
   test("passes bearer-authenticated gateway requests in remote-gateway mode", () => {
