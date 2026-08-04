@@ -142,6 +142,32 @@ describe("primeLocalGatewayConnectionWithRepair", () => {
     expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
   });
 
+  test("a repairable failure for a paired target never wakes and rethrows", async () => {
+    // Wake is cloud:"local"-only (it refuses paired entries), so a paired
+    // connect failure must propagate immediately instead of spawning a wake
+    // that is guaranteed to refuse.
+    process.env.VITE_PLATFORM_MODE = "";
+    const paired: LockfileAssistant = {
+      assistantId: "paired-a",
+      cloud: "paired",
+      runtimeUrl: "https://gw.example.com",
+    } as LockfileAssistant;
+    useLockfileStore.setState({
+      lockfile: { assistants: [paired], activeAssistant: "paired-a" },
+    });
+    localStorage.setItem("vellum:local:selected-assistant", "paired-a");
+    fetchGuardianTokenHost = mock(async () => {
+      throw new GuardianTokenError(404, "token gone");
+    });
+
+    const err = await primeLocalGatewayConnectionWithRepair().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
+  });
+
   test("a non-repairable 403 surfaces immediately and never wakes", async () => {
     fetchGuardianTokenHost = mock(async () => {
       throw new GuardianTokenError(403, "forbidden");

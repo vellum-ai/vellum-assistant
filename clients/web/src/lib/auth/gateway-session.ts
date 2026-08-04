@@ -1,6 +1,8 @@
 import {
   isLocalClient,
   getLocalGatewayUrl,
+  getPairedGatewayUrl,
+  getSelectedAssistant,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
@@ -60,7 +62,13 @@ export function isGatewayAuthEnabled(): boolean {
   if (isRemoteGatewayMode()) {
     return true;
   }
-  return isLocalClient() && getLocalGatewayUrl() != null;
+  if (!isLocalClient()) {
+    return false;
+  }
+  return (
+    getLocalGatewayUrl() != null ||
+    getPairedGatewayUrl(getSelectedAssistant()) != null
+  );
 }
 
 export function isGatewayAuthMode(): boolean {
@@ -122,6 +130,31 @@ export function getGatewayToken(): string | null {
   return null;
 }
 
+/**
+ * Install an externally-acquired bearer as the gateway token without any
+ * fetch, writing the same in-memory and localStorage slots the `/auth/token`
+ * mint fills. `getGatewayToken()`, `isGatewayAuthMode()`, and the
+ * source-mismatch clearing in `ensureGatewayToken` behave identically for a
+ * seeded token, and the session survives a reload. Used for paired
+ * assistants, whose guardian access token is the bearer itself.
+ */
+export function seedGatewayToken(params: {
+  token: string;
+  expiresAtEpochSeconds: number;
+  source: string;
+}): void {
+  try {
+    localStorage.setItem(LS_TOKEN_KEY, params.token);
+    localStorage.setItem(LS_EXPIRES_KEY, String(params.expiresAtEpochSeconds));
+    localStorage.setItem(LS_TOKEN_SOURCE_KEY, params.source);
+  } catch {
+    // localStorage unavailable
+  }
+  cachedToken = params.token;
+  cachedExpiresAt = params.expiresAtEpochSeconds;
+  cachedTokenSource = params.source;
+}
+
 async function acquireGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
@@ -142,16 +175,7 @@ async function acquireGatewayToken(
     token: string;
     expiresAt: number;
   };
-  try {
-    localStorage.setItem(LS_TOKEN_KEY, token);
-    localStorage.setItem(LS_EXPIRES_KEY, String(expiresAt));
-    localStorage.setItem(LS_TOKEN_SOURCE_KEY, url);
-  } catch {
-    // localStorage unavailable
-  }
-  cachedToken = token;
-  cachedExpiresAt = expiresAt;
-  cachedTokenSource = url;
+  seedGatewayToken({ token, expiresAtEpochSeconds: expiresAt, source: url });
   return token;
 }
 

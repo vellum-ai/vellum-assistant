@@ -4,15 +4,15 @@ import {
   type MessageAttachmentInput,
 } from "./attachments.js";
 
-export function createUserMessage(
+export async function createUserMessage(
   text: string,
   attachments: MessageAttachmentInput[] = [],
-): Message {
+): Promise<Message> {
   const content = [] as Message["content"];
   if (text.trim().length > 0) {
     content.push({ type: "text", text });
   }
-  content.push(...attachmentsToContentBlocks(attachments));
+  content.push(...(await attachmentsToContentBlocks(attachments)));
   return { role: "user", content };
 }
 

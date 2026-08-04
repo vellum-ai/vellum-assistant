@@ -7,6 +7,7 @@ import path from "node:path";
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import {
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
@@ -21,7 +22,11 @@ import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
-import { planGatewayForward } from "./gateway-forward";
+import {
+  planGatewayForward,
+  planPairedGatewayForward,
+  type GatewayForwardPlan,
+} from "./gateway-forward";
 import {
   fetchForwardPlanWithRetry,
   planPlatformForward,
@@ -228,6 +233,8 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
+  const getPairedGatewayTargets = (): Map<string, string> =>
+    readPairedGatewayTargets(lockfilePaths);
   const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
@@ -238,6 +245,19 @@ const registerAppProtocol = (): void => {
     // Vite dev-server proxy (`clients/web/vite-plugin-local-mode.ts`).
     const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
     if (proxied) return proxied;
+
+    // Paired remote gateways ride the same-origin path too, via
+    // `/assistant/__gateway-paired/{assistantId}/*`: the packaged app's CSP
+    // pins `connect-src` to Vellum origins, so the renderer cannot reach a
+    // paired gateway directly. The lockfile's paired entries are the
+    // allowlist.
+    const pairedProxied = await forwardPairedGatewayRequest(
+      request,
+      getPairedGatewayTargets,
+    );
+    if (pairedProxied) {
+      return pairedProxied;
+    }
 
     // Platform API routes (`/v1/*`, `/_allauth/*`, `/accounts/*`) forward to
     // the cloud platform so managed mode works in packaged builds. Mirrors the
@@ -275,20 +295,16 @@ const fileExists = async (candidate: string): Promise<boolean> => {
 };
 
 /**
- * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
- * local gateway on loopback, or return `null` when the URL is not a gateway
- * request so the caller serves it as a static asset. `net.fetch` runs in the
- * main process, so the renderer only ever talks to its own secure `app://`
- * origin — main does the `http://127.0.0.1` hop. The streaming `Response` is
- * returned verbatim, preserving SSE and chunked transfers (Electron's
- * `stream: true` scheme privilege). `planGatewayForward` owns the allowlist and
- * header decisions; this wrapper is just the effect.
+ * Turn a gateway forward plan into its effect: `null` on `pass` so the caller
+ * serves the request as a static asset, otherwise the plan's rejection or a
+ * single `net.fetch` whose streaming `Response` is returned verbatim,
+ * preserving SSE and chunked transfers (Electron's `stream: true` scheme
+ * privilege). The plan owns the allowlist and header decisions.
  */
-const forwardGatewayRequest = async (
+const executeGatewayForwardPlan = (
+  plan: GatewayForwardPlan,
   request: GlobalRequest,
-  getAllowedPorts: () => Set<number>,
-): Promise<Response | null> => {
-  const plan = planGatewayForward(request, getAllowedPorts);
+): Promise<Response> | Response | null => {
   switch (plan.kind) {
     case "pass":
       return null;
@@ -306,6 +322,32 @@ const forwardGatewayRequest = async (
       });
   }
 };
+
+/**
+ * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
+ * local gateway on loopback, or return `null` when the URL is not a gateway
+ * request. `net.fetch` runs in the main process, so the renderer only ever
+ * talks to its own secure `app://` origin; main does the `http://127.0.0.1`
+ * hop.
+ */
+const forwardGatewayRequest = async (
+  request: GlobalRequest,
+  getAllowedPorts: () => Set<number>,
+): Promise<Response | null> =>
+  executeGatewayForwardPlan(planGatewayForward(request, getAllowedPorts), request);
+
+/**
+ * Forward a paired-gateway data-plane request
+ * (`/assistant/__gateway-paired/{assistantId}/*`) to the remote gateway an
+ * imported pairing recorded as its `runtimeUrl`, or return `null` when the URL
+ * is not a paired-gateway request. Main does the remote hop so the renderer
+ * stays same-origin.
+ */
+const forwardPairedGatewayRequest = async (
+  request: GlobalRequest,
+  getTargets: () => Map<string, string>,
+): Promise<Response | null> =>
+  executeGatewayForwardPlan(planPairedGatewayForward(request, getTargets), request);
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({

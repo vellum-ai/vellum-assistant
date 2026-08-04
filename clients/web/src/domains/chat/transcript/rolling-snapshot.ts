@@ -168,6 +168,7 @@ export function appendEventToMessages(
           imageData: event.imageData,
           imageDataList: event.imageDataList,
           activityMetadata: event.activityMetadata,
+          answeredQuestion: event.answeredQuestion,
           errorCode: event.errorCode,
           completedAt:
             "completedAt" in event && typeof event.completedAt === "number"

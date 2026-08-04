@@ -88,8 +88,36 @@ import {
 const originalKill = process.kill;
 const workspaces: string[] = [];
 
+/**
+ * Registry-backed process.kill mock: registered fake PIDs answer liveness
+ * probes and record kills, everything else forwards to the real kill. Lets
+ * helpers compose (old-edge PID and freshly-spawned master PID at once).
+ */
+const fakePids = new Map<number, { alive: boolean; unkillable?: boolean }>();
+
+function installKillMock(): void {
+  process.kill = mock((targetPid: number, signal?: string | number) => {
+    const entry = fakePids.get(targetPid);
+    if (!entry) {
+      return originalKill(targetPid, signal);
+    }
+    if (signal === 0) {
+      if (!entry.alive) {
+        throw new Error("dead");
+      }
+      return true;
+    }
+    if (entry.unkillable) {
+      throw new Error("operation not permitted");
+    }
+    entry.alive = false;
+    return true;
+  }) as unknown as typeof process.kill;
+}
+
 afterEach(() => {
   process.kill = originalKill;
+  fakePids.clear();
   execFileSyncMock.mockReset();
   spawnSyncMock.mockReset();
   spawnSyncMock.mockImplementation(realChildProcess.spawnSync);
@@ -267,6 +295,7 @@ describe("buildIngressNginxConfig", () => {
       "location = /v1/guardian/reset-bootstrap/ { return 404; }",
       "location ^~ /assistant/__local/ { return 404; }",
       "location ^~ /assistant/__gateway/ { return 404; }",
+      "location ^~ /assistant/__gateway-paired/ { return 404; }",
     ];
     for (const location of deniedLocations) {
       expect(remoteConf).toContain(location);
@@ -465,13 +494,33 @@ function mockNginxMissing(): void {
   });
 }
 
+const SPAWNED_NGINX_PID = 4243;
+
+/**
+ * Spawned nginx that wins its bind: alive as the master, and it records its
+ * pid under the prefix dir like a real `daemon off` master, with a matching
+ * ps answer so getIngressPid confirms ownership.
+ */
 function mockNginxSpawn(): void {
-  spawnMock.mockReturnValue({
-    unref: () => {},
-    once: () => {},
-    exitCode: null,
-    pid: 4243,
-  } as unknown as ChildProcess);
+  spawnMock.mockImplementation(((_command: string, args: readonly string[]) => {
+    const dir = String(args[args.indexOf("-p") + 1]);
+    realFs.writeFileSync(join(dir, "nginx.pid"), `${SPAWNED_NGINX_PID}\n`);
+    fakePids.set(SPAWNED_NGINX_PID, { alive: true });
+    installKillMock();
+    execFileSyncMock.mockImplementation(((
+      _file: string,
+      psArgs?: readonly string[],
+    ) =>
+      psArgs?.includes(String(SPAWNED_NGINX_PID))
+        ? `nginx: master process nginx -p ${dir} -c ${join(dir, "nginx.conf")} -g daemon off;`
+        : "") as typeof childProcess.execFileSync);
+    return {
+      unref: () => {},
+      once: () => {},
+      exitCode: null,
+      pid: SPAWNED_NGINX_PID,
+    } as unknown as ChildProcess;
+  }) as unknown as typeof childProcess.spawn);
 }
 
 /** Spawned nginx that exits on startup, as when the listen port is already bound. */
@@ -482,8 +531,31 @@ function mockNginxSpawnExitsOnStartup(): void {
       if (event === "exit") listener();
     },
     exitCode: 1,
-    pid: 4243,
+    pid: SPAWNED_NGINX_PID,
   } as unknown as ChildProcess);
+}
+
+/**
+ * Spawned nginx that loses the bind race to a healthy squatter: still alive
+ * when the probe resolves, exits shortly after, never writes a pid file.
+ */
+function mockNginxSpawnExitsAfterProbe(): void {
+  spawnMock.mockImplementation((() => {
+    const child = {
+      unref: () => {},
+      exitCode: null as number | null,
+      pid: SPAWNED_NGINX_PID,
+      once: (event: string, listener: () => void) => {
+        if (event === "exit") {
+          setTimeout(() => {
+            child.exitCode = 1;
+            listener();
+          }, 150);
+        }
+      },
+    };
+    return child as unknown as ChildProcess;
+  }) as unknown as typeof childProcess.spawn);
 }
 
 /** Force findWebDistDir() to resolve nothing, regardless of checkout state. */
@@ -540,29 +612,15 @@ function mockRunningEdge(
 
 /** SIGTERM to the given PID marks it dead; signal 0 reflects liveness. */
 function mockKillableNginx(pid: number): { killed: () => boolean } {
-  let alive = true;
-  process.kill = mock((targetPid: number, signal?: string | number) => {
-    if (targetPid !== pid) return originalKill(targetPid, signal);
-    if (signal === 0) {
-      if (!alive) throw new Error("dead");
-      return true;
-    }
-    if (signal === "SIGTERM") {
-      alive = false;
-      return true;
-    }
-    return true;
-  }) as unknown as typeof process.kill;
-  return { killed: () => !alive };
+  fakePids.set(pid, { alive: true });
+  installKillMock();
+  return { killed: () => fakePids.get(pid)?.alive === false };
 }
 
 /** The given PID stays alive: liveness probes succeed, kill signals fail. */
 function mockUnkillableNginx(pid: number): void {
-  process.kill = mock((targetPid: number, signal?: string | number) => {
-    if (targetPid !== pid) return originalKill(targetPid, signal);
-    if (signal === 0) return true;
-    throw new Error("operation not permitted");
-  }) as unknown as typeof process.kill;
+  fakePids.set(pid, { alive: true, unkillable: true });
+  installKillMock();
 }
 
 describe("startRemoteWebIngress", () => {
@@ -1011,9 +1069,68 @@ describe("startRemoteWebIngress", () => {
     });
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const ingress = readConfig(ws).ingress as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     expect(ingress?.nginx).toBeUndefined();
+  });
+
+  test("a child that outlives the probe but never owns the port is a port conflict", async () => {
+    // The healthy-squatter race: another workspace's edge answers the probe in
+    // milliseconds, while our master is still failing its bind. The child being
+    // alive right after the probe must not count as started.
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawnExitsAfterProbe();
+    mockWebDistMissing();
+    waitForDaemonReadyMock.mockImplementation(async () => true);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result).toEqual({
+      status: "port-conflict",
+      listenPort: 7845,
+      logPath: join(ws, "data", "logs", "nginx-ingress.log"),
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const ingress = readConfig(ws).ingress as
+      Record<string, unknown> | undefined;
+    expect(ingress?.nginx).toBeUndefined();
+  });
+
+  test("started requires the pid file to name the live spawned master", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result).toEqual({
+      status: "started",
+      listenPort: 7845,
+      webDistDir: null,
+      version: NGINX_VERSION,
+    });
+    expect(
+      realFs
+        .readFileSync(join(ws, "data", "ingress", "nginx.pid"), "utf-8")
+        .trim(),
+    ).toBe(String(SPAWNED_NGINX_PID));
+    // Ownership confirmed on the first settle iteration: exactly one ps
+    // lookup, for the spawned master's pid, with no polling delay.
+    expect(execFileSyncMock).toHaveBeenCalledTimes(1);
+    expect(execFileSyncMock.mock.calls[0]?.[1]).toContain(
+      String(SPAWNED_NGINX_PID),
+    );
   });
 
   test("a spawn that exits with a failed probe is also a port conflict", async () => {
@@ -1032,6 +1149,37 @@ describe("startRemoteWebIngress", () => {
 
     expect(result.status).toBe("port-conflict");
   });
+
+  test("a child still retrying its bind at the settle deadline is killed before rollback", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockWebDistMissing();
+    const kills: string[] = [];
+    // Alive for the whole settle window (nginx retrying its bind), never
+    // writes a pid file; an orphan left running could win the bind later.
+    spawnMock.mockImplementation((() => {
+      return {
+        unref: () => {},
+        exitCode: null,
+        pid: SPAWNED_NGINX_PID,
+        once: () => {},
+        kill: (signal: string) => {
+          kills.push(signal);
+          return true;
+        },
+      } as unknown as ChildProcess;
+    }) as unknown as typeof childProcess.spawn);
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result.status).toBe("port-conflict");
+    expect(kills).toEqual(["SIGTERM"]);
+  }, 10_000);
 });
 
 describe("ensureTunnelEdge", () => {

@@ -7,8 +7,8 @@ import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useHasPlatformSession } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
@@ -25,8 +25,7 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
 export function SettingsLayout() {
   const settingsDeveloperNav =
     useAssistantFeatureFlagStore.use.settingsDeveloperNav();
-  const platformNotifications =
-    useClientFeatureFlagStore.use.platformNotifications();
+  const isNativeAndroid = useIsNativeAndroid();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   // The Bookmarks and Credentials tabs need routes that only newer assistants
   // serve (v0.8.1+ / v0.10.8+); an older assistant 404s them, so hide the
@@ -34,7 +33,6 @@ export function SettingsLayout() {
   // so a stale cross-store version can't light a tab mid-switch.
   const supportsBookmarks = useSupportsBookmarks(activeAssistantId);
   const supportsCredentials = useSupportsCredentialsSettings(activeAssistantId);
-  const platformGate = usePlatformGate({ platformHostedOnly: true });
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
   // Billing tab is actually shown — i.e. signed in to the Vellum platform
@@ -51,10 +49,7 @@ export function SettingsLayout() {
   const filteredItems = useMemo(
     () =>
       SETTINGS_SIDEBAR.filter((item) => {
-        if (
-          item.id === "notifications" &&
-          (!platformNotifications || platformGate === "gated")
-        ) {
+        if (item.id === "notifications" && !isNativeAndroid) {
           return false;
         }
         if (item.id === "bookmarks" && !supportsBookmarks) {
@@ -70,13 +65,7 @@ export function SettingsLayout() {
       }).map((item) =>
         item.id === "billing" ? { ...item, label: billingLabel } : item,
       ),
-    [
-      platformNotifications,
-      platformGate,
-      supportsBookmarks,
-      supportsCredentials,
-      billingLabel,
-    ],
+    [isNativeAndroid, supportsBookmarks, supportsCredentials, billingLabel],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {

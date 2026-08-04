@@ -55,7 +55,13 @@ function platformAssistant(
   id: string,
   organizationId?: string,
 ): ResolvedAssistant {
-  return { id, isLocal: false, isPlatformHosted: true, organizationId };
+  return {
+    id,
+    isLocal: false,
+    isPlatformHosted: true,
+    isPaired: false,
+    organizationId,
+  };
 }
 
 function lockfileAssistant(assistantId: string): LockfileAssistant {

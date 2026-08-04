@@ -80,6 +80,16 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 });
 
+describe("subagent flags default to disabled", () => {
+  for (const flagKey of ["subagent-profile-isolation", "subagent-loop-guard"]) {
+    test(`${flagKey} resolves to false with no override`, () => {
+      const config = {} as any;
+
+      expect(isAssistantFeatureFlagEnabled(flagKey, config)).toBe(false);
+    });
+  }
+});
+
 describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
   test("resolves skill flag via canonical path", () => {
     setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });

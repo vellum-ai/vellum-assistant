@@ -256,6 +256,28 @@ describe("useInteractionStore", () => {
       expect(s.isQuestionCardDismissed).toBe(false);
     });
 
+    it("dismissQuestionIfMatches retires the card the answer belongs to", () => {
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q1", entries: [] });
+      useInteractionStore.getState().dismissQuestionIfMatches("q1");
+      const s = useInteractionStore.getState();
+      expect(s.pendingQuestion).toBeNull();
+      expect(s.isSubmittingQuestion).toBe(false);
+    });
+
+    it("dismissQuestionIfMatches leaves a newer card standing", () => {
+      // An answer for a superseded prompt must not close the card the user is
+      // currently looking at.
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "q2", entries: [] });
+      useInteractionStore.getState().dismissQuestionIfMatches("q1");
+      expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+        "q2",
+      );
+    });
+
     it("dismissQuestionCard hides card but keeps pendingQuestion", () => {
       useInteractionStore
         .getState()

@@ -1045,9 +1045,10 @@ describe("StatusBanner", () => {
       expect(html).not.toContain("Assistant fatal error");
     });
 
-    test("renders backend-unreachable banner before operational status", () => {
+    test("renders backend-unreachable banner before operational status for a local session", () => {
       isElectronMock = true;
       connectivityStateMock = "backend-unreachable";
+      assistantStateMock = { kind: "active", isLocal: true };
       operationalStatusQueryMock = {
         data: { state: "crash_loop" },
         isError: false,
@@ -1060,6 +1061,31 @@ describe("StatusBanner", () => {
       expect(html).toContain('data-tone="error"');
       expect(html).toContain("lucide-cloud-off");
       expect(html).not.toContain("Assistant fatal error");
+    });
+
+    test("does not render backend-unreachable for a platform-hosted session", () => {
+      isElectronMock = true;
+      connectivityStateMock = "backend-unreachable";
+      assistantStateMock = { kind: "active", isLocal: false };
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toBe("");
+    });
+
+    test("renders operational status instead of backend-unreachable for a platform-hosted session", () => {
+      isElectronMock = true;
+      connectivityStateMock = "backend-unreachable";
+      assistantStateMock = { kind: "active", isLocal: false };
+      operationalStatusQueryMock = {
+        data: { state: "crash_loop" },
+        isError: false,
+      };
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Assistant fatal error");
+      expect(html).not.toContain("Trying to reach Vellum");
     });
 
     test("does not render backend-unreachable connectivity state outside Electron", () => {

@@ -10,12 +10,22 @@
  * Action Overrides panel. `llm.advisorProfile` still appears below because
  * deleting the profile it points at must clear the reference in the same
  * patch, which is this section's job.
+ *
+ * Make Default is version-gated: assistants serving
+ * `PUT /v1/inference/active-profile` get the validated route (whose 400 is
+ * the daemon's verdict on the selection), older ones the raw config PATCH.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type {
@@ -31,6 +41,11 @@ let configPatchBodies: unknown[] = [];
 let profilesState: Record<string, ProfileEntry> = {};
 let activeProfileState: string | null = null;
 let advisorProfileState: string | null = null;
+let activeProfileBodies: unknown[] = [];
+/** When set, the next active-profile PUT rejects with this error. */
+let activeProfileError: unknown = null;
+let toastErrors: string[] = [];
+let capturedErrorContexts: string[] = [];
 
 function configPayload(): ConfigGetResponse {
   return {
@@ -45,9 +60,20 @@ function configPayload(): ConfigGetResponse {
 }
 
 mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: { success: () => {}, error: () => {} },
+  toast: {
+    success: () => {},
+    error: (message: string) => {
+      toastErrors.push(message);
+    },
+  },
   Toaster: () => null,
   ToastContent: () => null,
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: (_error: unknown, options?: { context?: string }) => {
+    capturedErrorContexts.push(options?.context ?? "");
+  },
 }));
 
 const actualSdk = await import("@/generated/daemon/sdk.gen");
@@ -58,6 +84,13 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
     return { data: configPayload() };
+  },
+  inferenceActiveprofilePut: async (options?: { body?: unknown }) => {
+    activeProfileBodies.push(options?.body);
+    if (activeProfileError) {
+      throw activeProfileError;
+    }
+    return { data: { ok: true } };
   },
 }));
 
@@ -70,6 +103,10 @@ const { configGetQueryKey } = await import(
 const { ProfilesSection } = await import(
   "@/domains/settings/ai/profiles-section"
 );
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
+const { ApiError } = await import("@/utils/api-errors");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -170,13 +207,19 @@ function seedProfiles() {
 
 beforeEach(() => {
   configPatchBodies = [];
+  activeProfileBodies = [];
+  activeProfileError = null;
+  toastErrors = [];
+  capturedErrorContexts = [];
   activeProfileState = null;
   advisorProfileState = null;
   seedProfiles();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------
@@ -283,7 +326,9 @@ describe("ProfilesSection - kebab menus", () => {
     ]);
   });
 
-  test("Make Default PATCHes llm.activeProfile", async () => {
+  test("Make Default falls back to PATCHing llm.activeProfile on older assistants", async () => {
+    // Version unknown → the gate is conservative, so the save takes the raw
+    // config PATCH every assistant has always served.
     renderSection();
     const menu = await openKebab("My Custom");
     clickMenuItem(menu, "Make Default");
@@ -293,6 +338,7 @@ describe("ProfilesSection - kebab menus", () => {
         { llm: { activeProfile: "my-custom" } },
       ]);
     });
+    expect(activeProfileBodies).toEqual([]);
   });
 
   test("deleting the advisor profile clears the advisor reference in the same patch", async () => {
@@ -356,5 +402,61 @@ describe("ProfilesSection - row interactions", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     ).find((b) => b.textContent?.includes("Create Profile"));
     expect(createButton?.disabled).toBe(true);
+  });
+});
+
+describe("ProfilesSection - Make Default on the validated route", () => {
+  beforeEach(() => {
+    // 0.10.8 serves PUT /v1/inference/active-profile but predates the
+    // effective-catalog route (0.11.0), so the rows keep the deterministic
+    // config-derived fallback while the save takes the validated path.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.8", "asst-1");
+  });
+
+  test("Make Default PUTs the validated active-profile route, not a config PATCH", async () => {
+    renderSection();
+    const menu = await openKebab("My Custom");
+    clickMenuItem(menu, "Make Default");
+
+    await waitFor(() => {
+      expect(activeProfileBodies).toEqual([{ name: "my-custom" }]);
+    });
+    expect(configPatchBodies).toEqual([]);
+  });
+
+  test("a refused selection surfaces the daemon's reason verbatim and isn't reported", async () => {
+    // The 400 is the daemon's verdict on the selection itself - a config
+    // problem the user can fix, so generic retry copy would send them round
+    // the same failing loop and a Sentry report would be noise.
+    activeProfileError = new ApiError(
+      400,
+      'No API key for provider "gemini". Add one first.',
+    );
+    renderSection();
+    const menu = await openKebab("My Custom");
+    clickMenuItem(menu, "Make Default");
+
+    await waitFor(() => {
+      expect(toastErrors).toEqual([
+        'No API key for provider "gemini". Add one first.',
+      ]);
+    });
+    expect(capturedErrorContexts).toEqual([]);
+  });
+
+  test("a non-400 failure keeps the generic retry copy and is reported", async () => {
+    activeProfileError = new ApiError(500, "boom: db offline");
+    renderSection();
+    const menu = await openKebab("My Custom");
+    clickMenuItem(menu, "Make Default");
+
+    await waitFor(() => {
+      expect(toastErrors).toEqual([
+        "Failed to set the active profile. Please try again.",
+      ]);
+    });
+    expect(capturedErrorContexts).toEqual(["settings-ai-profile-make-active"]);
   });
 });

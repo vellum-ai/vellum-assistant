@@ -434,7 +434,7 @@ describe("syncMessageToDisk", () => {
     });
 
     // Upload an attachment and link to the message
-    const att = uploadAttachment("photo.png", "image/png", "iVBORw0K");
+    const att = await uploadAttachment("photo.png", "image/png", "iVBORw0K");
     linkAttachmentToMessage(msg.id, att.id, 0);
 
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);
@@ -498,7 +498,7 @@ describe("syncMessageToDisk", () => {
       skipIndexing: true,
     });
 
-    const att = uploadAttachment("legacy.png", "image/png", "iVBORw0K");
+    const att = await uploadAttachment("legacy.png", "image/png", "iVBORw0K");
     linkAttachmentToMessage(msg.id, att.id, 0);
 
     syncMessageToDisk(conv.id, msg.id, createdAt);
@@ -525,7 +525,7 @@ describe("syncMessageToDisk", () => {
     const msg = await addMessage(conv.id, "user", "Disk repair", {
       skipIndexing: true,
     });
-    const att = uploadAttachment("repair.png", "image/png", "iVBORw0K");
+    const att = await uploadAttachment("repair.png", "image/png", "iVBORw0K");
     rawRun(
       "test:linkAttachment",
       `INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at)
@@ -603,7 +603,7 @@ describe("rebuildConversationDiskViewFromDbState", () => {
       { skipIndexing: true },
     );
 
-    const att = uploadAttachment("result.txt", "text/plain", "ok");
+    const att = await uploadAttachment("result.txt", "text/plain", "ok");
     linkAttachmentToMessage(assistantPart2.id, att.id, 0);
 
     // Simulate stale disk view generated before consolidation.

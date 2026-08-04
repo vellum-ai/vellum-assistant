@@ -29,13 +29,10 @@ import type {
   CallSiteOverrideDraft,
   ConfigLlmCallsitesGetResponse,
 } from "@/generated/daemon/types.gen";
-import { useSupportsDefaultProfileOverrides } from "@/lib/backwards-compat/use-supports-default-profile-overrides";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -54,8 +51,7 @@ export interface OverridesDetailPanelProps {
 
 /**
  * Sidepanel host for the Action Overrides editor (the Overrides section's
- * Manage action): search, per-tier default rows (apply-to-all on daemons
- * predating `llm.defaultProfileOverrides`), and per-call-site rows grouped
+ * Manage action): search, the Advisor row, and per-call-site rows grouped
  * by domain in the scrollable body, with Save / Reset pinned in the
  * DetailShell footer so a long catalog never hides the actions. Hosts
  * remount the panel per open so draft state resets.
@@ -83,10 +79,6 @@ export function OverridesDetailPanel({
     () => daemonConfig?.llm?.callSites ?? {},
     [daemonConfig?.llm?.callSites],
   );
-  const persistedTierOverrides = useMemo(
-    () => daemonConfig?.llm?.defaultProfileOverrides ?? {},
-    [daemonConfig?.llm?.defaultProfileOverrides],
-  );
   const orderedProfiles = useMemo(
     () => buildOrderedProfiles(profiles, profileOrder),
     [profiles, profileOrder],
@@ -103,23 +95,7 @@ export function OverridesDetailPanel({
     },
   });
 
-  const supportsTierOverrides = useSupportsDefaultProfileOverrides(assistantId);
-  // The legacy apply-to-all sweep stays non-writing until the version is
-  // hydrated FOR THIS ASSISTANT: on a tier-overrides daemon it would
-  // persist per-call-site pins, which outrank `defaultProfileOverrides`
-  // and lock the Defaults rows out of those actions. The assistant scope
-  // matters on assistant switch, where a remounted panel can render once
-  // against the previous assistant's not-yet-cleared identity.
-  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
-  const identityVersionKnown =
-    useAssistantIdentityStore.use.version() != null &&
-    identityAssistantId === assistantId;
-
   const [search, setSearch] = useState("");
-  const [applyAllProfile, setApplyAllProfile] = useState("");
-  // Tier remap edits this session: value is a profile name, `null` clears a
-  // persisted remap, absent means untouched (falls through to persisted).
-  const [tierEdits, setTierEdits] = useState<Record<string, string | null>>({});
   const [draftEdits, setDraftEdits] = useState<
     Record<string, CallSiteOverrideDraft | null>
   >({});
@@ -191,69 +167,9 @@ export function OverridesDetailPanel({
     [orderedProfiles],
   );
 
-  // One Defaults row per tier that call sites actually ship on, ordered by
-  // the profile picker's own ordering so the rows match it. Grouped by the
-  // code-owned shipped tier: `defaultProfile` is the effective winner, so
-  // grouping by it would scatter pinned or remapped sites across their
-  // winning profiles instead of their tiers.
-  const tierGroups = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const cs of gatedCallSites) {
-      if (cs.shippedDefaultProfile) {
-        counts.set(
-          cs.shippedDefaultProfile,
-          (counts.get(cs.shippedDefaultProfile) ?? 0) + 1,
-        );
-      }
-    }
-    const pickerIndex = new Map(orderedProfiles.map((p, i) => [p.name, i]));
-    return [...counts.entries()]
-      .map(([tier, count]) => ({ tier, count }))
-      .sort(
-        (a, b) =>
-          (pickerIndex.get(a.tier) ?? Number.MAX_SAFE_INTEGER) -
-          (pickerIndex.get(b.tier) ?? Number.MAX_SAFE_INTEGER),
-      );
-  }, [gatedCallSites, orderedProfiles]);
-
-  // The remap a tier resolves to right now: this session's edit when the
-  // row was touched, else the persisted value; `null` means unremapped.
-  const effectiveTierRemap = useCallback(
-    (tier: string): string | null =>
-      tier in tierEdits
-        ? (tierEdits[tier] ?? null)
-        : (persistedTierOverrides[tier] ?? null),
-    [tierEdits, persistedTierOverrides],
-  );
-
-  // The default an unpinned row displays and toggle-on seeds from. A tier
-  // touched this session shows its pending edit optimistically; an
-  // untouched tier trusts the catalog's resolved winner (`defaultProfile`)
-  // rather than the raw persisted remap, which resolution may have skipped
-  // (disabled or incomplete target).
-  const displayedDefaultFor = useCallback(
-    (cs: CallSiteEntry): string | undefined => {
-      const shippedTier = cs.shippedDefaultProfile;
-      if (supportsTierOverrides && shippedTier && shippedTier in tierEdits) {
-        return tierEdits[shippedTier] ?? shippedTier;
-      }
-      return cs.defaultProfile;
-    },
-    [supportsTierOverrides, tierEdits],
-  );
-
-  const tierOverridesDirty = useMemo(
-    () =>
-      Object.entries(tierEdits).some(
-        ([tier, value]) =>
-          (value ?? null) !== (persistedTierOverrides[tier] ?? null),
-      ),
-    [tierEdits, persistedTierOverrides],
-  );
-
   // The advisor is a top-level `llm.advisorProfile` selection, not a call-site
   // override. It rides this panel's draft/Save cycle but never enters the
-  // `llm.callSites` patch, the apply-to-all sweep, or the Overrides count.
+  // `llm.callSites` patch or the Overrides count.
   const persistedAdvisor = daemonConfig?.llm?.advisorProfile ?? "";
   const advisorProfile = advisorEdit ?? persistedAdvisor;
   const advisorDirty = advisorProfile !== persistedAdvisor;
@@ -276,9 +192,6 @@ export function OverridesDetailPanel({
     return q === "" || "advisor".includes(q) || "second opinion".includes(q);
   }, [search]);
 
-  // Per-action pins only: Reset deliberately leaves the tier remaps alone
-  // (they are the user's intended defaults, cleared per-row instead), so
-  // tier state neither shows the button nor enters the reset patch.
   const hasAnyPersistedOverride = useMemo(
     () =>
       Object.entries(persistedOverrides).some(
@@ -301,8 +214,7 @@ export function OverridesDetailPanel({
     return false;
   }, [isSeeded, drafts, persistedOverrides]);
 
-  const hasUnsavedDrafts =
-    advisorDirty || callSiteDraftsDirty || tierOverridesDirty;
+  const hasUnsavedDrafts = advisorDirty || callSiteDraftsDirty;
 
   const hasValidationError = useMemo(
     () =>
@@ -311,26 +223,6 @@ export function OverridesDetailPanel({
       ),
     [drafts],
   );
-
-  const applyAllOptions = useMemo(
-    () =>
-      visibleProfilesForPicker(orderedProfiles, []).map((p) => ({
-        value: p.name,
-        label: profilePickerLabel(p),
-      })),
-    [orderedProfiles],
-  );
-
-  const handleApplyAll = useCallback(() => {
-    if (!applyAllProfile) {
-      return;
-    }
-    const next: Record<string, CallSiteOverrideDraft | null> = {};
-    for (const id of catalogCallSiteIds) {
-      next[id] = { profile: applyAllProfile };
-    }
-    setDraftEdits(next);
-  }, [applyAllProfile, catalogCallSiteIds]);
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
@@ -405,11 +297,9 @@ export function OverridesDetailPanel({
         return;
       }
       const cs = gatedCallSites.find((c) => c.id === id);
-      // Seed from the same default the row is displaying so the pin
-      // matches what the user sees.
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
-        cs ? displayedDefaultFor(cs) : undefined,
+        cs?.defaultProfile,
       );
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
@@ -423,12 +313,7 @@ export function OverridesDetailPanel({
         }));
       }
     },
-    [
-      gatedCallSites,
-      orderedProfiles,
-      selectableInferenceProviders,
-      displayedDefaultFor,
-    ],
+    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
   );
 
   // ---------------------------------------------------------------------------
@@ -464,14 +349,6 @@ export function OverridesDetailPanel({
           patch[id] = null;
         }
       }
-      // Only the tier keys that actually moved: a profile name sets the
-      // remap, `null` clears it via the deep-merge delete semantics.
-      const tierPatch: Record<string, string | null> = {};
-      for (const [tier, value] of Object.entries(tierEdits)) {
-        if ((value ?? null) !== (persistedTierOverrides[tier] ?? null)) {
-          tierPatch[tier] = value ?? null;
-        }
-      }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
         body: {
@@ -483,11 +360,6 @@ export function OverridesDetailPanel({
             ...(callSiteDraftsDirty ? { callSites: patch } : {}),
             // Likewise: a no-op key would still rewrite the config file.
             ...(advisorDirty ? { advisorProfile } : {}),
-            // Gated: an older daemon's schema rejects the unknown key and
-            // with it the whole patch.
-            ...(supportsTierOverrides && tierOverridesDirty
-              ? { defaultProfileOverrides: tierPatch }
-              : {}),
           },
         },
       });
@@ -505,10 +377,6 @@ export function OverridesDetailPanel({
     callSiteDraftsDirty,
     advisorDirty,
     advisorProfile,
-    tierEdits,
-    persistedTierOverrides,
-    tierOverridesDirty,
-    supportsTierOverrides,
     onClose,
     configMutation,
     assistantId,
@@ -589,89 +457,6 @@ export function OverridesDetailPanel({
           />
         </div>
 
-        {/* Per-tier defaults: every action whose shipped default is a tier
-            follows that tier's profile unless overridden per-action below. */}
-        {supportsTierOverrides && !search.trim() && tierGroups.length > 0 && (
-          <div className="mb-4">
-            {/* typography: off-scale. Matches the domain section label below */}
-            <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-              Defaults
-            </p>
-            <div className="space-y-1">
-              {tierGroups.map(({ tier, count }) => {
-                const tierLabel = profileLabelFor(tier);
-                const remap = effectiveTierRemap(tier);
-                const options = [
-                  { value: "", label: `${tierLabel} (default)` },
-                  ...visibleProfilesForPicker(orderedProfiles, [remap])
-                    .filter((p) => p.name !== tier)
-                    .map((p) => ({
-                      value: p.name,
-                      label: profilePickerLabel(p),
-                    })),
-                ];
-                return (
-                  <div
-                    key={tier}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-body-medium-default text-[var(--content-default)]">
-                        {tierLabel}
-                      </p>
-                      <p className="text-body-small-default text-[var(--content-tertiary)]">
-                        {count === 1 ? "1 action" : `${count} actions`}
-                      </p>
-                    </div>
-                    <Dropdown
-                      value={remap ?? ""}
-                      onChange={(value) =>
-                        setTierEdits((prev) => ({
-                          ...prev,
-                          [tier]: value === "" ? null : value,
-                        }))
-                      }
-                      options={options}
-                      className="w-44"
-                      menuMinWidth={280}
-                      menuAlign="end"
-                      disabled={saving}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Apply one profile to every action (pre-tier-override daemons) */}
-        {!supportsTierOverrides && applyAllOptions.length > 0 && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
-            <p className="min-w-0 flex-1 text-body-medium-default text-[var(--content-default)]">
-              Use one profile for all actions
-            </p>
-            <Dropdown
-              value={applyAllProfile}
-              onChange={setApplyAllProfile}
-              options={applyAllOptions}
-              placeholder="Choose profile…"
-              className="w-44"
-              menuMinWidth={280}
-              menuAlign="end"
-            />
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={handleApplyAll}
-              disabled={
-                !applyAllProfile || !isSeeded || saving || !identityVersionKnown
-              }
-            >
-              Apply to all
-            </Button>
-          </div>
-        )}
-
         {/* Advisor: a top-level selection, not a catalog call site, so it
             renders off `daemonConfig` alone and stays put if the call-site
             catalog fails to load. */}
@@ -746,37 +531,15 @@ export function OverridesDetailPanel({
                         }
                         return d.profile ?? "";
                       })();
-                      // An unpinned site on a tier-overrides daemon whose
-                      // displayed default diverges from its shipped tier
-                      // renders that default in a ghost dropdown (picking
-                      // from it creates a pin) with tier provenance as the
-                      // caption. `displayedDefaultFor` trusts the resolver's
-                      // winner for untouched tiers, so a remap resolution
-                      // skipped never renders as if it applied. A pinned
-                      // site keeps the winner caption: the pin outranks the
-                      // remap, so tier provenance would claim an effect the
-                      // resolver doesn't apply.
-                      const pinned = isDraftActive(drafts[cs.id] ?? null);
-                      const shippedTier = cs.shippedDefaultProfile;
-                      let defaultProfileLabel: string | null = null;
-                      let ghost: { profile: string; caption: string } | null =
-                        null;
-                      if (supportsTierOverrides && shippedTier && !pinned) {
-                        const displayed =
-                          displayedDefaultFor(cs) ?? shippedTier;
-                        if (displayed !== shippedTier) {
-                          ghost = {
-                            profile: displayed,
-                            caption: `via ${profileLabelFor(shippedTier)} default`,
-                          };
-                        } else {
-                          defaultProfileLabel = profileLabelFor(shippedTier);
-                        }
-                      } else if (cs.defaultProfile) {
-                        defaultProfileLabel = profileLabelFor(
-                          cs.defaultProfile,
-                        );
-                      }
+                      // The caption names the shipped tier (what the action
+                      // falls back to when unpinned) when the daemon reports
+                      // one; `defaultProfile` is the effective winner, pins
+                      // included, so alone it would echo a pin back.
+                      const defaultKey =
+                        cs.shippedDefaultProfile ?? cs.defaultProfile;
+                      const defaultProfileLabel = defaultKey
+                        ? profileLabelFor(defaultKey)
+                        : null;
 
                       return (
                         <CallSiteOverrideRow
@@ -785,11 +548,10 @@ export function OverridesDetailPanel({
                           displayName={cs.displayName}
                           description={cs.description}
                           defaultProfileLabel={defaultProfileLabel}
-                          ghost={ghost}
                           draft={drafts[cs.id] ?? null}
                           profileOptions={buildProfileOptionsForRow(
                             profileVal === "" || profileVal === CUSTOM_SENTINEL
-                              ? (ghost?.profile ?? null)
+                              ? null
                               : profileVal,
                           )}
                           onDraftChange={handleDraftChange}
@@ -808,11 +570,7 @@ export function OverridesDetailPanel({
       <ConfirmDialog
         open={showResetConfirmation}
         title="Reset to Defaults"
-        message={
-          supportsTierOverrides
-            ? "Every action override will be reset and will follow its tier default above. Your tier choices are kept. This cannot be undone."
-            : "Every task override will be reset and will follow your active profile. This cannot be undone."
-        }
+        message="Every action override will be reset and will follow its default. This cannot be undone."
         confirmLabel="Reset to Defaults"
         destructive
         onConfirm={() => {

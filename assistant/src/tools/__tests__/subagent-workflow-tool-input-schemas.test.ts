@@ -48,7 +48,7 @@ const CASES: {
       fork: "deliberate `=== true` coercion owns malformed values",
       send_result_to_user:
         "deliberate `=== true` / `!== false` coercions own malformed values",
-      role: "SubagentManager.spawn's 'Invalid subagent role' error (test-asserted) owns non-enum values",
+      role: "resolveSubagentRole is total: every string lands on a type, so there is nothing to reject",
     },
   },
   {

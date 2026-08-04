@@ -469,6 +469,7 @@ import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/358-move-mem
 import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memory-summaries-to-memory-db.js";
 import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-workspace-path.js";
 import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
+import { migrateAddConversationSubagentKind } from "./migrations/362-add-conversation-subagent-kind.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1551,5 +1552,12 @@ export const migrationSteps: MigrationStep[] = [
     // without this dependency a failed table creation followed by repair
     // would permanently checkpoint the normalization as a no-op.
     dependsOn: ["migrateCreateProviderConnections"],
+  },
+  {
+    name: "migrateAddConversationSubagentKind",
+    run: migrateAddConversationSubagentKind,
+    // The backfill reads the `subagents` table (migration 311), so that table
+    // must exist and be checkpointed first.
+    dependsOn: ["migrateCreateSubagentsTable"],
   },
 ];

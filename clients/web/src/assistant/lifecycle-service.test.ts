@@ -112,16 +112,25 @@ const getSelectedAssistantMock = mock(
   (): { assistantId: string } | undefined => undefined,
 );
 const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
+const getPairedGatewayUrlMock = mock((): string | undefined => undefined);
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => undefined,
+  // Mirrors the real helper's composition so tests drive it through
+  // the two inner mocks.
+  getAuthGatewayIngressUrl: (): string | undefined => {
+    const base = getLocalGatewayUrlMock() ?? getPairedGatewayUrlMock();
+    return base ? `${window.location.origin}${base}` : undefined;
+  },
   getLocalAssistants: () => [],
   getLocalGatewayUrl: getLocalGatewayUrlMock,
+  getPairedGatewayUrl: getPairedGatewayUrlMock,
   getLockfile: () => ({ assistants: [], activeAssistant: null }),
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => window.location.origin,
   getSelectedAssistant: getSelectedAssistantMock,
   hasAssistants: () => false,
   isLocalAssistant: () => false,
+  isPairedAssistant: () => false,
   isLocalClient: isLocalClientMock,
   isPlatformAssistant: () => false,
   isPlatformDisabled: () => false,
@@ -212,6 +221,7 @@ beforeEach(() => {
   isRemoteGatewayModeMock.mockImplementation(() => false);
   getSelectedAssistantMock.mockImplementation(() => undefined);
   getLocalGatewayUrlMock.mockImplementation(() => undefined);
+  getPairedGatewayUrlMock.mockImplementation(() => undefined);
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
   getLocalAssistantStatusHostMock.mockClear();
@@ -462,6 +472,35 @@ describe("lifecycleService — bootstrap branches", () => {
     await waitFor(() => {
       const s = useAssistantLifecycleStore.getState().assistantState;
       return s.kind === "active" && s.health === "healthy";
+    });
+  });
+
+  test("gateway-auth short-circuit resolves a paired selection to the paired proxy URL", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "asst-paired",
+    }));
+    getPairedGatewayUrlMock.mockImplementation(
+      () => "/assistant/__gateway-paired/asst-paired",
+    );
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(getAssistantMock).not.toHaveBeenCalled();
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
+      url: `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
+      token: "token",
+    });
+    expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
+      "asst-paired",
+    );
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
+      kind: "active",
+      isLocal: true,
     });
   });
 
@@ -1231,6 +1270,31 @@ describe("lifecycleService — selection subscription", () => {
       url: string;
     };
     expect(arg.url).toContain("/assistant/__gateway/2222");
+  });
+
+  test("switch from a local to a paired assistant republishes the paired proxy URL", async () => {
+    await driveGatewayActive("asst-local");
+    getLocalGatewayUrlMock.mockImplementation(() => undefined);
+    getPairedGatewayUrlMock.mockImplementation(
+      () => "/assistant/__gateway-paired/asst-paired",
+    );
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "asst-paired",
+    }));
+    setSelfHostedConnectionMock.mockClear();
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-paired");
+
+    expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
+      "asst-paired",
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+    const arg = setSelfHostedConnectionMock.mock.calls[0]![0] as {
+      url: string;
+    };
+    expect(arg.url).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
+    );
   });
 
   test("no republish while the lifecycle is still loading", () => {

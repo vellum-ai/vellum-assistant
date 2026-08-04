@@ -372,6 +372,8 @@ const retire = (assistantId?: unknown): Promise<unknown> =>
     allowedEvent,
     assistantId,
   ) as Promise<unknown>;
+const unpair = (assistantId?: unknown): WriteResult =>
+  handlers["vellum:localMode:unpair"](allowedEvent, assistantId) as WriteResult;
 const wake = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
   handlers["vellum:localMode:wake"](
     allowedEvent,
@@ -594,6 +596,65 @@ describe("vellum:localMode:retire handler", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("disk full");
     expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:unpair handler", () => {
+  // Matches the module's `resolveConfigDir(process.env)` under the
+  // production + XDG_CONFIG_HOME environment pinned above.
+  const configDir = path.join(configHomeDir, "vellum");
+  const tokenPath = (assistantId: string): string =>
+    path.join(configDir, "assistants", assistantId, "guardian-token.json");
+
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    fs.rmSync(path.join(configDir, "assistants"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  test("removes a paired entry and deletes its guardian token", () => {
+    saveLockfileAssistant(
+      { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
+      "paired-1",
+    );
+    fs.mkdirSync(path.dirname(tokenPath("paired-1")), { recursive: true });
+    fs.writeFileSync(tokenPath("paired-1"), "{}");
+
+    const result = unpair("paired-1");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.lockfile.activeAssistant).toBeNull();
+    expect(result.lockfile.assistants).toEqual([]);
+    expect(fs.existsSync(tokenPath("paired-1"))).toBe(false);
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("refuses a non-paired entry", () => {
+    saveLockfileAssistant(
+      { assistantId: "local-1", cloud: "local" },
+      "local-1",
+    );
+
+    const result = unpair("local-1");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("paired");
+  });
+
+  test("rejects a missing assistant id with a structured error", () => {
+    expect(unpair("")).toEqual({ ok: false, error: "Missing assistantId" });
+    expect(unpair(undefined)).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
   });
 });
 

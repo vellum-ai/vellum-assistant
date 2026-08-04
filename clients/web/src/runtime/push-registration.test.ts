@@ -306,13 +306,16 @@ describe("registerForRemotePush", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("falls back to the upstream Android plugin on older shells", async () => {
+  test("installs listeners but skips registration on Android shells without the guarded plugin", async () => {
     platform = "android";
     androidPushRegistrationAvailable = false;
 
     await registerForRemotePush("assistant-1");
 
-    expect(registerMock).toHaveBeenCalledTimes(1);
+    expect(addListenerMock).toHaveBeenCalledTimes(4);
+    expect(requestPermissionsMock).not.toHaveBeenCalled();
+    expect(ensureAndroidAlertsChannelMock).not.toHaveBeenCalled();
+    expect(registerMock).not.toHaveBeenCalled();
     expect(androidRegisterMock).not.toHaveBeenCalled();
   });
 
@@ -541,6 +544,16 @@ describe("unregisterFromRemotePush", () => {
     await unregisterFromRemotePush();
     expect(lastDeleteArg?.path.token).toBe("fcm-new");
     expect(androidUnregisterMock).toHaveBeenCalledTimes(1);
+    expect(unregisterMock).not.toHaveBeenCalled();
+  });
+
+  test("skips FCM unregister on Android shells without the guarded plugin", async () => {
+    platform = "android";
+    androidPushRegistrationAvailable = false;
+
+    await unregisterFromRemotePush();
+
+    expect(androidUnregisterMock).not.toHaveBeenCalled();
     expect(unregisterMock).not.toHaveBeenCalled();
   });
 

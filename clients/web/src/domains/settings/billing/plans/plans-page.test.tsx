@@ -992,7 +992,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     // Capture only stashes for a hydrated list holding exactly one assistant.
     useResolvedAssistantsStore.setState({
       activeAssistantId: "a1",
-      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistants: [
+        { id: "a1", isLocal: false, isPlatformHosted: true, isPaired: false },
+      ],
       assistantsHydrated: true,
     });
     client.setQueryData([...avatarQueryKey("a1"), true], {

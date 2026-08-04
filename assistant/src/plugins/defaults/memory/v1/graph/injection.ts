@@ -349,7 +349,7 @@ export async function resolveInjectionImages(
         continue;
       }
 
-      const optimized = optimizeImageForTransport(
+      const optimized = await optimizeImageForTransport(
         data.data.toString("base64"),
         data.mimeType,
       );
