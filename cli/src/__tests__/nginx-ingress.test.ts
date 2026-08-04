@@ -98,12 +98,18 @@ const fakePids = new Map<number, { alive: boolean; unkillable?: boolean }>();
 function installKillMock(): void {
   process.kill = mock((targetPid: number, signal?: string | number) => {
     const entry = fakePids.get(targetPid);
-    if (!entry) return originalKill(targetPid, signal);
+    if (!entry) {
+      return originalKill(targetPid, signal);
+    }
     if (signal === 0) {
-      if (!entry.alive) throw new Error("dead");
+      if (!entry.alive) {
+        throw new Error("dead");
+      }
       return true;
     }
-    if (entry.unkillable) throw new Error("operation not permitted");
+    if (entry.unkillable) {
+      throw new Error("operation not permitted");
+    }
     entry.alive = false;
     return true;
   }) as unknown as typeof process.kill;
