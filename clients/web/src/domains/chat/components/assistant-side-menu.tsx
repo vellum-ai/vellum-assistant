@@ -32,6 +32,7 @@ import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in
 import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
 import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
+import { SidebarConversationSkeleton } from "@/domains/chat/components/sidebar-conversation-skeleton";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
 import { useScrolledPast } from "@/domains/chat/hooks/use-scrolled-past";
@@ -47,6 +48,14 @@ import { Button, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
+  /**
+   * The conversation list's first load is still in flight. Draws placeholder
+   * rows instead of the (still empty) section tree, so a cold load reads as
+   * loading rather than as an assistant with no conversations. Only consulted
+   * while `conversations` is empty, so a background refetch over an already
+   * populated sidebar never replaces live rows with placeholders.
+   */
+  isLoadingConversations?: boolean;
   collapsed: boolean;
   variant: "rail" | "overlay";
   width?: number;
@@ -180,6 +189,7 @@ function SearchButton() {
  * flow through {@link ConversationListProvider}.
  */
 export function AssistantSideMenu({
+  isLoadingConversations,
   assistantId,
   assistantName,
   collapsed,
@@ -228,6 +238,12 @@ export function AssistantSideMenu({
   });
 
   const isCollapsedRail = collapsed && variant === "rail";
+
+  /* Gated on an empty list, not on the loading flag alone: a refetch over a
+     populated sidebar keeps drawing the rows it already has rather than
+     blanking them back to placeholders. */
+  const showConversationSkeleton =
+    isLoadingConversations === true && conversations.length === 0;
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
@@ -502,6 +518,8 @@ export function AssistantSideMenu({
               processingConversationIds={processingConversationIds}
               attentionConversationIds={attentionConversationIds}
             />
+          ) : showConversationSkeleton ? (
+            <SidebarConversationSkeleton />
           ) : (
             /* Right-clicking the list (including the empty space below the
                last section) creates a group, so the affordance covers the
