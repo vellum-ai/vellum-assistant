@@ -411,6 +411,8 @@ export function isIngressRunning(workspaceDir: string): boolean {
 
 interface IngressState {
   listenPort: number;
+  /** Edge mode: SPA + proxy (true) or webhooks-only proxy (false). */
+  includeWebApp: boolean;
 }
 
 function readIngressState(workspaceDir: string): IngressState | null {
@@ -419,13 +421,18 @@ function readIngressState(workspaceDir: string): IngressState | null {
   const nginx = ingress?.nginx as Record<string, unknown> | undefined;
   const listenPort = nginx?.listenPort;
   if (typeof listenPort !== "number") return null;
-  return { listenPort };
+  // A missing includeWebApp means an SPA edge (older state records only
+  // listenPort, and those edges always serve the SPA).
+  return { listenPort, includeWebApp: nginx?.includeWebApp !== false };
 }
 
 function saveIngressState(workspaceDir: string, state: IngressState): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  ingress.nginx = { listenPort: state.listenPort };
+  ingress.nginx = {
+    listenPort: state.listenPort,
+    includeWebApp: state.includeWebApp,
+  };
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
 }
@@ -492,7 +499,10 @@ export function startIngressNginx(opts: {
   );
   closeSync(fd);
 
-  saveIngressState(opts.workspaceDir, { listenPort: opts.listenPort });
+  saveIngressState(opts.workspaceDir, {
+    listenPort: opts.listenPort,
+    includeWebApp: opts.remoteWebIngress !== undefined,
+  });
   return child;
 }
 
@@ -583,6 +593,10 @@ export type StartRemoteWebIngressResult =
  * but unreachable nginx is rolled back so a failed attempt leaves no half-up
  * edge behind.
  *
+ * An edge already running in the requested mode short-circuits as
+ * `already-running`; one running in the other mode (SPA vs webhooks-only) is
+ * stopped and restarted with the requested config.
+ *
  * Pure mechanism: it performs no console output and never exits the process, so
  * both the `nginx-ingress up` command and the wake restore path can share one
  * implementation and map the returned result to their own UX.
@@ -619,8 +633,13 @@ export async function startRemoteWebIngress(opts: {
     return { status: "nginx-missing" };
   }
 
-  if (isIngressRunning(opts.workspaceDir)) {
-    return { status: "already-running", listenPort };
+  const running = isIngressRunning(opts.workspaceDir);
+  if (running) {
+    const recordedMode =
+      readIngressState(opts.workspaceDir)?.includeWebApp ?? true;
+    if (recordedMode === includeWebApp) {
+      return { status: "already-running", listenPort };
+    }
   }
 
   let webDistDir: string | null = null;
@@ -629,6 +648,12 @@ export async function startRemoteWebIngress(opts: {
     if (!webDistDir) {
       return { status: "web-dist-missing" };
     }
+  }
+
+  // The running edge serves the other mode; restart it with the requested
+  // config. If the stop fails, the old edge is still the one serving.
+  if (running && !(await stopIngressNginx(opts.workspaceDir))) {
+    return { status: "already-running", listenPort };
   }
 
   opts.onStarting?.({ version, webDistDir, listenPort });
