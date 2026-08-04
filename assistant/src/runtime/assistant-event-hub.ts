@@ -95,7 +95,13 @@ interface BaseSubscriberEntry {
   connectionId: string;
 }
 
-export type DesktopPresenceState = "active" | "idle" | "away";
+/**
+ * The presence states a desktop client may report. Single runtime source: the
+ * stored type and the route's wire enum both derive from this tuple.
+ */
+export const DESKTOP_PRESENCE_STATES = ["active", "idle", "away"] as const;
+
+export type DesktopPresenceState = (typeof DESKTOP_PRESENCE_STATES)[number];
 
 export interface ClientPresence {
   state: DesktopPresenceState;
