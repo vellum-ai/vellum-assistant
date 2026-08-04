@@ -53,11 +53,10 @@ export function createAbortReason(
  *
  * The distinction matters for the message queue. A user interrupt ends the
  * turn in flight; it says nothing about the messages the same user queued
- * behind it, which they still expect to be sent — so those survive the abort
- * and run on the interrupted turn's drain. Every other kind (dispose,
- * eviction, voice supersession, subagent teardown) is the conversation or its
- * owner disappearing, where a queued message has nothing left to run on and
- * is discarded.
+ * behind it, so those survive the abort and run on the interrupted turn's
+ * drain. Every other kind (dispose, eviction, voice supersession, subagent
+ * teardown) is the conversation or its owner disappearing, where a queued
+ * message has nothing left to run on and is discarded.
  */
 export function isUserInterruptAbort(reason: AbortReason | undefined): boolean {
   return reason?.kind === "user_cancel" || reason?.kind === "signal_cancel";

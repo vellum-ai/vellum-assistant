@@ -144,26 +144,22 @@ export interface DisposeContext extends AbortContext {
 // ── abort ─────────────────────────────────────────────────────────────
 
 /**
- * Keep the queue intact across a user interrupt so the messages the user
- * queued behind the stopped turn are sent instead of silently dropped.
+ * Keep the queue intact across a user interrupt so the messages queued behind
+ * the stopped turn still run.
  *
- * Stop only ends the turn in flight. The aborted turn still unwinds to the
- * agent loop's `finally`, which calls `kickDrainQueue` — so leaving the queue
- * alone is all it takes for the queued messages to become the next turn,
- * exactly as steering already relies on (`steerToMessage`). Dropping them here
- * used to strand every client: no `message_queued_deleted` follows the clear,
- * so the queued row stayed on screen with dead cancel/steer buttons (the
- * daemon no longer knows the message, so DELETE 404s and steer reports
- * `not_processing`) and vanished unsent on the next reload.
+ * A user interrupt ends the turn in flight and nothing else: the aborted turn
+ * unwinds to the agent loop's `finally`, which calls `kickDrainQueue`, so the
+ * queued messages become the next turn. This is the same drain-after-abort
+ * sequence `steerToMessage` relies on.
  *
- * The interrupt may have killed the turn mid-tool, leaving `tool_use` blocks
- * with no results. Arm the same repair a steer arms so the drained turn opens
- * with synthetic results rather than a dangling call.
+ * An interrupt can land mid-tool, leaving `tool_use` blocks with no results, so
+ * arm the same repair a steer arms: the drained turn then opens with synthetic
+ * results instead of a dangling call.
  *
  * `hasLiveTurn` is false when the processing flag was force-cleared because no
- * controller was left to signal. Nothing is going to reach an agent-loop
- * `finally` in that case, so the drain has to be kicked here or the preserved
- * messages sit until an unrelated later turn finishes.
+ * controller was left to signal. No agent-loop `finally` runs in that case, so
+ * the drain is kicked here instead; otherwise the preserved messages wait for
+ * an unrelated later turn to finish.
  */
 function preserveQueueAcrossInterrupt(
   ctx: AbortContext,
@@ -191,11 +187,17 @@ function preserveQueueAcrossInterrupt(
  * eviction, voice supersession, subagent teardown): there is no turn left for
  * a queued message to run on.
  *
- * Each sender is told twice, and both are load-bearing. `generation_cancelled`
+ * This runs whether or not the in-memory flag reads processing. A turn that
+ * cleared the flag can still be unwinding through its awaited turn-boundary
+ * commit with a `kickDrainQueue` ahead of it, and a queue left populated there
+ * drains onto a conversation whose state (and possibly whose durable row) is
+ * already gone.
+ *
+ * Each sender gets two events, both load-bearing. `generation_cancelled`
  * closes out the turn the message was waiting on; `message_queued_deleted` is
- * the terminal event for the queued row itself — the same one a user-issued
- * DELETE emits (`deleteQueuedMessage`). Without it a client keeps the pending
- * indicator up forever, because no `message_dequeued` is ever coming. Hidden
+ * the terminal event for the queued row itself, the same one a user-issued
+ * DELETE emits (`deleteQueuedMessage`). Without the second, a client holds the
+ * pending indicator forever, since no `message_dequeued` is coming. Hidden
  * sends are suppressed for the same reason they get no queued ack: they have
  * no client row to close.
  */
@@ -224,19 +226,20 @@ export function abortConversation(
   ctx: AbortContext,
   reason?: AbortReason,
 ): void {
-  if (ctx.isProcessing()) {
-    const effectiveReason =
-      reason ??
-      createAbortReason(
-        "preempted_by_new_message",
-        "abortConversation:default",
-        ctx.conversationId,
-      );
+  const effectiveReason =
+    reason ??
+    createAbortReason(
+      "preempted_by_new_message",
+      "abortConversation:default",
+      ctx.conversationId,
+    );
+  const hasLiveTurn = ctx.abortController !== null;
+  const wasProcessing = ctx.isProcessing();
+  if (wasProcessing) {
     log.info(
       { conversationId: ctx.conversationId, abortReason: effectiveReason },
       "Aborting in-flight processing",
     );
-    const hasLiveTurn = ctx.abortController !== null;
     if (ctx.abortController) {
       // A live turn owns this controller. Signal it and let the agent loop's
       // own `finally` observe the abort, unwind, and clear the processing flag
@@ -267,11 +270,6 @@ export function abortConversation(
     ctx.surfaceActionRequestIds.clear();
     ctx.surfaceState.clear();
     ctx.accumulatedSurfaceState.clear();
-    if (isUserInterruptAbort(effectiveReason)) {
-      preserveQueueAcrossInterrupt(ctx, { hasLiveTurn });
-    } else {
-      discardQueueOnAbort(ctx);
-    }
   } else {
     // The in-memory flag reads idle, but a cancel must still clear a persisted
     // `processing_started_at` that outlived the turn that set it. This is the
@@ -290,6 +288,20 @@ export function abortConversation(
     // already false here), which is correct: the resident conversation already
     // reports idle in-memory to clients, so no refetch needs to be pushed.
     ctx.setProcessing(false);
+  }
+
+  // The queue decision is independent of the processing flag: an interrupt
+  // hands its queue to the drain, and every other abort kind is a teardown
+  // that must take the queue with it even when the flag already reads idle.
+  if (isUserInterruptAbort(effectiveReason)) {
+    // An idle conversation counts as having a live turn for drain purposes:
+    // either a turn is unwinding toward its own `kickDrainQueue`, or the queue
+    // is empty. Kicking a second drain here would race the first.
+    preserveQueueAcrossInterrupt(ctx, {
+      hasLiveTurn: hasLiveTurn || !wasProcessing,
+    });
+  } else {
+    discardQueueOnAbort(ctx);
   }
 }
 

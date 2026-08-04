@@ -194,8 +194,8 @@ describe("abortConversation", () => {
       createAbortReason("user_cancel", "test", "abort-null-controller-test"),
     );
 
-    // THEN the queue is untouched — the agent loop's `finally` will drain it,
-    // so the queued messages are sent rather than silently dropped
+    // THEN the queue is untouched, so the agent loop's `finally` drains it and
+    // the queued messages are sent rather than silently dropped
     expect(h.queueClearedCount()).toBe(0);
     expect(h.ctx.queue.length).toBe(2);
     expect(h.queuedEvents).toEqual([]);
@@ -206,8 +206,8 @@ describe("abortConversation", () => {
   });
 
   test("a user interrupt with no live turn kicks the drain itself", () => {
-    // GIVEN a conversation flagged processing with no controller left to signal
-    // — no agent-loop `finally` is coming to drain the preserved queue
+    // GIVEN a conversation flagged processing with no controller left to
+    // signal, so no agent-loop `finally` is coming to drain the preserved queue
     const h = makeContext({
       processing: true,
       controller: null,
@@ -244,7 +244,7 @@ describe("abortConversation", () => {
       ),
     );
 
-    // THEN the queue is dropped — there is no turn left for it to run on — and
+    // THEN the queue is dropped, since no turn is left for it to run on, and
     // the sender gets the terminal event that closes the queued row, so no
     // client is left holding a pending indicator nothing will ever settle
     expect(h.queueClearedCount()).toBe(1);
@@ -254,6 +254,37 @@ describe("abortConversation", () => {
     ]);
     expect(h.queuedEvents[1].requestId).toBe("req-a");
     expect(h.ctx.pendingInterruptRepair).toBe(false);
+  });
+
+  test("a teardown abort discards the queue even when the flag reads idle", () => {
+    // GIVEN a conversation whose turn already cleared the processing flag but
+    // is still unwinding: the agent-loop `finally` clears the flag, then awaits
+    // the turn-boundary commit before its `kickDrainQueue`. A dispose landing
+    // in that window sees an idle conversation with a populated queue.
+    const h = makeContext({
+      processing: false,
+      controller: null,
+      queued: ["req-a"],
+    });
+
+    // WHEN the conversation is disposed
+    abortConversation(
+      h.ctx,
+      createAbortReason(
+        "conversation_disposed",
+        "test",
+        "abort-null-controller-test",
+      ),
+    );
+
+    // THEN the queue goes with it, so the pending `kickDrainQueue` finds
+    // nothing to run against the disposed conversation, and the queued row
+    // still gets its terminal event
+    expect(h.ctx.queue.length).toBe(0);
+    expect(h.queuedEvents.map((e) => e.type)).toEqual([
+      "generation_cancelled",
+      "message_queued_deleted",
+    ]);
   });
 
   test("clears the persisted flag when in-memory reads idle (cancel with no live abort)", () => {
@@ -270,9 +301,10 @@ describe("abortConversation", () => {
     // persisted column, so the row is unwedged for cold readers and the next
     // reload — cancel is not a silent no-op.
     expect(h.setProcessingCalls).toEqual([false]);
-    // AND the live-turn teardown (prompters, queue) is left alone: there was no
-    // live turn holding them.
+    // AND the live-turn teardown (prompters, surfaces) is left alone: there was
+    // no live turn holding them. The queue is the exception, discarded on any
+    // non-interrupt abort regardless of the flag.
     expect(h.prompterDisposed()).toBe(false);
-    expect(h.queueClearedCount()).toBe(0);
+    expect(h.ctx.queue.length).toBe(0);
   });
 });

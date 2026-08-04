@@ -542,9 +542,9 @@ export class Conversation {
    * Set by `abortConversation` when a user interrupt (Stop / Esc / the CLI
    * cancel signal) ends a turn that still has messages queued behind it. Those
    * messages survive the abort and drain into the next turn, so the drain path
-   * owes them the same synthetic tool_result repair a steer gets — the killed
+   * owes them the same synthetic tool_result repair a steer gets: the killed
    * turn may have left `tool_use` blocks with no results. Unlike
-   * `pendingSteerRepair` this does not promote a single head message: an
+   * `pendingSteerRepair` this does not promote a single head message. An
    * interrupt has nothing to promote, so the drain batches the queue the way it
    * would after any other turn. Cleared after repair.
    * @internal

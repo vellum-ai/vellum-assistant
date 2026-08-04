@@ -831,7 +831,7 @@ describe("Conversation message queue", () => {
     // Each discarded row also gets its own terminal event. `generation_cancelled`
     // closes out the turn they were waiting on; only `message_queued_deleted`
     // closes out the queued rows themselves, and without it clients keep the
-    // pending indicator up forever — no `message_dequeued` is ever coming.
+    // pending indicator up forever, since no `message_dequeued` is coming.
     expect(
       events2.find((e) => e.type === "message_queued_deleted"),
     ).toMatchObject({ conversationId: "conv-1", requestId: "req-2" });
@@ -888,9 +888,9 @@ describe("Conversation message queue", () => {
       createAbortReason("user_cancel", "conversation-queue.test", "conv-1"),
     );
 
-    // THEN the queued message survives the abort — Stop ends the turn the user
-    // is watching, not the message they queued behind it. Discarding it here is
-    // what left clients showing a dead queued row that vanished unsent.
+    // THEN the queued message survives the abort. Stop ends the turn the user
+    // is watching, not the message they queued behind it, and a discard here
+    // reaches no client: it emits no per-row terminal event.
     expect(conversation.getQueueDepth()).toBe(1);
     expect(
       events2.find((e) => e.type === "generation_cancelled"),
@@ -919,8 +919,8 @@ describe("Conversation message queue", () => {
   });
 
   test("a user interrupt mid-tool repairs the abandoned tool_use before the queued message runs", async () => {
-    // GIVEN a turn whose history ends with an unanswered tool_use — the shape a
-    // Stop mid-tool-call leaves behind, which providers reject outright
+    // GIVEN a turn whose history ends with an unanswered tool_use, the shape a
+    // Stop mid-tool-call leaves behind and which providers reject outright
     const conversation = makeConversation();
     await conversation.loadFromDb();
 

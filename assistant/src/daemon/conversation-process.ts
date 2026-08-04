@@ -321,8 +321,8 @@ async function buildPassthroughBatch(
 // ── Steer / interrupt repair ────────────────────────────────────────
 
 /**
- * When a steer-to-message abort — or a user interrupt with messages still
- * queued behind the stopped turn — cuts off an in-flight tool call, the
+ * When a steer-to-message abort (or a user interrupt with messages still
+ * queued behind the stopped turn) cuts off an in-flight tool call, the
  * conversation history may end with an assistant message containing one
  * or more `tool_use` blocks that have no corresponding `tool_result`.
  * LLM providers reject this sequence. This helper scans the tail of the
