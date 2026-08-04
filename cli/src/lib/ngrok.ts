@@ -182,6 +182,20 @@ export async function waitForNgrokUrl(
 }
 
 /**
+ * Check whether an already-loaded workspace config has webhook-based
+ * integrations (e.g. Telegram, Twilio) that require a public ingress URL.
+ */
+export function hasWebhookIntegrations(
+  config: Record<string, unknown>,
+): boolean {
+  const telegram = config.telegram as Record<string, unknown> | undefined;
+  if (telegram?.botUsername) return true;
+  const twilio = config.twilio as Record<string, unknown> | undefined;
+  if (twilio?.accountSid || twilio?.phoneNumber) return true;
+  return false;
+}
+
+/**
  * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
  * configured that require a public ingress URL.
  */
@@ -189,12 +203,7 @@ export function hasWebhookIntegrationsConfigured(
   workspaceDir: string,
 ): boolean {
   try {
-    const config = loadRawConfig(workspaceDir);
-    const telegram = config.telegram as Record<string, unknown> | undefined;
-    if (telegram?.botUsername) return true;
-    const twilio = config.twilio as Record<string, unknown> | undefined;
-    if (twilio?.accountSid || twilio?.phoneNumber) return true;
-    return false;
+    return hasWebhookIntegrations(loadRawConfig(workspaceDir));
   } catch {
     return false;
   }

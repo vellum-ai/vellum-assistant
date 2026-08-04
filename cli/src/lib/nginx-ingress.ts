@@ -726,28 +726,48 @@ export async function startRemoteWebIngress(opts: {
   return { status: "started", listenPort, webDistDir, version };
 }
 
+/** Retry policy for the `web-remote-ingress` flag lookup. */
+export interface FlagRetryPolicy {
+  attempts: number;
+  intervalMs: number;
+}
+
 /**
  * Resolve the edge mode for an assistant: the `web-remote-ingress` flag selects
  * the SPA edge when enabled and the webhooks-only edge when disabled. The
- * lookup requires a reachable assistant, so a failure throws with a wake hint.
+ * lookup requires a reachable assistant; `flagRetry` rides out a gateway that
+ * is still starting by retrying thrown lookups (a resolved `false` is a real
+ * answer, not a retry). When the budget is spent the last error throws with a
+ * wake hint.
  */
 async function resolveEdgeIncludesWebApp(
   assistantId: string,
   gatewayPort: number,
+  flagRetry?: FlagRetryPolicy,
 ): Promise<boolean> {
-  try {
-    return await isAssistantFeatureFlagEnabled(
-      assistantId,
-      WEB_REMOTE_INGRESS_FLAG,
-      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
-    );
-  } catch (err) {
-    throw new Error(
-      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the edge. Is the assistant running? Try \`vellum wake\` and retry. ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+  const attempts = Math.max(1, flagRetry?.attempts ?? 1);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await isAssistantFeatureFlagEnabled(
+        assistantId,
+        WEB_REMOTE_INGRESS_FLAG,
+        { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+      );
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, flagRetry?.intervalMs ?? 0),
+        );
+      }
+    }
   }
+  throw new Error(
+    `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the edge. Is the assistant running? Try \`vellum wake\` and retry. ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
 }
 
 /** User-facing label for the edge mode, shared by every edge status line. */
@@ -783,6 +803,8 @@ export async function ensureTunnelEdge(opts: {
   assistantId: string | undefined;
   workspaceDir: string;
   gatewayPort: number;
+  /** Retries thrown flag lookups (e.g. a still-starting gateway); default one attempt. */
+  flagRetry?: FlagRetryPolicy;
   /** Forwarded to `startRemoteWebIngress` for caller progress output. */
   onStarting?: (info: {
     version: string;
@@ -791,7 +813,11 @@ export async function ensureTunnelEdge(opts: {
   }) => void;
 }): Promise<TunnelEdge> {
   const includeWebApp = opts.assistantId
-    ? await resolveEdgeIncludesWebApp(opts.assistantId, opts.gatewayPort)
+    ? await resolveEdgeIncludesWebApp(
+        opts.assistantId,
+        opts.gatewayPort,
+        opts.flagRetry,
+      )
     : false;
 
   const result = await startRemoteWebIngress({

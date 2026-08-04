@@ -72,7 +72,7 @@ import {
   startLocalDaemon,
   stopLocalProcesses,
 } from "../lib/local.js";
-import { restoreTunnelEdgeAndAutoTunnel } from "./wake.js";
+import { restoreTunnelEdgeAndAutoTunnel } from "../lib/tunnel-edge.js";
 import {
   leaseGuardianToken,
   resetGuardianBootstrap,
