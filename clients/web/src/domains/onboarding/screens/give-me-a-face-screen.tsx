@@ -56,6 +56,12 @@ interface GiveMeAFaceScreenProps {
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * Whether to offer the voice audition. False for onboarding flows that adopt
+   * a locally-hosted assistant: those can hold no platform session, so the
+   * voice catalog is unreachable and the control could only ever sit inert.
+   */
+  canAuditionVoice?: boolean;
 }
 
 /** Prefill names, cycled across the pool and swapped in as you change avatars. */
@@ -81,6 +87,7 @@ export function GiveMeAFaceScreen({
   onContinue,
   onBack,
   onForward,
+  canAuditionVoice = true,
 }: GiveMeAFaceScreenProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -151,7 +158,9 @@ export function GiveMeAFaceScreen({
   // so an audition costs no synthesis and no credits. The catalog comes
   // straight from the platform, so the audition is live as soon as this step
   // is, independent of the assistant hatching in the background.
-  const { voices, loading: voicesLoading } = useUnscopedManagedVoices();
+  const { voices, loading: voicesLoading } = useUnscopedManagedVoices({
+    enabled: canAuditionVoice,
+  });
   const centeredVoice = useMemo(
     () => (centerChar == null ? null : resolveAvatarVoice(centerChar, voices)),
     [centerChar, voices],
@@ -367,27 +376,30 @@ export function GiveMeAFaceScreen({
                 CENTERED avatar's own voice, so cycling the carousel is also how
                 you shop for a voice. While the catalog is in flight the button
                 spins rather than sitting dead: a slow fetch has to read as
-                "coming", not "broken". */}
-            <button
-              type="button"
-              onClick={toggleVoice}
-              disabled={!centeredVoice}
-              title="Hear my voice"
-              aria-label={
-                auditioning ? "Stop the voice sample" : "Hear my voice"
-              }
-              aria-busy={voicePending}
-              className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
-            >
-              {voicePending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : auditioning ? (
-                <Square className="h-4 w-4" />
-              ) : (
-                <Volume2 className="h-4 w-4" />
-              )}
-              Hear my voice
-            </button>
+                "coming", not "broken". Absent entirely where the catalog is out
+                of reach, rather than offered and permanently inert. */}
+            {canAuditionVoice && (
+              <button
+                type="button"
+                onClick={toggleVoice}
+                disabled={!centeredVoice}
+                title="Hear my voice"
+                aria-label={
+                  auditioning ? "Stop the voice sample" : "Hear my voice"
+                }
+                aria-busy={voicePending}
+                className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
+              >
+                {voicePending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : auditioning ? (
+                  <Square className="h-4 w-4" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+                Hear my voice
+              </button>
+            )}
           </div>
 
           <Button

@@ -221,4 +221,14 @@ describe("GiveMeAFaceScreen voice audition", () => {
     expect(button.getAttribute("aria-busy")).toBe("false");
     expect((button as HTMLButtonElement).disabled).toBe(false);
   });
+
+  test("offers no audition at all when the catalog is out of reach", () => {
+    // Onboarding that adopts a locally-hosted assistant may hold no platform
+    // session, so the control is absent rather than permanently inert.
+    renderScreen({ canAuditionVoice: false });
+
+    expect(screen.queryByRole("button", { name: "Hear my voice" })).toBeNull();
+    // The rest of the step is untouched.
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeTruthy();
+  });
 });
