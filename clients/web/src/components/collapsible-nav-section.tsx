@@ -230,9 +230,9 @@ function CollapsibleNavSectionSection({
       {collapsible ? (
         // The toggle target: a click anywhere on the title row expands or
         // collapses the section, while click-and-hold-and-move drags it
-        // (native HTML5 drag on the header div, see `drag` below). Same
-        // visual treatment as before it toggled: the chevron stays in the
-        // trailing cluster as its own second trigger.
+        // (native HTML5 drag on the header div, see `drag` below). The
+        // chevron in the trailing cluster is a second, pointer-only
+        // toggle with the same wiring.
         <Collapsible.Trigger
           data-slot="collapsible-nav-section-title"
           className={cn(
@@ -287,11 +287,13 @@ function CollapsibleNavSectionSection({
         <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
           {collapsible ? (
             // A second toggle target with the same wiring as the title:
-            // the chevron keeps its own button (and hover box) so the
-            // trailing cluster reads exactly as it did, left of the "…".
-            // Icon-only, so it needs its own accessible name.
+            // the chevron's own button and hover box, left of the "…".
+            // Pointer-only: out of the tab order and the accessibility
+            // tree, since the title trigger is the accessible toggle and
+            // a second stop would announce every section twice.
             <Collapsible.Trigger
-              aria-label={label}
+              aria-hidden
+              tabIndex={-1}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
             >
               <ChevronDown

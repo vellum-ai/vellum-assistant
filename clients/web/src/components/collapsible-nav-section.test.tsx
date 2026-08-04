@@ -134,7 +134,11 @@ describe("CollapsibleNavSection", () => {
     ).find((button) => button.querySelector(".lucide-chevron-down"));
     expect(chevronButton).toBeDefined();
     expect(chevronButton?.getAttribute("aria-expanded")).toBe("false");
-    expect(chevronButton?.getAttribute("aria-label")).toBe("Recents");
+    // Pointer-only: keyboard and screen-reader users toggle through the
+    // title, so the chevron never becomes a second stop that announces
+    // every section twice.
+    expect(chevronButton?.getAttribute("tabindex")).toBe("-1");
+    expect(chevronButton?.getAttribute("aria-hidden")).toBe("true");
     // Icon-only: the label text isn't duplicated inside the toggle button.
     expect(chevronButton?.textContent?.trim()).toBe("");
   });

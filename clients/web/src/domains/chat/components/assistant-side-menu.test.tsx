@@ -1110,10 +1110,13 @@ describe("AssistantSideMenu · equal section treatment", () => {
     );
     try {
       // Channel sections default closed (only Pinned/Chats default open),
-      // so Slack's row list isn't mounted until its chevron opens it.
-      const slackTrigger = container.querySelector<HTMLElement>(
-        '[aria-label="Slack"]',
-      );
+      // so Slack's row list isn't mounted until its header opens it. Going
+      // through the title also exercises the whole-header toggle.
+      const slackTrigger = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          '[data-slot="collapsible-nav-section-title"]',
+        ),
+      ).find((el) => el.textContent?.includes("Slack"));
       act(() => {
         slackTrigger?.click();
       });
