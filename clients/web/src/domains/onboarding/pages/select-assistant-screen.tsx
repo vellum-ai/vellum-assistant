@@ -1,4 +1,11 @@
-import { Check, Cloud, EllipsisVertical, Laptop, Plus } from "lucide-react";
+import {
+  Check,
+  Cloud,
+  EllipsisVertical,
+  Laptop,
+  Link2,
+  Plus,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -39,11 +46,29 @@ function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
     return a.name;
   }
+  if (a.isPaired) {
+    return "Paired Assistant";
+  }
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
+function pairedHostingLabel(runtimeUrl: string | undefined): string {
+  if (runtimeUrl) {
+    try {
+      return `Paired · ${new URL(runtimeUrl).hostname}`;
+    } catch {
+      // Unparseable runtimeUrl: fall through to the plain label.
+    }
+  }
+  return "Paired";
+}
+
 function assistantSubtitle(a: ResolvedAssistant): string {
-  const hosting = a.isLocal ? "On this computer" : "Cloud-hosted";
+  const hosting = a.isPaired
+    ? pairedHostingLabel(a.runtimeUrl)
+    : a.isLocal
+      ? "On this computer"
+      : "Cloud-hosted";
   if (!a.hatchedAt) {
     return hosting;
   }
@@ -68,7 +93,7 @@ export function SelectAssistantScreen() {
   } = useOnboardingLogin();
 
   const isAccessible = (a: ResolvedAssistant): boolean =>
-    a.isLocal || hasPlatformSession;
+    a.isLocal || a.isPaired || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
@@ -124,7 +149,9 @@ export function SelectAssistantScreen() {
     setConnecting(true);
     setError(null);
     try {
-      if (assistant.isLocal) {
+      if (assistant.isPaired) {
+        await useAuthStore.getState().connectPairedAssistant(assistant.id);
+      } else if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
@@ -148,6 +175,12 @@ export function SelectAssistantScreen() {
         isCliWakeableAssistant(assistant.id)
       ) {
         setRecoveryAssistant(assistant);
+      } else if (assistant.isPaired && requiresGuardianReprovision(err)) {
+        // The host's own guardian-token message says to re-run hatch/wake,
+        // which cannot fix a remote pairing; surface re-pair guidance instead.
+        setError(
+          "This pairing has expired. Run vellum pair on the assistant's machine and import it again with vellum connect import.",
+        );
       } else {
         setError("Failed to connect. Please try again.");
       }
@@ -534,7 +567,9 @@ function AssistantCard({
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
         ].join(" ")}
       >
-        {assistant.isLocal ? (
+        {assistant.isPaired ? (
+          <Link2 className="h-5 w-5" />
+        ) : assistant.isLocal ? (
           <Laptop className="h-5 w-5" />
         ) : (
           <Cloud className="h-5 w-5" />
