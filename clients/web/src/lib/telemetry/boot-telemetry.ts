@@ -142,12 +142,21 @@ const BOOT_FLUSH_DEADLINE_MS = 20_000;
 export const TERMINAL_FLUSH_GRACE_MS = 3_000;
 
 /**
- * How long a resume may go without the SSE reopening before it is recorded as
- * stalled. Deliberately far below `stream-transport.ts`'s 45s idle watchdog:
- * this measures how long the app looked dead to the user, and the answer
- * "longer than this" is the finding, not a value to wait out.
+ * How long a pending resume measurement stays open before it is abandoned.
+ *
+ * Abandoned, not reported: "no reopen was observed" is NOT evidence of a
+ * stalled resume. `sse-service.ts` deliberately does not reopen (and so does
+ * not publish `sse.opened`) when the socket was never torn down, which covers
+ * two of the most common resumes there are: a short hide that comes back inside
+ * the hidden-teardown grace window, and an `online` resume that fires while the
+ * stream is still live. Emitting a failure event on the silence would fill the
+ * denominator with healthy resumes and make the resume baseline read worse the
+ * better the app behaves. Distinguishing the two needs a signal only
+ * `sse-service` can give (it is the thing that knows whether a reopen was
+ * required); until it does, this family measures observed reopens only. Tracked
+ * in LUM-3050.
  */
-const RESUME_STALL_DEADLINE_MS = 10_000;
+const RESUME_PENDING_TTL_MS = 10_000;
 
 /** Which shell this page load is running in. */
 type BootSurface = "ios_native" | "android_native" | "web";
@@ -261,6 +270,15 @@ let terminalRecorded = false;
  */
 let backgroundedBeforeTerminal = false;
 
+const NOOP_TEARDOWN = (): void => {};
+
+// Detach handles for the document-lifetime registrations. Held only so the test
+// seam can undo them between cases; `startBootTelemetry` hands its caller a
+// no-op (see its docstring).
+let detachTiming: () => void = NOOP_TEARDOWN;
+let detachResume: () => void = NOOP_TEARDOWN;
+let detachPageHide: (() => void) | null = null;
+
 /**
  * Records a boot mark at the current time.
  *
@@ -294,8 +312,13 @@ export function markBoot(
     value: options.value ?? performance.now(),
     extra: options.extra,
   });
-  if (TERMINAL_MARKS.has(mark)) {
-    scheduleTerminalFlush();
+  // A terminal mark arms the flush, and so does `transcript_painted`, because
+  // either can be the last of the pair to land. `scheduleTerminalFlush` is the
+  // one place that decides whether the boot is actually settled.
+  if (TERMINAL_MARKS.has(mark) || mark === "transcript_painted") {
+    if (terminalRecorded) {
+      scheduleTerminalFlush();
+    }
   }
 }
 
@@ -318,10 +341,21 @@ function scheduleTerminalFlush(): void {
   if (flushed) {
     return;
   }
+  // Never shorten the deadline while a mark we are still expecting is
+  // outstanding. `chat_interactive` fires when the assistant goes active, which
+  // is BEFORE the transcript's initial history fetch resolves; on a slow fetch
+  // the 3s window would close the boot without `transcript_painted`, and it
+  // would do so precisely on the slowest loads. That is the exact population
+  // this baseline exists to measure, so the bias would run backwards. Leave the
+  // 20s deadline armed instead and let `transcript_painted` open the grace
+  // window when it lands (a boot where it never lands flushes on the deadline,
+  // tagged as such, which is the honest reading).
+  if (!marks.has("transcript_painted")) {
+    return;
+  }
   // Replaces whichever timer is already armed (the outer boot deadline, or an
-  // earlier terminal mark's grace window). Exactly one timer exists at a time,
-  // and each terminal mark can only fire once, so this cannot be re-armed
-  // indefinitely.
+  // earlier grace window). Exactly one timer exists at a time, and the marks
+  // that arm this can each only fire once, so it cannot be re-armed forever.
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
   }
@@ -515,7 +549,7 @@ function subscribeResumeTelemetry(): () => void {
   let pendingAt: number | null = null;
   let pendingSignal: string | null = null;
   let hiddenAt: number | null = null;
-  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
   const emit = (mark: string, value: number, extra: object): void => {
     if (!context || !readAnalyticsConsent()) {
@@ -541,9 +575,15 @@ function subscribeResumeTelemetry(): () => void {
   const clearPending = (): void => {
     pendingAt = null;
     pendingSignal = null;
-    if (stallTimer !== null) {
-      clearTimeout(stallTimer);
-      stallTimer = null;
+    // `hiddenAt` is cleared with the rest, so `away_ms` is null on a resume that
+    // no background preceded. `app.resume` is published with signal `"online"`
+    // whenever the network comes back, with no `app.hidden` before it; leaving
+    // the last hide in place made that report the hours since some earlier
+    // background as time spent away.
+    hiddenAt = null;
+    if (pendingTimer !== null) {
+      clearTimeout(pendingTimer);
+      pendingTimer = null;
     }
   };
 
@@ -566,16 +606,10 @@ function subscribeResumeTelemetry(): () => void {
     }
     pendingAt = performance.now();
     pendingSignal = signal;
-    stallTimer = setTimeout(() => {
-      if (pendingAt === null) {
-        return;
-      }
-      emit("stalled", RESUME_STALL_DEADLINE_MS, {
-        signal: pendingSignal,
-        away_ms: hiddenAt === null ? null : Math.round(pendingAt - hiddenAt),
-      });
-      clearPending();
-    }, RESUME_STALL_DEADLINE_MS);
+    // Abandon the measurement rather than reporting a failure. See
+    // `RESUME_PENDING_TTL_MS`: silence here means "no reopen was needed", not
+    // "the resume stalled", and the bus cannot tell the two apart.
+    pendingTimer = setTimeout(clearPending, RESUME_PENDING_TTL_MS);
   });
 
   const unsubOpened = subscribe("sse.opened", () => {
@@ -601,16 +635,38 @@ function subscribeResumeTelemetry(): () => void {
 }
 
 /**
- * Starts collection for this page load. Idempotent; returns a teardown.
+ * Starts collection for this page load. Idempotent.
  *
  * Wired from `use-event-bus-init.ts` alongside `subscribeLifecycleDiagnostics()`
  *, the same "bus consumer attached once at mount" slot, and early enough that
  * the subscription is registered before the effect that attaches the SSE
  * service.
+ *
+ * ## Why the returned teardown is intentionally a no-op
+ *
+ * What this module measures is scoped to the DOCUMENT, not to the React tree:
+ * every mark is an offset from `performance.timeOrigin`, and there is exactly
+ * one boot per page load. Its registrations have to outlive any component,
+ * because the `pagehide` flush is the thing that rescues a boot the user walks
+ * away from, and a paint observer detached at unmount stops reporting the very
+ * vitals that arrive late.
+ *
+ * Its caller, though, is a React effect under `<StrictMode>`, which runs
+ * setup, cleanup, setup in development. A teardown that detached the observers
+ * and bus subscriptions but left the `context` latch set would make the second
+ * setup a no-op and leave dev builds with no paint marks, no `sse_open`, no
+ * resume tracking, and no flush on leave, which is to say local numbers that
+ * are nothing like production's. Restoring restartability instead would mean
+ * tearing down live observers on every remount and re-arming a second deadline.
+ *
+ * Detaching is the wrong half of that choice, so this keeps the registration
+ * for the document's lifetime and hands back a no-op. Contrast
+ * `subscribeLifecycleDiagnostics()` in the same array, whose recorder genuinely
+ * is component-scoped. Tests reset through `__resetBootTelemetryForTests`.
  */
 export function startBootTelemetry(): () => void {
   if (typeof window === "undefined" || context) {
-    return () => {};
+    return NOOP_TEARDOWN;
   }
 
   context = {
@@ -628,8 +684,10 @@ export function startBootTelemetry(): () => void {
     cls_supported: supportsEntryType("layout-shift"),
   };
 
-  const stopTiming = collectNavigationTiming();
-  const stopResume = subscribeResumeTelemetry();
+  // Detach handles are kept for `__resetBootTelemetryForTests`, not for the
+  // caller: see the no-op teardown note above.
+  detachTiming = collectNavigationTiming();
+  detachResume = subscribeResumeTelemetry();
 
   flushTimer = setTimeout(
     () => flushBootTelemetry("deadline"),
@@ -640,8 +698,8 @@ export function startBootTelemetry(): () => void {
   // it reached, tagged `pagehide` so downstream can tell a cut-short waterfall
   // from one that genuinely stalled. `postTelemetryEvents` already sends with
   // `keepalive`, so the request outlives the page.
-  const onPageHide = (): void => flushBootTelemetry("pagehide");
-  window.addEventListener("pagehide", onPageHide);
+  detachPageHide = (): void => flushBootTelemetry("pagehide");
+  window.addEventListener("pagehide", detachPageHide);
 
   // A document that was already hidden when boot telemetry started (an iOS
   // prewarm, or a page opened in a background tab) is contaminated from the
@@ -653,15 +711,19 @@ export function startBootTelemetry(): () => void {
     backgroundedBeforeTerminal = true;
   }
 
-  return () => {
-    window.removeEventListener("pagehide", onPageHide);
-    stopTiming();
-    stopResume();
-  };
+  return NOOP_TEARDOWN;
 }
 
-/** Test seam, clears the module-local latch and buffers. */
+/** Test seam, detaches everything and clears the module-local latches. */
 export function __resetBootTelemetryForTests(): void {
+  detachTiming();
+  detachResume();
+  if (detachPageHide && typeof window !== "undefined") {
+    window.removeEventListener("pagehide", detachPageHide);
+  }
+  detachTiming = NOOP_TEARDOWN;
+  detachResume = NOOP_TEARDOWN;
+  detachPageHide = null;
   marks.clear();
   context = null;
   flushed = false;

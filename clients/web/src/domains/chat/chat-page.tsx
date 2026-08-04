@@ -85,15 +85,24 @@ export function ChatPage() {
   const selfHostedBlocked =
     assistantState.kind === "self_hosted" &&
     (!selfHostedChatEnabled || conversationListIsError);
-  const bootOutcome: BootBlockedReason | "interactive" | null = connectingStuck
-    ? "stuck_connecting"
-    : assistantState.kind === "error" && !assistantState.transient
-      ? "lifecycle_error"
-      : selfHostedBlocked
-        ? "self_hosted_unavailable"
-        : shouldRenderChat
-          ? "interactive"
-          : null;
+  // `connectingStuck` is only terminal while the page is STILL connecting.
+  // `useStuckConnecting` clears its flag from an effect, so on the commit where
+  // `connectingReason` flips to null the flag is briefly still true; reading it
+  // unconditionally filed every recovered boot as a permanent failure, and the
+  // retry button did the same. That contradicted the rule one line down, where
+  // states the app recovers from leave the boot unsettled rather than failing
+  // it. A boot that took 30s and then worked is slow, and the marks say so; it
+  // is not a boot that never got there.
+  const bootOutcome: BootBlockedReason | "interactive" | null =
+    connectingStuck && connectingReason !== null
+      ? "stuck_connecting"
+      : assistantState.kind === "error" && !assistantState.transient
+        ? "lifecycle_error"
+        : selfHostedBlocked
+          ? "self_hosted_unavailable"
+          : shouldRenderChat
+            ? "interactive"
+            : null;
 
   useEffect(() => {
     if (bootOutcome === null) {

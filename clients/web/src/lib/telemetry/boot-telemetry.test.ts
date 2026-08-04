@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { publish } from "@/lib/event-bus";
+
 const postTelemetryEvents = mock(() => {});
 let consent = true;
 
@@ -105,6 +107,7 @@ describe("markBoot", () => {
     // would ship the waterfall with those marks missing.
     startBootTelemetry();
     markBoot("react_mount", { value: 300 });
+    markBoot("transcript_painted", { value: 700 });
     markBoot("chat_interactive", { value: 800 });
 
     expect(postTelemetryEvents).not.toHaveBeenCalled();
@@ -116,6 +119,40 @@ describe("markBoot", () => {
     expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
     expect(checkNames()).toContain("client_boot.chat_interactive");
     expect(checkNames()).toContain("client_boot.fcp");
+  });
+
+  test("a slow history fetch is waited for, not flushed past", async () => {
+    // `chat_interactive` fires when the assistant goes active, BEFORE the
+    // initial history fetch resolves. Closing the boot 3s later would drop
+    // `transcript_painted` from exactly the slow loads this baseline exists to
+    // measure, biasing the sample backwards.
+    startBootTelemetry();
+    markBoot("chat_interactive", { value: 800 });
+
+    await Bun.sleep(TERMINAL_FLUSH_GRACE_MS + 250);
+    expect(postTelemetryEvents).not.toHaveBeenCalled();
+
+    // History finally resolves well after the grace window would have closed.
+    markBoot("transcript_painted", { value: 9_000 });
+    await Bun.sleep(TERMINAL_FLUSH_GRACE_MS + 250);
+
+    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
+    expect(checkNames()).toContain("client_boot.transcript_painted");
+    expect(checkNames()).toContain("client_boot.chat_interactive");
+    // Two grace windows of real time; well inside the 20s boot deadline.
+  }, 15_000);
+
+  test("a boot whose transcript never paints still reports, on the deadline", () => {
+    // The deadline stays armed while `transcript_painted` is outstanding, so a
+    // transcript that never settles cannot silently swallow the whole boot.
+    startBootTelemetry();
+    markBoot("chat_interactive", { value: 800 });
+    flushBootTelemetry("deadline");
+
+    expect(checkNames()).toContain("client_boot.chat_interactive");
+    expect(
+      (lastBatch()[0]?.detail as Record<string, unknown>).flush_trigger,
+    ).toBe("deadline");
   });
 
   test("the flush latch closes the family, so nothing is double-sent", () => {
@@ -280,6 +317,83 @@ describe("flush trigger", () => {
     expect(
       (lastBatch()[0]?.detail as Record<string, unknown>).flush_trigger,
     ).toBe("deadline");
+  });
+});
+
+describe("resume", () => {
+  test("measures an observed reopen, and stays silent when none was needed", async () => {
+    // `sse-service` does not reopen (so does not publish `sse.opened`) when the
+    // socket was never torn down: a short hide inside the teardown grace
+    // window, or an `online` resume while the stream is live. Reporting a
+    // failure on that silence would fill the denominator with healthy resumes.
+    startBootTelemetry();
+    publish("app.hidden", { signal: "app_state" });
+    publish("app.resume", { signal: "app_state" });
+    publish("sse.opened", { assistantId: "a", cause: "resume" });
+
+    expect(postTelemetryEvents).toHaveBeenCalledTimes(1);
+    expect(checkNames()).toEqual(["client_resume.to_sse_open"]);
+
+    // A resume with no reopen: nothing is emitted, ever.
+    postTelemetryEvents.mockClear();
+    publish("app.resume", { signal: "online" });
+    await Bun.sleep(200);
+
+    expect(postTelemetryEvents).not.toHaveBeenCalled();
+  });
+
+  test("away_ms is null when no background preceded the resume", () => {
+    // `hiddenAt` used to survive every completed resume, so an `online` resume
+    // reported the hours since some earlier background as time spent away.
+    startBootTelemetry();
+    publish("app.hidden", { signal: "app_state" });
+    publish("app.resume", { signal: "app_state" });
+    publish("sse.opened", { assistantId: "a", cause: "resume" });
+    expect(
+      (lastBatch()[0]?.detail as Record<string, unknown>).away_ms,
+    ).not.toBeNull();
+
+    postTelemetryEvents.mockClear();
+    publish("app.resume", { signal: "online" });
+    publish("sse.opened", { assistantId: "a", cause: "error" });
+
+    expect(
+      (lastBatch()[0]?.detail as Record<string, unknown>).away_ms,
+    ).toBeNull();
+  });
+});
+
+describe("registration lifetime", () => {
+  test("survives a StrictMode remount", () => {
+    // The caller is a React effect under StrictMode, which runs setup, cleanup,
+    // setup in development. A teardown that detached the observers but left the
+    // latch set left dev builds with no paint marks, no sse_open, no resume
+    // tracking, and no flush on leave.
+    const teardown = startBootTelemetry();
+    teardown();
+    startBootTelemetry();
+
+    publish("app.hidden", { signal: "app_state" });
+    publish("app.resume", { signal: "app_state" });
+    publish("sse.opened", { assistantId: "a", cause: "resume" });
+
+    expect(checkNames()).toEqual(["client_resume.to_sse_open"]);
+  });
+
+  test("a remount does not start a second boot record", () => {
+    startBootTelemetry();
+    markBoot("react_mount", { value: 300 });
+    startBootTelemetry().call(null);
+    startBootTelemetry();
+    flushBootTelemetry();
+
+    const bootIds = new Set(
+      lastBatch().map(
+        (e) => (e.detail as Record<string, unknown>).boot_id as string,
+      ),
+    );
+    expect(bootIds.size).toBe(1);
+    expect(checkNames()).toEqual(["client_boot.react_mount"]);
   });
 });
 
