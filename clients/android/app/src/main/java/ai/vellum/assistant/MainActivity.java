@@ -63,6 +63,13 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    protected void load() {
+        // Plugin discovery runs first, so this guard owns the bridge ID before the WebView starts.
+        registerPlugin(SafePushNotificationsPlugin.class);
+        super.load();
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         URI appLink = consumeAppLinkIntent(intent);
         if (appLink != null) {

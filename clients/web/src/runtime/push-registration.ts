@@ -358,10 +358,10 @@ export async function registerForRemotePush(
     if (permission.receive !== "granted") {
       return;
     }
-    if (
-      Capacitor.getPlatform() === "android" &&
-      Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
-    ) {
+    if (Capacitor.getPlatform() === "android") {
+      if (!Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
+        return;
+      }
       await AndroidPushRegistration.register();
     } else {
       await PushNotifications.register();
@@ -420,10 +420,6 @@ export async function unregisterFromRemotePush(): Promise<void> {
     try {
       if (Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
         await AndroidPushRegistration.unregister();
-      } else {
-        const { PushNotifications } =
-          await import("@capacitor/push-notifications");
-        await PushNotifications.unregister();
       }
     } catch (err) {
       captureError(err, {
