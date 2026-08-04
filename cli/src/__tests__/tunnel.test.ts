@@ -231,7 +231,7 @@ describe("tunnel edge targeting", () => {
     });
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
     expect(logs).toContain(`Started the nginx edge on 127.0.0.1:${EDGE_PORT}`);
-    expect(logs).toContain("serves remote web and webhooks");
+    expect(logs).toContain("serves remote web + webhooks");
   });
 
   test("targets the edge port for cloudflare", async () => {
