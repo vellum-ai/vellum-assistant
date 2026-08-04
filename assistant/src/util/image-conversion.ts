@@ -100,33 +100,6 @@ export interface ConvertToJpegOptions {
   quality?: number;
 }
 
-// Bound concurrent sips child processes. Callers fan out per image
-// (provider media resolution, attachment serialization, history hydration),
-// so an image-heavy conversation would otherwise spawn one process per image
-// at once. Slot-transfer semaphore: a releasing task hands its slot straight
-// to the next waiter so the count can never overshoot the cap.
-const MAX_CONCURRENT_CONVERSIONS = 4;
-let activeConversions = 0;
-const conversionWaiters: (() => void)[] = [];
-
-async function acquireConversionSlot(): Promise<void> {
-  if (activeConversions < MAX_CONCURRENT_CONVERSIONS) {
-    activeConversions++;
-    return;
-  }
-  await new Promise<void>((resolve) => conversionWaiters.push(resolve));
-}
-
-function releaseConversionSlot(): void {
-  const next = conversionWaiters.shift();
-  if (next) {
-    // The slot transfers to the waiter; activeConversions stays unchanged.
-    next();
-  } else {
-    activeConversions--;
-  }
-}
-
 async function runSips(
   inputBytes: Uint8Array,
   options: ConvertToJpegOptions,
@@ -207,13 +180,7 @@ export async function convertImageToJpeg(
     return cached;
   }
 
-  await acquireConversionSlot();
-  let converted: Buffer | null;
-  try {
-    converted = await runSips(bytes, options);
-  } finally {
-    releaseConversionSlot();
-  }
+  const converted = await runSips(bytes, options);
   if (!converted) {
     return null;
   }

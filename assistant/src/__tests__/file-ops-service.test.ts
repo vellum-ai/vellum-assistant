@@ -224,6 +224,38 @@ describe("FileSystemOps.writeFileSafe", () => {
 // ---------------------------------------------------------------------------
 
 describe("FileSystemOps.editFileSafe", () => {
+  test("concurrent edits of the same file both land", async () => {
+    const dir = makeTempDir();
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+    writeFileSync(join(dir, "shared.txt"), "alpha\nbeta\n");
+
+    // Without per-path serialization, both edits read the same original
+    // content and the later write drops the earlier edit.
+    const [first, second] = await Promise.all([
+      ops.editFileSafe({
+        path: "shared.txt",
+        oldString: "alpha",
+        newString: "ALPHA",
+        replaceAll: false,
+      }),
+      ops.editFileSafe({
+        path: "shared.txt",
+        oldString: "beta",
+        newString: "BETA",
+        replaceAll: false,
+      }),
+    ]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    const read = await ops.readFileSafe({ path: "shared.txt" });
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.value.content).toContain("ALPHA");
+      expect(read.value.content).toContain("BETA");
+    }
+  });
+
   test("returns NOT_FOUND for nonexistent file", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
