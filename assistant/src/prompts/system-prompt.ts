@@ -71,7 +71,13 @@ const HIDDEN_CONVERSATION_TYPES = new Set([
  * `ensurePromptFiles()` runs before `initializeDb()` settles in
  * `daemon/lifecycle.ts`, so a query here would hit a partially-migrated schema.
  *
- * An entry whose `meta.json` is missing or unreadable counts as standard: a
+ * Only directories are classified. The layout is browsable, so stray files such
+ * as `.DS_Store` sit beside the conversations, and a `meta.json` read under one
+ * fails indistinguishably from an unreadable conversation. Directory names are
+ * not filtered further, because both the canonical `<ISO>_<id>` layout and the
+ * legacy `<id>_<ISO>` one name real conversations.
+ *
+ * A directory whose `meta.json` is missing or unreadable counts as standard: a
  * directory the daemon cannot classify is far more likely to be legacy history
  * than a side thread, and over-counting only keeps onboarding from re-running.
  */
@@ -81,10 +87,13 @@ function hasStandardConversations(): boolean {
     if (!existsSync(convDir)) {
       return false;
     }
-    return readdirSync(convDir).some((entry) => {
+    return readdirSync(convDir, { withFileTypes: true }).some((entry) => {
+      if (!entry.isDirectory()) {
+        return false;
+      }
       try {
         const meta = JSON.parse(
-          readFileSync(join(convDir, entry, "meta.json"), "utf-8"),
+          readFileSync(join(convDir, entry.name, "meta.json"), "utf-8"),
         ) as { type?: unknown };
         return (
           typeof meta.type !== "string" ||
@@ -194,10 +203,15 @@ export function ensurePromptFiles(): void {
   // never gets the chance.  If BOOTSTRAP.md still exists but prior standard
   // conversations are present, the onboarding window has passed, so clean up.
   //
-  // Only standard conversations count, matching the in-process gate in
-  // `persistence/conversation-key-store.ts`.  Onboarding mints hidden side
-  // threads before the user's first visible chat, so counting those would
-  // delete BOOTSTRAP.md out from under that chat on the next daemon restart.
+  // Only standard conversations count.  Onboarding mints hidden side threads
+  // before the user's first visible chat, so counting those would delete
+  // BOOTSTRAP.md out from under that chat on the next daemon restart.
+  //
+  // This gate is one conversation stricter than the in-process gate in
+  // `persistence/conversation-key-store.ts`, which keeps BOOTSTRAP.md through
+  // the whole first standard conversation and deletes it when a second one is
+  // created.  A restart while the user is still inside that first conversation
+  // deletes BOOTSTRAP.md from under it.
   const bootstrapCleanup = getWorkspacePromptPath("BOOTSTRAP.md");
   if (
     !isFirstRun &&
