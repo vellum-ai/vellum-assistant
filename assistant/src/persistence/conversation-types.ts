@@ -7,7 +7,7 @@
 // `resolveConversationKind` classifier, and the pure predicates over a
 // persisted message's `metadata` record.
 
-import { parseChannelId } from "../channels/types.js";
+import { parseChannelId, parseClientOs } from "../channels/types.js";
 
 /**
  * Canonical `conversations.source` string for background memory v2
@@ -146,6 +146,34 @@ export function isVoiceSessionUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return metadata?.voiceSessionTurn === true;
+}
+
+/**
+ * True when the row that opened the turn was sent from the macOS app, on that
+ * row's own evidence.
+ *
+ * Two markers, both required. The `client` bag's `os` entry is the only
+ * per-platform attribution on a message: `userMessageInterface` is `"web"` for
+ * the macOS app, the iOS app, and a desktop browser alike. `clientOsFromRequest`
+ * says that `os` was reported by this row's request or transport rather than
+ * inherited from the conversation's live client state, which names the surface
+ * of an earlier turn: a button tapped on the phone against a conversation last
+ * sent to from the Mac persists `os: "macos"` with no marker.
+ *
+ * Origin a row did not report itself is origin unknown. Callers gate
+ * suppression on this, so unknown has to read as not-macOS.
+ */
+export function isMacOriginatedUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  if (metadata?.clientOsFromRequest !== true) {
+    return false;
+  }
+  const client = metadata.client;
+  if (typeof client !== "object" || client === null) {
+    return false;
+  }
+  return parseClientOs((client as Record<string, unknown>).os) === "macos";
 }
 
 /**

@@ -2010,6 +2010,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: greetingMeta,
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
 
       const conversationId = mapping.conversationId;
@@ -2340,6 +2341,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
       if (persisted.deduplicated) {
         return {
@@ -2439,6 +2441,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
     } catch (err) {
       // The fire-and-forget compaction below owns clearing `processing`, but a
@@ -2533,6 +2536,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
       if (persisted.deduplicated) {
         return {
@@ -2602,6 +2606,7 @@ export async function handleSendMessage(
     ),
     scripted: body.scripted,
     clientMessageId,
+    ...(clientOs ? { requestClientOs: clientOs } : {}),
   });
 
   const messageId = persistResult.id;

@@ -676,6 +676,62 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(3);
   });
 
+  // `Conversation.clientOs` is a live field that only a transport-carrying
+  // message refreshes, so a transport-less drain (a surface action, a signal)
+  // persists the OS of an earlier send. Both rows keep that OS for telemetry;
+  // only the row that reported it claims the surface, which is what stops an
+  // attended Mac from suppressing the push for a button tapped on the phone.
+  test("[experimental] only a queued send that reported its own OS claims that surface", async () => {
+    capturedAddMessages.length = 0;
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "from-the-mac",
+      onEvent: () => {},
+      requestId: "req-mac",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "macos" },
+    });
+    // A surface action: no transport, so the drain leaves the conversation's
+    // `clientOs` on the macOS value the send above applied.
+    conversation.enqueueMessage({
+      content: "[User action on card surface: submit]",
+      onEvent: () => {},
+      requestId: "req-surface-action",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    const macRow = capturedAddMessages.find(
+      (m) => m.role === "user" && m.content.includes("from-the-mac"),
+    );
+    expect(macRow).toBeDefined();
+    expect(macRow!.metadata?.client).toEqual({ os: "macos" });
+    expect(macRow!.metadata?.clientOsFromRequest).toBe(true);
+
+    const surfaceActionRow = capturedAddMessages.find(
+      (m) => m.role === "user" && m.content.includes("User action on card"),
+    );
+    expect(surfaceActionRow).toBeDefined();
+    expect(surfaceActionRow!.metadata?.client).toEqual({ os: "macos" });
+    expect(surfaceActionRow!.metadata?.clientOsFromRequest).toBeUndefined();
+
+    await resolveRun(2);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("[experimental] queued passthrough siblings viewing different apps do NOT batch", async () => {
     // A batched turn applies only the head's `visibleAppId`, which drives the
     // `visible_app:` context line. Coalescing messages sent while different

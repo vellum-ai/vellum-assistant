@@ -1112,6 +1112,9 @@ async function drainSingleMessage(
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
       clientMessageId: next.clientMessageId,
+      ...(next.transport?.clientOs
+        ? { requestClientOs: next.transport.clientOs }
+        : {}),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1462,6 +1465,9 @@ async function drainBatch(
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
         clientMessageId: qm.clientMessageId,
+        ...(qm.transport?.clientOs
+          ? { requestClientOs: qm.transport.clientOs }
+          : {}),
       };
       if (i === 0) {
         batchPersistResult =

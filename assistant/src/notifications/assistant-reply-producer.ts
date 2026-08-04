@@ -10,7 +10,6 @@
 
 import type pino from "pino";
 
-import { parseClientOs } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
@@ -24,6 +23,7 @@ import {
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import {
+  isMacOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
@@ -96,24 +96,6 @@ function readSuppressionMarkers(
     return validated;
   }
   return metadataJson ? safeParseRecord(metadataJson) : undefined;
-}
-
-/**
- * True when the row that opened the turn was sent from the macOS app.
- *
- * The `client` bag's `os` entry is the only per-platform attribution on a
- * message: `userMessageInterface` is `"web"` for the macOS app, the iOS app,
- * and a desktop browser alike. An absent or unrecognized value reads as
- * not-macOS, so a turn whose origin cannot be established keeps its push.
- */
-function isMacOriginatedTurn(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  const client = metadata?.client;
-  if (typeof client !== "object" || client === null) {
-    return false;
-  }
-  return parseClientOs((client as Record<string, unknown>).os) === "macos";
 }
 
 /**
@@ -223,12 +205,12 @@ export async function emitAssistantReplyNotification(params: {
     );
 
     // Read as close to the emit as possible: nothing short-circuits on it.
-    // Presence only speaks for a turn the Mac itself opened. A turn sent from
-    // the phone still needs its push while the Mac sits idle within the
-    // desktop client's attendance window.
+    // Presence only speaks for a turn the Mac itself opened, on that row's own
+    // OS evidence. A turn sent from the phone still needs its push while the
+    // Mac sits idle within the desktop client's attendance window.
     const desktopAttended =
       isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
-      isMacOriginatedTurn(initiatingMetadata) &&
+      isMacOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
 
     await emitNotificationSignal({

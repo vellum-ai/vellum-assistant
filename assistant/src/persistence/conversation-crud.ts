@@ -264,6 +264,20 @@ export const messageMetadataSchema = z
      * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * True when the `client.os` above was reported by this row's own request
+     * or transport rather than inherited from the conversation's live client
+     * state. `Conversation.clientOs` is refreshed only by a message that
+     * carries transport metadata, so a transport-less turn (surface action,
+     * signal ingress) stamps the OS of an earlier send. Consumers that must
+     * not misattribute a turn to a surface require this marker (the
+     * `chat.assistant_reply` presence gate, which drops the push when the Mac
+     * that opened the turn is attended). Absent reads as "origin unknown".
+     * Deliberately a sibling of `client` rather than an entry inside it:
+     * `turn-events-store` forwards `$.client` verbatim onto
+     * `TurnTelemetryEvent.client`.
+     */
+    clientOsFromRequest: z.boolean().optional(),
     subagentNotification: subagentNotificationSchema.optional(),
     acpNotification: acpNotificationSchema.optional(),
     /**
