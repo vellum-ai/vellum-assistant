@@ -10,14 +10,29 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { datesToISO } from "../../util/json.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import {
+  assistantEventHub,
+  DESKTOP_PRESENCE_STATES,
+} from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   isClientDegraded,
 } from "../client-health.js";
-import { NotFoundError } from "./errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition } from "./types.js";
+
+/**
+ * Body of `POST /v1/clients/presence`, declared as the route's `requestBody`
+ * and parsed by the handler, so the OpenAPI contract and the runtime check are
+ * one schema rather than two hand-kept copies.
+ */
+const PresenceBodySchema = z.object({
+  state: z
+    .enum(DESKTOP_PRESENCE_STATES)
+    .describe("Reported desktop presence state."),
+});
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -114,6 +129,57 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError(`No connected client with id "${clientId}"`);
       }
       return { disconnected: count };
+    },
+  },
+  {
+    operationId: "report_client_presence",
+    endpoint: "clients/presence",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Report desktop presence",
+    description:
+      "Record the desktop presence state reported by the client identified by the X-Vellum-Client-Id header.",
+    tags: ["clients"],
+    requestBody: PresenceBodySchema,
+    responseBody: z.object({
+      recorded: z
+        .boolean()
+        .describe("Whether a connected client matched the reporting clientId."),
+    }),
+    handler: ({ body, headers }) => {
+      const clientId = headers?.["x-vellum-client-id"]?.trim();
+      if (!clientId) {
+        throw new BadRequestError(
+          "x-vellum-client-id header is required to report presence.",
+        );
+      }
+      const { state } = parseBody(PresenceBodySchema, body);
+
+      // Only the actor that opened the target client's SSE stream may report
+      // its presence, so a caller who learns another user's clientId cannot
+      // spoof that desktop. Clients with no stored `actorPrincipalId` (legacy
+      // SSE subscribers, service-gateway tokens) never match: fail-closed, the
+      // same posture as the listing filter above. Dev-bypass mode
+      // (DISABLE_HTTP_AUTH=true) skips the check for platform-managed
+      // deployments where the platform handles auth.
+      if (!isHttpAuthDisabled()) {
+        const callerPrincipalId = headers?.["x-vellum-actor-principal-id"];
+        const ownerPrincipalId =
+          assistantEventHub.getActorPrincipalIdForClient(clientId);
+        if (
+          ownerPrincipalId === undefined ||
+          ownerPrincipalId !== callerPrincipalId
+        ) {
+          // Answering like "no match" keeps the reply from probing client ids.
+          return { recorded: false };
+        }
+      }
+
+      // A report racing an SSE reconnect matches nothing; normal, so not a 404.
+      return { recorded: assistantEventHub.setClientPresence(clientId, state) };
     },
   },
 ];
