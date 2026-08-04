@@ -16,17 +16,11 @@
  * and let the rewrite turn settle. Talks to the daemon through the generated
  * SDK directly (`@/domains/chat/api/*` is import-banned from onboarding).
  *
- * The thread is minted `conversationType: "background"`, which hides it from
- * creation: the daemon's conversation list defaults to `standard`, so a
- * background thread can never be the landing conversation or enter Recents.
- * That matters here because the rewrite prompt asks for a first-person
- * self-description (see `@/assistant/personality-rewrite`) and the prompt
- * itself posts hidden, so the thread's only visible content is an
- * assistant-authored intro message — the stray intro users hit on first chat
- * load back when a retroactive archive was the only thing hiding the thread.
- * The archive below is best-effort cleanup, not the hiding mechanism. A daemon
- * predating this field ignores it and leaves the thread visible until the
- * archive lands, which is exactly the previous behavior, so no version gate.
+ * The thread is minted `conversationType: "background"`, which keeps it out of
+ * the daemon's default `standard` conversation list: it never enters Recents
+ * and is never selectable as the landing conversation. The prompt posts hidden,
+ * so the thread's only renderable content is the assistant's reply. The archive
+ * below is best-effort cleanup.
  *
  * Best-effort and fire-and-forget: a failure here must never block or surface
  * in the onboarding flow. Every error is swallowed (reported to Sentry).
@@ -159,8 +153,8 @@ export async function applyPersonality({
   } catch (err) {
     captureError(err, { context: "research_onboarding_personality" });
   } finally {
-    // Best-effort cleanup of the throwaway thread. Hiding it does not depend on
-    // this landing — it was minted `background` (see the module header).
+    // Best-effort cleanup of the throwaway thread. The `background` mint (see
+    // the module header) is what keeps it hidden, not this call.
     if (assistantId && conversationId) {
       try {
         await conversationsByIdArchivePost({

@@ -8,7 +8,7 @@
  *
  * Also pins that the rewrite send goes out hidden (see
  * `lib/side-conversation-message.ts`) and that the throwaway thread is minted
- * `background` rather than relying on the retroactive archive to hide it.
+ * `background`, which is what keeps it out of the conversation list.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -65,10 +65,10 @@ beforeEach(() => {
 
 describe("applyPersonality side conversation", () => {
   test("mints the throwaway thread as background even when the archive fails", async () => {
-    // The thread's only visible content is the assistant's first-person
-    // self-description (the prompt posts hidden), so a `standard` mint that
-    // outran the archive surfaced as a stray intro message on first chat load.
-    // Failing the archive here pins that the hiding comes from the mint.
+    // The thread's only renderable content is the assistant's first-person
+    // self-description (the prompt posts hidden), so the `background` mint is
+    // what keeps it out of the user's view. Failing the archive here pins that
+    // the hiding comes from the mint alone.
     archivePostMock.mockRejectedValueOnce(new Error("archive failed"));
 
     await applyPersonality({
