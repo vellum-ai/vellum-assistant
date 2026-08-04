@@ -1340,7 +1340,7 @@ export async function installSkill(spec: {
       skillId = result.skillId;
 
       const stagedSkillDir = result.skillDir;
-      installSkillDependenciesIfPresent(stagedSkillDir);
+      await installSkillDependenciesIfPresent(stagedSkillDir);
       commitStagedSkillInstall(skillId, stagedSkillDir);
     } finally {
       rmSync(clawhubProjectRoot, { recursive: true, force: true });

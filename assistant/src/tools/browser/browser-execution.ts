@@ -1410,7 +1410,7 @@ export async function executeBrowserScreenshot(
     // capture of a tall or high-DPI page can exceed Anthropic's 5 MB
     // per-image cap, which would otherwise persist into the conversation
     // history inside this tool_result and reject every subsequent turn.
-    const { data: base64Data, mediaType } = optimizeImageForTransport(
+    const { data: base64Data, mediaType } = await optimizeImageForTransport(
       rawBase64,
       "image/jpeg",
     );

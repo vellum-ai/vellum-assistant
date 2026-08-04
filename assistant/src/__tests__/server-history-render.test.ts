@@ -298,9 +298,9 @@ describe("renderHistoryContent", () => {
     expect(output.toolCalls[0].errorCode).toBe("acp_claude_oauth_missing");
   });
 
-  test("emits the attachment id for a workspace_ref tool-result image", () => {
+  test("emits the attachment id for a workspace_ref tool-result image", async () => {
     // "aGVsbG8=" = "hello" — a stand-in for screenshot bytes.
-    const stored = uploadAttachment("shot.png", "image/png", "aGVsbG8=");
+    const stored = await uploadAttachment("shot.png", "image/png", "aGVsbG8=");
     const output = renderHistoryContent([
       { type: "tool_use", id: "tu_1", name: "browser_screenshot", input: {} },
       {
@@ -1084,7 +1084,7 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns attachments linked to a message", async () => {
     const msgId = await createMessage("assistant", "Here is a chart");
-    const stored = uploadAttachment("chart.png", "image/png", "iVBORw==");
+    const stored = await uploadAttachment("chart.png", "image/png", "iVBORw==");
     linkAttachmentToMessage(msgId, stored.id, 0);
 
     const result = getAttachmentsForMessage(msgId);
@@ -1101,8 +1101,8 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns multiple attachments in position order", async () => {
     const msgId = await createMessage("assistant", "Two files");
-    const a1 = uploadAttachment("first.txt", "text/plain", "AAAA");
-    const a2 = uploadAttachment("second.txt", "text/plain", "BBBB");
+    const a1 = await uploadAttachment("first.txt", "text/plain", "AAAA");
+    const a2 = await uploadAttachment("second.txt", "text/plain", "BBBB");
 
     linkAttachmentToMessage(msgId, a2.id, 1);
     linkAttachmentToMessage(msgId, a1.id, 0);
@@ -1115,8 +1115,8 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns all attachments linked to a message", async () => {
     const msgId = await createMessage("assistant", "Mixed");
-    const a1 = uploadAttachment("a.png", "image/png", "AAAA");
-    const a2 = uploadAttachment("b.png", "image/png", "BBBB");
+    const a1 = await uploadAttachment("a.png", "image/png", "AAAA");
+    const a2 = await uploadAttachment("b.png", "image/png", "BBBB");
 
     linkAttachmentToMessage(msgId, a1.id, 0);
     linkAttachmentToMessage(msgId, a2.id, 1);

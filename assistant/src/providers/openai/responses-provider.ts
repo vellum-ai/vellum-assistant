@@ -243,7 +243,7 @@ export class OpenAIResponsesProvider implements Provider {
     try {
       const effectiveModel = modelOverride ?? this.model;
       recordProviderRequestDiagnostics({ model_id: effectiveModel });
-      const input = this.toResponsesInput(messages);
+      const input = await this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {
         model: effectiveModel,
@@ -752,10 +752,10 @@ export class OpenAIResponsesProvider implements Provider {
    *
    * System prompt is NOT included here — it goes into the `instructions` param.
    */
-  private toResponsesInput(messages: Message[]): unknown[] {
+  private async toResponsesInput(messages: Message[]): Promise<unknown[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
-    messages = resolveMediaReferences(messages);
+    messages = await resolveMediaReferences(messages);
     const result: unknown[] = [];
 
     for (const msg of messages) {

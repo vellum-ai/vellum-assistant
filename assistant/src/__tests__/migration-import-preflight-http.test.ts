@@ -737,7 +737,7 @@ describe("integration: existing routes unaffected", () => {
   test("GET /v1/health still works", async () => {
     const { handleDetailedHealth } =
       await import("../runtime/routes/identity-routes.js");
-    const res = handleDetailedHealth();
+    const res = await handleDetailedHealth();
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(200);

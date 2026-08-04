@@ -304,7 +304,7 @@ describe("attachment orphan cleanup", () => {
       "Here is a file",
     );
 
-    const stored = uploadAttachment("chart.png", "image/png", "iVBOR");
+    const stored = await uploadAttachment("chart.png", "image/png", "iVBOR");
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
 
     // Verify attachment is linked
@@ -331,7 +331,7 @@ describe("attachment orphan cleanup", () => {
     await addMessage(conv.id, "user", "question");
     const msg2 = await addMessage(conv.id, "assistant", "second");
 
-    const shared = uploadAttachment("shared.png", "image/png", "AAAA");
+    const shared = await uploadAttachment("shared.png", "image/png", "AAAA");
     linkAttachmentToMessage(msg1.id, shared.id, 0);
     linkAttachmentToMessage(msg2.id, shared.id, 0);
 
@@ -353,7 +353,11 @@ describe("attachment orphan cleanup", () => {
   test("clearAll removes all attachments", async () => {
     const conv = createConversation("test");
     const msg = await addMessage(conv.id, "assistant", "file");
-    const stored = uploadAttachment("doc.pdf", "application/pdf", "JVBER");
+    const stored = await uploadAttachment(
+      "doc.pdf",
+      "application/pdf",
+      "JVBER",
+    );
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
     await clearAll();
@@ -441,11 +445,11 @@ describe("attachment orphan cleanup", () => {
     );
 
     // An attachment linked to the assistant message (should be cleaned up)
-    const linked = uploadAttachment("chart.png", "image/png", "iVBOR");
+    const linked = await uploadAttachment("chart.png", "image/png", "iVBOR");
     linkAttachmentToMessage(assistantMsg.id, linked.id, 0);
 
     // A freshly uploaded attachment not linked to any message (should survive)
-    uploadAttachment("pending.png", "image/png", "AAAA");
+    await uploadAttachment("pending.png", "image/png", "AAAA");
 
     deleteLastExchange(conv.id);
 
@@ -543,7 +547,7 @@ describe("attachment reuse across conversation lifecycles", () => {
   test("attachment uploaded in conversation A is retrievable by ID without any conversation reference", async () => {
     const convA = createConversation("Conversation A");
     const msgA = await addMessage(convA.id, "assistant", "Here is a file");
-    const stored = uploadAttachment(
+    const stored = await uploadAttachment(
       "report.pdf",
       "application/pdf",
       "JVBERA==",
@@ -570,7 +574,11 @@ describe("attachment reuse across conversation lifecycles", () => {
     const msgB = await addMessage(convB.id, "assistant", "Reused file");
 
     // Upload once, link to both conversations
-    const stored = uploadAttachment("shared.png", "image/png", "iVBORw0K");
+    const stored = await uploadAttachment(
+      "shared.png",
+      "image/png",
+      "iVBORw0K",
+    );
     linkAttachmentToMessage(msgA.id, stored.id, 0);
     linkAttachmentToMessage(msgB.id, stored.id, 0);
 
@@ -595,7 +603,7 @@ describe("attachment reuse across conversation lifecycles", () => {
     await addMessage(convB.id, "user", "Show me the chart");
     const msgB = await addMessage(convB.id, "assistant", "Reused");
 
-    const stored = uploadAttachment("chart.png", "image/png", "AAAA");
+    const stored = await uploadAttachment("chart.png", "image/png", "AAAA");
     linkAttachmentToMessage(msgA.id, stored.id, 0);
     linkAttachmentToMessage(msgB.id, stored.id, 0);
     const linkedB = getAttachmentsForMessage(msgB.id);
@@ -621,8 +629,16 @@ describe("attachment reuse across conversation lifecycles", () => {
     await addMessage(convA.id, "user", "upload in A");
     await addMessage(convB.id, "user", "upload in B");
 
-    const first = uploadAttachment("photo.png", "image/png", "DEDUPCROSS");
-    const second = uploadAttachment("photo.png", "image/png", "DEDUPCROSS");
+    const first = await uploadAttachment(
+      "photo.png",
+      "image/png",
+      "DEDUPCROSS",
+    );
+    const second = await uploadAttachment(
+      "photo.png",
+      "image/png",
+      "DEDUPCROSS",
+    );
 
     expect(second.id).not.toBe(first.id);
   });

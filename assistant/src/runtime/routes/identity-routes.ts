@@ -230,15 +230,15 @@ export function handleHealth(): Response {
 }
 
 /** Disk usage for the health payload; null when it can't be measured. */
-function sampleDiskUsageInfo(): ReturnType<typeof getDiskUsageInfo> {
+async function sampleDiskUsageInfo(): ReturnType<typeof getDiskUsageInfo> {
   try {
-    return getDiskUsageInfo();
+    return await getDiskUsageInfo();
   } catch {
     return null;
   }
 }
 
-function getDetailedHealth() {
+async function getDetailedHealth() {
   let profiler: ReturnType<typeof getProfilerRuntimeStatus> | undefined;
   try {
     profiler = getProfilerRuntimeStatus();
@@ -260,7 +260,7 @@ function getDetailedHealth() {
     status: "healthy",
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
-    disk: sampleDiskUsageInfo(),
+    disk: await sampleDiskUsageInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
     migrations: {
@@ -280,8 +280,8 @@ function getDetailedHealth() {
   };
 }
 
-export function handleDetailedHealth(): Response {
-  return Response.json(getDetailedHealth());
+export async function handleDetailedHealth(): Promise<Response> {
+  return Response.json(await getDetailedHealth());
 }
 
 type UnreadyDbMigrationReadiness = Extract<

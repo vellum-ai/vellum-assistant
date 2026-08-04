@@ -2011,7 +2011,7 @@ export async function finalizePendingToolResultRow(
   );
   const contentJson = JSON.stringify(
     conv != null
-      ? referenceMediaBlocksForPersist(
+      ? await referenceMediaBlocksForPersist(
           conversationId,
           conv.createdAt,
           rowId,
