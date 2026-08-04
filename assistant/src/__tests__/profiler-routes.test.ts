@@ -277,16 +277,16 @@ describe("Profiler routes", () => {
       ).toThrow(NotFoundError);
     });
 
-    test("returns tar.gz bytes for a valid run", () => {
+    test("returns tar.gz bytes for a valid run", async () => {
       createRun("exportable-run", {
         sizeBytes: 512,
         manifest: { status: "completed" },
       });
 
       const route = findRoute("profiler_runs_by_runId_export_post")!;
-      const result = route.handler({
+      const result = (await route.handler({
         pathParams: { runId: "exportable-run" },
-      }) as Uint8Array;
+      })) as Uint8Array;
 
       expect(result).toBeInstanceOf(Uint8Array);
       expect(result.byteLength).toBeGreaterThan(0);
