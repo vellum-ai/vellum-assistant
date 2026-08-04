@@ -9,6 +9,8 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
 import { findPersistedSurfaceState } from "../runtime/routes/surface-conversation-resolver.js";
+import { getDbPath } from "../util/platform.js";
+import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 await initializeDb();
 
@@ -25,6 +27,9 @@ const GUARDIAN = { requesterCanAccessMemory: true };
  */
 function seedCompactedConversation(): void {
   const db = getDb();
+  // Without the test preload these deletes would clear the user's live
+  // workspace database.
+  assertNotLiveDb(getDbPath());
   db.delete(messages).run();
   db.delete(conversations).run();
   db.insert(conversations)
