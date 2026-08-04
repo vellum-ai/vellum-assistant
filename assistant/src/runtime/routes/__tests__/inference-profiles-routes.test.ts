@@ -277,10 +277,6 @@ describe("collectProfileReferences", () => {
         memoryExtraction: { profile: "my-fast" },
         recall: { profile: "other" },
       },
-      defaultProfileOverrides: {
-        balanced: "my-fast",
-        "cost-optimized": "other",
-      },
       profiles: {
         "my-fast": { source: "user", provider: "anthropic" },
         "my-mix": {
@@ -294,7 +290,6 @@ describe("collectProfileReferences", () => {
         "llm.activeProfile",
         "llm.advisorProfile",
         "llm.callSites.memoryExtraction",
-        "llm.defaultProfileOverrides.balanced",
         "llm.profiles.my-mix.mix",
       ].sort(),
     );

@@ -33307,14 +33307,6 @@ components:
                 anyOf:
                   - $ref: "#/components/schemas/CallSiteOverrideDraft"
                   - type: "null"
-            defaultProfileOverrides:
-              type: object
-              propertyNames:
-                type: string
-              additionalProperties:
-                anyOf:
-                  - type: string
-                  - type: "null"
             profileSession:
               anyOf:
                 - type: object
@@ -34142,12 +34134,6 @@ components:
                         type: string
                     additionalProperties: false
                   - type: "null"
-            defaultProfileOverrides:
-              type: object
-              propertyNames:
-                type: string
-              additionalProperties:
-                type: string
             profileSession:
               type: object
               properties:
