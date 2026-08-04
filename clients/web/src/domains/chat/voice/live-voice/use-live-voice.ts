@@ -913,7 +913,14 @@ export function useLiveVoice(
           // Stored verbatim. The daemon composes this wording precisely so
           // that this driver and the APNs push carry the same string, and
           // rewording it here would break the equality it exists to provide.
-          useLiveVoiceStore.getState().setActivityLabel(frame.label);
+          //
+          // A frame with no `approvalRequestId` clears the pending one rather
+          // than leaving it — the daemon retires a wait by sending the line
+          // without it, so treating absence as "unchanged" would strand the
+          // island's Approve/Deny buttons on a decision already made.
+          useLiveVoiceStore
+            .getState()
+            .setActivityLabel(frame.label, frame.approvalRequestId ?? null);
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) {

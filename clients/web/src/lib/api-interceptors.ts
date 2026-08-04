@@ -53,6 +53,7 @@ import { getActiveOrganizationIdForRequests } from "@/stores/organization-store"
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import {
+  hasLivePlatformSession,
   isAuthenticated,
   isSettledSessionRejection,
 } from "@/stores/session-status";
@@ -516,9 +517,52 @@ export function localGatewayAuthRecoveryInterceptor(
 // permission-403 that left the session live is still caught later.
 let platformAuthRecoveryFired = false;
 
+/**
+ * Caps the login redirects below. The redirect is a full page load, so the
+ * in-memory latch cannot count round trips and a destination that bounces back
+ * and rejects again would drive them without bound. Only a confirmed platform
+ * session restores the budget; sessionStorage means a relaunch grants a fresh
+ * one.
+ */
+const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
+const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAuthRecoveryFlag(): void {
   platformAuthRecoveryFired = false;
+}
+
+/**
+ * Spend one redirect. False when the budget is exhausted, or when
+ * sessionStorage is unavailable so an uncountable environment fails closed.
+ */
+function claimPlatformAuthRedirect(): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_AUTH_MAX_REDIRECTS) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_AUTH_REDIRECT_KEY, String(attempts + 1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore the budget. Gated on a confirmed platform session by the caller: the
+ * platform serves some routes (client feature flags) to anonymous visitors, so
+ * a 2xx alone does not mean the session works.
+ */
+function clearPlatformAuthRedirectBudget(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
 }
 
 async function recoverFromPlatformSessionRejection(): Promise<void> {
@@ -530,7 +574,10 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
-    if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+    if (
+      !isAuthenticated(useAuthStore.getState().sessionStatus) &&
+      claimPlatformAuthRedirect()
+    ) {
       hardNavigate(
         `${routes.account.login}?returnTo=${encodeURIComponent(
           window.location.pathname + window.location.search,
@@ -556,8 +603,27 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
  * {@link localGatewayAuthRecoveryInterceptor}.
+ *
+ * A platform request that succeeds against a confirmed session restores the
+ * redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
+  const ingressUrl = getSelfHostedIngressUrl();
+  const fromSelfHostedGateway =
+    !!ingressUrl && response.url.startsWith(ingressUrl);
+
+  if (response.ok) {
+    // A working self-hosted gateway says nothing about the platform session,
+    // and neither does a route the platform serves anonymously.
+    if (
+      !fromSelfHostedGateway &&
+      hasLivePlatformSession(useAuthStore.getState().platformSession)
+    ) {
+      clearPlatformAuthRedirectBudget();
+    }
+    return response;
+  }
+
   if (
     !isSettledSessionRejection({ ok: response.ok, status: response.status })
   ) {
@@ -569,8 +635,7 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
     return response;
   }
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl && response.url.startsWith(ingressUrl)) {
+  if (fromSelfHostedGateway) {
     return response;
   }
 
