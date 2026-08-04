@@ -198,8 +198,11 @@ export function PeekCharacter({ size }: { size: number }) {
         style={{
           transform: `rotate(${twitchAngle}deg)`,
           transformOrigin: `${size / 2}px ${size / 2}px`,
-          transition:
-            twitchAngle !== 0 ? "transform 0.2s ease-in-out" : "transform 0.3s ease-out",
+          transition: reduceMotion
+            ? "none"
+            : twitchAngle !== 0
+              ? "transform 0.2s ease-in-out"
+              : "transform 0.3s ease-out",
         }}
       >
         <path d={URCHIN_BODY.svgPath} fill={TEAL} transform={bodyTransform} />
@@ -208,7 +211,7 @@ export function PeekCharacter({ size }: { size: number }) {
         style={{
           transform: isBlinking ? "scaleY(0.1)" : "scaleY(1)",
           transformOrigin: `${eyeCenterX}px ${eyeCenterY}px`,
-          transition: "transform 0.15s ease-in-out",
+          transition: reduceMotion ? "none" : "transform 0.15s ease-in-out",
         }}
       >
         {CURIOUS_EYES.paths.map((p, i) => (
