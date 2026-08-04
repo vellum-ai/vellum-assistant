@@ -12,7 +12,6 @@ import {
   saveNgrokDomain,
 } from "./ingress-config.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
-import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const NGROK_POLL_INTERVAL_MS = 500;
@@ -286,12 +285,10 @@ export async function maybeStartNgrokTunnel(
 }
 
 export interface RunNgrokTunnelOptions {
-  /** Gateway port to forward. Defaults to the global GATEWAY_PORT. */
+  /** Local edge port to forward. Defaults to the global GATEWAY_PORT. */
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
-  /** Prefer nginx ingress over the gateway port when it is running. */
-  preferNginxIngress?: boolean;
   /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
   assistantId?: string;
   /**
@@ -326,17 +323,7 @@ export async function runNgrokTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  const gatewayPort = opts.port ?? GATEWAY_PORT;
-  const { port, viaIngress } = resolveTunnelTargetPort(
-    workspaceDir,
-    gatewayPort,
-    { preferNginxIngress: opts.preferNginxIngress === true },
-  );
-  if (viaIngress) {
-    console.log(
-      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
-    );
-  }
+  const port = opts.port ?? GATEWAY_PORT;
 
   // The saved domain is standing intent: a run without --domain reuses it,
   // and only an explicit --domain rewrites it.

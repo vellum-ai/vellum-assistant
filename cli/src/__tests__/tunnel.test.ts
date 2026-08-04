@@ -24,10 +24,14 @@ import { join } from "node:path";
 
 import * as cloudflareTunnel from "../lib/cloudflare-tunnel.js";
 import * as ngrok from "../lib/ngrok.js";
+import * as nginxIngress from "../lib/nginx-ingress.js";
+import * as tailscaleTunnel from "../lib/tailscale-tunnel.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 
 const realCloudflareTunnel = { ...cloudflareTunnel };
 const realNgrok = { ...ngrok };
+const realNginxIngress = { ...nginxIngress };
+const realTailscaleTunnel = { ...tailscaleTunnel };
 const realChildProcess = { ...childProcess };
 
 const runCloudflareTunnelMock = mock<
@@ -42,6 +46,24 @@ const runNgrokTunnelMock = mock<typeof ngrok.runNgrokTunnel>(async () => {});
 mock.module("../lib/ngrok", () => ({
   ...realNgrok,
   runNgrokTunnel: runNgrokTunnelMock,
+}));
+
+const runTailscaleTunnelMock = mock<typeof tailscaleTunnel.runTailscaleTunnel>(
+  async () => {},
+);
+mock.module("../lib/tailscale-tunnel.js", () => ({
+  ...realTailscaleTunnel,
+  runTailscaleTunnel: runTailscaleTunnelMock,
+}));
+
+const EDGE_PORT = 18080;
+
+const ensureTunnelEdgeMock = mock<typeof nginxIngress.ensureTunnelEdge>(
+  async () => ({ port: EDGE_PORT, started: true, includesWebApp: true }),
+);
+mock.module("../lib/nginx-ingress.js", () => ({
+  ...realNginxIngress,
+  ensureTunnelEdge: ensureTunnelEdgeMock,
 }));
 
 const { tunnel } = await import("../commands/tunnel.js");
@@ -115,20 +137,21 @@ async function runTunnelExpectingExit1(): Promise<{
   return { exited, errors: errors.join("\n") };
 }
 
-function mockEnabledFlagFetch() {
-  const fetchMock = mock(async (_input: string, _init?: RequestInit) => {
-    return new Response(
-      JSON.stringify({
-        flags: [{ key: "web-remote-ingress", enabled: true }],
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+/** Run tunnel() capturing console.log output; returns the joined lines. */
+async function runTunnelCapturingLogs(): Promise<string> {
+  const logs: string[] = [];
+  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+    logs.push(a.join(" "));
   });
-  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-  return fetchMock;
+  try {
+    await tunnel();
+  } finally {
+    logSpy.mockRestore();
+  }
+  return logs.join("\n");
 }
 
-describe("tunnel nginx ingress feature flag", () => {
+describe("tunnel edge targeting", () => {
   beforeEach(() => {
     process.argv = ["bun", "vellum", "tunnel"];
     writeLockfile(makeLocalEntry());
@@ -139,6 +162,14 @@ describe("tunnel nginx ingress feature flag", () => {
     runCloudflareTunnelMock.mockResolvedValue(undefined);
     runNgrokTunnelMock.mockReset();
     runNgrokTunnelMock.mockResolvedValue(undefined);
+    runTailscaleTunnelMock.mockReset();
+    runTailscaleTunnelMock.mockResolvedValue(undefined);
+    ensureTunnelEdgeMock.mockReset();
+    ensureTunnelEdgeMock.mockResolvedValue({
+      port: EDGE_PORT,
+      started: true,
+      includesWebApp: true,
+    });
   });
 
   afterEach(() => {
@@ -157,49 +188,117 @@ describe("tunnel nginx ingress feature flag", () => {
   afterAll(() => {
     mock.module("../lib/cloudflare-tunnel.js", () => realCloudflareTunnel);
     mock.module("../lib/ngrok", () => realNgrok);
+    mock.module("../lib/tailscale-tunnel.js", () => realTailscaleTunnel);
+    mock.module("../lib/nginx-ingress.js", () => realNginxIngress);
   });
 
-  test("does not start ngrok when the flag lookup fails", async () => {
+  test("does not start ngrok when the edge flag lookup fails", async () => {
     process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+    ensureTunnelEdgeMock.mockImplementation(realNginxIngress.ensureTunnelEdge);
 
-    await expect(tunnel()).rejects.toThrow(
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
       "Could not verify the `web-remote-ingress` feature flag",
     );
-
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
 
-  test("checks the nginx flag through the local gateway for ngrok", async () => {
+  test("targets the edge port returned by ensureTunnelEdge for ngrok", async () => {
     const entry = makeLocalEntry();
     entry.runtimeUrl = "https://stale-tunnel.ngrok-free.dev";
     writeLockfile(entry);
     process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
-    const fetchMock = mockEnabledFlagFetch();
 
-    await tunnel();
+    const logs = await runTunnelCapturingLogs();
 
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      "http://127.0.0.1:7830/v1/assistants/assistant-1/feature-flags",
+    const workspaceDir = join(
+      entry.resources!.instanceDir,
+      ".vellum",
+      "workspace",
     );
-    expect(init?.method).toBe("GET");
-    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
-      port: 7830,
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
       assistantId: "assistant-1",
-      workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
-      preferNginxIngress: true,
+      workspaceDir,
+      gatewayPort: 7830,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
     });
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+    expect(logs).toContain(`Started the nginx edge on 127.0.0.1:${EDGE_PORT}`);
+    expect(logs).toContain("serves remote web and webhooks");
   });
 
-  test("does not start cloudflared when the flag lookup fails", async () => {
+  test("targets the edge port for cloudflare", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
     process.argv = ["bun", "vellum", "tunnel", "--provider", "cloudflare"];
 
-    await expect(tunnel()).rejects.toThrow(
-      "Could not verify the `web-remote-ingress` feature flag",
+    await runTunnelCapturingLogs();
+
+    expect(runCloudflareTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
+    });
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("targets the edge port for tailscale and notes a reused webhooks-only edge", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "tailscale"];
+    ensureTunnelEdgeMock.mockResolvedValue({
+      port: EDGE_PORT,
+      started: false,
+      includesWebApp: false,
+    });
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(runTailscaleTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
+    });
+    expect(logs).toContain(`Reusing the nginx edge on 127.0.0.1:${EDGE_PORT}`);
+    expect(logs).toContain("serves webhooks only");
+  });
+
+  test("missing nginx aborts before any provider spawn", async () => {
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error(
+        "nginx is not installed, so the tunnel edge cannot start. " +
+          "Install it (macOS: `brew install nginx`, Linux: `sudo apt install nginx`) " +
+          "or point NGINX_BIN at an existing binary.",
+      ),
     );
 
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("brew install nginx");
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+    expect(runTailscaleTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("does not start cloudflared when the edge flag lookup fails", async () => {
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "cloudflare"];
+    ensureTunnelEdgeMock.mockImplementation(realNginxIngress.ensureTunnelEdge);
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Could not verify the `web-remote-ingress` feature flag",
+    );
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
@@ -229,16 +328,14 @@ describe("tunnel nginx ingress feature flag", () => {
       "--domain",
       "foo.ngrok.app",
     ];
-    mockEnabledFlagFetch();
 
-    await tunnel();
+    await runTunnelCapturingLogs();
 
     expect(runNgrokTunnelMock).toHaveBeenCalledWith({
-      port: 7830,
+      port: EDGE_PORT,
       assistantId: "assistant-1",
       workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
       domain: "foo.ngrok.app",
-      preferNginxIngress: true,
     });
   });
 
@@ -295,6 +392,7 @@ describe("tunnel nginx ingress feature flag", () => {
     expect(err?.message).toContain("is not yet implemented");
     expect(err?.message).toContain("your CLI may be out of date");
     expect(err?.message).toContain("bun install -g vellum@latest");
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
@@ -496,8 +594,9 @@ describe("ngrok --domain spawn args", () => {
     // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
     // listener is registered and the promise settles. Earlier tests leak
     // SIGINT handlers that call process.exit, so no-op it while pumping.
-    const exitSpy = spyOn(process, "exit").mockImplementation((() =>
-      undefined) as never);
+    const exitSpy = spyOn(process, "exit").mockImplementation(
+      (() => undefined) as never,
+    );
     const pump = setInterval(() => process.emit("SIGINT"), 10);
     try {
       await run;
