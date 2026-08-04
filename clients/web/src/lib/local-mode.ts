@@ -9,6 +9,7 @@ import {
   GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
+  seedGatewayToken,
 } from "@/lib/auth/gateway-session";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -616,6 +617,80 @@ export function getLocalGatewayUrl(
 }
 
 /**
+ * Whether this runtime should reach `assistant` at a remote paired gateway: a
+ * paired entry ({@link isPairedAssistant}), in local (non-remote-gateway) mode.
+ * Whether the entry records a usable `runtimeUrl` is a separate question
+ * answered by `getPairedGatewayUrl`. Deliberately not a type predicate: its
+ * false branch must not narrow `assistant` (a local entry also lands there).
+ */
+function expectsPairedGateway(assistant: LockfileAssistant): boolean {
+  return (
+    isLocalClient() && !isRemoteGatewayMode() && isPairedAssistant(assistant)
+  );
+}
+
+/** Same-origin proxy path for a paired assistant's remote gateway. */
+export function pairedGatewayProxyUrl(assistantId: string): string {
+  return `/assistant/__gateway-paired/${encodeURIComponent(assistantId)}`;
+}
+
+/**
+ * Whether a paired entry records a `runtimeUrl` the serving host can forward
+ * to: an absolute http(s) URL.
+ */
+function hasUsablePairedRuntimeUrl(assistant: LockfileAssistant): boolean {
+  if (!assistant.runtimeUrl) {
+    return false;
+  }
+  try {
+    const url = new URL(assistant.runtimeUrl);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The same-origin proxy path this runtime reaches a paired assistant's remote
+ * gateway through, or `undefined` when the entry isn't paired, isn't usable in
+ * this runtime (non-local client or remote-gateway mode), or records no
+ * absolute http(s) `runtimeUrl` for the host to forward to.
+ *
+ * The renderer never fetches the remote origin directly: the packaged app's
+ * CSP pins `connect-src` to Vellum origins, and a browser-served SPA would be
+ * stopped by the remote gateway's CORS. Instead the serving host (the Electron
+ * `app://` handler, the Vite dev middleware, the CLI web server) resolves the
+ * entry's recorded `runtimeUrl` and forwards, exactly like the loopback
+ * `__gateway/{port}` data-plane proxy.
+ */
+export function getPairedGatewayUrl(
+  assistant: LockfileAssistant | undefined,
+): string | undefined {
+  if (!assistant || !expectsPairedGateway(assistant)) {
+    return undefined;
+  }
+  if (!hasUsablePairedRuntimeUrl(assistant)) {
+    return undefined;
+  }
+  return pairedGatewayProxyUrl(assistant.assistantId);
+}
+
+/**
+ * Absolute base URL this runtime reaches the given assistant's gateway at:
+ * origin + local gateway proxy for local/docker entries, origin + paired
+ * gateway proxy for paired entries, `undefined` otherwise.
+ */
+export function getAuthGatewayIngressUrl(
+  assistant: LockfileAssistant | undefined = getSelectedAssistant(),
+): string | undefined {
+  const base = getLocalGatewayUrl(assistant) ?? getPairedGatewayUrl(assistant);
+  if (!base) {
+    return undefined;
+  }
+  return `${window.location.origin}${base}`;
+}
+
+/**
  * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
  * upstream daemon readiness). True only when the gateway answers
  * `{ status: "ok" }`; false when the gateway URL is unresolvable, the request
@@ -661,6 +736,46 @@ export class UnresolvedLocalGatewayError extends Error {
 }
 
 /**
+ * A paired assistant records no usable `runtimeUrl`, so there is no remote
+ * gateway to reach. Deliberately not {@link UnresolvedLocalGatewayError}: that
+ * one routes to the wake-recovery dialog in the chooser, and `wake` refuses
+ * paired entries (re-pairing from the source machine is the fix).
+ */
+export class UnresolvedPairedGatewayError extends Error {
+  constructor(assistantId: string) {
+    super(`Paired assistant ${assistantId} has no usable runtimeUrl`);
+    this.name = "UnresolvedPairedGatewayError";
+  }
+}
+
+/**
+ * The numeric `exp` claim of a JWT, in epoch seconds, or `undefined` when the
+ * token isn't a decodable JWT or carries no numeric `exp`. Never throws.
+ */
+function decodeJwtExpSeconds(token: string): number | undefined {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) {
+      return undefined;
+    }
+    const decoded: unknown = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    );
+    if (
+      decoded !== null &&
+      typeof decoded === "object" &&
+      "exp" in decoded &&
+      typeof decoded.exp === "number"
+    ) {
+      return decoded.exp;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Acquire a gateway token and prime the self-hosted connection for the given
  * local assistant (default: the selected one). The guardian token and gateway
  * exchange both ride the host's local-mode transport, so this stays
@@ -673,6 +788,34 @@ export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
+  if (assistant && expectsPairedGateway(assistant)) {
+    const pairedUrl = getPairedGatewayUrl(assistant);
+    if (!pairedUrl) {
+      throw new UnresolvedPairedGatewayError(assistant.assistantId);
+    }
+    // The remote gateway's `/auth/token` mint is loopback- and Origin-gated to
+    // localhost, so a cross-machine mint is impossible: the guardian access
+    // token itself is the bearer, exactly like the CLI's `vellum client`
+    // paired path. Traffic rides the same-origin `__gateway-paired` host proxy
+    // (see getPairedGatewayUrl). The seeded source uses the same
+    // `<base>/auth/token` shape as local mode's token URL so an assistant
+    // switch trips `ensureGatewayToken`'s source-mismatch clear naturally. The
+    // 1-hour fallback expiry forces a cheap periodic re-lease when the token
+    // carries no readable `exp`.
+    const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
+    seedGatewayToken({
+      token: guardianToken,
+      expiresAtEpochSeconds:
+        decodeJwtExpSeconds(guardianToken) ??
+        Math.floor(Date.now() / 1000) + 3600,
+      source: `${pairedUrl}/auth/token`,
+    });
+    setSelfHostedConnection({
+      url: `${window.location.origin}${pairedUrl}`,
+      token: guardianToken,
+    });
+    return;
+  }
   const tokenUrl = getLocalTokenUrl(assistant);
   if (!tokenUrl) {
     // A local assistant we recognize but can't resolve a gateway for (no port)
@@ -687,12 +830,12 @@ export async function primeLocalGatewayConnection(
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
   await ensureGatewayToken(tokenUrl, guardianToken);
-  const localGateway = getLocalGatewayUrl(assistant);
-  if (!localGateway) {
+  const ingressUrl = getAuthGatewayIngressUrl(assistant);
+  if (!ingressUrl) {
     return;
   }
   setSelfHostedConnection({
-    url: `${window.location.origin}${localGateway}`,
+    url: ingressUrl,
     token: getGatewayToken(),
   });
 }
@@ -825,17 +968,22 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
 ): Promise<void> {
+  const assistant = target ?? getSelectedAssistant();
   try {
-    await primeLocalGatewayConnection(target);
+    await primeLocalGatewayConnection(assistant);
     return;
   } catch (error) {
+    // Wake operates only on plain local assistants (see
+    // `isCliWakeableAssistant`): spawning it for a paired or otherwise
+    // non-local target would burn time on a refusal, so their failures
+    // propagate untouched.
+    if (!assistant || !isLocalAssistant(assistant)) {
+      throw error;
+    }
     if (!isRepairableConnectError(error)) {
       throw error;
     }
-    const assistantId = (target ?? getSelectedAssistant())?.assistantId;
-    if (!assistantId) {
-      throw error;
-    }
+    const assistantId = assistant.assistantId;
     const repair = await wakeLocalAssistantHost(assistantId);
     if (!repair.ok) {
       throw error;
@@ -851,7 +999,7 @@ export async function primeLocalGatewayConnectionWithRepair(
     // connect dead-ends to the recovery controls. Ride out that restart window
     // instead, so a persisted local assistant reconnects on its own.
     await primeLocalGatewayWithStartupRideout(
-      refreshed ?? target,
+      refreshed ?? assistant,
       isGatewayRestartTransient,
     );
   }
