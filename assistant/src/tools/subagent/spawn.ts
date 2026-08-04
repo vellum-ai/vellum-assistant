@@ -66,6 +66,19 @@ const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
  */
 const ADVISOR_MAX_TIMEOUT_MS = 300_000;
 
+/**
+ * Tool calls a single advisor consult may make before it is stopped and asked
+ * to answer with what it has.
+ *
+ * The consult BLOCKS the user-facing turn, and every tool call it makes
+ * re-arms the idle window, so a reading advisor is otherwise bounded only by
+ * the absolute backstop: five minutes of silence in the chat. A consult is
+ * meant to check a decisive fact or two, not to survey a codebase, so a handful
+ * of reads is the whole budget; past it the guidance written so far is worth
+ * more to the caller than the reads it was still queuing.
+ */
+const ADVISOR_MAX_TOOL_CALLS = 8;
+
 /** How far back the repeat-spawn guard looks for near-identical runs. */
 const LOOP_GUARD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -85,6 +98,18 @@ const LOOP_GUARD_CONVERSATION_LIMIT = 3;
  * re-run of one objective does not.
  */
 const LOOP_GUARD_ASSISTANT_LIMIT = 10;
+
+/**
+ * Near-identical runs one conversation may have IN FLIGHT before the next
+ * spawn is held. Lower than the completed limits because nothing has come back
+ * yet: a burst of copies fired before any of them finishes is the runaway shape
+ * the guard exists for, and the completed counts are blind to it for as long as
+ * the burst lasts.
+ */
+const LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT = 2;
+
+/** The same ceiling assistant-wide, scaled like the completed limits. */
+const LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT = 4;
 
 /**
  * The tier a `verdict` spawn runs on when it names no `inference_profile`.
@@ -293,12 +318,17 @@ export async function executeSubagentSpawn(
   if (inheritedOverrideProfile === undefined) {
     if (outputContract === "verdict") {
       // A verdict is a check rather than an investigation, so it takes the
-      // cheap tier ahead of every inheritance rung below. It stays unforced
-      // like those rungs: the tier is this tool's preset, not a caller's
-      // choice, so an explicit `llm.callSites.subagentSpawn` pin still
-      // outranks it. Only an `inference_profile` argument beats it, and that
-      // one never enters this branch at all.
-      inheritedOverrideProfile = VERDICT_PROFILE_KEY;
+      // cheap tier ahead of every inheritance rung below. The tier is this
+      // tool's preset, not a caller's choice, and an override outranks a call
+      // site's own profile under single-winner resolution, so the preset is
+      // only applied when the user pinned nothing: with an explicit
+      // `llm.callSites.subagentSpawn` profile the field is left unset and that
+      // pin wins. An `inference_profile` argument beats both and never enters
+      // this branch at all.
+      inheritedOverrideProfile =
+        llm.callSites?.subagentSpawn?.profile == null
+          ? VERDICT_PROFILE_KEY
+          : undefined;
     } else if (isolateProfile) {
       inheritedOverrideProfile = subagentCallSiteProfile();
     } else {
@@ -456,12 +486,17 @@ function resolvedRoleNote(resolved: ResolvedSubagentRole): string | undefined {
 // ── Repeat-spawn guard ───────────────────────────────────────────────
 
 /**
- * The result to return instead of spawning when this objective has already
- * completed too often inside {@link LOOP_GUARD_WINDOW_MS}, or `undefined` when
- * the spawn should proceed.
+ * The result to return instead of spawning when this objective has already run
+ * too often inside {@link LOOP_GUARD_WINDOW_MS}, or `undefined` when the spawn
+ * should proceed.
  *
- * Only completed runs are counted, so the message can point the caller at an
- * answer that exists and a re-spawn after failures is never held.
+ * Two shapes of repetition are held, and they are told apart because the caller
+ * has to do something different about each. Completed runs mean an answer
+ * exists, so the caller is pointed at it. In-flight runs mean copies of this
+ * work are executing right now with nothing to show yet, which is the runaway
+ * loop the guard is for: a burst issued faster than anything can finish is
+ * invisible to the completed counts for its whole duration. Runs that ended
+ * without an answer count as neither, so a retry after a failure is never held.
  *
  * Not an error: the caller is being handed what its earlier runs produced and
  * cost, and can still spawn by passing `confirm_repeat: true`. The spawn
@@ -487,7 +522,9 @@ function repeatSpawnGuardResult(
   }
 
   // The spawn being asked for is itself part of the limit, so a window whose
-  // completed runs already fill the allowance is what trips the guard.
+  // runs already fill the allowance is what trips the guard. Completed runs are
+  // checked first: when both shapes are present, an answer that already exists
+  // is the more actionable thing to hand back.
   let scope: string;
   let tally: SimilarSpawnTally;
   if (recent.conversation.count >= LOOP_GUARD_CONVERSATION_LIMIT) {
@@ -496,6 +533,17 @@ function repeatSpawnGuardResult(
   } else if (recent.assistant.count >= LOOP_GUARD_ASSISTANT_LIMIT) {
     scope = "across this assistant";
     tally = recent.assistant;
+  } else if (
+    recent.conversation.inFlight >= LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT
+  ) {
+    return inFlightGuardResult(
+      recent.conversation.inFlight,
+      "this conversation",
+    );
+  } else if (
+    recent.assistant.inFlight >= LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT
+  ) {
+    return inFlightGuardResult(recent.assistant.inFlight, "this assistant");
   } else {
     return undefined;
   }
@@ -515,6 +563,25 @@ function repeatSpawnGuardResult(
   };
 }
 
+/**
+ * The result handed back when copies of this objective are still executing.
+ * Says explicitly that there is nothing to read yet, so the caller waits for
+ * the running work instead of being sent after results that do not exist.
+ */
+function inFlightGuardResult(
+  inFlight: number,
+  scope: string,
+): ToolExecutionResult {
+  return {
+    content:
+      `${inFlight} near-identical subagents are already running in ${scope}, and none of them has returned yet. ` +
+      "Another copy would repeat work that is in progress: wait for the running ones to report back, " +
+      "or narrow the objective to the part they are not covering. " +
+      "If the repetition is intentional, call subagent_spawn again with confirm_repeat: true.",
+    isError: false,
+  };
+}
+
 // ── Advisor consult ──────────────────────────────────────────────────
 
 /**
@@ -525,14 +592,17 @@ function repeatSpawnGuardResult(
  * `buildAdvisorSystem`, and runs on `llm.advisorProfile` (unless the caller
  * passed an explicit `inference_profile`) under both the advisor role allowlist
  * and `denySideEffectTools`, so the only tools it can reach are the first-party
- * built-in readers. It is bounded by a progress-aware deadline: an idle window
- * (`ADVISOR_IDLE_TIMEOUT_MS`) reset on every streamed token and every tool event
+ * built-in readers. It is bounded on two axes, because the consult holds up the
+ * user-facing turn while it runs: a progress-aware deadline (an idle window,
+ * `ADVISOR_IDLE_TIMEOUT_MS`, reset on every streamed token and every tool event
  * so a reasoning or reading model isn't killed mid-consult, plus an absolute
- * `ADVISOR_MAX_TIMEOUT_MS` backstop. If either ceiling is hit, the
- * partial guidance produced so far is recovered and returned with a "may be cut
- * off" note rather than discarded. Degrades to a benign non-error notice on any
- * other failure (including the depth-limit rejection when a subagent itself
- * calls the advisor).
+ * `ADVISOR_MAX_TIMEOUT_MS` backstop), and a ceiling of `ADVISOR_MAX_TOOL_CALLS`
+ * tool calls, since tool activity re-arms the idle window and a reading consult
+ * would otherwise be bounded only by the backstop. Whichever ceiling is hit, the
+ * partial guidance produced so far is recovered and returned with a note saying
+ * what cut it short, rather than discarded. Degrades to a benign non-error
+ * notice on any other failure (including the depth-limit rejection when a
+ * subagent itself calls the advisor).
  */
 async function runAdvisorConsult(args: {
   context: ToolContext;
@@ -544,6 +614,11 @@ async function runAdvisorConsult(args: {
 }): Promise<ToolExecutionResult> {
   const { context, label, objective, sendToClient, requestedOverrideProfile } =
     args;
+
+  /** Set when the consult is stopped for reading past its tool ceiling. */
+  let stoppedForToolCap = false;
+  /** Appended to the guidance when the consult did not run as asked for. */
+  let profileNote: string | undefined;
 
   try {
     const parentConversation = findConversation(context.conversationId);
@@ -589,8 +664,21 @@ async function runAdvisorConsult(args: {
 
     // Default to the stronger advisor profile when the caller did not pin one;
     // an explicit `inference_profile` wins (already forced upstream).
-    const advisorProfile = getConfig().llm.advisorProfile;
-    const overrideProfile = requestedOverrideProfile ?? advisorProfile;
+    const config = getConfig();
+    let overrideProfile = requestedOverrideProfile ?? config.llm.advisorProfile;
+    // The advisor carries read tools, so a profile the catalog states cannot
+    // call them is handed a surface it can never use and answers from the
+    // transcript alone. Fall back to the call site's own default and say so
+    // alongside the guidance, the way a regular spawn reports it. The check is
+    // unconditional, matching the tools it protects, and only a catalog `false`
+    // redirects, so a model the catalog has never heard of is left alone.
+    if (
+      overrideProfile !== undefined &&
+      profileSupportsTools(overrideProfile, config) === false
+    ) {
+      profileNote = `profile "${overrideProfile}" is not verified for tool calling; the advisor ran on the default profile instead.`;
+      overrideProfile = resolveDefaultProfileKey("subagentSpawn", config.llm);
+    }
     const forceOverrideProfile = overrideProfile !== undefined;
 
     // Progress-aware deadline: reset on every sign of forward progress so the
@@ -600,9 +688,34 @@ async function runAdvisorConsult(args: {
       idleMs: ADVISOR_IDLE_TIMEOUT_MS,
       maxMs: ADVISOR_MAX_TIMEOUT_MS,
     });
-    const signal = context.signal
-      ? AbortSignal.any([context.signal, deadline.signal])
-      : deadline.signal;
+    // Tool ceiling, on its own controller so the abort is attributable: the
+    // consult is stopped for reading too much, which reads back to the caller
+    // differently from running out of time.
+    const toolCap = new AbortController();
+    const signal = AbortSignal.any(
+      context.signal
+        ? [context.signal, deadline.signal, toolCap.signal]
+        : [deadline.signal, toolCap.signal],
+    );
+    // Count the child's tool calls off its own event stream. Each executed call
+    // emits exactly one `tool_use_start`, enveloped by the manager as a
+    // `subagent_event` on its way to the parent's client.
+    let toolCalls = 0;
+    const countingSendToClient = (msg: AssistantEvent): void => {
+      sendToClient(msg);
+      if (!isAdvisorToolCallEvent(msg) || toolCap.signal.aborted) {
+        return;
+      }
+      toolCalls += 1;
+      if (toolCalls > ADVISOR_MAX_TOOL_CALLS) {
+        stoppedForToolCap = true;
+        log.warn(
+          { conversationId: context.conversationId, toolCalls },
+          "Advisor consult exceeded its tool ceiling; returning guidance so far",
+        );
+        toolCap.abort();
+      }
+    };
     // Streamed tokens AND tool activity both count as progress. A consult that
     // opens a file emits no token while the read runs, so token-only progress
     // would let the idle window lapse on a healthy advisor and abort it before
@@ -651,33 +764,49 @@ async function runAdvisorConsult(args: {
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         },
-        sendToClient,
+        countingSendToClient,
         { signal, onText, onProgress },
       );
 
       const trimmed = advice.trim();
       return {
-        content:
+        content: withAdvisorNote(
           trimmed.length > 0 ? trimmed : "(advisor returned no guidance)",
+          profileNote,
+        ),
         isError: false,
       };
     } finally {
       deadline.dispose();
     }
   } catch (err) {
-    // Timed out mid-generation: salvage whatever guidance the advisor had
+    // Cut short mid-generation: salvage whatever guidance the advisor had
     // written rather than throwing it away. Partial strategic advice is far
     // more useful to the agent than an "unavailable" notice — especially on a
-    // slow reasoning profile that needs most of the window to think.
+    // slow reasoning profile that needs most of the window to think. The note
+    // names which ceiling stopped it, because "it ran out of time" and "it was
+    // still reading" call for different follow-ups from the caller.
     if (err instanceof SubagentAbortedError) {
       const partial = err.partialText.trim();
       if (partial.length > 0) {
         log.warn(
-          { conversationId: context.conversationId },
-          "Advisor consult timed out; returning partial guidance",
+          { conversationId: context.conversationId, stoppedForToolCap },
+          "Advisor consult was cut short; returning partial guidance",
         );
         return {
-          content: `${partial}\n\n_(The advisor reached its time limit while still writing — the guidance above may be cut off.)_`,
+          content: withAdvisorNote(
+            partial,
+            stoppedForToolCap
+              ? `The advisor stopped after ${ADVISOR_MAX_TOOL_CALLS} tool calls and answered with what it had read, so the guidance above may be incomplete.`
+              : "The advisor reached its time limit while still writing, so the guidance above may be cut off.",
+            profileNote,
+          ),
+          isError: false,
+        };
+      }
+      if (stoppedForToolCap) {
+        return {
+          content: `(advisor stopped after ${ADVISOR_MAX_TOOL_CALLS} tool calls without writing any guidance: narrow the question, or point it at the specific file or decision you want checked)`,
           isError: false,
         };
       }
@@ -690,6 +819,35 @@ async function runAdvisorConsult(args: {
     // Never fail the turn — the advisor is advice, not a blocker.
     return { content: `(advisor unavailable: ${reason})`, isError: false };
   }
+}
+
+/**
+ * Whether a parent-bound event is a child tool call starting. The manager
+ * envelopes every child event as `subagent_event`, so the consult reads the
+ * inner event to see what the advisor is doing.
+ */
+function isAdvisorToolCallEvent(msg: AssistantEvent): boolean {
+  if (msg.type !== "subagent_event") {
+    return false;
+  }
+  const inner = (msg as { event?: { type?: string } }).event;
+  return inner?.type === "tool_use_start";
+}
+
+/**
+ * The guidance with any notes about how the consult actually ran appended
+ * below it. Notes are italicized asides so the guidance itself stays the
+ * result; nothing is appended when there is nothing to say.
+ */
+function withAdvisorNote(
+  guidance: string,
+  ...notes: (string | undefined)[]
+): string {
+  const present = notes.filter((note): note is string => Boolean(note));
+  if (present.length === 0) {
+    return guidance;
+  }
+  return `${guidance}\n\n${present.map((note) => `_(${note})_`).join("\n")}`;
 }
 
 /**
