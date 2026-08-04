@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { HostProxyCapability } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { datesToISO } from "../../util/json.js";
+import { getLogger } from "../../util/logger.js";
 import {
   assistantEventHub,
   DESKTOP_PRESENCE_STATES,
@@ -22,6 +23,8 @@ import {
 import { BadRequestError, NotFoundError } from "./errors.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition } from "./types.js";
+
+const log = getLogger("client-routes");
 
 /**
  * Body of `POST /v1/clients/presence`, declared as the route's `requestBody`
@@ -173,13 +176,52 @@ export const ROUTES: RouteDefinition[] = [
           ownerPrincipalId === undefined ||
           ownerPrincipalId !== callerPrincipalId
         ) {
+          // Warn, not debug: a mismatch means the gateway stopped forwarding
+          // the actor header, a scope profile shifted, or a caller is probing
+          // someone else's client. Without this line presence gating dies
+          // silently and every suppressed push quietly resumes. Client and
+          // principal ids stay out of the entry so the log cannot be used to
+          // enumerate them.
+          log.warn(
+            {
+              op: "report_client_presence",
+              hasStoredOwner: ownerPrincipalId !== undefined,
+              hasCallerPrincipal: callerPrincipalId !== undefined,
+              targetInterfaceId:
+                assistantEventHub.getClientById(clientId)?.interfaceId,
+            },
+            "Rejecting presence report from a caller that does not own the client",
+          );
           // Answering like "no match" keeps the reply from probing client ids.
           return { recorded: false };
         }
       }
 
       // A report racing an SSE reconnect matches nothing; normal, so not a 404.
-      return { recorded: assistantEventHub.setClientPresence(clientId, state) };
+      const recorded = assistantEventHub.setClientPresence(clientId, state);
+      if (!recorded) {
+        // Debug, not warn: a reconnect storm would otherwise emit a warn per
+        // client every 30 seconds for a benign race.
+        log.debug(
+          { op: "report_client_presence", state },
+          "Presence report matched no connected client",
+        );
+        return { recorded };
+      }
+
+      // Records which state a client actually reported. Nothing else persists
+      // it, so this is the only evidence for why a machine did or did not
+      // count as attended. Only `macos` clients gate pushes, hence the
+      // interface id.
+      log.debug(
+        {
+          op: "report_client_presence",
+          state,
+          interfaceId: assistantEventHub.getClientById(clientId)?.interfaceId,
+        },
+        "Recorded desktop presence",
+      );
+      return { recorded };
     },
   },
 ];
