@@ -54,7 +54,7 @@ Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next
 
 The rules that governed the migration still constrain the content itself:
 
-- The root `AGENTS.md` "Generic Examples" rule applies (this repo is public): no real names in docs copy. The migration substituted them deterministically (`Marina` → `Alice`, `Sarah` → `Alice`, `Becky` → `Bob`); keep new copy on placeholder personas.
+- The root `AGENTS.md` "Generic Examples" rule applies (this repo is public): no real names in docs copy. The migration replaced the personal names it found with that rule's placeholders, mapping each original to one placeholder consistently so a page still reads as being about the same person. Keep new copy on placeholder personas.
 - Pages are authored against this app's import paths (`@/app/docs/`), `/docs`-prefixed WebP asset paths, and cross-app links absolutized to `https://www.vellum.ai/...`.
 
 ## Behavior ported from the platform app

@@ -681,7 +681,12 @@ async function runAdvisorConsult(args: {
       profileSupportsTools(overrideProfile, config) === false
     ) {
       profileNote = `profile "${overrideProfile}" is not verified for tool calling; the advisor ran on the default profile instead.`;
-      overrideProfile = resolveDefaultProfileKey("subagentSpawn", config.llm);
+      // Clearing this is what lands the consult on the subagentSpawn default:
+      // the child runs under that call site, so the resolver picks it anyway.
+      // Naming it would select the same model but register as an override,
+      // which usage attribution reports as a conversation pin, filing a consult
+      // that merely fell back against a pin nobody set.
+      overrideProfile = undefined;
     }
     const forceOverrideProfile = overrideProfile !== undefined;
 

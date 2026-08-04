@@ -3314,9 +3314,11 @@ describe("Subagent advisor-role consult", () => {
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-no-tools", { sendToClient: () => {} }),
       );
-      // The subagentSpawn call site's own default, not the denied profile.
-      expect(captured.current!.config.overrideProfile).toBe("balanced");
-      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+      // No override travels with the consult, which is what lands it on the
+      // subagentSpawn call site's own profile while leaving usage attribution
+      // on call_site instead of reporting a pin nobody set.
+      expect(captured.current!.config.overrideProfile).toBeUndefined();
+      expect(captured.current!.config.forceOverrideProfile).toBeUndefined();
       expect(result.content).toContain("Ship the data model first.");
       expect(result.content).toContain(
         'profile "no-tool-model" is not verified for tool calling',
@@ -3346,7 +3348,7 @@ describe("Subagent advisor-role consult", () => {
           sendToClient: () => {},
         }),
       );
-      expect(captured.current!.config.overrideProfile).toBe("balanced");
+      expect(captured.current!.config.overrideProfile).toBeUndefined();
       expect(result.content).toContain("is not verified for tool calling");
     } finally {
       restore();
