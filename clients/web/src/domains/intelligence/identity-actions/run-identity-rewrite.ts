@@ -7,12 +7,9 @@
  * turn to settle. The identity files feed every future conversation's system
  * prompt, which is what makes this durable.
  *
- * The thread is minted as a `background` conversation, so it is invisible by
- * construction: the daemon's conversation list defaults to
- * `conversationType: "standard"`, which keeps a background row out of Recents
- * and out of the landing-conversation pick. A daemon predating that support
- * ignores the field and falls back to the previous behavior, where the
- * trailing archive is what hides the thread — so no version gate is needed.
+ * The thread is minted `background`, a type the daemon keeps out of its
+ * default `standard` conversation list, so it never appears in Recents and is
+ * never selectable as the landing conversation.
  *
  * Unlike onboarding's fire-and-forget `applyPersonality`, callers here drive
  * visible UI (a saving state and a success/failure toast), so this resolves
@@ -42,10 +39,7 @@ export interface RunIdentityRewriteOptions {
   assistantId: string;
   /** The full `<system-message>…</system-message>` content to post. */
   content: string;
-  /**
-   * Conversation title. Background threads stay out of the sidebar, so this
-   * only ever surfaces in logs/inspector.
-   */
+  /** Conversation title, surfaced only in logs/inspector. */
   title: string;
   /** Sentry context tag for failures. */
   context: string;

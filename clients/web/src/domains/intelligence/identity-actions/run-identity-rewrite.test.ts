@@ -1,7 +1,7 @@
 /**
- * Pins the shape of the identity-rewrite send: the side conversation is
- * minted `background` so it is invisible by construction, the prompt goes out
- * hidden (see `lib/side-conversation-message.ts`), and the thread is archived.
+ * Pins the shape of the identity-rewrite send: the side conversation is minted
+ * `background`, the prompt goes out hidden (see
+ * `lib/side-conversation-message.ts`), and the thread is archived.
  *
  * NOTE: `bun mock.module` can leak across files. Run this file singly:
  *   bun test src/domains/intelligence/identity-actions/run-identity-rewrite.test.ts
