@@ -66,3 +66,30 @@ describe("PanelItem trailing action", () => {
   });
 });
 
+describe("PanelItem badge", () => {
+  function renderWithBadge(badgeBare?: boolean): string {
+    return renderToStaticMarkup(
+      createElement(PanelItem, {
+        label: "Row",
+        onSelect: () => {},
+        badge: createElement("span", null, "3"),
+        badgeBare,
+      }),
+    );
+  }
+
+  test("is pill-styled by default", () => {
+    const html = renderWithBadge();
+    expect(html).toContain("bg-[var(--surface-base)]");
+    expect(html).toContain("rounded-[4px]");
+  });
+
+  test("drops the pill chrome when badgeBare is set", () => {
+    const html = renderWithBadge(true);
+    expect(html).not.toContain("bg-[var(--surface-base)]");
+    expect(html).not.toContain("rounded-[4px]");
+    // Still renders the badge content itself.
+    expect(html).toContain(">3<");
+  });
+});
+

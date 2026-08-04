@@ -274,10 +274,14 @@ export function ConversationRow({
             <ThreadStatusIndicator {...status} />
           ) : undefined
         }
+        badgeBare
         trailingAction={<ConversationActionsMenu {...menuProps} />}
         {...dragProps}
         className={cn(
-          "h-[30px] p-[6px] text-[var(--content-default)]",
+          // `!` forces this over PanelItem's own max-md:py-3: cross-package
+          // Tailwind generation order doesn't reliably favor a plain
+          // (unmarked) override here.
+          "h-[30px] p-[6px] max-md:p-2! text-[var(--content-default)]",
           dragProps.className,
         )}
       />

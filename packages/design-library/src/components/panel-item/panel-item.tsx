@@ -84,6 +84,13 @@ interface PanelItemProps {
    */
   badge?: ReactNode;
   /**
+   * Drops the badge's pill chrome (background, rounding, padding) at every
+   * state, leaving just its content, e.g. a plain status dot that shouldn't
+   * sit in a background box. Default `false`, matching {@link badge}'s
+   * usual count/label chip look.
+   */
+  badgeBare?: boolean;
+  /**
    * Trailing slot (commonly an ellipsis / more-options button). Hidden by
    * default; revealed on hover or focus-within, while a child menu is open
    * (`aria-expanded="true"` on the trigger), and always when `active`.
@@ -206,6 +213,9 @@ const BADGE_BASE_CLASSES = [
   "group-aria-[current=page]:px-0 group-aria-[current=page]:py-0",
 ].join(" ");
 
+/** {@link PanelItemProps.badgeBare}: layout only, no pill chrome at any state. */
+const BADGE_BARE_CLASSES = "inline-flex items-center justify-center shrink-0";
+
 const TRAILING_ACTION_CLASSES = [
   "flex items-center shrink-0",
   "opacity-0 transition-opacity",
@@ -233,6 +243,7 @@ function PanelItem({
   label,
   expandChevron: ExpandChevron,
   badge,
+  badgeBare = false,
   trailingAction,
   hideTrailingActionOnTouch = false,
   active = false,
@@ -277,7 +288,11 @@ function PanelItem({
   ) : null;
 
   const badgeNode =
-    badge != null ? <span className={BADGE_BASE_CLASSES}>{badge}</span> : null;
+    badge != null ? (
+      <span className={badgeBare ? BADGE_BARE_CLASSES : BADGE_BASE_CLASSES}>
+        {badge}
+      </span>
+    ) : null;
 
   const trailingNode = trailingAction ? (
     <span

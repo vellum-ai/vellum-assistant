@@ -135,10 +135,10 @@ describe("CollapsibleNavSection", () => {
     expect(chevronButton?.textContent?.trim()).toBe("");
   });
 
-  // The chevron stays hidden at rest so a resting row stays quiet, but
-  // reveals on hover, or whenever the section is open: an expanded section
-  // always keeps a visible way to collapse itself again.
-  test("the chevron stays visible while the section is expanded", () => {
+  // The chevron reveals only on hover (or focus-visible, natively via the
+  // button itself), not just because the section is expanded. A quiet
+  // resting row stays quiet even when open.
+  test("the chevron stays hidden at rest even while the section is expanded", () => {
     const html = renderSingleSection({
       value: "recents",
       label: "Recents",
@@ -153,7 +153,11 @@ describe("CollapsibleNavSection", () => {
     expect(item?.getAttribute("data-state")).toBe("open");
 
     const chevron = container.querySelector(".lucide-chevron-down");
+    expect(chevron?.getAttribute("class")).toContain("opacity-0");
     expect(chevron?.getAttribute("class")).toContain(
+      "group-hover/header:opacity-100",
+    );
+    expect(chevron?.getAttribute("class")).not.toContain(
       "group-data-[state=open]/section:opacity-100",
     );
   });

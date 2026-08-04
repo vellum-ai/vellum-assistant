@@ -16,12 +16,14 @@
  *   nests inside the persistent "Conversations" header in Grouped view (see
  *   `assistant-side-menu.tsx`), which owns the one visible "…" button.
  *
- * Everything else - the icon, the collapse behavior, the header menu, the
- * section drag wiring, and the bounded scrolling row list - is uniform, and
- * comes in already resolved.
+ * Everything else - the icon, the collapse behavior, the header menu, and
+ * the section drag wiring - is uniform, and comes in already resolved. The
+ * row list is the other near-exception: every section caps and scrolls
+ * within itself except Pinned, which grows to fit its own rows instead
+ * (see `unbounded` on `ConversationRowList`).
  */
 
-import type { ReactNode, Ref } from "react";
+import type { ReactNode } from "react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
@@ -40,10 +42,6 @@ export interface SidebarSectionItemProps {
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: ReactNode;
-  /** Reaches the row list's bounded scroll div (the sidebar wires Pinned's). */
-  listRef?: Ref<HTMLDivElement>;
-  /** Caps the row list instead of the shared section max height. */
-  listMaxHeight?: number;
 }
 
 /**
@@ -66,8 +64,6 @@ export function SidebarSectionItem({
   groupMenu,
   drag,
   collapsedIndicator,
-  listRef,
-  listMaxHeight,
 }: SidebarSectionItemProps) {
   return (
     <ConversationNavSection
@@ -85,10 +81,11 @@ export function SidebarSectionItem({
       collapsedIndicator={collapsedIndicator}
       drag={drag}
       // Pinned is the user's own curation, always at the top: collapsing
-      // it away would hide the thing the section exists to surface.
+      // it away would hide the thing the section exists to surface. It's
+      // also the one section that never caps/scrolls internally: it grows
+      // to fit its own rows instead.
       collapsible={section.type !== "pinned"}
-      listRef={listRef}
-      listMaxHeight={listMaxHeight}
+      unbounded={section.type === "pinned"}
       {...rowListPropsFor(section)}
     />
   );

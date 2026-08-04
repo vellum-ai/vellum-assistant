@@ -46,14 +46,8 @@ import {
   type SidebarSection,
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
-import { SidebarSectionResizeHandle } from "@/domains/chat/components/sidebar-section-resize-handle";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
-import {
-  resetPinnedSectionHeight,
-  savePinnedSectionHeight,
-  usePinnedSectionHeight,
-} from "@/domains/chat/utils/sidebar-pinned-height";
 import {
   RECENTS_SECTION_ICON,
   RECENTS_SECTION_LABEL,
@@ -248,21 +242,6 @@ export function AssistantSideMenu({
 
   const isCollapsedRail = collapsed && variant === "rail";
 
-  // --- Pinned section resize ---
-  // The section list's one rule doubles as the Pinned section's resize
-  // handle. During a drag the handle drives the bounded row list through
-  // this ref (no per-frame React state); the released height persists per
-  // assistant. Pinned is non-collapsible (its content renders through a
-  // plain div, not `Collapsible.Content`), so the ref always reaches a node
-  // once Pinned exists, so resizability shouldn't depend on
-  // `effectiveOpenSections`, which can still carry a stale "no pinned" key
-  // for a user who collapsed it before that change shipped.
-  const pinnedListRef = useRef<HTMLDivElement | null>(null);
-  const pinnedListMaxHeight = usePinnedSectionHeight(assistantId);
-  const pinnedResizable = sidebar.sections.some(
-    (section) => section.type === "pinned",
-  );
-
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
   // scrollable body, so the body reserves matching bottom padding to keep the
@@ -451,10 +430,6 @@ export function AssistantSideMenu({
       groupMenu={sectionMenu(section)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot(section.all)}
-      listRef={section.type === "pinned" ? pinnedListRef : undefined}
-      listMaxHeight={
-        section.type === "pinned" ? pinnedListMaxHeight : undefined
-      }
     />
   );
 
@@ -484,7 +459,7 @@ export function AssistantSideMenu({
           the divider ~12px off the cluster (Figma 7257:135812). The
           overlay drawer skips the New Chat row — its floating New Chat
           pill already owns that action in the thumb zone. */}
-      <div className={isCollapsedRail ? undefined : "mb-4"}>
+      <div className={isCollapsedRail ? undefined : "mb-2"}>
         <AssistantNavItem
           assistantId={assistantId ?? null}
           label={assistantName || "Your Assistant"}
@@ -516,15 +491,22 @@ export function AssistantSideMenu({
               so it's just the same label styling, non-interactive. */}
           {!isCollapsedRail ? (
             <div
-              className="flex h-[30px] items-center rounded-[6px] py-[6px] text-left text-body-medium-lighter text-[var(--content-tertiary)]"
+              // Same title treatment as "Pinned"/"Threads" (collapsible-
+              // nav-section.tsx's non-collapsible branch): the mobile
+              // text/height/padding classes below aren't decorative, they
+              // match that component's, so the two read as one style.
+              //
+              // The trailing -mb-1/-mb-[10px] shaves off the parent's own
+              // gap (8px on the rail, 16px on the overlay): additive since
+              // flex `gap` doesn't collapse with margins, so this works in
+              // both contexts. Mobile (always the overlay) shaves more,
+              // halving the 16px gap to Lucky Dip below instead of the
+              // 12px this leaves elsewhere.
+              className="flex h-[30px] max-md:h-auto items-center rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5 text-left text-body-medium-lighter max-md:text-body-large-lighter text-[var(--content-tertiary)] -mb-1 max-md:-mb-[10px]"
               style={{
                 paddingLeft: SIDEBAR_ROW_PADDING_X,
                 paddingRight: SIDEBAR_ROW_PADDING_X,
                 gap: SIDEBAR_CHIP_GAP,
-                // Shaves 4px off the parent's own gap (8px on the rail,
-                // 16px on the overlay): additive since flex `gap` doesn't
-                // collapse with margins, so this works in both contexts.
-                marginBottom: -4,
               }}
             >
               Pinned Apps
@@ -734,18 +716,18 @@ export function AssistantSideMenu({
                     conversations begin. Absent when nothing is curated yet, so
                     a fresh sidebar never opens on a stray line. Sits on the
                     root's own gap, pulled up 2px so the curated block's last
-                    row sits closer to it than the root's default gap-3. */}
+                    row sits closer to it than the root's default gap-3.
+                    Static: Pinned no longer caps/scrolls (it's `unbounded`
+                    now, see `ConversationRowList`), so there's nothing left
+                    to resize here. */}
                 {sidebar.curatedSectionCount > 0 ? (
-                  <div style={{ marginTop: -2 }}>
-                    <SidebarSectionResizeHandle
-                      targetRef={pinnedListRef}
-                      resizable={pinnedResizable}
-                      onCommit={(height) =>
-                        savePinnedSectionHeight(assistantId, height)
-                      }
-                      onReset={() => resetPinnedSectionHeight(assistantId)}
-                    />
-                  </div>
+                  <div
+                    data-slot="sidebar-section-rule"
+                    role="separator"
+                    aria-orientation="horizontal"
+                    style={{ marginTop: -2 }}
+                    className="h-px w-full bg-[var(--border-base)]"
+                  />
                 ) : null}
                 {/* "Threads" is the persistent header for everything
                     that isn't Pinned or a custom group: it never swaps out

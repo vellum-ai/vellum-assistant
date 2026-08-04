@@ -26,10 +26,10 @@ import { isPointerCoarse } from "@/utils/pointer";
  *     label that just sits inside the draggable header, so clicking and
  *     holding it drags the section (see `drag`) without also expanding
  *     or collapsing it. The one toggle target is a small chevron button
- *     on the trailing edge, left of the "…", revealed only on hover or
- *     while the section is open (so an expanded section keeps its own
- *     visible way to collapse again), not on click-then-release focus,
- *     which would otherwise linger after the click that opened/closed it.
+ *     on the trailing edge, left of the "…", revealed only on hover, not
+ *     on click-then-release focus, which would otherwise linger after the
+ *     click that opened/closed it, and not just because the section is
+ *     open.
  *   - Optional `trailing` slot for an ellipsis menu or other per-row
  *     affordance. Pointer events are isolated so clicking trailing
  *     content doesn't toggle the section.
@@ -252,7 +252,10 @@ function CollapsibleNavSectionSection({
         <div
           className={cn(
             "flex h-[30px] max-md:h-auto",
-            "rounded-[6px] py-[6px] max-md:py-3",
+            // Half the usual mobile bottom padding: the gap to the first
+            // row below reads as too large at the full py-3 (matches the
+            // desktop py-[6px] top/bottom, kept as-is above).
+            "rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5",
             "text-left text-body-medium-lighter max-md:text-body-large-lighter",
             "text-[var(--content-tertiary)]",
           )}
@@ -282,7 +285,7 @@ function CollapsibleNavSectionSection({
             // "…". Icon-only, so it needs its own accessible name.
             <Collapsible.Trigger
               aria-label={label}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)]"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
             >
               <ChevronDown
                 size={12}
@@ -291,8 +294,7 @@ function CollapsibleNavSectionSection({
                   "shrink-0 transition-[opacity,transform]",
                   "text-[var(--content-tertiary)]",
                   "opacity-0 group-hover/header:opacity-100",
-                  "group-data-[state=open]/section:opacity-100",
-                  "max-md:opacity-100",
+                  "max-md:opacity-100 max-md:h-[18px] max-md:w-[18px]",
                   "group-data-[state=open]/section:rotate-180",
                 )}
               />

@@ -1045,10 +1045,10 @@ describe("AssistantSideMenu · equal section treatment", () => {
     const children = Array.from(root.children);
     const indexOfText = (text: string) =>
       children.findIndex((el) => (el.textContent ?? "").includes(text));
-    // The rule sits inside a wrapper div (pulls it 4px closer to the
+    // The rule sits inside a wrapper div (pulls it 2px closer to the
     // curated block above), so it's a grandchild of root, not a direct
     // child.
-    const ruleSelector = '[data-slot="sidebar-section-resize-handle"]';
+    const ruleSelector = '[data-slot="sidebar-section-rule"]';
     const ruleIndex = children.findIndex((el) =>
       el.matches(ruleSelector) ? true : el.querySelector(ruleSelector) != null,
     );
@@ -1059,12 +1059,6 @@ describe("AssistantSideMenu · equal section treatment", () => {
     expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
     expect(indexOfText("Chats")).toBeGreaterThan(ruleIndex);
     expect(indexOfText("Slack")).toBeGreaterThan(ruleIndex);
-    // Pinned is present and open by default, so the rule drags.
-    expect(
-      children[ruleIndex]
-        ?.querySelector(ruleSelector)
-        ?.hasAttribute("data-resizable"),
-    ).toBe(true);
   });
 
   test("the rule is absent until something is curated", () => {
@@ -1083,71 +1077,32 @@ describe("AssistantSideMenu · equal section treatment", () => {
     }
 
     expect(
-      root.querySelectorAll('[data-slot="sidebar-section-resize-handle"]'),
+      root.querySelectorAll('[data-slot="sidebar-section-rule"]'),
     ).toHaveLength(0);
   });
 
-  // The rule only drags while there is a Pinned section to resize; a custom
-  // group alone still earns the rule, but an inert one.
-  test("the rule is inert when groups are curated without pins", () => {
+  // Regression: Pinned used to cap at SIDEBAR_SECTION_MAX_HEIGHT and scroll
+  // within itself, with a drag handle on the rule below it to resize that
+  // cap. Both are gone: Pinned now grows to fit its own rows, unbounded,
+  // while a derived section like Chats still caps and scrolls.
+  test("Pinned's row list is unbounded; Chats still caps and scrolls", () => {
     const container = parse(
       renderMenu({
-        conversations: [
-          makeConversation({ conversationId: "r1" }),
-          makeConversation({
-            conversationId: "g1",
-            title: "Group one",
-            groupId: "grp-a",
-          }),
-        ],
+        conversations: LAYOUT_CONVERSATIONS,
         conversationGroups: LAYOUT_GROUPS,
       }),
     );
 
-    const rule = container.querySelector<HTMLElement>(
-      '[data-slot="sidebar-section-resize-handle"]',
-    );
-    if (!rule) {
-      throw new Error("expected the curated block's rule");
+    const sections = sectionElements(container);
+    const labels = sectionLabels(container);
+    const pinned = sections[labels.indexOf("Pinned")];
+    const chats = sections[labels.indexOf("Chats")];
+    if (!pinned || !chats) {
+      throw new Error("expected both Pinned and Chats sections");
     }
 
-    expect(rule.hasAttribute("data-resizable")).toBe(false);
-  });
-
-  // Regression: Pinned is non-collapsible, so it renders (and should stay
-  // resizable) even for a user whose stored `openPrimary` predates that
-  // change and never included "pinned": resizability must key off Pinned
-  // being present, not off the accordion's stale open-key bookkeeping.
-  test("the rule still drags when Pinned is present but not in the stored open keys", () => {
-    // `openPrimary` reloads from localStorage on mount (keyed by assistant
-    // id), so a plain `setState` gets clobbered before render; seed the
-    // actual storage key the way a pre-existing user's browser would have
-    // it: Pinned explicitly collapsed before it became non-collapsible.
-    localStorage.setItem(
-      "vellum:sidebar-open-primary:asst-1",
-      JSON.stringify(["recents"]),
-    );
-
-    const container = parse(
-      renderMenu({
-        conversations: [
-          makeConversation({
-            conversationId: "p1",
-            title: "Pinned one",
-            isPinned: true,
-          }),
-        ],
-      }),
-    );
-
-    const rule = container.querySelector<HTMLElement>(
-      '[data-slot="sidebar-section-resize-handle"]',
-    );
-    if (!rule) {
-      throw new Error("expected the curated block's rule");
-    }
-
-    expect(rule.hasAttribute("data-resizable")).toBe(true);
+    expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
+    expect(chats.querySelector(".overflow-y-auto")).not.toBeNull();
   });
 
   // The switch isn't statically rendered at all: it lives behind the

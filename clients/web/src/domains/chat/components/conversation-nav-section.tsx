@@ -10,8 +10,10 @@
  * Nothing paginates: the rows just keep going. What differs is where they
  * scroll. A section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls
  * within itself, since an uncapped busy section would push its neighbours off
- * screen. The flat list instead scrolls against the sidebar body it already
- * fills (`scrollParent`), which keeps the rail to a single scrollbar.
+ * screen, unless it opts out via `unbounded` (Pinned: expected to stay
+ * short, and grows to fit its rows instead). The flat list instead scrolls
+ * against the sidebar body it already fills (`scrollParent`), which keeps
+ * the rail to a single scrollbar.
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
@@ -23,7 +25,7 @@
  * (via `ConversationRow`), so neither takes them as props.
  */
 
-import { type ReactNode, type Ref } from "react";
+import { type ReactNode } from "react";
 
 import { type LucideIcon } from "lucide-react";
 
@@ -67,12 +69,13 @@ export interface ConversationRowListProps {
    */
   scrollParent?: HTMLElement;
   /**
-   * Reaches the bounded scroll div, for the Pinned resize handle to drive
-   * imperatively during a drag. Unused when `scrollParent` unbounds the list.
+   * Skips {@link SIDEBAR_SECTION_MAX_HEIGHT} entirely: the list grows to fit
+   * every row instead of capping and scrolling within itself. Pinned is the
+   * one section that wants this, the user's own curation, expected to stay
+   * short, and (unlike Chats or a channel section) not something that should
+   * ever need its own internal scrollbar.
    */
-  listRef?: Ref<HTMLDivElement>;
-  /** Caps the bounded list instead of {@link SIDEBAR_SECTION_MAX_HEIGHT}. */
-  listMaxHeight?: number;
+  unbounded?: boolean;
 }
 
 export function ConversationRowList({
@@ -80,8 +83,7 @@ export function ConversationRowList({
   dragSection,
   dragSiblings,
   scrollParent,
-  listRef,
-  listMaxHeight,
+  unbounded,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -97,19 +99,23 @@ export function ConversationRowList({
   // Reorderable sections (Pinned, custom groups) always mount every row: the
   // drag controller resolves a drop target from the rows themselves, so a
   // windowed list would have nothing to drop onto past the viewport. They
-  // stay bounded and scrollable either way, and they are the curated
-  // sections, so they are the least likely to run long.
+  // stay bounded and scrollable either way (unless `unbounded`), and they
+  // are the curated sections, so they are the least likely to run long.
   const windows =
-    !dragSection && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
+    !unbounded &&
+    !dragSection &&
+    items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
 
   if (!windows) {
+    if (unbounded) {
+      return rows;
+    }
     return scrollParent ? (
       rows
     ) : (
       <div
-        ref={listRef}
         className="overflow-y-auto"
-        style={{ maxHeight: listMaxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
+        style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
       >
         {rows}
       </div>
@@ -134,12 +140,7 @@ export function ConversationRowList({
   return scrollParent ? (
     windowed
   ) : (
-    <div
-      ref={listRef}
-      style={{ height: listMaxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
-    >
-      {windowed}
-    </div>
+    <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );
 }
 export interface ConversationNavSectionProps extends ConversationRowListProps {
