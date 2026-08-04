@@ -184,6 +184,54 @@ const DATA_URI_RE = /^data:([^;,]+);base64,/i;
 const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /**
+ * Marker (or transformed leaf) to emit in place of `value`, or `null` to
+ * leave primitives as-is and descend into objects/arrays.
+ */
+type CaptureVisitor = (value: unknown) => { replacement: unknown } | null;
+
+/**
+ * Depth-first structural map over a diagnostics snapshot.
+ *
+ * The `path` set holds only the current recursion ancestry, so a true cycle
+ * is replaced with `"[cyclic]"` while shared (sibling) references are
+ * traversed in full. The capture leans on shared references by construction:
+ * transcript items embed the same message objects `clientMessages` lists.
+ * JSON.stringify duplicates shared references the same way.
+ *
+ * Every capture pass (base64 stripping, message deduplication) is a visitor
+ * over this one walker, so traversal and cycle handling have a single home.
+ */
+function deepMapCapture(
+  value: unknown,
+  visit: CaptureVisitor,
+  path = new WeakSet<object>(),
+): unknown {
+  const hit = visit(value);
+  if (hit) {
+    return hit.replacement;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (path.has(value)) {
+    return "[cyclic]";
+  }
+  path.add(value);
+  let out: unknown;
+  if (Array.isArray(value)) {
+    out = value.map((v) => deepMapCapture(v, visit, path));
+  } else {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = deepMapCapture(v, visit, path);
+    }
+    out = obj;
+  }
+  path.delete(value);
+  return out;
+}
+
+/**
  * Replace bulk binary payloads in a diagnostics snapshot with size markers.
  *
  * Message state carries image bytes in two shapes: `data:` URIs (derived
@@ -196,41 +244,22 @@ const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
  * tokens) are below the length floor. The marker keeps the mime type and
  * length, which is the diagnostically useful part.
  */
-export function stripBulkBase64(value: unknown, path = new WeakSet()): unknown {
-  if (typeof value === "string") {
-    const dataUri = DATA_URI_RE.exec(value);
+export function stripBulkBase64(value: unknown): unknown {
+  return deepMapCapture(value, (v) => {
+    if (typeof v !== "string") {
+      return null;
+    }
+    const dataUri = DATA_URI_RE.exec(v);
     if (dataUri) {
-      return `[stripped data URI ${dataUri[1]}, ${value.length} chars]`;
+      return {
+        replacement: `[stripped data URI ${dataUri[1]}, ${v.length} chars]`,
+      };
     }
-    if (value.length >= BULK_BASE64_MIN_CHARS && PURE_BASE64_RE.test(value)) {
-      return `[stripped base64, ${value.length} chars]`;
+    if (v.length >= BULK_BASE64_MIN_CHARS && PURE_BASE64_RE.test(v)) {
+      return { replacement: `[stripped base64, ${v.length} chars]` };
     }
-    return value;
-  }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  // `path` holds only the current recursion ancestry, so a true cycle is
-  // replaced while shared (sibling) references are traversed in full. The
-  // capture leans on shared references by construction: transcript items
-  // embed the same message objects `clientMessages` lists, and both copies
-  // must survive. JSON.stringify duplicates shared references the same way.
-  if (path.has(value)) {
-    return "[cyclic]";
-  }
-  path.add(value);
-  let out: unknown;
-  if (Array.isArray(value)) {
-    out = value.map((v) => stripBulkBase64(v, path));
-  } else {
-    const obj: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      obj[k] = stripBulkBase64(v, path);
-    }
-    out = obj;
-  }
-  path.delete(value);
-  return out;
+    return null;
+  });
 }
 
 /**
@@ -257,32 +286,15 @@ export function dedupeAgainstClientMessages(
     }
   });
 
-  const replace = (value: unknown, path: WeakSet<object>): unknown => {
-    if (value === null || typeof value !== "object") {
-      return value;
+  return deepMapCapture(transcriptItems, (v) => {
+    if (v === null || typeof v !== "object") {
+      return null;
     }
-    const ref = refs.get(value);
-    if (ref !== undefined) {
-      return `[deduplicated: see clientMessages ${ref}]`;
-    }
-    if (path.has(value)) {
-      return "[cyclic]";
-    }
-    path.add(value);
-    let out: unknown;
-    if (Array.isArray(value)) {
-      out = value.map((v) => replace(v, path));
-    } else {
-      const obj: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value)) {
-        obj[k] = replace(v, path);
-      }
-      out = obj;
-    }
-    path.delete(value);
-    return out;
-  };
-  return replace(transcriptItems, new WeakSet());
+    const ref = refs.get(v);
+    return ref !== undefined
+      ? { replacement: `[deduplicated: see clientMessages ${ref}]` }
+      : null;
+  });
 }
 
 function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
