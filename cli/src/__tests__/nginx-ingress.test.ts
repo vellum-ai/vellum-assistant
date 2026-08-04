@@ -267,6 +267,7 @@ describe("buildIngressNginxConfig", () => {
       "location = /v1/guardian/reset-bootstrap/ { return 404; }",
       "location ^~ /assistant/__local/ { return 404; }",
       "location ^~ /assistant/__gateway/ { return 404; }",
+      "location ^~ /assistant/__gateway-paired/ { return 404; }",
     ];
     for (const location of deniedLocations) {
       expect(remoteConf).toContain(location);
