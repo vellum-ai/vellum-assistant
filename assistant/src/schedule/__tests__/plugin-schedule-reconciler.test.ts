@@ -611,6 +611,51 @@ describe("reconcilePluginSchedules", () => {
     );
   });
 
+  test("an ended recurrence on a row this pass disarmed still surfaces", async () => {
+    const dir = writePlugin("news", {
+      "digest.md": digestMd("Summarize the day."),
+    });
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+
+    // Disabling the plugin disarms the row without the engine latching it:
+    // `enabled` goes false, the run clock is untouched.
+    writeFileSync(join(dir, ".disabled"), "");
+    await reconcilePluginSchedules();
+    const disarmed = listDeclaredSchedules()[0]!;
+    expect(disarmed.enabled).toBe(false);
+    expect(disarmed.lastRunAt).toBeNull();
+    expect(disarmed.userEnabled).toBeNull();
+    emittedSignals.length = 0;
+
+    // The recurrence runs out while the plugin is off. Re-enabling brings back
+    // a schedule that can never fire, so the user has to hear about it.
+    writePlugin("news", { "digest.md": endedDigestMd() });
+    rmSync(join(dir, ".disabled"));
+    await reconcilePluginSchedules();
+
+    expect(listDeclaredSchedules()[0]!.id).toBe(created.id);
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe(
+      "schedule.definition_error",
+    );
+  });
+
+  test("a user-disabled row keeps an ended recurrence quiet", async () => {
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    await setUserEnabled(created.id, false);
+    emittedSignals.length = 0;
+
+    // The user turned the schedule off, so its recurrence running out costs
+    // no firing they expected.
+    writePlugin("news", { "digest.md": endedDigestMd() });
+    await reconcilePluginSchedules();
+
+    expect(emittedSignals).toHaveLength(0);
+  });
+
   test("a freshly installed declaration that is already expired errors", async () => {
     writePlugin("news", { "digest.md": endedDigestMd() });
 

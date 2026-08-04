@@ -236,6 +236,18 @@ export interface EmitSignalResult {
 }
 
 /**
+ * True when at least one channel adapter has already been handed the signal.
+ * `sent` is a completed delivery; `pending` is the platform push that passed
+ * its outcome deadline and is still in flight. Both mean a retry would
+ * re-deliver.
+ */
+function hasChannelSideEffect(
+  results: readonly NotificationDeliveryResult[],
+): boolean {
+  return results.some((r) => r.status === "sent" || r.status === "pending");
+}
+
+/**
  * Emit a notification signal through the full pipeline:
  * createEvent -> (source-active pre-gate) -> evaluateSignal ->
  * runDeterministicChecks -> dispatchDecision.
@@ -255,6 +267,11 @@ export async function emitNotificationSignal<TEventName extends string>(
   // The event row claims `params.dedupeKey` when it lands, and the failure
   // path below releases that claim.
   let eventPersisted = false;
+
+  // Every channel result the broadcast produces, appended as each channel
+  // settles. A throw discards the dispatch return value, so this is how the
+  // failure path learns which channels already ran.
+  const channelResults: NotificationDeliveryResult[] = [];
 
   const signal: NotificationSignal<TEventName> = {
     signalId,
@@ -487,9 +504,10 @@ export async function emitNotificationSignal<TEventName extends string>(
       signal,
       decision,
       broadcaster,
-      params.onConversationCreated
-        ? { onConversationCreated: params.onConversationCreated }
-        : undefined,
+      {
+        onConversationCreated: params.onConversationCreated,
+        resultsSink: channelResults,
+      },
     );
 
     // Step 5: Mirror background-origin signals into the home activity feed.
@@ -538,7 +556,13 @@ export async function emitNotificationSignal<TEventName extends string>(
     // pipeline threw. Leaving the claim in place makes every retry
     // short-circuit as a duplicate of an emit that never reached a verdict,
     // so release it. The row itself stays as the audit trail of the attempt.
-    if (eventPersisted) {
+    //
+    // A partially dispatched broadcast is the exception. Its retry gets a
+    // fresh decision id, and delivery dedupe is keyed to the decision, so
+    // the channels that already went out would go out again. Keeping the
+    // claim costs the channels that did not get the signal; releasing it
+    // double-sends to the ones that did.
+    if (eventPersisted && !hasChannelSideEffect(channelResults)) {
       try {
         setEventDedupeKey(signalId, null);
       } catch (releaseErr) {
