@@ -14,7 +14,7 @@ import { basename, dirname, join } from "path";
 import {
   findAssistantCommand,
   isRepoCheckoutPath,
-} from "@vellumai/install-layout";
+} from "@vellumai/environments";
 import { isValidReleaseVersion } from "@vellumai/local-mode";
 
 import {

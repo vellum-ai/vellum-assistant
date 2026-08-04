@@ -1,6 +1,5 @@
 /**
- * @vellumai/install-layout: the single source of truth for reading the layout
- * a Vellum runtime is installed in.
+ * Reading the layout a Vellum runtime is installed in.
  *
  * The daemon is started either from a developer's repo checkout or from an
  * installed npm package (`<install>/node_modules/@vellumai/assistant/src/

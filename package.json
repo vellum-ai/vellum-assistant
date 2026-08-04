@@ -20,7 +20,6 @@
     "packages/environments",
     "packages/gateway-client",
     "packages/ipc-contract",
-    "packages/install-layout",
     "packages/ipc-server-utils",
     "packages/local-mode",
     "packages/service-contracts",
