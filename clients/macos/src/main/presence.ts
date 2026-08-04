@@ -26,9 +26,19 @@ export const IDLE_THRESHOLD_MS = 10 * 60_000;
 
 export const POLL_INTERVAL_MS = 30_000;
 
+let installed = false;
+
 export const installPresenceMonitor = (
   onReport: (state: PresenceState) => void,
 ): (() => void) => {
+  // A second install would leak the first monitor's interval and listeners
+  // and double the report rate, so it hands back a teardown that owns
+  // nothing rather than a live second monitor.
+  if (installed) {
+    return (): void => {};
+  }
+  installed = true;
+
   // Three independently owned reasons the desktop is unreachable, each
   // cleared only by its paired event. A locked machine that sleeps and wakes
   // is still locked, and becoming the foreground login session says nothing
@@ -95,8 +105,10 @@ export const installPresenceMonitor = (
   powerMonitor.on("user-did-become-active", onSessionBecameActive);
   powerMonitor.on("user-did-resign-active", onSessionResigned);
 
-  // Seeds the daemon before the first tick, so a message sent right after
-  // launch is judged against real presence rather than none.
+  // Establishes a state immediately instead of waiting out the first tick,
+  // so a message sent right after launch is judged against real presence
+  // rather than none. This reaches whoever is connected at install time; the
+  // caller caches the state to cover assistants that connect later.
   report();
 
   // Reports on every tick, not only on transitions: the daemon expires
@@ -106,6 +118,7 @@ export const installPresenceMonitor = (
   const timer = setInterval(report, POLL_INTERVAL_MS);
 
   return (): void => {
+    installed = false;
     clearInterval(timer);
     powerMonitor.off("lock-screen", onLockScreen);
     powerMonitor.off("unlock-screen", onUnlockScreen);

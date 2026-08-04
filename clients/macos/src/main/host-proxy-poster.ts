@@ -14,6 +14,9 @@
  */
 
 import { getDeviceId } from "./device-id";
+// Type-only, so this stays erased at compile time and the poster picks up no
+// runtime dependency on electron from the presence module.
+import type { PresenceState } from "./presence";
 
 // ---------------------------------------------------------------------------
 // Payload interfaces — match the daemon route request bodies
@@ -86,7 +89,7 @@ export interface HostAppControlResultPayload {
 }
 
 export interface PresencePayload {
-  state: "active" | "idle" | "away";
+  state: PresenceState;
 }
 
 // ---------------------------------------------------------------------------

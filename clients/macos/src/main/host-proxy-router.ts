@@ -50,6 +50,11 @@ interface AssistantConnection {
   poster: HostProxyPoster;
   /** Opaque string for detecting config changes that warrant a reconnect. */
   fingerprint: string;
+  /**
+   * Set while presence posts to this assistant are failing, so an outage is
+   * logged once rather than once per poll.
+   */
+  presencePostFailing?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +190,85 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
 }
 
 // ---------------------------------------------------------------------------
+// Presence reporting
+// ---------------------------------------------------------------------------
+
+/**
+ * Most recent state seen from the presence monitor, used to seed an assistant
+ * that connects between poll ticks. Null until the first report: with no
+ * presence record on file the daemon lets the mobile push through, so sending
+ * nothing is the fail-open direction and a guessed state would be worse.
+ */
+let lastPresenceState: PresenceState | null = null;
+
+/**
+ * Post one report, logging only the first failure of a run.
+ *
+ * postPresence folds every non-2xx and every throw into `false`, so a daemon
+ * that stops accepting reports would otherwise take presence down in total
+ * silence. Warning on each attempt instead would put a line in the log every
+ * poll interval for the length of the outage, so the connection stays quiet
+ * until a post succeeds and re-arms the warning.
+ */
+async function postPresenceTo(
+  assistantId: string,
+  conn: AssistantConnection,
+  state: PresenceState,
+): Promise<void> {
+  let posted = false;
+  try {
+    posted = await conn.poster.postPresence({ state });
+  } catch {
+    posted = false;
+  }
+  if (posted) {
+    conn.presencePostFailing = false;
+    return;
+  }
+  if (!conn.presencePostFailing) {
+    conn.presencePostFailing = true;
+    log.warn("[host-proxy-router] presence post failed", { assistantId, state });
+  }
+}
+
+/**
+ * Fan a presence report out to every connected assistant: the lockfile can
+ * hold several (local and cloud) and the desktop is equally attended for all
+ * of them.
+ *
+ * Each post is fire-and-forget (postJson carries its own timeout) so a slow
+ * or unreachable daemon can't stall the reporter or its siblings, and
+ * allSettled keeps one failure from surfacing as an unhandled rejection. A
+ * dropped report is the safe direction: with no presence record on file the
+ * daemon lets the mobile push through.
+ */
+function reportPresence(state: PresenceState): void {
+  lastPresenceState = state;
+  void Promise.allSettled(
+    Array.from(connections, ([assistantId, conn]) =>
+      postPresenceTo(assistantId, conn, state),
+    ),
+  );
+}
+
+/**
+ * Report to an assistant the moment it joins. A monitor report only reaches
+ * whoever is connected when it fires, and a local assistant connects
+ * asynchronously, so without this the common desktop case would go
+ * unreported until the next poll tick.
+ */
+function seedPresence(assistantId: string): void {
+  if (lastPresenceState === null) {
+    return;
+  }
+  const conn = connections.get(assistantId);
+  if (!conn) {
+    return;
+  }
+  void postPresenceTo(assistantId, conn, lastPresenceState);
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle — connect / disconnect per assistant
 // ---------------------------------------------------------------------------
 
@@ -294,6 +378,7 @@ async function connectLocalAssistant(
   sse.connect();
 
   connections.set(assistantId, { sse, poster, fingerprint: localFingerprint(gatewayPort) });
+  seedPresence(assistantId);
   log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
 }
 
@@ -336,6 +421,7 @@ function connectCloudAssistant(
     poster,
     fingerprint: cloudFingerprint(runtimeUrl, organizationId),
   });
+  seedPresence(assistantId);
   log.info("[host-proxy-router] connected to cloud assistant", { assistantId, runtimeUrl, organizationId });
 }
 
@@ -397,27 +483,6 @@ function handleLockfileChange(lockfile: Lockfile): void {
 }
 
 // ---------------------------------------------------------------------------
-// Presence reporting
-// ---------------------------------------------------------------------------
-
-/**
- * Fan a presence report out to every connected assistant: the lockfile can
- * hold several (local and cloud) and the desktop is equally attended for all
- * of them.
- *
- * Each post is fire-and-forget (postJson carries its own timeout) so a slow
- * or unreachable daemon can't stall the reporter or its siblings, and
- * allSettled keeps one failure from surfacing as an unhandled rejection. A
- * dropped report is the safe direction: with no presence record on file the
- * daemon lets the mobile push through.
- */
-function reportPresence(state: PresenceState): void {
-  void Promise.allSettled(
-    Array.from(connections.values(), (conn) => conn.poster.postPresence({ state })),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Public install / teardown
 // ---------------------------------------------------------------------------
 
@@ -451,13 +516,18 @@ export function installHostProxyBridge(
   const browserExecutor = new HostBrowserExecutor();
   setExecutor("host_browser", browserExecutor);
 
-  // Not gated on there being any connections: the monitor is cheap, and one
-  // added later by handleLockfileChange picks up the next poll tick.
+  // Not gated on there being any connections: the monitor is cheap, its
+  // first report primes the cache, and a connection added later by
+  // handleLockfileChange is seeded as it joins. Stopping any previous
+  // monitor first keeps a second install from leaking its interval and
+  // powerMonitor listeners.
+  stopPresenceMonitor?.();
   stopPresenceMonitor = installPresenceMonitor(reportPresence);
 
   return () => {
     stopPresenceMonitor?.();
     stopPresenceMonitor = null;
+    lastPresenceState = null;
     unsubscribe?.();
     unsubscribe = null;
     for (const assistantId of [...connections.keys()]) {
@@ -491,6 +561,7 @@ export const __testing = {
   reset() {
     stopPresenceMonitor?.();
     stopPresenceMonitor = null;
+    lastPresenceState = null;
     for (const assistantId of [...connections.keys()]) {
       disconnectAssistant(assistantId);
     }
