@@ -257,7 +257,7 @@ $ assistant plugins publish --json`,
         {
           flags: "--force",
           description:
-            "Skip the confirmation prompt when the upgraded revision declares schedules",
+            "Skip the declared-schedules confirmation prompt of a local upgrade (the assistant-applied path never prompts)",
         },
       ],
       helpText: `
@@ -266,6 +266,15 @@ from a GitHub URL (untrusted) upgrades against its recorded source: it re-fetche
 whatever its recorded ref resolves to now — a pinned commit SHA is immutable (a
 no-op), while a branch/tag/HEAD advances as upstream does — and re-materializes
 it verbatim, with no curated adapter overlay.
+
+With the assistant running, the upgrade is applied by it immediately, with no
+confirmation prompt: a schedule the new revision declares is armed by the
+assistant and surfaced as a notification, and the upgrade output lists the
+revision's declared schedules with any new ones marked. Only when the
+assistant is unreachable does the upgrade run locally instead; that path
+stages the new revision first, and a revision that declares schedules lists
+them and asks for confirmation before going live (--force skips that prompt,
+as for install).
 
 Examples:
   $ assistant plugins upgrade example

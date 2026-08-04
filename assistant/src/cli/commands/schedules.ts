@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { pluginNameFromScheduleSourceKey } from "../../util/schedule-source-key.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { formatCostUsd } from "../lib/cli-output.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -788,15 +789,13 @@ async function toggleScheduleEnabled(
 
 /**
  * Plugin attribution for the list's SOURCE column: the owning plugin's name,
- * the raw key when it does not parse, blank for imperative schedules. Parses
- * the wire value locally; the key format is defined by
- * `pluginScheduleSourceKey` in schedule/plugin-schedule-declarations.ts.
+ * the raw key when it does not parse, blank for imperative schedules.
  */
 function describeSource(sourceKey: string | null | undefined): string {
   if (!sourceKey) {
     return "";
   }
-  return /^plugin:([^/]+)\//.exec(sourceKey)?.[1] ?? sourceKey;
+  return pluginNameFromScheduleSourceKey(sourceKey) ?? sourceKey;
 }
 
 function describeSchedule(schedule: ScheduleRecord): string {

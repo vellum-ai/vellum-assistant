@@ -24,6 +24,7 @@
 import { spawn } from "node:child_process";
 
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
+import { stripAnsiSequences } from "../util/ansi.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("inline-command-runner");
@@ -44,12 +45,6 @@ const MAX_OUTPUT_CHARS = 20_000;
  * be stripped before the character-level clamp.
  */
 const MAX_STDOUT_BUFFER_BYTES = MAX_OUTPUT_CHARS * 4;
-
-/**
- * ANSI escape sequence pattern (covers SGR, cursor movement, erase, etc.).
- * Matches: ESC[ ... final_byte  and  ESC] ... ST  (OSC sequences).
- */
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
 
 /**
  * Heuristic for binary output: if more than 10% of the characters are
@@ -198,7 +193,7 @@ export async function runInlineCommand(
       // Strip ANSI sequences first — these are terminal artifacts, not
       // binary data. Stripping before the binary check prevents legitimate
       // color-coded tool output from being rejected.
-      let cleaned = raw.replace(ANSI_RE, "");
+      let cleaned = stripAnsiSequences(raw);
 
       // Reject binary-ish output (after ANSI stripping)
       if (isBinaryish(cleaned)) {

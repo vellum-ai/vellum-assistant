@@ -281,7 +281,8 @@ describe("plugins install - declared-schedules consent", () => {
 
     expect(r.stdout).toContain('Plugin "example" declares 2 schedules:');
     expect(r.stdout).toContain("daily-report");
-    expect(r.stdout).toContain("0 9 * * *");
+    // The cadence is humanized, with the raw expression as ground truth.
+    expect(r.stdout).toContain("Every day at 9:00 AM (0 9 * * *)");
     expect(r.stdout).toContain("(execute)");
     expect(r.stdout).toContain("cleanup");
     expect(r.stdout).toContain("0 0 * * 0");
@@ -493,11 +494,92 @@ describe("plugins upgrade - declared-schedules consent (local fallback)", () => 
     expect(r.stdout).toContain('Upgraded "example"');
     expect(r.exitCode).toBe(0);
   });
+
+  test("a daemon-routed upgrade prints the declared schedules, marking new ones", async () => {
+    // Pre-upgrade install: one declared schedule under the workspace plugins
+    // dir. Post-upgrade tree (the daemon result's target): the same schedule
+    // plus a newly declared one.
+    const workspaceDir = mkdtempSync(join(tmpdir(), "plugins-cmd-ws-"));
+    const upgradedDir = mkdtempSync(join(tmpdir(), "plugins-cmd-upgraded-"));
+    const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+    try {
+      const installedDir = join(workspaceDir, "plugins", "example");
+      stageFlatSchedule("daily-report", "0 9 * * *")(installedDir);
+      stageFlatSchedule("daily-report", "0 9 * * *")(upgradedDir);
+      stageFlatSchedule("weekly-new", "0 8 * * 1")(upgradedDir);
+      ipcResults = [
+        {
+          ok: true,
+          result: { ...upgradedResult("example"), target: upgradedDir },
+        },
+      ];
+
+      const r = await runCommand(["plugins", "upgrade", "example"]);
+
+      expect(confirmCalls.length).toBe(0);
+      expect(r.stdout).toContain('Upgraded "example"');
+      expect(r.stdout).toContain('Plugin "example" declares 2 schedules:');
+      const dailyLine = r.stdout
+        .split("\n")
+        .find((line) => line.includes("daily-report"));
+      const weeklyLine = r.stdout
+        .split("\n")
+        .find((line) => line.includes("weekly-new"));
+      expect(dailyLine).toBeDefined();
+      expect(dailyLine).not.toContain("[new]");
+      expect(weeklyLine).toContain("[new]");
+      expect(r.stdout).toContain("New schedules run automatically");
+      expect(r.exitCode).toBe(0);
+    } finally {
+      if (savedWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
+      }
+      rmSync(workspaceDir, { recursive: true, force: true });
+      rmSync(upgradedDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a daemon-routed dry run prints no schedule listing", async () => {
+    const upgradedDir = mkdtempSync(join(tmpdir(), "plugins-cmd-dry-"));
+    try {
+      stageFlatSchedule("daily-report", "0 9 * * *")(upgradedDir);
+      ipcResults = [
+        {
+          ok: true,
+          result: {
+            ...upgradedResult("example"),
+            outcome: "would-upgrade",
+            dryRun: true,
+            target: upgradedDir,
+          },
+        },
+      ];
+
+      const r = await runCommand([
+        "plugins",
+        "upgrade",
+        "example",
+        "--dry-run",
+      ]);
+
+      expect(r.stdout).toContain("would upgrade");
+      expect(r.stdout).not.toContain("declares");
+      expect(r.exitCode).toBe(0);
+    } finally {
+      rmSync(upgradedDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("plugins inspect - schedules surface", () => {
-  test("renders declared schedules with cadence and mode", async () => {
-    inspectResult = {
+  /** Minimal installed-plugin inspection carrying the given surfaces block. */
+  function inspectionWithSurfaces(
+    surfaces: PluginInspection["surfaces"],
+  ): PluginInspection {
+    return {
       name: "example",
       installed: true,
       status: "not-in-marketplace",
@@ -514,22 +596,53 @@ describe("plugins inspect - schedules surface", () => {
       },
       remote: null,
       remoteError: null,
-      surfaces: {
-        skills: [],
-        hooks: [],
-        tools: ["do_thing"],
-        schedules: [
-          { name: "daily-report", cadence: "0 9 * * *", mode: "execute" },
-          { name: "cleanup", cadence: "0 0 * * 0", mode: "script" },
-        ],
-      },
+      surfaces,
     };
+  }
+
+  test("renders declared schedules with cadence and mode", async () => {
+    inspectResult = inspectionWithSurfaces({
+      skills: [],
+      hooks: [],
+      tools: ["do_thing"],
+      schedules: [
+        { name: "daily-report", cadence: "0 9 * * *", mode: "execute" },
+        { name: "cleanup", cadence: "0 0 * * 0", mode: "script" },
+      ],
+    });
 
     const r = await runCommand(["plugins", "inspect", "example"]);
 
     expect(r.stdout).toContain("schedules");
-    expect(r.stdout).toContain("daily-report  0 9 * * *  (execute)");
-    expect(r.stdout).toContain("cleanup       0 0 * * 0  (script)");
+    // Cadences render humanized with the raw expression as ground truth.
+    expect(r.stdout).toContain(
+      "daily-report  Every day at 9:00 AM (0 9 * * *)",
+    );
+    expect(r.stdout).toContain("(execute)");
+    expect(r.stdout).toContain(
+      "cleanup       Every Sun at 12:00 AM (0 0 * * 0)",
+    );
+    expect(r.stdout).toContain("(script)");
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("renders an RRULE cadence as the raw expression", async () => {
+    inspectResult = inspectionWithSurfaces({
+      skills: [],
+      hooks: [],
+      tools: [],
+      schedules: [
+        {
+          name: "weekly",
+          cadence: "RRULE:FREQ=WEEKLY;BYDAY=MO",
+          mode: "execute",
+        },
+      ],
+    });
+
+    const r = await runCommand(["plugins", "inspect", "example"]);
+
+    expect(r.stdout).toContain("weekly  RRULE:FREQ=WEEKLY;BYDAY=MO  (execute)");
     expect(r.exitCode).toBe(0);
   });
 });

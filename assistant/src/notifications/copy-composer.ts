@@ -30,6 +30,7 @@ import {
   NOTIFICATION_TITLE_MAX_LENGTH,
   readPayloadString,
   sanitizeIdentityField,
+  sanitizeMessagePreview,
 } from "./notification-utils.js";
 import type {
   NotificationSignal,
@@ -45,6 +46,17 @@ function str(value: unknown, fallback: string): string {
     return value;
   }
   return fallback;
+}
+
+/**
+ * Read an untrusted payload string for interpolation into copy: sanitized
+ * like an identity field, falling back when the value is absent, not a
+ * string, or sanitizes down to nothing.
+ */
+function sanitizedPayloadField(value: unknown, fallback: string): string {
+  const sanitized =
+    typeof value === "string" ? sanitizeIdentityField(value).trim() : "";
+  return sanitized.length > 0 ? sanitized : fallback;
 }
 
 /**
@@ -115,22 +127,32 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.message, "A reminder has fired"),
   }),
 
+  // The schedule.* fields below (names, cadence, error reason) originate in
+  // plugin-authored declaration files, so they are sanitized like any other
+  // untrusted actor-controlled string before interpolation.
   "schedule.declared": (payload) => {
-    const scheduleName = str(payload.scheduleName, "a schedule");
-    const pluginName = str(payload.pluginName, "A plugin");
+    const scheduleName = sanitizedPayloadField(
+      payload.scheduleName,
+      "a schedule",
+    );
+    const pluginName = sanitizedPayloadField(payload.pluginName, "A plugin");
     const cadence =
-      typeof payload.cadence === "string" && payload.cadence.length > 0
-        ? ` (${payload.cadence})`
-        : "";
+      typeof payload.cadence === "string"
+        ? nonEmpty(sanitizeIdentityField(payload.cadence))
+        : undefined;
+    const cadenceSuffix = cadence ? ` (${cadence})` : "";
     return {
       title: `New plugin schedule: ${scheduleName}`,
-      body: `Plugin "${pluginName}" armed the schedule "${scheduleName}"${cadence}. It will run automatically; you can disable it from your schedules.`,
+      body: `Plugin "${pluginName}" armed the schedule "${scheduleName}"${cadenceSuffix}. It will run automatically; you can disable it from your schedules.`,
     };
   },
 
   "schedule.definition_changed": (payload) => {
-    const scheduleName = str(payload.scheduleName, "a schedule");
-    const pluginName = str(payload.pluginName, "A plugin");
+    const scheduleName = sanitizedPayloadField(
+      payload.scheduleName,
+      "a schedule",
+    );
+    const pluginName = sanitizedPayloadField(payload.pluginName, "A plugin");
     return {
       title: `Plugin schedule changed: ${scheduleName}`,
       body: `Plugin "${pluginName}" changed the definition of its schedule "${scheduleName}".`,
@@ -138,9 +160,14 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "schedule.definition_error": (payload) => {
-    const scheduleName = str(payload.scheduleName, "a schedule");
-    const pluginName = str(payload.pluginName, "A plugin");
-    const reason = str(payload.reason, "the declaration is invalid");
+    const scheduleName = sanitizedPayloadField(
+      payload.scheduleName,
+      "a schedule",
+    );
+    const pluginName = sanitizedPayloadField(payload.pluginName, "A plugin");
+    const reason = sanitizeMessagePreview(
+      str(payload.reason, "the declaration is invalid"),
+    );
     return {
       title: `Plugin schedule error: ${scheduleName}`,
       body: `Plugin "${pluginName}" has a schedule "${scheduleName}" that could not be loaded: ${reason}`,

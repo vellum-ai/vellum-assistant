@@ -333,6 +333,59 @@ describe("composeFallbackCopy plugin schedule templates", () => {
 
     expect(copy.vellum?.body?.length).toBeGreaterThan(0);
   });
+
+  test("schedule.declared sanitizes plugin-controlled fields", () => {
+    // Plugin-authored declaration strings carrying a clear-screen CSI, an OSC
+    // title write, a BEL, and a newline must not reach the rendered copy.
+    const signal = makeSignal({
+      sourceEventName: "schedule.declared",
+      contextPayload: {
+        pluginName: "news\u001b[2Jext",
+        scheduleName: "digest\u0007",
+        cadence: "0 9 * * *\u001b]0;pwned\u0007",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("New plugin schedule: digest");
+    expect(copy.vellum?.body).toContain('Plugin "newsext"');
+    expect(copy.vellum?.body).toContain("0 9 * * *");
+    expect(copy.vellum?.body).not.toContain("\u001b");
+    expect(copy.vellum?.body).not.toContain("\u0007");
+    expect(copy.vellum?.body).not.toContain("pwned");
+  });
+
+  test("schedule.declared omits a cadence that sanitizes to nothing", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.declared",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        cadence: "\u001b[2J\u0007",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).not.toContain("(");
+    expect(copy.vellum?.body).not.toContain("\u001b");
+  });
+
+  test("schedule.definition_error sanitizes and flattens the reason", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news\u001b[31m",
+        scheduleName: "digest",
+        reason: "bad\nexpression\u001b[0m",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).toContain('Plugin "news"');
+    expect(copy.vellum?.body).toContain("bad expression");
+    expect(copy.vellum?.body).not.toContain("\u001b");
+    expect(copy.vellum?.body).not.toContain("\n");
+  });
 });
 
 // ── deriveTitle ───────────────────────────────────────────────────────

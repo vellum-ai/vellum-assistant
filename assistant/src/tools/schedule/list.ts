@@ -8,6 +8,7 @@ import {
   getScheduleRuns,
   listSchedules,
 } from "../../schedule/schedule-store.js";
+import { pluginNameFromScheduleSourceKey } from "../../util/schedule-source-key.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -35,6 +36,18 @@ function isOneShot(job: { expression: string | null }): boolean {
 
 function describeAuthoredPurpose(job: { description: string }): string {
   return job.description || "(none)";
+}
+
+/**
+ * Owning plugin for a plugin-declared schedule, or null for imperative rows.
+ * Falls back to the raw source key when it does not parse, so provenance is
+ * never silently dropped.
+ */
+function managingPlugin(job: { sourceKey: string | null }): string | null {
+  if (!job.sourceKey) {
+    return null;
+  }
+  return pluginNameFromScheduleSourceKey(job.sourceKey) ?? job.sourceKey;
 }
 
 /**
@@ -76,6 +89,13 @@ export async function executeScheduleList(
       `  Status: ${job.status}`,
       `  Description: ${describeAuthoredPurpose(job)}`,
     ];
+
+    const detailPlugin = managingPlugin(job);
+    if (detailPlugin) {
+      lines.push(
+        `  Managed by plugin: ${detailPlugin} (definition read-only; only enabled can be changed)`,
+      );
+    }
 
     if (oneShot) {
       lines.push(`  Fire at: ${formatLocalDate(job.nextRunAt)}`);
@@ -142,18 +162,20 @@ export async function executeScheduleList(
   for (const job of jobs) {
     const status = job.enabled ? "enabled" : "disabled";
     const oneShot = isOneShot(job);
+    const plugin = managingPlugin(job);
+    const managed = plugin ? ` (managed by plugin ${plugin})` : "";
 
     if (oneShot) {
       const fireTime = formatLocalDate(job.nextRunAt);
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) [${job.status}]`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) [${job.status}]${managed}`,
         `    Description: ${describeAuthoredPurpose(job)}`,
         `    fire at: ${fireTime}`,
       );
     } else {
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : "n/a";
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) (${job.mode})`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (${job.mode})${managed}`,
         `    Description: ${describeAuthoredPurpose(job)}`,
         `    Schedule: [${job.syntax}] ${describeSchedule(job)}`,
         `    Next: ${next}`,
