@@ -77,6 +77,23 @@ mock.module("../../persistence/attachments-store.js", () => ({
   },
 }));
 
+// Defaults to unattended, so every other case in this file exercises the
+// unsuppressed path.
+let desktopAttended = false;
+let desktopPresenceShouldThrow = false;
+const desktopPresenceArgs: unknown[][] = [];
+const realDesktopPresence = await import("../../runtime/desktop-presence.js");
+mock.module("../../runtime/desktop-presence.js", () => ({
+  ...realDesktopPresence,
+  isDesktopAttended: (...args: unknown[]) => {
+    desktopPresenceArgs.push(args);
+    if (desktopPresenceShouldThrow) {
+      throw new Error("simulated presence read failure");
+    }
+    return desktopAttended;
+  },
+}));
+
 const realAttentionStore =
   await import("../../persistence/conversation-attention-store.js");
 mock.module("../../persistence/conversation-attention-store.js", () => ({
@@ -213,7 +230,10 @@ beforeEach(() => {
   warnCalls.length = 0;
   messageLookups.length = 0;
   attachmentLookups.length = 0;
+  desktopPresenceArgs.length = 0;
   assistantAttachments = [];
+  desktopAttended = false;
+  desktopPresenceShouldThrow = false;
   getConversationShouldThrow = false;
   conversationRow = makeConversation();
   assistantRow = makeAssistantRow([
@@ -261,6 +281,51 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls).toHaveLength(0);
+  });
+
+  // The push is suppressed downstream, at the source-active pre-gate in
+  // `emitNotificationSignal` (covered in `emit-signal-routing-intent.test.ts`),
+  // so the producer's contract here is the hint it emits, not the silence.
+  describe("desktop presence", () => {
+    test("marks the signal source-active while a Mac reports itself attended", async () => {
+      desktopAttended = true;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      // Unscoped by design: the push targets the assistant owner, and a pod
+      // has exactly one owner, so no principal filter belongs here.
+      expect(desktopPresenceArgs).toEqual([[]]);
+    });
+
+    test("leaves the signal live when no Mac is attended", async () => {
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    });
+
+    test("leaves the signal live when the presence flag is off", async () => {
+      setOverridesForTesting({ "desktop-presence-suppression": false });
+      desktopAttended = true;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(desktopPresenceArgs).toEqual([]);
+    });
+
+    test("leaves the signal live when the presence read throws", async () => {
+      desktopPresenceShouldThrow = true;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(warnCalls).toHaveLength(1);
+    });
   });
 
   test("omits requestedTitle when the conversation has no title", async () => {
