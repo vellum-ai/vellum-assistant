@@ -60,17 +60,16 @@ const { applyPersonality } = await import("./apply-personality");
 beforeEach(() => {
   conversationsPostMock.mockClear();
   messagesPostMock.mockClear();
+  archivePostMock.mockClear();
   saveSlidersMock.mockClear();
 });
 
-describe("applyPersonality side conversation", () => {
-  test("mints the throwaway thread as background even when the archive fails", async () => {
+describe("applyPersonality rewrite prompt", () => {
+  test("mints a background thread and posts the rewrite prompt as a hidden machine signal", async () => {
     // The thread's only renderable content is the assistant's first-person
     // self-description (the prompt posts hidden), so the `background` mint is
-    // what keeps it out of the user's view. Failing the archive here pins that
-    // the hiding comes from the mint alone.
-    archivePostMock.mockRejectedValueOnce(new Error("archive failed"));
-
+    // what keeps it out of the user's view. See
+    // `lib/side-conversation-message.ts` for why the prompt posts hidden.
     await applyPersonality({
       awaitAssistantId: async () => "ast-1",
       values: {},
@@ -80,17 +79,6 @@ describe("applyPersonality side conversation", () => {
       conversationType: "background",
       title: "Updating personality",
     });
-  });
-});
-
-describe("applyPersonality rewrite prompt", () => {
-  test("posts the rewrite prompt as a hidden machine signal", async () => {
-    // See `lib/side-conversation-message.ts` for why this posts hidden.
-    await applyPersonality({
-      awaitAssistantId: async () => "ast-1",
-      values: {},
-    });
-
     expect(messagesPostMock.mock.calls[0]?.[0].body.hidden).toBe(true);
   });
 });
