@@ -57,7 +57,8 @@ export const VELLUM_MANAGED_CONNECTION_NAME = "vellum";
  * Whether a connection is the provider-agnostic Vellum-managed connection.
  * The provider column alone identifies the managed route: platform auth
  * always accompanies it (auth derivation pairs them, the connection routes
- * reject writes that split them, and migration 140 reconciles stored rows).
+ * reject writes that split them, and DB migration 361 reconciles stored
+ * rows).
  * Structurally typed so this stays a pure module with no connection-schema
  * import.
  */

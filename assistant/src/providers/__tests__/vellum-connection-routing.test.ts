@@ -46,7 +46,7 @@ describe("vellum connection routing", () => {
     expect(isVellumManagedConnection(vellumConnection)).toBe(true);
     // The provider column alone decides: a concrete provider is never the
     // managed route (platform auth always pairs with provider "vellum";
-    // migration 140 reconciles stored rows).
+    // DB migration 361 reconciles stored rows).
     expect(isVellumManagedConnection({ provider: "fireworks" })).toBe(false);
     expect(isVellumManagedConnection({ provider: "vellum" })).toBe(true);
   });

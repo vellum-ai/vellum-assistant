@@ -1544,5 +1544,12 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateAddDocumentWorkspacePath,
-  migrateNormalizeManagedConnectionRows,
+  {
+    name: "migrateNormalizeManagedConnectionRows",
+    run: migrateNormalizeManagedConnectionRows,
+    // The table-exists guard treats a missing table as nothing-to-do, so
+    // without this dependency a failed table creation followed by repair
+    // would permanently checkpoint the normalization as a no-op.
+    dependsOn: ["migrateCreateProviderConnections"],
+  },
 ];
