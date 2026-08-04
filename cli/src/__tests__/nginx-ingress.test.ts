@@ -764,6 +764,45 @@ describe("startRemoteWebIngress", () => {
     });
   });
 
+  test("starts the requested mode when the old edge exits during the stop", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistMissing();
+    const pid = mockRunningEdge(ws, { listenPort: 7845, includeWebApp: true });
+    // Alive for the initial running check, dead by the time the stop helper
+    // probes it: the race where the old edge exits on its own mid-switch.
+    let liveChecks = 0;
+    process.kill = mock((targetPid: number, signal?: string | number) => {
+      if (targetPid !== pid) return originalKill(targetPid, signal);
+      if (signal === 0 && ++liveChecks === 1) return true;
+      throw new Error("dead");
+    }) as unknown as typeof process.kill;
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+
+    expect(result).toEqual({
+      status: "started",
+      listenPort: 7845,
+      webDistDir: null,
+      version: NGINX_VERSION,
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
+    expect(conf).toBe(
+      buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7845 }),
+    );
+    expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7845,
+      includeWebApp: false,
+    });
+  });
+
   test("restarts a webhooks-only edge when SPA mode is requested", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();

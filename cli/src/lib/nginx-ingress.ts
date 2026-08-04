@@ -651,8 +651,13 @@ export async function startRemoteWebIngress(opts: {
   }
 
   // The running edge serves the other mode; restart it with the requested
-  // config. If the stop fails, the old edge is still the one serving.
-  if (running && !(await stopIngressNginx(opts.workspaceDir))) {
+  // config. A false stop can mean the old edge exited on its own after the
+  // check above, so recheck liveness and only bail when it is still serving.
+  if (
+    running &&
+    !(await stopIngressNginx(opts.workspaceDir)) &&
+    isIngressRunning(opts.workspaceDir)
+  ) {
     return { status: "already-running", listenPort };
   }
 
