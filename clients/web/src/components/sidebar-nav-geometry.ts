@@ -52,7 +52,7 @@ export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;
 
 /**
  * Text treatment for a section title (Pinned, Pinned Apps, a custom
- * group, the persistent Threads header, View As). `font-[350]!` sits below
+ * group, the persistent Conversations header, Group by). `font-[350]!` sits below
  * the `lighter` type-scale tier's own 400 weight, a step past the scale's
  * lightest named weight rather than a new tier of its own (DM Sans is a
  * variable font down to 300). The trailing `!` forces it over the
