@@ -64,13 +64,15 @@ function flattenMarkdownBlocks(summary: string): string {
   const lines = summary.replace(/\r\n?/g, "\n").split("\n");
   const kept: string[] = [];
   let openFence: string | null = null;
+  let openFenceContainer = "";
 
   for (const line of lines) {
-    // Container markers come off first so a fence nested in a blockquote or a
-    // list item is recognized the same way a top-level one is.
-    const stripped = stripBlockMarkers(line);
     if (openFence !== null) {
-      const close = CODE_FENCE_CLOSE_PATTERN.exec(stripped)?.[1];
+      const inside = stripFenceContainer(line, openFenceContainer);
+      const close =
+        inside === null
+          ? undefined
+          : CODE_FENCE_CLOSE_PATTERN.exec(inside)?.[1];
       if (
         close !== undefined &&
         close[0] === openFence[0] &&
@@ -81,9 +83,13 @@ function flattenMarkdownBlocks(summary: string): string {
       // A block that never closes swallows the rest of the summary.
       continue;
     }
+    // Container markers come off first so a fence nested in a blockquote or a
+    // list item is recognized the same way a top-level one is.
+    const stripped = stripBlockMarkers(line);
     const opener = matchFenceOpen(stripped);
     if (opener !== null) {
       openFence = opener;
+      openFenceContainer = line.slice(0, line.length - stripped.length);
       continue;
     }
     if (STRUCTURAL_ROW_PATTERN.test(stripped)) {
@@ -113,6 +119,31 @@ function matchFenceOpen(line: string): string | null {
     return null;
   }
   return fence;
+}
+
+/**
+ * The part of `line` that sits inside the container holding an open fence, or
+ * `null` when the line is not a continuation of that container and so cannot
+ * close the fence.
+ *
+ * `container` is the literal marker run that preceded the opening fence. A
+ * continuation line either repeats it verbatim, the way a blockquote does, or
+ * replaces it with indentation of the same width, the way a list item does.
+ * Only those two forms are accepted, so a line of code that happens to look
+ * like a bulleted fence is never mistaken for the closing delimiter.
+ */
+function stripFenceContainer(line: string, container: string): string | null {
+  if (container.length === 0) {
+    return line;
+  }
+  if (line.startsWith(container)) {
+    return line.slice(container.length);
+  }
+  const lead = line.slice(0, container.length);
+  if (lead.length === container.length && /^[ \t]+$/.test(lead)) {
+    return line.slice(container.length);
+  }
+  return null;
 }
 
 /** Peel leading block markers off a line, including nested ones like `> - x`. */

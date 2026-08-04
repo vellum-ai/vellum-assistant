@@ -194,6 +194,24 @@ describe("resolvePreview", () => {
     ).toBe("Do this first: Then check the log.");
   });
 
+  test("does not close a top-level fence on a bulleted fence line of code", () => {
+    const preview = resolvePreview(
+      "Build log",
+      "Head:\n```text\n- ```\nsecret payload\n```",
+    );
+    expect(preview).toBe("Head:");
+    expect(preview).not.toContain("secret payload");
+  });
+
+  test("does not close a list-nested fence on a bulleted fence line of code", () => {
+    const preview = resolvePreview(
+      "Runbook",
+      "Do this first:\n\n- ```text\n  - ```\n  secret payload\n  ```\n\nThen check the log.",
+    );
+    expect(preview).toBe("Do this first: Then check the log.");
+    expect(preview).not.toContain("secret payload");
+  });
+
   test("treats a backtick run with a backticked info string as prose", () => {
     expect(
       resolvePreview("Status check", "```code``` is the reported value"),
