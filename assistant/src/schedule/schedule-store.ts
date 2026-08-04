@@ -1,6 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import { Cron } from "croner";
 import {
   and,
@@ -24,7 +21,6 @@ import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspacePluginsDir } from "../util/platform.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   hasOwnerDeferProvenance,
@@ -32,6 +28,7 @@ import {
   LEGACY_DEFER_CREATED_BY,
   OWNER_DEFER_CREATED_BY,
 } from "./defer-provenance.js";
+import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -967,37 +964,17 @@ export async function disarmDeclaredSchedule(id: string): Promise<void> {
 }
 
 /**
- * True when the plugin declaration behind `sourceKey` is still present on
- * disk, in either declaration form: a flat `<name>.md` or a `<name>/`
- * directory under the plugin's schedules/ dir. A cheap existence probe only;
- * parsing and validity are the reconciler's business.
- */
-function declaredScheduleSourceExists(sourceKey: string): boolean {
-  const match = /^plugin:([^/]+)\/(.+)$/.exec(sourceKey);
-  if (!match) {
-    return false;
-  }
-  const schedulesDir = join(getWorkspacePluginsDir(), match[1]!, "schedules");
-  return (
-    existsSync(join(schedulesDir, `${match[2]!}.md`)) ||
-    existsSync(join(schedulesDir, match[2]!))
-  );
-}
-
-/**
  * The user's side of the enabled toggle.
  *
  * On an imperative row this is exactly the existing toggle
  * (`updateSchedule(id, { enabled })`) and `user_enabled` stays null. On a
- * plugin-sourced row it records the override in `user_enabled` and applies a
- * boolean to the effective `enabled` on the spot; null clears the override,
- * and the next reconcile pass restores the declaration's own value, which the
- * store does not persist separately. Engine-latched rows record the override
- * without being re-armed.
+ * plugin-sourced row it records the override in `user_enabled` and applies
+ * it to the effective `enabled` on the spot. Engine-latched rows record the
+ * override without being re-armed.
  */
 export async function setUserEnabled(
   id: string,
-  value: boolean | null,
+  value: boolean,
 ): Promise<ScheduleJob | null> {
   const db = getDb();
   const existing = db
@@ -1009,11 +986,6 @@ export async function setUserEnabled(
     return null;
   }
   if (existing.sourceKey == null) {
-    if (value == null) {
-      throw new UserError(
-        "Only plugin-managed schedules support clearing the enabled override",
-      );
-    }
     return updateSchedule(id, { enabled: value });
   }
 
@@ -1021,18 +993,14 @@ export async function setUserEnabled(
     userEnabled: value,
     updatedAt: Date.now(),
   };
-  if (
-    value != null &&
-    value !== existing.enabled &&
-    !isEngineLatched(existing)
-  ) {
+  if (value !== existing.enabled && !isEngineLatched(existing)) {
     // Enabling a row whose declaration has left the disk (plugin
-    // uninstalled, schedule file removed) would let it fire an orphaned run
-    // before the next reconcile pass disarms it again. The reconciler is the
-    // authority on the declaration set; this existence probe only closes
-    // that fire-before-next-sweep window. The override itself is still
-    // recorded, so it applies if the declaration returns.
-    if (value && !declaredScheduleSourceExists(existing.sourceKey)) {
+    // uninstalled or disabled, schedule file removed) would let it fire an
+    // orphaned run before the next reconcile pass disarms it again. The
+    // reconciler is the authority on the declaration set; this existence
+    // probe only closes that fire-before-next-sweep window. The override
+    // itself is still recorded, so it applies if the declaration returns.
+    if (value && !declarationExistsOnDisk(existing.sourceKey)) {
       logger.info(
         { scheduleId: id, sourceKey: existing.sourceKey },
         "Enable override recorded without re-arming: declaration missing on disk",

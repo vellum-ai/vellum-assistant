@@ -148,10 +148,10 @@ describe("parsePluginScheduleDeclarations", () => {
     expect(decl.scriptInvocation).toBeNull();
   });
 
-  test("parses a directory declaration with index.sh as an sh path invocation", () => {
+  test("parses a directory declaration with index.sh, honoring a direct shebang", () => {
     const pluginDir = makePlugin({
       "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
-      "backup/index.sh": "#!/bin/sh\necho backup\n",
+      "backup/index.sh": "#!/bin/bash\necho backup\n",
     });
     const { declarations, errors } = parsePluginScheduleDeclarations(
       pluginDir,
@@ -164,9 +164,41 @@ describe("parsePluginScheduleDeclarations", () => {
     // Explicit interpreter: platform installs do not restore exec bits, so a
     // bare path invocation would fail with exit 126.
     expect(decl.scriptInvocation).toBe(
-      `sh '${join(pluginDir, "schedules", "backup", "index.sh")}'`,
+      `'/bin/bash' '${join(pluginDir, "schedules", "backup", "index.sh")}'`,
     );
     expect(decl.scriptInvocation).not.toContain("echo backup");
+  });
+
+  test("honors an env-form shebang: interpreter plus one argument", () => {
+    const pluginDir = makePlugin({
+      "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
+      "backup/index.sh": "#!/usr/bin/env bash\necho backup\n",
+    });
+    const { declarations, errors } = parsePluginScheduleDeclarations(
+      pluginDir,
+      "p",
+    );
+    expect(errors).toEqual([]);
+    expect(declarations[0]!.scriptInvocation).toBe(
+      `'/usr/bin/env' 'bash' '${join(pluginDir, "schedules", "backup", "index.sh")}'`,
+    );
+  });
+
+  test("a shebang-less index.sh is parsed by sh, still via an explicit interpreter", () => {
+    const pluginDir = makePlugin({
+      "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
+      "backup/index.sh": "echo backup\n",
+    });
+    const { declarations, errors } = parsePluginScheduleDeclarations(
+      pluginDir,
+      "p",
+    );
+    expect(errors).toEqual([]);
+    // The exec-bit rationale holds for every form: the invocation never
+    // executes the script path directly.
+    expect(declarations[0]!.scriptInvocation).toBe(
+      `sh '${join(pluginDir, "schedules", "backup", "index.sh")}'`,
+    );
   });
 
   describe("fail-closed cases", () => {
@@ -328,7 +360,7 @@ describe("parsePluginScheduleDeclarations", () => {
     test("single-fire RRULE (COUNT=1) errors; larger counts stay valid", () => {
       const single = makePlugin({
         "once.md":
-          '---\nexpression: "DTSTART:20260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=1"\nexpression_syntax: rrule\n---\nHi.',
+          '---\nexpression: "DTSTART:21260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=1"\nexpression_syntax: rrule\n---\nHi.',
       });
       const parsed = parsePluginScheduleDeclarations(single, "p");
       expect(parsed.declarations).toEqual([]);
@@ -336,9 +368,22 @@ describe("parsePluginScheduleDeclarations", () => {
 
       const thrice = makePlugin({
         "thrice.md":
-          '---\nexpression: "DTSTART:20260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=3"\nexpression_syntax: rrule\n---\nHi.',
+          '---\nexpression: "DTSTART:21260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=3"\nexpression_syntax: rrule\n---\nHi.',
       });
       expect(parsePluginScheduleDeclarations(thrice, "p").errors).toEqual([]);
+    });
+
+    test("an RRULE whose UNTIL is already past errors", () => {
+      const pluginDir = makePlugin({
+        "expired.md":
+          '---\nexpression: "DTSTART:20200101T090000Z\\nRRULE:FREQ=DAILY;UNTIL=20200201T000000Z"\nexpression_syntax: rrule\n---\nHi.',
+      });
+      const { declarations, errors } = parsePluginScheduleDeclarations(
+        pluginDir,
+        "p",
+      );
+      expect(declarations).toEqual([]);
+      expect(errors[0]!.reason).toContain("no upcoming occurrences");
     });
 
     test("empty prompt body errors", () => {

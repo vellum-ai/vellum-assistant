@@ -6,7 +6,8 @@
  *   markdown body (the prompt message). Mode is `execute`.
  * - Directory: `<name>/` containing `config.json` (the schedule config) plus
  *   exactly one entrypoint, `index.md` (mode `execute`, body is the prompt)
- *   or `index.sh` (mode `script`, invoked via `sh` by absolute path).
+ *   or `index.sh` (mode `script`, invoked by absolute path via its shebang
+ *   interpreter, or `sh` when it has none).
  *
  * Ambiguity fails closed, never resolves by precedence: a basename declared
  * in both forms, a directory with zero or multiple entrypoints, or an
@@ -22,17 +23,20 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
 
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { walkPluginTree } from "../plugins/plugin-tree-walk.js";
 import {
   FRONTMATTER_REGEX,
   parseFrontmatterFields,
 } from "../skills/frontmatter.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 import {
+  computeNextRunAt,
   isSingleFireRRule,
   isValidScheduleExpression,
   validateRruleSetLines,
@@ -66,8 +70,9 @@ export interface ScheduleDeclaration {
   /** Prompt body for `execute` mode; null for `script` mode. */
   message: string | null;
   /**
-   * Shell invocation of the declaration's `index.sh`, as `sh '<absolute
-   * path>'` rather than the file's content. The explicit interpreter keeps
+   * Shell invocation of the declaration's `index.sh`: its shebang
+   * interpreter (or `sh` when it has none) followed by the quoted absolute
+   * path, rather than the file's content. The explicit interpreter keeps
    * the entrypoint runnable when an install path drops its exec bit. Null
    * for `execute` mode.
    */
@@ -98,6 +103,31 @@ function pluginScheduleSourceKey(
   scheduleName: string,
 ): string {
   return `plugin:${pluginName}/${scheduleName}`;
+}
+
+/**
+ * True when the declaration behind `sourceKey`
+ * (`plugin:<pluginName>/<scheduleName>`) is present on disk in either
+ * declaration form, a flat `<name>.md` or a `<name>/` directory, and the
+ * plugin is not disabled. The `.disabled` sentinel counts as absent: a
+ * disabled plugin's schedules must not be re-armable from a stale row even
+ * though its files are still on disk. A cheap existence probe only; parsing
+ * and validity are the reconciler's business.
+ */
+export function declarationExistsOnDisk(sourceKey: string): boolean {
+  const match = /^plugin:([^/]+)\/(.+)$/.exec(sourceKey);
+  if (!match) {
+    return false;
+  }
+  const [, pluginName, scheduleName] = match;
+  if (isPluginDisabled(pluginName!)) {
+    return false;
+  }
+  const schedulesDir = join(getWorkspacePluginsDir(), pluginName!, "schedules");
+  return (
+    existsSync(join(schedulesDir, `${scheduleName!}.md`)) ||
+    existsSync(join(schedulesDir, scheduleName!))
+  );
 }
 
 const scheduleConfigSchema = z
@@ -168,6 +198,24 @@ function parseScheduleConfig(
       }`,
     };
   }
+  if (resolved.syntax === "rrule") {
+    // A syntactically valid recurrence can still be exhausted (UNTIL in the
+    // past, COUNT consumed). Such a schedule has no firing left, so it fails
+    // closed here as a declaration error rather than surviving to throw on
+    // every reconcile upsert.
+    try {
+      computeNextRunAt({
+        syntax: resolved.syntax,
+        expression: resolved.expression,
+        timezone: fields.timezone ?? null,
+      });
+    } catch {
+      return {
+        error:
+          "expression has no upcoming occurrences: the recurrence has already ended",
+      };
+    }
+  }
 
   return {
     config: {
@@ -221,6 +269,30 @@ function collectDeclarationFiles(
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Shell invocation for a declaration's `index.sh`. The script always runs
+ * through an explicit interpreter rather than being executed directly, which
+ * keeps the entrypoint runnable when an install path drops its exec bit. A
+ * `#!` first line names that interpreter plus at most one argument (the
+ * kernel's own shebang contract, covering both `#!/bin/bash` and
+ * `#!/usr/bin/env bash`); a script without one is parsed by `sh`.
+ */
+function buildScriptInvocation(scriptPath: string, content: string): string {
+  const firstLine = content.split(/\r?\n/, 1)[0] ?? "";
+  if (firstLine.startsWith("#!")) {
+    const rest = firstLine.slice(2).trim();
+    const spaceIdx = rest.search(/\s/);
+    const interpreter = spaceIdx === -1 ? rest : rest.slice(0, spaceIdx);
+    const argument = spaceIdx === -1 ? "" : rest.slice(spaceIdx).trim();
+    if (interpreter) {
+      return [interpreter, ...(argument ? [argument] : []), scriptPath]
+        .map(shellQuote)
+        .join(" ");
+    }
+  }
+  return `sh ${shellQuote(scriptPath)}`;
 }
 
 const SUPPORTED_ENTRYPOINTS = ["index.md", "index.sh"];
@@ -330,7 +402,11 @@ function parseDirectoryDeclaration(
     }
     mode = "execute";
   } else {
-    scriptInvocation = `sh ${shellQuote(join(dirPath, "index.sh"))}`;
+    const scriptPath = join(dirPath, "index.sh");
+    scriptInvocation = buildScriptInvocation(
+      scriptPath,
+      readFileSync(scriptPath, "utf8"),
+    );
     mode = "script";
   }
 

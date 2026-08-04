@@ -1715,24 +1715,6 @@ describe("declared schedules", () => {
     expect(on!.nextRunAt).toBeGreaterThan(Date.now());
   });
 
-  test("clearing the override falls back to the declared value on the next pass", async () => {
-    const created = await upsertDeclaredSchedule(
-      SOURCE_KEY,
-      makeDefinition({ enabled: false }),
-    );
-    await setUserEnabled(created.id, true);
-    expect(getSchedule(created.id)!.enabled).toBe(true);
-
-    const cleared = await setUserEnabled(created.id, null);
-    expect(cleared!.userEnabled).toBeNull();
-
-    const afterPass = await upsertDeclaredSchedule(
-      SOURCE_KEY,
-      makeDefinition({ enabled: false }),
-    );
-    expect(afterPass.enabled).toBe(false);
-  });
-
   test("setUserEnabled on an imperative row behaves like the existing toggle", async () => {
     const imperative = await createSchedule({
       name: "Mine",
@@ -1750,10 +1732,6 @@ describe("declared schedules", () => {
     expect(on!.enabled).toBe(true);
     expect(on!.userEnabled).toBeNull();
     expect(on!.nextRunAt).toBeGreaterThan(Date.now());
-
-    await expect(setUserEnabled(imperative.id, null)).rejects.toThrow(
-      UserError,
-    );
   });
 
   test("upsert rewrites a moved script path without touching timing", async () => {
@@ -1817,6 +1795,20 @@ describe("declared schedules", () => {
 
     expect(result!.enabled).toBe(true);
     expect(result!.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  test("enabling a schedule of a disabled plugin records the override without re-arming", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    await setUserEnabled(created.id, false);
+    // The declaration file is still on disk; the `.disabled` sentinel alone
+    // must keep the enable probe from re-arming the row before the next
+    // reconcile pass.
+    writeFileSync(join(examplePluginDir(), ".disabled"), "");
+
+    const result = await setUserEnabled(created.id, true);
+
+    expect(result!.userEnabled).toBe(true);
+    expect(result!.enabled).toBe(false);
   });
 
   test("updateSchedule refuses sourced rows", async () => {
