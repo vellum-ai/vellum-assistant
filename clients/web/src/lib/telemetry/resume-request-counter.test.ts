@@ -7,6 +7,8 @@
  *   - requests a later-registered resume subscriber fires synchronously are
  *     counted, which is what installing at module scope buys;
  *   - only requests inside the window are counted;
+ *   - an emitted window reports the span it actually covered alongside the
+ *     span it was scheduled for;
  *   - endpoint labels come from the closed set, never a raw path;
  *   - a zero-count window still emits.
  *
@@ -115,6 +117,8 @@ describe("installResumeRequestCounter", () => {
 
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
     noteDaemonApiRequest("https://api.test/v1/assistants/a1/messages");
+    // A healthy timer fires at the end of the span it was scheduled for.
+    nowMs = 10_000;
     fireTimers();
 
     expect(emitClientPerfEventMock).toHaveBeenCalledTimes(1);
@@ -122,8 +126,26 @@ describe("installResumeRequestCounter", () => {
     expect(checkName).toBe("client_resume.request_count");
     expect(value).toBe(2);
     expect(detail.window_ms).toBe(10_000);
+    expect(typeof detail.observed_window_ms).toBe("number");
+    expect(detail.observed_window_ms).toBe(10_000);
     expect(detail.signal).toBe("visibility");
     expect(lastDelay).toBe(10_000);
+  });
+
+  test("reports the span a mildly thawed window actually covered", () => {
+    installResumeRequestCounter();
+    publish("app.resume", { signal: "visibility" });
+    noteDaemonApiRequest("https://api.test/v1/assistants/a1/conversations");
+
+    // A short stall thaws inside the guard's 2x threshold, so the sample is
+    // kept and its real age rides along for downstream filtering.
+    nowMs = 15_500;
+    fireTimers();
+
+    const { value, detail } = lastEmit();
+    expect(value).toBe(1);
+    expect(detail.window_ms).toBe(10_000);
+    expect(detail.observed_window_ms).toBe(15_500);
   });
 
   test("counts requests a later-registered resume handler fires synchronously", () => {

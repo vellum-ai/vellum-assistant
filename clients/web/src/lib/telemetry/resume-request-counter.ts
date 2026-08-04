@@ -13,7 +13,11 @@
  * suspension that fires no hidden edge at all: desktop system sleep with a
  * focused tab, and the WKWebView paths that suspend without a visibility
  * change. Their timers thaw far past the window's span, so the observed age of
- * the window is the only thing left that gives them away.
+ * the window is the only thing left that gives them away. A window either
+ * defence discards leaves no sample at all, so the series is a count of clean
+ * resumes rather than of every resume. `observed_window_ms` carries the span an
+ * emitted window actually covered, so a mildly thawed one that stayed under the
+ * guard is filterable downstream instead of riding on the `window_ms` label.
  *
  * {@link installResumeRequestCounter} runs from `lib/api-interceptors.ts`
  * module scope, before React renders, so the counter's `app.resume` handler is
@@ -129,8 +133,12 @@ function openWindow(signal: AppResumeSignal): void {
     // Fallback for a suspension that fired no `app.hidden`. A frozen timer
     // thaws long past the span it was scheduled for, so its counts cover the
     // whole suspension rather than the `window_ms` they would be labelled
-    // with. Discard the contaminated sample instead of emitting it.
-    if (performance.now() - closed.openedAt >= WINDOW_MS * 2) {
+    // with. Discard the contaminated sample instead of emitting it. The
+    // threshold is twice the span rather than once because a healthy timer
+    // fires at exactly `openedAt + WINDOW_MS`, so a 1x test would discard every
+    // healthy window; 2x only catches a genuine freeze.
+    const observedWindowMs = performance.now() - closed.openedAt;
+    if (observedWindowMs >= WINDOW_MS * 2) {
       return;
     }
     // A zero here is the signal we are looking for once the storm is fixed,
@@ -138,6 +146,7 @@ function openWindow(signal: AppResumeSignal): void {
     emitClientPerfEvent("client_resume.request_count", closed.total, {
       by_group: closed.byGroup,
       window_ms: WINDOW_MS,
+      observed_window_ms: Math.round(observedWindowMs),
       signal: closed.signal,
     });
   }, WINDOW_MS);
@@ -173,7 +182,9 @@ let installed = false;
 
 /**
  * Opens a counting window on each `app.resume` and drops it on `app.hidden`.
- * Idempotent.
+ * The latch makes a second call a no-op, so a second evaluation of the
+ * importing module (a dev-server module reload, say) cannot leave two handler
+ * pairs racing for the one module-level window.
  *
  * Called from `lib/api-interceptors.ts` module scope rather than from a React
  * effect, and the ordering is the whole point. React runs descendant effects

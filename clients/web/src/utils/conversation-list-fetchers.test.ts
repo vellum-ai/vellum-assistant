@@ -166,8 +166,9 @@ describe("conversation list drain diagnostics", () => {
       // Deduped: "c-1" appears on both page 0 and page 1.
       rows: 4,
       totalBytes: 350,
-      conversationType: null,
+      listKind: "foreground",
     });
+    expect(events[1]?.details).not.toHaveProperty("conversationType");
   });
 
   test("a failing page records a page error plus an error summary and rethrows", async () => {
@@ -198,9 +199,10 @@ describe("conversation list drain diagnostics", () => {
       offset: 50,
       status: 500,
       bytes: null,
-      conversationType: null,
-      archiveStatus: null,
+      listKind: "foreground",
     });
+    expect(events[1]?.details).not.toHaveProperty("conversationType");
+    expect(events[1]?.details).not.toHaveProperty("archiveStatus");
 
     expect(events[2]?.details).toMatchObject({
       outcome: "error",
@@ -222,6 +224,42 @@ describe("conversation list drain diagnostics", () => {
       (event) => event.kind === "conversation_list_page_fetch_error",
     );
     expect(errorEntry?.details).toMatchObject({ status: 500, bytes: 77 });
+  });
+
+  test("a failing page's error entry carries the list kind", async () => {
+    stubPages([{ ids: [], hasMore: false, status: 500 }]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listBackgroundConversations(ASSISTANT_ID).catch(() => undefined),
+    );
+
+    const errorEntry = events.find(
+      (event) => event.kind === "conversation_list_page_fetch_error",
+    );
+    expect(errorEntry?.details).toMatchObject({ listKind: "background" });
+    expect(errorEntry?.details).not.toHaveProperty("archiveStatus");
+  });
+
+  test("both archive-page drain summaries are labeled archived", async () => {
+    // The archive page drains the foreground and background buckets, so one
+    // call produces two summaries, and both are archive-page cost.
+    stubPages([
+      { ids: ["c-0"], hasMore: false, contentLength: "10" },
+      { ids: ["c-1"], hasMore: false, contentLength: "20" },
+    ]);
+
+    const { events } = await diagnosticsDuring(() =>
+      listArchivedConversations(ASSISTANT_ID),
+    );
+    const summaries = events.filter(
+      (event) => event.kind === "conversation_list_drain",
+    );
+
+    expect(summaries).toHaveLength(2);
+    for (const summary of summaries) {
+      expect(summary.details).toMatchObject({ listKind: "archived" });
+      expect(summary.details).not.toHaveProperty("conversationType");
+    }
   });
 
   test("page-0 entries carry the drain's list kind and a drain source", async () => {

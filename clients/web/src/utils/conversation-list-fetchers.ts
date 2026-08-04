@@ -128,9 +128,9 @@ type FetchConversationListOptions = {
 
 /**
  * Closed set of list labels carried by the `client_list.drain` watchdog event
- * and the `conversation_list_page_fetch` ring entry. One label per real caller,
- * so the archive page and the channel sections stay distinguishable from the
- * sidebar's foreground drain in both rails.
+ * and by every conversation-list ring entry. One label per real caller, so the
+ * archive page and the channel sections stay distinguishable from the sidebar's
+ * foreground drain in both rails.
  */
 type DrainListKind =
   "foreground" | "background" | "scheduled" | "archived" | "origin_channel";
@@ -185,6 +185,10 @@ type FirstPageFetchSource = "drain" | "first_page_refresh";
  * `listKind` and `source` together fingerprint the caller: without them every
  * bucket's first page reads as the same offset-0 request, and a slow entry is
  * not attributable to the path the user waited on.
+ *
+ * {@link hasAnyActiveConversation} deliberately records nothing: it is an
+ * offset-0 existence probe on the onboarding path, not a list the user is
+ * waiting to see, so keeping it out preserves the ring for real list fetches.
  */
 function recordFirstPageFetch(
   assistantId: string,
@@ -232,8 +236,7 @@ async function fetchConversationListPage(
       status: response.status,
       durationMs,
       bytes: readContentLength(response),
-      conversationType: conversationType ?? null,
-      archiveStatus: archiveStatus ?? null,
+      listKind: drainListKind(options),
     });
     const msg = extractErrorMessage(
       error,
@@ -276,7 +279,7 @@ async function fetchConversationList(
       totalMs,
       maxPageMs,
       totalBytes,
-      conversationType: options.conversationType ?? null,
+      listKind: drainListKind(options),
     });
     // The ring keeps `assistantId` for feedback bundles; the telemetry rail is
     // metadata only.

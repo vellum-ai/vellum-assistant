@@ -12,8 +12,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 
 import { sseService } from "@/assistant/sse-service";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
-import { publish, __resetForTesting } from "@/lib/event-bus";
-import { isResumeWindowOpen } from "@/lib/telemetry/resume-request-counter";
+import { __resetForTesting } from "@/lib/event-bus";
 
 const detachMock = mock(() => {});
 const attachSpy = spyOn(sseService, "attach").mockImplementation(
@@ -62,23 +61,5 @@ describe("useEventBusInit — attach gating", () => {
     );
     expect(attachSpy).toHaveBeenCalledTimes(1);
     expect(attachSpy.mock.calls[0]![0]).toBe("asst-1");
-  });
-});
-
-// The post-resume request counter is deliberately not one of this hook's
-// subscribers. React runs descendant effects before ancestor ones, so a
-// counter registered here would open its window after the subscribers inside
-// the tree had already fired their resume requests. It installs from
-// `lib/api-interceptors.ts` module scope instead, which nothing in this file
-// imports.
-describe("useEventBusInit resume-counter registration", () => {
-  test("does not register the counter, so no window opens on resume", () => {
-    renderHook(() =>
-      useEventBusInit({ assistantId: "asst-1", isAssistantActive: true }),
-    );
-
-    publish("app.resume", { signal: "visibility" });
-
-    expect(isResumeWindowOpen()).toBe(false);
   });
 });

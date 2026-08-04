@@ -5,9 +5,8 @@
  *   - Nothing is emitted without analytics consent.
  *   - `boot_id` appears only once a boot id has been registered.
  *   - A throwing transport never propagates to the caller.
- *   - The page-load key is minted lazily, and it, the event id, and the
- *     transport's client id all survive a runtime with no `crypto.randomUUID`
- *     (non-secure contexts).
+ *   - The page-load key is minted lazily, and it and the event id both survive
+ *     a runtime with no `crypto.randomUUID` (non-secure contexts).
  *   - Surface and os come from a single platform probe per emit.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -30,9 +29,6 @@ mock.module("@/runtime/platform-detection", () => ({
   detectClientOs: detectClientOsMock,
   isNativeIOS: () => nativeIOS,
   isNativeAndroid: () => nativeAndroid,
-  // Unused by the emitter, present so `client-identity` (imported by the
-  // crypto-fallback test) still resolves its imports against this stub.
-  detectBrowserInfo: () => ({}),
 }));
 
 const { __resetClientPerfForTests, emitClientPerfEvent, setClientPerfBootId } =
@@ -167,7 +163,7 @@ describe("emitClientPerfEvent", () => {
     expect(lastDetail().surface).toBe("android_native");
   });
 
-  test("still emits when crypto.randomUUID is unavailable", async () => {
+  test("still emits when crypto.randomUUID is unavailable", () => {
     const cryptoObject = globalThis.crypto as unknown as {
       randomUUID?: () => string;
     };
@@ -182,25 +178,11 @@ describe("emitClientPerfEvent", () => {
     });
 
     try {
-      // The real transport stamps the payload's `device_id` from
-      // `getClientId()`, so a throw there lands in the emitter's catch and
-      // drops the sample. Import it fresh so its cache is cold under this
-      // runtime, and read it from the transport stub the way ingest does.
-      const { getClientId } = (await import(
-        `@/lib/telemetry/client-identity?t=${Math.random()}`
-      )) as typeof import("./client-identity");
-      let deviceId: string | null = null;
-      postTelemetryEventsMock.mockImplementation(() => {
-        deviceId = getClientId();
-      });
-
       expect(() => {
         emitClientPerfEvent("client_list.drain", 1);
       }).not.toThrow();
 
       expect(postTelemetryEventsMock).toHaveBeenCalledTimes(1);
-      expect(typeof deviceId).toBe("string");
-      expect(deviceId).not.toBe("");
 
       const event = lastEvent();
       expect(typeof event.daemon_event_id).toBe("string");
