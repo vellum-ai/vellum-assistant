@@ -39,8 +39,8 @@ export interface SubagentNotificationLike {
  *
  * Entry lifecycle cleanup is owned elsewhere: cross-conversation clearing by
  * the conversation-change reset (`use-conversation-change-effects`' layout
- * effect and `switchConversation`), staleness by reconcile's generation guard,
- * and stuck-active settling by reconcile's orphan pass.
+ * effect and `navigateToConversation`), staleness by reconcile's generation
+ * guard, and stuck-active settling by reconcile's orphan pass.
  *
  * `parentConversationId` is the conversation being hydrated, it scopes the
  * Active-Subagents overlay. A notification's own `conversationId` is the

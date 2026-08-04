@@ -527,6 +527,11 @@ export async function runForkBasedRetrospective(
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
+      // Finalization consumes the window (cursor advance + prior-retro GC)
+      // on `invoked: true`, so an empty reply with no usable output must
+      // fail the wake and leave the window retryable instead of reading as
+      // a successful pass (LUM-3013).
+      requireUsableOutput: true,
       // The fork's title already reads "(Retrospective)", so an empty-body
       // "Conversation Woke" surface card on top of it would be noise. Suppress
       // it — clients should display the fork as a normal background conv.

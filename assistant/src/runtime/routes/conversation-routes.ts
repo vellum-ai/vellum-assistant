@@ -214,6 +214,21 @@ interface AlignedAttachments {
 }
 
 /**
+ * Metadata-only projection of an attachment for inline `contentBlocks`
+ * placement. The flat `attachments` array is the payload carrier: it keeps
+ * `data`/`thumbnailData`, and `/v1/assistants/:id/attachments/:id/content`
+ * serves stored bytes on demand. Attachment blocks are positional references
+ * the renderer resolves against that array by id, so inlining the base64 here
+ * would ship every image twice in the same response.
+ */
+function toAttachmentBlockRef(
+  a: RuntimeAttachmentMetadata,
+): RuntimeAttachmentMetadata {
+  const { data: _data, thumbnailData: _thumbnailData, ...meta } = a;
+  return meta;
+}
+
+/**
  * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
  * captured. When a file block carries an attachment id (user-message uploads —
  * on `source.attachmentId` for reference blocks, or the legacy top-level
@@ -337,6 +352,33 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   return (
     typeof value === "string" &&
     VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
+  );
+}
+
+/**
+ * Upper bound on the reported visible-app id. Sized so it can never clip an id
+ * the viewer can actually open: a plugin app id is `plugins~<plugin>~<app>`,
+ * and each of those two segments is a filesystem directory name bounded at 255
+ * bytes, so the longest openable id runs to ~519 characters. The cap exists
+ * only to bound what an arbitrary client can park on the conversation, not to
+ * validate the id — `resolveAppSource` decides what resolves.
+ */
+const VISIBLE_APP_ID_MAX_LENGTH = 640;
+
+/**
+ * True when the client-reported visible-app id is safe to carry as view state:
+ * non-empty, trimmed, bounded, and free of path separators or traversal.
+ * Mirrors the app store's own id validation so a malformed id is dropped at
+ * ingress instead of reaching a filesystem lookup.
+ */
+function isSafeVisibleAppId(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= VISIBLE_APP_ID_MAX_LENGTH &&
+    value === value.trim() &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !value.includes("..")
   );
 }
 
@@ -1066,9 +1108,10 @@ export function handleListMessages({
     const attachmentRefs = collectAttachmentRefs(m.content);
     const aligned = alignAttachments(attachmentRefs, msgAttachments);
     msgAttachments = aligned.attachments;
-    const attachmentBlocks = attachmentRefs.map(
-      (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
-    );
+    const attachmentBlocks = attachmentRefs.map((_ref, refIdx) => {
+      const att = aligned.refIndexToAttachment.get(refIdx);
+      return att ? toAttachmentBlockRef(att) : null;
+    });
     const rendered = renderHistoryContent(
       m.content,
       attachmentBlocks,
@@ -1145,7 +1188,10 @@ export function handleListMessages({
     );
     for (const att of msgAttachments) {
       if (!existingAttachmentIds.has(att.id)) {
-        contentBlocks.push({ type: "attachment", attachment: att });
+        contentBlocks.push({
+          type: "attachment",
+          attachment: toAttachmentBlockRef(att),
+        });
       }
     }
 
@@ -1414,6 +1460,7 @@ export async function handleSendMessage(
     hostUsername?: string;
     clientTimezone?: unknown;
     clientOs?: unknown;
+    visibleAppId?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
@@ -1540,6 +1587,16 @@ export async function handleSendMessage(
   const clientOs =
     typeof body.clientOs === "string"
       ? (parseClientOs(body.clientOs) ?? undefined)
+      : undefined;
+  // App the client has open on screen. Purely view state: it drives the
+  // per-turn `visible_app:` context line and nothing else, so an id that no
+  // longer resolves (deleted app) is dropped silently during assembly rather
+  // than failing the send. Traversal-shaped ids are rejected here so nothing
+  // downstream has to treat the value as a path segment.
+  const visibleAppId =
+    typeof body.visibleAppId === "string" &&
+    isSafeVisibleAppId(body.visibleAppId)
+      ? body.visibleAppId
       : undefined;
 
   // Reject non-string content values (numbers, objects, etc.)
@@ -1701,12 +1758,14 @@ export async function handleSendMessage(
         hostUsername: body.hostUsername,
         ...(clientTimezone ? { clientTimezone } : {}),
         ...(clientOs ? { clientOs } : {}),
+        ...(visibleAppId ? { visibleAppId } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
         ...(clientTimezone ? { clientTimezone } : {}),
         ...(clientOs ? { clientOs } : {}),
+        ...(visibleAppId ? { visibleAppId } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -3037,6 +3096,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+        ),
+      visibleAppId: z
+        .string()
+        .optional()
+        .describe(
+          'Id of the app the client currently has open on screen (app viewer or the app-editing split). Drives the per-turn `visible_app:` context line so the assistant can resolve "the app" to what the user is looking at. View state only: it never affects transport, routing, or tool gating, and is omitted whenever no app is in view.',
         ),
       clientMessageId: z
         .string()

@@ -961,6 +961,10 @@ export async function runAgentLoopImpl(
     // `client_os` into the in-flight turn.
     ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
 
+    // Freeze the app the client had in view at turn start, for the same
+    // anti-race reason as `client_os` above.
+    ctx.currentTurnVisibleAppId = ctx.visibleAppId ?? undefined;
+
     // Resolve the effective profile key for this turn and detect changes.
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
@@ -1741,6 +1745,15 @@ export async function runAgentLoopImpl(
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
+    // The app on screen is view state owned by the message that reported it,
+    // not durable conversation state: nothing tells the daemon when the user
+    // closes an app. Clear both copies at turn end so a later turn that brings
+    // no client transport (a scheduled wake, a background follow-up) cannot
+    // claim the user is looking at an app they may have closed. Every inbound
+    // send re-applies it from transport before its own turn, including the
+    // queue drain, so live turns are unaffected.
+    ctx.visibleAppId = undefined;
+    ctx.currentTurnVisibleAppId = undefined;
     // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
     // before drainQueue so queued/drained turns on a reused conversation can't
     // inherit stale in-task-run scope from the turn that just finished.

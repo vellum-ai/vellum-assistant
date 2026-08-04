@@ -386,29 +386,36 @@ export function useSendMessage({
         draftPlugins && (await resolveSupportsNewChatPlugins())
           ? [...draftPlugins].sort()
           : undefined;
-      const postResult = await postChatMessage(
-        requestAssistantId,
-        useServerMint ? null : requestConversationId,
-        content,
-        {
-          attachmentIds,
-          onboarding: onboardingContext ?? undefined,
-          clientMessageId,
-          inferenceProfile: inferenceProfileForSend,
-          enabledPlugins: enabledPluginsForSend,
-          hidden: isHidden,
-          bypassSecretCheck,
-          scripted,
-        },
-      );
-      if (
-        useServerMint &&
-        pendingDraftMintRef.current === requestConversationId
-      ) {
-        // Clear only if we still own the gate. A re-mount or scope flip
-        // during the await could have already replaced it with a newer
-        // draft's mint.
-        pendingDraftMintRef.current = null;
+      let postResult: Awaited<ReturnType<typeof postChatMessage>>;
+      try {
+        postResult = await postChatMessage(
+          requestAssistantId,
+          useServerMint ? null : requestConversationId,
+          content,
+          {
+            attachmentIds,
+            onboarding: onboardingContext ?? undefined,
+            clientMessageId,
+            inferenceProfile: inferenceProfileForSend,
+            enabledPlugins: enabledPluginsForSend,
+            hidden: isHidden,
+            bypassSecretCheck,
+            scripted,
+          },
+        );
+      } finally {
+        // Release the gate however the POST settles. A throw that skipped this
+        // would leave it held for the rest of the session, rejecting every
+        // later send for this draft with the "setting up your conversation"
+        // message. Clear only if we still own it: a re-mount or scope flip
+        // during the await could have already replaced it with a newer draft's
+        // mint.
+        if (
+          useServerMint &&
+          pendingDraftMintRef.current === requestConversationId
+        ) {
+          pendingDraftMintRef.current = null;
+        }
       }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {

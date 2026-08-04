@@ -640,10 +640,19 @@ expect.
 | Deep-link contract, both modes | `xcrun simctl openurl booted "vellum-assistant-dev://voice?mode=new"` — and `…?mode=resume`, and a `&prompt=` variant with `&`, `#`, and emoji to check the round trip |
 | Terminated-launch delivery | Force-quit the app in the simulator first, then `openurl`. This is the path that used to drop; a warm-open pass proves nothing about it |
 | Scheme isolation | Open a `vellum-assistant://` link with only the Dev build installed — nothing should happen |
-| Live Activity presentations | Start a session; the Lock Screen presentation renders in the simulator. Check both appearances (Features → Toggle Appearance) — the accent is an arbitrary avatar color over a wallpaper |
+| Live Activity presentations | Start a session, then background the app (`xcrun simctl launch booted com.apple.Preferences`; there is no home key). **The Dynamic Island renders in the simulator** on a Pro device: compact inline, and expanded on a touch and hold. Lock (⌘L) for the Lock Screen presentation, and check both appearances (Features → Toggle Appearance) since the accent is an arbitrary avatar color over a wallpaper |
+| The mic privacy indicator competing for the island | Also reproducible: a session holds the mic for the whole call, muted included, so the island is shared and iOS falls back to the minimal presentation. This is the one that decides whether the compact slots are ever seen during a call |
 | App Intents in the Shortcuts app | The three intents appear under the app with their icons and short titles |
 | Control Center control | Add "New voice conversation" from the gallery and tap it |
-| Extension builds | `cd clients/ios/App && xcodebuild -project App.xcodeproj -target "VoiceActivity Dev" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO` after `bun run ios:setup` |
+| Extension builds (compile check only) | `cd clients/ios/App && xcodebuild -project App.xcodeproj -target "VoiceActivity Dev" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO` after `bun run ios:setup`. **Never install a build made with that flag**; see below |
+
+**`CODE_SIGNING_ALLOWED=NO` silently kills Live Activities.** It is fine for a
+compile check and wrong for anything you install: it strips the signature *and*
+the entitlements, and an unsigned widget extension is never loaded, so the app
+runs, the session runs, and the activity simply has nothing to render it. There
+is no error anywhere, on either side, which makes it look like backgrounding
+stopped working. Simulator builds ad-hoc sign without a team, so the flag buys
+nothing there: build with signing on and install that.
 
 Note on local builds: a full-app local build has been failing while resolving the
 Capacitor SPM graph (`IONFilesystemLib`), which is environmental and pre-existing
@@ -660,7 +669,6 @@ The Simulator does not faithfully reproduce any of these.
 
 | What | Why the simulator can't |
 | --- | --- |
-| Dynamic Island (compact / expanded / minimal) | No island hardware; only the Lock Screen presentation renders |
 | Backgrounded and locked audio | The simulator does not suspend the web process the way real iOS does — this is exactly the measurement the missing spike needs |
 | Siri phrase matching | Needs the on-device App Intents index and real speech. Allow a few minutes after install before the phrases resolve |
 | Action Button | iPhone 15 Pro or newer. Settings → Action Button → Shortcut → Vellum → "New voice conversation" |

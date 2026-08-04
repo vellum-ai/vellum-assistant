@@ -147,6 +147,11 @@ Physical-device validation is still required for Android 16 promotion,
 notification permission changes, launcher shortcut ingestion, Quick Settings
 tile addition, lock-screen notification taps, and warm/cold voice launches.
 
+## Native notifications
+
+Android registers FCM on `vellum-alerts`, renders foreground pushes once, and handles background pushes and taps.
+FCM needs Play services and untracked `google-services.json`; failures retry on resume.
+
 ## Structure
 
 ```

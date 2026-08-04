@@ -415,7 +415,14 @@ export type ConversationSurfaceBlock = z.infer<
   typeof ConversationSurfaceBlockSchema
 >;
 
-/** A vellum attachment projection (no provider analog). */
+/**
+ * A vellum attachment projection (no provider analog).
+ *
+ * The inlined `attachment` is a metadata-only positional reference:
+ * `data`/`thumbnailData` are never populated here. The payload ships once,
+ * on the message's flat `attachments` array (joinable by `attachment.id`),
+ * or on demand via the attachment content endpoint.
+ */
 export const ConversationAttachmentBlockSchema = z.object({
   type: z.literal("attachment"),
   attachment: ConversationMessageAttachmentSchema,
@@ -491,10 +498,13 @@ export const ConversationMessageSchema = z.object({
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   /**
-   * Flat list of attachment metadata for the row. Not yet supersedable by
-   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * Flat list of attachment metadata for the row, and the sole carrier of
+   * inline attachment payloads: image rows populate `data`/`thumbnailData`
+   * here, while the `attachment` blocks in `contentBlocks` stay metadata-only
+   * references joinable by id. Not supersedable by `contentBlocks` for a
+   * second reason: `renderHistoryContent` emits an `attachment` content
    * block only for file-block refs with an inline placement, so orphan rows
-   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * (unmatched ids, count mismatch, no DB rows; see `alignAttachments`) ship
    * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
    * parity, so clients that migrate off the positional arrays don't drop those
    * chips.

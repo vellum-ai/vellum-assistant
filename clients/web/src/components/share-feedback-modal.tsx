@@ -177,6 +177,62 @@ function isAllowedFile(file: File): boolean {
   return false;
 }
 
+/** Strings at or past this length are candidates for base64 stripping. */
+const BULK_BASE64_MIN_CHARS = 8192;
+
+const DATA_URI_RE = /^data:([^;,]+);base64,/i;
+const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * Replace bulk binary payloads in a diagnostics snapshot with size markers.
+ *
+ * Message state carries image bytes in two shapes: `data:` URIs (derived
+ * preview URLs) and long raw base64 fields (inline attachment data). Neither
+ * is diagnostic signal, and a handful of photos otherwise dominates the
+ * bundle the platform accepts. Matching is content-based, not field-name
+ * based, so any future field that carries a data URI or a long pure-base64
+ * string is stripped too. Prose is never touched: text with spaces or
+ * punctuation fails the base64 test, and short strings (ids, hashes,
+ * tokens) are below the length floor. The marker keeps the mime type and
+ * length, which is the diagnostically useful part.
+ */
+export function stripBulkBase64(value: unknown, path = new WeakSet()): unknown {
+  if (typeof value === "string") {
+    const dataUri = DATA_URI_RE.exec(value);
+    if (dataUri) {
+      return `[stripped data URI ${dataUri[1]}, ${value.length} chars]`;
+    }
+    if (value.length >= BULK_BASE64_MIN_CHARS && PURE_BASE64_RE.test(value)) {
+      return `[stripped base64, ${value.length} chars]`;
+    }
+    return value;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  // `path` holds only the current recursion ancestry, so a true cycle is
+  // replaced while shared (sibling) references are traversed in full. The
+  // capture leans on shared references by construction: transcript items
+  // embed the same message objects `clientMessages` lists, and both copies
+  // must survive. JSON.stringify duplicates shared references the same way.
+  if (path.has(value)) {
+    return "[cyclic]";
+  }
+  path.add(value);
+  let out: unknown;
+  if (Array.isArray(value)) {
+    out = value.map((v) => stripBulkBase64(v, path));
+  } else {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = stripBulkBase64(v, path);
+    }
+    out = obj;
+  }
+  path.delete(value);
+  return out;
+}
+
 function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   const blockSize = 512;
   const dataBlocks = Math.ceil(data.length / blockSize);
@@ -403,8 +459,11 @@ async function buildClientLogsFile(
         reconciliationDiagnostics:
           debugApi.getReconciliationDiagnostics?.() ?? null,
       };
+      // Message state embeds attachment previews as data URIs and inline
+      // base64; strip them to size markers so the capture scales with the
+      // conversation's text, not its images.
       const triageBytes = new TextEncoder().encode(
-        JSON.stringify(triagePayload, null, 2),
+        JSON.stringify(stripBulkBase64(triagePayload), null, 2),
       );
       tarParts.push(
         buildTarEntry("web-chat-debug-api-triage.json", triageBytes),
@@ -451,8 +510,10 @@ async function buildClientLogsFile(
         })),
         events: eventsApi.getEvents(),
       };
+      // SSE event payloads can quote message deltas that embed inline
+      // base64; the same strip keeps this member text-sized.
       const triageBytes = new TextEncoder().encode(
-        JSON.stringify(triagePayload, null, 2),
+        JSON.stringify(stripBulkBase64(triagePayload), null, 2),
       );
       tarParts.push(buildTarEntry("web-sse-liveness-triage.json", triageBytes));
     }
