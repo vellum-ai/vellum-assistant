@@ -1,9 +1,31 @@
-@import "tailwindcss";
-@import "@vellumai/design-library/tokens.css";
+/* Storybook renders the same components the app does, so it loads the app's
+ * own global stylesheet rather than re-declaring a subset of it. This file
+ * used to `@import "tailwindcss"` and the design tokens directly, which is
+ * the first two lines of `src/index.css` and none of the ~1300 after them:
+ * app-global classes (`.skeleton-shimmer`), custom variants (`native-ios:`),
+ * and the theme blocks were all absent, so a component using any of them
+ * rendered differently in Storybook than in the app, silently and with no
+ * error to notice. A component preview that doesn't match the app is worse
+ * than no preview, because it gets believed.
+ *
+ * Add global styles to `src/index.css`, never here. This file carries only
+ * what the *canvas* needs and the app shell would otherwise provide.
+ */
+@import "../src/index.css";
+
+/* Tailwind v4 discovers source files through the Vite module graph, which
+ * under Storybook is rooted at `.storybook/` rather than `src/`. Without this,
+ * utilities used only inside components never get generated. */
 @source "../src/**/*.{ts,tsx}";
 
+/* The app paints its backdrop from the shell (and, on the iOS shell, from
+ * `index.css`'s native-platform rule). Storybook has no shell, so the canvas
+ * paints it here instead, which is what puts surfaces on the contrast they
+ * have in the app. The transition keeps the theme toggle from snapping.
+ * `color` comes from `index.css`'s own `body` rule. */
 body {
   background: var(--surface-base);
-  color: var(--content-default);
-  transition: background-color 200ms, color 200ms;
+  transition:
+    background-color 200ms,
+    color 200ms;
 }
