@@ -27,6 +27,7 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
+import type { InterfaceId } from "../channels/types.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -1038,6 +1039,21 @@ export interface SurfaceConversationContext {
   hostCuProxy?: HostCuProxy;
   /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
   hostAppControlProxy?: HostAppControlProxy;
+  /**
+   * The interface ID of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Propagated into ToolContext for browser
+   * backend selection, and read by the CU dispatch path to re-run the
+   * host-proxy attachment gate at tool-call time.
+   */
+  readonly transportInterface?: InterfaceId;
+  /**
+   * Re-run the host-proxy attachment gate and instantiate any proxy that now
+   * passes it. `Conversation` implements this; the resolver calls it when a
+   * `computer_use_*` call arrives on a conversation with no CU proxy, so a
+   * desktop that became reachable after the turn started can still service
+   * the call.
+   */
+  ensureHostProxiesForTurn?(sourceInterface: InterfaceId | undefined): void;
   /**
    * Setter that lets the resolver detach the conversation's app-control proxy
    * after `app_control_stop`. Disposes the existing proxy when transitioning
@@ -2938,6 +2954,54 @@ export function buildAppOpenPreview(
 }
 
 /**
+ * Explain why a `computer_use_*` call cannot be dispatched, after
+ * {@link ensureHostCuProxy} has already failed to attach one.
+ *
+ * "No desktop client connected" is only one of the reasons, and stating it
+ * unconditionally contradicts `assistant clients list` whenever a desktop is
+ * plainly connected. Only counts are reported — never client ids or actor
+ * principals — since this string reaches the model and the transcript.
+ */
+function describeComputerUseUnavailable(
+  ctx: SurfaceConversationContext,
+): string {
+  const capable = assistantEventHub.listClientsByCapability("host_cu");
+  if (capable.length === 0) {
+    return "Computer use is not available — no desktop client connected. Open the Vellum desktop app on the machine you want to control, then retry.";
+  }
+  return `Computer use is not available for this conversation — ${capable.length} desktop client(s) advertise host_cu, but none of them can be driven from this conversation's interface (${ctx.transportInterface ?? "unknown"}) as its current user.`;
+}
+
+/**
+ * Return the conversation's CU proxy, attaching one first when the
+ * conversation has none.
+ *
+ * Host-proxy attachment is decided at turn boundaries — message create and
+ * queue drain — and a `computer_use_*` call can arrive well after that
+ * decision was made. A conversation whose gate failed at turn start (the
+ * desktop had not connected yet, or the actor principal was not yet
+ * resolvable) therefore stayed permanently without a CU proxy for the rest
+ * of the turn, and every computer-use call reported "no desktop client
+ * connected" while `assistant clients list` showed the desktop connected and
+ * usable.
+ *
+ * Re-running the same gate here — `Conversation.ensureHostProxiesForTurn`,
+ * the very function both turn-boundary paths call — makes the decision track
+ * the live state instead of a stale snapshot. It grants nothing on its own:
+ * the gate is unchanged, and every dispatch below still binds to the calling
+ * actor through the same-actor checks.
+ */
+function ensureHostCuProxy(
+  ctx: SurfaceConversationContext,
+): HostCuProxy | undefined {
+  if (ctx.hostCuProxy) {
+    return ctx.hostCuProxy;
+  }
+  ctx.ensureHostProxiesForTurn?.(ctx.transportInterface);
+  return ctx.hostCuProxy;
+}
+
+/**
  * Resolve a proxy tool call that targets a UI surface.
  * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
@@ -2950,9 +3014,10 @@ export async function surfaceProxyResolver(
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
-    if (!ctx.hostCuProxy || !ctx.hostCuProxy.isAvailable()) {
+    const hostCuProxy = ensureHostCuProxy(ctx);
+    if (!hostCuProxy || !hostCuProxy.isAvailable()) {
       return {
-        content: "Computer use is not available — no desktop client connected.",
+        content: describeComputerUseUnavailable(ctx),
         isError: true,
       };
     }
@@ -2968,7 +3033,7 @@ export async function surfaceProxyResolver(
           : typeof input.answer === "string"
             ? input.answer
             : "Task complete";
-      ctx.hostCuProxy.reset();
+      hostCuProxy.reset();
       return { content: summary, isError: false };
     }
 
@@ -3041,12 +3106,12 @@ export async function surfaceProxyResolver(
       }
     }
 
-    ctx.hostCuProxy.recordAction(toolName, input, reasoning);
-    return ctx.hostCuProxy.request(
+    hostCuProxy.recordAction(toolName, input, reasoning);
+    return hostCuProxy.request(
       toolName,
       input,
       ctx.conversationId,
-      ctx.hostCuProxy.stepCount,
+      hostCuProxy.stepCount,
       reasoning,
       signal,
       targetClientId,
