@@ -419,9 +419,9 @@ export function subagentOutputContractText(
  *   turn, spawned as a fork with no role and therefore WRITE-CAPABLE: it runs
  *   as {@link DEFAULT_SUBAGENT_ROLE} on the parent's full tool surface, with
  *   side effects governed by the standard non-interactive permission path
- *   under the trust the foreground voice turn ran under. "Silent" is about
- *   sound, not blast radius: the run says nothing itself, and a later session
- *   turn speaks its answer.
+ *   under the trust the foreground voice turn ran under. It is silent only in
+ *   the sense that the run makes no sound of its own, a later session turn
+ *   speaking its answer; that is a statement about sound, not blast radius.
  *
  * This block is the single description of the modes. The persistence and
  * telemetry layers that carry the same values point here rather than restate
