@@ -399,6 +399,14 @@ export const ORDERING_ERROR_PATTERNS: readonly RegExp[] = [
   /tool_use_id.*without.*tool_result/i,
   /tool_result.*tool_use_id.*not found/i,
   /messages.*invalid.*order/i,
+  // OpenAI Responses API: a function_call_output whose call_id has no
+  // matching function_call earlier in the request ("No tool call found for
+  // function call output with call_id ...").
+  /no tool call found for function call output/i,
+  // OpenAI Chat Completions API: a tool message whose tool_call_id is not in
+  // a preceding assistant message's tool_calls ("Invalid parameter:
+  // 'tool_call_id' of '...' not found in 'tool_calls' of previous message").
+  /tool_call_id.*not found/i,
 ];
 
 /**
