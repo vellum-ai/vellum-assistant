@@ -1329,7 +1329,6 @@ export function ResearchOnboardingRoute() {
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}
-        assistantId={hatchedAssistantId}
       />,
     );
   }

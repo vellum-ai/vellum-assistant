@@ -1,19 +1,22 @@
 /**
- * Fetches the managed (Vellum) TTS voice catalog from the platform via the
- * daemon. Fetch-only: the platform is the single source of truth for offered
- * voices and the default, so until the catalog loads (or when it fails)
- * `voices` is empty and pickers render nothing rather than a stale local
- * list. No shipped daemon release predates the `tts/managed-voices` route
- * (it landed alongside the voice picker itself, before v0.10.11), so there
- * is no old-daemon population for a static fallback to serve.
+ * Fetches the managed (Vellum) TTS voice catalog from the platform. Fetch-only:
+ * the platform is the single source of truth for offered voices and the
+ * default, so until the catalog loads (or when it fails) `voices` is empty and
+ * pickers render nothing rather than a stale local list.
  *
- * Shared by the Settings → Voice card and the live-voice voice picker so both
- * offer the same voices and default, tracking the platform's rate card.
+ * Read from the platform directly rather than through the assistant's daemon.
+ * The catalog is caller-independent — the platform's own rate card decides it —
+ * so routing it through an assistant only meant no assistant, no voices. That
+ * gated onboarding's voice audition on the hatch, which is exactly when there
+ * is no assistant yet.
+ *
+ * Shared by the Settings → Voice card, the live-voice voice picker, and the
+ * onboarding face step so all three offer the same voices and default.
  */
 
 import { useQuery } from "@tanstack/react-query";
 
-import { ttsManagedvoicesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { managedSpeechTtsVoicesRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 /**
@@ -36,18 +39,21 @@ export interface UseManagedVoices {
   defaultModel: string | null;
   /** True once the platform catalog has loaded. */
   fetched: boolean;
+  /**
+   * A fetch is in flight. Distinct from `!fetched`, which is also true when the
+   * catalog is disabled or has failed — surfaces that show a pending state need
+   * to tell "still coming" from "not coming".
+   */
+  loading: boolean;
 }
 
 export function useManagedVoices(
-  assistantId: string | null,
   options: { enabled?: boolean } = {},
 ): UseManagedVoices {
   const isOrgReady = useIsOrgReady();
-  const { data } = useQuery({
-    ...ttsManagedvoicesGetOptions({
-      path: { assistant_id: assistantId ?? "" },
-    }),
-    enabled: isOrgReady && !!assistantId && (options.enabled ?? true),
+  const { data, isLoading } = useQuery({
+    ...managedSpeechTtsVoicesRetrieveOptions(),
+    enabled: isOrgReady && (options.enabled ?? true),
     staleTime: 60_000,
     retry: false,
   });
@@ -56,5 +62,6 @@ export function useManagedVoices(
     voices: data?.voices ?? [],
     defaultModel: data?.defaultModel ?? null,
     fetched: !!data,
+    loading: isLoading,
   };
 }

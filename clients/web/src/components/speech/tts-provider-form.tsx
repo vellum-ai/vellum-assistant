@@ -155,14 +155,14 @@ export function TtsProviderForm({
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Managed (Vellum) voices, fetched live from the platform via the daemon so
-  // the offered list and default track the platform's rate card. Empty until
-  // loaded — the picker renders only from platform data.
+  // Managed (Vellum) voices, fetched live from the platform so the offered list
+  // and default track the platform's rate card. Empty until loaded — the picker
+  // renders only from platform data.
   const {
     voices: managedVoices,
     defaultModel: defaultManagedVoice,
     fetched,
-  } = useManagedVoices(assistantId, { enabled: draftProvider === "vellum" });
+  } = useManagedVoices({ enabled: draftProvider === "vellum" });
 
   // Managed voice selection. Server value comes from daemon config; absent
   // means the platform default voice.

@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Dices,
+  Loader2,
   Pencil,
   Square,
   Volume2,
@@ -55,12 +56,6 @@ interface GiveMeAFaceScreenProps {
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
-  /**
-   * The background-hatched assistant, whose daemon serves the managed voice
-   * catalog the audition previews from. Null until the hatch lands, which
-   * leaves the audition disabled.
-   */
-  assistantId?: string | null;
 }
 
 /** Prefill names, cycled across the pool and swapped in as you change avatars. */
@@ -86,7 +81,6 @@ export function GiveMeAFaceScreen({
   onContinue,
   onBack,
   onForward,
-  assistantId = null,
 }: GiveMeAFaceScreenProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
@@ -154,10 +148,10 @@ export function GiveMeAFaceScreen({
 
   // Each avatar has its own voice (see onboarding-avatar-voices), auditioned
   // from the catalog's hosted sample. Samples are static provider-side assets,
-  // so an audition costs no synthesis and no credits. The catalog is served
-  // through the hatched assistant's daemon, so the button waits on the hatch
-  // rather than on a request of its own.
-  const { voices } = useManagedVoices(assistantId);
+  // so an audition costs no synthesis and no credits. The catalog comes
+  // straight from the platform, so the audition is live as soon as this step
+  // is — it does not wait on the assistant hatching in the background.
+  const { voices, loading: voicesLoading } = useManagedVoices();
   const centeredVoice = useMemo(
     () => (centerChar == null ? null : resolveAvatarVoice(centerChar, voices)),
     [centerChar, voices],
@@ -169,6 +163,9 @@ export function GiveMeAFaceScreen({
   } = useVoiceSamplePreview();
   const auditioning =
     centeredVoice !== null && previewingModel === centeredVoice.model;
+  // Disabled-and-still-coming, as opposed to disabled because the catalog
+  // failed — those want different affordances.
+  const voicePending = !centeredVoice && voicesLoading;
 
   function toggleVoice() {
     if (!centeredVoice) {
@@ -368,7 +365,9 @@ export function GiveMeAFaceScreen({
 
             {/* The only place voice is surfaced in onboarding. It auditions the
                 CENTERED avatar's own voice, so cycling the carousel is also how
-                you shop for a voice. */}
+                you shop for a voice. While the catalog is in flight the button
+                spins rather than sitting dead: a slow fetch has to read as
+                "coming", not "broken". */}
             <button
               type="button"
               onClick={toggleVoice}
@@ -377,9 +376,12 @@ export function GiveMeAFaceScreen({
               aria-label={
                 auditioning ? "Stop the voice sample" : "Hear my voice"
               }
-              className="flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default disabled:opacity-40"
+              aria-busy={voicePending}
+              className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
             >
-              {auditioning ? (
+              {voicePending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : auditioning ? (
                 <Square className="h-4 w-4" />
               ) : (
                 <Volume2 className="h-4 w-4" />

@@ -81,7 +81,10 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     initialData: daemonConfigData,
   }),
   configGetQueryKey: () => ["config-get-test"],
-  ttsManagedvoicesGetOptions: () => ({
+}));
+// The managed-voice catalog comes from the platform, not the daemon.
+mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
+  managedSpeechTtsVoicesRetrieveOptions: () => ({
     queryKey: ["tts-managed-voices-test"],
     queryFn: () => Promise.resolve(managedVoicesData),
     initialData: managedVoicesData,
