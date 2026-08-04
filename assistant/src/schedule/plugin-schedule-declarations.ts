@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
+import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { walkPluginTree } from "../plugins/plugin-tree-walk.js";
 import {
   FRONTMATTER_REGEX,
@@ -125,14 +126,18 @@ function pluginScheduleSourceKey(
 
 /**
  * True when the declaration behind `sourceKey`
- * (`plugin:<pluginName>/<scheduleName>`) is present on disk in either
- * declaration form, a flat `<name>.md` or a `<name>/` directory, and the
- * plugin is not disabled. The `.disabled` sentinel counts as absent: a
- * disabled plugin's schedules must not be re-armable from a stale row even
- * though its files are still on disk. A cheap existence probe only; parsing
- * and validity are the reconciler's business.
+ * (`plugin:<pluginName>/<scheduleName>`) is available to arm a row: it is
+ * present on disk in either declaration form (a flat `<name>.md` or a
+ * `<name>/` directory), the plugin is not disabled, and the plugin's
+ * manifest parses. Each of the latter two counts as absent for the same
+ * reason: the reconciler disarms the schedules of a disabled plugin and of
+ * one whose `package.json` the loader rejects, so neither may be re-armed
+ * from a stale row while its files sit on disk. Presence and sourceability
+ * only; the declaration's own validity is the reconciler's business.
  */
-export function declarationExistsOnDisk(sourceKey: string): boolean {
+export async function declarationExistsOnDisk(
+  sourceKey: string,
+): Promise<boolean> {
   const match = /^plugin:([^/]+)\/(.+)$/.exec(sourceKey);
   if (!match) {
     return false;
@@ -141,11 +146,15 @@ export function declarationExistsOnDisk(sourceKey: string): boolean {
   if (isPluginDisabled(pluginName!)) {
     return false;
   }
-  const schedulesDir = join(getWorkspacePluginsDir(), pluginName!, "schedules");
-  return (
+  const pluginDir = join(getWorkspacePluginsDir(), pluginName!);
+  const schedulesDir = join(pluginDir, "schedules");
+  const declared =
     existsSync(join(schedulesDir, `${scheduleName!}.md`)) ||
-    existsSync(join(schedulesDir, scheduleName!))
-  );
+    existsSync(join(schedulesDir, scheduleName!));
+  if (!declared) {
+    return false;
+  }
+  return (await parsePluginManifest(pluginDir, { quiet: true })) !== undefined;
 }
 
 const scheduleConfigSchema = z

@@ -1521,9 +1521,9 @@ describe("declared schedules", () => {
   const SOURCE_KEY = "plugin:example/daily";
   const examplePluginDir = () => join(getWorkspacePluginsDir(), "example");
 
-  // setUserEnabled's enable path probes the declaration's on-disk presence,
-  // so the suite keeps a flat-file declaration in place for SOURCE_KEY;
-  // ghost-row tests remove it.
+  // setUserEnabled's enable path probes the declaration's on-disk presence
+  // and its plugin's manifest, so the suite keeps a flat-file declaration and
+  // a valid package.json in place for SOURCE_KEY; ghost-row tests remove them.
   beforeEach(() => {
     getDb().run("DELETE FROM cron_runs");
     getDb().run("DELETE FROM cron_jobs");
@@ -1531,6 +1531,10 @@ describe("declared schedules", () => {
     const schedulesDir = join(examplePluginDir(), "schedules");
     mkdirSync(schedulesDir, { recursive: true });
     writeFileSync(join(schedulesDir, "daily.md"), "declaration");
+    writeFileSync(
+      join(examplePluginDir(), "package.json"),
+      JSON.stringify({ name: "example", version: "1.0.0" }),
+    );
   });
 
   function makeDefinition(
@@ -1804,6 +1808,19 @@ describe("declared schedules", () => {
     // must keep the enable probe from re-arming the row before the next
     // reconcile pass.
     writeFileSync(join(examplePluginDir(), ".disabled"), "");
+
+    const result = await setUserEnabled(created.id, true);
+
+    expect(result!.userEnabled).toBe(true);
+    expect(result!.enabled).toBe(false);
+  });
+
+  test("enabling a schedule whose plugin manifest is broken records the override without re-arming", async () => {
+    const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
+    await setUserEnabled(created.id, false);
+    // The reconciler disarms the schedules of a plugin the loader refuses to
+    // bring up, so a toggle must not re-arm one before the next sweep.
+    writeFileSync(join(examplePluginDir(), "package.json"), "{not json");
 
     const result = await setUserEnabled(created.id, true);
 

@@ -1377,8 +1377,9 @@ describe("PATCH /schedules/:id — description", () => {
 describe("plugin-sourced schedules over routes", () => {
   const SOURCE_KEY = "plugin:example-plugin/daily-digest";
 
-  // The store's enable path probes the declaration's on-disk presence before
-  // re-arming, so the suite keeps a flat-file declaration in place.
+  // The store's enable path probes the declaration's on-disk presence and its
+  // plugin's manifest before re-arming, so the suite keeps a flat-file
+  // declaration and a valid package.json in place.
   beforeEach(() => {
     clearTables();
     const pluginDir = join(getWorkspacePluginsDir(), "example-plugin");
@@ -1386,6 +1387,10 @@ describe("plugin-sourced schedules over routes", () => {
     const schedulesDir = join(pluginDir, "schedules");
     mkdirSync(schedulesDir, { recursive: true });
     writeFileSync(join(schedulesDir, "daily-digest.md"), "declaration");
+    writeFileSync(
+      join(pluginDir, "package.json"),
+      JSON.stringify({ name: "example-plugin", version: "1.0.0" }),
+    );
   });
 
   function seedSourcedSchedule(
