@@ -1707,6 +1707,34 @@ describe("api-interceptors / post-resume request counting", () => {
     expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
   });
 
+  test("notes daemon routes issued through the platform client", async () => {
+    // `subscribeEvents` opens the SSE stream through the platform client, so
+    // the reopen in a resume burst is only counted if the platform chain
+    // counts its daemon-bound paths.
+    const url = `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/events/`;
+    await requestInterceptor(new Request(url));
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+    expect(noteDaemonApiRequestMock.mock.calls.at(-1)?.[0]).toBe(url);
+  });
+
+  test("notes a rewritten platform request exactly once", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const output = await requestInterceptor(
+      new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`),
+    );
+    expect(new URL(output.url).origin).toBe(INGRESS);
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not note platform-owned assistant routes", async () => {
+    await requestInterceptor(
+      new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/maintenance-mode/`,
+      ),
+    );
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
   test("a throwing counter leaves the request path intact", async () => {
     noteDaemonApiRequestImpl = () => {
       throw new Error("counter down");

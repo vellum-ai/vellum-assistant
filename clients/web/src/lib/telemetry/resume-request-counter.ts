@@ -9,10 +9,9 @@
  * Metadata only. Endpoint labels come from a closed set; raw pathnames and
  * URLs are never stored or emitted.
  *
- * The `client_resume.` check_name prefix is owned by the boot-telemetry PR
- * (#40029), which has not merged yet. Until it does, this module's detail bags
- * carry `page_load_id` where #40029's carry `boot_id`; downstream joins are
- * per check_name, so they are unaffected either way.
+ * Events in this family carry `page_load_id`, minted per page load by
+ * client-perf. Boot telemetry carries its own `boot_id`, and the two ids
+ * converge once a caller registers the boot id via `setClientPerfBootId`.
  */
 
 import { subscribe, type AppResumeSignal } from "@/lib/event-bus";
