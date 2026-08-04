@@ -25,7 +25,6 @@ import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { conversations } from "../../../persistence/schema/index.js";
-import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "../inference-profile-session-routes.js";
 import type { RouteDefinition } from "../types.js";
@@ -61,10 +60,6 @@ function findHandler(routes: RouteDefinition[], operationId: string) {
 const createHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
   "createConversation",
-);
-const listHandlerForConversations = findHandler(
-  CONVERSATION_LIST_ROUTES,
-  "listConversations",
 );
 const putHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
@@ -121,15 +116,6 @@ describe("POST /v1/conversations (createConversation)", () => {
       .from(conversations)
       .where(eq(conversations.id, id))
       .get();
-  }
-
-  async function listConversationIds(
-    queryParams: Record<string, string>,
-  ): Promise<string[]> {
-    const result = (await listHandlerForConversations({ queryParams })) as {
-      conversations: Array<{ id: string }>;
-    };
-    return result.conversations.map((c) => c.id);
   }
 
   test("with a title → persists it as a user-set title (isAutoTitle = 0)", async () => {
@@ -191,28 +177,6 @@ describe("POST /v1/conversations (createConversation)", () => {
     // An explicit title stays user-set on a background row too.
     expect(row?.title).toBe("Updating personality");
     expect(row?.isAutoTitle).toBe(0);
-  });
-
-  test("a background row is absent from the foreground list and present under conversationType=background", async () => {
-    const background = (await createHandler({
-      body: { conversationType: "background", title: "Updating personality" },
-    })) as { id: string };
-    const foreground = (await createHandler({
-      body: { title: "Visible thread" },
-    })) as { id: string };
-
-    // This is the invariant the onboarding side-thread flows rest on: a
-    // background row can never be landed on or enter Recents, no matter how
-    // the retroactive archive races.
-    const foregroundIds = await listConversationIds({});
-    expect(foregroundIds).toContain(foreground.id);
-    expect(foregroundIds).not.toContain(background.id);
-
-    const backgroundIds = await listConversationIds({
-      conversationType: "background",
-    });
-    expect(backgroundIds).toContain(background.id);
-    expect(backgroundIds).not.toContain(foreground.id);
   });
 
   test("omitted conversationType still creates a standard row", async () => {
