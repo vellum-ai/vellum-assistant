@@ -341,12 +341,6 @@ export async function registerForRemotePush(
     return;
   }
   const isAndroid = Capacitor.getPlatform() === "android";
-  if (
-    isAndroid &&
-    !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
-  ) {
-    return;
-  }
   currentAssistantId = assistantId;
 
   // If iOS already handed us a token for this device under a different
@@ -360,6 +354,12 @@ export async function registerForRemotePush(
     // `@capacitor/push-notifications` is a plugin Proxy — destructure inline.
     const { PushNotifications } = await import("@capacitor/push-notifications");
     await ensureListeners();
+    if (
+      isAndroid &&
+      !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
+    ) {
+      return;
+    }
     await ensureAndroidAlertsChannel();
     const permission = await PushNotifications.requestPermissions();
     if (permission.receive !== "granted") {

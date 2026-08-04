@@ -306,12 +306,13 @@ describe("registerForRemotePush", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("skips registration on Android shells without the guarded plugin", async () => {
+  test("installs listeners but skips registration on Android shells without the guarded plugin", async () => {
     platform = "android";
     androidPushRegistrationAvailable = false;
 
     await registerForRemotePush("assistant-1");
 
+    expect(addListenerMock).toHaveBeenCalledTimes(4);
     expect(requestPermissionsMock).not.toHaveBeenCalled();
     expect(ensureAndroidAlertsChannelMock).not.toHaveBeenCalled();
     expect(registerMock).not.toHaveBeenCalled();
