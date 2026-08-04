@@ -2504,8 +2504,18 @@ function recordAnsweredQuestionOnPersistedMessage(
   answeredQuestion: AnsweredQuestion,
 ): void {
   stampToolUseBlockEarly(state, toolUseId, "answered question", (rec) => {
-    const existing = rec._answeredQuestion as AnsweredQuestion | undefined;
-    if (existing?.requestId === answeredQuestion.requestId) {
+    // Narrow the persisted marker rather than casting it: the row is data read
+    // back from the database, so its shape is an assumption until checked. Any
+    // value that is not a record with a string `requestId` is treated as absent
+    // and overwritten, which is the safe direction for a dedup check.
+    const existing: unknown = rec._answeredQuestion;
+    const existingRequestId =
+      typeof existing === "object" &&
+      existing !== null &&
+      typeof (existing as { requestId?: unknown }).requestId === "string"
+        ? (existing as { requestId: string }).requestId
+        : undefined;
+    if (existingRequestId === answeredQuestion.requestId) {
       return false;
     }
     rec._answeredQuestion = answeredQuestion;

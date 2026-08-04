@@ -28,6 +28,28 @@ const submitCalls: Array<{
 /** Runs inside the in-flight POST, to simulate SSE landing mid-request. */
 let onSubmit: (() => void) | undefined;
 
+/**
+ * Per-requestId gate. A test that registers one holds that request open until
+ * it resolves the returned deferred, so two submissions can be genuinely
+ * in flight at once.
+ */
+const deferred = new Map<
+  string,
+  { promise: Promise<void>; release: () => void }
+>();
+
+function holdRequest(requestId: string): void {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = () => resolve();
+  });
+  deferred.set(requestId, { promise, release });
+}
+
+function releaseRequest(requestId: string): void {
+  deferred.get(requestId)?.release();
+}
+
 mock.module("@/domains/chat/api/interactions", () => ({
   submitQuestionResponse: async (
     _assistantId: string,
@@ -36,9 +58,16 @@ mock.module("@/domains/chat/api/interactions", () => ({
   ): Promise<SubmitSecretResponseResult> => {
     submitCalls.push({ requestId, submission });
     onSubmit?.();
-    return submitQuestionResult;
+    const gate = deferred.get(requestId);
+    if (gate) {
+      await gate.promise;
+    }
+    return resultByRequestId.get(requestId) ?? submitQuestionResult;
   },
 }));
+
+/** Per-requestId results, for tests where two requests resolve differently. */
+const resultByRequestId = new Map<string, SubmitSecretResponseResult>();
 
 const capturedErrors: Array<{ context?: string }> = [];
 mock.module("@/lib/sentry/capture-error", () => ({
@@ -84,6 +113,8 @@ beforeEach(() => {
   submitCalls.length = 0;
   capturedErrors.length = 0;
   onSubmit = undefined;
+  deferred.clear();
+  resultByRequestId.clear();
   submitQuestionResult = { ok: true };
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().setError(null);
@@ -152,6 +183,85 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
     // The stale 404 must retire only the prompt it was answering.
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "q-new",
+    );
+  });
+});
+
+describe("handleQuestionResponse: a late 404 must not rewrite newer state", () => {
+  // `isSubmittingQuestion` and the session error are shared, not per-request.
+  // The daemon supersedes A with B, which is why A 404s, and `showQuestion`
+  // clears `isSubmittingQuestion` when B arrives, so B can already be in flight
+  // when A's response lands.
+  it("leaves the newer prompt's submitting state intact", async () => {
+    holdRequest("q-a");
+    resultByRequestId.set("q-a", {
+      ok: false,
+      status: 404,
+      error: "No pending question interaction found for this requestId",
+    });
+    resultByRequestId.set("q-b", { ok: true });
+    holdRequest("q-b");
+
+    seedPendingQuestion("q-a");
+    const answerA = handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "alice_work" },
+    ]);
+
+    // B supersedes A. `showQuestion` resets the submitting flag, so the user
+    // can answer B while A is still open.
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q-b", entries: [] });
+    const answerB = handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "alice_work" },
+    ]);
+    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+
+    // Now A's 404 lands, after B is already in flight.
+    releaseRequest("q-a");
+    await answerA;
+
+    // B still owns the submitting flag, so its double-submit guard holds.
+    expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "q-b",
+    );
+
+    releaseRequest("q-b");
+    await answerB;
+    expect(submitCalls.map((c) => c.requestId)).toEqual(["q-a", "q-b"]);
+  });
+
+  it("leaves the newer prompt's error intact", async () => {
+    holdRequest("q-a");
+    resultByRequestId.set("q-a", { ok: false, status: 404, error: "gone" });
+    resultByRequestId.set("q-b", {
+      ok: false,
+      status: 500,
+      error: "Internal error",
+    });
+
+    seedPendingQuestion("q-a");
+    const answerA = handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "alice_work" },
+    ]);
+
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q-b", entries: [] });
+    await handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "alice_work" },
+    ]);
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Internal error",
+    );
+
+    releaseRequest("q-a");
+    await answerA;
+
+    // A's stale cleanup must not erase the failure the user needs to see.
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Internal error",
     );
   });
 });

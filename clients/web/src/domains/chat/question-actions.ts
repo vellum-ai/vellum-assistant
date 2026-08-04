@@ -31,8 +31,21 @@ import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
  * stranded. Mirrors `clearStaleConfirmation` in `confirmation-actions.ts`,
  * minus its attention-key release: an attention key is only ever recorded for a
  * pending secret or confirmation, never a question.
+ *
+ * Bails entirely when a newer prompt has taken over. `isSubmittingQuestion` and
+ * the session error are shared, not per-request, so a late 404 must not touch
+ * them once they belong to someone else. That handoff is the norm rather than a
+ * rare race: the daemon supersedes this prompt with the newer one, which is
+ * *why* this request 404s, and `showQuestion` clears `isSubmittingQuestion` on
+ * arrival, so the newer prompt can already be in flight by the time the older
+ * response lands. Clearing it there would reopen the double-submit guard and
+ * erase a real failure the user needs to see.
  */
 function clearStaleQuestion(requestId: string): void {
+  const { pendingQuestion } = useInteractionStore.getState();
+  if (pendingQuestion && pendingQuestion.requestId !== requestId) {
+    return;
+  }
   useInteractionStore.getState().dismissQuestionIfMatches(requestId);
   useInteractionStore.getState().submitQuestionEnd();
   useChatSessionStore.getState().setError(null);
