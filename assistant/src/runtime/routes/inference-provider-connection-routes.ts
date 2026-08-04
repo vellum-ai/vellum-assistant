@@ -455,21 +455,10 @@ async function handleUpdateConnection({
       `Invalid label: must be a non-blank string or null`,
     );
   }
-  // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
-  // `seedCanonicalConnections` would revert any other value on next restart;
-  // reject the write here so the surprise loop never happens. Label remains
-  // user-editable (the boot upsert leaves it alone). Gated on the row for the
-  // same reason as deletion: a user-owned row under the canonical name is not
-  // re-upserted by boot seeding, so its own auth stays editable.
-  if (
-    MANAGED_CONNECTION_NAMES.has(name) &&
-    isVellumManagedConnection(existing) &&
-    authResult.data.type !== "platform"
-  ) {
-    throw new BadRequestError(
-      `Cannot change auth on managed connection "${name}". Auth is locked to platform.`,
-    );
-  }
+  // Managed connections need no dedicated auth lock: the provider is
+  // immutable on PATCH, and the pairing guard above rejects any auth change
+  // away from platform on a vellum-provider row. Label remains user-editable
+  // (the boot upsert leaves it alone).
 
   const customFields = await parseCustomProviderFields(body, existing.provider);
 
