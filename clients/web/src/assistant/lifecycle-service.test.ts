@@ -122,6 +122,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: getSelectedAssistantMock,
   hasAssistants: () => false,
   isLocalAssistant: () => false,
+  isPairedAssistant: () => false,
   isLocalClient: isLocalClientMock,
   isPlatformAssistant: () => false,
   isPlatformDisabled: () => false,
