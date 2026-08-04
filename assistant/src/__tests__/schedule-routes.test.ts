@@ -62,7 +62,9 @@ import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
+  type DeclaredScheduleDefinition,
   listSchedules,
+  upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
 
 await initializeDb();
@@ -1364,6 +1366,133 @@ describe("PATCH /schedules/:id — description", () => {
         body: { expression: "not a schedule" },
       }),
     ).rejects.toThrow(BadRequestError);
+  });
+});
+
+// ── Plugin-sourced schedules ──────────────────────────────────────────────
+
+describe("plugin-sourced schedules over routes", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  const SOURCE_KEY = "plugin:example-plugin/daily-digest";
+
+  function seedSourcedSchedule(
+    overrides: Partial<DeclaredScheduleDefinition> = {},
+  ) {
+    return upsertDeclaredSchedule(SOURCE_KEY, {
+      name: "Daily digest",
+      description: "Summarize the day",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      message: "produce the digest",
+      mode: "execute",
+      enabled: true,
+      definitionHash: "hash-1",
+      ...overrides,
+    });
+  }
+
+  type SerializedEntry = {
+    id: string;
+    enabled: boolean;
+    sourceKey: string | null;
+    userEnabled: boolean | null;
+  };
+
+  test("list serializes sourceKey and userEnabled for sourced and imperative rows", async () => {
+    const sourced = await seedSourcedSchedule();
+    const imperative = await createSchedule({
+      name: "Imperative schedule",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({})) as {
+      schedules: SerializedEntry[];
+    };
+    const byId = new Map(result.schedules.map((s) => [s.id, s]));
+
+    expect(byId.get(sourced.id)).toMatchObject({
+      sourceKey: SOURCE_KEY,
+      userEnabled: null,
+    });
+    expect(byId.get(imperative.id)).toMatchObject({
+      sourceKey: null,
+      userEnabled: null,
+    });
+  });
+
+  test("toggle on a sourced row records and round-trips the user override", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id/toggle", "POST");
+
+    const disabled = (await route.handler({
+      pathParams: { id: sourced.id },
+      body: { enabled: false },
+    })) as { schedules: SerializedEntry[] };
+    expect(disabled.schedules.find((s) => s.id === sourced.id)).toMatchObject({
+      enabled: false,
+      userEnabled: false,
+    });
+
+    const enabled = (await route.handler({
+      pathParams: { id: sourced.id },
+      body: { enabled: true },
+    })) as { schedules: SerializedEntry[] };
+    expect(enabled.schedules.find((s) => s.id === sourced.id)).toMatchObject({
+      enabled: true,
+      userEnabled: true,
+    });
+  });
+
+  test("toggle on an imperative row keeps userEnabled null", async () => {
+    const imperative = await createSchedule({
+      name: "Imperative toggle",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id/toggle", "POST");
+    const result = (await route.handler({
+      pathParams: { id: imperative.id },
+      body: { enabled: false },
+    })) as { schedules: SerializedEntry[] };
+
+    expect(result.schedules.find((s) => s.id === imperative.id)).toMatchObject({
+      enabled: false,
+      userEnabled: null,
+    });
+  });
+
+  test("PATCH on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+    const patch = () =>
+      route.handler({
+        pathParams: { id: sourced.id },
+        body: { name: "Renamed" },
+      });
+
+    await expect(patch()).rejects.toThrow(BadRequestError);
+    await expect(patch()).rejects.toThrow(
+      "This schedule is managed by a plugin. Edit the plugin's schedule file instead.",
+    );
+  });
+
+  test("DELETE on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id", "DELETE");
+    const remove = () => route.handler({ pathParams: { id: sourced.id } });
+
+    await expect(remove()).rejects.toThrow(BadRequestError);
+    await expect(remove()).rejects.toThrow(
+      "This schedule is managed by a plugin and cannot be deleted. Disable it instead, or remove the plugin's schedule file.",
+    );
   });
 });
 
