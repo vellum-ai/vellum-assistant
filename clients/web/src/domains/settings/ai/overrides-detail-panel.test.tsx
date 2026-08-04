@@ -406,6 +406,7 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
         description: "The primary chat agent.",
         domain: "agentLoop",
         defaultProfile: null,
+        shippedDefaultProfile: null,
       },
       {
         id: "workflowLeaf",
@@ -413,6 +414,7 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
         description: "Runs an ephemeral leaf agent.",
         domain: "agentLoop",
         defaultProfile: "balanced",
+        shippedDefaultProfile: "balanced",
       },
       {
         id: "heartbeatAgent",
@@ -420,6 +422,17 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
         description: "Runs background tasks on a schedule.",
         domain: "agentLoop",
         defaultProfile: "cost-optimized",
+        shippedDefaultProfile: "cost-optimized",
+      },
+      {
+        // Pinned: `defaultProfile` is the winning pin, the shipped tier is
+        // cost-optimized. Must count toward Speed, not mint a My BYOK row.
+        id: "filingAgent",
+        displayName: "Filing Agent",
+        description: "Files memories after conversations.",
+        domain: "agentLoop",
+        defaultProfile: "my-byok",
+        shippedDefaultProfile: "cost-optimized",
       },
     ],
   };
@@ -440,6 +453,7 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
           model: "gpt-5.6-luna",
         },
       },
+      callSites: { filingAgent: { profile: "my-byok" } },
     },
   };
 
@@ -484,9 +498,13 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     await waitFor(() => {
       expect(renderedText()).toContain("Defaults");
     });
-    expect(renderedText()).toContain("Balanced");
-    expect(renderedText()).toContain("Speed");
+    expect(renderedText()).toContain("Balanced (default)");
     expect(renderedText()).toContain("1 action");
+    // The pinned Filing Agent counts toward its shipped Speed tier...
+    expect(renderedText()).toContain("Speed (default)");
+    expect(renderedText()).toContain("2 actions");
+    // ...and its winning pin must not mint a tier row of its own.
+    expect(renderedText()).not.toContain("My BYOK (default)");
     expect(renderedText()).not.toContain("Use one profile for all actions");
   });
 
@@ -520,8 +538,12 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     await waitFor(() => {
       expect(renderedText()).toContain("Defaults");
     });
-    // The persisted remap is visible on the tier row and in the caption.
+    // The persisted remap is visible on the tier row and in the caption of
+    // unpinned Speed-tier sites.
     expect(renderedText()).toContain("Speed → My BYOK");
+    // The pinned Filing Agent keeps its winner caption without an arrow:
+    // its pin outranks the remap.
+    expect(renderedText()).toContain("Default: My BYOK");
 
     pickOption(tierTrigger("My BYOK"), "Speed (default)");
     fireEvent.click(getButton("Save"));
@@ -540,7 +562,7 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     await waitFor(() => {
       expect(renderedText()).toContain("Use one profile for all actions");
     });
-    expect(renderedText()).not.toContain("Defaults");
+    expect(renderedText()).not.toContain("Balanced (default)");
     // Non-writing until the version hydrates: on a tier-overrides daemon a
     // sweep would persist pins that outrank the tier remaps.
     const trigger = document.querySelector<HTMLElement>(
@@ -561,6 +583,6 @@ describe("OverridesDetailPanel - per-tier defaults (0.11.1+)", () => {
     await waitFor(() => {
       expect(renderedText()).toContain("Use one profile for all actions");
     });
-    expect(renderedText()).not.toContain("Defaults");
+    expect(renderedText()).not.toContain("Balanced (default)");
   });
 });

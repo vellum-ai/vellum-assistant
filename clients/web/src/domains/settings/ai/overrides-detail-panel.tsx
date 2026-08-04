@@ -105,10 +105,15 @@ export function OverridesDetailPanel({
 
   const supportsTierOverrides = useSupportsDefaultProfileOverrides(assistantId);
   // The legacy apply-to-all sweep stays non-writing until the version is
-  // hydrated: on a tier-overrides daemon it would persist per-call-site
-  // pins, which outrank `defaultProfileOverrides` and lock the Defaults
-  // rows out of those actions.
-  const identityVersionKnown = useAssistantIdentityStore.use.version() != null;
+  // hydrated FOR THIS ASSISTANT: on a tier-overrides daemon it would
+  // persist per-call-site pins, which outrank `defaultProfileOverrides`
+  // and lock the Defaults rows out of those actions. The assistant scope
+  // matters on assistant switch, where a remounted panel can render once
+  // against the previous assistant's not-yet-cleared identity.
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const identityVersionKnown =
+    useAssistantIdentityStore.use.version() != null &&
+    identityAssistantId === assistantId;
 
   const [search, setSearch] = useState("");
   const [applyAllProfile, setApplyAllProfile] = useState("");
@@ -187,12 +192,18 @@ export function OverridesDetailPanel({
   );
 
   // One Defaults row per tier that call sites actually ship on, ordered by
-  // the profile picker's own ordering so the rows match it.
+  // the profile picker's own ordering so the rows match it. Grouped by the
+  // code-owned shipped tier: `defaultProfile` is the effective winner, so
+  // grouping by it would scatter pinned or remapped sites across their
+  // winning profiles instead of their tiers.
   const tierGroups = useMemo(() => {
     const counts = new Map<string, number>();
     for (const cs of gatedCallSites) {
-      if (cs.defaultProfile) {
-        counts.set(cs.defaultProfile, (counts.get(cs.defaultProfile) ?? 0) + 1);
+      if (cs.shippedDefaultProfile) {
+        counts.set(
+          cs.shippedDefaultProfile,
+          (counts.get(cs.shippedDefaultProfile) ?? 0) + 1,
+        );
       }
     }
     const pickerIndex = new Map(orderedProfiles.map((p, i) => [p.name, i]));
@@ -734,16 +745,27 @@ export function OverridesDetailPanel({
                         }
                         return d.profile ?? "";
                       })();
-                      // A remapped tier shows its provenance: the shipped
-                      // tier plus what it currently resolves to.
-                      const tierRemap =
-                        supportsTierOverrides && cs.defaultProfile
-                          ? effectiveTierRemap(cs.defaultProfile)
-                          : null;
-                      const defaultProfileLabel = cs.defaultProfile
-                        ? profileLabelFor(cs.defaultProfile) +
-                          (tierRemap ? ` → ${profileLabelFor(tierRemap)}` : "")
-                        : null;
+                      // Caption provenance for an unpinned site on a
+                      // tier-overrides daemon builds from the shipped tier
+                      // plus its remap; `defaultProfile` (the effective
+                      // winner) already IS the remapped profile there, so
+                      // deriving from it would lose the tier. A pinned
+                      // site keeps the winner caption: the pin outranks
+                      // the remap, so an arrow would claim an effect the
+                      // resolver doesn't apply.
+                      const pinned = isDraftActive(drafts[cs.id] ?? null);
+                      const shippedTier = cs.shippedDefaultProfile;
+                      let defaultProfileLabel: string | null = null;
+                      if (supportsTierOverrides && shippedTier && !pinned) {
+                        const tierRemap = effectiveTierRemap(shippedTier);
+                        defaultProfileLabel =
+                          profileLabelFor(shippedTier) +
+                          (tierRemap ? ` → ${profileLabelFor(tierRemap)}` : "");
+                      } else if (cs.defaultProfile) {
+                        defaultProfileLabel = profileLabelFor(
+                          cs.defaultProfile,
+                        );
+                      }
 
                       return (
                         <CallSiteOverrideRow

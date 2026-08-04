@@ -4737,6 +4737,8 @@ paths:
                           type: string
                         defaultProfile:
                           type: string
+                        shippedDefaultProfile:
+                          type: string
                       required:
                         - id
                         - displayName
