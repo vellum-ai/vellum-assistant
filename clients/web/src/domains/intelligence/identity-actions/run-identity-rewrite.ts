@@ -3,10 +3,13 @@
  *
  * The About Assistant surfaces reshape the assistant's persona the same way
  * research onboarding does: post a system-message that asks the assistant to
- * rewrite its own identity files (IDENTITY.md / SOUL.md), wait for the turn
- * to settle, then archive the conversation so it never shows in the user's
- * sidebar. The identity files feed every future conversation's system
+ * rewrite its own identity files (IDENTITY.md / SOUL.md) and wait for the
+ * turn to settle. The identity files feed every future conversation's system
  * prompt, which is what makes this durable.
+ *
+ * The thread is minted `background`, a type the daemon keeps out of its
+ * default `standard` conversation list, so it never appears in Recents and is
+ * never selectable as the landing conversation.
  *
  * Unlike onboarding's fire-and-forget `applyPersonality`, callers here drive
  * visible UI (a saving state and a success/failure toast), so this resolves
@@ -36,7 +39,7 @@ export interface RunIdentityRewriteOptions {
   assistantId: string;
   /** The full `<system-message>…</system-message>` content to post. */
   content: string;
-  /** Sidebar-invisible conversation title (useful in logs/inspector). */
+  /** Conversation title, surfaced only in logs/inspector. */
   title: string;
   /** Sentry context tag for failures. */
   context: string;
@@ -53,7 +56,7 @@ export async function runIdentityRewrite({
   try {
     const conversation = await conversationsPost({
       path: { assistant_id: assistantId },
-      body: { conversationType: "standard", title },
+      body: { conversationType: "background", title },
       throwOnError: false,
     });
     conversationId = conversation.data?.id;
