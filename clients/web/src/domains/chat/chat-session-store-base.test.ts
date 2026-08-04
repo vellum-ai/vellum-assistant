@@ -14,18 +14,24 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 const CONV = "conv-A";
 
-// Records which conversations opened a switch-telemetry window, so the gate in
-// `switchToConversation` can be asserted without reaching the ingest layer.
-// The module's other exports are stubbed too: a module mock is process-wide, so
-// a sibling file sharing this Bun process must still find them.
+// Records which conversations opened a switch-telemetry window and why one was
+// closed, so the gate in `switchToConversation` can be asserted without
+// reaching the ingest layer. The module's other exports are stubbed too: a
+// module mock is process-wide, so a sibling file sharing this Bun process must
+// still find them.
 const switchStartedConversationIds: string[] = [];
+const switchAbandonReasons: string[] = [];
 mock.module("@/lib/telemetry/switch-telemetry", () => ({
   noteConversationSwitchStarted: (conversationId: string) => {
     switchStartedConversationIds.push(conversationId);
   },
   noteSwitchTranscriptPainted: () => {},
-  abandonSwitchMeasurement: () => {},
+  abandonSwitchMeasurement: (reason: string) => {
+    switchAbandonReasons.push(reason);
+  },
+  useSwitchPaintMeasurement: () => {},
   subscribeSwitchTelemetry: () => () => {},
+  __resetSwitchTelemetryForTests: () => {},
 }));
 
 function snapshot(
@@ -373,6 +379,7 @@ describe("chat-session-store — snapshot + optimistic", () => {
 describe("chat-session-store: switch telemetry gate", () => {
   beforeEach(() => {
     switchStartedConversationIds.length = 0;
+    switchAbandonReasons.length = 0;
     useChatSessionStore.setState({
       previousConversationId: null,
       previousAssistantId: null,
@@ -440,5 +447,48 @@ describe("chat-session-store: switch telemetry gate", () => {
     });
 
     expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("every unmeasured move closes any window it inherited", () => {
+    // Each of these leaves the panel on a conversation that cannot paint under
+    // the id of a window an earlier switch opened.
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+    store().markDraftResolution();
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-server-1",
+    });
+
+    expect(switchAbandonReasons).toEqual([
+      "context_change",
+      "context_change",
+      "context_change",
+      "context_change",
+    ]);
+  });
+
+  test("a measured move opens a window instead of abandoning", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    switchAbandonReasons.length = 0;
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
+
+    expect(switchAbandonReasons).toEqual([]);
   });
 });
