@@ -81,16 +81,21 @@ const TEAM_ID_RE = /^[TE][A-Z0-9]{1,31}$/;
  * Returns `undefined` when nothing usable remains.
  */
 export function sanitizeMentionLabel(value: unknown): string | undefined {
-  if (typeof value !== "string") {
+  if (typeof value !== "string" || !isWellFormedString(value)) {
     return undefined;
   }
-  const sanitized = value
+  const cleaned = value
     .replace(/[<>]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^[@#]+/, "")
-    .trim()
+    .trim();
+  // Truncate on code-point boundaries: a UTF-16 `slice` can split a
+  // surrogate pair and persist a lone surrogate, violating the same
+  // well-formedness rule this module enforces on rawText.
+  const sanitized = [...cleaned]
     .slice(0, MENTION_LABEL_MAX_CHARS)
+    .join("")
     .trim();
   return sanitized.length > 0 ? sanitized : undefined;
 }

@@ -7,6 +7,7 @@ import {
 import {
   buildSlackMentionSource,
   MENTION_LABEL_MAP_MAX_ENTRIES,
+  MENTION_LABEL_MAX_CHARS,
   MENTION_RAW_TEXT_MAX_BYTES,
   projectSlackMentionText,
   readSlackMentionSource,
@@ -238,5 +239,25 @@ describe("sanitizeMentionLabel", () => {
     expect(sanitizeMentionLabel("@@alice")).toBe("alice");
     expect(sanitizeMentionLabel("<>")).toBeUndefined();
     expect(sanitizeMentionLabel(42)).toBeUndefined();
+  });
+
+  test("truncates on code-point boundaries, never stranding a surrogate", () => {
+    // An emoji (astral, 2 UTF-16 units) straddling the cap must be dropped
+    // whole, not split into a lone surrogate.
+    const label = `${"x".repeat(MENTION_LABEL_MAX_CHARS - 1)}😀tail`;
+    const sanitized = sanitizeMentionLabel(label)!;
+    // Well-formed strings round-trip UTF-8 without replacement characters; a
+    // stranded surrogate would decode to U+FFFD here.
+    const roundTripped = new TextDecoder().decode(
+      new TextEncoder().encode(sanitized),
+    );
+    expect(roundTripped).toBe(sanitized);
+    expect(sanitized).not.toContain("�");
+    expect([...sanitized]).toHaveLength(MENTION_LABEL_MAX_CHARS);
+    expect(sanitized.endsWith("😀")).toBe(true);
+  });
+
+  test("rejects labels that already carry unpaired surrogates", () => {
+    expect(sanitizeMentionLabel("name\uD800tail")).toBeUndefined();
   });
 });
