@@ -110,18 +110,6 @@ mock.module("./lockfile-watcher", () => ({
   getWatchedLockfile: () => watchedLockfile,
 }));
 
-// Partial local-mode mock: the tray's paired "Remove from this Mac…" item
-// calls `unpairAssistant` with host-resolved lockfile paths and config dir.
-const unpairAssistantMock = mock((..._args: unknown[]) => ({
-  ok: true as const,
-  lockfile: { assistants: [], activeAssistant: null },
-}));
-mock.module("@vellumai/local-mode", () => ({
-  resolveLockfilePaths: () => ["/fake/.vellum.lock.json"],
-  resolveConfigDir: () => "/fake/config",
-  unpairAssistant: unpairAssistantMock,
-}));
-
 mock.module("./logger", () => ({
   default: { info: () => {}, warn: () => {}, error: () => {} },
 }));
@@ -224,7 +212,7 @@ beforeEach(() => {
   avatarListeners.clear();
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
-  unpairAssistantMock.mockClear();
+  dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
   invalidateIconCacheMock.mockClear();
@@ -492,18 +480,19 @@ describe("assistant switcher", () => {
     expect(labels.some((label) => label.startsWith("Retire"))).toBe(false);
   });
 
-  test("Remove from this Mac unpairs the active assistant with host-resolved paths", () => {
+  test("Remove from this Mac surfaces the window and dispatches removePairedAssistant", async () => {
     watchedLockfile = { assistants: [pairedEntry], activeAssistant: "paired-1" };
     const template = popMenu();
+    const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
 
-    template.find((i) => i.label === "Remove from this Mac…")?.click?.();
+    await template.find((i) => i.label === "Remove from this Mac…")?.click?.();
 
-    expect(unpairAssistantMock).toHaveBeenCalledTimes(1);
-    expect(unpairAssistantMock.mock.calls[0]).toEqual([
-      ["/fake/.vellum.lock.json"],
-      "/fake/config",
-      "paired-1",
-    ]);
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 1);
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "removePairedAssistant",
+      assistantId: "paired-1",
+    });
   });
 
   test("a managed active entry keeps the Retire item and offers no Remove", async () => {
@@ -523,7 +512,12 @@ describe("assistant switcher", () => {
       kind: "retireAssistant",
       assistantId: "managed-1",
     });
-    expect(unpairAssistantMock).not.toHaveBeenCalled();
+    expect(
+      dispatchToMainMock.mock.calls.some(
+        (call) =>
+          (call[0] as { kind?: string })?.kind === "removePairedAssistant",
+      ),
+    ).toBe(false);
   });
 
   test("an empty switcher shows the managed-or-paired empty state", () => {

@@ -1,10 +1,5 @@
 import { Menu, Tray, app, nativeTheme, shell } from "electron";
 
-import {
-  resolveConfigDir,
-  resolveLockfilePaths,
-  unpairAssistant,
-} from "@vellumai/local-mode";
 import type { LockfileAssistant } from "@vellumai/local-mode/contract";
 
 import {
@@ -20,7 +15,6 @@ import { onAvatarChange } from "./avatar";
 import { acceleratorOption } from "./commands";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
-import log from "./logger";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";
@@ -201,21 +195,18 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       );
       if (activeAssistant?.cloud === "paired") {
         // A paired entry is a pairing record on this machine, so forget it
-        // (entry + stored guardian token) rather than retire the remote
-        // assistant: the same call the vellum:localMode:unpair handler makes.
+        // rather than retire the remote assistant. The renderer owns the
+        // removal (confirm dialog + unpair host op + session cleanup) \u2014
+        // unpairing here in main would leave the window selected on, and
+        // still authenticated to, the removed assistant.
         items.push({
           label: "Remove from this Mac\u2026",
-          click: () => {
-            const result = unpairAssistant(
-              resolveLockfilePaths(process.env),
-              resolveConfigDir(process.env),
-              activeAssistant.assistantId,
-            );
-            if (!result.ok) {
-              log.error(
-                `Tray unpair of ${activeAssistant.assistantId} failed: ${result.error}`,
-              );
-            }
+          click: async () => {
+            await handlers.ensureMainWindow();
+            dispatchToMain({
+              kind: "removePairedAssistant",
+              assistantId: activeAssistant.assistantId,
+            });
           },
         });
       } else if (activeAssistant) {
