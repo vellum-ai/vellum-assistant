@@ -293,6 +293,18 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
     } catch (err) {
       log.error({ err }, "imperative plugin reconcile failed");
     }
+    // Converge plugin-declared schedules against the plugin set this apply
+    // just settled, so install/uninstall/upgrade arm and disarm rows in the
+    // same poke. Imported lazily to keep the notification pipeline out of
+    // this module's static graph (sidecar workers import it for hook reads).
+    // Self-contained: never throws and checks DB readiness itself.
+    try {
+      const { reconcilePluginSchedules } =
+        await import("../schedule/plugin-schedule-reconciler.js");
+      await reconcilePluginSchedules();
+    } catch (err) {
+      log.error({ err }, "plugin schedule reconcile failed");
+    }
   })().finally(() => {
     reconcileInFlight = null;
   });

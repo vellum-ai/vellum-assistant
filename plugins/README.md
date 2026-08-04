@@ -17,6 +17,7 @@ wired surface.
 - [Public API surface](#public-api-surface--vellumaiplugin-api)
 - [Hooks](#hooks)
 - [Tools](#tools)
+- [Schedules](#schedules)
 - [Marketplace — whitelisting external plugins](#marketplace--whitelisting-external-plugins)
 - [Conventions](#conventions)
 
@@ -36,12 +37,13 @@ wired surface.
 
 The external plugin loader extends the assistant by wiring these contribution surfaces.
 
-| Surface             | Directory                | Discovery                                                       |
-| ------------------- | ------------------------ | --------------------------------------------------------------- |
-| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                               |
-| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                   |
-| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                   |
-| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools)) |
+| Surface             | Directory                             | Discovery                                                             |
+| ------------------- | ------------------------------------- | --------------------------------------------------------------------- |
+| Lifecycle hooks     | `hooks/<name>.ts`                     | filename → `plugin.hooks[<name>]`                                     |
+| Model-visible tools | `tools/<name>.ts`                     | each file's default export → `plugin.tools[]`                         |
+| Skills              | `skills/<id>/SKILL.md`                | picked up on disk by the skill catalog loader                         |
+| Skill-scoped tools  | `skills/<id>/TOOLS.json`              | registered only while the skill is active (see [Tools](#tools))       |
+| Schedules           | `schedules/<name>.md` or `<name>/`    | reconciled into schedule rows on install/upgrade (see [Schedules](#schedules)) |
 
 ---
 
@@ -64,6 +66,9 @@ my-plugin/
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
 │   └── ...
+├── schedules/
+│   ├── digest.md              # Flat form: frontmatter config + prompt body
+│   └── nightly-sync/          # Directory form: config.json + index.md or index.sh
 └── src/                       # Internal modules (NOT walked by the loader)
     └── state.ts               # Shared state, helpers
 ```
@@ -568,6 +573,54 @@ defaults when an author omits a field:
 `export default {}` is therefore a valid (if useless) tool — broken
 individual tools never block plugin load; misconfigurations surface at
 call time.
+
+---
+
+## Schedules
+
+A plugin declares recurring scheduled tasks as files under `schedules/`.
+A reconciler converges each declaration into an ordinary schedule row, so
+declared schedules run through the same engine, run history, and UI as
+user-created ones. Two forms are supported:
+
+**Flat file** `schedules/<name>.md`: YAML frontmatter carries the config,
+the markdown body is the prompt the assistant executes.
+
+```md
+---
+expression: "0 9 * * *"
+description: Daily digest
+timezone: America/New_York
+---
+
+Summarize the day's activity and post it to the home feed.
+```
+
+**Directory** `schedules/<name>/`: a `config.json` with the same fields,
+plus exactly one entrypoint. `index.md` (prompt body, no frontmatter) runs
+as an assistant task; `index.sh` runs as a shell script with no LLM.
+
+Config fields: `expression` (required; cron or RRULE, auto-detected or
+pinned via `expression_syntax`), `timezone`, `description`, `max_retries`,
+`retry_backoff_ms`, `quiet`, `inference_profile`, `timeout_ms`, `enabled`
+(defaults to true). Declared schedules are recurring only; there is no
+one-shot form.
+
+Fail-closed rules. Ambiguity never resolves by precedence: a name declared
+as both `<name>.md` and `<name>/`, a directory with zero or multiple
+entrypoints, or an unsupported entrypoint (anything but `index.md` /
+`index.sh`) is an error and that schedule does not load. Errors are
+per-schedule: one bad declaration never blocks siblings, and a declaration
+that breaks in an upgrade keeps its last-good schedule running while the
+error is surfaced as a notification.
+
+Lifecycle. The declaration file is the source of truth: edits and upgrades
+update the schedule row in place, uninstalling or disabling the plugin
+pauses its schedules (runs and history are kept), and reinstalling re-links
+them. Users can enable/disable a declared schedule from the schedules UI;
+that override survives plugin upgrades. Rows are managed by the reconciler,
+so declared schedules cannot be edited or deleted imperatively: change the
+file instead.
 
 ---
 

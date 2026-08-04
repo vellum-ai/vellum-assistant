@@ -1,0 +1,330 @@
+/**
+ * Level-based reconciler converging plugin `schedules/` declarations into
+ * `cron_jobs` rows.
+ *
+ * Each pass enumerates the installed, enabled plugins, parses their
+ * declarations (see `./plugin-schedule-declarations.ts`), and diffs the
+ * desired set against the sourced rows in the store: new declarations are
+ * inserted, changed ones (by `definition_hash`) updated, and rows whose
+ * declaration is gone are disarmed in place. The reconciler owns only the
+ * definition columns; the engine owns the runtime columns and the user owns
+ * `user_enabled` (both enforced in `./schedule-store.ts`). Rows with a null
+ * `source_key` are imperative schedules and are never touched.
+ *
+ * Triggers: daemon startup (`daemon/lifecycle.ts`), plugin-set convergence
+ * (`plugins/mtime-cache.ts` after an imperative source reconcile), and a
+ * periodic backstop sweep (`runtime/http-server.ts`) that covers plugin
+ * enable/disable, which flips the `.disabled` sentinel without poking the
+ * plugin source reconcile.
+ */
+
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { AttentionHints } from "../notifications/signal.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
+import { getLogger } from "../util/logger.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
+import {
+  type DeclarationError,
+  parsePluginScheduleDeclarations,
+  type ScheduleDeclaration,
+} from "./plugin-schedule-declarations.js";
+import {
+  type DeclaredScheduleDefinition,
+  disarmDeclaredSchedule,
+  listDeclaredSchedules,
+  type ScheduleJob,
+  upsertDeclaredSchedule,
+} from "./schedule-store.js";
+
+const log = getLogger("plugin-schedule-reconciler");
+
+/** In-flight pass; concurrent triggers await it rather than racing. */
+let reconcileInFlight: Promise<void> | null = null;
+
+/**
+ * Converge plugin-declared schedules against the current on-disk plugin set.
+ *
+ * Single-flight: concurrent triggers serialize through the in-flight latch,
+ * so two passes never interleave their list/diff/write sequences. Never
+ * throws: a failed pass is logged and the next trigger retries from disk.
+ * No-ops while DB migrations are unready.
+ */
+export async function reconcilePluginSchedules(): Promise<void> {
+  while (reconcileInFlight !== null) {
+    await reconcileInFlight;
+  }
+  reconcileInFlight = (async () => {
+    try {
+      await runReconcilePass();
+    } catch (err) {
+      log.error({ err }, "Plugin schedule reconcile failed");
+    }
+  })().finally(() => {
+    reconcileInFlight = null;
+  });
+  await reconcileInFlight;
+}
+
+interface DesiredEntry {
+  pluginName: string;
+  declaration: ScheduleDeclaration;
+}
+
+async function runReconcilePass(): Promise<void> {
+  // The pass is pure DB reads/writes over cron_jobs; refuse to touch a
+  // partially-migrated schema (see assistant/CLAUDE.md, DB migration
+  // readiness gating). A skipped pass is retried by the periodic sweep.
+  if (!getDbMigrationReadiness().ready) {
+    return;
+  }
+
+  const { desired, errors } = collectDesiredDeclarations();
+
+  const existingByKey = new Map<string, ScheduleJob>();
+  for (const row of listDeclaredSchedules()) {
+    if (row.sourceKey !== null) {
+      existingByKey.set(row.sourceKey, row);
+    }
+  }
+
+  for (const [sourceKey, { pluginName, declaration }] of desired) {
+    const row = existingByKey.get(sourceKey);
+    const definition = toDefinition(declaration);
+    const changesArmedRow =
+      row !== undefined &&
+      row.enabled &&
+      row.definitionHash !== definition.definitionHash;
+    try {
+      await upsertDeclaredSchedule(sourceKey, definition);
+    } catch (err) {
+      log.error(
+        { err, sourceKey },
+        "Failed to apply declared schedule, skipping",
+      );
+      continue;
+    }
+    if (changesArmedRow) {
+      emitDefinitionChanged(pluginName, declaration);
+    }
+  }
+
+  // A key with a declaration error keeps its last-good row untouched: fail
+  // closed means the broken declaration does not load, not that a previously
+  // healthy schedule is torn down by its own typo.
+  const erroredKeys = new Set(errors.map((e) => e.sourceKey));
+
+  // Disarm rows whose declaration is absent from the desired set (plugin
+  // uninstalled or disabled, or the schedule file removed). Teardown
+  // deliberately does not ride plugin shutdown hooks: uninstalling a disabled
+  // plugin skips them entirely (`cli/lib/uninstall-plugin.ts`), so
+  // directory-absence diffing here is the only reliable reap. The row and its
+  // runs are kept so a reinstall re-links by `source_key`.
+  for (const [sourceKey, row] of existingByKey) {
+    if (desired.has(sourceKey) || erroredKeys.has(sourceKey)) {
+      continue;
+    }
+    try {
+      await disarmDeclaredSchedule(row.id);
+    } catch (err) {
+      log.error(
+        { err, sourceKey, scheduleId: row.id },
+        "Failed to disarm declared schedule, skipping",
+      );
+    }
+  }
+
+  for (const error of errors) {
+    emitDefinitionError(error);
+  }
+}
+
+/**
+ * Enumerate installed plugins with the same gates as the plugin source walk
+ * (`plugins/collect-source-versions.ts`): a directory under the workspace
+ * plugins dir carrying a `package.json`, identity = the directory basename
+ * (mirroring `parsePluginManifest`). Disabled plugins are skipped entirely,
+ * so their declarations fall out of the desired set and disarm.
+ */
+function collectDesiredDeclarations(): {
+  desired: Map<string, DesiredEntry>;
+  errors: DeclarationError[];
+} {
+  const desired = new Map<string, DesiredEntry>();
+  const errors: DeclarationError[] = [];
+
+  const pluginsDir = getWorkspacePluginsDir();
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(pluginsDir);
+  } catch {
+    // No plugins directory yet, so nothing declared.
+  }
+  for (const entry of entries) {
+    if (entry.startsWith(".")) {
+      continue;
+    }
+    const dir = join(pluginsDir, entry);
+    try {
+      if (!statSync(dir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    if (!existsSync(join(dir, "package.json"))) {
+      continue;
+    }
+    if (isPluginDisabled(entry)) {
+      continue;
+    }
+    const parsed = parsePluginScheduleDeclarations(dir, entry);
+    for (const declaration of parsed.declarations) {
+      desired.set(declaration.sourceKey, { pluginName: entry, declaration });
+    }
+    errors.push(...parsed.errors);
+  }
+
+  return { desired, errors };
+}
+
+function toDefinition(
+  declaration: ScheduleDeclaration,
+): DeclaredScheduleDefinition {
+  const { config } = declaration;
+  return {
+    name: declaration.name,
+    description: config.description ?? undefined,
+    syntax: config.syntax,
+    expression: config.expression,
+    timezone: config.timezone,
+    // Script-mode runs ignore the message column (the engine executes
+    // `script`); it is non-null in the schema, so store an empty string.
+    message: declaration.message ?? "",
+    script: declaration.scriptInvocation,
+    mode: declaration.mode,
+    maxRetries: config.maxRetries ?? undefined,
+    retryBackoffMs: config.retryBackoffMs ?? undefined,
+    quiet: config.quiet ?? undefined,
+    inferenceProfile: config.inferenceProfile,
+    timeoutMs: config.timeoutMs,
+    enabled: config.enabled,
+    definitionHash: declaration.definitionHash,
+  };
+}
+
+// Same shape as the background-job failure notification: passive home-feed
+// surfacing, no action required.
+const DEFINITION_NOTIFICATION_HINTS: AttentionHints = {
+  requiresAction: false,
+  urgency: "medium",
+  isAsyncBackground: true,
+  visibleInSourceNow: false,
+};
+
+function emitDefinitionSignal(
+  sourceEventName: string,
+  sourceKey: string,
+  dedupeKey: string,
+  contextPayload: Record<string, unknown>,
+): void {
+  emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: sourceKey,
+    sourceEventName,
+    dedupeKey,
+    contextPayload,
+    attentionHints: DEFINITION_NOTIFICATION_HINTS,
+  }).catch((err) => {
+    log.warn(
+      { err, sourceKey, sourceEventName },
+      "Failed to emit schedule definition notification",
+    );
+  });
+}
+
+/**
+ * Surface a malformed declaration. Deduped per schedule per UTC day so a
+ * broken file doesn't spam on every pass.
+ */
+function emitDefinitionError(error: DeclarationError): void {
+  const day = new Date().toISOString().slice(0, 10);
+  emitDefinitionSignal(
+    "schedule.definition_error",
+    error.sourceKey,
+    `schedule-definition-error:${error.sourceKey}:${day}`,
+    {
+      pluginName: error.pluginName,
+      scheduleName: error.scheduleName,
+      sourceKey: error.sourceKey,
+      reason: error.reason,
+    },
+  );
+}
+
+/**
+ * Surface a plugin upgrade rewriting an armed schedule's definition, so the
+ * user learns the thing firing on their behalf changed. Deduped by the new
+ * hash so concurrent triggers emit once per change.
+ */
+function emitDefinitionChanged(
+  pluginName: string,
+  declaration: ScheduleDeclaration,
+): void {
+  emitDefinitionSignal(
+    "schedule.definition_changed",
+    declaration.sourceKey,
+    `schedule-definition-changed:${declaration.sourceKey}:${declaration.definitionHash}`,
+    {
+      pluginName,
+      scheduleName: declaration.name,
+      sourceKey: declaration.sourceKey,
+    },
+  );
+}
+
+// ── Periodic backstop sweep ─────────────────────────────────────────────
+
+/**
+ * Backstop interval. Enable/disable flows write the `.disabled` sentinel
+ * without poking the plugin source reconcile, so this bounds how long a
+ * toggle can go unreflected in the rows.
+ */
+const SWEEP_INTERVAL_MS = 60_000;
+
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Guard against a slow pass stacking further passes behind the latch. */
+let sweepInProgress = false;
+
+/**
+ * Start the periodic reconcile sweep. Idempotent: repeat calls reuse the
+ * timer. The DB-readiness guard lives inside {@link reconcilePluginSchedules},
+ * which no-ops while migrations are unready.
+ */
+export function startPluginScheduleReconcileSweep(): void {
+  if (sweepTimer) {
+    return;
+  }
+  sweepTimer = setInterval(() => {
+    if (sweepInProgress) {
+      return;
+    }
+    sweepInProgress = true;
+    void reconcilePluginSchedules().finally(() => {
+      sweepInProgress = false;
+    });
+  }, SWEEP_INTERVAL_MS);
+}
+
+/** Stop the periodic reconcile sweep. Used in tests and shutdown. */
+export function stopPluginScheduleReconcileSweep(): void {
+  if (sweepTimer) {
+    clearInterval(sweepTimer);
+    sweepTimer = null;
+  }
+  sweepInProgress = false;
+}
