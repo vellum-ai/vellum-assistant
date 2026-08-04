@@ -143,18 +143,14 @@ describe("findPersistedSurfaceInfo", () => {
     ).toBeUndefined();
   });
 
-  test("returns the type for a block behind the compaction boundary", () => {
-    // The surface sits in the oldest row, with three newer rows after it. A
-    // conversation compacted to `contextCompactedMessageCount: 3` hides this
-    // row from `findPersistedSurfaceState`, whose scan is bounded by
-    // `rn > liveHistoryStartRow`. This helper consults no boundary at all.
+  test("reaches the oldest row when the newer ones carry no surface", () => {
     seedRows([
       {
-        id: "msg-compacted",
+        id: "msg-oldest",
         content: [
           {
             type: "ui_surface",
-            surfaceId: "surface-compacted-1",
+            surfaceId: "surface-oldest-1",
             surfaceType: "choice",
             data: {},
           },
@@ -166,7 +162,7 @@ describe("findPersistedSurfaceInfo", () => {
     ]);
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-compacted-1", GUARDIAN)
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-oldest-1", GUARDIAN)
         ?.surfaceType,
     ).toBe("choice");
   });

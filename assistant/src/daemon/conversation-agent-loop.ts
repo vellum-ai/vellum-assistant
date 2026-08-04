@@ -737,13 +737,16 @@ export async function runAgentLoopImpl(
         if (entry.surfaceType === "dynamic_page") {
           continue;
         }
-        onEvent({
-          type: "ui_surface_complete",
-          conversationId: ctx.conversationId,
-          surfaceId,
-          summary: "Dismissed",
-        });
-        markSurfaceCompleted(ctx, surfaceId, "Dismissed");
+        // Persist before announcing: a client told the card was dismissed
+        // while the write failed would watch the next reseed revert it.
+        if (markSurfaceCompleted(ctx, surfaceId, "Dismissed")) {
+          onEvent({
+            type: "ui_surface_complete",
+            conversationId: ctx.conversationId,
+            surfaceId,
+            summary: "Dismissed",
+          });
+        }
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
     }
