@@ -778,9 +778,9 @@ export function ResearchOnboardingRoute() {
     // Stage the chosen avatar traits; OnboardingAvatarApplier applies them once
     // the assistant is hatched (they're not part of the pre-chat context).
     setPendingAvatarTraits(face?.traits ?? null);
-    // …and the voice that avatar was auditioned in, so the assistant speaks as
-    // the character the user picked rather than in the platform default. Null
-    // (no catalog) leaves the default in place.
+    // ...and the voice that avatar was auditioned in, so the assistant speaks
+    // as the character the user picked rather than in the platform default.
+    // Null (no catalog) leaves the default in place.
     setPendingAvatarVoice(face?.voiceModel ?? null);
 
     // The research pass renders in the focused presentation; entering from a

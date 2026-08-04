@@ -43,9 +43,9 @@ export interface GiveMeAFaceValues {
   traits: CharacterTraits;
   name: string;
   /**
-   * The managed voice belonging to the chosen avatar — what the user just
-   * auditioned, so the assistant has to speak in it. Null when the catalog
-   * never loaded, in which case the assistant keeps the platform default.
+   * The managed voice belonging to the chosen avatar: what the user auditioned,
+   * so the assistant has to speak in it. Null when the catalog never loaded, in
+   * which case the assistant keeps the platform default.
    */
   voiceModel: string | null;
 }
@@ -57,8 +57,8 @@ interface GiveMeAFaceScreenProps {
   onForward?: () => void;
   /**
    * The background-hatched assistant, whose daemon serves the managed voice
-   * catalog the audition previews from. Null until the hatch lands — the
-   * audition stays disabled until then.
+   * catalog the audition previews from. Null until the hatch lands, which
+   * leaves the audition disabled.
    */
   assistantId?: string | null;
 }
@@ -153,10 +153,10 @@ export function GiveMeAFaceScreen({
   }, [editingName]);
 
   // Each avatar has its own voice (see onboarding-avatar-voices), auditioned
-  // from the catalog's hosted sample — a static asset, so previewing costs no
-  // synthesis and no credits. The catalog is served through the hatched
-  // assistant's daemon, so the button waits on the hatch rather than on a
-  // request of its own.
+  // from the catalog's hosted sample. Samples are static provider-side assets,
+  // so an audition costs no synthesis and no credits. The catalog is served
+  // through the hatched assistant's daemon, so the button waits on the hatch
+  // rather than on a request of its own.
   const { voices } = useManagedVoices(assistantId);
   const centeredVoice = useMemo(
     () => (centerChar == null ? null : resolveAvatarVoice(centerChar, voices)),
@@ -192,8 +192,8 @@ export function GiveMeAFaceScreen({
     if (slot < 0) {
       return;
     }
-    // The audition belongs to the avatar that was centered; letting it run over
-    // the next one would pair a voice with a face it isn't.
+    // The audition belongs to the avatar leaving the center; letting it run on
+    // would pair a voice with a face it isn't.
     stopVoice();
     const edgeOrder = [...arrangement.edgeOrder];
     edgeOrder[slot] = arrangement.centerChar;
@@ -368,8 +368,7 @@ export function GiveMeAFaceScreen({
 
             {/* The only place voice is surfaced in onboarding. It auditions the
                 CENTERED avatar's own voice, so cycling the carousel is also how
-                you shop for a voice — an audition that sounded the same on every
-                character is why the previous one was pulled. */}
+                you shop for a voice. */}
             <button
               type="button"
               onClick={toggleVoice}

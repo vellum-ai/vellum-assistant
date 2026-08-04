@@ -1,8 +1,8 @@
 /**
- * Applies the avatar chosen during research-onboarding to the assistant — both
- * halves of it: the face and the voice that face was auditioned in.
+ * Applies the avatar chosen during research-onboarding to the assistant: both
+ * halves of it, the face and the voice that face was auditioned in.
  *
- * SPIKE — research-onboarding flow.
+ * SPIKE: research-onboarding flow.
  *
  * Neither is part of the pre-chat handoff context, so neither can be set during
  * hatch. This invisible component (mounted in `ChatLayout`) watches for the
@@ -11,7 +11,7 @@
  * `config_patch`. Transient save failures retry with bounded backoff; the staged
  * values clear after a successful save or after the retry budget is exhausted.
  *
- * The two are applied as ONE handoff, under one retry budget, because they're
+ * The two are applied as ONE handoff, under one retry budget, because they are
  * one pick: an assistant wearing the face it was given but speaking in a voice
  * the user never heard is worse than neither landing.
  */
@@ -41,7 +41,7 @@ export function shouldDropAvatarHandoff(failedAttempts: number): boolean {
 
 /**
  * Persist the avatar's voice to the assistant's managed-TTS config. Onboarding
- * assistants are managed, so the voice lives on the `vellum` provider block —
+ * assistants are managed, so the voice lives on the `vellum` provider block,
  * the same field every voice picker writes.
  *
  * A null voice is a no-op success: the catalog never loaded, so there is

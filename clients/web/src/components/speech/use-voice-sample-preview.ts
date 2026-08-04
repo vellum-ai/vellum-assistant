@@ -1,13 +1,13 @@
 /**
  * On-demand preview of a managed voice via its hosted sample.
  *
- * Lives on its own (rather than inside `voice-list`) because two unrelated
- * surfaces audition voices: the voice pickers, which preview a row of a list,
- * and the onboarding face step, which previews the one voice belonging to the
- * centered avatar. Both need the same teardown discipline, so it exists once.
+ * Stands on its own because two unrelated surfaces audition voices: the voice
+ * pickers, which preview a row of a list, and the onboarding face step, which
+ * previews the one voice belonging to the centered avatar. Both need the same
+ * teardown discipline, so it exists once.
  *
  * Hosted samples are static provider-side assets, so a preview costs no
- * synthesis and no credits — the only thing the caller needs is the catalog.
+ * synthesis and no credits. All a caller needs is the catalog.
  */
 
 import { useEffect, useRef, useState } from "react";

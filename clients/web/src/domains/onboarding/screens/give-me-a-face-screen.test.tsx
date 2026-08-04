@@ -1,15 +1,15 @@
 /**
- * Tests for the face/name step's voice surface — the only place voice appears
- * in onboarding: a "Hear my voice" audition of the CENTERED avatar's own voice.
+ * Tests for the face/name step's voice surface, the only place voice appears in
+ * onboarding: a "Hear my voice" audition of the CENTERED avatar's own voice.
  *
- * The pairing is the whole point (an audition that sounded identical on every
- * character is why the previous one was pulled), so the tests that matter are
- * about which voice belongs to which face: that cycling the carousel changes
- * what plays, that it stops what was playing, and that Continue carries the
- * voice the user actually heard.
+ * The pairing is the whole point, so the tests that matter are about which
+ * voice belongs to which face: that cycling the carousel changes what plays,
+ * that it stops what was playing, and that Continue carries the voice the user
+ * actually heard.
  *
- * The decorative avatar layer + audio playback are mocked so the test exercises
- * the voice affordance and wiring, not the carousel or a real <audio> element.
+ * The decorative avatar layer and audio playback are mocked so the test
+ * exercises the voice affordance and wiring, not the carousel or a real
+ * <audio> element.
  */
 
 import {
@@ -61,13 +61,15 @@ let catalog: Array<typeof SARAH> = [];
 mock.module("@/lib/tts/use-managed-voices", () => ({
   useManagedVoices: (assistantId: string | null) => ({
     // The catalog is served through the hatched assistant's daemon, so an
-    // unhatched assistant has no voices — the same shape the real hook returns.
+    // unhatched assistant has no voices, the same shape the real hook returns.
     voices: assistantId ? catalog : [],
     defaultModel: catalog[0]?.model ?? null,
     fetched: !!assistantId,
   }),
 }));
 
+const { useOnboardingAvatarPoolStore } =
+  await import("@/domains/onboarding/onboarding-avatar-pool-store");
 const { GiveMeAFaceScreen } =
   await import("@/domains/onboarding/screens/give-me-a-face-screen");
 
@@ -95,6 +97,11 @@ beforeEach(() => {
   catalog = [SARAH, DANIEL];
   played = [];
   paused = 0;
+  // The avatar pool is a module-level store, so `cleanup` unmounts the screen
+  // but leaves whichever avatar the last test cycled to still selected. Every
+  // test here asserts on the voice of a KNOWN avatar, so each one starts from
+  // the centered-first avatar.
+  useOnboardingAvatarPoolStore.setState({ selectedIndex: 0 });
 });
 
 afterEach(cleanup);
@@ -120,8 +127,7 @@ describe("GiveMeAFaceScreen voice audition", () => {
     expect(played).toEqual([]);
 
     fireEvent.click(hearButton());
-    // The first-centered avatar takes the platform default voice, so an
-    // untouched carousel sounds exactly like it did before per-avatar voices.
+    // The first-centered avatar is paired with the platform default voice.
     await waitFor(() => expect(played).toEqual([SARAH.sampleUrl]));
   });
 
