@@ -117,8 +117,10 @@ export const WIDGET_TOKEN_PROPERTIES: readonly string[] = [
   // System / status
   "--system-positive-strong",
   "--system-positive-weak",
+  "--system-positive-on-weak",
   "--system-negative-strong",
   "--system-negative-weak",
+  "--system-negative-on-weak",
   "--system-negative-hover",
   "--system-mid-strong",
   "--system-mid-weak",

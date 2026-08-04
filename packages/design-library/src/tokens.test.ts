@@ -14,10 +14,7 @@ import { join } from "node:path";
 
 const MIN_CONTRAST = 3;
 const KNOWN_THEMES = ["light", "dark", "velvet"];
-const PAIRS = [
-  { glyph: "--system-positive-on-weak", fill: "--system-positive-weak" },
-  { glyph: "--system-negative-on-weak", fill: "--system-negative-weak" },
-];
+const TONES = ["positive", "negative"];
 
 const css = readFileSync(join(import.meta.dir, "tokens.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
@@ -78,12 +75,16 @@ function contrastRatio(a: string, b: string): number {
 const themes = parseThemes(css);
 
 describe("system on-weak tokens", () => {
-  test("tokens.css exposes the known theme blocks", () => {
-    expect([...themes.keys()]).toEqual(expect.arrayContaining(KNOWN_THEMES));
+  // Exact rather than a superset, so adding a theme block forces an update
+  // here and with it a look at the rows the loop below generates for it.
+  test("tokens.css exposes exactly the known theme blocks", () => {
+    expect([...themes.keys()].sort()).toEqual([...KNOWN_THEMES].sort());
   });
 
   for (const [theme, tokens] of themes) {
-    for (const { glyph, fill } of PAIRS) {
+    for (const tone of TONES) {
+      const glyph = `--system-${tone}-on-weak`;
+      const fill = `--system-${tone}-weak`;
       test(`${theme} ${glyph} clears ${MIN_CONTRAST}:1 on ${fill}`, () => {
         expect(tokens[glyph]).toBeDefined();
         expect(
@@ -93,19 +94,30 @@ describe("system on-weak tokens", () => {
     }
   }
 
-  test("dark --system-negative-on-weak stays divergent from --system-negative-strong", () => {
-    const dark = themes.get("dark")!;
-    // Do not "tidy up" this divergence: --system-negative-strong measures
-    // 2.86:1 on the dark --system-negative-weak, under the 3:1 floor, which
-    // is why the dark on-weak token is a lighter tone than the other themes'.
-    expect(
-      contrastRatio(
-        dark["--system-negative-strong"],
-        dark["--system-negative-weak"],
-      ),
-    ).toBeLessThan(MIN_CONTRAST);
-    expect(dark["--system-negative-on-weak"]).not.toBe(
-      dark["--system-negative-strong"],
-    );
+  // Contrast alone cannot catch this: an on-weak token left behind by an edit
+  // to its -strong counterpart can still clear 3:1 while showing the wrong
+  // colour next to every other use of that tone. The exception is derived
+  // rather than listed, so a pairing only escapes the equality check while its
+  // -strong tone genuinely fails on the -weak fill. Lighten a -weak fill until
+  // -strong clears the floor and the pairing is held to equality again.
+  test("each -on-weak token copies its -strong counterpart unless -strong fails", () => {
+    const actual: Record<string, string> = {};
+    const expected: Record<string, string> = {};
+    for (const [theme, tokens] of themes) {
+      for (const tone of TONES) {
+        const strong = tokens[`--system-${tone}-strong`];
+        const weak = tokens[`--system-${tone}-weak`];
+        const onWeak = tokens[`--system-${tone}-on-weak`];
+        const pairing = `${theme}:${tone}`;
+        if (contrastRatio(strong, weak) >= MIN_CONTRAST) {
+          actual[pairing] = onWeak;
+          expected[pairing] = strong;
+        } else {
+          actual[pairing] = onWeak === strong ? "copies -strong" : "diverges";
+          expected[pairing] = "diverges";
+        }
+      }
+    }
+    expect(actual).toEqual(expected);
   });
 });
