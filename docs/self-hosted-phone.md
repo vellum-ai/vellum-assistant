@@ -200,8 +200,10 @@ one with `--domain`:
 vellum tunnel --provider ngrok --domain my-assistant.ngrok.app
 ```
 
-The domain is saved to the workspace config; the tunnel that `vellum wake`
-restores binds it again.
+The domain is saved to the workspace config. `vellum wake` restores the
+tunnel automatically only when a messaging channel like Telegram or Twilio is
+configured; otherwise rerun `vellum tunnel` after a restart and the saved
+domain is reused.
 
 **Privacy trade-off:** these publish a public-internet URL, so anyone who
 learns the URL can reach your assistant's sign-in and pairing page (pairing
@@ -280,7 +282,7 @@ connects changes.
 > produces a build that carries it today.
 
 **Recommended: scan the Step 4 QR, then tap "Open in the Vellum app."** You
-don't need a different command — the QR from `vellum pair --qr` (Step 4)
+don't need a different command: the QR from `vellum pair --qr` (Step 4)
 already works for the app:
 
 1. Point the phone's **system camera** at the QR and open the pairing page in
@@ -360,7 +362,8 @@ URL — you reach your own assistant, not Vellum Cloud.
   in the foreground, but no push notifications. For proactive pings, connect a
   channel like Telegram, which delivers notifications independently.
 - **Tailnet-private by default.** `tailscale serve` exposes the edge only to
-  your own devices, not the public internet. Use a public tunnel (Step 4) only
-  if you accept the privacy trade-off.
+  your own devices, not the public internet. Use a public tunnel
+  ([Step 3](#3-put-an-https-address-in-front)) only if you accept
+  the privacy trade-off.
 - **Pairing codes are single-use and expire in 10 minutes.** Re-run
   `vellum pair --qr` whenever you need a fresh one.
