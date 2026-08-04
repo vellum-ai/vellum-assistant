@@ -422,6 +422,55 @@ describe("memory retrospective wake state chain (real AgentLoop)", () => {
     expect(stateRetried?.lastProcessedMessageId).toBe(fixture.newMessageId);
   });
 
+  test("clean empty reply (HTTP-200, content: []): fails closed, state preserved, window retryable", async () => {
+    const fixture = await stageChainFixture();
+
+    // A well-formed provider success whose finalized output is unusable:
+    // empty content array, clean end_turn. The real loop exits
+    // no_tool_calls; the retrospective's requireUsableOutput turns that
+    // into a failed, retryable pass instead of consuming the window.
+    providerScript = [
+      {
+        response: {
+          content: [],
+          model: "mock-model",
+          usage: { inputTokens: 10, outputTokens: 0 },
+          stopReason: "end_turn",
+        },
+      },
+    ];
+
+    const outcome = await runForkBasedRetrospective(
+      fixture.sourceId,
+      chainConfig,
+    );
+
+    expect(outcome.kind).toBe("wake_failed");
+    if (outcome.kind === "wake_failed") {
+      expect(outcome.reason).toBe("no_output");
+    }
+
+    // No finalization: cursor, log, and the prior retrospective untouched;
+    // the orphan fork is cleaned up.
+    const state = getRetrospectiveState(fixture.sourceId);
+    expect(state?.lastProcessedMessageId).toBe(fixture.seededCursorId);
+    expect(state?.rememberedLog).toEqual([PRIOR_FACT]);
+    expect(getConversation(fixture.priorRetroId)).not.toBeNull();
+    expect(listRetroForksOf(fixture.sourceId)).toEqual([fixture.priorRetroId]);
+
+    // The window stays retryable and a usable reply consumes it.
+    providerScript = [{ response: textResponse("Reviewed; nothing new.") }];
+    providerCallCount = 0;
+    const retry = await runForkBasedRetrospective(
+      fixture.sourceId,
+      chainConfig,
+    );
+    expect(retry.kind).toBe("invoked");
+    expect(
+      getRetrospectiveState(fixture.sourceId)?.lastProcessedMessageId,
+    ).toBe(fixture.newMessageId);
+  });
+
   test("usable-output control: cursor advances, remembered log grows, prior retrospective is GC'd", async () => {
     const fixture = await stageChainFixture();
 

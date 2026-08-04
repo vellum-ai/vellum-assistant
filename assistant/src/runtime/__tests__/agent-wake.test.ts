@@ -1773,6 +1773,38 @@ describe("wakeAgentForOpportunity", () => {
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
   });
 
+  test("reports no_output on a clean empty reply when the caller requires usable output", async () => {
+    // Same clean no_tool_calls empty run as above, but the caller consumes
+    // its trigger on success (memory retrospective): the empty reply must
+    // read as a retryable failure, not a silent success.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-clean-empty-required",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "no_tool_calls" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-clean-empty-required",
+        hint: "hi",
+        source: "t",
+        requireUsableOutput: true,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "no_output",
+    });
+    // Nothing persisted or emitted by the failed pass.
+    expect(conversation.persistedTailCalls).toEqual([]);
+    expect(conversation.emittedEvents).toHaveLength(0);
+  });
+
   test("elevates the turn's trust context before the agent loop runs", async () => {
     // Background system jobs (e.g. memory consolidation) need guardian trust to
     // clear the side-effect approval gate. The wake must set

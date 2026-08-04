@@ -39,6 +39,9 @@
  *     provider rejection, unhandled throw, or cancellation into a graceful
  *     no-output stop), returns `{ invoked: false, reason: "run_error" }` so
  *     state-advancing callers retry instead of recording a phantom pass.
+ *     Callers that pass `requireUsableOutput: true` additionally get
+ *     `{ invoked: false, reason: "no_output" }` for the clean-stop empty
+ *     reply instead of the silent no-op.
  *   - Tool calls produced → normal tool execution runs (the conversation's
  *     `AgentLoop` has its tool executor already wired). Returns
  *     `{ invoked: true, producedToolCalls: true }`.
@@ -292,6 +295,23 @@ export interface WakeOptions {
    */
   suppressWakeSurface?: boolean;
   /**
+   * Treat a run that commits NO usable output (no executable tool call, no
+   * visible assistant text) as a failure even when the loop's terminal exit
+   * was a clean model-driven stop, e.g. an HTTP-200 reply with an empty
+   * content array or thinking-only output. Default false: generic
+   * opportunity wakes (meet chat, scheduled nudges) legitimately let the
+   * model decide to stay silent, and their silent no-op stays
+   * `invoked: true`.
+   *
+   * Set by state-advancing callers whose trigger is consumed on success and
+   * whose contract requires committed output: the fork-based memory
+   * retrospective advances its processed-message watermark and GCs the
+   * prior retrospective on `invoked: true`, so for it an empty reply is a
+   * failed pass to retry, never a success (LUM-3013). Runs whose output
+   * already went live (checkpoint fired / tail persisted) are unaffected.
+   */
+  requireUsableOutput?: boolean;
+  /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
    * side-effect tools. Enforcement depends on `toolGateMode`: in `"wire"`
@@ -423,7 +443,15 @@ export type WakeSkipReason =
    * silent no-op. A throw AFTER output went live keeps `invoked: true`:
    * side effects have already landed and the run must not read as skipped.
    */
-  | "run_error";
+  | "run_error"
+  /**
+   * The run ended cleanly but committed no usable output (no executable tool
+   * call, no visible assistant text: e.g. an HTTP-200 reply with an empty
+   * content array, or thinking-only output) and the caller passed
+   * `requireUsableOutput: true`. Only possible on such wakes; without the
+   * flag the same run is a silent no-op with `invoked: true`.
+   */
+  | "no_output";
 
 export interface WakeResult {
   invoked: boolean;
@@ -1304,10 +1332,11 @@ export async function wakeAgentForOpportunity(
     // finally's error log names the reported outcome so the line matches
     // what the caller actually saw.
     let reportedRunErrorAsFailure = false;
-    // Set when a no-output run ended on a non-clean terminal exit reason and
-    // was reported as `invoked: false` (reason "run_error"). The failure site
-    // logs its own dedicated warn line; the finally skips its generic
-    // "silent no-op" line for this path so a failed wake never reads as a
+    // Set when a no-output run was reported as `invoked: false`, either
+    // because it ended on a non-clean terminal exit reason ("run_error") or
+    // because the caller requires usable output ("no_output"). The failure
+    // site logs its own dedicated warn line; the finally skips its generic
+    // "silent no-op" line for these paths so a failed wake never reads as a
     // successful empty one.
     let reportedSwallowedStopAsFailure = false;
     // Shared failure path for an over-window condition on a
@@ -1525,9 +1554,10 @@ export async function wakeAgentForOpportunity(
         // the returned history's tail slice reads empty (the loop's
         // deep-repair and recovery-hook paths rebase `history`, which can
         // misalign the wake's external tail indexes).
+        const nothingWentLive =
+          mode === "buffering" && persistedTailIndex === 0;
         if (
-          mode === "buffering" &&
-          persistedTailIndex === 0 &&
+          nothingWentLive &&
           terminalExitReason !== null &&
           !CLEAN_NO_OUTPUT_EXIT_REASONS.has(terminalExitReason)
         ) {
@@ -1540,6 +1570,21 @@ export async function wakeAgentForOpportunity(
             invoked: false,
             producedToolCalls: false,
             reason: "run_error" as const,
+          };
+        }
+        // Clean stop with no usable output. For callers that consume a
+        // trigger on success (requireUsableOutput), an empty reply is a
+        // failed pass to retry, not a success to record.
+        if (nothingWentLive && opts.requireUsableOutput === true) {
+          reportedSwallowedStopAsFailure = true;
+          log.warn(
+            { conversationId, source, exitReason: terminalExitReason },
+            "agent-wake: agent loop committed no usable output and the caller requires it; reported as no_output",
+          );
+          return {
+            invoked: false,
+            producedToolCalls: false,
+            reason: "no_output" as const,
           };
         }
         // Silent no-op: drop buffered events, push nothing, persist
