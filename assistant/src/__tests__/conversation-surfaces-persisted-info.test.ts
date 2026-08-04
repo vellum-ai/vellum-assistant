@@ -25,7 +25,14 @@ const { findPersistedSurfaceInfo } =
 
 const CONVERSATION_ID = "conv-persisted-info-1";
 
-function seedRows(rows: Array<{ id: string; content: unknown[] }>): void {
+/** A guardian requester: sees every row, so no provenance filtering applies. */
+const GUARDIAN = { requesterCanAccessMemory: true };
+/** An untrusted requester: only non-guardian-provenance rows are visible. */
+const UNTRUSTED = { requesterCanAccessMemory: false };
+
+function seedRows(
+  rows: Array<{ id: string; content: unknown[]; metadata?: string }>,
+): void {
   getMessagesImpl = () =>
     rows.map((r) => ({
       id: r.id,
@@ -33,7 +40,7 @@ function seedRows(rows: Array<{ id: string; content: unknown[] }>): void {
       role: "assistant",
       content: r.content,
       createdAt: 0,
-      metadata: null,
+      metadata: r.metadata ?? null,
     }));
 }
 
@@ -59,7 +66,7 @@ describe("findPersistedSurfaceInfo", () => {
     ]);
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1")
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1", GUARDIAN)
         ?.surfaceType,
     ).toBe("choice");
   });
@@ -80,7 +87,8 @@ describe("findPersistedSurfaceInfo", () => {
     ]);
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-confirm-1")?.data,
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-confirm-1", GUARDIAN)
+        ?.data,
     ).toEqual({ message: "Delete it?", confirmLabel: "Delete forever" });
   });
 
@@ -101,6 +109,7 @@ describe("findPersistedSurfaceInfo", () => {
     const info = findPersistedSurfaceInfo(
       CONVERSATION_ID,
       "surface-dataless-1",
+      GUARDIAN,
     );
     expect(info?.surfaceType).toBe("choice");
     expect(info?.data).toBeUndefined();
@@ -122,7 +131,7 @@ describe("findPersistedSurfaceInfo", () => {
     ]);
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-missing"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-missing", GUARDIAN),
     ).toBeUndefined();
   });
 
@@ -130,7 +139,7 @@ describe("findPersistedSurfaceInfo", () => {
     seedRows([]);
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1", GUARDIAN),
     ).toBeUndefined();
   });
 
@@ -157,7 +166,7 @@ describe("findPersistedSurfaceInfo", () => {
     ]);
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-compacted-1")
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-compacted-1", GUARDIAN)
         ?.surfaceType,
     ).toBe("choice");
   });
@@ -175,6 +184,7 @@ describe("findPersistedSurfaceInfo", () => {
     const info = findPersistedSurfaceInfo(
       CONVERSATION_ID,
       "surface-typeless-1",
+      GUARDIAN,
     );
     expect(info).toBeDefined();
     expect(info?.surfaceType).toBeUndefined();
@@ -186,7 +196,121 @@ describe("findPersistedSurfaceInfo", () => {
     };
 
     expect(
-      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1"),
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-choice-1", GUARDIAN),
     ).toBeUndefined();
+  });
+
+  test("hides a guardian-provenance row from an untrusted requester", () => {
+    seedRows([
+      {
+        id: "msg-guardian",
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-guardian-1",
+            surfaceType: "confirmation",
+            data: { confirmLabel: "Wire the money" },
+          },
+        ],
+      },
+    ]);
+
+    // The same row the live history filter drops for this actor.
+    expect(
+      findPersistedSurfaceInfo(
+        CONVERSATION_ID,
+        "surface-guardian-1",
+        UNTRUSTED,
+      ),
+    ).toBeUndefined();
+    expect(
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-guardian-1", GUARDIAN)
+        ?.data,
+    ).toEqual({ confirmLabel: "Wire the money" });
+  });
+
+  test("hides a provenance-less row from an untrusted requester", () => {
+    seedRows([
+      {
+        id: "msg-no-metadata",
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-unstamped-1",
+            surfaceType: "choice",
+            data: {},
+          },
+        ],
+      },
+    ]);
+
+    expect(
+      findPersistedSurfaceInfo(
+        CONVERSATION_ID,
+        "surface-unstamped-1",
+        UNTRUSTED,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("serves a contact-provenance row to an untrusted requester", () => {
+    seedRows([
+      {
+        id: "msg-contact",
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-contact-1",
+            surfaceType: "choice",
+            data: { options: [] },
+          },
+        ],
+      },
+    ]);
+
+    expect(
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-contact-1", UNTRUSTED)
+        ?.surfaceType,
+    ).toBe("choice");
+  });
+
+  test("skips a filtered newer row and serves the visible older one", () => {
+    seedRows([
+      {
+        id: "msg-contact",
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-dup-1",
+            surfaceType: "choice",
+            data: { options: [{ id: "visible" }] },
+          },
+        ],
+      },
+      {
+        id: "msg-guardian",
+        metadata: JSON.stringify({ provenanceTrustClass: "guardian" }),
+        content: [
+          {
+            type: "ui_surface",
+            surfaceId: "surface-dup-1",
+            surfaceType: "confirmation",
+            data: { options: [{ id: "hidden" }] },
+          },
+        ],
+      },
+    ]);
+
+    expect(
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-dup-1", UNTRUSTED)
+        ?.data,
+    ).toEqual({ options: [{ id: "visible" }] });
+    expect(
+      findPersistedSurfaceInfo(CONVERSATION_ID, "surface-dup-1", GUARDIAN)
+        ?.data,
+    ).toEqual({ options: [{ id: "hidden" }] });
   });
 });
