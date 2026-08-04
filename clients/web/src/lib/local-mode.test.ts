@@ -528,29 +528,35 @@ describe("getLocalGatewayUrl", () => {
 });
 
 describe("getPairedGatewayUrl", () => {
-  test("resolves a paired entry's runtimeUrl in local mode", () => {
+  test("resolves the same-origin proxy path for a usable paired entry", () => {
     enableLocalMode();
-    expect(getPairedGatewayUrl(pairedEntry)).toBe("https://gw.example.com");
+    expect(getPairedGatewayUrl(pairedEntry)).toBe(
+      "/assistant/__gateway-paired/paired-a",
+    );
   });
 
-  test("strips trailing slashes", () => {
+  test("URL-encodes the assistant id in the proxy path", () => {
     enableLocalMode();
     const paired = {
       ...pairedEntry,
-      runtimeUrl: "https://gw.example.com///",
-    } as LockfileAssistant;
-    expect(getPairedGatewayUrl(paired)).toBe("https://gw.example.com");
-  });
-
-  test("preserves a path prefix, trailing slash stripped", () => {
-    enableLocalMode();
-    const paired = {
-      ...pairedEntry,
-      runtimeUrl: "https://gw.example.com/assistant/",
+      assistantId: "paired/one two",
     } as LockfileAssistant;
     expect(getPairedGatewayUrl(paired)).toBe(
-      "https://gw.example.com/assistant",
+      "/assistant/__gateway-paired/paired%2Fone%20two",
     );
+  });
+
+  test("accepts runtimeUrls with trailing slashes or path prefixes", () => {
+    enableLocalMode();
+    for (const runtimeUrl of [
+      "https://gw.example.com///",
+      "https://gw.example.com/assistant/",
+    ]) {
+      const paired = { ...pairedEntry, runtimeUrl } as LockfileAssistant;
+      expect(getPairedGatewayUrl(paired)).toBe(
+        "/assistant/__gateway-paired/paired-a",
+      );
+    }
   });
 
   test("is undefined for a non-http(s) runtimeUrl", () => {
@@ -599,10 +605,10 @@ describe("getAuthGatewayIngressUrl", () => {
     );
   });
 
-  test("returns the remote runtimeUrl for a paired entry", () => {
+  test("returns origin + paired gateway proxy for a paired entry", () => {
     enableLocalMode();
     expect(getAuthGatewayIngressUrl(pairedEntry)).toBe(
-      "https://gw.example.com",
+      `${window.location.origin}/assistant/__gateway-paired/paired-a`,
     );
   });
 
@@ -614,7 +620,9 @@ describe("getAuthGatewayIngressUrl", () => {
   test("defaults to the selected assistant", () => {
     enableLocalMode();
     setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
-    expect(getAuthGatewayIngressUrl()).toBe("https://gw.example.com");
+    expect(getAuthGatewayIngressUrl()).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+    );
   });
 });
 
@@ -727,12 +735,16 @@ describe("primeLocalGatewayConnection", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(fetchGuardianTokenHost).toHaveBeenCalledWith("paired-a");
     expect(getGatewayToken()).toBe("guardian-tok");
-    expect(getSelfHostedIngressUrl()).toBe("https://gw.example.com");
+    // The connection rides the same-origin host proxy, never the remote
+    // runtimeUrl directly (packaged-app CSP and browser CORS both block it).
+    expect(getSelfHostedIngressUrl()).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+    );
     expect(getSelfHostedActorToken()).toBe("guardian-tok");
     // The seeded source mirrors local mode's `<base>/auth/token` shape so an
     // assistant switch trips the source-mismatch clear.
     expect(localStorage.getItem("vellum:gw:tokenSource")).toBe(
-      "https://gw.example.com/auth/token",
+      "/assistant/__gateway-paired/paired-a/auth/token",
     );
   });
 

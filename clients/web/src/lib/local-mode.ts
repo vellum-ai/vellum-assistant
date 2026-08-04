@@ -629,13 +629,39 @@ function expectsPairedGateway(assistant: LockfileAssistant): boolean {
   );
 }
 
+/** Same-origin proxy path for a paired assistant's remote gateway. */
+export function pairedGatewayProxyUrl(assistantId: string): string {
+  return `/assistant/__gateway-paired/${encodeURIComponent(assistantId)}`;
+}
+
 /**
- * The remote gateway base URL for a paired assistant, or `undefined` when the
- * entry isn't paired, isn't usable in this runtime (non-local client or
- * remote-gateway mode), or records no absolute http(s) `runtimeUrl`. A path
- * prefix in the recorded URL is preserved (a paired gateway may be served
- * under a subpath, like remote-gateway mode's prefix-served assistants);
- * trailing slashes are stripped.
+ * Whether a paired entry records a `runtimeUrl` the serving host can forward
+ * to: an absolute http(s) URL.
+ */
+function hasUsablePairedRuntimeUrl(assistant: LockfileAssistant): boolean {
+  if (!assistant.runtimeUrl) {
+    return false;
+  }
+  try {
+    const url = new URL(assistant.runtimeUrl);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The same-origin proxy path this runtime reaches a paired assistant's remote
+ * gateway through, or `undefined` when the entry isn't paired, isn't usable in
+ * this runtime (non-local client or remote-gateway mode), or records no
+ * absolute http(s) `runtimeUrl` for the host to forward to.
+ *
+ * The renderer never fetches the remote origin directly: the packaged app's
+ * CSP pins `connect-src` to Vellum origins, and a browser-served SPA would be
+ * stopped by the remote gateway's CORS. Instead the serving host (the Electron
+ * `app://` handler, the Vite dev middleware, the CLI web server) resolves the
+ * entry's recorded `runtimeUrl` and forwards, exactly like the loopback
+ * `__gateway/{port}` data-plane proxy.
  */
 export function getPairedGatewayUrl(
   assistant: LockfileAssistant | undefined,
@@ -643,33 +669,25 @@ export function getPairedGatewayUrl(
   if (!assistant || !expectsPairedGateway(assistant)) {
     return undefined;
   }
-  if (!assistant.runtimeUrl) {
+  if (!hasUsablePairedRuntimeUrl(assistant)) {
     return undefined;
   }
-  try {
-    const url = new URL(assistant.runtimeUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return undefined;
-    }
-    return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
-  } catch {
-    return undefined;
-  }
+  return pairedGatewayProxyUrl(assistant.assistantId);
 }
 
 /**
  * Absolute base URL this runtime reaches the given assistant's gateway at:
- * origin + local gateway proxy for local/docker entries, the remote
- * `runtimeUrl` for paired entries, `undefined` otherwise.
+ * origin + local gateway proxy for local/docker entries, origin + paired
+ * gateway proxy for paired entries, `undefined` otherwise.
  */
 export function getAuthGatewayIngressUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
-  const local = getLocalGatewayUrl(assistant);
-  if (local) {
-    return `${window.location.origin}${local}`;
+  const base = getLocalGatewayUrl(assistant) ?? getPairedGatewayUrl(assistant);
+  if (!base) {
+    return undefined;
   }
-  return getPairedGatewayUrl(assistant);
+  return `${window.location.origin}${base}`;
 }
 
 /**
@@ -778,11 +796,12 @@ export async function primeLocalGatewayConnection(
     // The remote gateway's `/auth/token` mint is loopback- and Origin-gated to
     // localhost, so a cross-machine mint is impossible: the guardian access
     // token itself is the bearer, exactly like the CLI's `vellum client`
-    // paired path. The seeded source uses the same `<base>/auth/token` shape
-    // as local mode's token URL so an assistant switch trips
-    // `ensureGatewayToken`'s source-mismatch clear naturally. The 1-hour
-    // fallback expiry forces a cheap periodic re-lease when the token carries
-    // no readable `exp`.
+    // paired path. Traffic rides the same-origin `__gateway-paired` host proxy
+    // (see getPairedGatewayUrl). The seeded source uses the same
+    // `<base>/auth/token` shape as local mode's token URL so an assistant
+    // switch trips `ensureGatewayToken`'s source-mismatch clear naturally. The
+    // 1-hour fallback expiry forces a cheap periodic re-lease when the token
+    // carries no readable `exp`.
     const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
     seedGatewayToken({
       token: guardianToken,
@@ -791,7 +810,10 @@ export async function primeLocalGatewayConnection(
         Math.floor(Date.now() / 1000) + 3600,
       source: `${pairedUrl}/auth/token`,
     });
-    setSelfHostedConnection({ url: pairedUrl, token: guardianToken });
+    setSelfHostedConnection({
+      url: `${window.location.origin}${pairedUrl}`,
+      token: guardianToken,
+    });
     return;
   }
   const tokenUrl = getLocalTokenUrl(assistant);
