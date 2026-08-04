@@ -130,7 +130,7 @@
           },
           "model": {
             "type": "string",
-            "description": "Gemini model to use. Default: 'gemini-2.5-flash'"
+            "description": "Gemini model to use. Defaults to the Gemini provider's recommended vision model."
           },
           "concurrency": {
             "type": "number",
