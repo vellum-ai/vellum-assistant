@@ -269,6 +269,7 @@ describe("OAuthConnectSurface", () => {
         assistantId: "assistant-1",
         providerKey: "google",
         providerLabel: "Google",
+        requestedScopes: ["gmail.readonly"],
       });
       expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
         status: "connected",
