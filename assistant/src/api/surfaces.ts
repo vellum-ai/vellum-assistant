@@ -250,7 +250,7 @@ export type ChoiceSurfaceData = z.infer<typeof ChoiceSurfaceDataSchema>;
  * Requested OAuth scopes for an `oauth_connect` surface.
  *
  * Unlike `FileUploadAcceptedTypesSchema`, a bare string is NOT split on
- * commas — OAuth scopes are opaque URIs, so only arrays are accepted.
+ * commas: OAuth scopes are opaque URIs, so only arrays are accepted.
  * Entries are stringified and trimmed, blanks are dropped, and an empty
  * result or any non-array value collapses to `undefined` (use defaults).
  */
@@ -269,7 +269,7 @@ export const OAuthConnectSurfaceDataSchema = z.object({
     .catch(""),
   /**
    * Optional OAuth scopes to request for the managed connection. A full
-   * replacement set — when present, the platform uses exactly these scopes
+   * replacement set: when present, the platform uses exactly these scopes
    * instead of its defaults (it does not merge). Omit to use the platform's
    * default scopes for the provider.
    */
