@@ -63,6 +63,7 @@ import {
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../persistence/conversation-key-store.js";
+import type { NonScheduledConversationType } from "../../persistence/conversation-types.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
@@ -100,11 +101,11 @@ const log = getLogger("conversation-management-routes");
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Conversation types this endpoint may mint. Deliberately narrower than
- * `ConversationType`: scheduled rows are owned by the schedule pipeline.
- */
-const createConversationTypeSchema = z.enum(["standard", "background"]);
+/** Conversation types this endpoint may mint. */
+const createConversationTypeSchema = z.enum([
+  "standard",
+  "background",
+] as const satisfies readonly NonScheduledConversationType[]);
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
@@ -135,8 +136,10 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   // Zod requestBody (it's codegen-only), so guard the types here: a malformed
   // `{ title: 123 }` would otherwise throw on `.trim()` and 500, and an
   // unsupported conversationType would reach the store unchecked.
+  // `.nullish()`: an explicit JSON `null` is how serializers spell an absent
+  // optional, so it means the same thing as omitting the key.
   const requestedType = createConversationTypeSchema
-    .optional()
+    .nullish()
     .safeParse(body.conversationType);
   if (!requestedType.success) {
     throw new BadRequestError(
@@ -167,11 +170,14 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
       headers?.["x-vellum-client-id"]?.trim() || undefined,
     );
   }
+  // On a conversationKey hit the row already exists, so the type it carries
+  // can differ from the requested one.
+  const storedType = normalizeConversationType(result.conversationType);
   log.info(
     {
       conversationId: result.conversationId,
       conversationKey,
-      conversationType,
+      conversationType: storedType,
       created: result.created,
     },
     "Created conversation via POST",
@@ -179,7 +185,7 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   return {
     id: result.conversationId,
     conversationKey,
-    conversationType: normalizeConversationType(result.conversationType),
+    conversationType: storedType,
     created: result.created,
   };
 }

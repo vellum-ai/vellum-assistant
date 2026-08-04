@@ -15,6 +15,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
+import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
 
@@ -22,7 +23,7 @@ const log = getLogger("conversation-key-store");
 
 /**
  * Set after the first *standard* conversation is created so BOOTSTRAP.md is
- * deleted on the second. Background/scheduled creates never touch it.
+ * deleted on the second. Background creates never touch it.
  */
 let firstConversationSeen = false;
 
@@ -153,7 +154,7 @@ export function resolveConversationId(idOrKey: string): string | null {
 export function getOrCreateConversation(
   conversationKey: string,
   opts?: {
-    conversationType?: "standard" | "background";
+    conversationType?: NonScheduledConversationType;
     /**
      * Caller-supplied title for the conversation, used only when this call
      * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
@@ -220,20 +221,10 @@ export function getOrCreateConversation(
       };
     }
 
-    // Delete BOOTSTRAP.md when a non-first *standard* conversation is created.
-    // The first standard conversation is the onboarding one; keep BOOTSTRAP.md
-    // for its entire duration. Any subsequent standard conversation means
-    // onboarding is over.
-    //
-    // Background/scheduled rows are skipped entirely — they are internal side
-    // channels (onboarding research, personality/identity rewrites, heartbeat
-    // and scheduled runs) that the user never opens, so they are neither the
-    // onboarding conversation nor evidence that onboarding ended. Being inert
-    // here is what stops a hidden side thread minted before the user's first
-    // visible chat from consuming the first-conversation slot and deleting
-    // BOOTSTRAP.md out from under that chat's first turn. The type is read from
-    // the same `conversationType` the insert below persists, so the guard
-    // cannot drift from the stored row.
+    // The first standard conversation is the onboarding one, so BOOTSTRAP.md
+    // survives its whole duration and any later standard create means
+    // onboarding is over. Background rows stay inert: a hidden side thread
+    // minted before the user's first visible chat must not consume that slot.
     if (conversationType === "standard") {
       if (firstConversationSeen) {
         cleanupBootstrapFiles("new conversation created after onboarding");
