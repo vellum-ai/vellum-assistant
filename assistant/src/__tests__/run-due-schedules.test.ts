@@ -5,6 +5,8 @@
  * sequences.
  */
 
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../background-wake/publisher.js", () => ({
@@ -58,8 +60,10 @@ import { initializeDb } from "../persistence/db-init.js";
 import {
   createSchedule,
   deferClaimedSchedule,
+  upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 await initializeDb();
 
@@ -215,5 +219,74 @@ describe("runDueSchedulesOnce (the schedule worker's tick)", () => {
       .get(failing.id) as { retry_count: number; next_run_at: number };
     expect(row.retry_count).toBe(1);
     expect(row.next_run_at).toBeGreaterThan(Date.now());
+  });
+});
+
+describe("fire-time disabled-plugin gate", () => {
+  const PLUGIN_NAME = "example-plugin";
+  const SOURCE_KEY = `plugin:${PLUGIN_NAME}/daily-digest`;
+  const pluginDir = join(getWorkspacePluginsDir(), PLUGIN_NAME);
+  const marker = join(pluginDir, "ran.txt");
+
+  beforeEach(() => {
+    rmSync(pluginDir, { recursive: true, force: true });
+    mkdirSync(pluginDir, { recursive: true });
+  });
+
+  /** A due plugin-sourced script row whose script leaves a marker when it runs. */
+  async function seedDueSourcedScript() {
+    const job = await upsertDeclaredSchedule(SOURCE_KEY, {
+      name: "Daily digest",
+      syntax: "cron",
+      expression: "* * * * *",
+      timezone: null,
+      message: "",
+      script: `touch ${marker}`,
+      mode: "script",
+      inferenceProfile: null,
+      timeoutMs: null,
+      enabled: true,
+      definitionHash: "hash-1",
+    });
+    rawDb().run("UPDATE cron_jobs SET next_run_at = ? WHERE id = ?", [
+      Date.now() - 1000,
+      job.id,
+    ]);
+    return job;
+  }
+
+  test("does not execute a due sourced row whose plugin is disabled", async () => {
+    const job = await seedDueSourcedScript();
+    writeFileSync(join(pluginDir, ".disabled"), "");
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.claimed).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.completed).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+    // The skip is recorded so it stays visible in the schedule's run history,
+    // and no retry is scheduled: `next_run_at` is just the next occurrence the
+    // claim advanced it to.
+    const runs = rawDb()
+      .query("SELECT status, error FROM cron_runs WHERE job_id = ?")
+      .all(job.id) as Array<{ status: string; error: string | null }>;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].error).toContain("is disabled");
+  });
+
+  test("executes a due sourced row whose plugin is enabled", async () => {
+    const job = await seedDueSourcedScript();
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.completed).toBe(1);
+    expect(existsSync(marker)).toBe(true);
+    const runs = rawDb()
+      .query("SELECT status FROM cron_runs WHERE job_id = ?")
+      .all(job.id) as Array<{ status: string }>;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("ok");
   });
 });

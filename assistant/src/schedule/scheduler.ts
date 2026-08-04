@@ -11,6 +11,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
@@ -19,6 +20,7 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
+import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
   createWorkerSupervisor,
   type WorkerSupervisor,
@@ -520,6 +522,31 @@ export async function runDueSchedulesOnce(
         );
       }
       result.skipped += 1;
+      continue;
+    }
+
+    // Fire-time disabled-plugin gate for plugin-sourced rows. Disabling a
+    // plugin writes a `.disabled` sentinel; the reconciler is what disarms the
+    // rows that sentinel owns, and it runs on its own schedule. Re-reading the
+    // sentinel here is what makes the disable take effect immediately, so a
+    // row still armed (or already claimed) at the moment of the toggle cannot
+    // run the plugin's code.
+    const sourcePlugin = describeScheduleSource(job.sourceKey);
+    if (sourcePlugin !== null && isPluginDisabled(sourcePlugin)) {
+      log.info(
+        { jobId: job.id, name: job.name, plugin: sourcePlugin },
+        "Schedule not run: its plugin is disabled",
+      );
+      // cron_runs has no skip status, so the skip is recorded as an error run
+      // to stay visible in the schedule's history. No retry is scheduled: the
+      // schedule did not fail, and re-running it is exactly what the disable
+      // forbids.
+      const skippedRunId = await createScheduleRun(job.id, null);
+      await completeScheduleRun(skippedRunId, {
+        status: "error",
+        error: `Plugin "${sourcePlugin}" is disabled, so this schedule did not run.`,
+      });
+      mark("skipped");
       continue;
     }
 

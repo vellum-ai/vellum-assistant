@@ -38,6 +38,9 @@
  *     `plugins:list` tag via the canonical resource-sync publisher (enable and
  *     disable emit the SAME invalidation)
  *   - Threads `x-vellum-client-id` into the published event's `originClientId`
+ *   - Pokes the plugin-declared schedule reconcile on a successful toggle (and
+ *     not on a failed one), so the plugin's rows disarm / re-arm immediately
+ *     instead of at the reconciler's next backstop sweep
  *   - A broadcast failure does not fail a successful toggle (the publisher
  *     swallows hub errors)
  *   - Maps `InvalidPluginNameError` → BadRequestError (400)
@@ -309,6 +312,15 @@ mock.module("../../../cli/lib/toggle-plugin.js", () => ({
   PluginDirectoryNotFoundError,
   disablePlugin: disablePluginSpy,
   enablePlugin: enablePluginSpy,
+}));
+
+// Spy on the plugin-schedule reconcile the toggle handlers poke. The handlers
+// import it lazily at call time, so this mock intercepts the dynamic import
+// and keeps the reconciler's persistence graph out of the test.
+const reconcilePluginSchedulesSpy = mock(() => Promise.resolve());
+
+mock.module("../../../schedule/plugin-schedule-reconciler.js", () => ({
+  reconcilePluginSchedules: reconcilePluginSchedulesSpy,
 }));
 
 // Spy on broadcastMessage so we can assert the sync_changed invalidation the
@@ -2441,6 +2453,21 @@ function invokeDisable(args: RouteHandlerArgs = {}): { ok: boolean } {
   return disableHandler(args) as { ok: boolean };
 }
 
+/**
+ * Wait for the toggle handlers' fire-and-forget reconcile poke to land. The
+ * lazy `import()` resolves off the microtask queue, so the assertion cannot
+ * run on the handler's synchronous return.
+ */
+async function waitForScheduleReconcile(): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    if (reconcilePluginSchedulesSpy.mock.calls.length > 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error("plugin schedule reconcile was never triggered");
+}
+
 /** Assert the spy received exactly one sync_changed carrying `plugins:list`. */
 function expectPluginsListBroadcast(): void {
   expect(broadcastMessageSpy.mock.calls).toHaveLength(1);
@@ -2453,6 +2480,15 @@ describe("POST /v1/plugins/:name/enable", () => {
   beforeEach(() => {
     enablePluginSpy.mockReset();
     broadcastMessageSpy.mockReset();
+    reconcilePluginSchedulesSpy.mockClear();
+  });
+
+  test("reconciles plugin-declared schedules so the plugin's rows re-arm now", async () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    invokeEnable({ pathParams: { name: "simple-memory" } });
+
+    await waitForScheduleReconcile();
   });
 
   test("enables the plugin and broadcasts sync_changed(plugins:list)", () => {
@@ -2531,6 +2567,31 @@ describe("POST /v1/plugins/:name/disable", () => {
   beforeEach(() => {
     disablePluginSpy.mockReset();
     broadcastMessageSpy.mockReset();
+    reconcilePluginSchedulesSpy.mockClear();
+  });
+
+  test("reconciles plugin-declared schedules so the plugin's rows disarm now", async () => {
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
+    );
+
+    invokeDisable({ pathParams: { name: "simple-memory" } });
+
+    // Without this poke the rows stay armed until the reconciler's next
+    // backstop sweep.
+    await waitForScheduleReconcile();
+  });
+
+  test("a failed toggle does not poke the schedule reconcile", async () => {
+    disablePluginSpy.mockImplementation((name) => {
+      throw new PluginDirectoryNotFoundError(name);
+    });
+
+    expect(() => invokeDisable({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reconcilePluginSchedulesSpy).not.toHaveBeenCalled();
   });
 
   test("disables the plugin and broadcasts sync_changed(plugins:list)", () => {

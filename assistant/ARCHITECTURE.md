@@ -878,8 +878,13 @@ NULL` are imperative schedules the reconciler never touches. Triggers: a
 startup pass in `daemon/lifecycle.ts` (after plugin init, before the
 scheduler starts), the end of `reconcilePluginSourcesNow()` in
 `plugins/mtime-cache.ts` (install/uninstall/upgrade and sentinel-driven
-changes), and a 60s backstop sweep registered with the HTTP server's
-background sweeps.
+changes), the plugin enable/disable routes, and a 60s backstop sweep
+registered with the HTTP server's background sweeps.
+
+Reconcile lag never lets a disabled plugin run. The disable path writes a
+`.disabled` sentinel that only a reconcile pass turns into disarmed rows, so
+the scheduler re-reads the sentinel at fire time and records a skipped run
+instead of executing a claimed row whose plugin is off.
 
 Ownership boundaries: the reconciler owns definition columns (expression,
 timezone, message/script, retry policy, `definition_hash`); the execution

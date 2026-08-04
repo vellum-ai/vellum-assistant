@@ -12,10 +12,14 @@
  * `source_key` are imperative schedules and are never touched.
  *
  * Triggers: daemon startup (`daemon/lifecycle.ts`), plugin-set convergence
- * (`plugins/mtime-cache.ts` after an imperative source reconcile), and a
- * periodic backstop sweep (`runtime/http-server.ts`) that covers plugin
- * enable/disable, which flips the `.disabled` sentinel without poking the
- * plugin source reconcile.
+ * (`plugins/mtime-cache.ts` after an imperative source reconcile), the plugin
+ * enable/disable routes (`runtime/routes/plugins-routes.ts`), and a periodic
+ * backstop sweep (`runtime/http-server.ts`) that covers the sentinel writers
+ * outside the daemon, notably the CLI's own enable/disable.
+ *
+ * Rows this pass has not caught up with are still safe to leave armed: the
+ * scheduler re-reads the `.disabled` sentinel at fire time, so reconcile lag
+ * delays bookkeeping rather than letting a disabled plugin execute.
  */
 
 import { existsSync } from "node:fs";
