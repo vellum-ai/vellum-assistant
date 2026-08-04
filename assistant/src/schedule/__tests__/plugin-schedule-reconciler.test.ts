@@ -588,6 +588,30 @@ describe("reconcilePluginSchedules", () => {
     expect(emittedSignals).toHaveLength(2);
   });
 
+  test("a pipeline-failed declared emit is retried on later passes until a verdict", async () => {
+    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    emitResultOverride = {
+      dispatched: false,
+      pipelineFailed: true,
+      reason: "Signal pipeline failed: transient outage",
+    };
+    const declared = () =>
+      emittedSignals.filter((s) => s.sourceEventName === "schedule.declared");
+
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(1);
+
+    // The row now exists with the current hash, so without the pending
+    // retry this pass would be silent and the consent notification lost.
+    emitResultOverride = null;
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(2);
+
+    // Verdict reached: further passes stay quiet.
+    await reconcilePluginSchedules();
+    expect(declared()).toHaveLength(2);
+  });
+
   test("a completed bounded recurrence stays silent across passes", async () => {
     writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
     await reconcilePluginSchedules();

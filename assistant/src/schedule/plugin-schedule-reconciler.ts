@@ -123,8 +123,15 @@ async function runReconcilePass(): Promise<void> {
     // consent surface for those paths; a CLI install that already prompted
     // gets one redundant, hash-deduped notification. A re-linked row (its
     // `source_key` already existed, e.g. reinstall or re-enable) is not new
-    // unless its definition change is what armed it.
-    if ((row === undefined || armsDisarmedRow) && applied.enabled) {
+    // unless its definition change is what armed it. A pending entry means a
+    // prior emit for this exact definition never reached a pipeline verdict,
+    // so the notification is re-attempted even though the row already exists.
+    const pendingDeclared =
+      pendingDeclaredEmits.get(sourceKey) === definition.definitionHash;
+    if (
+      applied.enabled &&
+      (row === undefined || armsDisarmedRow || pendingDeclared)
+    ) {
       emitScheduleDeclared(pluginName, declaration);
     }
   }
@@ -333,9 +340,23 @@ async function emitDefinitionSignal(
  */
 const definitionErrorEmittedDay = new Map<string, string>();
 
-/** Test-only: forget which definition errors were already emitted today. */
+/**
+ * Definition hash of a `schedule.declared` emit that has not yet reached a
+ * pipeline verdict, per `sourceKey`. The arrival notification is the consent
+ * surface for unattended arming (daemon-route install/upgrade), so a
+ * transient pipeline failure must not drop it: while an entry is pending,
+ * every reconcile pass re-emits until a verdict lands. Entries are kept
+ * across disarm so a reinstall re-delivers a never-delivered consent
+ * notification; the map is bounded by distinct declared schedules seen in
+ * this process. In-memory only: a daemon restart inside the failure window
+ * loses the retry, a residual accepted over persisting a marker.
+ */
+const pendingDeclaredEmits = new Map<string, string>();
+
+/** Test-only: forget emit-guard state (error day-latch and pending emits). */
 export function resetDefinitionErrorEmitGuardForTests(): void {
   definitionErrorEmittedDay.clear();
+  pendingDeclaredEmits.clear();
 }
 
 /**
@@ -398,6 +419,7 @@ function emitScheduleDeclared(
   pluginName: string,
   declaration: ScheduleDeclaration,
 ): void {
+  pendingDeclaredEmits.set(declaration.sourceKey, declaration.definitionHash);
   void emitDefinitionSignal(
     "schedule.declared",
     declaration.sourceKey,
@@ -408,7 +430,15 @@ function emitScheduleDeclared(
       sourceKey: declaration.sourceKey,
       cadence: declaration.config.expression,
     },
-  );
+  ).then((verdict) => {
+    if (
+      verdict &&
+      pendingDeclaredEmits.get(declaration.sourceKey) ===
+        declaration.definitionHash
+    ) {
+      pendingDeclaredEmits.delete(declaration.sourceKey);
+    }
+  });
 }
 
 // ── Periodic backstop sweep ─────────────────────────────────────────────
