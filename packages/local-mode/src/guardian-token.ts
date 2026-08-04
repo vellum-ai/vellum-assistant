@@ -1,16 +1,44 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 import { guardianTokenPath } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
 
-interface GuardianTokenData {
+/** The persisted shape of an assistant's guardian token file. */
+export interface GuardianTokenData {
+  guardianPrincipalId: string;
   accessToken: string;
+  /** ISO date string or epoch-ms number as returned by the gateway. */
   accessTokenExpiresAt: string | number;
   refreshToken: string;
+  /** ISO date string or epoch-ms number as returned by the gateway. */
   refreshTokenExpiresAt: string | number;
+  refreshAfter: string;
+  isNew: boolean;
+  deviceId: string;
+  leasedAt: string;
+}
+
+/**
+ * Persist an assistant's guardian token where every host-seam reader resolves
+ * it (`guardianTokenPath`). The per-assistant directory is created 0700 and the
+ * file written 0600; chmod after the write covers a pre-existing file whose
+ * mode drifted.
+ */
+export function saveGuardianToken(
+  configDir: string,
+  assistantId: string,
+  data: GuardianTokenData,
+): void {
+  const tokenPath = guardianTokenPath(configDir, assistantId);
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(tokenPath, JSON.stringify(data, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  fs.chmodSync(tokenPath, 0o600);
 }
 
 function isAccessTokenExpired(data: GuardianTokenData): boolean {
