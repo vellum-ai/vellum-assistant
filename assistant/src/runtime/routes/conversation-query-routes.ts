@@ -691,6 +691,10 @@ const ConfigGetResponseSchema = z
             }).nullable(),
           )
           .optional(),
+        // Tier-to-profile remap of the shipped call-site defaults (see
+        // `defaultProfileOverrides` in `config/schemas/llm.ts`). Keys are
+        // default-profile tier keys; values are profile names.
+        defaultProfileOverrides: z.record(z.string(), z.string()).optional(),
         profileSession: z
           .object({
             defaultTtlSeconds: z.number().optional(),
@@ -795,6 +799,10 @@ const ConfigPatchRequestSchema = z
         advisorProfile: z.string().nullable().optional(),
         callSites: z
           .record(z.string(), CallSiteOverrideDraftSchema.nullable())
+          .optional(),
+        // `null` clears a tier's remap via the deep-merge delete semantics.
+        defaultProfileOverrides: z
+          .record(z.string(), z.string().nullable())
           .optional(),
         profileSession: z
           .object({
