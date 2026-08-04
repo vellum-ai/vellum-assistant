@@ -3,27 +3,27 @@ import { describe, expect, test } from "bun:test";
 import { dailyResetTimePhrase } from "./daily-reset-time";
 
 describe("dailyResetTimePhrase", () => {
-  test("collapses to plain UTC copy when the clock aligns with UTC", () => {
-    expect(dailyResetTimePhrase("UTC", new Date("2026-07-15T10:00:00Z"))).toBe(
-      "midnight UTC",
-    );
-  });
-
-  test("renders the local reset hour for a DST-observing zone in summer", () => {
+  test("uses the generic zone abbreviation, not the DST-specific one", () => {
     expect(
-      dailyResetTimePhrase("America/New_York", new Date("2026-07-15T10:00:00Z")),
-    ).toBe("8:00 PM your time (midnight UTC)");
+      dailyResetTimePhrase("America/Denver", new Date("2026-07-15T10:00:00Z")),
+    ).toBe("6:00 PM MT");
   });
 
-  test("renders the local reset hour for a DST-observing zone in winter", () => {
+  test("tracks DST: same zone shifts an hour in winter", () => {
     expect(
-      dailyResetTimePhrase("America/New_York", new Date("2026-01-15T10:00:00Z")),
-    ).toBe("7:00 PM your time (midnight UTC)");
+      dailyResetTimePhrase("America/Denver", new Date("2026-01-15T10:00:00Z")),
+    ).toBe("5:00 PM MT");
   });
 
-  test("handles half-hour offsets", () => {
+  test("handles half-hour offsets via the zone's fallback label", () => {
     expect(
       dailyResetTimePhrase("Asia/Kolkata", new Date("2026-07-15T10:00:00Z")),
-    ).toBe("5:30 AM your time (midnight UTC)");
+    ).toBe("5:30 AM India Time");
+  });
+
+  test("UTC-aligned viewers get a plain GMT label", () => {
+    expect(dailyResetTimePhrase("UTC", new Date("2026-07-15T10:00:00Z"))).toBe(
+      "12:00 AM GMT",
+    );
   });
 });

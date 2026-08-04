@@ -1,8 +1,9 @@
 /**
  * Human phrase for the moment the daily credit limit resets. The platform
  * resets the spend counter at midnight UTC; this expresses that moment in the
- * viewer's clock: "5:00 PM your time (midnight UTC)", or just "midnight UTC"
- * when the viewer's clock aligns with UTC midnight.
+ * viewer's clock with a timezone label: "5:00 PM MT". The generic zone name
+ * avoids DST-specific abbreviations (MT, not MDT); zones without one fall
+ * back to a location or offset label ("India Time", "GMT+2").
  *
  * Computed from the actual next UTC midnight so DST transitions land on the
  * right local hour. `timeZone` and `now` are injectable for tests; production
@@ -15,17 +16,16 @@ export function dailyResetTimePhrase(
   const nextUtcMidnight = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
   );
-  const localTime = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    ...(timeZone ? { timeZone } : {}),
-  })
-    .format(nextUtcMidnight)
-    // Some ICU builds separate the time from AM/PM with a narrow no-break
-    // space; normalize so the comparison and the copy are runtime-independent.
-    .replace(/ /g, " ");
-  if (localTime === "12:00 AM") {
-    return "midnight UTC";
-  }
-  return `${localTime} your time (midnight UTC)`;
+  return (
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "shortGeneric",
+      ...(timeZone ? { timeZone } : {}),
+    })
+      .format(nextUtcMidnight)
+      // Some ICU builds separate the time from AM/PM with a narrow no-break
+      // space; normalize so the copy is runtime-independent.
+      .replace(/ /g, " ")
+  );
 }
