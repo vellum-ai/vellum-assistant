@@ -1343,6 +1343,37 @@ describe("lifecycleService — local health heartbeat", () => {
     }
   });
 
+  test("a probe's own 5xx does not double-count via the unreachable bus", async () => {
+    // The daemon response interceptor fires the unreachable bus synchronously
+    // while the heartbeat's own healthz request is still in flight; that must
+    // count as ONE failed probe, not two, so a single 503 blip on a healthy
+    // assistant stays debounced.
+    await driveHealthyThenProbe(async () => {
+      capturedUnreachableListener?.();
+      return { ok: false, status: 503 };
+    });
+
+    const afterOne = useAssistantLifecycleStore.getState().assistantState;
+    expect(afterOne.kind).toBe("active");
+    if (afterOne.kind === "active") {
+      expect(afterOne.health).toBe("healthy");
+    }
+
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    await (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability(assistantId!);
+
+    const afterTwo = useAssistantLifecycleStore.getState().assistantState;
+    expect(afterTwo.kind).toBe("active");
+    if (afterTwo.kind === "active") {
+      expect(afterTwo.health).toBe("unreachable");
+    }
+  });
+
   test("a successful probe resets the failure streak", async () => {
     await driveHealthyThenProbe(async () => {
       throw new Error("network error");

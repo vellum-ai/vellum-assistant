@@ -890,11 +890,15 @@ class AssistantLifecycleService {
       return;
     }
     this.transition({ ...this.state, reachable: false });
-    // The bus/SSE failure that triggered this probe is itself evidence of
-    // trouble: count it as the first strike so the pulled-forward probe's
-    // own failure flips health immediately instead of being debounced like
-    // a lone heartbeat blip.
-    this.probeFailureStreak = Math.max(this.probeFailureStreak, 1);
+    // A bus/SSE failure that arrives while no probe is in flight is
+    // independent evidence of trouble: count it as the first strike so the
+    // pulled-forward probe's own failure flips health immediately instead
+    // of being debounced like a lone heartbeat blip. A notification raised
+    // by an in-flight probe's own 5xx response must not seed the streak, or
+    // that probe's failure would be counted twice.
+    if (!this.reachabilityProbeInFlightIds.has(assistantId)) {
+      this.probeFailureStreak = Math.max(this.probeFailureStreak, 1);
+    }
     if (this.healthHeartbeatId === assistantId) {
       // The heartbeat owns the cadence — just pull the next probe
       // forward instead of racing a second retry loop against it.
