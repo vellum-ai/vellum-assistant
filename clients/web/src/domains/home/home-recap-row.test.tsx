@@ -198,6 +198,29 @@ describe("HomeRecapRow card content", () => {
     expect(screen.getAllByText(summary).length).toBe(1);
   });
 
+  test("an untitled item renders its markdown summary as plain text once", () => {
+    const { container } = renderRow({
+      item: makeItem({
+        title: undefined,
+        summary: "## Deploy failed\n\n**The api** never came up.",
+      }),
+    });
+    const flattened = "Deploy failed The api never came up.";
+
+    expect(screen.getAllByText(flattened).length).toBe(1);
+    expect(screen.getByRole("button", { name: flattened })).toBeTruthy();
+    expect(container.textContent).not.toContain("*");
+    expect(container.textContent).not.toContain("#");
+  });
+
+  test("an untitled item with no renderable summary still names its click target", () => {
+    renderRow({
+      item: makeItem({ title: undefined, summary: "```\nconst a = 1;\n```" }),
+    });
+
+    expect(screen.getByRole("button", { name: "Notification" })).toBeTruthy();
+  });
+
   test("renders an informative source label", () => {
     renderRow({ item: makeItem({ sourceLabel: "Heartbeat" }) });
 

@@ -1,11 +1,20 @@
-/** Tests for `resolvePreview`, the feed card's preview text resolver. */
+/**
+ * Tests for `feed-preview`, the feed card's preview text resolver and the
+ * flattener behind it.
+ */
 
 import { describe, expect, test } from "bun:test";
 
-import { resolvePreview } from "./feed-preview";
+import { flattenSummary, resolvePreview } from "./feed-preview";
 
 /** The daemon's `NOTIFICATION_TITLE_MAX_LENGTH`, the clamp `deriveTitle` uses. */
 const DERIVED_TITLE_MAX_LENGTH = 60;
+
+/** The module's `MAX_PREVIEW_LENGTH`, the cap it applies to flattened text. */
+const PREVIEW_MAX_LENGTH = 280;
+
+/** A phrase whose repetition puts the cap in the middle of a word. */
+const CAP_STRADDLING_PHRASE = "lorem ipsum dolor sit amet consectetur ";
 
 /** Build a title the way the daemon's `deriveTitle` builds an over-long one. */
 function deriveTruncatedTitle(body: string, ellipsis: string): string {
@@ -438,5 +447,88 @@ describe("resolvePreview", () => {
     const preview = resolvePreview("Cafe", summary);
     expect(preview).toBe(summary);
     expect(preview?.startsWith(combiningAcute)).toBe(false);
+  });
+
+  test("returns null when a clamped title already carries the whole preview", () => {
+    // The producer strips the fence delimiters and keeps the code body, so its
+    // title runs past the paragraph this flattener stops at.
+    const summary =
+      "Build failed with this trace:\n```\nTypeError: undefined is not a function\n```";
+    const title = deriveTruncatedTitle(
+      "Build failed with this trace: TypeError: undefined is not a function",
+      "…",
+    );
+    expect(title).toBe(
+      "Build failed with this trace: TypeError: undefined is not a…",
+    );
+
+    expect(resolvePreview(title, summary)).toBeNull();
+  });
+
+  test("returns null when an unclamped title already carries the whole preview", () => {
+    expect(
+      resolvePreview(
+        "Build failed: TypeError raised",
+        "Build failed:\n```\nTypeError raised\n```",
+      ),
+    ).toBeNull();
+  });
+
+  test("keeps a preview the title only shares a word stem with", () => {
+    expect(resolvePreview("Deployment queue is backed up", "Deploy")).toBe(
+      "Deploy",
+    );
+  });
+
+  test("caps a long preview and cuts it on a word boundary", () => {
+    const summary = CAP_STRADDLING_PHRASE.repeat(20).trim();
+    expect(summary.length).toBeGreaterThan(PREVIEW_MAX_LENGTH);
+
+    const preview = resolvePreview("Long report", summary);
+
+    expect(preview).not.toBeNull();
+    expect(preview!.length).toBeLessThanOrEqual(PREVIEW_MAX_LENGTH);
+    expect(summary.startsWith(preview!)).toBe(true);
+    // The character the cut stopped before is a space, so no word was split.
+    expect(summary[preview!.length]).toBe(" ");
+    expect(preview).not.toContain("…");
+  });
+
+  test("caps the continuation left by a derived title", () => {
+    const summary = `Deploy failed. ${CAP_STRADDLING_PHRASE.repeat(20).trim()}`;
+
+    const preview = resolvePreview("Deploy failed", summary);
+
+    expect(preview).not.toBeNull();
+    expect(preview!.length).toBeLessThanOrEqual(PREVIEW_MAX_LENGTH);
+    expect(preview!.startsWith("lorem ipsum")).toBe(true);
+  });
+});
+
+describe("flattenSummary", () => {
+  test("returns markdown as plain text", () => {
+    expect(
+      flattenSummary("## Deploy failed\n\n**The api** never came up."),
+    ).toBe("Deploy failed The api never came up.");
+  });
+
+  test("returns an empty string for a summary with nothing renderable", () => {
+    expect(flattenSummary("```\nconst a = 1;\n```")).toBe("");
+  });
+
+  test("caps a long summary on a word boundary", () => {
+    const summary = CAP_STRADDLING_PHRASE.repeat(20).trim();
+
+    const flattened = flattenSummary(summary);
+
+    expect(flattened.length).toBeLessThanOrEqual(PREVIEW_MAX_LENGTH);
+    expect(summary.startsWith(flattened)).toBe(true);
+    expect(summary[flattened.length]).toBe(" ");
+  });
+
+  test("hard-clamps a single word longer than the cap", () => {
+    const flattened = flattenSummary("x".repeat(PREVIEW_MAX_LENGTH + 40));
+
+    expect(flattened).toBe("x".repeat(PREVIEW_MAX_LENGTH));
   });
 });

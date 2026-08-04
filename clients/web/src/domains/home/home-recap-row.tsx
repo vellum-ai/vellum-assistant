@@ -11,7 +11,7 @@ import {
 } from "@vellumai/design-library";
 
 import { FeedCategoryChip } from "./feed-category-chip";
-import { resolvePreview } from "./feed-preview";
+import { flattenSummary, resolvePreview } from "./feed-preview";
 
 function HoverIconButton({
   label,
@@ -48,6 +48,14 @@ function HoverIconButton({
 
 /** Source labels that carry nothing the category chip does not already say. */
 const GENERIC_SOURCE_LABELS = new Set(["Conversation", "Other"]);
+
+/**
+ * Name for an item with neither a title nor a summary that renders as text, so
+ * the card's click target always has an accessible name. The category is not
+ * used here: its chip is already on the card, and repeating it would read the
+ * same word twice.
+ */
+const UNNAMED_ITEM_TITLE = "Notification";
 
 export type HomeRecapRowDensity = "comfortable" | "compact";
 
@@ -98,7 +106,6 @@ export function HomeRecapRow({
 }: HomeRecapRowProps) {
   const isUnread = item.status === "new";
   const isRestore = trailingAction === "restore";
-  const title = item.title ?? item.summary;
   const densityStyle = DENSITY_STYLES[density];
 
   const sourceLabel =
@@ -106,8 +113,17 @@ export function HomeRecapRow({
       ? item.sourceLabel
       : null;
 
-  // Memoized: resolving a preview parses the summary as markdown, and the feed
-  // re-renders every card whenever its filter changes.
+  // An item without its own title falls back to the summary, which is markdown:
+  // it goes through the flattener so the title line and the click target's name
+  // carry text rather than syntax.
+  //
+  // Both memoized: each parses the summary as markdown, and the feed re-renders
+  // every card whenever its filter changes.
+  const title = useMemo(() => {
+    const resolved = item.title ?? flattenSummary(item.summary);
+    return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
+  }, [item.title, item.summary]);
+
   const preview = useMemo(
     () => resolvePreview(title, item.summary),
     [title, item.summary],

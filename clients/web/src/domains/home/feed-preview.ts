@@ -2,8 +2,8 @@
  * Preview text resolution for home feed cards. A feed item's `summary` is
  * markdown, so it has to be flattened to a single line of plain text before it
  * can sit under the title, and suppressed entirely when it would only restate
- * that title. The returned string carries no markdown syntax and is meant to be
- * rendered directly.
+ * that title. The strings both exports return carry no markdown syntax and are
+ * meant to be rendered directly.
  */
 
 import remarkGfm from "remark-gfm";
@@ -12,6 +12,14 @@ import { unified } from "unified";
 
 /** Shortest continuation worth showing after the title's prefix is removed. */
 const MIN_PREVIEW_LENGTH = 12;
+
+/**
+ * Longest flattened summary worth putting in the DOM. A summary is unbounded
+ * and every card in the feed and the bell carries one, while two lines of a
+ * card hold roughly a hundred characters, so this is generous headroom for a
+ * wide card and still keeps a card's share of the document bounded.
+ */
+const MAX_PREVIEW_LENGTH = 280;
 
 /**
  * Sentence punctuation, ignored at the end of a comparison form and left
@@ -268,12 +276,50 @@ function startOfWordAt(value: string, index: number): number {
 }
 
 /**
+ * Clamp `value` to `MAX_PREVIEW_LENGTH`, pulling the cut back to the last whole
+ * word so the text never ends on a fragment. A word longer than the cap on its
+ * own leaves nothing behind, and a hard clamp says more there than an empty
+ * string.
+ *
+ * No marker is appended: the card line-clamps this text, so CSS already draws
+ * an ellipsis, and a second one in the string would render beside it.
+ */
+function capPreviewLength(value: string): string {
+  if (value.length <= MAX_PREVIEW_LENGTH) {
+    return value;
+  }
+  const clamped = value.slice(0, MAX_PREVIEW_LENGTH);
+  const cut = isWordCharacter(value[MAX_PREVIEW_LENGTH])
+    ? startOfWordAt(clamped, clamped.length)
+    : clamped.length;
+  const capped = clamped.slice(0, cut).trimEnd();
+  return capped.length === 0 ? clamped : capped;
+}
+
+/**
+ * A feed item's markdown summary as one bounded line of plain text.
+ *
+ * Read this anywhere a summary lands in a slot that renders text rather than
+ * markdown, such as the title slot of a card whose item carries no title of its
+ * own, where the raw string would otherwise show its own syntax and be read out
+ * as markup by a screen reader.
+ */
+export function flattenSummary(summary: string): string {
+  return capPreviewLength(flattenMarkdownBlocks(summary));
+}
+
+/**
  * The preview line for a feed card, or `null` when there is nothing worth
  * showing beneath the title.
  *
  * Returns `null` when the flattened summary is empty, when it matches the
- * title, and when the title is a prefix of it (a title derived from the
- * summary) with too short a continuation left over.
+ * title, when the title is a prefix of it (a title derived from the summary)
+ * with too short a continuation left over, and when the preview is a prefix of
+ * the title, where the whole preview is already visible in the line above it.
+ *
+ * That last shape comes from the producer reading text this flattener drops:
+ * its title keeps a code block's body while the preview stops at the paragraph
+ * introducing it, leaving the preview a fragment of the title.
  *
  * A title carrying a trailing truncation marker is exempt from the word
  * boundary check, because a clamp at a fixed offset lands mid-word often and
@@ -285,7 +331,7 @@ function startOfWordAt(value: string, index: number): number {
  * discards it along with the rest of the trailing sentence punctuation.
  */
 export function resolvePreview(title: string, summary: string): string | null {
-  const preview = flattenMarkdownBlocks(summary);
+  const preview = flattenSummary(summary);
   if (preview.length === 0) {
     return null;
   }
@@ -301,7 +347,10 @@ export function resolvePreview(title: string, summary: string): string | null {
     ? normalizedPreview.startsWith(normalizedTitle)
     : startsWithWholeWords(normalizedPreview, normalizedTitle);
   if (!isDerived) {
-    return preview;
+    const titleCoversPreview = isTruncated
+      ? normalizedTitle.startsWith(normalizedPreview)
+      : startsWithWholeWords(normalizedTitle, normalizedPreview);
+    return titleCoversPreview ? null : preview;
   }
 
   const cut =
