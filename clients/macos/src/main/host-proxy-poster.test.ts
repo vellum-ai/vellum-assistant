@@ -297,6 +297,47 @@ describe("HostProxyPoster", () => {
     });
   });
 
+  describe("postPresence", () => {
+    test("sends correct URL, method, headers, and body", async () => {
+      const { fetchFn, captured } = createMockFetch();
+      const poster = makeLocalPoster(fetchFn);
+
+      const result = await poster.postPresence({ state: "active" });
+
+      expect(result).toBe(true);
+      expect(captured).toHaveLength(1);
+
+      const req = captured[0];
+      expect(req.url).toBe("http://127.0.0.1:9000/v1/clients/presence");
+      expect(req.method).toBe("POST");
+      expect(req.headers["Content-Type"]).toBe("application/json");
+      expect(req.headers["X-Vellum-Client-Id"]).toBe(FAKE_DEVICE_ID);
+
+      const body = JSON.parse(req.body!);
+      expect(body.state).toBe("active");
+    });
+
+    test("returns false without throwing when the daemon lacks the route", async () => {
+      const { fetchFn } = createMockFetch(404);
+      const poster = makeLocalPoster(fetchFn);
+
+      const result = await poster.postPresence({ state: "idle" });
+
+      expect(result).toBe(false);
+    });
+
+    test("returns false when fetch throws", async () => {
+      const throwingFetch = (async () => {
+        throw new Error("network failure");
+      }) as unknown as typeof globalThis.fetch;
+      const poster = makeLocalPoster(throwingFetch);
+
+      const result = await poster.postPresence({ state: "away" });
+
+      expect(result).toBe(false);
+    });
+  });
+
   describe("pullTransferContent", () => {
     test("returns buffer on success", async () => {
       const payload = Buffer.from("file-bytes-here");
