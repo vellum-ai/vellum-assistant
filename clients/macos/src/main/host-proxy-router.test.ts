@@ -235,7 +235,7 @@ describe("host-proxy-router", () => {
       await flush();
       expect(__testing.pendingConnects.has("a1")).toBe(true);
 
-      // Retired before the token resolves — the pending connect is cancelled.
+      // Retired before the token resolves, so the pending connect is cancelled.
       lockfileListener?.({ assistants: [], activeAssistant: null });
       expect(__testing.pendingConnects.has("a1")).toBe(false);
 
@@ -595,7 +595,7 @@ describe("host-proxy-router", () => {
       await flush();
       expect(__testing.pendingConnects.has("paired-1")).toBe(true);
 
-      // Unpaired before the token resolves — the pending connect is cancelled.
+      // Unpaired before the token resolves, so the pending connect is cancelled.
       lockfileListener?.({ assistants: [], activeAssistant: null });
       expect(__testing.pendingConnects.has("paired-1")).toBe(false);
 
