@@ -443,6 +443,17 @@ export interface SubagentRoleConfig {
    * `undefined` means no filter (all tools available).
    */
   allowedTools?: string[];
+  /**
+   * When true, the role refuses side-effecting tools regardless of trust
+   * class: a name on {@link allowedTools} still has to resolve to a
+   * first-party built-in, so a workspace or plugin tool that claims an
+   * allowed name is kept off the surface and refused at dispatch.
+   *
+   * This lives on the role rather than at a spawn site so every path that
+   * projects the role, the live spawn and the `tools list --agent` preview
+   * alike, applies the same gate.
+   */
+  denySideEffects?: boolean;
   /** Skill IDs to pre-activate on the subagent conversation. */
   skillIds: string[];
   /** Role-specific text prepended to the subagent system prompt. */
@@ -500,6 +511,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       // that read-only set, or it is admitted by the role and then refused at
       // dispatch. `subagent-role-registry.test.ts` asserts the subset.
       allowedTools: ["file_read", "file_list", "code_search"],
+      denySideEffects: true,
       skillIds: [],
       systemPromptPreamble:
         "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You may read and search the files in the workspace to verify a decisive fact, but you cannot change anything and you cannot see other conversations.",

@@ -541,6 +541,11 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
       ? new Set(roleConfig.allowedTools)
       : undefined,
     subagentToolGateMode: undefined,
+    // Roles that refuse side effects require an allowed name to resolve to a
+    // first-party built-in, so a workspace or plugin tool claiming one is off
+    // the surface. Without this the preview would advertise a tool the live
+    // subagent refuses at dispatch.
+    subagentDenySideEffects: roleConfig.denySideEffects === true,
     toolsDisabledDepth: 0,
     diskPressureCleanupModeActive: false,
     skillProjectionState: new Map<string, string>(),

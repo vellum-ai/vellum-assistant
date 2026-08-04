@@ -3595,8 +3595,11 @@ describe("Subagent advisor-role consult", () => {
       );
       // Without this the advisor's read-only guarantee is a list of NAMES, and
       // a workspace tool registered as `file_read` would be handed to it to
-      // execute. The flag adds the owner check that names cannot express.
-      expect(captured.current!.config.denySideEffectTools).toBe(true);
+      // execute. The owner check that names cannot express rides on the role,
+      // so it reaches every path that projects the role rather than only the
+      // spawn site that remembered to ask for it.
+      expect(captured.current!.config.role).toBe("advisor");
+      expect(SUBAGENT_ROLE_REGISTRY.advisor.denySideEffects).toBe(true);
     } finally {
       restore();
       mockFindConversation = () => undefined;

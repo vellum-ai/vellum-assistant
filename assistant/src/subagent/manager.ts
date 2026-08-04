@@ -741,9 +741,10 @@ export class SubagentManager {
     }
 
     // A read-only subagent refuses side-effecting tools regardless of trust
-    // class; the executor gate rejects
-    // any such dispatch and they are kept off the model's tool surface.
-    if (config.denySideEffectTools) {
+    // class; the executor gate rejects any such dispatch and they are kept off
+    // the model's tool surface. The role carries the gate so a caller cannot
+    // spawn a role past it, and a spawn can still ask for it on top.
+    if (config.denySideEffectTools || roleConfig.denySideEffects) {
       conversation.setSubagentDenySideEffects(true);
     }
 

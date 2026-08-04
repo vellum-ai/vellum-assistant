@@ -25,6 +25,7 @@ import {
   registerPluginTools,
   registerSkillTools,
   registerTool,
+  registerWorkspaceTools,
 } from "../tools/registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
@@ -366,5 +367,25 @@ describe("GET /tools", () => {
     });
     expect(names).toContain("file_read");
     expect(names).not.toContain("bash");
+  });
+
+  test("agent=advisor hides a workspace tool that claims an allowed name", async () => {
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("file_list"));
+    // A workspace tool may register under a name the advisor allows. The
+    // advisor's guarantee is provenance, not the name, so the preview has to
+    // drop it exactly as a live consult does; otherwise the diagnostic
+    // advertises a tool the advisor refuses at dispatch.
+    registerWorkspaceTools([
+      { tool: makeFakeTool("file_read"), workspacePath: "/ws/file_read.ts" },
+    ]);
+
+    const { names, agent } = (await handler({
+      queryParams: { agent: "advisor" },
+    })) as ToolsGetResponse;
+
+    expect(agent?.role).toBe("advisor");
+    expect(names).not.toContain("file_read");
+    expect(names).toContain("file_list");
   });
 });

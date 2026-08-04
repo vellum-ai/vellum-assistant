@@ -751,12 +751,11 @@ async function runAdvisorConsult(args: {
           // workspace tool may register under `file_read` (registerWorkspaceTools
           // stashes the built-in and installs its own implementation), and a
           // name-only role allowlist would hand the advisor that implementation
-          // to execute. This flag turns on the owner-aware read-only gate
-          // (`isRefusedInReadOnlyPass`): a name must be on the runtime's
-          // read-only set AND resolve to the first-party built-in, or it is kept
-          // off the wire and refused at dispatch. Provenance, not enumeration,
-          // so a tool that does not exist yet is covered too.
-          denySideEffectTools: true,
+          // to execute. The owner-aware read-only gate that closes this comes
+          // from `denySideEffects` on the advisor's registry entry, so every
+          // path that projects the role applies it, this spawn and the
+          // `tools list --agent advisor` preview alike.
+          //
           // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
           // lands under `subagentSpawn` like any other subagent. This is what
           // makes advisor consults separable from regular forks in telemetry.
