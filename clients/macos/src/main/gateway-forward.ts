@@ -1,6 +1,7 @@
 import {
   resolveGatewayProxyTarget,
   resolvePairedGatewayProxyTarget,
+  sanitizePairedForwardHeaders,
 } from "@vellumai/local-mode";
 
 /**
@@ -92,12 +93,26 @@ export function planGatewayForward(
  * lockfile-pairing decision so the security boundary is defined once for every
  * host: only assistants the user actually imported are reachable.
  *
- * On `forward`, the request's `Origin` is removed entirely. This is a
- * server-to-server hop to a remote gateway, so the renderer's `app://` origin
- * must not be sent, and unlike the loopback forward there is no
- * loopback-origin gate to satisfy. The remaining headers (notably the
- * guardian `Authorization` bearer) pass through unchanged; the remote gateway
- * validates the bearer by signature and audience.
+ * On `forward`, the browser-ambient headers (`Origin`, `Referer`, `Cookie`,
+ * `Sec-Fetch-*`) are stripped via the shared `sanitizePairedForwardHeaders`:
+ * this is a server-to-server hop to a remote gateway, so nothing about the
+ * renderer's `app://` context may leak into it. The guardian `Authorization`
+ * bearer passes through unchanged; the remote gateway validates it by
+ * signature and audience.
+ *
+ * Unlike `planPlatformForward`, this plan deliberately carries no
+ * initiator-trust gate on unsafe methods. The platform hop attaches ambient
+ * credentials on the far side (session cookie / token headers), so a mutation
+ * must prove it came from the renderer, and the renderer's API interceptor
+ * stamps `X-Vellum-Electron-Renderer-Origin` on platform-bound mutations to
+ * make that provable. Paired-bound requests carry no such stamp (the
+ * interceptor rewrites them to the self-hosted ingress before the
+ * platform-header step), and after sanitization this hop carries no ambient
+ * credential at all: the lockfile allowlists the target, and the only
+ * credential is the explicit `Authorization` bearer, which a cross-site
+ * initiator cannot attach. An initiator gate here would add no protection
+ * while rejecting legitimate paired mutations, which present neither the
+ * stamp nor a usable `Origin` on the `app://` scheme.
  */
 export function planPairedGatewayForward(
   request: GatewayForwardRequest,
@@ -112,15 +127,11 @@ export function planPairedGatewayForward(
   switch (decision.kind) {
     case "pass":
       return { kind: "pass" };
-    case "unknown-assistant":
-      return {
-        kind: "reject",
-        status: 403,
-        message: "Assistant is not paired in lockfile",
-      };
+    case "reject":
+      return decision;
     case "forward": {
       const headers = new Headers(request.headers);
-      headers.delete("origin");
+      sanitizePairedForwardHeaders(headers);
       return {
         kind: "forward",
         url: decision.url,

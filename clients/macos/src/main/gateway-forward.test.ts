@@ -142,20 +142,45 @@ describe("planPairedGatewayForward", () => {
     expect(plan.hasBody).toBe(false);
   });
 
-  test("removes the renderer's Origin entirely on the server-to-server hop", () => {
-    const plan = planPairedGatewayForward(
-      request("/__gateway-paired/abc/v1/events", {
-        method: "POST",
+  test("strips the browser-ambient headers on the server-to-server hop", () => {
+    const req = {
+      url: "app://vellum.ai/__gateway-paired/abc/v1/events",
+      method: "POST",
+      headers: new Headers({
         origin: "app://vellum.ai",
+        referer: "app://vellum.ai/assistant",
+        cookie: "sessionid=abc",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
       }),
+    };
+    const plan = planPairedGatewayForward(
+      req,
       pair({ abc: "https://gw.example.com" }),
     );
     if (plan.kind !== "forward") throw new Error("expected forward");
     expect(plan.headers.has("origin")).toBe(false);
+    expect(plan.headers.has("referer")).toBe(false);
+    expect(plan.headers.has("cookie")).toBe(false);
+    expect(plan.headers.has("sec-fetch-site")).toBe(false);
+    expect(plan.headers.has("sec-fetch-mode")).toBe(false);
     expect(plan.hasBody).toBe(true);
   });
 
-  test("preserves non-Origin headers such as the guardian bearer", () => {
+  test("rejects a dot-segment traversal tail with 403", () => {
+    expect(
+      planPairedGatewayForward(
+        request("/__gateway-paired/abc/%2e%2e/secrets"),
+        pair({ abc: "https://gw.example.com/edge" }),
+      ),
+    ).toEqual({
+      kind: "reject",
+      status: 403,
+      message: "Assistant is not paired in lockfile",
+    });
+  });
+
+  test("preserves non-ambient headers such as the guardian bearer", () => {
     const req = {
       url: "app://vellum.ai/assistant/__gateway-paired/abc/v1/foo",
       method: "GET",

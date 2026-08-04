@@ -748,10 +748,10 @@ describe("getAuthGatewayIngressUrl", () => {
     expect(getAuthGatewayIngressUrl(platform)).toBeUndefined();
   });
 
-  test("defaults to the selected assistant", () => {
+  test("resolves the selected assistant's ingress", () => {
     enableLocalMode();
     setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
-    expect(getAuthGatewayIngressUrl()).toBe(
+    expect(getAuthGatewayIngressUrl(getSelectedAssistant())).toBe(
       `${window.location.origin}/assistant/__gateway-paired/paired-a`,
     );
   });

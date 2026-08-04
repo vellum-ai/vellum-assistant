@@ -42,6 +42,7 @@ import {
   resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
+  sanitizePairedForwardHeaders,
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
@@ -775,22 +776,25 @@ async function handleLocalEndpoints(
   // Paired-gateway proxy: same shared decision as the web (Vite middleware)
   // and Electron (`app://` handler) hosts, forwarding to the remote gateway an
   // imported pairing recorded as its `runtimeUrl`. The lockfile's paired
-  // entries are the allowlist. Origin is dropped on the server-to-server hop;
-  // the guardian bearer passes through for the remote gateway to validate.
-  const pairedDecision = resolvePairedGatewayProxyTarget(pathname, () =>
-    readPairedGatewayTargets(lockfilePaths),
+  // entries are the allowlist. Browser-ambient headers (Origin, Referer,
+  // Cookie, Sec-Fetch-*) are stripped on the server-to-server hop; the
+  // guardian bearer passes through for the remote gateway to validate.
+  const pairedDecision = resolvePairedGatewayProxyTarget(
+    pathname + url.search,
+    () => readPairedGatewayTargets(lockfilePaths),
   );
-  if (pairedDecision.kind === "unknown-assistant") {
-    return new Response("Assistant is not paired in lockfile", { status: 403 });
+  if (pairedDecision.kind === "reject") {
+    return new Response(pairedDecision.message, {
+      status: pairedDecision.status,
+    });
   }
   if (pairedDecision.kind === "forward") {
-    const targetUrl = `${pairedDecision.url}${url.search}`;
     const headers = new Headers(req.headers);
+    sanitizePairedForwardHeaders(headers);
     headers.set("host", new URL(pairedDecision.url).host);
-    headers.delete("origin");
     return proxyGatewayFetch(
       req,
-      targetUrl,
+      pairedDecision.url,
       headers,
       "Paired gateway proxy error",
     );
