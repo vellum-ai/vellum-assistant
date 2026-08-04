@@ -164,6 +164,21 @@ function makeMessage(overrides: Partial<MessageRow> = {}): MessageRow {
   };
 }
 
+/**
+ * A turn opened from the macOS app. The `client` bag's `os` entry is the only
+ * per-platform attribution: the interface stamp is "web" for the macOS app,
+ * the iOS app, and a desktop browser alike.
+ */
+function makeMacOriginatedMessage(): MessageRow {
+  return makeMessage({
+    metadata: JSON.stringify({
+      userMessageChannel: "vellum",
+      userMessageInterface: "web",
+      client: { os: "macos" },
+    }),
+  });
+}
+
 function makeAssistantRow(content: ContentBlock[]): MessageRow {
   return makeMessage({
     id: ASSISTANT_MESSAGE_ID,
@@ -287,9 +302,12 @@ describe("emitAssistantReplyNotification", () => {
   // `emitNotificationSignal` (covered in `emit-signal-routing-intent.test.ts`),
   // so the producer's contract here is the hint it emits, not the silence.
   describe("desktop presence", () => {
-    test("marks the signal source-active while a Mac reports itself attended", async () => {
+    beforeEach(() => {
+      initiatingRow = makeMacOriginatedMessage();
       desktopAttended = true;
+    });
 
+    test("marks the signal source-active while a Mac reports itself attended", async () => {
       await run();
 
       expect(emitCalls).toHaveLength(1);
@@ -300,6 +318,8 @@ describe("emitAssistantReplyNotification", () => {
     });
 
     test("leaves the signal live when no Mac is attended", async () => {
+      desktopAttended = false;
+
       await run();
 
       expect(emitCalls).toHaveLength(1);
@@ -308,7 +328,6 @@ describe("emitAssistantReplyNotification", () => {
 
     test("leaves the signal live when the presence flag is off", async () => {
       setOverridesForTesting({ "desktop-presence-suppression": false });
-      desktopAttended = true;
 
       await run();
 
@@ -325,6 +344,63 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
       expect(warnCalls).toHaveLength(1);
+    });
+
+    // An attended Mac only speaks for a turn the Mac itself opened: the user
+    // can send from the phone minutes after last touching the keyboard, which
+    // is exactly the reply this producer exists to push.
+    const NON_MAC_ORIGIN_CASES: Array<{ name: string; metadata: unknown }> = [
+      { name: "the iOS app", metadata: { client: { os: "ios" } } },
+      { name: "a browser", metadata: { client: { os: "web" } } },
+      { name: "a client that reports no OS", metadata: { client: {} } },
+      { name: "a row with no client bag", metadata: {} },
+      {
+        name: "a client reporting an unknown OS",
+        metadata: { client: { os: "bsd" } },
+      },
+    ];
+
+    for (const { name, metadata } of NON_MAC_ORIGIN_CASES) {
+      test(`leaves the signal live for a turn opened from ${name}`, async () => {
+        initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
+
+        await run();
+
+        expect(emitCalls).toHaveLength(1);
+        expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      });
+    }
+
+    // The transport interface is "web" for the macOS app, the iOS app, and a
+    // desktop browser alike, so it cannot stand in for the client OS.
+    test("leaves the signal live for a web-interface turn with no client OS", async () => {
+      initiatingRow = makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: "vellum",
+          userMessageInterface: "web",
+        }),
+      });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    });
+
+    // An unrecognized channel fails the whole metadata schema, so the origin
+    // read has to answer off the permissive fallback too.
+    test("marks the signal source-active when only the channel is unrecognized", async () => {
+      initiatingRow = makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: "not-a-channel",
+          client: { os: "macos" },
+        }),
+      });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
     });
   });
 

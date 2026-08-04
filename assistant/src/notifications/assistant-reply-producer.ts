@@ -10,6 +10,7 @@
 
 import type pino from "pino";
 
+import { parseClientOs } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
@@ -95,6 +96,24 @@ function readSuppressionMarkers(
     return validated;
   }
   return metadataJson ? safeParseRecord(metadataJson) : undefined;
+}
+
+/**
+ * True when the row that opened the turn was sent from the macOS app.
+ *
+ * The `client` bag's `os` entry is the only per-platform attribution on a
+ * message: `userMessageInterface` is `"web"` for the macOS app, the iOS app,
+ * and a desktop browser alike. An absent or unrecognized value reads as
+ * not-macOS, so a turn whose origin cannot be established keeps its push.
+ */
+function isMacOriginatedTurn(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  const client = metadata?.client;
+  if (typeof client !== "object" || client === null) {
+    return false;
+  }
+  return parseClientOs((client as Record<string, unknown>).os) === "macos";
 }
 
 /**
@@ -204,8 +223,12 @@ export async function emitAssistantReplyNotification(params: {
     );
 
     // Read as close to the emit as possible: nothing short-circuits on it.
+    // Presence only speaks for a turn the Mac itself opened. A turn sent from
+    // the phone still needs its push while the Mac sits idle within the
+    // desktop client's attendance window.
     const desktopAttended =
       isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
+      isMacOriginatedTurn(initiatingMetadata) &&
       readDesktopAttended(rlog);
 
     await emitNotificationSignal({
@@ -222,9 +245,9 @@ export async function emitAssistantReplyNotification(params: {
         // opting into v2.
         urgency: "medium",
         isAsyncBackground: false,
-        // An attended Mac answers the desktop half; iOS suppressing remote
-        // pushes while foregrounded covers the iPhone half. Read weakly, as
-        // "at the machine this landed on": the Mac banner reaches them there.
+        // Read weakly, as "at the machine this landed on": the attended Mac
+        // that opened the turn renders the reply in-app, and its Dock unread
+        // badge carries it while the window is hidden.
         visibleInSourceNow: desktopAttended,
       },
       contextPayload: {
