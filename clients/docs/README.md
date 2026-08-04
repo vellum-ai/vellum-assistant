@@ -17,7 +17,7 @@ bun install                          # resolves to the workspace root
 bun run dev
 ```
 
-Then open <http://localhost:3005/docs> — everything lives under the `/docs`
+Then open <http://localhost:3005/docs>. Everything lives under the `/docs`
 prefix, so the bare root (`http://localhost:3005/`) is a 404. Before the dev
 server starts, `predev` regenerates the search index and markdown mirrors
 automatically; no manual generation step is needed.
