@@ -1377,9 +1377,10 @@ describe("AssistantSideMenu · section reordering", () => {
 /**
  * The conversation list resolves only once every page of it has been fetched,
  * so "still loading" is a state the sidebar sits in for seconds on a cold
- * load. It used to render exactly like "this assistant has no conversations":
- * an empty scrollport. These assert the two stay distinguishable, and that a
- * refetch never blanks a sidebar that already has rows.
+ * load. Its natural rendering is an empty scrollport, which is also what "this
+ * assistant has no conversations" looks like. These assert the two stay
+ * distinguishable, and that a refetch never blanks a sidebar that already has
+ * rows.
  */
 describe("AssistantSideMenu · conversation list loading state", () => {
   const SKELETON = 'data-slot="sidebar-conversation-skeleton"';
@@ -1398,8 +1399,8 @@ describe("AssistantSideMenu · conversation list loading state", () => {
 
   test("draws no placeholders once an empty list has loaded", () => {
     // The sensitivity check on the test above: an assistant with genuinely no
-    // conversations must not sit under placeholders forever. Without this,
-    // unconditionally rendering the skeleton would still pass.
+    // conversations must not sit under placeholders forever. This is the
+    // assertion that fails if the skeleton renders unconditionally.
     const html = renderMenu({
       conversations: [],
       isLoadingConversations: false,

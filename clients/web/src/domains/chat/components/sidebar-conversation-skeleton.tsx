@@ -5,10 +5,9 @@
  * The list arrives as one query that resolves only after every page of it has
  * been fetched (see `fetchConversationList`), so on a cold load there is a
  * stretch (proportional to how many conversations the assistant has) where
- * the sidebar has no rows to draw. Without this the sidebar renders an empty
- * scrollport, which reads as "you have no conversations" rather than "these
- * are on their way": the two states looked identical, and the difference
- * between them is the whole reason a user reaches for the menu.
+ * the sidebar has no rows to draw. These rows keep that stretch legible as
+ * loading rather than as an assistant with no conversations, which is the
+ * distinction a user opens the menu to see.
  *
  * Deliberately fixed-width bars rather than randomized ones: the widths only
  * have to break the grid enough to read as titles, and a stable set can't
@@ -36,10 +35,9 @@ export function SidebarConversationSkeleton() {
     /* `gap-1` + the 30px row height restate the real list's row rhythm, so
        rows don't shift vertically when the real ones replace these. */
     /* `role="status"` rather than `aria-hidden`: telling loading apart from
-       "no conversations" is the whole point of this component, and a screen
-       reader given only decorative bars would be back to a silently empty
-       list. The bars themselves carry no text, so the label is the only thing
-       announced. */
+       "no conversations" is the point of this component, and decorative-only
+       bars would leave a screen reader with a silently empty list. The bars
+       carry no text, so the label is the only thing announced. */
     <div
       className="flex flex-col gap-1"
       data-slot="sidebar-conversation-skeleton"
