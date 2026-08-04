@@ -26,6 +26,14 @@ const MIN_PREVIEW_LENGTH = 12;
 const SENTENCE_PUNCTUATION = ".,;:!?-…";
 
 /**
+ * A trailing truncation marker: a horizontal ellipsis or a run of three or more
+ * ASCII periods. The producer appends one when it clamps a title at a fixed
+ * character offset, which makes the marker its explicit signal that the title
+ * was cut in the middle of the text it came from.
+ */
+const TRUNCATION_MARKER = /(?:…|\.{3,})$/;
+
+/**
  * The parts of a markdown node the flattener reads. Structural rather than
  * imported so the walk stays tolerant of node types remark adds.
  */
@@ -228,19 +236,35 @@ function stripSliceDebris(value: string): string {
 }
 
 /**
+ * Whether a character belongs to a word. Combining marks count, so a
+ * decomposed letter is never split away from its accent.
+ */
+function isWordCharacter(char: string | undefined): boolean {
+  return char !== undefined && /[\p{L}\p{M}\p{N}]/u.test(char);
+}
+
+/**
  * True when `value` opens with `prefix` and that prefix ends on a word
  * boundary, so a title of "Deploy" is not read as a prefix of "Deployment
  * queue is backed up".
- *
- * Combining marks count as part of the preceding word, so a decomposed letter
- * straddling the cut ("Cafe" against "Café") is not a boundary.
  */
 function startsWithWholeWords(value: string, prefix: string): boolean {
   if (!value.startsWith(prefix)) {
     return false;
   }
-  const next = value[prefix.length];
-  return next === undefined || !/[\p{L}\p{M}\p{N}]/u.test(next);
+  return !isWordCharacter(value[prefix.length]);
+}
+
+/**
+ * Walk `index` back to where its word starts in `value`, so a cut taken there
+ * opens on a whole word rather than on the tail of one.
+ */
+function startOfWordAt(value: string, index: number): number {
+  let start = index;
+  while (start > 0 && isWordCharacter(value[start - 1])) {
+    start -= 1;
+  }
+  return start;
 }
 
 /**
@@ -250,6 +274,15 @@ function startsWithWholeWords(value: string, prefix: string): boolean {
  * Returns `null` when the flattened summary is empty, when it matches the
  * title, and when the title is a prefix of it (a title derived from the
  * summary) with too short a continuation left over.
+ *
+ * A title carrying a trailing truncation marker is exempt from the word
+ * boundary check, because a clamp at a fixed offset lands mid-word often and
+ * the marker is the producer saying so. Its cut then moves back to the start of
+ * the straddled word, which repeats one visibly truncated word rather than
+ * dropping the rest of it.
+ *
+ * The marker has to be read off the untouched title, since normalization
+ * discards it along with the rest of the trailing sentence punctuation.
  */
 export function resolvePreview(title: string, summary: string): string | null {
   const preview = flattenMarkdownBlocks(summary);
@@ -262,12 +295,20 @@ export function resolvePreview(title: string, summary: string): string | null {
   if (normalizedPreview === normalizedTitle) {
     return null;
   }
-  if (!startsWithWholeWords(normalizedPreview, normalizedTitle)) {
+
+  const isTruncated = TRUNCATION_MARKER.test(title.trimEnd());
+  const isDerived = isTruncated
+    ? normalizedPreview.startsWith(normalizedTitle)
+    : startsWithWholeWords(normalizedPreview, normalizedTitle);
+  if (!isDerived) {
     return preview;
   }
 
-  const remainder = stripSliceDebris(
-    sliceAfterNormalizedPrefix(preview, normalizedTitle.length),
-  );
+  const cut =
+    isTruncated && isWordCharacter(normalizedPreview[normalizedTitle.length])
+      ? startOfWordAt(normalizedPreview, normalizedTitle.length)
+      : normalizedTitle.length;
+
+  const remainder = stripSliceDebris(sliceAfterNormalizedPrefix(preview, cut));
   return remainder.length < MIN_PREVIEW_LENGTH ? null : remainder;
 }

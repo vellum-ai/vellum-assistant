@@ -371,9 +371,9 @@ describe("resolvePreview", () => {
   });
 
   test("does not treat a shared word prefix as a derived title", () => {
-    expect(resolvePreview("Deploy", "Deployment queue is backed up")).toBe(
-      "Deployment queue is backed up",
-    );
+    const preview = resolvePreview("Deploy", "Deployment queue is backed up");
+    expect(preview).toBe("Deployment queue is backed up");
+    expect(preview).not.toBe("ment queue is backed up");
   });
 
   test("matches a derived title clamped with a horizontal ellipsis", () => {
@@ -397,6 +397,30 @@ describe("resolvePreview", () => {
     const preview = resolvePreview(title, summary);
     expect(preview).toBe("after three restarts.");
     expect(preview).not.toContain("Deploy failed");
+  });
+
+  test("keeps the straddled word whole when the clamp cuts mid-word", () => {
+    const summary =
+      "Deploy failed because the api worker never reported unhealthy after restarts.";
+    const title = deriveTruncatedTitle(summary, "…");
+    // The clamp lands inside "unhealthy", which is what the marker signals.
+    expect(title).toBe(
+      "Deploy failed because the api worker never reported unhealth…",
+    );
+
+    const preview = resolvePreview(title, summary);
+    expect(preview).toBe("unhealthy after restarts.");
+    expect(preview?.startsWith("y ")).toBe(false);
+  });
+
+  test("keeps the straddled word whole for a three-period clamp", () => {
+    const summary =
+      "Deploy failed because the api worker never reported unhealthy after restarts.";
+    const title = deriveTruncatedTitle(summary, "...");
+
+    const preview = resolvePreview(title, summary);
+    expect(preview).toBe("unhealthy after restarts.");
+    expect(preview?.startsWith("y ")).toBe(false);
   });
 
   test("keeps the whole preview when an ellipsized title is not a prefix", () => {
