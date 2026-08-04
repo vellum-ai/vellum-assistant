@@ -319,8 +319,8 @@ describe("AssistantSideMenu · All view", () => {
       await waitFor(() => {
         expect(document.body.textContent).toContain("View As");
       });
-      expect(document.body.textContent).toContain("List");
-      expect(document.body.textContent).toContain("Groups");
+      expect(document.body.textContent).toContain("All");
+      expect(document.body.textContent).toContain("Sources");
     } finally {
       cleanup();
     }
@@ -1081,28 +1081,50 @@ describe("AssistantSideMenu · equal section treatment", () => {
     ).toHaveLength(0);
   });
 
-  // Regression: Pinned used to cap at SIDEBAR_SECTION_MAX_HEIGHT and scroll
-  // within itself, with a drag handle on the rule below it to resize that
-  // cap. Both are gone: Pinned now grows to fit its own rows, unbounded,
-  // while a derived section like Chats still caps and scrolls.
-  test("Pinned's row list is unbounded; Chats still caps and scrolls", () => {
-    const container = parse(
-      renderMenu({
+  // Regression: Pinned and Chats used to cap at SIDEBAR_SECTION_MAX_HEIGHT
+  // and scroll within themselves - Pinned's even had a drag handle on the
+  // rule below it to resize that cap. Both are gone: Pinned grows to fit its
+  // own rows, unbounded, and Chats scrolls against the sidebar body instead,
+  // same as the flat list in List view. A derived channel section (Slack
+  // here) is the one kind of section that still caps and scrolls.
+  test("Pinned and Chats don't cap/scroll internally; a channel section still does", () => {
+    // A real DOM render, not `parse`: `scrollParent` only takes effect once
+    // the sidebar body's ref has mounted.
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail",
         conversations: LAYOUT_CONVERSATIONS,
         conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
       }),
     );
+    try {
+      // Channel sections default closed (only Pinned/Chats default open),
+      // so Slack's row list isn't mounted until its chevron opens it.
+      const slackTrigger = container.querySelector<HTMLElement>(
+        '[aria-label="Slack"]',
+      );
+      act(() => {
+        slackTrigger?.click();
+      });
 
-    const sections = sectionElements(container);
-    const labels = sectionLabels(container);
-    const pinned = sections[labels.indexOf("Pinned")];
-    const chats = sections[labels.indexOf("Chats")];
-    if (!pinned || !chats) {
-      throw new Error("expected both Pinned and Chats sections");
+      const sections = sectionElements(container);
+      const labels = sectionLabels(container);
+      const pinned = sections[labels.indexOf("Pinned")];
+      const chats = sections[labels.indexOf("Chats")];
+      const slack = sections[labels.indexOf("Slack")];
+      if (!pinned || !chats || !slack) {
+        throw new Error("expected Pinned, Chats, and Slack sections");
+      }
+
+      expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+      expect(slack.querySelector(".overflow-y-auto")).not.toBeNull();
+    } finally {
+      cleanup();
     }
-
-    expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
-    expect(chats.querySelector(".overflow-y-auto")).not.toBeNull();
   });
 
   // The switch isn't statically rendered at all: it lives behind the

@@ -8,8 +8,8 @@ import { SegmentControl } from "@vellumai/design-library/components/segment-cont
 import type { SidebarViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 
 const VIEW_MODE_ITEMS: { value: SidebarViewMode; label: string }[] = [
-  { value: "all", label: "List" },
-  { value: "grouped", label: "Groups" },
+  { value: "all", label: "All" },
+  { value: "grouped", label: "Sources" },
 ];
 
 export interface SidebarViewModeToggleProps {

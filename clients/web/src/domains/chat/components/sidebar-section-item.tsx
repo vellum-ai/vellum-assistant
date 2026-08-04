@@ -20,7 +20,9 @@
  * the section drag wiring - is uniform, and comes in already resolved. The
  * row list is the other near-exception: every section caps and scrolls
  * within itself except Pinned, which grows to fit its own rows instead
- * (see `unbounded` on `ConversationRowList`).
+ * (see `unbounded` on `ConversationRowList`), and Chats, which scrolls
+ * against the sidebar body instead, same as the flat list in List view
+ * (see `scrollParent`).
  */
 
 import type { ReactNode } from "react";
@@ -42,14 +44,26 @@ export interface SidebarSectionItemProps {
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: ReactNode;
+  /**
+   * Sidebar body element to scroll Chats against instead of capping it.
+   * Ignored by every other section type.
+   */
+  scrollParent?: HTMLElement;
 }
 
 /**
- * Row-list props for a section. Both branches carry the same keys so the
- * spread below stays a single object type rather than a union.
+ * Row-list props for a section. All three branches carry the same keys so
+ * the spread below stays a single object type rather than a union.
  */
-function rowListPropsFor(section: SidebarSection) {
-  if (section.type === "recents" || section.type === "channel") {
+function rowListPropsFor(section: SidebarSection, scrollParent?: HTMLElement) {
+  if (section.type === "recents") {
+    // Chats scrolls against the sidebar body instead of capping and
+    // scrolling within itself, same as the flat list in List view - the
+    // two render the same underlying conversations, just grouped
+    // differently, so they should feel identical to scroll through.
+    return { items: section.all, dragSection: undefined, scrollParent };
+  }
+  if (section.type === "channel") {
     return { items: section.all, dragSection: undefined };
   }
   return {
@@ -64,6 +78,7 @@ export function SidebarSectionItem({
   groupMenu,
   drag,
   collapsedIndicator,
+  scrollParent,
 }: SidebarSectionItemProps) {
   return (
     <ConversationNavSection
@@ -86,7 +101,7 @@ export function SidebarSectionItem({
       // to fit its own rows instead.
       collapsible={section.type !== "pinned"}
       unbounded={section.type === "pinned"}
-      {...rowListPropsFor(section)}
+      {...rowListPropsFor(section, scrollParent)}
     />
   );
 }
