@@ -46,11 +46,12 @@ export function SubagentAvatarRow({
           <SubagentAvatarBadge key={id} subagentId={id} />
         ))}
 
-        {/* Carries the badges' own footprint so the row reads as one family. */}
+        {/* Carries the badges' own footprint, including their mixed-unit
+            width, so the row reads as one family at any root font size. */}
         {overflowCount > 0 && (
           <div
             data-testid="subagent-avatar-row-overflow"
-            className="flex h-8 w-[2.875rem] items-center justify-center rounded-full bg-[var(--surface-active)]"
+            className="flex h-8 w-[calc(1rem+30px)] items-center justify-center rounded-full bg-[var(--surface-active)]"
           >
             <Typography
               variant="body-small-default"

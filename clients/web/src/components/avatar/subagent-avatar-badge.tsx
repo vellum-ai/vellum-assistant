@@ -71,19 +71,25 @@ export function SubagentAvatarBadge({
   // Spawn race: no entry yet → pill with an empty glyph slot.
   const badgeState = status ? deriveBadgeState(status) : undefined;
 
+  // The pill is `calc(1rem + 30px)` wide because its contents are two
+  // different units: the padding and the gap are rem (0.75 + 0.25), while the
+  // 14px slot and the 16px avatar are px that no root font size changes. A
+  // single rem value is exact only at a 16px root, spilling the avatar past
+  // the rounded edge below that and leaving dead space above it.
   return (
     <div
       data-testid="subagent-avatar-badge"
-      className={`inline-flex h-8 w-[2.875rem] shrink-0 items-center gap-1 rounded-full px-1.5 transition-colors ${pillBackgroundClass(badgeState)} ${className ?? ""}`.trim()}
+      className={`inline-flex h-8 w-[calc(1rem+30px)] shrink-0 items-center gap-1 rounded-full px-1.5 transition-colors ${pillBackgroundClass(badgeState)} ${className ?? ""}`.trim()}
     >
       {/* The glyph slot is a fixed 14px and always renders, including before
           the store entry lands. The three glyphs are different widths (13px
           dots, 10px check, 10px X), and the pill packs its items at
           flex-start, so a slot that sized to its content would slide the
-          avatar about 3px left the moment a subagent settles. */}
+          avatar about 3px left the moment a subagent settles. The width is px
+          rather than rem so the 13px dots always fit it. */}
       <span
         data-testid="subagent-avatar-badge-slot"
-        className="flex w-3.5 shrink-0 items-center justify-center"
+        className="flex w-[14px] shrink-0 items-center justify-center"
       >
         {badgeState && (
           <span
