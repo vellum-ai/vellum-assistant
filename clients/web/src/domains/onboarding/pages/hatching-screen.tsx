@@ -472,11 +472,8 @@ export function HatchingScreen() {
                     onboardingProvider(err.provider)?.displayName ??
                     err.provider;
                   setApiKeyRejected(true);
-                  setError(
-                    `${displayName} rejected the API key you entered. ${
-                      err.reason ?? "Please check the key and try again."
-                    }`,
-                  );
+                  const action = `Update your ${displayName} API key to continue.`;
+                  setError(err.reason ? `${err.reason} ${action}` : action);
                 }
                 return;
               }
@@ -775,7 +772,7 @@ export function HatchingScreen() {
                 : "text-3xl font-semibold tracking-tight"
             }
           >
-            Something went wrong
+            {apiKeyRejected ? "Your API key didn't work" : "Something went wrong"}
           </h1>
           <p
             className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}

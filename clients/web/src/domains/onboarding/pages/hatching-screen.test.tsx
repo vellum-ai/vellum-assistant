@@ -994,7 +994,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     await waitFor(
       () =>
         expect(
-          screen.getByText(/rejected the API key you entered/),
+          screen.getByText("Your API key didn't work"),
         ).toBeTruthy(),
       { timeout: 5000 },
     );
@@ -1046,7 +1046,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     await waitFor(
       () =>
         expect(
-          screen.getByText(/rejected the API key you entered/),
+          screen.getByText("Your API key didn't work"),
         ).toBeTruthy(),
       { timeout: 5000 },
     );
