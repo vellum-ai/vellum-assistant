@@ -214,6 +214,21 @@ interface AlignedAttachments {
 }
 
 /**
+ * Metadata-only projection of an attachment for inline `contentBlocks`
+ * placement. The flat `attachments` array is the payload carrier: it keeps
+ * `data`/`thumbnailData`, and `/v1/assistants/:id/attachments/:id/content`
+ * serves stored bytes on demand. Attachment blocks are positional references
+ * the renderer resolves against that array by id, so inlining the base64 here
+ * would ship every image twice in the same response.
+ */
+function toAttachmentBlockRef(
+  a: RuntimeAttachmentMetadata,
+): RuntimeAttachmentMetadata {
+  const { data: _data, thumbnailData: _thumbnailData, ...meta } = a;
+  return meta;
+}
+
+/**
  * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
  * captured. When a file block carries an attachment id (user-message uploads —
  * on `source.attachmentId` for reference blocks, or the legacy top-level
@@ -1093,9 +1108,10 @@ export function handleListMessages({
     const attachmentRefs = collectAttachmentRefs(m.content);
     const aligned = alignAttachments(attachmentRefs, msgAttachments);
     msgAttachments = aligned.attachments;
-    const attachmentBlocks = attachmentRefs.map(
-      (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
-    );
+    const attachmentBlocks = attachmentRefs.map((_ref, refIdx) => {
+      const att = aligned.refIndexToAttachment.get(refIdx);
+      return att ? toAttachmentBlockRef(att) : null;
+    });
     const rendered = renderHistoryContent(
       m.content,
       attachmentBlocks,
@@ -1172,7 +1188,10 @@ export function handleListMessages({
     );
     for (const att of msgAttachments) {
       if (!existingAttachmentIds.has(att.id)) {
-        contentBlocks.push({ type: "attachment", attachment: att });
+        contentBlocks.push({
+          type: "attachment",
+          attachment: toAttachmentBlockRef(att),
+        });
       }
     }
 
