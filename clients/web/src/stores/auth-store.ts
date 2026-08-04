@@ -1034,20 +1034,30 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return isAuthenticated(get().sessionStatus);
     }
     // A settled "no platform session" (401) ends the platform session, not the
-    // local gateway session. When the gateway is the auth source, demote an
-    // authenticated session to the local user and mark the platform session
-    // absent — dropping the now-stale platform user and offline snapshot so
-    // platform-gated surfaces stop treating it as signed in — while keeping
-    // `sessionStatus` "authenticated"; a 401 must not log a local-only user out.
-    // (The successful probe above still adopts the platform user, so provider
-    // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
-    // hatch — is left for the gateway to settle once its token mints.
+    // local one. Demote an authenticated session to the local user and mark the
+    // platform session absent, dropping the stale platform user and offline
+    // snapshot so platform-gated surfaces stop treating it as signed in, while
+    // keeping `sessionStatus` "authenticated": a 401 must not log a local-only
+    // user out. (The successful probe above still adopts the platform user, so
+    // provider sign-in keeps working.) An unauthenticated session, e.g. mid
+    // cold-start hatch, is left for the gateway to settle once its token mints.
     //
     // Holding `sessionStatus` "authenticated" is load-bearing: in-app consumers
     // read `useIsAuthenticated()` directly to scope the QueryClient cache and
     // gate signed-in UI, so ending the session would drop them into the
     // anonymous cache scope and hide that UI.
-    if (isGatewayAuthEnabled()) {
+    //
+    // The predicate asks whether the local session can stand on its own,
+    // mirroring how `initSession` branches: a local gateway answers for itself,
+    // and so does a client with no platform assistant to reach. A local client
+    // whose assistants are platform-hosted is excluded, since a managed
+    // assistant is unreachable without a platform session and routing to login
+    // beats stranding the user beside one that cannot answer. Remote-gateway
+    // mode returns at the top of this action.
+    const localSessionStandsAlone =
+      isLocalClient() &&
+      (isGatewayAuthEnabled() || getPlatformAssistants().length === 0);
+    if (localSessionStandsAlone) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {
         clearUserSnapshot();

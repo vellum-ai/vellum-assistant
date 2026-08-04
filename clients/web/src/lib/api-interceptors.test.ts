@@ -58,12 +58,15 @@ mock.module("@/lib/local-mode", () => ({
 // store's heavy dependency graph. `subscribe` is a no-op the (unrelated)
 // organization-store binds but never calls in these tests.
 type MockSessionStatus = "initializing" | "authenticated" | "unauthenticated";
+type MockPlatformSession = "unknown" | "present" | "absent";
 
 const mockAuthState: {
   sessionStatus: MockSessionStatus;
+  platformSession: MockPlatformSession;
   refreshSession: () => Promise<boolean>;
 } = {
   sessionStatus: "authenticated",
+  platformSession: "present",
   refreshSession: async () => true,
 };
 
@@ -1475,10 +1478,15 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   const flush = (): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, 0));
 
+  const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
+  const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+
   beforeEach(() => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
     mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.platformSession = "present";
     mockAuthState.refreshSession = mock(async () => true);
     hardNavigateMock.mockClear();
   });
@@ -1486,7 +1494,19 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   afterEach(() => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
   });
+
+  /** Drive one full rejection→recovery round trip against a dead session. */
+  const rejectOnce = async (): Promise<void> => {
+    mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.refreshSession = mock(async () => {
+      mockAuthState.sessionStatus = "unauthenticated";
+      return false;
+    });
+    platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+    await flush();
+  };
 
   test("401 while authenticated re-verifies; a dead session redirects to login", async () => {
     const refreshSession = mock(async () => {
@@ -1581,5 +1601,70 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     resolveRefresh(true);
     await flush();
     expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("stops redirecting to login once the budget is spent", async () => {
+    // The redirect is a full page load, so the in-memory latch cannot count
+    // round trips and a bouncing destination would drive them without bound.
+    for (let i = 0; i < PLATFORM_AUTH_MAX_REDIRECTS; i++) {
+      await rejectOnce();
+    }
+    expect(hardNavigateMock).toHaveBeenCalledTimes(PLATFORM_AUTH_MAX_REDIRECTS);
+
+    await rejectOnce();
+    expect(hardNavigateMock).toHaveBeenCalledTimes(PLATFORM_AUTH_MAX_REDIRECTS);
+  });
+
+  test("a platform 2xx on a confirmed session restores the redirect budget", async () => {
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    await rejectOnce();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+
+    mockAuthState.platformSession = "present";
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBeNull();
+
+    await rejectOnce();
+    expect(hardNavigateMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 2xx without a platform session does not restore the budget", async () => {
+    // The platform serves some routes to anonymous visitors, and the login
+    // screen loads one: `AccountLayout` syncs client feature flags. Treating
+    // that as proof of a live session would refill the budget on every bounce.
+    mockAuthState.platformSession = "absent";
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, "https://platform.test/v1/feature-flags/"),
+    );
+
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+  });
+
+  test("a self-hosted gateway 2xx does not restore the platform budget", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    mockAuthState.platformSession = "present";
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, `${INGRESS}/v1/assistants/123/messages`),
+    );
+
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
   });
 });
