@@ -3,16 +3,9 @@ import { type CSSProperties } from "react";
 import type { FeedItemCategory } from "@vellumai/assistant-api";
 import { Tag } from "@vellumai/design-library";
 
-import { CATEGORY_STYLES } from "./home-feed-filter-bar";
+import { resolveCategoryStyle } from "./home-feed-filter-bar";
 
 const FALLBACK_CATEGORY: FeedItemCategory = "system";
-
-function resolveStyle(category?: FeedItemCategory) {
-  if (category && CATEGORY_STYLES[category]) {
-    return CATEGORY_STYLES[category];
-  }
-  return CATEGORY_STYLES[FALLBACK_CATEGORY];
-}
 
 export interface FeedCategoryChipProps {
   category?: FeedItemCategory;
@@ -27,7 +20,7 @@ export interface FeedCategoryChipProps {
  * `bg-[var(...)]` / `text-[color:var(...)]` base classes, so they win.
  */
 export function FeedCategoryChip({ category }: FeedCategoryChipProps) {
-  const style = resolveStyle(category);
+  const style = resolveCategoryStyle(category);
   const label = category ?? FALLBACK_CATEGORY;
 
   return (

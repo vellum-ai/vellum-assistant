@@ -1,5 +1,5 @@
 /**
- * Tests for `FeedCategoryChip`.
+ * Tests for `FeedCategoryChip` and the shared `resolveCategoryStyle` it uses.
  *
  * Uses `renderToStaticMarkup` (SSR) like `notifications-bell.test.tsx`. The
  * chip is a pure presentational component, so assertions cover rendered text
@@ -12,6 +12,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { FeedItemCategory } from "@vellumai/assistant-api";
 
 import { FeedCategoryChip } from "@/domains/home/feed-category-chip";
+import {
+  CATEGORY_STYLES,
+  resolveCategoryStyle,
+} from "@/domains/home/home-feed-filter-bar";
 
 const CATEGORY_LABELS = [
   ["security", "Security"],
@@ -54,5 +58,21 @@ describe("FeedCategoryChip", () => {
       renderToStaticMarkup(<FeedCategoryChip category={category} />),
     );
     expect(new Set(rendered).size).toBe(CATEGORY_LABELS.length);
+  });
+});
+
+describe("resolveCategoryStyle", () => {
+  test.each(CATEGORY_LABELS)("returns the %s style", (category) => {
+    expect(resolveCategoryStyle(category)).toBe(CATEGORY_STYLES[category]);
+  });
+
+  test("falls back to the system style when no category is given", () => {
+    expect(resolveCategoryStyle()).toBe(CATEGORY_STYLES.system);
+  });
+
+  test("falls back to the system style for an unrecognized category", () => {
+    expect(resolveCategoryStyle("nonsense" as FeedItemCategory)).toBe(
+      CATEGORY_STYLES.system,
+    );
   });
 });

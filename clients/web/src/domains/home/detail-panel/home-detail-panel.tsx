@@ -9,22 +9,11 @@ import {
 } from "lucide-react";
 
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
-import type {
-  FeedItem,
-  FeedItemCategory,
-  FeedItemStatus,
-} from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
-import { CATEGORY_STYLES } from "../home-feed-filter-bar";
+import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-
-function resolveCategoryStyle(category?: FeedItemCategory) {
-  if (category && CATEGORY_STYLES[category]) {
-    return CATEGORY_STYLES[category];
-  }
-  return CATEGORY_STYLES.system;
-}
 
 // The header shows the item's own title when it has one. Many feed items omit
 // a distinct title — for those, falling back to `summary` (which is also the
