@@ -36,24 +36,14 @@ mock.module("@/utils/sandbox-bridge", () => ({
 }));
 
 import { AppViewerContainer } from "@/components/app-viewer-container";
-import { installVellumDebugFlags } from "@/lib/feature-flags/vellum-debug-flags";
+import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 
-type DebugWindow = Omit<Window, "_vellumDebug"> & {
-  _vellumDebug?: { flags?: { disableIframeSandbox?: unknown } };
-};
-
-// The flag namespace is installed at boot in the real app; `main.tsx`
-// never runs under the test harness.
-installVellumDebugFlags();
 spyOn(console, "warn").mockImplementation(() => {});
 spyOn(console, "info").mockImplementation(() => {});
 
-function setSandboxFlag(value: unknown): void {
-  const flags = (window as DebugWindow)._vellumDebug?.flags;
+function setSandboxFlag(value: boolean): void {
   act(() => {
-    if (flags) {
-      flags.disableIframeSandbox = value;
-    }
+    toggleAppIframeSandboxDisabled(value);
   });
 }
 
@@ -213,10 +203,13 @@ describe("AppViewerContainer sandbox debug flag", () => {
     );
   });
 
-  test("ignores truthy values that are not the literal true", () => {
+  test("keeps the sandbox for a non-boolean from the untyped console", () => {
     renderViewer();
 
-    setSandboxFlag("true");
+    // The console has no types, so a stray string can reach the toggle.
+    act(() => {
+      toggleAppIframeSandboxDisabled("true" as unknown as boolean);
+    });
 
     expect(getIframe().hasAttribute("sandbox")).toBe(true);
   });

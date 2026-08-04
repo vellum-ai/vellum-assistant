@@ -13,19 +13,19 @@
  * That trade is why the flag is off unless a developer types it, in
  * DevTools, on the session they want it:
  *
- *   window._vellumDebug.flags.disableIframeSandbox = true
+ *   window._vellumDebug.flags.toggleAppsSandboxDisabled()
  *
- * Only the literal `true` enables it. The value lives in memory (a page
- * reload restores the sandbox) and flipping it logs a console warning
- * that stays in the transcript for the rest of the session.
+ * The value lives in memory (a page reload restores the sandbox) and
+ * flipping it logs a console warning that stays in the transcript for
+ * the rest of the session.
+ *
+ * This module owns the flag's state and semantics. The console binding
+ * lives with the other flags in the `_vellumDebug.flags` namespace,
+ * installed by {@link @/domains/chat/utils/debug-api}.
  *
  * The flag ships in production builds. It exists to demo screen-capture
  * apps against platform-hosted assistants, which run production
  * bundles, so it must not be compiled out.
- *
- * This module owns the flag's state and semantics; the console binding
- * that reads and writes it lives with the other debug flags in
- * {@link @/lib/feature-flags/vellum-debug-flags}.
  *
  * @see {@link @/components/app-viewer-container} for the consumer, which
  *   re-keys the iframe on every change so the frame reloads under the
@@ -34,7 +34,7 @@
 
 import { useSyncExternalStore } from "react";
 
-const FLAG_LABEL = "flags.disableIframeSandbox";
+const FLAG_LABEL = "flags.toggleAppsSandboxDisabled";
 
 let sandboxDisabled = false;
 const listeners = new Set<() => void>();
@@ -45,17 +45,21 @@ export function isAppIframeSandboxDisabled(): boolean {
 }
 
 /**
- * Apply a console assignment to the flag. Exported for the debug-flags
- * namespace to install as the property setter — nothing else should call
- * it, since the flag exists to be typed by a developer.
+ * Flip the flag, or set it explicitly.
  *
- * Takes `unknown` because it is fed straight from a console assignment:
- * anything that is not the literal `true` leaves the sandbox on.
+ *  - `toggleAppsSandboxDisabled()`      : flip the current value.
+ *  - `toggleAppsSandboxDisabled(true)`  : drop the sandbox.
+ *  - `toggleAppsSandboxDisabled(false)` : restore it.
+ *
+ * Returns the value in effect after the call. Logs on every change and
+ * notifies mounted viewers, which re-key their iframe so the document
+ * reloads under the attribute now in effect.
  */
-export function setAppIframeSandboxDisabled(value: unknown): void {
-  const next = value === true;
+export function toggleAppIframeSandboxDisabled(value?: boolean): boolean {
+  const next = value === undefined ? !sandboxDisabled : value === true;
   if (next === sandboxDisabled) {
-    return;
+    console.info(`[vellumDebug] ${FLAG_LABEL}: already ${String(next)}.`);
+    return sandboxDisabled;
   }
   sandboxDisabled = next;
   if (next) {
@@ -63,7 +67,7 @@ export function setAppIframeSandboxDisabled(value: unknown): void {
       `[vellumDebug] ${FLAG_LABEL} = true: app iframes render without ` +
         "the sandbox attribute. App HTML runs same-origin with the host and can " +
         "reach its DOM, storage, and cookies. Open apps reload to pick this up. " +
-        "Set it back to false, or reload the page, to restore the sandbox.",
+        "Call it again, or reload the page, to restore the sandbox.",
     );
   } else {
     console.info(
@@ -73,6 +77,7 @@ export function setAppIframeSandboxDisabled(value: unknown): void {
   for (const listener of listeners) {
     listener();
   }
+  return sandboxDisabled;
 }
 
 function subscribe(onStoreChange: () => void): () => void {
@@ -83,8 +88,8 @@ function subscribe(onStoreChange: () => void): () => void {
 }
 
 /**
- * Subscribe a component to the flag. Returns `false` until someone sets
- * `window._vellumDebug.flags.disableIframeSandbox = true`, and re-renders
+ * Subscribe a component to the flag. Returns `false` until someone calls
+ * `window._vellumDebug.flags.toggleAppsSandboxDisabled()`, and re-renders
  * the caller on every change.
  */
 export function useAppIframeSandboxDisabled(): boolean {

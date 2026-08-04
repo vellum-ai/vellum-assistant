@@ -12,7 +12,6 @@ import { AppProviders } from "@/components/providers";
 import { WindowDragRegion } from "@/components/window-drag-region";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
-import { installVellumDebugFlags } from "@/lib/feature-flags/vellum-debug-flags";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalClient, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
@@ -51,9 +50,6 @@ async function boot() {
   }
   initSessionReplay();
   installConsentRefreshListeners();
-  // Namespace only. Every flag it exposes stays at its default until a
-  // developer sets one from the console.
-  installVellumDebugFlags();
 
   setupOrganizationStore();
   // Register before initSession so no identity transition is missed: client

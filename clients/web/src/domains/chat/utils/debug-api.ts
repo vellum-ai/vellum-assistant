@@ -46,6 +46,8 @@ import {
 } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
+import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -412,6 +414,7 @@ export interface ChatDebugApi {
 const DEFAULT_CLIENT_MESSAGES_LIMIT = 20;
 const ROOT_NS = "_vellumDebug";
 const CHAT_NS = "chat";
+const FLAGS_NS = "flags";
 
 /**
  * Refs the API reads to surface client state and trigger actions. All are
@@ -867,10 +870,45 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 const EVENTS_NS = "events";
 const API_NS = "api";
 
+/**
+ * Dev-only toggle surface. Each function is a single-purpose imperative
+ * flip, called from the console. Toggles that change React hook ordering
+ * or module-load constants reload the page so the new value takes effect
+ * cleanly; the rest apply in place.
+ */
+export interface VellumDebugFlagsApi {
+  /** Override the assistant's reported version for every version-gated
+   *  code path in the web client (the wire-field cutover, the
+   *  server-mint gate, `useAssistantSupports`, …). Persists to
+   *  localStorage and reloads.
+   *
+   *  - `impersonateVersion("0.8.6")` — set to that version + reload.
+   *  - `impersonateVersion(null)`    — clear override + reload.
+   *  - `impersonateVersion()`        — log + return current value
+   *    (no reload, no mutation).
+   *
+   *  Returns the value in effect after the call. */
+  impersonateVersion(value?: string | null): string | null;
+  /** Render app iframes without their `sandbox` attribute, giving the
+   *  app document the host's origin so origin-gated APIs
+   *  (`getDisplayMedia()`, …) work. Costs the isolation the sandbox
+   *  buys, so it is off by default and lives only in memory: a reload
+   *  restores the sandbox.
+   *
+   *  - `toggleAppsSandboxDisabled()`      : flip the current value.
+   *  - `toggleAppsSandboxDisabled(true)`  : drop the sandbox.
+   *  - `toggleAppsSandboxDisabled(false)` : restore it.
+   *
+   *  Open apps reload in place, so no page reload is needed. Returns the
+   *  value in effect after the call. */
+  toggleAppsSandboxDisabled(value?: boolean): boolean;
+}
+
 interface VellumDebugRoot extends Record<string, unknown> {
   [EVENTS_NS]?: ChatDebugEventsApi;
   [CHAT_NS]?: ChatDebugApi;
   [API_NS]?: typeof assistantApi;
+  [FLAGS_NS]?: VellumDebugFlagsApi;
 }
 
 declare global {
@@ -890,21 +928,23 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- * All three are page-scoped: `chat` is rebuilt from this mount's refs,
- * and `events` / `api` are paired with it so DevTools never sees one
- * namespace populated and the others missing.
+ *   - `flags`: dev-toggleable feature flags (`impersonateVersion`,
+ *     `toggleAppsSandboxDisabled`). Stable singleton; pure module
+ *     exports over localStorage and in-memory flag state.
  *
- * The sibling `flags` namespace is deliberately not installed here. Its
- * flags are pure module state with no page affinity, and the surfaces
- * they gate are not chat-only, so they are installed once at boot by
- * {@link @/lib/feature-flags/vellum-debug-flags} and outlive this mount.
+ * Consolidating these into one installer guarantees they're set at the
+ * same time and torn down together, so DevTools never sees one namespace
+ * populated and the others missing.
  *
  * Returns a cleanup function that removes all bindings (identity-
  * checking the chat API in case a newer mount replaced it) and the
  * root object if it's empty afterwards. Safe to call on the server —
  * no-op when `window` is undefined.
  */
-export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
+export function installVellumDebugApi(
+  chatApi: ChatDebugApi,
+  flagsApi: VellumDebugFlagsApi,
+): () => void {
   if (typeof window === "undefined") {
     return () => {};
   }
@@ -915,6 +955,7 @@ export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
   existing[EVENTS_NS] = eventsDebugApi;
   existing[CHAT_NS] = chatApi;
   existing[API_NS] = assistantApi;
+  existing[FLAGS_NS] = flagsApi;
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
@@ -924,17 +965,17 @@ export function installVellumDebugApi(chatApi: ChatDebugApi): () => void {
     // Gate every deletion on the chat-API identity check. If a newer
     // mount has already replaced our chatApi (strict-mode double-mount,
     // hot reload, etc.), our teardown is stale — leave the world alone.
-    // `events` and `api` lifecycles are paired with `chat` because they
-    // are stable singletons (pure module exports); identity-checking
-    // them would always pass.
+    // `events`, `api`, and `flags` lifecycles are paired with `chat`
+    // because they are stable singletons (pure module exports);
+    // identity-checking them would always pass.
     if (current[CHAT_NS] === chatApi) {
       delete current[CHAT_NS];
       delete current[EVENTS_NS];
       delete current[API_NS];
+      delete current[FLAGS_NS];
     }
     // Only remove the root if we left it empty — other debug domains
-    // may have attached siblings under the same namespace. In the app
-    // this is never the case: `flags` is installed at boot and stays.
+    // may have attached siblings under the same namespace.
     if (Object.keys(current).length === 0) {
       delete win[ROOT_NS];
     }
@@ -979,7 +1020,11 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       historyFetcher: refs.historyFetcher,
     };
     const api = createChatDebugApi(stableRefs);
-    const uninstall = installVellumDebugApi(api);
+    const flagsApi: VellumDebugFlagsApi = {
+      impersonateVersion: setImpersonatedAssistantVersion,
+      toggleAppsSandboxDisabled: toggleAppIframeSandboxDisabled,
+    };
+    const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;
   }, []);
 }
