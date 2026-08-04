@@ -46,7 +46,7 @@ import type { AssistantState, LocalAssistantHealth } from "@/assistant/types";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getSelectedAssistant,
-  getLocalGatewayUrl,
+  getAuthGatewayIngressUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { getLocalAssistantStatusHost } from "@/runtime/local-mode-host";
@@ -581,13 +581,15 @@ class AssistantLifecycleService {
   private applyGatewayAuthShortCircuit(): void {
     let ingressUrl = window.location.origin;
     let resolvedAssistantId = "self";
-    const localGateway = getLocalGatewayUrl();
     if (isRemoteGatewayMode()) {
       ingressUrl = getRemoteGatewayIngressUrl();
-    } else if (localGateway) {
+    } else {
       const assistant = getSelectedAssistant();
-      ingressUrl = `${window.location.origin}${localGateway}`;
-      resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+      const resolved = getAuthGatewayIngressUrl(assistant);
+      if (resolved) {
+        ingressUrl = resolved;
+        resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+      }
     }
     setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
     this.setOperationalStatusAssistantId(null);
