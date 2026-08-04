@@ -71,6 +71,7 @@ const { tunnel } = await import("../commands/tunnel.js");
 const originalArgv = [...process.argv];
 const originalFetch = globalThis.fetch;
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 const tempDirs: string[] = [];
 
 function makeLocalEntry(assistantId = "assistant-1"): AssistantEntry {
@@ -96,6 +97,23 @@ function makeCloudEntry(assistantId = "cloud-1"): AssistantEntry {
     runtimeUrl: `https://runtime.example.com/${assistantId}`,
     cloud: "vellum",
   };
+}
+
+/** A `hatch --remote docker` entry: local container gateway, no `resources`. */
+function makeDockerEntry(assistantId = "docker-1"): AssistantEntry {
+  return {
+    assistantId,
+    runtimeUrl: "http://localhost:7930",
+    cloud: "docker",
+  };
+}
+
+/** Point the default workspace dir at a temp dir; returns that dir. */
+function useTempDefaultWorkspaceDir(): string {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-tunnel-ws-"));
+  tempDirs.push(workspaceDir);
+  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  return workspaceDir;
 }
 
 function writeLockfile(
@@ -194,6 +212,11 @@ describe("tunnel edge targeting", () => {
     } else {
       process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
     }
+    if (originalWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+    }
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -273,6 +296,72 @@ describe("tunnel edge targeting", () => {
     expect(runNgrokTunnelMock).toHaveBeenCalledWith({
       port: EDGE_PORT,
       assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("a positional docker assistant name tunnels via its runtimeUrl gateway port", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const local = makeLocalEntry();
+    writeLockfile([local, makeDockerEntry()], local.assistantId);
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "docker-1",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "docker-1",
+      workspaceDir,
+      gatewayPort: 7930,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "docker-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active docker assistant tunnels on a bare invocation", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const docker = makeDockerEntry();
+    writeLockfile(docker, docker.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    await runTunnelCapturingLogs();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "docker-1",
+      workspaceDir,
+      gatewayPort: 7930,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "docker-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active cloud assistant falls back to a sole docker entry with a note", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const cloud = makeCloudEntry();
+    writeLockfile([cloud, makeDockerEntry()], cloud.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel. " +
+        "Tunneling the local assistant 'docker-1' instead.",
+    );
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "docker-1",
       workspaceDir,
     });
   });

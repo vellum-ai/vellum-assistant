@@ -5,10 +5,12 @@ import {
   loadAllAssistants,
   resolveTargetAssistant,
   type AssistantEntry,
-  type LocalInstanceResources,
 } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
-import { saveNgrokDomain } from "../lib/ingress-config.js";
+import {
+  getDefaultWorkspaceDir,
+  saveNgrokDomain,
+} from "../lib/ingress-config.js";
 import {
   ensureTunnelEdge,
   formatEdgeMode,
@@ -17,6 +19,7 @@ import {
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
+import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -176,12 +179,36 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider, domain, clearDomain };
 }
 
-type LocalAssistantEntry = AssistantEntry & {
-  resources: LocalInstanceResources;
-};
+/** A tunnelable assistant plus the gateway port and workspace the edge fronts. */
+interface LocalTunnelTarget {
+  entry: AssistantEntry;
+  gatewayPort: number;
+  workspaceDir: string;
+}
 
-function isLocalEntry(entry: AssistantEntry): entry is LocalAssistantEntry {
-  return entry.resources !== undefined;
+/**
+ * Map an entry to its local tunnel target, or null when it has no locally
+ * reachable gateway (e.g. platform-hosted). Entries with `resources` carry
+ * their own gateway port and instance workspace. Docker entries run locally
+ * without host resources: their gateway port comes from localUrl/runtimeUrl
+ * and their ingress state lives in the default workspace, matching the
+ * `vellum nginx-ingress` resolution for the same topology.
+ */
+function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
+  if (entry.resources) {
+    return {
+      entry,
+      gatewayPort: entry.resources.gatewayPort,
+      workspaceDir: join(entry.resources.instanceDir, ".vellum", "workspace"),
+    };
+  }
+  if (entry.cloud === "docker") {
+    const gatewayPort = parseGatewayPortFromEntryUrls(entry);
+    if (gatewayPort !== undefined) {
+      return { entry, gatewayPort, workspaceDir: getDefaultWorkspaceDir() };
+    }
+  }
+  return null;
 }
 
 function describeUntunnelableEntry(entry: AssistantEntry): string {
@@ -193,38 +220,41 @@ function describeUntunnelableEntry(entry: AssistantEntry): string {
 
 /**
  * Resolve the assistant whose gateway and workspace the tunnel edge fronts.
- * Tunnels only make sense for assistants with local resources; when the
+ * Tunnels only make sense for assistants with a local gateway; when the
  * resolved entry has none (e.g. the active assistant is platform-hosted) and
- * no name was given, fall back to the sole local entry, otherwise exit with
+ * no name was given, fall back to the sole local target, otherwise exit with
  * an error naming the local assistants to pass explicitly.
  */
-function resolveLocalTunnelEntry(
+function resolveLocalTunnelTarget(
   assistantName: string | null,
-): LocalAssistantEntry {
+): LocalTunnelTarget {
   const entry = resolveTargetAssistant(assistantName ?? undefined);
 
-  if (isLocalEntry(entry)) {
-    return entry;
+  const target = toLocalTunnelTarget(entry);
+  if (target) {
+    return target;
   }
 
-  const localEntries = loadAllAssistants().filter(isLocalEntry);
+  const localTargets = loadAllAssistants()
+    .map(toLocalTunnelTarget)
+    .filter((local): local is LocalTunnelTarget => local !== null);
 
-  if (!assistantName && localEntries.length === 1) {
+  if (!assistantName && localTargets.length === 1) {
     console.log(
-      `${describeUntunnelableEntry(entry)} Tunneling the local assistant '${formatAssistantReference(localEntries[0])}' instead.`,
+      `${describeUntunnelableEntry(entry)} Tunneling the local assistant '${formatAssistantReference(localTargets[0].entry)}' instead.`,
     );
-    return localEntries[0];
+    return localTargets[0];
   }
 
   console.error(describeUntunnelableEntry(entry));
-  if (localEntries.length === 0) {
+  if (localTargets.length === 0) {
     console.error(
       "No local assistant found to tunnel. Run `vellum hatch` first.",
     );
   } else {
     console.error(
-      `Pass a local assistant as the name argument: ${localEntries
-        .map((local) => formatAssistantReference(local))
+      `Pass a local assistant as the name argument: ${localTargets
+        .map((local) => formatAssistantReference(local.entry))
         .join(", ")}.`,
     );
   }
@@ -241,9 +271,8 @@ export async function tunnel(): Promise<void> {
     );
   }
 
-  const entry = resolveLocalTunnelEntry(assistantName);
-  const { instanceDir, gatewayPort } = entry.resources;
-  const workspaceDir = join(instanceDir, ".vellum", "workspace");
+  const { entry, gatewayPort, workspaceDir } =
+    resolveLocalTunnelTarget(assistantName);
 
   if (clearDomain) {
     saveNgrokDomain(workspaceDir, null);
