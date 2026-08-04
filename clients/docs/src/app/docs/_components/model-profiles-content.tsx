@@ -60,7 +60,7 @@ export function ModelProfilesContent() {
             Built-in profiles
           </SectionHeading>
           <p className="mb-4 text-stone-600 dark:text-stone-400">
-            Every workspace starts with three built-in profiles. You can edit or
+            Every workspace starts with four built-in profiles. You can edit or
             duplicate them, but the defaults can&apos;t be deleted.
           </p>
           <div className="overflow-x-auto">
@@ -90,15 +90,22 @@ export function ModelProfilesContent() {
                   <td className="py-3 pr-4">
                     <span className="font-semibold text-stone-900 dark:text-stone-100">Balanced</span>
                   </td>
-                  <td className="py-3 pr-4">GLM 5.2</td>
+                  <td className="py-3 pr-4">GPT-5.6 Luna</td>
                   <td className="py-3">Everyday use — capable across the board at reasonable cost</td>
                 </tr>
                 <tr>
                   <td className="py-3 pr-4">
-                    <span className="font-semibold text-stone-900 dark:text-stone-100">Cost Optimized</span>
+                    <span className="font-semibold text-stone-900 dark:text-stone-100">Speed</span>
+                  </td>
+                  <td className="py-3 pr-4">GPT-5.6 Luna</td>
+                  <td className="py-3">Fast replies with reasoning off, for real-time surfaces like voice</td>
+                </tr>
+                <tr>
+                  <td className="py-3 pr-4">
+                    <span className="font-semibold text-stone-900 dark:text-stone-100">Cost</span>
                   </td>
                   <td className="py-3 pr-4">DeepSeek V4 Flash</td>
-                  <td className="py-3">Simple, short, or structural tasks where speed matters more than depth</td>
+                  <td className="py-3">Simple, short, or structural tasks run at high volume</td>
                 </tr>
               </tbody>
             </table>

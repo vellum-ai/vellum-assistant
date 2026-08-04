@@ -13,6 +13,8 @@ const AcpRunDetailPanel = lazy(() =>
 interface MobileAcpRunDetailOverlayProps {
   entry: AcpRunEntry | null;
   onClose: () => void;
+  /** Assistant that owns the run's parent conversation. */
+  assistantId?: string | null;
 }
 
 /**
@@ -24,6 +26,7 @@ interface MobileAcpRunDetailOverlayProps {
 export function MobileAcpRunDetailOverlay({
   entry,
   onClose,
+  assistantId,
 }: MobileAcpRunDetailOverlayProps) {
   const shellStyle = useMobileOverlayViewportStyle();
 
@@ -34,7 +37,11 @@ export function MobileAcpRunDetailOverlay({
   return (
     <div className="fixed inset-x-0 z-30" style={shellStyle}>
       <LazyBoundary>
-        <AcpRunDetailPanel entry={entry} onClose={onClose} />
+        <AcpRunDetailPanel
+          entry={entry}
+          onClose={onClose}
+          assistantId={assistantId}
+        />
       </LazyBoundary>
     </div>
   );

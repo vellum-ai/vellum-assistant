@@ -18,6 +18,7 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import {
   ChatMainPanel,
   type ChatMainPanelProps,
@@ -405,25 +406,46 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   let rightPanel: ReactNode = null;
   if (!isMobile) {
     if (mainView === "document" && openedDocumentState && assistantId) {
-      rightPanel = (
-        <DocumentViewerContainer
-          documentName={openedDocumentState.documentName}
-          content={openedDocumentState.content}
-          onClose={handleCloseDocument}
-          assistantId={assistantId}
-          surfaceId={openedDocumentState.surfaceId}
-          conversationId={openedDocumentState.conversationId}
-          onSubmitFeedback={() => {
-            const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
-            navigate(
-              routes.conversationWithPrompt(
-                openedDocumentState.conversationId,
-                prompt,
-              ),
-            );
-          }}
-        />
-      );
+      // A file the editor cannot round-trip is shown read-only instead, in a
+      // panel that fetches its own bytes.
+      if (openedDocumentState.source === "workspace-file-preview") {
+        rightPanel = (
+          <FilePreviewContainer
+            key={`preview:${openedDocumentState.workspacePath}`}
+            assistantId={assistantId}
+            workspacePath={openedDocumentState.workspacePath}
+            documentName={openedDocumentState.documentName}
+            previewKind={openedDocumentState.previewKind}
+            onClose={handleCloseDocument}
+          />
+        );
+      } else {
+        // Keyed per document so switching targets remounts the editor. Feeding a
+        // new document into the mounted editor emits a Tiptap update, which the
+        // autosave would write straight into whichever target is now current.
+        rightPanel = (
+          <DocumentViewerContainer
+            key={`document:${openedDocumentState.surfaceId}`}
+            source="document"
+            documentName={openedDocumentState.documentName}
+            content={openedDocumentState.content}
+            onClose={handleCloseDocument}
+            assistantId={assistantId}
+            surfaceId={openedDocumentState.surfaceId}
+            conversationId={openedDocumentState.conversationId}
+            workspacePath={openedDocumentState.workspacePath}
+            onSubmitFeedback={() => {
+              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+              navigate(
+                routes.conversationWithPrompt(
+                  openedDocumentState.conversationId,
+                  prompt,
+                ),
+              );
+            }}
+          />
+        );
+      }
     } else if (
       mainView === "subagent-detail" &&
       activeSubagentId &&
@@ -436,6 +458,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onClose={onCloseSubagentDetail}
             onStop={onStopSubagent}
             onRequestDetail={onRequestSubagentDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -445,6 +468,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <ToolDetailPanel
             detail={activeToolDetail}
             onClose={closeToolDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -461,6 +485,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             }`}
             payload={activeActivitySteps}
             onClose={closeActivitySteps}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -474,6 +499,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <AcpRunDetailPanel
             entry={activeAcpRunEntry}
             onClose={onCloseAcpRunDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );

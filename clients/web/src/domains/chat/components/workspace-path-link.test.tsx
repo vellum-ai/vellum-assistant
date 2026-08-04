@@ -22,6 +22,7 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
+import { useViewerStore } from "@/stores/viewer-store";
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -86,6 +87,9 @@ function renderMessage(
 afterEach(() => {
   cleanup();
   orgReady = true;
+  // A resolved span opens the real drawer, so each test starts from a closed
+  // one.
+  useViewerStore.getState().reset();
 });
 
 describe("workspace path spans", () => {
@@ -104,19 +108,22 @@ describe("workspace path spans", () => {
     expect(button).toBeTruthy();
   });
 
-  test("clicking opens the file-action modal with the vellum:// href", () => {
-    const queryClient = clientWithListing("drafts", [entry("drafts/notes.md")]);
+  test("clicking opens the file in the drawer, like an explicit link", () => {
+    const queryClient = clientWithListing("drafts", [entry("drafts/deck.pdf")]);
     const { onVellumLinkClick } = renderMessage(
-      "See `/workspace/drafts/notes.md`.",
+      "See `/workspace/drafts/deck.pdf`.",
       queryClient,
     );
 
-    screen.getByRole("button", { name: "/workspace/drafts/notes.md" }).click();
+    screen.getByRole("button", { name: "/workspace/drafts/deck.pdf" }).click();
 
-    expect(onVellumLinkClick).toHaveBeenCalledWith(
-      "vellum://workspace/drafts/notes.md",
-      "notes.md",
-    );
+    expect(useViewerStore.getState().openedDocumentState).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "drafts/deck.pdf",
+      documentName: "deck.pdf",
+      previewKind: "pdf",
+    });
+    expect(onVellumLinkClick).not.toHaveBeenCalled();
   });
 
   test("a path whose file does not exist stays plain code", () => {

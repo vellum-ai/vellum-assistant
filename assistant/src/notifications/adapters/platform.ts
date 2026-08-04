@@ -1,17 +1,14 @@
 /**
- * Platform push adapter — delivers notifications to iOS/web clients via
- * the platform's APNs dispatch endpoint.
+ * Platform push adapter for native mobile notification delivery.
  *
  * POSTs a `notification_intent` payload to
  * `/v1/assistants/{id}/push/dispatch/`. The platform endpoint fans the
- * notification out to all registered device tokens for the bound user and
- * gates on the `ios-remote-push-enabled` feature flag server-side (returning 202
- * with `{ skipped: "flag_off" }` when the flag is OFF — no action needed
- * from the daemon).
+ * notification out to registered device tokens for the bound user. Provider
+ * feature gates return 202 with `{ skipped: "flag_off" }` when no provider runs.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so the platform can
- * scope APNs fan-out to guardian-bound devices, mirroring the macOS adapter.
+ * scope native fan-out to guardian-bound devices, mirroring the macOS adapter.
  */
 
 import { VellumPlatformClient } from "../../platform/client.js";
@@ -23,6 +20,7 @@ import {
 } from "../../util/retry.js";
 import type {
   ChannelAdapter,
+  ChannelDeliveryObserver,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
@@ -56,12 +54,29 @@ interface DispatchBody {
   target_guardian_principal_id?: string;
 }
 
+type RemotePushPlatform = "ios" | "android";
+
+function acceptedPlatforms(body: unknown): RemotePushPlatform[] | undefined {
+  if (typeof body !== "object" || body === null) {
+    return undefined;
+  }
+  const value = (body as { accepted_platforms?: unknown }).accepted_platforms;
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter(
+    (platform): platform is RemotePushPlatform =>
+      platform === "ios" || platform === "android",
+  );
+}
+
 export class PlatformPushAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = "platform";
 
   async send(
     payload: ChannelDeliveryPayload,
     destination: ChannelDestination,
+    observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult> {
     const client = await VellumPlatformClient.create();
     if (!client) {
@@ -91,7 +106,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
         : undefined;
 
     const body: DispatchBody = {
-      delivery_id: payload.deliveryId,
+      delivery_id: payload.correlationId ?? payload.deliveryId,
       source_event_name: payload.sourceEventName,
       title: payload.copy.title,
       body: payload.copy.body,
@@ -101,6 +116,10 @@ export class PlatformPushAdapter implements ChannelAdapter {
     };
 
     const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/push/dispatch/`;
+    const accumulatedPlatforms = new Set<RemotePushPlatform>();
+    let platformsReported = false;
+    const remotePushPlatforms = () =>
+      platformsReported ? [...accumulatedPlatforms] : undefined;
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       let response: Response;
@@ -132,7 +151,27 @@ export class PlatformPushAdapter implements ChannelAdapter {
           { attempt, sourceEventName: payload.sourceEventName, err },
           "Failed to dispatch platform push notification",
         );
-        return { success: false, error: message };
+        return {
+          success: false,
+          error: message,
+          remotePushPlatforms: remotePushPlatforms(),
+        };
+      }
+
+      const responseText = await response.text().catch(() => "");
+      let responseBody: unknown = null;
+      try {
+        responseBody = JSON.parse(responseText) as unknown;
+      } catch {
+        responseBody = null;
+      }
+      const responsePlatforms = acceptedPlatforms(responseBody);
+      if (responsePlatforms) {
+        platformsReported = true;
+        for (const platform of responsePlatforms) {
+          accumulatedPlatforms.add(platform);
+        }
+        observer?.onRemotePushPlatforms(remotePushPlatforms()!);
       }
 
       if (response.ok) {
@@ -143,15 +182,16 @@ export class PlatformPushAdapter implements ChannelAdapter {
         // one device push was dispatched; an unparseable or ambiguous body
         // counts as not accepted (a duplicate client banner beats a lost
         // notification).
-        const responseBody = (await response.json().catch(() => null)) as {
+        const parsedBody = responseBody as {
+          accepted_platforms?: unknown;
           skipped?: unknown;
           tokens_sent?: unknown;
         } | null;
         const remotePushAccepted =
-          responseBody != null &&
-          !responseBody.skipped &&
-          typeof responseBody.tokens_sent === "number" &&
-          responseBody.tokens_sent > 0;
+          parsedBody != null &&
+          !parsedBody.skipped &&
+          typeof parsedBody.tokens_sent === "number" &&
+          parsedBody.tokens_sent > 0;
         log.info(
           {
             sourceEventName: payload.sourceEventName,
@@ -162,7 +202,11 @@ export class PlatformPushAdapter implements ChannelAdapter {
           },
           "Platform push dispatched",
         );
-        return { success: true, remotePushAccepted };
+        return {
+          success: true,
+          remotePushAccepted,
+          remotePushPlatforms: remotePushPlatforms(),
+        };
       }
 
       if (
@@ -181,18 +225,18 @@ export class PlatformPushAdapter implements ChannelAdapter {
         continue;
       }
 
-      const errorText = await response.text().catch(() => "");
       log.error(
         {
           status: response.status,
           sourceEventName: payload.sourceEventName,
-          body: errorText.slice(0, 256),
+          body: responseText.slice(0, 256),
         },
         "Non-retryable error from push dispatch endpoint",
       );
       return {
         success: false,
-        error: `HTTP ${response.status}: ${errorText.slice(0, 128)}`,
+        error: `HTTP ${response.status}: ${responseText.slice(0, 128)}`,
+        remotePushPlatforms: remotePushPlatforms(),
       };
     }
 

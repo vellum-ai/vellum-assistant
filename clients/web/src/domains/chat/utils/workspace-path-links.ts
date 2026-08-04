@@ -19,10 +19,29 @@ export const WORKSPACE_PATH_TAG = "workspace-path";
  * the last `/workspace/` segment instead of a fixed prefix. An absolute path
  * with no such segment is a host path and is left alone.
  */
-const WORKSPACE_ROOT_MARKER = "/workspace/";
+export const WORKSPACE_ROOT_MARKER = "/workspace/";
 
 /** Guards against pathological spans; real workspace paths are far shorter. */
-const MAX_PATH_LENGTH = 512;
+export const MAX_WORKSPACE_PATH_LENGTH = 512;
+
+/**
+ * Segment rules every workspace-relative path must satisfy, whatever
+ * recognized it. Rejects empty text, oversized text, directory shapes (trailing `/`),
+ * empty segments (`a//b`), `.`/`..` traversal, and hidden segments. The daemon
+ * rejects traversal outright and its tree listing omits hidden entries, so such
+ * a path could never resolve.
+ */
+export function isWorkspaceRelativePath(relative: string): boolean {
+  if (relative.length === 0 || relative.length > MAX_WORKSPACE_PATH_LENGTH) {
+    return false;
+  }
+  if (relative.endsWith("/")) {
+    return false;
+  }
+  return !relative
+    .split("/")
+    .some((segment) => segment.length === 0 || segment.startsWith("."));
+}
 
 /**
  * Characters that mean the span is a command, glob, or expression rather than
@@ -42,19 +61,16 @@ const NON_PATH_CHARS = /[\s`"'<>|&;:,=$*?[\]{}()\\!#]/;
  * Normalize a code-span's text to a workspace-relative path, or return `null`
  * when the text isn't a plausible workspace file reference.
  *
- * Rejects, in addition to the character rules above:
- * - directory-shaped text (trailing `/`) — the modal's actions are file actions
+ * Rejects, in addition to the character rules above and the shared segment
+ * rules in {@link isWorkspaceRelativePath}:
  * - home-relative (`~/...`) and non-workspace absolute paths
- * - hidden segments (`.claude/settings.json`) — the tree listing omits them by
- *   default, so they could never resolve
- * - `.`/`..` segments — the daemon rejects traversal outright
  * - bare filenames with no directory component (`notes.md`) when written
  *   relatively, which are indistinguishable from ordinary backticked words.
  *   An absolute `/workspace/notes.md` is unambiguous and is accepted.
  */
 export function toWorkspaceRelativePath(raw: string): string | null {
   const text = raw.trim();
-  if (text.length === 0 || text.length > MAX_PATH_LENGTH) {
+  if (text.length === 0 || text.length > MAX_WORKSPACE_PATH_LENGTH) {
     return null;
   }
   if (NON_PATH_CHARS.test(text) || text.endsWith("/") || text.startsWith("~")) {
@@ -75,16 +91,7 @@ export function toWorkspaceRelativePath(raw: string): string | null {
     }
   }
 
-  if (relative.length === 0) {
-    return null;
-  }
-  const segments = relative.split("/");
-  if (
-    segments.some((segment) => segment.length === 0 || segment.startsWith("."))
-  ) {
-    return null;
-  }
-  return relative;
+  return isWorkspaceRelativePath(relative) ? relative : null;
 }
 
 /** Parent directory of a workspace-relative path (`""` for a root-level file). */
