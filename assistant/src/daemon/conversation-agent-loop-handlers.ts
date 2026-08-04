@@ -1931,6 +1931,11 @@ function ensureToolResultRowReserved(
  * any await so it reflects exactly the content now durable in the row.
  * Indexing, the JSONL disk-view sync, and the buffer drain are deferred to
  * `finalizePendingToolResultRow`, which projects the grouped row exactly once.
+ * A row this seam never reaches (daemon death before finalize) is folded into
+ * the DB by the monitor's out-of-process in-flight recovery, which does not
+ * write the disk view; that row stays absent from `messages.jsonl` until
+ * `rebuild-conversation-disk-view` replays the conversation. The projection
+ * is best-effort by contract, and the rebuild is its reconciliation path.
  */
 async function persistPendingToolResultRow(
   state: EventHandlerState,

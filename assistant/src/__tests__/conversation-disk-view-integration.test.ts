@@ -183,14 +183,14 @@ describe("syncMessageToDisk idempotency", () => {
   });
 
   // The grouped tool-result row is written to the DB as each result arrives
-  // and projected to JSONL only at finalize. The agent loop used to sync the
-  // row once per arriving result AND once at finalize, so a turn with N tool
-  // results appended N + 1 byte-identical records; this fixture drives that
-  // exact N + 1 call pattern against the same row and asserts the projection
-  // holds one record. A retried finalize (e.g. after crash recovery) is the
-  // same call shape. The turn-boundary git commit touches no message rows, so
-  // a commit timeout with background completion cannot introduce a duplicate
-  // either: the only JSONL append for the row is the finalize sync.
+  // and projected to JSONL only at finalize. This fixture drives N + 1 sync
+  // calls against the same row (one per arriving result plus one at
+  // finalize) and asserts the projection holds exactly one record: the tail
+  // guard must absorb repeated syncs of a row no matter how many arrive. A
+  // retried finalize (e.g. after crash recovery) is the same call shape. The
+  // turn-boundary git commit touches no message rows, so a commit timeout
+  // with background completion cannot introduce a duplicate either: the only
+  // JSONL append for the row is the finalize sync.
   // Parameterized across both persisted tool id shapes: Anthropic-style
   // `toolu_` ids and OpenAI Responses-native `call_` ids.
   for (const idPrefix of ["toolu", "call"] as const) {
