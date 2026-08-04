@@ -121,17 +121,27 @@ struct VoiceSessionLiveActivity: Widget {
                 // layer that owns the wording.
                 VoicePhaseGlyph(state: state, isStale: isStale, scale: .small)
             } minimal: {
-                // Identity, because this slot only appears when the island is
-                // *shared* with another activity, and telling one from the
-                // other is the whole job of a mark that small. The phase has
-                // no bearing on which activity the user is looking at, and a
-                // waveform identifies no app.
+                // **The presentation a call gets on a device.** A session holds
+                // the microphone for the whole call, muted included (muting
+                // streams silence rather than stopping capture), so the system
+                // privacy indicator shares the island and iOS falls back to
+                // this slot.
                 //
-                // A live call does not claim this slot on its own: measured on
-                // an iPhone 17 Pro simulator, a running session renders the
-                // compact presentation with both slots, so the phase glyph is
-                // already carried there.
-                VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
+                // A simulator shows the compact presentation instead, because
+                // its microphone is mocked and raises no indicator. That makes
+                // a simulator screenshot void as evidence here, the same way it
+                // is for anything else about audio.
+                //
+                // So this one circle is the island for most of a call, and it
+                // carries the phase: identity is the fact that does not change
+                // and that the user already knows, while whether it is still
+                // listening is the one they cannot get from a locked phone. The
+                // accent tint keeps identity weakly present in the glyph color.
+                VoiceMinimalPresentation(
+                    state: state,
+                    isStale: isStale,
+                    avatarImageData: avatar
+                )
             }
             .widgetURL(VoiceModeDeepLink.resume.url())
             .keylineTint(state.accentColor)
