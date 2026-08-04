@@ -139,3 +139,31 @@ export function activityLabelForTool(toolName: string): string {
   }
   return GENERIC_ACTIVITY_LABEL;
 }
+
+/**
+ * The line to show while the turn is *waiting* on the user for `toolName`,
+ * rather than running it.
+ *
+ * The distinction matters more here than anywhere else this module is read.
+ * `tool_use_start` fires before the approval gate blocks, so a surface that
+ * showed only {@link activityLabelForTool} would say "Running a command" for
+ * the whole time the turn was in fact doing nothing but waiting — the same
+ * misstatement the spoken narration was fixed to stop making. This is the
+ * island's version of that fix.
+ *
+ * It keeps the tool's own phrase and appends who is being waited on, because
+ * the alternative — a bare "Waiting for your approval" — asks the user to
+ * approve something the surface will not name. That phrase is as specific as
+ * the island's vocabulary gets: no tool names, no arguments, nothing a
+ * passer-by reading a Lock Screen should not see (see the module header).
+ * Anyone wanting the detail has the card itself, one tap away.
+ */
+export function approvalActivityLabel(toolName: string): string {
+  // A confirmation raised outside the tool pipeline (a proxy or network
+  // prompter) has no tool to name, and "Working on it — needs your okay" would
+  // be a worse sentence than the bare one: the turn is not working.
+  if (toolName.length === 0) {
+    return "Needs your okay";
+  }
+  return `${activityLabelForTool(toolName)} — needs your okay`;
+}

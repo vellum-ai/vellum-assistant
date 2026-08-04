@@ -40,6 +40,7 @@ const {
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
   subscribeVoiceLiveActivityPushToken,
+  subscribeVoiceLiveActivityControl,
 } = await import("@/runtime/native-live-activity");
 
 const content: VoiceLiveActivityContent = {
@@ -47,7 +48,9 @@ const content: VoiceLiveActivityContent = {
   label: "Listening…",
   accentHex: "#7C3AED",
   muted: false,
+  outputMuted: false,
   detail: "",
+  approvalRequestId: "",
 };
 const startOptions: VoiceLiveActivityStart = {
   ...content,
@@ -104,8 +107,10 @@ test("Android dispatches status calls but not ActivityKit push tokens", async ()
   await endVoiceLiveActivity();
   expect(end).toHaveBeenCalledTimes(1);
   const unsubscribe = subscribeVoiceLiveActivityPushToken(() => undefined);
+  const unsubscribeControls = subscribeVoiceLiveActivityControl(() => undefined);
   expect(addListener).not.toHaveBeenCalled();
   unsubscribe();
+  unsubscribeControls();
 });
 
 // ---------------------------------------------------------------------------
@@ -159,6 +164,35 @@ describe("with an older shell that has no plugin", () => {
     expect(await startVoiceLiveActivity(startOptions)).toBe(false);
     expect(await updateVoiceLiveActivity(content)).toBeUndefined();
     expect(await endVoiceLiveActivity()).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Island buttons — the one inbound path that acts on the session
+// ---------------------------------------------------------------------------
+
+describe("control events", () => {
+  test("subscribes on the plugin's own event name", () => {
+    const handler = mock((_event: { action: string }) => undefined);
+    const unsubscribe = subscribeVoiceLiveActivityControl(handler);
+    expect(addListener).toHaveBeenCalledWith(
+      "liveActivityControl",
+      expect.any(Function),
+    );
+    unsubscribe();
+  });
+
+  test("a shell too old to send them is silent, not broken", () => {
+    // `addListener` is one of the few names the Capacitor plugin Proxy does
+    // not trap into a fabricated native method, so this is a subscription that
+    // simply never fires — the correct degradation for a shell whose island
+    // has no buttons on it.
+    addListener.mockImplementation(async () => {
+      throw new Error("VoiceLiveActivity does not have web implementation.");
+    });
+    const unsubscribe = subscribeVoiceLiveActivityControl(() => undefined);
+    expect(unsubscribe).toBeInstanceOf(Function);
+    unsubscribe();
   });
 });
 

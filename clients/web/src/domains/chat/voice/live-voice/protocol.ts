@@ -204,6 +204,18 @@ export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "activity";
   readonly turnId: string;
   readonly label: string;
+  /**
+   * The confirmation this turn is blocked on, when the label describes a wait
+   * rather than work in flight. Absent otherwise, including on the frame that
+   * retires a wait — so a handler must treat "absent" as "no longer pending",
+   * never as "unchanged".
+   *
+   * It is what makes the wait answerable from the Live Activity: an approval,
+   * unlike the island's mute and end buttons, must not be re-resolved against
+   * whatever is pending when the tap lands. Mirrors the daemon's frame in
+   * `assistant/src/live-voice/protocol.ts`.
+   */
+  readonly approvalRequestId?: string;
 }
 
 export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {

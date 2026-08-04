@@ -37,10 +37,15 @@
  *
  * The controls sit quiet at the edges so the color and the band hold the middle,
  * and they are the room's own set at bar scale: mute the mic on the left, and on
- * the right mute the assistant, expand back to the room, and end. The two mutes
- * are a symmetric pair, one per direction of the conversation, and every control
- * is persistent, so none of them moves out from under a reaching finger
- * mid-turn.
+ * the right mute the assistant and end. The two mutes are a symmetric pair, one
+ * per direction of the conversation, and every control is persistent, so none of
+ * them moves out from under a reaching finger mid-turn.
+ *
+ * **Returning to the room is the band itself**, not a fourth icon: tapping the
+ * centre reopens it. That region is the bar's largest by a wide margin, and
+ * "show me the session again" is the most likely thing to want from a minimized
+ * one, so it gets the target that needs no aim — the same trade the title-bar
+ * pill already makes with its own centre.
  *
  * Purely presentational: the composer observes the live-voice store and wires
  * `state`, the two amplitude poll functions, and the callbacks. Ending is
@@ -53,7 +58,7 @@
 
 import type { CSSProperties } from "react";
 
-import { Maximize2, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
+import { Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button, cn } from "@vellumai/design-library";
 
@@ -121,9 +126,10 @@ export interface VoiceComposerBarProps {
    */
   onToggleOutputMute: () => void;
   /**
-   * Return to the full-screen voice room. The composer passes it only where
-   * the room can render (never in pop-out windows), so the control never
-   * ships dead.
+   * Return to the full-screen voice room, invoked by tapping the bar's centre.
+   * The composer passes it only where the room can render (never in pop-out
+   * windows); absent, the centre is inert rather than a button that does
+   * nothing.
    */
   onExpand?: () => void;
   /**
@@ -220,10 +226,32 @@ export function VoiceComposerBar({
         />
       </div>
 
-      {/* The band holds the middle. Nothing is painted over it: the bar says
-          what it is doing by moving, and the state string reaches assistive
-          tech through the live region below. */}
-      <div className="relative min-w-0 flex-1" />
+      {/* The band holds the middle, and the middle is the way back into the
+          room. Nothing is painted over it: the bar says what it is doing by
+          moving, and the state string reaches assistive tech through the live
+          region below.
+
+          It is the bar's largest region by a wide margin, sitting between two
+          clusters of 16px icons, so making it the target for the single most
+          likely thing to want from a minimized session — see it again — beats
+          a fourth icon competing for the same rail. The same reasoning the
+          title-bar pill already follows for its own centre.
+
+          A real `button`, not a click handler on the band: this is the one
+          affordance here with no glyph to announce it, so it needs a role and
+          a name or it exists for pointers only. Inert in pop-out windows,
+          where there is no room to open — a `div` then, rather than a button
+          that does nothing. */}
+      {onExpand ? (
+        <button
+          type="button"
+          onClick={onExpand}
+          aria-label="Open voice room"
+          className="relative min-w-0 flex-1 self-stretch focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--vbtn-fg)]"
+        />
+      ) : (
+        <div className="relative min-w-0 flex-1" />
+      )}
       <span aria-live="polite" className="sr-only">
         {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
       </span>
@@ -249,17 +277,6 @@ export function VoiceComposerBar({
           className={VOICE_SURFACE_CONTROL_CLASS}
           style={outputMuted ? mutedInk : undefined}
         />
-        {onExpand ? (
-          <Button
-            variant="ghost"
-            iconOnly={<Maximize2 className="h-4 w-4" />}
-            expandOnMobile
-            onClick={onExpand}
-            aria-label="Open voice room"
-            tooltip="Open voice room"
-            className={VOICE_SURFACE_CONTROL_CLASS}
-          />
-        ) : null}
         <Button
           variant="ghost"
           iconOnly={<X className="h-4 w-4" strokeWidth={2.5} />}

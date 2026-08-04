@@ -17,6 +17,7 @@ import {
   eyesEntranceMotion,
   resolveVoiceRoomChoreography,
   resolveVoiceRoomEntrance,
+  sheetDragMinimizes,
   voidAvatarMotion,
   withReducedMotion,
 } from "./voice-room-entrance";
@@ -168,5 +169,29 @@ describe("resolveVoiceRoomChoreography", () => {
     const { shell } = resolveVoiceRoomChoreography("content", false);
     expect(shell.initial).toEqual({ opacity: 0 });
     expect(shell.exit).toEqual({ opacity: 0 });
+  });
+});
+
+describe("sheetDragMinimizes", () => {
+  it("minimizes on a long, slow pull", () => {
+    expect(sheetDragMinimizes(140, 0)).toBe(true);
+  });
+
+  it("minimizes on a fast flick that barely travelled", () => {
+    // A flick is a complete gesture; making it also clear the distance bar
+    // would spring the sheet back from the most confident version of it.
+    expect(sheetDragMinimizes(12, 900)).toBe(true);
+  });
+
+  it("springs back from a short, unhurried drag", () => {
+    // The stray vertical component of a reach across the control row. It must
+    // not take a live call off the screen.
+    expect(sheetDragMinimizes(30, 60)).toBe(false);
+  });
+
+  it("ignores upward gestures however far or fast", () => {
+    // The sheet is pinned against the header; there is nothing above it to
+    // reveal, and an upward flick resolving as a dismissal is backwards.
+    expect(sheetDragMinimizes(-400, -2000)).toBe(false);
   });
 });
