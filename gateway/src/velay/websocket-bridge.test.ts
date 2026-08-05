@@ -379,6 +379,26 @@ describe("VelayWebSocketBridge", () => {
     });
   });
 
+  test("invokes onIdle when the last connection goes away", () => {
+    let idleCalls = 0;
+    const idleBridge = new VelayWebSocketBridge(
+      "http://127.0.0.1:7830",
+      () => {},
+      () => {
+        idleCalls++;
+      },
+    );
+    idleBridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+    expect(idleCalls).toBe(0);
+
+    fakeSocket.emit("close", { code: 1000, reason: "" });
+
+    expect(idleCalls).toBe(1);
+    expect(idleBridge.getConnectionCount()).toBe(0);
+  });
+
   test("closeAll uses the dedicated tunnel-lost close code", () => {
     bridge.open(makeOpenFrame());
     fakeSocket.readyState = WS_OPEN;
@@ -386,8 +406,8 @@ describe("VelayWebSocketBridge", () => {
 
     bridge.closeAll();
 
-    // Not the remapped 1001→4001: the reason string does not survive the
-    // relay to the daemon, so the code alone must identify tunnel loss.
+    // Not the remapped 1001-to-4001 code: the reason string does not survive
+    // the relay to the daemon, so the code alone must identify tunnel loss.
     expect(fakeSocket.closes).toEqual([
       { code: GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE, reason: "Tunnel closed" },
     ]);

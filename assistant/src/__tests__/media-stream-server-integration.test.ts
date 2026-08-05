@@ -761,7 +761,7 @@ describe("MediaStreamCallSession", () => {
 
       const session = new MediaStreamCallSession(mock.ws, "call-1");
       // The gateway's close reason is dropped in relay, so only the code
-      // arrives — it must decode to something a human can act on.
+      // arrives; it must decode to something a human can act on.
       session.handleTransportClosed(GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE);
 
       expect(updateCallSession).toHaveBeenCalledWith(

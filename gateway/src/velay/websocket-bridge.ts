@@ -54,6 +54,8 @@ export class VelayWebSocketBridge {
   constructor(
     private readonly gatewayLoopbackBaseUrl: string,
     private readonly sendFrame: SendVelayFrame,
+    /** Invoked whenever the last bridged connection goes away. */
+    private readonly onIdle?: () => void,
   ) {}
 
   handleFrame(frame: VelayWebSocketInboundFrame): void {
@@ -231,16 +233,19 @@ export class VelayWebSocketBridge {
         connection,
         "WebSocket connection failed",
       );
+      this.notifyIfIdle();
       return;
     }
 
-    if (connection.suppressNextCloseFrame) return;
-    this.sendFrame({
-      type: VELAY_FRAME_TYPES.websocketClose,
-      connection_id: connectionId,
-      code: event.code,
-      reason: event.reason,
-    } satisfies VelayWebSocketCloseFrame);
+    if (!connection.suppressNextCloseFrame) {
+      this.sendFrame({
+        type: VELAY_FRAME_TYPES.websocketClose,
+        connection_id: connectionId,
+        code: event.code,
+        reason: event.reason,
+      } satisfies VelayWebSocketCloseFrame);
+    }
+    this.notifyIfIdle();
   }
 
   private failOpeningConnection(
@@ -254,6 +259,7 @@ export class VelayWebSocketBridge {
     connection.pendingMessages = [];
     this.sendOpenErrorOnce(connectionId, connection, reason);
     closeWebSocket(connection.ws);
+    this.notifyIfIdle();
   }
 
   private closeExisting(connectionId: string): void {
@@ -274,6 +280,13 @@ export class VelayWebSocketBridge {
     }
     connection.pendingMessages = [];
     closeWebSocket(connection.ws, code, reason);
+    this.notifyIfIdle();
+  }
+
+  private notifyIfIdle(): void {
+    if (this.connections.size === 0) {
+      this.onIdle?.();
+    }
   }
 
   private sendOpenError(connectionId: string, reason: string): void {
