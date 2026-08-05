@@ -5,8 +5,11 @@
  * a client WebSocket connection and a provider-specific streaming adapter.
  * The orchestrator accepts client events (`audio`, `stop`), routes audio
  * frames to the resolved {@link StreamingTranscriber}, and emits normalized
- * server events (`partial`, `final`, `error`, `closed`) back over the same
- * WebSocket connection with per-session ordering guarantees.
+ * server events back over the same WebSocket connection with per-session
+ * ordering guarantees: transcripts (`partial`, `final`, `finalized`),
+ * turn boundaries from providers that detect them (`turn-start`,
+ * `eager-turn-end`, `turn-resumed`, `turn-end`), and termination
+ * (`error`, `closed`).
  *
  * Session lifecycle:
  * 1. Client opens a WebSocket to `/v1/stt/stream` with required `mimeType`
@@ -17,8 +20,9 @@
  *    `resolveStreamingTranscriber()` and starts the provider session.
  * 3. The client sends `audio` frames (binary or base64-encoded JSON) and
  *    a `stop` event when recording is complete.
- * 4. The provider emits `partial` and `final` transcript events which the
- *    orchestrator forwards to the client as JSON frames.
+ * 4. The provider emits transcript events, plus turn-boundary events when it
+ *    detects turns, and the orchestrator forwards each to the client as a
+ *    JSON frame.
  * 5. The session closes deterministically on client disconnect, `stop`
  *    event, idle timeout, or runtime shutdown.
  *

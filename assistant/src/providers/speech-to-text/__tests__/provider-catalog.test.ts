@@ -171,9 +171,10 @@ describe("STT provider catalog", () => {
 
   const expectedLanguageSelection = [
     ["deepgram", "manual"],
-    ["deepgram-flux", "manual"],
     ["vellum", "manual"],
     ["xai", "manual"],
+    // Flux takes no language parameter: its model is monolingual English.
+    ["deepgram-flux", "auto"],
     ["google-gemini", "auto"],
     ["openai-whisper", "auto"],
   ] as const;

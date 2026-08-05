@@ -104,8 +104,9 @@ interface SttProviderEntry {
    *
    * - `"manual"`: the provider accepts an explicit language parameter and
    *   defaults to English when omitted; a language picker is meaningful.
-   * - `"auto"`: the provider detects language natively and accepts no
-   *   language parameter; a picker would be a no-op, so clients must hide it.
+   * - `"auto"`: the provider takes no language parameter, either because it
+   *   detects the language natively or because its model is monolingual; a
+   *   picker would be a no-op, so clients must hide it.
    */
   readonly languageSelection: "manual" | "auto";
 
@@ -183,7 +184,10 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "none",
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: false,
-      languageSelection: "manual",
+      // "no picker", not native detection: the Flux model is English-only and
+      // takes no language parameter, so audio in another language transcribes
+      // as English rather than being detected.
+      languageSelection: "auto",
       credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
     },
   ],
