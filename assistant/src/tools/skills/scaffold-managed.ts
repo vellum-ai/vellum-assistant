@@ -105,7 +105,11 @@ function notifyBackgroundSkillUpdate(args: {
       // and it skips the item entirely, so the quiet case would surface
       // nothing at all.
       summary: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
-      title: "Skill updated",
+      // Named, not just "Skill updated": the feed sits several rows deep and
+      // a generic title is unscannable next to entries that name their
+      // subject (`Background job failed: memory.v2.sweep`). The word "Skill"
+      // stays because a bare skill name does not always read as one.
+      title: `Skill updated: ${args.name}`,
       body: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
       skillId: args.skillId,
     },

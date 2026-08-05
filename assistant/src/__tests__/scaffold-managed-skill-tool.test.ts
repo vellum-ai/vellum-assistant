@@ -1556,7 +1556,10 @@ describe("background skill update notification", () => {
     // The home feed falls back to `title`/`body` when no channel copy was
     // rendered, which is the intended quiet shape for this signal. Without
     // them a suppressed delivery would leave the feed item unwritten.
-    expect(signal.contextPayload?.title).toBe("Skill updated");
+    // Named so the row is scannable in a feed several entries deep.
+    expect(signal.contextPayload?.title).toBe(
+      "Skill updated: Weekly Report Export",
+    );
     expect(String(signal.contextPayload?.body)).toContain(
       "Weekly Report Export",
     );
