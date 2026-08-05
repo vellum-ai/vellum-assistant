@@ -23,6 +23,13 @@ mock.module("../config/memory-v3-gate.js", () => ({
     config?.memory?.enabled !== false,
   isV3TierActive: () => mockV3TierActive,
   isMemoryV3Live: () => mockV3TierActive,
+  // Mirrors the real composition (tier AND
+  // `memory.retrospective.skillAuthoring !== false`) driven by the same slot,
+  // so `buildPolicyContext`'s precomputed grant bit stays exercisable here.
+  isRetrospectiveSkillAuthoringActive: (config?: {
+    memory?: { retrospective?: { skillAuthoring?: boolean } };
+  }) =>
+    mockV3TierActive && config?.memory?.retrospective?.skillAuthoring !== false,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };

@@ -19,6 +19,12 @@ let memoryV3LiveSlot = false;
 mock.module("../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => memoryV3LiveSlot,
   isV3TierActive: () => memoryV3LiveSlot,
+  // Mirrors the real composition (tier AND
+  // `memory.retrospective.skillAuthoring !== false`) driven by the same slot.
+  isRetrospectiveSkillAuthoringActive: (config?: {
+    memory?: { retrospective?: { skillAuthoring?: boolean } };
+  }) =>
+    memoryV3LiveSlot && config?.memory?.retrospective?.skillAuthoring !== false,
   isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
     config?.memory?.enabled !== false,
   usesConceptPageMemory: (memory?: {

@@ -178,6 +178,9 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
     config?.memory?.enabled !== false,
   isV3TierActive: () => false,
   isMemoryV3Live: () => false,
+  // Composes with the inactive tier above, so authoring is off regardless of
+  // the config key, matching the real predicate's tier AND key semantics.
+  isRetrospectiveSkillAuthoringActive: () => false,
   usesConceptPageMemory: () => false,
 }));
 
