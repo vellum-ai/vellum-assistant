@@ -7,6 +7,7 @@ import {
   connectImport,
   getGuardianAccessToken,
   isActiveAssistant,
+  isPairedLockfileEntry,
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
@@ -401,21 +402,13 @@ export const installLocalMode = (): void => {
       } catch (err) {
         return { ok: false, status: 500, error: (err as Error).message };
       }
-      // Paired entries have no local daemon, so token-failure guidance must
-      // say re-pair rather than hatch/wake.
-      const lockfile = getLockfileData(lockfilePaths);
-      const paired =
-        lockfile.ok &&
-        lockfile.data.assistants.some(
-          (a) => a.assistantId === assistantId && a.cloud === "paired",
-        );
       return getGuardianAccessToken(
         assistantId,
         configDir,
         invocation,
         true,
         guardianTokenEnv,
-        { paired },
+        { paired: isPairedLockfileEntry(lockfilePaths, assistantId) },
       );
     },
   );

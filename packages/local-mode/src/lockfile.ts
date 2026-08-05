@@ -35,6 +35,24 @@ export function getLockfileData(lockfilePaths: string[]): LockfileResult {
   return { ok: true, data: parseLockfile(data) };
 }
 
+/**
+ * Whether the lockfile records this assistant as a paired entry. Paired
+ * entries have no local daemon, so guardian-token failure guidance must say
+ * re-pair rather than hatch/wake.
+ */
+export function isPairedLockfileEntry(
+  lockfilePaths: string[],
+  assistantId: string,
+): boolean {
+  const lockfile = getLockfileData(lockfilePaths);
+  return (
+    lockfile.ok &&
+    lockfile.data.assistants.some(
+      (a) => a.assistantId === assistantId && a.cloud === "paired",
+    )
+  );
+}
+
 export type WriteResult =
   | { ok: true; lockfile: Lockfile }
   | { ok: false; status: number; error: string };

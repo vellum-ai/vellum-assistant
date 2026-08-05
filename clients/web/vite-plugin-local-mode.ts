@@ -16,6 +16,7 @@ import {
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
+  isPairedLockfileEntry,
   runHatch,
   runRetire,
   runSleep,
@@ -884,16 +885,8 @@ function guardianTokenMiddleware(
       return;
     }
 
-    // Paired entries have no local daemon, so token-failure guidance must
-    // say re-pair rather than hatch/wake.
-    const lockfile = getLockfileData(lockfilePaths);
-    const paired =
-      lockfile.ok &&
-      lockfile.data.assistants.some(
-        (a) => a.assistantId === assistantId && a.cloud === "paired",
-      );
     getGuardianAccessToken(assistantId, configDir, invocation, true, env, {
-      paired,
+      paired: isPairedLockfileEntry(lockfilePaths, assistantId),
     }).then(
       (result) => {
         if (result.ok) {

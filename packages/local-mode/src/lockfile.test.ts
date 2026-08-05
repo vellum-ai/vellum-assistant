@@ -5,6 +5,7 @@ import path from "node:path";
 
 import {
   getLockfileData,
+  isPairedLockfileEntry,
   replacePlatformAssistants,
   upsertLockfileAssistant,
 } from "./lockfile";
@@ -109,6 +110,30 @@ describe("getLockfileData", () => {
     fs.writeFileSync(lockfilePath, "{ not json");
     const result = getLockfileData([lockfilePath]);
     expect(result).toEqual({ ok: false, status: 500 });
+  });
+});
+
+// Hosts pass {paired} to getGuardianAccessToken so expired pairings get
+// re-pair guidance instead of hatch/wake; this pins the classification.
+describe("isPairedLockfileEntry", () => {
+  test("only a lockfile entry with cloud=paired classifies as paired", () => {
+    writeOnDisk({
+      assistants: [
+        { assistantId: "paired-1", cloud: "paired" },
+        { assistantId: "local-1", cloud: "local" },
+      ],
+      activeAssistant: "local-1",
+    });
+
+    expect(isPairedLockfileEntry([lockfilePath], "paired-1")).toBe(true);
+    expect(isPairedLockfileEntry([lockfilePath], "local-1")).toBe(false);
+    expect(isPairedLockfileEntry([lockfilePath], "missing")).toBe(false);
+  });
+
+  test("an absent lockfile never classifies as paired", () => {
+    expect(
+      isPairedLockfileEntry([path.join(dir, "absent.json")], "paired-1"),
+    ).toBe(false);
   });
 });
 

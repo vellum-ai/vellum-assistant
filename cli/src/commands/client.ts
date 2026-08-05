@@ -32,6 +32,7 @@ import {
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
+  isPairedLockfileEntry,
   runHatch,
   runRetire,
   connectImport,
@@ -493,24 +494,6 @@ const _localEnv = getEnvRecord();
 const _lockfilePaths = resolveLockfilePaths(_localEnv);
 const _configDir = resolveConfigDir(_localEnv);
 const _baseDir = getBaseDir();
-
-/**
- * Whether the lockfile records this assistant as a paired entry. Paired
- * entries have no local daemon, so guardian-token failure guidance must say
- * re-pair rather than hatch/wake.
- */
-export function isPairedLockfileEntry(
-  lockfilePaths: string[],
-  assistantId: string,
-): boolean {
-  const lockfile = getLockfileData(lockfilePaths);
-  return (
-    lockfile.ok &&
-    lockfile.data.assistants.some(
-      (a) => a.assistantId === assistantId && a.cloud === "paired",
-    )
-  );
-}
 
 async function handleLocalEndpoints(
   req: Request,
