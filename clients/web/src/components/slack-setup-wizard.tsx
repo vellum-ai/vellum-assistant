@@ -29,11 +29,6 @@ const WIZARD_STEPS: StepperStep[] = [
 
 export interface SlackSetupWizardProps {
   assistantName: string;
-  /**
-   * Step to open on. Production always starts at the beginning; stories use
-   * this to render a later step without clicking through the earlier ones.
-   */
-  initialStepId?: SlackSetupStepId;
   onSave?: (botToken: string, appToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
@@ -51,12 +46,11 @@ export interface SlackSetupWizardProps {
  */
 export function SlackSetupWizard({
   assistantName,
-  initialStepId = "name",
   onSave,
   saveStatus = "idle",
   saveError = null,
 }: SlackSetupWizardProps) {
-  const [stepId, setStepId] = useState<SlackSetupStepId>(initialStepId);
+  const [stepId, setStepId] = useState<SlackSetupStepId>("name");
   const [slackAppName, setSlackAppName] = useState(assistantName);
   const [description, setDescription] = useState("");
   const userEditedName = useRef(false);

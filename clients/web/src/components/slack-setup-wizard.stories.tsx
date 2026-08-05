@@ -32,7 +32,22 @@ const DIGITS = "0".repeat(10);
 const BOT_TOKEN = `xoxb-${DIGITS}-${DIGITS}-abcdefghij`;
 const APP_TOKEN = `xapp-1-A${DIGITS}-${DIGITS}-abcdefghij`;
 
+/**
+ * Walk to the token step the way a user does. There is no prop to jump
+ * straight there: a story that renders a screen no real path produces would
+ * assert against a state the wizard cannot actually reach.
+ */
+async function goToConnect(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+  await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+  await userEvent.click(
+    canvas.getByRole("button", { name: /I created the app/i }),
+  );
+}
+
 const fillTokens: Story["play"] = async ({ canvasElement }) => {
+  await goToConnect(canvasElement);
   const canvas = within(canvasElement);
   await userEvent.type(canvas.getByLabelText(/Bot Token/i), BOT_TOKEN);
   await userEvent.type(canvas.getByLabelText(/App Token/i), APP_TOKEN);
@@ -90,27 +105,32 @@ export const OpenSlackAfterCopy: Story = {
 
 /** Step 3: the in-Slack directions, with one way forward. */
 export const CreateApp: Story = {
-  args: { initialStepId: "create" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+  },
 };
 
 /** Step 4: both tokens, empty. */
 export const Connect: Story = {
-  args: { initialStepId: "connect" },
+  play: async ({ canvasElement }) => {
+    await goToConnect(canvasElement);
+  },
 };
 
 export const Saving: Story = {
-  args: { initialStepId: "connect", saveStatus: "pending" },
+  args: { saveStatus: "pending" },
   play: fillTokens,
 };
 
 export const Connected: Story = {
-  args: { initialStepId: "connect", saveStatus: "success" },
+  args: { saveStatus: "success" },
   play: fillTokens,
 };
 
 export const SaveFailed: Story = {
   args: {
-    initialStepId: "connect",
     saveStatus: "error",
     saveError: "Slack rejected the bot token (invalid_auth).",
   },
@@ -123,8 +143,8 @@ export const SaveFailed: Story = {
  * Connect stays disabled.
  */
 export const TokenFormatValidation: Story = {
-  args: { initialStepId: "connect" },
   play: async ({ canvasElement }) => {
+    await goToConnect(canvasElement);
     const canvas = within(canvasElement);
     await userEvent.type(canvas.getByLabelText(/Bot Token/i), APP_TOKEN);
     await userEvent.type(canvas.getByLabelText(/App Token/i), "xapp-123");
