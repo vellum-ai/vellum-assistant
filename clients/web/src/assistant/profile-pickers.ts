@@ -2,29 +2,57 @@
  * Helpers for profile picker UIs (Default Profile dropdown, call-site
  * override pickers, the composer profile menu).
  *
- * Disabled profiles are hidden from pickers in normal usage, but the
- * currently-selected one must remain visible so the picker can render
- * its trigger label and the user has a visible recovery path. Without
- * this carve-out, disabling the active profile leaves the trigger with
- * an empty label and the user wondering what's still in effect.
+ * A picker shows the profiles the resolver would actually accept. It hides
+ * the ones it would skip, EXCEPT the current selection, which stays visible
+ * so the picker can render its trigger label and the user has a visible
+ * recovery path. Without that carve-out, a profile becoming unusable leaves
+ * the trigger with an empty label and the user wondering what's in effect.
  */
 
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;
   readonly status?: "active" | "disabled" | null;
+  readonly provider?: string | null;
+  readonly model?: string | null;
+  readonly mix?: unknown;
+}
+
+/**
+ * Whether the resolver would accept this profile when a rung names it.
+ *
+ * Mirrors `usableEntry` in `assistant/src/config/llm-resolver.ts`: a rung
+ * only wins if its profile is enabled and carries its own provider AND
+ * model. A profile missing either is reported as `"incomplete"` and skipped,
+ * so offering it in a picker produces a pin that silently falls through to
+ * the next rung while the UI still shows it as the selection.
+ *
+ * A mix carries no provider or model of its own: the daemon expands it to a
+ * seeded arm and judges that arm. Treat mixes as dispatchable rather than
+ * re-deriving arm selection here, so a working mix is never hidden. A mix
+ * whose arms are all broken still falls through at resolution time, which is
+ * the same outcome as today.
+ */
+export function isDispatchableProfile(p: ProfilePickerEntry): boolean {
+  if (p.status === "disabled") {
+    return false;
+  }
+  if (p.mix != null) {
+    return true;
+  }
+  return !!p.provider && !!p.model;
 }
 
 /**
  * Chooses the profile used when a call-site override is toggled on.
- * The optional preferred profile is used only when it is active; otherwise the
- * first active profile is used.
+ * The optional preferred profile is used only when it is dispatchable;
+ * otherwise the first dispatchable profile is used.
  */
 export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   preferredProfile: string | null | undefined,
 ): string | undefined {
-  const candidates = profiles.filter((p) => p.status !== "disabled");
+  const candidates = profiles.filter(isDispatchableProfile);
   if (preferredProfile && candidates.some((p) => p.name === preferredProfile)) {
     return preferredProfile;
   }
@@ -34,9 +62,9 @@ export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
 /**
  * Returns the subset of `profiles` to render in a picker.
  *
- * Drops `status === "disabled"` entries, EXCEPT for any entry whose
- * `name` appears in `selectedNames` — those stay visible so the picker
- * can show the current selection.
+ * Drops entries the resolver would skip (see `isDispatchableProfile`),
+ * EXCEPT for any entry whose `name` appears in `selectedNames`, which stay
+ * visible so the picker can show the current selection.
  *
  * `selectedNames` accepts loose values (string | null | undefined) so
  * callers can splat the raw active-profile state without pre-filtering.
@@ -52,18 +80,24 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
     }
   }
   return profiles.filter(
-    (p) => p.status !== "disabled" || selected.has(p.name),
+    (p) => isDispatchableProfile(p) || selected.has(p.name),
   );
 }
 
 /**
- * Label to render in a picker for a profile. Appends a " (Disabled)"
- * suffix when the profile is disabled — the only path a disabled entry
- * appears in a picker is via `visibleProfilesForPicker` keeping it
- * because it's the current selection, so the suffix makes that state
- * legible at a glance.
+ * Label to render in a picker for a profile. Flags the states the resolver
+ * would skip, since the only path such an entry appears in a picker is
+ * `visibleProfilesForPicker` keeping it as the current selection: without
+ * the suffix the user sees a normal-looking selection that is not the
+ * profile the action actually runs on.
  */
 export function profilePickerLabel(p: ProfilePickerEntry): string {
   const base = p.label ?? p.name;
-  return p.status === "disabled" ? `${base} (Disabled)` : base;
+  if (p.status === "disabled") {
+    return `${base} (Disabled)`;
+  }
+  if (!isDispatchableProfile(p)) {
+    return `${base} (Unavailable)`;
+  }
+  return base;
 }
