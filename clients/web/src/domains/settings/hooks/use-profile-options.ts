@@ -73,6 +73,6 @@ export function useProfileOptions(
       buildProfileOptions(daemonConfig?.llm, selectedProfile, {
         requireOwnProviderAndModel,
       }),
-    [daemonConfig?.llm, selectedProfile],
+    [daemonConfig?.llm, selectedProfile, requireOwnProviderAndModel],
   );
 }

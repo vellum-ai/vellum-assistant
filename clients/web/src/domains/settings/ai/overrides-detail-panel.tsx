@@ -190,7 +190,7 @@ export function OverridesDetailPanel({
         [persistedAdvisor],
         dispatchOptions,
       ).map(toProfileOption),
-    [orderedProfiles, persistedAdvisor, toProfileOption],
+    [orderedProfiles, persistedAdvisor, toProfileOption, dispatchOptions],
   );
 
   // "advisor" isn't in the call-site catalog, so its row filters on its own
@@ -289,7 +289,13 @@ export function OverridesDetailPanel({
         setDraft(id, { provider: defaultProvider, model: defaultModel });
       }
     },
-    [gatedCallSites, orderedProfiles, selectableInferenceProviders, setDraft],
+    [
+      gatedCallSites,
+      orderedProfiles,
+      selectableInferenceProviders,
+      setDraft,
+      dispatchOptions,
+    ],
   );
 
   // ---------------------------------------------------------------------------
