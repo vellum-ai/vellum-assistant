@@ -1940,6 +1940,76 @@ describe("fetchDetailIfNeeded detailSettled", () => {
 
     expect(getState().byId["sa-1"]).toBeUndefined();
   });
+
+  it("re-arms an empty mid-run settle when the run goes terminal, so the fetch retries", async () => {
+    // A fetch that settles empty while the run is LIVE answers "no events
+    // yet", not "no events ever". If the run then finishes without streaming
+    // its events here, the terminal transition must clear `detailSettled` so
+    // the render-driven fetch asks again; otherwise the card rests on
+    // "Finished, 0 steps" with the real timeline permanently unfetched.
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      conversationId: "conv-child",
+      timestamp: NOW,
+    });
+    fetchSubagentDetail.mockResolvedValueOnce({
+      status: "running",
+      events: [],
+    } as never);
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+    expect(getState().byId["sa-1"]?.detailSettled).toBe(true);
+
+    getState().changeStatus({ subagentId: "sa-1", status: "completed" });
+    expect(getState().byId["sa-1"]?.detailSettled).toBe(false);
+
+    // The retry actually goes out and lands the final timeline.
+    fetchSubagentDetail.mockResolvedValueOnce({
+      status: "completed",
+      events: [{ type: "text", content: "done" }],
+    } as never);
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.detailSettled).toBe(true);
+    expect(entry.events.length).toBeGreaterThan(0);
+  });
+
+  it("keeps a settled flag across the terminal transition when events exist", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      conversationId: "conv-child",
+      timestamp: NOW,
+    });
+    fetchSubagentDetail.mockResolvedValueOnce({
+      status: "running",
+      events: [{ type: "text", content: "hello" }],
+    } as never);
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    getState().changeStatus({ subagentId: "sa-1", status: "completed" });
+
+    expect(getState().byId["sa-1"]?.detailSettled).toBe(true);
+  });
+
+  it("keeps a settled flag on a terminal-to-terminal status apply", async () => {
+    // A reconcile snapshot re-applying a terminal status must not re-arm the
+    // flag: only the live-to-terminal transition invalidates an empty settle.
+    spawnTerminal("sa-1");
+    fetchSubagentDetail.mockResolvedValueOnce({
+      status: "completed",
+      events: [],
+    } as never);
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    getState().changeStatus({ subagentId: "sa-1", status: "failed" });
+
+    expect(getState().byId["sa-1"]?.detailSettled).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -122,7 +122,10 @@ export interface SubagentEntry {
    * True once a detail fetch for this entry has completed at least once:
    * success, empty, or failure. Until then, a terminal entry with no events is
    * presumed to have an unloaded timeline and renders as loading rather than
-   * "0 steps".
+   * "0 steps". Cleared by `changeStatus` when a still-eventless entry goes
+   * terminal: a mid-run fetch that settled empty says nothing about the final
+   * timeline, and leaving the flag set would stop the card's render-driven
+   * fetch (`useSubagentCardData`) from ever asking for it.
    */
   detailSettled?: boolean;
 }
@@ -918,11 +921,24 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       return;
     }
 
+    // A fetch that settled empty while the run was live answered "no events
+    // YET", not "no events ever". Re-arm the settled flag on the transition to
+    // terminal so the card's render-driven fetch asks again for the final
+    // timeline. Bounded: the transition fires once, and the re-fetch stamps
+    // `detailSettled` back regardless of outcome.
+    const detailSettled =
+      isActiveStatus(existing.status) &&
+      !isActiveStatus(params.status) &&
+      existing.events.length === 0
+        ? false
+        : existing.detailSettled;
+
     set({
       byId: {
         ...byId,
         [params.subagentId]: {
           ...existing,
+          detailSettled,
           status: params.status,
           error: params.error ?? existing.error,
           // Preserve the accumulated usage when a status event carries
