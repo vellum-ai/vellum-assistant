@@ -4,7 +4,8 @@
  * hatch/retire/wake lifecycle ops) over a loopback HTTP boundary. Consumed by the
  * CLI `client` server and the web app's dev-server middleware so the local
  * endpoint behaviour is defined exactly once instead of one host reaching into
- * another's source tree. Depends only on `@vellumai/environments`.
+ * another's source tree. `@vellumai/environments` is its only workspace
+ * dependency.
  */
 export {
   stripSensitiveFields,
@@ -31,6 +32,7 @@ export {
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
+  isPairedLockfileEntry,
 } from "./lockfile";
 export type { LockfileResult, WriteResult } from "./lockfile";
 export { parseLockfile } from "./lockfile-contract";
@@ -44,6 +46,8 @@ export { runHatch } from "./hatch";
 export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireOptions, RetireResult } from "./retire";
+export { unpairAssistant } from "./unpair";
+export { decodePairBundle, pairAssistant, connectImport } from "./pair";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
@@ -55,12 +59,25 @@ export type {
   LocalAssistantRuntimeState,
   LocalAssistantStatusResult,
 } from "./status";
-export { getGuardianAccessToken } from "./guardian-token";
-export type { TokenResult } from "./guardian-token";
+export {
+  getGuardianAccessToken,
+  isConfidentialRefreshUrl,
+  saveGuardianToken,
+} from "./guardian-token";
+export type {
+  TokenResult,
+  GuardianTokenData,
+  GuardianTokenOptions,
+} from "./guardian-token";
 export {
   parseGatewayUrl,
   readAllowedGatewayPorts,
   resolveGatewayProxyTarget,
+  parsePairedGatewayUrl,
+  pairedGatewayTargetsFromLockfile,
+  readPairedGatewayTargets,
+  resolvePairedGatewayProxyTarget,
+  sanitizePairedForwardHeaders,
 } from "./gateway-proxy";
 export type {
   GatewayTarget,

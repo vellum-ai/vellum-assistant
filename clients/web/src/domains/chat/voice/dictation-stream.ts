@@ -33,7 +33,10 @@ import {
   type LiveVoiceAudioCaptureOptions,
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
-import { buildSelfHostedGatewayWsUrl } from "@/domains/chat/voice/live-voice/connection";
+import {
+  buildSelfHostedGatewayWsUrl,
+  isPairedGatewayIngress,
+} from "@/domains/chat/voice/live-voice/connection";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import {
   getSelfHostedActorToken,
@@ -125,6 +128,14 @@ export function startDictationStream(
     // per session attempt so a missing-partials report is diagnosable.
     console.info(
       "dictation-stream: skipping (no self-hosted ingress/token or no AudioWorklet)",
+    );
+    return null;
+  }
+  if (isPairedGatewayIngress(ingressUrl)) {
+    // The paired gateway proxy is HTTP-only, so no STT stream WS exists;
+    // batch dictation over HTTP still works, only live partials are skipped.
+    console.info(
+      "dictation-stream: skipping (voice streaming isn't available for paired assistants yet)",
     );
     return null;
   }

@@ -41,6 +41,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
+import { badRequestMessage } from "@/utils/api-errors";
 
 export type ProfileEditorMode = "create" | "edit" | "view";
 export type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
@@ -128,6 +129,11 @@ export interface ProfileEditor {
   connectionNotFound: boolean;
 
   creatingProvider: boolean;
+  /**
+   * The supported-but-unconnected provider the inline create sub-form was
+   * opened for, or `null` when it was opened from the generic create entry.
+   */
+  pendingCreateProvider: ConnectionProvider | null;
   newProviderNote: boolean;
 
   setDescription: (value: string) => void;
@@ -147,6 +153,7 @@ export interface ProfileEditor {
     value: GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT,
   ) => void;
   setCreatingProvider: (value: boolean) => void;
+  setPendingCreateProvider: (value: ConnectionProvider | null) => void;
   setNewProviderNote: (value: boolean) => void;
 
   handleLabelChange: (value: string) => void;
@@ -371,6 +378,14 @@ export function useProfileEditor({
   // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
   // is mounted.
   const [creatingProvider, setCreatingProvider] = useState(false);
+  // The supported-but-unconnected provider the inline sub-form was opened for,
+  // or null when it was opened from the generic create entry. It preselects the
+  // sub-form's own Provider picker and keeps the outer trigger showing the
+  // provider the user actually picked while the form is open. The profile's
+  // `provider` is deliberately NOT set until the connection exists - cancelling
+  // must not strand the profile on a route the daemon can't dispatch through.
+  const [pendingCreateProvider, setPendingCreateProvider] =
+    useState<ConnectionProvider | null>(null);
   // One-time helper note shown after an inline provider create succeeds.
   const [newProviderNote, setNewProviderNote] = useState(false);
 
@@ -396,6 +411,7 @@ export function useProfileEditor({
   useEffect(() => {
     resetDirty();
     setCreatingProvider(false);
+    setPendingCreateProvider(null);
     setNewProviderNote(false);
     setLocallyCreatedConnections([]);
   }, [profileName, mode, resetDirty]);
@@ -501,6 +517,7 @@ export function useProfileEditor({
     setProviderConnection(connection.name);
     setModel("");
     setCreatingProvider(false);
+    setPendingCreateProvider(null);
     setNewProviderNote(true);
     void queryClient.invalidateQueries({
       queryKey: inferenceProviderconnectionsGetQueryKey({
@@ -551,8 +568,13 @@ export function useProfileEditor({
       setSaveError(null);
       try {
         await onSave(keyTrimmed, { status: "active" }, { mode: "merge" });
-      } catch {
-        setSaveError("Failed to save profile. Please try again.");
+      } catch (error) {
+        // A 400 names why the profile can't be enabled (no connection or key
+        // for its provider); anything else is opaque, so keep the retry copy.
+        setSaveError(
+          badRequestMessage(error) ??
+            "Failed to save profile. Please try again.",
+        );
       } finally {
         setSaving(false);
       }
@@ -669,8 +691,10 @@ export function useProfileEditor({
       }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
-    } catch {
-      setSaveError("Failed to save profile. Please try again.");
+    } catch (error) {
+      setSaveError(
+        badRequestMessage(error) ?? "Failed to save profile. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -718,6 +742,7 @@ export function useProfileEditor({
     availableConnectionsForProvider,
     connectionNotFound,
     creatingProvider,
+    pendingCreateProvider,
     newProviderNote,
     setDescription,
     setStatus,
@@ -734,6 +759,7 @@ export function useProfileEditor({
     setThinkingStreamThinking,
     setThinkingLevel,
     setCreatingProvider,
+    setPendingCreateProvider,
     setNewProviderNote,
     handleLabelChange,
     handleKeyChange,

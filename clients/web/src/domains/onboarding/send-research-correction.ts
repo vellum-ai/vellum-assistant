@@ -21,9 +21,8 @@
  * (`@/domains/chat/api/*` is import-banned from onboarding), mirroring the
  * research runner that minted this conversation.
  *
- * The conversation was archived once research settled; posting a message can
- * resurface it in the sidebar, so we re-archive afterwards (idempotent,
- * best-effort) to keep the throwaway side channel hidden.
+ * Re-archives the conversation after the post as idempotent, best-effort
+ * cleanup of the throwaway side channel.
  */
 
 import { messagesPost } from "@/generated/daemon/sdk.gen";
@@ -108,7 +107,7 @@ export async function sendResearchCorrection({
   } catch (err) {
     captureError(err, { context: "research_onboarding_correction" });
   }
-  // Keep the throwaway side conversation out of the sidebar even if posting
-  // resurfaced it. Best-effort and already-swallowed by the helper.
+  // Idempotent cleanup of the throwaway side conversation. Best-effort and
+  // already-swallowed by the helper.
   await archiveResearchConversation(assistantId, conversationId);
 }

@@ -265,5 +265,107 @@ describe("lockfile-watcher", () => {
 
       teardown();
     });
+
+    test("keeps serving the legacy lockfile across polls when the canonical file never appears", async () => {
+      /**
+       * Tests the legacy-only install regression: the first poll finds the
+       * canonical file missing and must fall back to the legacy candidate
+       * instead of clearing the seeded cache to empty.
+       */
+
+      // GIVEN a legacy-only install
+      mockPaths = [CANONICAL_PATH, LEGACY_PATH];
+      writeLockfile(SAMPLE_LOCKFILE, LEGACY_PATH);
+      const teardown = installLockfileWatcher();
+
+      // WHEN several poll intervals elapse with no canonical file
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      // THEN the cache still serves the legacy data
+      const cached = getWatchedLockfile();
+      expect(cached.assistants).toHaveLength(2);
+      expect(cached.activeAssistant).toBe("ast-1");
+
+      teardown();
+    });
+
+    test("does not clear a previously-good cache when the canonical file goes transiently missing", async () => {
+      /**
+       * Tests that a transient canonical-file gap falls back to a readable
+       * candidate instead of clearing the cache to empty. Identical content
+       * in the fallback also produces no spurious change notification.
+       */
+
+      // GIVEN canonical and legacy files with the same content
+      mockPaths = [CANONICAL_PATH, LEGACY_PATH];
+      writeLockfile(SAMPLE_LOCKFILE, CANONICAL_PATH);
+      writeLockfile(SAMPLE_LOCKFILE, LEGACY_PATH);
+      const teardown = installLockfileWatcher();
+
+      const listener = mock((_lockfile: Lockfile) => undefined);
+      onLockfileChange(listener);
+
+      // WHEN the canonical file disappears while the legacy file remains
+      fs.unlinkSync(CANONICAL_PATH);
+      await new Promise((resolve) => setTimeout(resolve, 750));
+
+      // THEN the cache still holds the data and no notification fired
+      expect(getWatchedLockfile().assistants).toHaveLength(2);
+      expect(listener).not.toHaveBeenCalled();
+
+      teardown();
+    });
+
+    test("post-unpair canonical file is authoritative over a stale legacy fallback", async () => {
+      /**
+       * Tests unpair safety: a readable canonical file with the entry removed
+       * wins over a legacy file that still lists it, so a stale fallback can
+       * never resurrect an unpaired assistant.
+       */
+
+      // GIVEN a canonical file and a stale legacy file that still has entries
+      mockPaths = [CANONICAL_PATH, LEGACY_PATH];
+      writeLockfile(SAMPLE_LOCKFILE, CANONICAL_PATH);
+      writeLockfile(SAMPLE_LOCKFILE, LEGACY_PATH);
+      const teardown = installLockfileWatcher();
+
+      // WHEN an unpair rewrites the canonical file with the entries removed
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      writeLockfile({ assistants: [], activeAssistant: null }, CANONICAL_PATH);
+      const now = new Date();
+      fs.utimesSync(CANONICAL_PATH, now, new Date(now.getTime() + 1000));
+      await new Promise((resolve) => setTimeout(resolve, 750));
+
+      // THEN the empty canonical file wins despite the populated legacy file
+      const cached = getWatchedLockfile();
+      expect(cached.assistants).toHaveLength(0);
+      expect(cached.activeAssistant).toBeNull();
+
+      teardown();
+    });
+
+    test("clears to empty when no candidate is readable", async () => {
+      /**
+       * Tests that deleting every candidate still clears the cache, with a
+       * single change notification.
+       */
+
+      // GIVEN a canonical-only install with data
+      writeLockfile(SAMPLE_LOCKFILE);
+      const teardown = installLockfileWatcher();
+
+      const listener = mock((_lockfile: Lockfile) => undefined);
+      onLockfileChange(listener);
+
+      // WHEN the only lockfile is deleted
+      fs.unlinkSync(CANONICAL_PATH);
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      // THEN the cache is cleared exactly once
+      expect(getWatchedLockfile().assistants).toHaveLength(0);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      teardown();
+    });
   });
 });

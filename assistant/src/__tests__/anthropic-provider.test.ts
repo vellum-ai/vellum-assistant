@@ -1410,9 +1410,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[2].content[0].type).toBe("text");
   });
 
-  test("orphaned server_tool_use at end of messages gets synthetic result (no synthetic user append)", async () => {
-    // Orphaned server_tool_use at the end should get a synthetic
-    // web_search_tool_result but no synthetic user message.
+  test("unanswered server_tool_use in the final assistant message is left intact for deferred execution", async () => {
+    // When the final assistant message ends with an unanswered
+    // server_tool_use, the API executes the search on this request (the
+    // pause_turn / deferred-execution contract). The tail must go back
+    // verbatim with no synthetic result, or the search is cancelled.
     const messages: Message[] = [
       userMsg("Search something"),
       {
@@ -1434,12 +1436,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{ type: string; tool_use_id?: string }>;
     }>;
 
-    // Original 2 messages, with synthetic result injected in assistant message
+    // Original 2 messages, assistant tail verbatim: no synthetic result
     expect(sent).toHaveLength(2);
     expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toHaveLength(1);
     expect(sent[1].content[0].type).toBe("server_tool_use");
-    expect(sent[1].content[1].type).toBe("web_search_tool_result");
-    expect(sent[1].content[1].tool_use_id).toBe("srvtoolu_end");
   });
 
   test("server_tool_use with matching web_search_tool_result passes through unchanged", async () => {
@@ -1568,7 +1569,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(webSearchResults[0].tool_use_id).toBe("srvtoolu_search");
   });
 
-  test("mixed tool_use and server_tool_use — only client-side tool_use gets pairing, server tools pass through", async () => {
+  test("mixed tool_use and deferred server_tool_use tail goes out verbatim", async () => {
+    // The mixed parallel group is the deferred-execution trigger: the API
+    // returns stop_reason tool_use without running the search, and runs it on
+    // the next request when the client tool results come back with the
+    // assistant message unchanged. No split, no synthetic result.
     const messages: Message[] = [
       userMsg("Do things"),
       {
@@ -1583,7 +1588,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
           },
         ],
       },
-      // Only tu_a has a result — server_tool_use doesn't need one in the user message
+      // Only tu_a has a result; the deferred search has none yet
       toolResultMsg("tu_a", "result A"),
     ];
     await provider.sendMessage(messages);
@@ -1597,27 +1602,139 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // Assistant message should have tool_use in paired portion, server_tool_use in carryover
-    // ensureToolPairing splits: paired = [tool_use(tu_a)], carryover = [server_tool_use(srvtoolu_b)]
-    // Result: assistant(tool_use) → user(tool_result) → assistant(server_tool_use) → user(synthetic_continuation)
+    // assistant(tool_use, server_tool_use) → user(tool_result), verbatim
+    expect(sent).toHaveLength(3);
     const assistantMsg = sent[1];
     expect(assistantMsg.role).toBe("assistant");
-    expect(assistantMsg.content[0].type).toBe("tool_use");
+    expect(assistantMsg.content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "server_tool_use",
+    ]);
 
     const userAfterAssistant = sent[2];
     expect(userAfterAssistant.role).toBe("user");
-    // Only tool_result for tu_a — no synthetic web_search_tool_result
     expect(userAfterAssistant.content[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "tu_a",
     });
 
-    // server_tool_use preserved in a carryover assistant message with synthetic result
-    const carryoverAssistant = sent[3];
-    expect(carryoverAssistant.role).toBe("assistant");
-    expect(carryoverAssistant.content[0].type).toBe("server_tool_use");
-    expect(carryoverAssistant.content[1].type).toBe("web_search_tool_result");
-    expect(carryoverAssistant.content[1].tool_use_id).toBe("srvtoolu_b");
+    // No synthetic web_search_tool_result anywhere; the API runs the search
+    const allBlocks = sent.flatMap((m) => m.content);
+    expect(
+      allBlocks.filter((b) => b.type === "web_search_tool_result"),
+    ).toHaveLength(0);
+  });
+
+  test("deferred mixed heartbeat shape with text and multiple searches goes out verbatim", async () => {
+    const messages: Message[] = [
+      userMsg("Heartbeat: check the file and the news"),
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Checking both." },
+          { type: "tool_use", id: "tu_read", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_s1",
+            name: "web_search",
+            input: { query: "news one" },
+          },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_s2",
+            name: "web_search",
+            input: { query: "news two" },
+          },
+        ],
+      },
+      toolResultMsg("tu_read", "file contents"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; id?: string; tool_use_id?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    expect(sent[1].content.map((b) => b.type)).toEqual([
+      "text",
+      "tool_use",
+      "server_tool_use",
+      "server_tool_use",
+    ]);
+    const allBlocks = sent.flatMap((m) => m.content);
+    expect(
+      allBlocks.filter((b) => b.type === "web_search_tool_result"),
+    ).toHaveLength(0);
+  });
+
+  test("cross-message server tool pair from a completed deferred execution is preserved verbatim", async () => {
+    // After a deferred search executes, history carries the split pair: the
+    // server_tool_use in one assistant message and its web_search_tool_result
+    // heading the next assistant message. Both sides must pass through
+    // untouched: no synthetic result on the use, no text downgrade on the
+    // result.
+    const messages: Message[] = [
+      userMsg("Check the file and the news"),
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "On it." },
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_deferred",
+            name: "web_search",
+            input: { query: "news" },
+          },
+        ],
+      },
+      toolResultMsg("tu_a", "file contents"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_deferred",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+                encrypted_content: "enc_deferred",
+              },
+            ],
+          },
+          { type: "text", text: "Here is the news." },
+        ],
+      },
+      userMsg("thanks, anything else?"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; id?: string; tool_use_id?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(5);
+    expect(sent[1].content.map((b) => b.type)).toEqual([
+      "text",
+      "tool_use",
+      "server_tool_use",
+    ]);
+    expect(sent[3].content.map((b) => b.type)).toEqual([
+      "web_search_tool_result",
+      "text",
+    ]);
+    // Exactly the original result block, still a result block
+    const allBlocks = sent.flatMap((m) => m.content);
+    const results = allBlocks.filter(
+      (b) => b.type === "web_search_tool_result",
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].tool_use_id).toBe("srvtoolu_deferred");
   });
 
   test("orphaned server_tool_use from interrupted stream gets repaired in multi-turn conversation", async () => {

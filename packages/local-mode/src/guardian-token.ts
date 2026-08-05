@@ -1,16 +1,96 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 import { guardianTokenPath } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
 
-interface GuardianTokenData {
+/** The persisted shape of an assistant's guardian token file. */
+export interface GuardianTokenData {
+  guardianPrincipalId: string;
   accessToken: string;
+  /** ISO date string or epoch-ms number as returned by the gateway. */
   accessTokenExpiresAt: string | number;
   refreshToken: string;
+  /** ISO date string or epoch-ms number as returned by the gateway. */
   refreshTokenExpiresAt: string | number;
+  refreshAfter: string;
+  isNew: boolean;
+  deviceId: string;
+  leasedAt: string;
+}
+
+/**
+ * Persist an assistant's guardian token where every host-seam reader resolves
+ * it (`guardianTokenPath`). The per-assistant directory is created 0700 and the
+ * file written 0600; chmod after the write covers a pre-existing file whose
+ * mode drifted.
+ */
+export function saveGuardianToken(
+  configDir: string,
+  assistantId: string,
+  data: GuardianTokenData,
+): void {
+  const tokenPath = guardianTokenPath(configDir, assistantId);
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(tokenPath, JSON.stringify(data, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  fs.chmodSync(tokenPath, 0o600);
+}
+
+/**
+ * The guardian refresh token is long-lived and replayable, so it is only
+ * transmitted over a confidential channel: HTTPS, or a loopback host (local
+ * dev, or a same-host reverse proxy / tunnel agent). Refreshing against a
+ * non-loopback plaintext `http://` URL is refused; an on-path attacker could
+ * otherwise capture the refresh token and rotate it into fresh credentials.
+ *
+ * A user-chosen malicious `https://` destination is intentionally out of
+ * scope: HTTPS protects the channel, and the access token already goes
+ * wherever the configured URL points. This guard targets the
+ * plaintext-interception vector.
+ */
+function isLoopbackHostname(hostname: string): boolean {
+  // Strip URL brackets so IPv6 forms compare on the bare address.
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    h === "localhost" ||
+    h === "::1" ||
+    h === "0:0:0:0:0:0:0:1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(h) ||
+    // Wildcard hosts reach a local listener when dialed (0.0.0.0 / ::), so
+    // they count as local for both the refresh-channel and pairing guards.
+    h === "0.0.0.0" ||
+    h === "0" ||
+    h === "::" ||
+    h === "0:0:0:0:0:0:0:0" ||
+    // IPv4-mapped loopback and wildcard, in dotted and hex encodings.
+    /^(?:0:0:0:0:0|:):ffff:127(?:\.\d{1,3}){3}$/.test(h) ||
+    /^(?:0:0:0:0:0|:):ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(h) ||
+    /^(?:0:0:0:0:0|:):ffff:0\.0\.0\.0$/.test(h) ||
+    /^(?:0:0:0:0:0|:):ffff:0:0$/.test(h)
+  );
+}
+
+export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
+  try {
+    const url = new URL(gatewayUrl);
+    return url.protocol === "https:" || isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a URL's host is loopback; false for unparseable URLs. */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function isAccessTokenExpired(data: GuardianTokenData): boolean {
@@ -29,12 +109,22 @@ export type TokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; status: number; error: string };
 
+export interface GuardianTokenOptions {
+  /**
+   * True when the entry was imported from another machine via `vellum pair`.
+   * A paired entry has no local daemon, so expired-refresh guidance points at
+   * re-pairing instead of `vellum hatch`/`vellum wake`.
+   */
+  paired?: boolean;
+}
+
 export function getGuardianAccessToken(
   assistantId: string,
   configDir: string,
   invocation: CliInvocation,
   isLoopback: boolean,
   env?: Record<string, string>,
+  options?: GuardianTokenOptions,
 ): Promise<TokenResult> {
   if (!isLoopback) {
     return Promise.resolve({ ok: false, status: 403, error: "Forbidden" });
@@ -64,7 +154,9 @@ export function getGuardianAccessToken(
     return Promise.resolve({
       ok: false,
       status: 401,
-      error: "Guardian token expired — re-run `vellum hatch` or `vellum wake`",
+      error: options?.paired
+        ? "Guardian token expired. Run `vellum pair` on the assistant's machine, then re-import it from the app's connect flow or with `vellum connect import`."
+        : "Guardian token expired. Re-run `vellum hatch` or `vellum wake`.",
     });
   }
 

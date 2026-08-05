@@ -4,8 +4,10 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  connectImport,
   getGuardianAccessToken,
   isActiveAssistant,
+  isPairedLockfileEntry,
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
@@ -17,6 +19,7 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  unpairAssistant,
   upsertLockfileAssistant,
   type CliInvocation,
   type LockfileWriteResult,
@@ -24,6 +27,7 @@ import {
   type UpgradeOptions,
   type WakeOptions,
 } from "@vellumai/local-mode";
+import type { LocalConnectImportResult } from "@vellumai/ipc-contract";
 import { handle } from "./ipc";
 
 import {
@@ -31,6 +35,7 @@ import {
   getBundledBunPath,
   getCliBinPath,
 } from "./cli-installer";
+import { refreshLockfileNow } from "./lockfile-watcher";
 import { getSessionToken } from "./session-token-store";
 
 /**
@@ -213,11 +218,21 @@ async function upgrade(
 // fields pass through untouched.
 const assistantRecord = z.record(z.string(), z.unknown());
 
-// `retire` and `guardianToken` both take a single assistant id and keep a
-// never-reject contract: a missing id resolves with a structured error the
-// renderer renders, rather than rejecting the invoke. The id is therefore
+// `retire`, `unpair`, and `guardianToken` each take a single assistant id and
+// keep a never-reject contract: a missing id resolves with a structured error
+// the renderer renders, rather than rejecting the invoke. The id is therefore
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
+
+// `connectImport` takes a pairing bundle plus an optional local name. Both are
+// optional on the wire (missing values resolve with structured errors, keeping
+// the never-reject contract); the shared `connectImport` op validates the
+// bundle, including the length cap that bounds what a hostile renderer can
+// make the main process buffer and decode.
+const connectImportArgs = z.tuple([
+  z.string().optional(),
+  z.string().optional(),
+]);
 
 // `wake` additionally takes an options object so a user-confirmed repair can
 // pass `repairGuardian` through to the CLI's `--repair-guardian` flag. Both
@@ -313,6 +328,42 @@ export const installLocalMode = (): void => {
     return retire(assistantId);
   });
 
+  handle(
+    "vellum:localMode:unpair",
+    assistantIdArgs,
+    ([assistantId]): LockfileWriteResult => {
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
+      const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      // The paired-gateway forward resolves its allowlist from the watcher's
+      // snapshot; refresh it now so the unpaired entry is rejected in the
+      // same tick instead of after the next poll.
+      refreshLockfileNow();
+      return { ok: true, lockfile: result.lockfile };
+    },
+  );
+
+  handle(
+    "vellum:localMode:connectImport",
+    connectImportArgs,
+    ([bundle, name]): LocalConnectImportResult => {
+      const result = connectImport(lockfilePaths, configDir, { bundle, name });
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      refreshLockfileNow();
+      return {
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      };
+    },
+  );
+
   handle("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
     return sleep(assistantId);
@@ -357,6 +408,7 @@ export const installLocalMode = (): void => {
         invocation,
         true,
         guardianTokenEnv,
+        { paired: isPairedLockfileEntry(lockfilePaths, assistantId) },
       );
     },
   );

@@ -155,7 +155,6 @@ import {
 import type {
   SubagentToolGateMode,
   SubagentToolStats,
-  ToolSetupContext,
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
@@ -496,6 +495,14 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /**
+   * The firing's `cron_runs.id` when a schedule triggered the current turn.
+   * Exposed on the live conversation so the tool context can forward it to
+   * delegated LLM work (subagent spawns and messages), whose usage rows then
+   * attribute to the same firing.
+   * @internal
+   */
+  currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
@@ -569,7 +576,7 @@ export class Conversation {
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
    * phone voice) so their auto-deny handler reliably sees a
-   * `confirmation_request` event. See ToolSetupContext.forcePromptSideEffects.
+   * `confirmation_request` event. See `forcePromptSideEffects` below.
    * @internal
    */
   forcePromptSideEffects = false;
@@ -792,7 +799,7 @@ export class Conversation {
       this.executor,
       this.prompter,
       this.secretPrompter,
-      this as ToolSetupContext,
+      this,
     );
 
     const config = getConfig();

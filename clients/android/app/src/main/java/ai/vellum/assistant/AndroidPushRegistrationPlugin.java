@@ -9,8 +9,6 @@ import java.util.function.Consumer;
 
 @CapacitorPlugin(name = "AndroidPushRegistration")
 public class AndroidPushRegistrationPlugin extends Plugin {
-    private static final String FAILURE_CODE = "PUSH_REGISTRATION_FAILED";
-
     @PluginMethod
     public void register(PluginCall call) {
         invokeSafely(call, plugin -> plugin.register(call));
@@ -22,15 +20,13 @@ public class AndroidPushRegistrationPlugin extends Plugin {
     }
 
     private void invokeSafely(PluginCall call, Consumer<PushNotificationsPlugin> operation) {
-        try {
+        PushRegistrationGuard.run(call, () -> {
             PushNotificationsPlugin plugin = PushNotificationsPlugin.getPushNotificationsInstance();
             if (plugin == null) {
-                call.reject("Android push notifications are unavailable", FAILURE_CODE);
+                PushRegistrationGuard.reject(call);
                 return;
             }
             operation.accept(plugin);
-        } catch (RuntimeException exception) {
-            call.reject("Android push notifications are unavailable", FAILURE_CODE, exception);
-        }
+        });
     }
 }

@@ -72,6 +72,22 @@ export function deriveAuthForProvider(
   return credential ? { type: "api_key", credential } : null;
 }
 
+/**
+ * The auth a connection dispatches with. The stored auth object is
+ * authoritative only where it carries a payload (an api_key credential ref,
+ * the oauth_subscription marker, a deliberately keyed keyless provider);
+ * the vellum provider IS the managed route, so its auth derives from the
+ * provider and the stored value can never mislead dispatch.
+ */
+export function effectiveConnectionAuth(connection: {
+  provider: string;
+  auth: Auth;
+}): Auth {
+  return connection.provider === VELLUM_MANAGED_PROVIDER
+    ? { type: "platform" }
+    : connection.auth;
+}
+
 // ---------------------------------------------------------------------------
 // ResolvedAuth — what the dispatcher hands to each adapter
 // ---------------------------------------------------------------------------

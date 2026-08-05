@@ -31,7 +31,11 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalClient } from "@/lib/local-mode";
 import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
-import { useAuthStore } from "@/stores/auth-store";
+import {
+  useAuthStore,
+  useHasPlatformSession,
+  useIsPlatformSessionSettled,
+} from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
@@ -303,6 +307,34 @@ export function ResearchOnboardingRoute() {
   // entirely and go straight to the research reveal. Vellum-cloud onboarding
   // keeps them: a managed hatch implies a platform session.
   const skipCheckinSteps = adoptExistingAssistant;
+  // The claim-credits step ("integration") promises managed free credits,
+  // which only a platform account can hold. A self-hosted onboarding with no
+  // platform login has no account to credit, so the promise would be empty:
+  // skip the step. A signed-in self-hosted user keeps it (their platform
+  // account is real, credits and all), and so does the probe's pre-settle
+  // window, where "no session yet" is not an answer. Skipping is a one-way
+  // transition with no later correction, so only a settled absent session may
+  // take it; every settle path resolves "unknown", including local gateway
+  // boot, which settles "absent" directly.
+  const hasPlatformSession = useHasPlatformSession();
+  const platformSessionSettled = useIsPlatformSessionSettled();
+  const skipClaimCreditsStep =
+    adoptExistingAssistant && platformSessionSettled && !hasPlatformSession;
+  // Where "personality" advances to: the claim-credits step, or, when that's
+  // skipped, straight to the research reveal (skipping credits implies a
+  // self-hosted flow, which skips the calendar steps too).
+  const stepAfterPersonality: ResearchStep = skipClaimCreditsStep
+    ? "looking"
+    : "integration";
+  // The skip verdict can land while the credits step is already on screen:
+  // the pre-settle window kept the step (or restored a snapshot onto it) and
+  // the probe then settled absent. Move along to the reveal so the empty
+  // promise can't be claimed.
+  useEffect(() => {
+    if (skipClaimCreditsStep && step === "integration") {
+      setStep("looking");
+    }
+  }, [skipClaimCreditsStep, step]);
   const {
     start: startHatch,
     retry: retryHatch,
@@ -499,15 +531,15 @@ export function ResearchOnboardingRoute() {
         setResumeGuardPending(true);
       }
       // A snapshot written before the calendar steps were dropped from the
-      // local flow (or by a signed-in web session) may resume onto them —
-      // remap to the research reveal the skip lands on.
+      // local flow (or by a signed-in web session) may resume onto them, and
+      // one written while the claim-credits step still showed may resume onto
+      // it: remap to the research reveal the skips land on.
       const resumeStep = resolveResumeStep(snapshot);
-      setStep(
-        skipCheckinSteps &&
-          (resumeStep === "letschat" || resumeStep === "meeting")
-          ? "looking"
-          : resumeStep,
-      );
+      const resumeStepDropped =
+        (skipCheckinSteps &&
+          (resumeStep === "letschat" || resumeStep === "meeting")) ||
+        (skipClaimCreditsStep && resumeStep === "integration");
+      setStep(resumeStepDropped ? "looking" : resumeStep);
       setForwardStack([]);
     }
     setRestored(true);
@@ -517,6 +549,7 @@ export function ResearchOnboardingRoute() {
     hydrateResearch,
     awaitHatchReady,
     skipCheckinSteps,
+    skipClaimCreditsStep,
     syncDroppedClaimsScrubbed,
   ]);
 
@@ -1016,7 +1049,9 @@ export function ResearchOnboardingRoute() {
           {step === "different" && (
             <PitchStep
               onContinue={() =>
-                goForwardTo(personalityEnabled ? "personality" : "integration")
+                goForwardTo(
+                  personalityEnabled ? "personality" : stepAfterPersonality,
+                )
               }
               onBack={() => goBackTo("intro")}
               onForward={onForward}
@@ -1037,7 +1072,7 @@ export function ResearchOnboardingRoute() {
                   startPersonalityApply();
                   setPersonalityLocked(true);
                 }
-                goForwardTo("integration");
+                goForwardTo(stepAfterPersonality);
               }}
               onBack={() => goBackTo("different")}
               onForward={onForward}
@@ -1084,7 +1119,13 @@ export function ResearchOnboardingRoute() {
             <LookingYouUpStep
               onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
               onBack={() =>
-                goBackTo(skipCheckinSteps ? "integration" : "letschat")
+                goBackTo(
+                  skipClaimCreditsStep
+                    ? "personality"
+                    : skipCheckinSteps
+                      ? "integration"
+                      : "letschat",
+                )
               }
               onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
               onForward={onForward}
@@ -1329,7 +1370,7 @@ export function ResearchOnboardingRoute() {
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}
-        assistantId={hatchedAssistantId}
+        canAuditionVoice={!adoptExistingAssistant}
       />,
     );
   }

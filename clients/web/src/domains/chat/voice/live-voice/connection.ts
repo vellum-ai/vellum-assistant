@@ -215,6 +215,40 @@ export interface BuildSelfHostedLiveVoiceWsUrlArgs {
  */
 const LOCAL_GATEWAY_PROXY_PATH = /^\/assistant\/__gateway\/(\d+)\/?$/;
 
+/**
+ * Paired gateway proxy path (`/assistant/__gateway-paired/<assistantId>`) as
+ * produced by `pairedGatewayProxyUrl` in local-mode. Like the local proxy, the
+ * hosts serving it forward HTTP only and drop WS upgrades; unlike the local
+ * proxy there is no loopback port to bypass to (the real gateway lives on
+ * another machine), so no WebSocket transport exists for a paired assistant.
+ */
+const PAIRED_GATEWAY_PROXY_PATH = /^\/assistant\/__gateway-paired\//;
+
+/**
+ * Whether a self-hosted ingress URL rides the paired gateway proxy, which
+ * cannot carry a WebSocket upgrade. Voice entry points use this to degrade
+ * cleanly instead of dialling an unusable socket.
+ */
+export function isPairedGatewayIngress(ingressUrl: string): boolean {
+  try {
+    return PAIRED_GATEWAY_PROXY_PATH.test(new URL(ingressUrl).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Thrown when a voice WebSocket URL is requested for a paired-assistant
+ * ingress. The message is user-facing: live-voice's connect failure path
+ * surfaces `Error.message` as the displayed reason.
+ */
+export class PairedVoiceUnavailableError extends Error {
+  constructor() {
+    super("Voice isn't available for paired assistants yet.");
+    this.name = "PairedVoiceUnavailableError";
+  }
+}
+
 export interface BuildSelfHostedGatewayWsUrlArgs {
   /**
    * The user's gateway ingress URL (e.g. `https://x.ngrok-free.app` or the local
@@ -242,6 +276,10 @@ export interface BuildSelfHostedGatewayWsUrlArgs {
  * - **Local `/assistant/__gateway/<port>` proxy path → direct loopback dial**
  *   (`ws://127.0.0.1:<port>{routePath}`), since that HTTP-only proxy can't carry
  *   the WS upgrade — see {@link LOCAL_GATEWAY_PROXY_PATH}.
+ * - **Paired `/assistant/__gateway-paired/<id>` proxy path → throws
+ *   {@link PairedVoiceUnavailableError}**: the proxy is HTTP-only and there is
+ *   no direct dial to fall back to, so no usable WS URL exists (see
+ *   {@link PAIRED_GATEWAY_PROXY_PATH}).
  * - **Remote ingress** (e.g. an ngrok `wss://` URL) keeps its host and path
  *   prefix, with `routePath` appended. Any query/hash on the ingress is dropped.
  */
@@ -252,6 +290,9 @@ export function buildSelfHostedGatewayWsUrl({
   params,
 }: BuildSelfHostedGatewayWsUrlArgs): string {
   const ingress = new URL(ingressUrl);
+  if (PAIRED_GATEWAY_PROXY_PATH.test(ingress.pathname)) {
+    throw new PairedVoiceUnavailableError();
+  }
   const localProxy = ingress.pathname.match(LOCAL_GATEWAY_PROXY_PATH);
 
   let target: URL;
@@ -306,7 +347,10 @@ export interface ResolveLiveVoiceWsUrlArgs {
  *   token-exchange happens. Throws {@link LiveVoiceTokenError} if the ingress is
  *   known but the actor token hasn't been provisioned yet (a brief post-hatch
  *   window), so the caller surfaces a connection failure rather than dialling an
- *   unauthenticated socket.
+ *   unauthenticated socket. A paired ingress throws
+ *   {@link PairedVoiceUnavailableError} first: the paired proxy is HTTP-only,
+ *   so no live-voice transport exists and the caller surfaces the
+ *   voice-unavailable reason.
  * - **Cloud** — mint a short-lived velay WS token and build the velay URL.
  */
 export async function resolveLiveVoiceWsUrl({
@@ -315,6 +359,9 @@ export async function resolveLiveVoiceWsUrl({
 }: ResolveLiveVoiceWsUrlArgs): Promise<string> {
   const ingressUrl = getSelfHostedIngressUrl();
   if (ingressUrl) {
+    if (isPairedGatewayIngress(ingressUrl)) {
+      throw new PairedVoiceUnavailableError();
+    }
     const token = getSelfHostedActorToken();
     if (!token) {
       throw new LiveVoiceTokenError(

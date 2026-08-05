@@ -3,6 +3,7 @@ import {
   getLockfile,
   isLocalAssistant,
   isLocalClient,
+  isPairedAssistant,
   retireLocalAssistant,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
@@ -64,6 +65,15 @@ export async function retireAssistant(
     const target = getLockfile().assistants.find(
       (a) => a.assistantId === assistantId,
     );
+    // A paired entry belongs to another machine; retiring can't touch it
+    // (the CLI refuses paired targets), so refuse with actionable copy.
+    if (target && isPairedAssistant(target)) {
+      return {
+        ok: false,
+        error:
+          "This is a paired assistant. Remove it from this device instead of retiring it.",
+      };
+    }
     const useLocal = isLocalClient() && !!target && isLocalAssistant(target);
 
     if (useLocal) {

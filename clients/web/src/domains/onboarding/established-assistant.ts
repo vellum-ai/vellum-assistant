@@ -4,11 +4,11 @@
  * can offer an explicit off-ramp instead of silently re-onboarding (and
  * rewriting the persona of) an assistant the user already customized.
  *
- * Conversation history is the establishment signal: a fresh hatch has none,
- * and the flow's own side conversations (research, personality) are archived
- * once they settle, so they don't count against a genuinely-new user who
- * abandoned a prior attempt. The identity name is fetched only for the guard
- * screen's copy and is best-effort.
+ * Conversation history is the establishment signal: a fresh hatch has none. The
+ * flow's own side conversations (research, personality) are minted `background`
+ * and `hasAnyActiveConversation` reads the foreground bucket, so they never
+ * count against a genuinely-new user who abandoned a prior attempt. The identity
+ * name is fetched only for the guard screen's copy and is best-effort.
  *
  * Fail-open: a genuine fetch failure treats the assistant as fresh — the
  * guard exists to stop silent persona rewrites of real assistants, not to

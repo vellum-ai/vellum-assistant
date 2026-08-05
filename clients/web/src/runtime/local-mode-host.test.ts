@@ -13,6 +13,8 @@ const {
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  unpairAssistantHost,
+  connectImportHost,
   upgradeLocalAssistantHost,
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
@@ -287,6 +289,135 @@ describe("retireLocalAssistantHost", () => {
     expect(await retireLocalAssistantHost("a-1")).toEqual({ ok: true });
     expect(retire).toHaveBeenCalledWith("a-1");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("unpairAssistantHost", () => {
+  const emptyLockfile = { assistants: [], activeAssistant: null };
+
+  test("web/dev host POSTs the assistant id to the unpair middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, lockfile: emptyLockfile }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: true,
+      lockfile: emptyLockfile,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/unpair");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({ ok: false, error: "No such assistant" }),
+    })) as unknown as typeof fetch;
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: false,
+      error: "No such assistant",
+    });
+  });
+
+  test("Electron host unpairs through the bridge and never touches fetch", async () => {
+    const unpair = mock(async () => ({ ok: true, lockfile: emptyLockfile }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ unpair });
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: true,
+      lockfile: emptyLockfile,
+    });
+    expect(unpair).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the unpair channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    });
+  });
+});
+
+describe("connectImportHost", () => {
+  test("web/dev host POSTs the bundle and name to the connect-import middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, assistantId: "desk", accessOnly: false }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await connectImportHost("eyJnYXRld2F5", "desk")).toEqual({
+      ok: true,
+      assistantId: "desk",
+      accessOnly: false,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/connect-import");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      bundle: "eyJnYXRld2F5",
+      name: "desk",
+    });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({
+        ok: false,
+        error: "An assistant named 'desk' already exists",
+      }),
+    })) as unknown as typeof fetch;
+
+    expect(await connectImportHost("eyJnYXRld2F5", "desk")).toEqual({
+      ok: false,
+      error: "An assistant named 'desk' already exists",
+    });
+  });
+
+  test("Electron host imports through the bridge and never touches fetch", async () => {
+    const connectImport = mock(async () => ({
+      ok: true,
+      assistantId: "paired-dev-1",
+      accessOnly: true,
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ connectImport });
+
+    expect(await connectImportHost("eyJnYXRld2F5")).toEqual({
+      ok: true,
+      assistantId: "paired-dev-1",
+      accessOnly: true,
+    });
+    expect(connectImport).toHaveBeenCalledWith("eyJnYXRld2F5", undefined);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the connectImport channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await connectImportHost("eyJnYXRld2F5")).toEqual({
+      ok: false,
+      error:
+        "Connecting a paired assistant is not supported by this app version",
+    });
   });
 });
 

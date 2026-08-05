@@ -22,9 +22,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
 const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 interface ProcessMessageCall {
   content: string;
@@ -35,13 +36,11 @@ interface ProcessMessageCall {
   sourceActorPrincipalId?: string;
 }
 
-function makeContext(
-  sent: AssistantEvent[] = [],
-): SurfaceConversationContext & {
+function makeContext(sent: AssistantEvent[] = []): Conversation & {
   processMessageCalls: ProcessMessageCall[];
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
-  return {
+  return asConversation({
     conversationId: "conv-1",
     sendToClient: (msg: AssistantEvent) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -70,7 +69,7 @@ function makeContext(
     },
     withSurface: createSurfaceMutex(),
     processMessageCalls,
-  };
+  });
 }
 
 describe("surface action delivery to assistant", () => {

@@ -25,7 +25,7 @@ const DEBOUNCE_MS = 100;
 
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
-let lockfilePath: string | null = null;
+let lockfileCandidates: string[] = [];
 let cachedLockfile: Lockfile = EMPTY_LOCKFILE;
 let lastMtimeMs = 0;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -33,34 +33,24 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<LockfileChangeListener>();
 
 /**
- * Read and parse the lockfile from the watched path. Falls back to
- * EMPTY_LOCKFILE on any error (file missing, invalid JSON, etc.).
+ * Parse the first readable candidate lockfile, canonical first. The first
+ * readable file is authoritative even when its entry list is empty, matching
+ * `readPairedGatewayTargets` in @vellumai/local-mode: an unpair leaves a
+ * readable canonical file with the entry removed, so a stale legacy fallback
+ * can never resurrect it. The fallback keeps legacy-only installs (no
+ * canonical file yet) populated. Returns EMPTY_LOCKFILE when no candidate
+ * is readable.
  */
 const readAndParse = (): Lockfile => {
-  if (!lockfilePath) return EMPTY_LOCKFILE;
-  try {
-    const raw = fs.readFileSync(lockfilePath, "utf-8");
-    return parseLockfile(JSON.parse(raw));
-  } catch {
-    return EMPTY_LOCKFILE;
-  }
-};
-
-/**
- * Seed the cache from the first readable candidate. Used only during
- * initial install so that legacy-only installs still populate the cache
- * before the canonical file is created by the first write.
- */
-const seedFromExistingCandidate = (candidates: string[]): void => {
-  for (const candidate of candidates) {
+  for (const candidate of lockfileCandidates) {
     try {
       const raw = fs.readFileSync(candidate, "utf-8");
-      cachedLockfile = parseLockfile(JSON.parse(raw));
-      return;
+      return parseLockfile(JSON.parse(raw));
     } catch {
-      // continue
+      // Missing or corrupt, try the next candidate.
     }
   }
+  return EMPTY_LOCKFILE;
 };
 
 const notifyListeners = (): void => {
@@ -70,16 +60,20 @@ const notifyListeners = (): void => {
 };
 
 const checkForChanges = (): void => {
-  if (!lockfilePath) return;
+  const canonicalPath = lockfileCandidates[0];
+  if (!canonicalPath) return;
 
   let mtimeMs: number;
   try {
-    mtimeMs = fs.statSync(lockfilePath).mtimeMs;
+    mtimeMs = fs.statSync(canonicalPath).mtimeMs;
   } catch {
-    // File deleted or inaccessible — if we previously had data, clear it.
-    if (cachedLockfile !== EMPTY_LOCKFILE) {
-      cachedLockfile = EMPTY_LOCKFILE;
-      lastMtimeMs = 0;
+    // Canonical file missing or inaccessible. Fall back to the first
+    // readable candidate (legacy-only installs, transient gaps) and go
+    // empty only when nothing is readable.
+    lastMtimeMs = 0;
+    const next = readAndParse();
+    if (JSON.stringify(next) !== JSON.stringify(cachedLockfile)) {
+      cachedLockfile = next;
       notifyListeners();
     }
     return;
@@ -103,6 +97,39 @@ const checkForChanges = (): void => {
 export const getWatchedLockfile = (): Lockfile => cachedLockfile;
 
 /**
+ * Return the cached lockfile, or null before {@link installLockfileWatcher}
+ * has produced a snapshot. Callers with a disk-reading fallback (the
+ * app-protocol paired-gateway forward) use the null to cover the startup
+ * window where the watcher is not installed yet.
+ */
+export const getWatchedLockfileSnapshot = (): Lockfile | null =>
+  lockfileCandidates.length > 0 ? cachedLockfile : null;
+
+/**
+ * Re-read the watched lockfile immediately, bypassing the poll interval and
+ * any pending debounce. For lockfile writes performed by this process (e.g.
+ * unpair) whose consumers must observe the change in the same tick rather
+ * than after the next poll. No-op before the watcher is installed.
+ */
+export const refreshLockfileNow = (): void => {
+  const canonicalPath = lockfileCandidates[0];
+  if (!canonicalPath) {
+    return;
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  try {
+    lastMtimeMs = fs.statSync(canonicalPath).mtimeMs;
+  } catch {
+    lastMtimeMs = 0;
+  }
+  cachedLockfile = readAndParse();
+  notifyListeners();
+};
+
+/**
  * Subscribe to lockfile changes. The listener fires whenever the lockfile's
  * mtime changes (debounced). Returns an unsubscribe function.
  */
@@ -117,22 +144,20 @@ export const onLockfileChange = (listener: LockfileChangeListener): (() => void)
  * has data). Returns a teardown function for `before-quit`.
  */
 export const installLockfileWatcher = (): (() => void) => {
-  const candidates = resolveLockfilePaths(process.env);
-
-  // Always poll the canonical (first) path — write helpers always target
+  // Poll only the canonical (first) path: write helpers always target
   // candidates[0], so watching a legacy candidate would miss updates once
   // the canonical file is created.
-  lockfilePath = candidates[0]!;
+  lockfileCandidates = resolveLockfilePaths(process.env);
 
   // Initial read — synchronous so the tray menu has data from frame one.
+  // readAndParse falls back to legacy candidates when the canonical file
+  // doesn't exist yet, so pre-migration installs still show data.
   try {
-    lastMtimeMs = fs.statSync(lockfilePath).mtimeMs;
-    cachedLockfile = readAndParse();
+    lastMtimeMs = fs.statSync(lockfileCandidates[0]!).mtimeMs;
   } catch {
-    // Canonical file doesn't exist yet — seed cache from any existing
-    // candidate (legacy path) so pre-migration installs still show data.
-    seedFromExistingCandidate(candidates);
+    lastMtimeMs = 0;
   }
+  cachedLockfile = readAndParse();
 
   pollTimer = setInterval(checkForChanges, POLL_INTERVAL_MS);
 
@@ -156,5 +181,5 @@ export const __resetForTesting = (): void => {
   listeners.clear();
   cachedLockfile = EMPTY_LOCKFILE;
   lastMtimeMs = 0;
-  lockfilePath = null;
+  lockfileCandidates = [];
 };

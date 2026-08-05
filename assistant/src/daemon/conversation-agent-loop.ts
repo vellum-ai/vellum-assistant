@@ -560,6 +560,11 @@ export async function runAgentLoopImpl(
   // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
 
+  // Mirrored onto the live conversation for `createToolExecutor` to read into
+  // `ToolContext.cronRunId`, so a tool that delegates LLM work (subagent spawn
+  // or message) stamps the delegated usage with this firing.
+  ctx.currentTurnCronRunId = turnCronRunId;
+
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
   // When context is unavailable (e.g. regenerate after daemon restart),
@@ -1741,6 +1746,7 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnCronRunId = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale

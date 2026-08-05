@@ -25,6 +25,15 @@ export type ConversationCreateType = "standard" | "background" | "scheduled";
 export type ConversationType = ConversationCreateType;
 
 /**
+ * Conversation types minted outside the schedule pipeline. Scheduled rows are
+ * owned by it and created through `createConversation`.
+ */
+export type NonScheduledConversationType = Exclude<
+  ConversationCreateType,
+  "scheduled"
+>;
+
+/**
  * Conversation types created by background machinery (heartbeat runs,
  * scheduled runs, retrospective forks) rather than by a person. Exported as a
  * list so SQL filters (e.g. `notInArray`) share the same set as the predicate

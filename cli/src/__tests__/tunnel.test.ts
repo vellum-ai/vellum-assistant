@@ -71,13 +71,14 @@ const { tunnel } = await import("../commands/tunnel.js");
 const originalArgv = [...process.argv];
 const originalFetch = globalThis.fetch;
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 const tempDirs: string[] = [];
 
-function makeLocalEntry(): AssistantEntry {
+function makeLocalEntry(assistantId = "assistant-1"): AssistantEntry {
   const instanceDir = mkdtempSync(join(tmpdir(), "vellum-tunnel-test-"));
   tempDirs.push(instanceDir);
   return {
-    assistantId: "assistant-1",
+    assistantId,
     runtimeUrl: "http://127.0.0.1:7830",
     cloud: "local",
     resources: {
@@ -90,7 +91,47 @@ function makeLocalEntry(): AssistantEntry {
   };
 }
 
-function writeLockfile(entry: AssistantEntry): void {
+function makeCloudEntry(assistantId = "cloud-1"): AssistantEntry {
+  return {
+    assistantId,
+    runtimeUrl: `https://runtime.example.com/${assistantId}`,
+    cloud: "vellum",
+  };
+}
+
+/** A `hatch --remote docker` entry: local container gateway, no `resources`. */
+function makeDockerEntry(assistantId = "docker-1"): AssistantEntry {
+  return {
+    assistantId,
+    runtimeUrl: "http://localhost:7930",
+    cloud: "docker",
+  };
+}
+
+/** A macOS-app-managed entry: local container gateway, no `resources`. */
+function makeAppleContainerEntry(assistantId = "apple-1"): AssistantEntry {
+  return {
+    assistantId,
+    runtimeUrl: "http://localhost:8030",
+    cloud: "apple-container",
+  };
+}
+
+/** Point the default workspace dir at a temp dir; returns that dir. */
+function useTempDefaultWorkspaceDir(): string {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "vellum-tunnel-ws-"));
+  tempDirs.push(workspaceDir);
+  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  return workspaceDir;
+}
+
+function writeLockfile(
+  entryOrEntries: AssistantEntry | AssistantEntry[],
+  activeAssistant?: string,
+): void {
+  const entries = Array.isArray(entryOrEntries)
+    ? entryOrEntries
+    : [entryOrEntries];
   const lockfileDir = mkdtempSync(join(tmpdir(), "vellum-tunnel-lockfile-"));
   tempDirs.push(lockfileDir);
   process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
@@ -99,8 +140,8 @@ function writeLockfile(entry: AssistantEntry): void {
     join(lockfileDir, ".vellum.lock.json"),
     JSON.stringify(
       {
-        activeAssistant: entry.assistantId,
-        assistants: [entry],
+        activeAssistant: activeAssistant ?? entries[0].assistantId,
+        assistants: entries,
       },
       null,
       2,
@@ -180,6 +221,11 @@ describe("tunnel edge targeting", () => {
     } else {
       process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
     }
+    if (originalWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+    }
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -232,6 +278,331 @@ describe("tunnel edge targeting", () => {
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
     expect(logs).toContain(`Started the nginx edge on 127.0.0.1:${EDGE_PORT}`);
     expect(logs).toContain("serves remote web + webhooks");
+  });
+
+  test("an active cloud assistant falls back to the sole local entry with a note", async () => {
+    const cloud = makeCloudEntry();
+    const local = makeLocalEntry();
+    writeLockfile([cloud, local], cloud.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const logs = await runTunnelCapturingLogs();
+
+    const workspaceDir = join(
+      local.resources!.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    expect(logs).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel. " +
+        "Tunneling the local assistant 'assistant-1' instead.",
+    );
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "assistant-1",
+      workspaceDir,
+      gatewayPort: 7830,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("a positional docker assistant name tunnels via its runtimeUrl gateway port", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const local = makeLocalEntry();
+    writeLockfile([local, makeDockerEntry()], local.assistantId);
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "docker-1",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "docker-1",
+      workspaceDir,
+      gatewayPort: 7930,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "docker-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active docker assistant tunnels on a bare invocation", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const docker = makeDockerEntry();
+    writeLockfile(docker, docker.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    await runTunnelCapturingLogs();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "docker-1",
+      workspaceDir,
+      gatewayPort: 7930,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "docker-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active cloud assistant falls back to a sole docker entry with a note", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const cloud = makeCloudEntry();
+    writeLockfile([cloud, makeDockerEntry()], cloud.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel. " +
+        "Tunneling the local assistant 'docker-1' instead.",
+    );
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "docker-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active cloud assistant with no local entries exits with an error", async () => {
+    writeLockfile(makeCloudEntry());
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel.",
+    );
+    expect(errors).toContain("No local assistant found to tunnel");
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an active cloud assistant with multiple local entries exits listing them", async () => {
+    const cloud = makeCloudEntry();
+    writeLockfile(
+      [cloud, makeLocalEntry("assistant-a"), makeLocalEntry("assistant-b")],
+      cloud.assistantId,
+    );
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel.",
+    );
+    expect(errors).toContain(
+      "Pass a local assistant as the name argument: assistant-a, assistant-b.",
+    );
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("a positional cloud assistant name errors without auto-fallback", async () => {
+    const local = makeLocalEntry();
+    writeLockfile([makeCloudEntry(), local], local.assistantId);
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "cloud-1",
+      "--provider",
+      "ngrok",
+    ];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel.",
+    );
+    expect(errors).toContain(
+      "Pass a local assistant as the name argument: assistant-1.",
+    );
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("a positional display name resolves the local assistant", async () => {
+    const local = makeLocalEntry();
+    local.name = "Ada";
+    writeLockfile([makeCloudEntry(), local], "cloud-1");
+    process.argv = ["bun", "vellum", "tunnel", "Ada", "--provider", "ngrok"];
+
+    await runTunnelCapturingLogs();
+
+    const workspaceDir = join(
+      local.resources!.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("an unquoted multi-word display name resolves the local assistant", async () => {
+    const local = makeLocalEntry();
+    local.name = "Ada Lovelace";
+    writeLockfile([makeCloudEntry(), local], "cloud-1");
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "Ada",
+      "Lovelace",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    const workspaceDir = join(
+      local.resources!.instanceDir,
+      ".vellum",
+      "workspace",
+    );
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+    });
+  });
+
+  test("a positional apple-container assistant name tunnels via its runtimeUrl gateway port", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const local = makeLocalEntry();
+    writeLockfile([local, makeAppleContainerEntry()], local.assistantId);
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "apple-1",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "apple-1",
+      workspaceDir,
+      gatewayPort: 8030,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "apple-1",
+      workspaceDir,
+    });
+  });
+
+  test("an active cloud assistant falls back to a sole apple-container entry with a note", async () => {
+    const workspaceDir = useTempDefaultWorkspaceDir();
+    const cloud = makeCloudEntry();
+    writeLockfile([cloud, makeAppleContainerEntry()], cloud.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain(
+      "Assistant 'cloud-1' runs on Vellum Cloud and needs no tunnel. " +
+        "Tunneling the local assistant 'apple-1' instead.",
+    );
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "apple-1",
+      workspaceDir,
+      gatewayPort: 8030,
+    });
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "apple-1",
+      workspaceDir,
+    });
+  });
+
+  test("an exact assistant ID wins over a colliding display name", async () => {
+    const decoy = makeLocalEntry("assistant-a");
+    decoy.name = "assistant-b";
+    const target = makeLocalEntry("assistant-b");
+    writeLockfile([decoy, target], "assistant-a");
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "assistant-b",
+      "--provider",
+      "ngrok",
+    ];
+
+    await runTunnelCapturingLogs();
+
+    expect(runNgrokTunnelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "assistant-b" }),
+    );
+  });
+
+  test("a positional display name of a cloud assistant errors without auto-fallback", async () => {
+    const cloud = makeCloudEntry();
+    cloud.name = "Cloudy";
+    const local = makeLocalEntry();
+    writeLockfile([cloud, local], local.assistantId);
+    process.argv = ["bun", "vellum", "tunnel", "Cloudy", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Assistant 'Cloudy (cloud-1)' runs on Vellum Cloud and needs no tunnel.",
+    );
+    expect(errors).toContain(
+      "Pass a local assistant as the name argument: assistant-1.",
+    );
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an ambiguous positional display name errors listing the candidates", async () => {
+    const first = makeLocalEntry("assistant-a");
+    first.name = "Ada";
+    const second = makeLocalEntry("assistant-b");
+    second.name = "Ada";
+    writeLockfile([first, second], "assistant-a");
+    process.argv = ["bun", "vellum", "tunnel", "Ada", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain(
+      "Multiple assistants match 'Ada': Ada (assistant-a), Ada (assistant-b).",
+    );
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an unknown positional name errors", async () => {
+    process.argv = ["bun", "vellum", "tunnel", "nope", "--provider", "ngrok"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("No assistant found with name or ID 'nope'.");
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
   });
 
   test("targets the edge port for cloudflare", async () => {

@@ -384,6 +384,9 @@ export async function executeSubagentSpawn(
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        // Delegated work belongs to the firing that triggered the invoking
+        // turn, so the child's usage rows carry the parent's stamp.
+        ...(context.cronRunId ? { cronRunId: context.cronRunId } : {}),
         ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         ...forkFields,
       },
@@ -773,6 +776,9 @@ async function runAdvisorConsult(args: {
           systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
           ...(overrideProfile ? { overrideProfile } : {}),
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+          // A consult is delegated work of the invoking turn, so its spend
+          // attributes to the same firing.
+          ...(context.cronRunId ? { cronRunId: context.cronRunId } : {}),
           ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         },
         countingSendToClient,

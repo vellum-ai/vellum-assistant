@@ -18,6 +18,12 @@ import {
   PLACEHOLDER_EMPTY_TURN,
 } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
+import {
+  analyzeServerToolPairing,
+  isServerToolUseBlock,
+  isWebSearchToolResultBlock,
+  type ServerToolPairing,
+} from "../server-tool-pairing.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -489,73 +495,54 @@ function normalizeFollowingUserContent(
   };
 }
 
-/** Type-guard for server_tool_use blocks. */
-function isServerToolUseBlock(
-  block: unknown,
-): block is { type: "server_tool_use"; id: string; name: string } {
-  return (
-    typeof block === "object" &&
-    block != null &&
-    (block as { type: string }).type === "server_tool_use"
-  );
-}
-
-/** Type-guard for web_search_tool_result blocks. */
-function isWebSearchToolResultBlock(block: unknown): block is {
-  type: "web_search_tool_result";
-  tool_use_id: string;
-  content: unknown;
-} {
-  return (
-    typeof block === "object" &&
-    block != null &&
-    (block as { type: string }).type === "web_search_tool_result"
-  );
-}
-
 /**
- * Repair orphaned server-side tool blocks within assistant messages. Server-
- * side tools (e.g. web_search) are self-paired: the assistant message should
- * contain both server_tool_use and its matching web_search_tool_result. Either
- * side can go missing — a partial stream may drop the result, or a downstream
- * step (history reload, message split, compaction) may drop the use block.
- * Both cases trigger an Anthropic 400 on the next request, so this function
- * handles both directions:
+ * Repair orphaned server-side tool blocks within assistant messages, using the
+ * cross-message pairing from {@link analyzeServerToolPairing}. A pair can go
+ * missing on either side: a partial stream may drop the result, or a
+ * downstream step (history reload, message split, compaction) may drop the use
+ * block. Both cases trigger an Anthropic 400 on the next request, so this
+ * function handles both directions:
  *
- *   - server_tool_use without paired result: inject a synthetic error result.
- *   - web_search_tool_result without paired server_tool_use: downgrade to a
+ *   - server_tool_use without a paired result: inject a synthetic error
+ *     result.
+ *   - web_search_tool_result without a paired server_tool_use: downgrade to a
  *     text block describing what was found so the model retains context.
+ *
+ * Deferred use blocks (see {@link ServerToolPairing.deferredUseIds}) are not
+ * orphans: they are left intact so the provider executes the search on this
+ * request instead of seeing a synthetic failure.
  */
 function repairOrphanedServerToolBlocks(
   messages: Anthropic.MessageParam[],
+  pairing: ServerToolPairing,
 ): Anthropic.MessageParam[] {
+  if (pairing.deferredUseIds.size > 0) {
+    log.info(
+      { deferredIds: Array.from(pairing.deferredUseIds) },
+      "Preserving deferred server_tool_use blocks for provider-side execution",
+    );
+  }
   return messages.map((msg) => {
     if (msg.role !== "assistant") {
       return msg;
     }
     const content = Array.isArray(msg.content) ? msg.content : [];
 
-    const serverToolUseIds = new Set<string>();
-    const webSearchResultIds = new Set<string>();
-    for (const block of content) {
-      if (isServerToolUseBlock(block)) {
-        serverToolUseIds.add(block.id);
-      }
-      if (isWebSearchToolResultBlock(block)) {
-        webSearchResultIds.add(block.tool_use_id);
-      }
-    }
-
     const orphanServerToolUseIds = new Set<string>();
-    for (const id of serverToolUseIds) {
-      if (!webSearchResultIds.has(id)) {
-        orphanServerToolUseIds.add(id);
-      }
-    }
     const orphanWebSearchResultIds = new Set<string>();
-    for (const id of webSearchResultIds) {
-      if (!serverToolUseIds.has(id)) {
-        orphanWebSearchResultIds.add(id);
+    for (const block of content) {
+      if (
+        isServerToolUseBlock(block) &&
+        !pairing.resolvedPairIds.has(block.id) &&
+        !pairing.deferredUseIds.has(block.id)
+      ) {
+        orphanServerToolUseIds.add(block.id);
+      }
+      if (
+        isWebSearchToolResultBlock(block) &&
+        !pairing.resolvedPairIds.has(block.tool_use_id)
+      ) {
+        orphanWebSearchResultIds.add(block.tool_use_id);
       }
     }
 
@@ -709,8 +696,17 @@ function findActiveToolUseContinuationStart(
 
 function ensureToolPairing(
   messages: Anthropic.MessageParam[],
+  pairing: ServerToolPairing,
 ): Anthropic.MessageParam[] {
   const result: Anthropic.MessageParam[] = [];
+
+  // Messages carrying a deferred or cross-message-paired server tool block
+  // must go out verbatim: the provider pairs and executes these blocks across
+  // messages itself, and reordering or splitting them breaks that pairing.
+  const verbatimIds = new Set([
+    ...pairing.deferredUseIds,
+    ...pairing.crossMessageIds,
+  ]);
 
   let i = 0;
   while (i < messages.length) {
@@ -724,8 +720,23 @@ function ensureToolPairing(
 
     const content = Array.isArray(msg.content) ? msg.content : [];
 
+    const hasVerbatimServerBlock =
+      verbatimIds.size > 0 &&
+      content.some(
+        (block) =>
+          (isServerToolUseBlock(block) && verbatimIds.has(block.id)) ||
+          (isWebSearchToolResultBlock(block) &&
+            verbatimIds.has(block.tool_use_id)),
+      );
+
     const { pairedContent, carryoverContent, toolUseIds } =
-      splitAssistantForToolPairing(content);
+      hasVerbatimServerBlock
+        ? {
+            pairedContent: content,
+            carryoverContent: [] as Anthropic.ContentBlockParam[],
+            toolUseIds: getOrderedToolUseIds(content),
+          }
+        : splitAssistantForToolPairing(content);
 
     if (toolUseIds.length === 0) {
       result.push(msg);
@@ -2016,7 +2027,11 @@ export class AnthropicProvider implements Provider {
       formatted[i] = { ...msg, content: stripped };
     }
 
-    return ensureToolPairing(repairOrphanedServerToolBlocks(formatted));
+    const serverToolPairing = analyzeServerToolPairing(formatted);
+    return ensureToolPairing(
+      repairOrphanedServerToolBlocks(formatted, serverToolPairing),
+      serverToolPairing,
+    );
   }
 
   /**

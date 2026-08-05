@@ -17,7 +17,13 @@ import { platform } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS } from "@vellumai/environments";
-import { guardianTokenPath, resolveConfigDir } from "@vellumai/local-mode";
+import {
+  guardianTokenPath,
+  isConfidentialRefreshUrl,
+  resolveConfigDir,
+  saveGuardianToken as writeGuardianToken,
+  type GuardianTokenData,
+} from "@vellumai/local-mode";
 
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -25,19 +31,7 @@ import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 const DEVICE_ID_SALT = "vellum-assistant-host-id";
 
-export interface GuardianTokenData {
-  guardianPrincipalId: string;
-  accessToken: string;
-  /** ISO date string or epoch-ms number as returned by the gateway. */
-  accessTokenExpiresAt: string | number;
-  refreshToken: string;
-  /** ISO date string or epoch-ms number as returned by the gateway. */
-  refreshTokenExpiresAt: string | number;
-  refreshAfter: string;
-  isNew: boolean;
-  deviceId: string;
-  leasedAt: string;
-}
+export type { GuardianTokenData };
 
 function getGuardianTokenPath(assistantId: string): string {
   // Resolve via the shared @vellumai/local-mode resolver — the same one every
@@ -178,15 +172,9 @@ export function saveGuardianToken(
   assistantId: string,
   data: GuardianTokenData,
 ): void {
-  const tokenPath = getGuardianTokenPath(assistantId);
-  const dir = dirname(tokenPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  writeFileSync(tokenPath, JSON.stringify(data, null, 2) + "\n", {
-    mode: 0o600,
-  });
-  chmodSync(tokenPath, 0o600);
+  // Delegates to the shared @vellumai/local-mode writer (0700 dir, 0600 file)
+  // with the same env-resolved config dir the path resolver above uses.
+  writeGuardianToken(resolveConfigDir(process.env), assistantId, data);
 }
 
 /** Abort the refresh POST if the gateway is slow/unreachable (it's now on the
@@ -256,37 +244,6 @@ function releaseRefreshLock(lockPath: string): void {
  * process already rotated it while we waited, we return that fresh token
  * instead of replaying our now-stale refresh token.
  */
-/**
- * The guardian refresh token is long-lived and replayable, so we only transmit
- * it over a confidential channel: HTTPS, or a loopback host (local dev, or a
- * same-host reverse proxy / tunnel agent). Refreshing against a non-loopback
- * plaintext `http://` URL is refused — an on-path attacker could otherwise
- * capture the refresh token and rotate it into fresh credentials.
- *
- * A user-chosen malicious `https://` destination is intentionally out of scope:
- * HTTPS protects the channel, and the access token already goes wherever the
- * configured URL points. This guard targets the plaintext-interception vector.
- */
-function isLoopbackHostname(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return (
-    h === "localhost" ||
-    h === "::1" ||
-    h === "[::1]" ||
-    h === "0:0:0:0:0:0:0:1" ||
-    /^127(?:\.\d{1,3}){3}$/.test(h)
-  );
-}
-
-function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
-  try {
-    const url = new URL(gatewayUrl);
-    return url.protocol === "https:" || isLoopbackHostname(url.hostname);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * True when a stored guardian token has reached its renewal point — now is
  * at/after `refreshAfter` (preferred) or `accessTokenExpiresAt`. Used to gate
