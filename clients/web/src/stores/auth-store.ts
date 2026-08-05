@@ -84,6 +84,7 @@ import {
   useOrganizationStore,
 } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
 import { clearLocalPlatformSession } from "@/runtime/local-mode-host";
@@ -1194,6 +1195,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // not-authenticated branch is the safety net for token-expiry-style
       // flips.
       lifecycleService.resetForLogout();
+      setSelfHostedConnection(null);
       await setSelectedAssistant(null);
       clearGatewayToken();
       clearOrganization();

@@ -9,6 +9,11 @@ import {
 } from "bun:test";
 import { cleanup } from "@testing-library/react";
 
+import {
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
+
 type MockSessionUser = {
   id?: string;
   username?: string;
@@ -422,6 +427,7 @@ beforeEach(() => {
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   mockGatewayToken = null;
+  setSelfHostedConnection(null);
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
@@ -1664,6 +1670,24 @@ describe("session cleanup on logout", () => {
     await useAuthStore.getState().logout();
 
     expect(order).toEqual(["reset", "clear:null"]);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("gateway logout clears paired proxy authorization", async () => {
+    mockIsGatewayAuth = true;
+    mockSelectedAssistant = { assistantId: "paired-1", cloud: "paired" };
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-1`,
+      token: null,
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async () => {
+      expect(getSelfHostedIngressUrl()).toBeNull();
+    });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(getSelfHostedIngressUrl()).toBeNull();
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
