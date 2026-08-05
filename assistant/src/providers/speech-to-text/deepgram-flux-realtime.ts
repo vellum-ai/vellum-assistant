@@ -16,10 +16,13 @@
  * 4. The `onEvent` callback receives `partial`, `final`, the four
  *    turn-detection events, `error`, and finally `closed`.
  *
- * There is deliberately **no `finalizeUtterance`**. Flux owns turn
- * boundaries, so there is nothing for a caller to flush mid-stream; leaving
- * the optional method off makes callers feature-detect and fall back to
- * {@link stop}, which is the correct semantics for this provider.
+ * There is **no `finalizeUtterance`**. Flux commits a transcript only when
+ * its model closes a turn, and its wire protocol offers no mid-stream flush:
+ * `CloseStream` is the only way to make it answer for a turn still in
+ * progress. A method that returned `finalized` without flushing would claim a
+ * commit the provider never made and lose the tail of every turn released on
+ * a caller-side boundary, so the optional method is left off and callers
+ * feature-detect it and fall back to {@link stop}.
  *
  * Error handling mirrors `deepgram-realtime.ts`: socket closes and errors map
  * onto {@link SttErrorCategory} values (`auth`, `rate-limit`, `timeout`,
@@ -30,15 +33,14 @@
  */
 
 import { getConfig } from "../../config/loader.js";
+import type { LiveVoiceFluxConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttErrorCategory,
   SttStreamServerEvent,
 } from "../../stt/types.js";
 import { SttError } from "../../stt/types.js";
-import { parseJsonSafe } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
-import { isPlainObject } from "../../util/object.js";
 import type { FluxEncoding } from "./deepgram-flux-frames.js";
 import {
   buildFluxQueryParams,
@@ -51,7 +53,7 @@ const log = getLogger("deepgram-flux-realtime");
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_WS_BASE_URL = "wss://api.deepgram.com";
+const WS_BASE_URL = "wss://api.deepgram.com";
 
 /** Flux lives on the v2 listen route; the v1 route speaks a different protocol. */
 const FLUX_PATH = "/v2/listen";
@@ -80,8 +82,8 @@ const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1 MiB
 /** Grace (ms) after `CloseStream` before the socket is force-closed. */
 const CLOSE_GRACE_MS = 5_000;
 
-/** Default raw-audio encoding: clients send linear16 PCM. */
-const DEFAULT_ENCODING: FluxEncoding = "linear16";
+/** Raw-audio encoding of the stream: clients send linear16 PCM. */
+const AUDIO_ENCODING: FluxEncoding = "linear16";
 
 /** Default sample rate (Hz) when the client negotiates none. */
 const DEFAULT_SAMPLE_RATE = 16_000;
@@ -99,26 +101,15 @@ const RECOMMENDED_CHUNK_MS = 80;
 // Options
 // ---------------------------------------------------------------------------
 
+/**
+ * Transport-level wiring for a Flux session. Turn-detection tuning (model,
+ * thresholds, force-end timeout) is not here: it comes from `liveVoice.flux`,
+ * which the adapter reads itself, so there is exactly one place to turn those
+ * dials.
+ */
 export interface DeepgramFluxRealtimeOptions {
-  /** Flux model. Defaults to `liveVoice.flux.model`. */
-  model?: string;
-  /** End-of-turn confidence. Defaults to `liveVoice.flux.eotThreshold`. */
-  eotThreshold?: number;
-  /**
-   * Eager end-of-turn confidence. Defaults to
-   * `liveVoice.flux.eagerEotThreshold`, which is unset by default, and
-   * leaving it unset is what stops Deepgram emitting `EagerEndOfTurn` /
-   * `TurnResumed` at all.
-   */
-  eagerEotThreshold?: number;
-  /** Force-end silence (ms). Defaults to `liveVoice.flux.eotTimeoutMs`. */
-  eotTimeoutMs?: number;
   /** Audio sample rate in Hz (default: 16000). */
   sampleRate?: number;
-  /** Raw audio encoding (default: linear16). */
-  encoding?: FluxEncoding;
-  /** Override the WebSocket base URL (proxies, on-prem). */
-  baseUrl?: string;
   /** Connect timeout in milliseconds. Default: 10_000. */
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
@@ -173,13 +164,9 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   readonly boundaryId = "daemon-streaming" as const;
 
   private readonly apiKey: string;
-  private readonly model: string;
-  private readonly eotThreshold: number | undefined;
-  private readonly eagerEotThreshold: number | undefined;
-  private readonly eotTimeoutMs: number | undefined;
+  /** Turn-detection tuning, snapshotted when the transcriber is built. */
+  private readonly flux: LiveVoiceFluxConfig;
   private readonly sampleRate: number;
-  private readonly encoding: FluxEncoding;
-  private readonly baseUrl: string;
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
   private readonly keepaliveIntervalMs: number;
@@ -225,19 +212,9 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(apiKey: string, options: DeepgramFluxRealtimeOptions = {}) {
-    // Tuning comes from `liveVoice.flux` so the spike has one place to turn
-    // the dials; explicit options win for callers that already know better.
-    const flux = getConfig().liveVoice.flux;
-
     this.apiKey = apiKey;
-    this.model = options.model ?? flux.model;
-    this.eotThreshold = options.eotThreshold ?? flux.eotThreshold;
-    this.eagerEotThreshold =
-      options.eagerEotThreshold ?? flux.eagerEotThreshold;
-    this.eotTimeoutMs = options.eotTimeoutMs ?? flux.eotTimeoutMs;
+    this.flux = getConfig().liveVoice.flux;
     this.sampleRate = options.sampleRate ?? DEFAULT_SAMPLE_RATE;
-    this.encoding = options.encoding ?? DEFAULT_ENCODING;
-    this.baseUrl = (options.baseUrl ?? DEFAULT_WS_BASE_URL).replace(/\/+$/, "");
     this.connectTimeoutMs =
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.inactivityTimeoutMs =
@@ -325,7 +302,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     this.resetInactivityTimer();
     this.startKeepaliveTimer();
 
-    log.info({ model: this.model }, "Deepgram Flux session opened");
+    log.info({ model: this.flux.model }, "Deepgram Flux session opened");
   }
 
   sendAudio(audio: Buffer, _mimeType: string): void {
@@ -427,8 +404,9 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   /**
    * Normalize one inbound Flux frame into daemon events.
    *
-   * Everything except the `Configure*` acknowledgements goes straight to
-   * {@link parseFluxFrame}: the wire shapes live there, not here.
+   * Frames go straight to {@link parseFluxFrame}, which owns JSON decoding,
+   * the wire shapes, and the graceful handling of anything it does not
+   * recognize.
    */
   private handleProviderMessage(data: unknown): void {
     if (this.closed) {
@@ -448,63 +426,12 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    const frame = parseJsonSafe(raw);
-    if (!isPlainObject(frame)) {
-      log.debug("Dropped a Deepgram Flux payload that is not a frame object");
-      return;
-    }
-
-    if (this.handleConfigureAck(frame)) {
-      return;
-    }
-
-    for (const event of parseFluxFrame(frame)) {
+    for (const event of parseFluxFrame(raw)) {
       if (event.type === "error") {
         this.fatalErrorReported = true;
       }
       this.emitEvent(event);
     }
-  }
-
-  /**
-   * Absorb the acknowledgements for a mid-stream `Configure`, returning true
-   * when the frame was one. This adapter is the layer that knows whether a
-   * `Configure` is in flight, so the two frames are handled here rather than
-   * in the pure parser.
-   *
-   * Neither becomes a stream event. `ConfigureSuccess` echoes the
-   * configuration actually in force, which is the cheapest confirmation that
-   * the thresholds we clamped are the ones Deepgram is using, worth a debug
-   * line and nothing more. `ConfigureFailure` leaves the stream running on the
-   * previous settings, so raising an `error` event would tear down a session
-   * that is still perfectly usable.
-   */
-  private handleConfigureAck(frame: Record<string, unknown>): boolean {
-    if (frame.type === "ConfigureSuccess") {
-      log.debug(
-        {
-          thresholds: frame.thresholds,
-          keyterms: frame.keyterms,
-          languageHints: frame.language_hints,
-        },
-        "Deepgram Flux accepted a Configure, thresholds now in force",
-      );
-      return true;
-    }
-
-    if (frame.type === "ConfigureFailure") {
-      log.warn(
-        {
-          code: frame.code,
-          description: frame.description,
-          sequenceId: frame.sequence_id,
-        },
-        "Deepgram Flux rejected a Configure, the session continues at its previous settings",
-      );
-      return true;
-    }
-
-    return false;
   }
 
   /** Handle provider-side WebSocket close. */
@@ -599,20 +526,18 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     }
     this.chunkCadenceLogged = true;
 
-    // Only linear16 has a byte length that maps to a duration without
-    // decoding the payload.
     const observedChunkMs =
-      this.encoding === "linear16" && this.sampleRate > 0
+      this.sampleRate > 0
         ? Math.round(
             (byteLength / LINEAR16_BYTES_PER_SAMPLE / this.sampleRate) * 1_000,
           )
         : undefined;
 
-    log.debug(
+    log.info(
       {
         byteLength,
         sampleRate: this.sampleRate,
-        encoding: this.encoding,
+        encoding: AUDIO_ENCODING,
         observedChunkMs,
         recommendedChunkMs: RECOMMENDED_CHUNK_MS,
       },
@@ -751,14 +676,14 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
    */
   private buildWebSocketUrl(): string {
     const query = buildFluxQueryParams({
-      model: this.model,
-      encoding: this.encoding,
+      model: this.flux.model,
+      encoding: AUDIO_ENCODING,
       sampleRate: this.sampleRate,
-      eotThreshold: this.eotThreshold,
-      eagerEotThreshold: this.eagerEotThreshold,
-      eotTimeoutMs: this.eotTimeoutMs,
+      eotThreshold: this.flux.eotThreshold,
+      eagerEotThreshold: this.flux.eagerEotThreshold,
+      eotTimeoutMs: this.flux.eotTimeoutMs,
     });
-    return `${this.baseUrl}${FLUX_PATH}?${query}`;
+    return `${WS_BASE_URL}${FLUX_PATH}?${query}`;
   }
 }
 

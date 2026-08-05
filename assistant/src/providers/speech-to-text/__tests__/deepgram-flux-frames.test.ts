@@ -430,19 +430,4 @@ describe("buildFluxQueryParams", () => {
       expect(new URLSearchParams(query).has("eager_eot_threshold")).toBe(false);
     }
   });
-
-  test("repeats language_hint once per hint", () => {
-    const params = new URLSearchParams(
-      buildFluxQueryParams({
-        model: "flux-general-multi",
-        languageHint: ["en", "es"],
-      }),
-    );
-    expect(params.getAll("language_hint")).toEqual(["en", "es"]);
-
-    const single = new URLSearchParams(
-      buildFluxQueryParams({ model: "flux-general-multi", languageHint: "fr" }),
-    );
-    expect(single.getAll("language_hint")).toEqual(["fr"]);
-  });
 });

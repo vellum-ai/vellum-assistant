@@ -47,25 +47,6 @@ export type FluxFrameKind =
   | "EndOfTurn"
   | "Error";
 
-/** A single word within a Flux turn frame, with timings and confidence. */
-export interface FluxWord {
-  /** The recognized word. */
-  word?: string;
-  /** Per-word recognition confidence in [0, 1]. */
-  confidence?: number;
-  /** Word start offset in seconds from the beginning of the stream. */
-  start?: number;
-  /** Word end offset in seconds from the beginning of the stream. */
-  end?: number;
-}
-
-/** Session-established frame, sent once after the socket opens. */
-export interface FluxConnectedFrame {
-  type: "Connected";
-  request_id?: string;
-  sequence_id?: number;
-}
-
 /**
  * A turn-state frame.
  *
@@ -88,8 +69,6 @@ export interface FluxTurnFrame {
   audio_window_end?: number;
   /** Transcript for the turn so far. */
   transcript?: string;
-  /** Per-word timings and confidences backing {@link transcript}. */
-  words?: FluxWord[];
   /** Flux's end-of-turn confidence in [0, 1]. */
   end_of_turn_confidence?: number;
 }
@@ -107,8 +86,6 @@ export interface FluxErrorFrame {
   /** Prose explanation of the failure. */
   description?: string;
 }
-
-export type FluxFrame = FluxConnectedFrame | FluxTurnFrame | FluxErrorFrame;
 
 /**
  * A payload that has been confirmed to be an object but whose frame kind is
@@ -339,11 +316,6 @@ export interface FluxQueryParamOptions {
   eagerEotThreshold?: number;
   /** Silence (ms) after which Flux force-ends a turn. */
   eotTimeoutMs?: number;
-  /**
-   * Language hints for the multilingual model. Repeatable: each entry is sent
-   * as its own `language_hint` parameter. Ignored by monolingual models.
-   */
-  languageHint?: string | string[];
 }
 
 /**
@@ -405,13 +377,6 @@ export function buildFluxQueryParams(opts: FluxQueryParamOptions): string {
   const eotTimeoutMs = clamp(opts.eotTimeoutMs, EOT_TIMEOUT_MS_RANGE);
   if (eotTimeoutMs !== undefined) {
     params.set("eot_timeout_ms", String(Math.round(eotTimeoutMs)));
-  }
-
-  const hints = opts.languageHint;
-  for (const hint of typeof hints === "string" ? [hints] : (hints ?? [])) {
-    if (hint) {
-      params.append("language_hint", hint);
-    }
   }
 
   return params.toString();
