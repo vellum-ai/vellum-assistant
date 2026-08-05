@@ -144,7 +144,7 @@ export const onLockfileChange = (listener: LockfileChangeListener): (() => void)
  * has data). Returns a teardown function for `before-quit`.
  */
 export const installLockfileWatcher = (): (() => void) => {
-  // Poll only the canonical (first) path — write helpers always target
+  // Poll only the canonical (first) path: write helpers always target
   // candidates[0], so watching a legacy candidate would miss updates once
   // the canonical file is created.
   lockfileCandidates = resolveLockfilePaths(process.env);
