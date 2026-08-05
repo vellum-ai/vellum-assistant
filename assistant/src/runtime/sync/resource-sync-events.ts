@@ -67,6 +67,10 @@ export function publishAppsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
 }
 
+export function publishDocumentsChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.documentsList], originClientId);
+}
+
 export function publishPluginsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.pluginsList], originClientId);
 }
