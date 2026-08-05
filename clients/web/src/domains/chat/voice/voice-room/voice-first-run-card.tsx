@@ -20,7 +20,6 @@ import { useSttLanguageSelection } from "@/components/speech/use-stt-language-se
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
 import {
-  sttCatalogEntryForLocale,
   sttLanguageLabelForCode,
   suggestedLanguageForLocale,
 } from "@/lib/stt/language-catalog";
@@ -136,32 +135,21 @@ export function VoiceFirstRunCard({
     setView("language");
   };
 
-  // Locale evidence for the listening-language row: null for English locales
-  // and locales outside the catalog. Guarded for environments without a
-  // `navigator` (the pattern voice-input-button uses). Provider-agnostic on
-  // purpose: it only decides whether the hook's queries are worth enabling,
-  // before the configured provider is known.
+  // Browser locale, read only to decide whether the intro shows a suggestion.
+  // Guarded for environments without a `navigator` (the pattern
+  // voice-input-button uses). The language control itself is never gated on
+  // it: the setting exists for every speaker, and someone on an English
+  // locale who wants a different listening language has to be able to find
+  // it.
   const navigatorLanguage =
     typeof navigator !== "undefined" ? navigator.language : undefined;
-  const localeEntry = sttCatalogEntryForLocale(navigatorLanguage);
-  // A null assistant id keeps the hook's queries disabled, so without locale
-  // evidence the intro renders byte-identical to before, with no daemon
-  // fetches pulled into the first-run render.
   const {
     available: languageAvailable,
     currentCode: languageCode,
     configuredProviderId,
     selectLanguage,
     selecting: languageSelecting,
-  } = useSttLanguageSelection(
-    // Enabled on locale evidence (the intro's suggestion row needs it before
-    // anyone clicks anything) or once a sub-view is open, since the settings
-    // view carries the control for everyone rather than only for speakers the
-    // locale matched. An English-locale user has no suggestion but must still
-    // find the setting. The intro itself stays query-free without locale
-    // evidence, which is what this gating was for.
-    localeEntry !== null || view !== "intro" ? assistantId : null,
-  );
+  } = useSttLanguageSelection(assistantId);
   // The actual suggestion is provider-scoped: null when the configured
   // provider's option set does not offer the locale's language (a Tamil
   // locale under xai), so the row never renders a suggestion the picker
