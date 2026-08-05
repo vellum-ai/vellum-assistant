@@ -36,6 +36,7 @@ import {
   conversationListPrefix,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -57,14 +58,23 @@ import type { Conversation } from "@/types/conversation-types";
  * Cancel any in-flight refetches for ALL conversation caches. Call this
  * before applying an optimistic update so a concurrent refetch doesn't
  * overwrite the optimistic value with stale server data.
+ *
+ * Includes the unread-count cache: it lives under its own key (a scalar,
+ * not a `Conversation[]`, so it cannot share the list prefix) but is
+ * optimistically adjusted by the same seen/unseen mutations.
  */
 export async function cancelConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await queryClient.cancelQueries({
-    queryKey: conversationListPrefix(assistantId),
-  });
+  await Promise.all([
+    queryClient.cancelQueries({
+      queryKey: conversationListPrefix(assistantId),
+    }),
+    queryClient.cancelQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+  ]);
 }
 
 /**
@@ -107,14 +117,24 @@ export function restoreConversationCaches(
  * Invalidate all conversation caches so TanStack Query refetches from the
  * server. Used in `onSettled` to reconcile optimistic values with the
  * server-authoritative state regardless of mutation success or failure.
+ *
+ * Includes the unread-count cache (own key, see
+ * `cancelConversationQueries`) so optimistic count deltas always
+ * reconcile against the authoritative server count after a mutation
+ * settles.
  */
 export async function invalidateConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: conversationListPrefix(assistantId),
-  });
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: conversationListPrefix(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+  ]);
 }
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];

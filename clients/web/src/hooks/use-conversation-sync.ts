@@ -37,6 +37,7 @@ import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen"
 import {
   archivedConversationsQueryKey,
   originChannelListPrefix,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
@@ -78,14 +79,21 @@ export function useConversationSync(
 ): void {
   const queryClient = useQueryClient();
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unreadCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
-  // Clear pending debounce when the assistant changes or deactivates
+  // Clear pending debounces when the assistant changes or deactivates
   // so stale callbacks never fire with an old assistantId.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
+      }
+      if (unreadCountTimerRef.current) {
+        clearTimeout(unreadCountTimerRef.current);
+        unreadCountTimerRef.current = null;
       }
     };
   }, [assistantId, isAssistantActive]);
@@ -110,6 +118,7 @@ export function useConversationSync(
           assistantId,
           queryClient,
           debounceTimerRef,
+          unreadCountTimerRef,
         );
         return;
 
@@ -187,6 +196,35 @@ function scheduleConversationListRefetch(
         path: { assistant_id: assistantId ?? "" },
       }),
     });
+    void queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    });
+  }, CONVERSATION_LIST_DEBOUNCE_MS);
+}
+
+/**
+ * Debounced invalidation of the server-side unread-count cache.
+ *
+ * Seen-state changes and newly landed assistant replies surface as
+ * per-conversation `conversation:<id>:metadata` tags without a
+ * `conversationsList` umbrella tag, so the count must refetch on metadata
+ * signals too. Debounced on its own timer because a bulk mark-read on
+ * another client emits one metadata tag per conversation; collapsing the
+ * burst costs a single scalar GET.
+ */
+function scheduleUnreadCountRefetch(
+  queryClient: ReturnType<typeof useQueryClient>,
+  assistantId: string,
+  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+): void {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+  }
+  timerRef.current = setTimeout(() => {
+    timerRef.current = null;
+    void queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    });
   }, CONVERSATION_LIST_DEBOUNCE_MS);
 }
 
@@ -195,6 +233,7 @@ function handleConversationSyncTags(
   assistantId: string,
   queryClient: ReturnType<typeof useQueryClient>,
   debounceTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  unreadCountTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
   for (const tag of event.tags) {
     if (tag === SYNC_TAGS.conversationsList) {
@@ -211,6 +250,11 @@ function handleConversationSyncTags(
       // work for fields the UI tolerates going slightly stale.
       const parsed = parseConversationSyncTag(tag);
       if (parsed?.resource === "metadata") {
+        scheduleUnreadCountRefetch(
+          queryClient,
+          assistantId,
+          unreadCountTimerRef,
+        );
         void limitedRefreshConversationRow(
           queryClient,
           assistantId,

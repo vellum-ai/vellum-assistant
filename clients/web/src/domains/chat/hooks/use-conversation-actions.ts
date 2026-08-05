@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   cancelConversationQueries,
+  findConversation,
   invalidateConversationQueries,
   patchConversation,
   restoreConversationCaches,
@@ -10,6 +11,8 @@ import {
   updateAllConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
+import { adjustUnreadCountCache } from "@/utils/conversation-cache-mutations";
+import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
   conversationsArchiveBulkPost,
@@ -49,6 +52,15 @@ type MoveToGroupVars = {
 type ReorderVars = { assistantId: string; orderedIds: string[] };
 
 type MutationContext = { snapshot: ConversationCacheSnapshot };
+
+/**
+ * Context for the seen/unseen mutations, which additionally apply an
+ * optimistic delta to the server-side unread-count cache. `onError`
+ * reverts by applying the inverse delta (never a snapshot restore, so a
+ * concurrent mutation's adjustment is not clobbered); `onSettled`'s
+ * `invalidateConversationQueries` refetches the authoritative count.
+ */
+type SeenMutationContext = MutationContext & { unreadCountDelta: number };
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -168,7 +180,7 @@ export function useConversationActions({
     void,
     Error,
     MarkReadVars,
-    MutationContext
+    SeenMutationContext
   >({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsSeenPost({
@@ -180,14 +192,26 @@ export function useConversationActions({
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
       const snapshot = snapshotConversationCaches(queryClient, aid);
+      // Decrement the unread count only when this row contributed to it
+      // (unseen, foreground, unarchived), reading the row before the patch
+      // flips its seen state.
+      const row = findConversation(queryClient, aid, conversationId);
+      const unreadCountDelta =
+        row !== undefined && contributesToUnreadCount(row) ? -1 : 0;
+      if (unreadCountDelta !== 0) {
+        adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
+      }
       patchConversation(queryClient, aid, conversationId, {
         hasUnseenLatestAssistantMessage: false,
       });
-      return { snapshot };
+      return { snapshot, unreadCountDelta };
     },
-    onError: (err, _vars, context) => {
+    onError: (err, { assistantId: aid }, context) => {
       if (context?.snapshot) {
         restoreConversationCaches(queryClient, context.snapshot);
+      }
+      if (context && context.unreadCountDelta !== 0) {
+        adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
       }
       captureError(err, { context: "markConversationRead" });
     },
@@ -200,7 +224,7 @@ export function useConversationActions({
     void,
     Error,
     MarkUnreadVars,
-    MutationContext
+    SeenMutationContext
   >({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsUnreadPost({
@@ -212,14 +236,32 @@ export function useConversationActions({
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
       const snapshot = snapshotConversationCaches(queryClient, aid);
+      // Increment the unread count only when flipping this row to unseen
+      // makes it start contributing: it must be eligible for the badge
+      // (foreground, unarchived) and not already counted as unseen.
+      const row = findConversation(queryClient, aid, conversationId);
+      const startsContributing =
+        row !== undefined &&
+        !row.hasUnseenLatestAssistantMessage &&
+        contributesToUnreadCount({
+          ...row,
+          hasUnseenLatestAssistantMessage: true,
+        });
+      const unreadCountDelta = startsContributing ? 1 : 0;
+      if (unreadCountDelta !== 0) {
+        adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
+      }
       patchConversation(queryClient, aid, conversationId, {
         hasUnseenLatestAssistantMessage: true,
       });
-      return { snapshot };
+      return { snapshot, unreadCountDelta };
     },
-    onError: (err, _vars, context) => {
+    onError: (err, { assistantId: aid }, context) => {
       if (context?.snapshot) {
         restoreConversationCaches(queryClient, context.snapshot);
+      }
+      if (context && context.unreadCountDelta !== 0) {
+        adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
       }
       captureError(err, { context: "markConversationUnread" });
     },
@@ -514,6 +556,14 @@ export function useConversationActions({
 
       await cancelConversationQueries(queryClient, assistantId);
 
+      // One optimistic decrement for the rows that count toward the unread
+      // badge (foreground, unarchived); rows that fail roll their share
+      // back one at a time in `rollbackItem`.
+      const contributingCount = unread.filter(contributesToUnreadCount).length;
+      if (contributingCount > 0) {
+        adjustUnreadCountCache(queryClient, assistantId, -contributingCount);
+      }
+
       for (const c of unread) {
         patchConversation(queryClient, assistantId, c.conversationId, {
           hasUnseenLatestAssistantMessage: false,
@@ -533,10 +583,14 @@ export function useConversationActions({
             body: { conversationId: c.conversationId },
             throwOnError: true,
           }),
-        rollbackItem: (c) =>
+        rollbackItem: (c) => {
           patchConversation(queryClient, assistantId, c.conversationId, {
             hasUnseenLatestAssistantMessage: true,
-          }),
+          });
+          if (contributesToUnreadCount(c)) {
+            adjustUnreadCountCache(queryClient, assistantId, 1);
+          }
+        },
         context: "markAllReadInGroup",
       });
 

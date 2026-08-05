@@ -36,6 +36,7 @@ import {
   conversationListOptions,
   originChannelConversationListOptions,
   scheduledConversationListOptions,
+  unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
 import type { OriginChannel } from "@/utils/conversation-list-fetchers";
 
@@ -201,6 +202,33 @@ export function useOriginChannelConversationListQuery(
     isLoading: query.isLoading,
     isPending: query.isPending,
   };
+}
+
+/**
+ * Subscribe to the server-side unread conversation count
+ * (`GET /v1/conversations/unread-count`).
+ *
+ * Returns the count, or `null` while unresolved and when the connected
+ * assistant does not serve the endpoint (pre-unread-count daemons 404 the
+ * read, which the fetcher maps to `null`). Consumers treat `null` as
+ * "unavailable" and fall back to counting loaded conversations.
+ *
+ * Freshness comes from three channels rather than focus refetches:
+ * optimistic deltas applied by the seen/unseen mutations
+ * (`adjustUnreadCountCache`), the settle-time invalidation in
+ * `invalidateConversationQueries`, and the `sync_changed`-driven
+ * invalidation in `use-conversation-sync.ts`.
+ */
+export function useUnreadConversationCountQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): number | null {
+  const isOrgReady = useIsOrgReady();
+  const query = useQuery({
+    ...unreadConversationCountOptions(assistantId!),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+  });
+  return query.data ?? null;
 }
 
 /**

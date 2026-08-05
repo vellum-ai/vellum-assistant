@@ -2,7 +2,12 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { markConversationSeenLocal } from "@/utils/conversation-cache-mutations";
+import {
+  adjustUnreadCountCache,
+  markConversationSeenLocal,
+} from "@/utils/conversation-cache-mutations";
+import { unreadConversationCountQueryKey } from "@/utils/conversation-list-fetchers";
+import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import type { AssistantState } from "@/assistant/types";
 import type { Conversation } from "@/types/conversation-types";
@@ -52,6 +57,11 @@ export function useMarkSeenOnOpen({
 
     let cancelled = false;
 
+    // Whether the row counts toward the unread badge, captured before the
+    // POST resolves so the seen-state flip can't erase the answer.
+    const contributedToUnreadCount =
+      contributesToUnreadCount(activeConversation);
+
     conversationsSeenPost({
       path: { assistant_id: assistantId },
       body: { conversationId: activeConversationId },
@@ -66,6 +76,16 @@ export function useMarkSeenOnOpen({
           assistantId,
           activeConversationId,
         );
+        // Drop the row's contribution from the unread-count cache
+        // immediately, then refetch the authoritative value (the daemon
+        // suppresses the self-originated sync echo, so no invalidation
+        // arrives over SSE for this write).
+        if (contributedToUnreadCount) {
+          adjustUnreadCountCache(queryClient, assistantId, -1);
+        }
+        void queryClient.invalidateQueries({
+          queryKey: unreadConversationCountQueryKey(assistantId),
+        });
         lastSeenOnOpenConversationIdRef.current = null;
       })
       .catch((err) => {

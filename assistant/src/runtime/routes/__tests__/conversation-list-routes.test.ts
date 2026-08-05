@@ -17,11 +17,20 @@ mock.module("../../assistant-event-hub.js", () => ({
 }));
 
 import { findConversation } from "../../../daemon/conversation-registry.js";
+import {
+  projectAssistantMessage,
+  recordConversationSeenSignal,
+} from "../../../persistence/conversation-attention-store.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import { createGroup } from "../../../persistence/group-crud.js";
 import { rawRun } from "../../../persistence/raw-query.js";
-import { conversations } from "../../../persistence/schema/index.js";
+import {
+  conversationAssistantAttentionState,
+  conversationAttentionEvents,
+  conversations,
+} from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
@@ -234,5 +243,129 @@ describe("GET /v1/conversations — conversationType", () => {
     expect(() => invoke({ conversationType: "private" })).toThrow(
       BadRequestError,
     );
+  });
+});
+
+describe("GET /v1/conversations/unread-count", () => {
+  const unreadCountHandler = findHandler(
+    CONVERSATION_LIST_ROUTES,
+    "getUnreadConversationCount",
+  );
+
+  function invokeUnreadCount(): { count: number } {
+    return unreadCountHandler({}) as { count: number };
+  }
+
+  function seedUnseen(conversationId: string): void {
+    projectAssistantMessage({
+      conversationId,
+      messageId: `msg-${conversationId}`,
+      messageAt: Date.now(),
+    });
+  }
+
+  function markSeen(conversationId: string): void {
+    recordConversationSeenSignal({
+      conversationId,
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "test",
+    });
+  }
+
+  beforeEach(() => {
+    getDb().delete(conversationAttentionEvents).run();
+    getDb().delete(conversationAssistantAttentionState).run();
+    clearConversations();
+  });
+
+  test("counts only foreground conversations with an unseen latest assistant message", () => {
+    const unseen = createConversation("unseen-1");
+    seedUnseen(unseen.id);
+
+    // A conversation with no attention projection reads as seen.
+    createConversation("no-attention-row");
+
+    const seen = createConversation("seen-1");
+    seedUnseen(seen.id);
+    markSeen(seen.id);
+
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
+  });
+
+  test("marking seen removes the conversation from the count", () => {
+    const conv = createConversation("unseen-then-seen");
+    seedUnseen(conv.id);
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
+
+    markSeen(conv.id);
+    expect(invokeUnreadCount()).toEqual({ count: 0 });
+  });
+
+  test("archived conversations are excluded", () => {
+    const conv = createConversation("unseen-archived");
+    seedUnseen(conv.id);
+    rawRun(
+      "test:archiveConversation",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      conv.id,
+    );
+
+    expect(invokeUnreadCount()).toEqual({ count: 0 });
+  });
+
+  test("background and scheduled conversations count only when surfaced", () => {
+    const bg = createConversation({
+      title: "bg-1",
+      conversationType: "background",
+    });
+    seedUnseen(bg.id);
+    const sched = createConversation({
+      title: "sched-1",
+      conversationType: "scheduled",
+    });
+    seedUnseen(sched.id);
+    expect(invokeUnreadCount()).toEqual({ count: 0 });
+
+    // Surfacing promotes a row into the foreground listing, so it counts.
+    rawRun(
+      "test:surfaceConversation",
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      bg.id,
+    );
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
+  });
+
+  test("background rows filed in a custom group stay excluded until surfaced", () => {
+    // Custom-group rows are visible in the standard listing regardless of
+    // type, but a non-surfaced background row must not count as unread
+    // (the client's unread predicate excludes it).
+    const group = createGroup("unread-count-test-group");
+
+    const bgInGroup = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    seedUnseen(bgInGroup.id);
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      group.id,
+      bgInGroup.id,
+    );
+
+    const standardInGroup = createConversation("standard-in-group");
+    seedUnseen(standardInGroup.id);
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      group.id,
+      standardInGroup.id,
+    );
+
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
   });
 });
