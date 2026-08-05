@@ -54,8 +54,11 @@ const EMPTY_SCOPES: ReadonlySet<Scope> = new Set();
 /** Resolve a scope profile name to its set of granted scopes. */
 export function resolveScopeProfile(profile: ScopeProfile): ReadonlySet<Scope> {
   // Claims come from JSON, so an unrecognized profile (e.g. minted by a newer
-  // peer) can reach this despite the type — resolve it to no scopes, not a
-  // TypeError in the caller.
-  const scopes: ReadonlySet<Scope> | undefined = PROFILE_SCOPES[profile];
-  return scopes ?? EMPTY_SCOPES;
+  // peer) can reach this despite the type. Resolve it to no scopes, not a
+  // TypeError in the caller. The own-property check keeps inherited keys
+  // ("toString", "constructor") failing closed too.
+  if (!Object.prototype.hasOwnProperty.call(PROFILE_SCOPES, profile)) {
+    return EMPTY_SCOPES;
+  }
+  return PROFILE_SCOPES[profile];
 }

@@ -70,6 +70,20 @@ describe("resolveScopeProfile", () => {
     expect(scopes.size).toBe(1);
   });
 
+  test("unknown profiles resolve to no scopes, including prototype keys", () => {
+    // Claims come from JSON, so the ScopeProfile type does not protect at
+    // runtime. Unknown names and Object.prototype keys must both fail closed.
+    for (const profile of [
+      "bogus_v1",
+      "toString",
+      "constructor",
+      "__proto__",
+    ]) {
+      const scopes = resolveScopeProfile(profile as never);
+      expect(scopes.size).toBe(0);
+    }
+  });
+
   test("local_v1 includes only local.all", () => {
     const scopes = resolveScopeProfile("local_v1");
     expect(scopes.has("local.all")).toBe(true);

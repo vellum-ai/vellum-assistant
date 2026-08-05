@@ -26,7 +26,7 @@ function mintDaemonServiceToken(): string {
 }
 
 /**
- * A daemon-sub token with the broad service profile — the over-scoped shape
+ * A daemon-sub token with the broad service profile, the over-scoped shape
  * ATL-1033 removed. The relay must reject it: only speech_relay_v1 carries
  * the speech.relay scope.
  */
