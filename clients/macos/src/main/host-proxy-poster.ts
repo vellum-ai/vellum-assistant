@@ -10,7 +10,8 @@
  * base and an auth-headers builder.
  *
  * Injectable fetch function for testability (mirrors the SSE client pattern).
- * Returns boolean success/failure without throwing.
+ * Returns boolean success/failure without throwing. Result POSTs that hit a
+ * 401 refresh the bearer via the optional refreshAuth callback and retry once.
  */
 
 import { getDeviceId } from "./device-id";
@@ -104,6 +105,13 @@ export interface HostProxyPosterOptions {
   endpointBase: string;
   /** Called on every request to build auth headers. */
   authHeaders: () => Record<string, string>;
+  /**
+   * Called when a result POST gets a 401. Resolves to a fresh token (which
+   * the authHeaders builder must observe) or null; on success the POST is
+   * retried once with rebuilt headers. A healthy SSE stream never reconnects,
+   * so this is the only refresh path once the captured bearer expires.
+   */
+  refreshAuth?: () => Promise<string | null>;
   /** Override fetch for testing. Defaults to globalThis.fetch. */
   fetch?: FetchFn;
 }
@@ -124,11 +132,13 @@ function computeTimeout(bodyBytes: number): number {
 export class HostProxyPoster {
   private readonly endpointBase: string;
   private readonly authHeaders: () => Record<string, string>;
+  private readonly refreshAuth: (() => Promise<string | null>) | null;
   private readonly fetchFn: FetchFn;
 
   constructor(opts: HostProxyPosterOptions) {
     this.endpointBase = opts.endpointBase;
     this.authHeaders = opts.authHeaders;
+    this.refreshAuth = opts.refreshAuth ?? null;
     this.fetchFn = opts.fetch ?? globalThis.fetch;
   }
 
@@ -245,8 +255,23 @@ export class HostProxyPoster {
     path: string,
     payload: object,
   ): Promise<boolean> {
+    const body = JSON.stringify(payload);
+    const first = await this.sendJson(path, body);
+    if (first !== "unauthorized" || !this.refreshAuth) {
+      return first === "ok";
+    }
+    const fresh = await this.refreshAuth().catch(() => null);
+    if (!fresh) {
+      return false;
+    }
+    return (await this.sendJson(path, body)) === "ok";
+  }
+
+  private async sendJson(
+    path: string,
+    body: string,
+  ): Promise<"ok" | "unauthorized" | "failed"> {
     try {
-      const body = JSON.stringify(payload);
       const timeout = computeTimeout(Buffer.byteLength(body, "utf-8"));
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
@@ -259,12 +284,15 @@ export class HostProxyPoster {
           body,
           signal: controller.signal,
         });
-        return res.ok;
+        if (res.ok) {
+          return "ok";
+        }
+        return res.status === 401 ? "unauthorized" : "failed";
       } finally {
         clearTimeout(timer);
       }
     } catch {
-      return false;
+      return "failed";
     }
   }
 }
