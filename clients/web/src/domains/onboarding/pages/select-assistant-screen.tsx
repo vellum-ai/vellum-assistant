@@ -6,7 +6,7 @@ import {
   Link2,
   Plus,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
@@ -21,6 +21,7 @@ import {
   removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
+import { ConnectAssistantDialog } from "@/domains/onboarding/components/connect-assistant-dialog";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
@@ -105,6 +106,10 @@ export function SelectAssistantScreen() {
   // A pairing is device-local regardless of platform session, so unpairing
   // needs only the host, not a logged-out state.
   const canRemovePairedAssistants = isLocalModeHostAvailable();
+  // Importing a pairing bundle rewrites the lockfile through the same host,
+  // so the connect affordance shares the unpair gate: never shown in
+  // remote-gateway mode or browsers without a local-mode host.
+  const canConnectRemoteAssistant = isLocalModeHostAvailable();
 
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -122,6 +127,8 @@ export function SelectAssistantScreen() {
   );
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // The "Connect a remote assistant" paste-a-bundle dialog.
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   // After a manual removal the user is mid-management on this screen: a
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
@@ -296,6 +303,23 @@ export function SelectAssistantScreen() {
     setRemovePending(false);
   };
 
+  const handleImported = (assistantId: string) => {
+    setConnectDialogOpen(false);
+    // The import refreshes the lockfile before resolving, so the store already
+    // lists the new entry; the fallback keeps the connect total if it lags.
+    const imported = useResolvedAssistantsStore
+      .getState()
+      .assistants.find((a) => a.id === assistantId);
+    void handleConnect(
+      imported ?? {
+        id: assistantId,
+        isLocal: false,
+        isPlatformHosted: false,
+        isPaired: true,
+      },
+    );
+  };
+
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in or navigated here deliberately
   // (e.g. from settings or the Developer menu): let them see the chooser.
@@ -304,7 +328,7 @@ export function SelectAssistantScreen() {
     if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
       return;
     }
-    if (connecting || autoSkipping) {
+    if (connecting || autoSkipping || connectDialogOpen) {
       return;
     }
     if (assistants.length === 0) {
@@ -413,31 +437,24 @@ export function SelectAssistantScreen() {
               />
             );
           })}
-          <button
-            type="button"
+          <DashedActionButton
+            icon={<Plus className="h-4 w-4" />}
+            label="Create a new assistant"
+            disabled={connecting || loginLoading}
             onClick={() =>
               void navigate(
                 `${routes.onboarding.hosting}?from=select-assistant`,
               )
             }
-            disabled={connecting || loginLoading}
-            className={[
-              "group flex w-full items-center justify-center gap-2 border border-dashed border-[var(--border-element)]/50 text-[var(--content-tertiary)]",
-              electron ? "rounded-lg px-3 py-2.5" : "rounded-xl px-5 py-3",
-              "cursor-pointer transition-all duration-200 ease-out",
-              "hover:border-[var(--border-element)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            ].join(" ")}
-          >
-            <Plus className="h-4 w-4" />
-            <span
-              className={
-                electron ? "text-body-small-default" : "text-body-medium-default"
-              }
-            >
-              Create a new assistant
-            </span>
-          </button>
+          />
+          {canConnectRemoteAssistant && (
+            <DashedActionButton
+              icon={<Link2 className="h-4 w-4" />}
+              label="Connect a remote assistant"
+              disabled={connecting || loginLoading}
+              onClick={() => setConnectDialogOpen(true)}
+            />
+          )}
         </div>
 
         {accessibleAssistants.length > 0 && (
@@ -473,6 +490,11 @@ export function SelectAssistantScreen() {
         </div>
         </div>
       </div>
+      <ConnectAssistantDialog
+        open={connectDialogOpen}
+        onClose={() => setConnectDialogOpen(false)}
+        onImported={handleImported}
+      />
       <ConnectRecoveryDialog
         open={recoveryAssistant != null}
         assistantName={
@@ -517,6 +539,44 @@ export function SelectAssistantScreen() {
         onCancel={closeRemoveDialog}
       />
     </OnboardingLayout>
+  );
+}
+
+/** Dashed full-width secondary action below the assistant cards. */
+function DashedActionButton({
+  icon,
+  label,
+  disabled,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const electron = isElectron();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "group flex w-full items-center justify-center gap-2 border border-dashed border-[var(--border-element)]/50 text-[var(--content-tertiary)]",
+        electron ? "rounded-lg px-3 py-2.5" : "rounded-xl px-5 py-3",
+        "cursor-pointer transition-all duration-200 ease-out",
+        "hover:border-[var(--border-element)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+      ].join(" ")}
+    >
+      {icon}
+      <span
+        className={
+          electron ? "text-body-small-default" : "text-body-medium-default"
+        }
+      >
+        {label}
+      </span>
+    </button>
   );
 }
 

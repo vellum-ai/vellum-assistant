@@ -14,7 +14,7 @@ const replacePlatformAssistantsHost = mock(
   }),
 );
 
-const loadLockfileHost = mock(async () => {
+const loadLockfileHost = mock(async (): Promise<localModeHost.Lockfile> => {
   throw new Error("host down");
 });
 
@@ -34,6 +34,17 @@ const unpairAssistantHost = mock(
   }),
 );
 
+const connectImportHost = mock(
+  async (
+    _bundle: string,
+    _name?: string,
+  ): Promise<localModeHost.LocalConnectImportResult> => ({
+    ok: true as const,
+    assistantId: "paired-new",
+    accessOnly: false,
+  }),
+);
+
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
@@ -41,6 +52,7 @@ mock.module("@/runtime/local-mode-host", () => ({
   saveLockfileAssistantHost,
   fetchGuardianTokenHost,
   unpairAssistantHost,
+  connectImportHost,
 }));
 
 import {
@@ -53,6 +65,7 @@ import {
   getPlatformAssistants,
   getPlatformRuntimeUrl,
   getSelectedAssistant,
+  importPairedAssistantBundle,
   isCliWakeableAssistant,
   isLocalAssistant,
   isLocalGatewayAssistant,
@@ -131,9 +144,11 @@ afterEach(() => {
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
+  loadLockfileHost.mockClear();
   saveLockfileAssistantHost.mockClear();
   fetchGuardianTokenHost.mockClear();
   unpairAssistantHost.mockClear();
+  connectImportHost.mockClear();
   clearGatewayToken();
   setSelfHostedConnection(null);
 });
@@ -437,6 +452,60 @@ describe("removePairedAssistantFromLockfile", () => {
     );
     expect(getGatewayToken()).toBe("tok");
     expect(getSelfHostedIngressUrl()).toBe("http://localhost/x");
+  });
+});
+
+describe("importPairedAssistantBundle", () => {
+  test("registers the bundle through the host and reloads the lockfile", async () => {
+    loadLockfileHost.mockImplementationOnce(async () => ({
+      assistants: [pairedEntry],
+      activeAssistant: null,
+    }));
+
+    const result = await importPairedAssistantBundle("bundle-data", "desk");
+
+    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", "desk");
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-new",
+      accessOnly: false,
+    });
+    expect(loadLockfileHost).toHaveBeenCalledTimes(1);
+    expect(
+      useLockfileStore.getState().lockfile?.assistants.map(
+        (a) => a.assistantId,
+      ),
+    ).toEqual(["paired-a"]);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("passes accessOnly through on an access-only pairing", async () => {
+    connectImportHost.mockResolvedValueOnce({
+      ok: true as const,
+      assistantId: "paired-new",
+      accessOnly: true,
+    });
+
+    const result = await importPairedAssistantBundle("bundle-data");
+
+    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", undefined);
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-new",
+      accessOnly: true,
+    });
+  });
+
+  test("returns the host error without reloading on failure", async () => {
+    connectImportHost.mockResolvedValueOnce({
+      ok: false,
+      error: "invalid pairing bundle",
+    });
+
+    const result = await importPairedAssistantBundle("nope");
+
+    expect(result).toEqual({ ok: false, error: "invalid pairing bundle" });
+    expect(loadLockfileHost).not.toHaveBeenCalled();
   });
 });
 
