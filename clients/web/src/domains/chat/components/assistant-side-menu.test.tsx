@@ -55,6 +55,8 @@ import type {
 } from "@/types/conversation-types";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 
 // Most of what follows describes the Grouped view's composition: the Chats
 // section, the per-channel sections, and the peer treatment they share with
@@ -1062,7 +1064,15 @@ describe("AssistantSideMenu · equal section treatment", () => {
       el.matches(ruleSelector) ? true : el.querySelector(ruleSelector) != null,
     );
 
-    expect(root.querySelectorAll(ruleSelector)).toHaveLength(1);
+    // Counts *every* horizontal rule in the list, not just the curated
+    // block's own: a `SideMenu.Separator` between two sections draws the
+    // same line, and this fixture puts Pinned directly above a custom group
+    // - the boundary a per-section divider would land on.
+    expect(
+      root.querySelectorAll(
+        `${ruleSelector}, [data-slot="side-menu-separator"]`,
+      ),
+    ).toHaveLength(1);
     // Pinned and Alpha above it, Chats and Slack below.
     expect(indexOfText("Pinned")).toBeLessThan(ruleIndex);
     expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
@@ -1088,6 +1098,43 @@ describe("AssistantSideMenu · equal section treatment", () => {
     expect(
       root.querySelectorAll('[data-slot="sidebar-section-rule"]'),
     ).toHaveLength(0);
+  });
+
+  // The built-in nav block above the list closes with a separator once the
+  // user pins an app; the collapsed rail adds its own to break the cluster
+  // off from the group icons. Only one of the two may render, or the rail
+  // shows two rules with nothing between them.
+  test("the collapsed rail's header carries one separator, pinned apps or not", () => {
+    for (const pinnedApps of [
+      [] as PinnedAppEntry[],
+      [{ appId: "app-1", pinnedOrder: 0, name: "Vex Ops" }],
+    ]) {
+      usePinnedAppsStore.setState({
+        pinnedApps,
+        pinnedAppIds: new Set(pinnedApps.map((a) => a.appId)),
+      });
+
+      const container = parse(
+        renderMenu({
+          conversations: LAYOUT_CONVERSATIONS,
+          conversationGroups: LAYOUT_GROUPS,
+          collapsed: true,
+        }),
+      );
+
+      const header = container.querySelector<HTMLElement>(
+        '[data-slot="side-menu-header"]',
+      );
+      if (!header) {
+        throw new Error("expected the rail's non-scrolling header");
+      }
+
+      expect(
+        header.querySelectorAll('[data-slot="side-menu-separator"]'),
+      ).toHaveLength(1);
+    }
+
+    usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
   });
 
   // Pinned is the one section that doesn't cap: it grows to fit its own

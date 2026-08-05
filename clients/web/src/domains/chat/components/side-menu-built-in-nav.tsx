@@ -133,10 +133,13 @@ export function SideMenuBuiltInNav({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* The collapsed rail separates the cluster (or, when pinned apps
-          exist, the pinned-apps block above) from the group icons below it
-          (Figma 7257:135826). */}
-      {isCollapsedRail ? <SideMenu.Separator /> : null}
+      {/* The collapsed rail separates the cluster from the group icons below
+          it (Figma 7257:135826). Only when there are no pinned apps: that
+          block already closed with a separator, and a second one here would
+          stack two rules with nothing between them. */}
+      {isCollapsedRail && pinnedApps.length === 0 ? (
+        <SideMenu.Separator />
+      ) : null}
     </>
   );
 }
