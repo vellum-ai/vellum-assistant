@@ -48,7 +48,10 @@ import {
   extractMutationError,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
-import { formatDollars } from "@/domains/settings/components/tier-pricing";
+import {
+  formatDollars,
+  priceLabelFromCents,
+} from "@/domains/settings/components/tier-pricing";
 import {
   buildPortalReturnSnapshot,
   useBillingPortalSession,
@@ -111,11 +114,6 @@ const FREE_FEATURES: readonly string[] = [
   `${FREE_STORAGE_GIB} GB Storage`,
   "Pay-as-you-go credits",
 ];
-
-/** "$50/month" (or "$0/month"). */
-function priceLabelFromCents(cents: number): string {
-  return `${formatDollars(cents)}/month`;
-}
 
 /** Machine label for a package's feature row, e.g. "Medium Computer". */
 function machineComputerLabel(pkg: ProPackage): string {
