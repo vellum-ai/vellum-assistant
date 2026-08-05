@@ -470,6 +470,7 @@ import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memo
 import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-workspace-path.js";
 import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
 import { migrateAddConversationSubagentKind } from "./migrations/362-add-conversation-subagent-kind.js";
+import { migrateChatgptSubscriptionRowIdentity } from "./migrations/363-chatgpt-subscription-row-identity.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1559,5 +1560,13 @@ export const migrationSteps: MigrationStep[] = [
     // The backfill reads the `subagents` table (migration 311), so that table
     // must exist and be checkpointed first.
     dependsOn: ["migrateCreateSubagentsTable"],
+  },
+  {
+    name: "migrateChatgptSubscriptionRowIdentity",
+    run: migrateChatgptSubscriptionRowIdentity,
+    // The table-exists guard treats a missing table as nothing-to-do, so the
+    // creating migration must be checkpointed first or a repair flow could
+    // permanently checkpoint the no-op.
+    dependsOn: ["migrateCreateProviderConnections"],
   },
 ];
