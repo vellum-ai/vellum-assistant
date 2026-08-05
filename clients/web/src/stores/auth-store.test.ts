@@ -2081,6 +2081,10 @@ describe("session-rejection evidence at sibling confirmation sites", () => {
 
     expect(useAuthStore.getState().platformSession).not.toBe("present");
     expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    // A failed connect leaves no side effects behind: the caller keeps its
+    // current selection and consent state, not the rejected account's.
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(fetchConsentMock).not.toHaveBeenCalled();
   });
 
   test("connectPlatformAssistant tolerates a non-rejection org failure", async () => {

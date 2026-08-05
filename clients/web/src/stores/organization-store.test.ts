@@ -129,19 +129,26 @@ describe("fetch outcome classification", () => {
     );
   });
 
-  test("a superseded successful fetch commits the fresh list", async () => {
-    listOrganizations = () =>
-      Promise.resolve({ data: { results: [ORG_A] } });
+  test("a superseded successful fetch settles status without committing the stale account's org", async () => {
+    sessionStorage.setItem(STORAGE_KEY, ORG_B.id);
+    useOrganizationStore.setState({
+      persistedOrganizationId: ORG_B.id,
+      status: "ready",
+    });
+    listOrganizations = () => Promise.resolve({ data: { results: [ORG_A] } });
 
     const outcome = await useOrganizationStore
       .getState()
       .fetchOrganizations(() => false);
 
+    // The stale fetch resolved an older session's org; committing it would
+    // stamp requests with the wrong Vellum-Organization-Id.
     expect(outcome).toEqual({ ok: true });
     const state = useOrganizationStore.getState();
-    expect(state.currentOrganizationId).toBe(ORG_A.id);
-    expect(state.status).toBe("ready");
-    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
+    expect(state.currentOrganizationId).toBeNull();
+    expect(state.persistedOrganizationId).toBe(ORG_B.id);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_B.id);
+    expect(state.status).toBe("error");
   });
 
   test("a superseded thrown fetch still settles status", async () => {

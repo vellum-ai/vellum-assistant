@@ -62,10 +62,10 @@ interface OrganizationActions {
   /**
    * Load the org list and report how the fetch concluded. When `isCurrent`
    * is provided and answers false at commit time (a raced caller superseded
-   * mid-flight), a failed fetch settles status/error only: no org list, id,
-   * or storage writes, so a stale probe's rejection cannot strip the org
-   * fallback out from under a newer session, while readiness still reaches a
-   * terminal state. Successful data commits normally (fresh either way).
+   * mid-flight), the fetch settles status/error only: no org list, id, or
+   * storage writes, so a stale rejection cannot strip the org fallback out
+   * from under a newer session and a stale success cannot install an older
+   * account's org id, while readiness still reaches a terminal state.
    */
   fetchOrganizations: (isCurrent?: () => boolean) => Promise<OrgFetchOutcome>;
   setCurrentOrganizationId: (organizationId: string) => void;
@@ -172,14 +172,18 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
             : "No organization available for this user.";
       }
 
-      // A superseded caller must not strip the org fallback or the loaded
-      // list out from under a newer session, but leaving the store at
-      // "loading" would wedge org-header readiness at "resolving" when no
-      // newer fetch is coming (the probe's race timeout). Successful data is
-      // fresh regardless of the race, so it commits normally; failures
-      // settle status/error only.
-      if (!(isCurrent?.() ?? true) && !currentOrganizationId) {
-        set({ status: "error", error });
+      // A superseded caller commits no data either way: a stale rejection
+      // must not strip the org fallback out from under a newer session, and
+      // a stale success must not overwrite the newer session's org id with
+      // an older account's (requests would carry the wrong
+      // Vellum-Organization-Id). But leaving the store at "loading" would
+      // wedge org-header readiness at "resolving" when no newer fetch is
+      // coming (the probe's race timeout), so it settles status/error only.
+      if (!(isCurrent?.() ?? true)) {
+        set({
+          status: "error",
+          error: error ?? "Organization fetch superseded.",
+        });
         return outcome;
       }
 

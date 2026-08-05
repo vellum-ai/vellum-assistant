@@ -1051,22 +1051,24 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   },
 
   connectPlatformAssistant: async (assistantId: string) => {
-    await setSelectedAssistant(assistantId);
     const result = await getSession();
     if (!result.ok || !result.data.user) {
       throw new Error("Platform authentication required");
     }
     const user = toAuthUser(result.data.user);
-    await syncUserScopedState(user?.id ?? null);
     // Hydrate the organizations to avoid race conditions from lazy fetch; a
-    // settled rejection fails the connect rather than installing a platform
-    // user the API refuses to serve.
+    // settled rejection fails the connect before the assistant selection and
+    // user-scoped sync below, so a caller that catches the error keeps its
+    // current selection and consent state rather than the rejected
+    // account's.
     const orgOutcome = await useOrganizationStore
       .getState()
       .fetchOrganizations();
     if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
       throw new Error("Platform authentication required");
     }
+    await setSelectedAssistant(assistantId);
+    await syncUserScopedState(user?.id ?? null);
     set(authenticatedPlatformUser(user));
   },
 
