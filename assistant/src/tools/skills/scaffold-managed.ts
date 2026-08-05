@@ -15,11 +15,23 @@ import {
 import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import {
+  consumeDedupReceipt,
+  hasDedupReceipt,
+} from "./retrospective-dedup-receipts.js";
 
 const log = getLogger("scaffold-managed-skill");
 
 /** Watchdog check_name for the per-creation skill-authoring counter. */
 const SKILL_AUTHORED_CHECK_NAME = "skill_authored";
+
+/**
+ * Watchdog check_name for retrospective scaffolds rejected because the run
+ * held no `find_similar_skills` dedup receipt. A nonzero fleet rate means
+ * passes are skipping the mandated dedup check and being caught.
+ */
+const SKILL_SCAFFOLD_DEDUP_REJECTED_CHECK_NAME =
+  "skill_scaffold_dedup_rejected";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -241,6 +253,36 @@ export async function executeScaffoldManagedSkill(
     join(getManagedSkillDir(id), "SKILL.md"),
   );
 
+  // Dedup-receipt gate (retrospective origin only): every retrospective
+  // scaffold must be preceded by its own successful `find_similar_skills`
+  // check in the same run. The receipt is recorded by the find executor and
+  // consumed below only after a successful write, so a scaffold rejected here
+  // or by the ownership backstop keeps nothing and a scaffold that succeeds
+  // spends the check it was authorized by. Fail closed: no receipt, no write.
+  if (fromRetrospective) {
+    const runConversationForReceipt = context.conversationId;
+    if (
+      !runConversationForReceipt ||
+      !hasDedupReceipt(runConversationForReceipt)
+    ) {
+      try {
+        recordWatchdogEvent({
+          checkName: SKILL_SCAFFOLD_DEDUP_REJECTED_CHECK_NAME,
+          value: 1,
+          detail: {},
+        });
+      } catch {
+        // recordWatchdogEvent already no-ops on opt-out and a missing
+        // telemetry DB; anything past that is not worth surfacing here.
+      }
+      return {
+        content:
+          "Error: no find_similar_skills check on record for this pass. Call find_similar_skills with a short description of this procedure's goal first, review the hits per your instructions, then retry. Each scaffold_managed_skill call requires its own preceding find_similar_skills check.",
+        isError: true,
+      };
+    }
+  }
+
   // Ownership backstop (retrospective origin only): the retrospective may author
   // a skill ONLY if it owns it. Fail closed on either of two collisions.
   if (fromRetrospective) {
@@ -327,6 +369,13 @@ export async function executeScaffoldManagedSkill(
 
   if (!result.created) {
     return { content: `Error: ${result.error}`, isError: true };
+  }
+
+  // Spend the dedup receipt only now that the write succeeded: a failed
+  // store write above keeps the receipt so the retry needs no fresh check,
+  // while a second authored skill in the same run does.
+  if (fromRetrospective && context.conversationId) {
+    consumeDedupReceipt(context.conversationId);
   }
 
   refreshSkillCapabilityMemories();

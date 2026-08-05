@@ -75,6 +75,11 @@ function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
 
 import { loadSkillCatalog } from "../config/skills.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
+import {
+  hasDedupReceipt,
+  recordDedupReceipt,
+  resetDedupReceiptsForTests,
+} from "../tools/skills/retrospective-dedup-receipts.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -104,6 +109,16 @@ beforeEach(() => {
   skillCardJobUpserts = [];
   skillCardUpsertThrows = false;
   watchdogEvents.length = 0;
+  // Retrospective scaffolds require a find_similar_skills dedup receipt.
+  // Seed a generous stack for the conversation ids the retrospective-flow
+  // tests use, so those suites model a pass that already ran its check; the
+  // dedup-gate suite below resets and drives receipts explicitly.
+  resetDedupReceiptsForTests();
+  for (const conversationId of ["test-conversation", "retro-run-conv"]) {
+    for (let i = 0; i < 8; i++) {
+      recordDedupReceipt(conversationId, "seeded check");
+    }
+  }
 });
 
 afterEach(() => {
@@ -1070,10 +1085,12 @@ describe("scaffold_managed_skill tool", () => {
     expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
   });
 
-  test("retrospective scaffold with no conversationId on the context omits all lineage", async () => {
+  test("retrospective scaffold with no conversationId fails closed at the dedup gate before any lineage work", async () => {
     const lookup = mock(() => ({ forkParentConversationId: "source-conv" }));
     const context = makeRetrospectiveContext();
     // Some runtime callers construct a partial context without a conversation.
+    // With no conversation id there is no key to verify a dedup receipt
+    // against, so the gate rejects rather than skipping enforcement.
     delete (context as { conversationId?: string }).conversationId;
 
     const result = await executeScaffoldManagedSkill(
@@ -1087,11 +1104,9 @@ describe("scaffold_managed_skill tool", () => {
       { getConversation: lookup },
     );
 
-    expect(result.isError).toBe(false);
-    const meta = installMetaFor("no-conversation");
-    expect(meta?.author).toBe("assistant");
-    expect("sourceConversationId" in meta!).toBe(false);
-    expect("retrospectiveConversationId" in meta!).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("find_similar_skills");
+    expect(existsSync(join(TEST_DIR, "skills", "no-conversation"))).toBe(false);
     expect(lookup).not.toHaveBeenCalled();
   });
 
@@ -1468,5 +1483,126 @@ describe("scaffold_managed_skill tool", () => {
         (u.payload.skills as Array<{ skillId: string }>).map((s) => s.skillId),
       ),
     ).toEqual(["run-skill-a", "run-skill-b"]);
+  });
+});
+
+describe("scaffold_managed_skill retrospective dedup-receipt gate", () => {
+  // These tests drive the receipt registry explicitly, so drop the generous
+  // stack the outer beforeEach seeds for the flow suites above.
+  beforeEach(() => {
+    resetDedupReceiptsForTests();
+  });
+
+  const validInput = (skillId: string) => ({
+    skill_id: skillId,
+    name: `Skill ${skillId}`,
+    description: `Does ${skillId} things`,
+    body_markdown: "# Steps\n1. Do it.",
+  });
+
+  test("rejects a retrospective scaffold with no receipt on record, writes nothing, and counts the rejection", async () => {
+    const result = await executeScaffoldManagedSkill(
+      validInput("no-receipt-skill"),
+      makeRetrospectiveContext(),
+      catalogSeam(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("find_similar_skills");
+    expect(existsSync(join(TEST_DIR, "skills", "no-receipt-skill"))).toBe(
+      false,
+    );
+    expect(
+      watchdogEvents.filter(
+        (e) => e.checkName === "skill_scaffold_dedup_rejected",
+      ),
+    ).toHaveLength(1);
+    // A rejected scaffold is not an authored skill.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
+    ).toHaveLength(0);
+  });
+
+  test("rejects a retrospective scaffold with no conversation id to key a receipt on", async () => {
+    recordDedupReceipt("test-conversation", "some check");
+    const result = await executeScaffoldManagedSkill(
+      validInput("no-conv-skill"),
+      makeRetrospectiveContext({ conversationId: undefined }),
+      catalogSeam(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("find_similar_skills");
+  });
+
+  test("one receipt authorizes exactly one successful scaffold", async () => {
+    recordDedupReceipt("test-conversation", "export the report");
+
+    const first = await executeScaffoldManagedSkill(
+      validInput("receipt-skill-a"),
+      makeRetrospectiveContext(),
+      catalogSeam(),
+    );
+    expect(first.isError).toBe(false);
+    expect(hasDedupReceipt("test-conversation")).toBe(false);
+
+    const second = await executeScaffoldManagedSkill(
+      validInput("receipt-skill-b"),
+      makeRetrospectiveContext(),
+      catalogSeam(),
+    );
+    expect(second.isError).toBe(true);
+    expect(second.content).toContain("find_similar_skills");
+    expect(existsSync(join(TEST_DIR, "skills", "receipt-skill-b"))).toBe(false);
+  });
+
+  test("a scaffold rejected by the ownership backstop keeps its receipt for the retry", async () => {
+    recordDedupReceipt("test-conversation", "covered procedure");
+
+    const collision = await executeScaffoldManagedSkill(
+      validInput("bundled-owned"),
+      makeRetrospectiveContext(),
+      catalogSeam({ id: "bundled-owned", source: "bundled" }),
+    );
+    expect(collision.isError).toBe(true);
+    expect(collision.content).toContain("bundled");
+    // The receipt was not spent on the rejected write…
+    expect(hasDedupReceipt("test-conversation")).toBe(true);
+
+    // …so the corrected follow-up (a fresh id) succeeds without a new check.
+    const retry = await executeScaffoldManagedSkill(
+      validInput("fresh-after-collision"),
+      makeRetrospectiveContext(),
+      catalogSeam(),
+    );
+    expect(retry.isError).toBe(false);
+    expect(hasDedupReceipt("test-conversation")).toBe(false);
+  });
+
+  test("input-validation failures do not consume the receipt", async () => {
+    recordDedupReceipt("test-conversation", "some check");
+
+    const invalid = await executeScaffoldManagedSkill(
+      { skill_id: "x" },
+      makeRetrospectiveContext(),
+      catalogSeam(),
+    );
+    expect(invalid.isError).toBe(true);
+    expect(hasDedupReceipt("test-conversation")).toBe(true);
+  });
+
+  test("non-retrospective scaffolds need no receipt and consume none", async () => {
+    const result = await executeScaffoldManagedSkill(
+      validInput("user-skill"),
+      makeContext(),
+      catalogSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      watchdogEvents.filter(
+        (e) => e.checkName === "skill_scaffold_dedup_rejected",
+      ),
+    ).toHaveLength(0);
   });
 });

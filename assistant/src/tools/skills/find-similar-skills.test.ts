@@ -15,7 +15,7 @@
  */
 
 import { basename } from "node:path";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSource } from "../../config/skills.js";
 import type { OwnerInfo } from "../types.js";
@@ -33,6 +33,11 @@ mock.module("../../skills/install-meta.js", () => ({
 
 import type { ToolContext } from "../types.js";
 import { executeFindSimilarSkills } from "./find-similar-skills.js";
+import {
+  consumeDedupReceipt,
+  hasDedupReceipt,
+  resetDedupReceiptsForTests,
+} from "./retrospective-dedup-receipts.js";
 
 function makeContext(enabledPluginSet?: Set<string> | null): ToolContext {
   return {
@@ -420,5 +425,67 @@ describe("find_similar_skills — input validation", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("limit must be a positive integer");
     }
+  });
+});
+
+describe("find_similar_skills — retrospective dedup receipts", () => {
+  beforeEach(() => {
+    resetDedupReceiptsForTests();
+  });
+
+  const retroContext = (overrides: Partial<ToolContext> = {}): ToolContext => ({
+    ...makeContext(),
+    requestOrigin: "memory_retrospective",
+    ...overrides,
+  });
+
+  const emptyShortlist = {
+    nearestExistingSkills: async () => [],
+    loadCatalog: () => catalog(),
+  };
+
+  test("a successful retrospective-origin call records a receipt for its run", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "  export the weekly report  " },
+      retroContext(),
+      emptyShortlist,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(hasDedupReceipt("test-conversation")).toBe(true);
+    // The receipt carries the trimmed goal for log lines and future
+    // procedure binding.
+    expect(consumeDedupReceipt("test-conversation")?.goal).toBe(
+      "export the weekly report",
+    );
+  });
+
+  test("no receipt without the retrospective origin", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "export the weekly report" },
+      makeContext(),
+      emptyShortlist,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(hasDedupReceipt("test-conversation")).toBe(false);
+  });
+
+  test("no receipt on a validation error", async () => {
+    const result = await executeFindSimilarSkills({}, retroContext());
+
+    expect(result.isError).toBe(true);
+    expect(hasDedupReceipt("test-conversation")).toBe(false);
+  });
+
+  test("no receipt without a conversation id to key it on", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "export the weekly report" },
+      retroContext({ conversationId: undefined }),
+      emptyShortlist,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(hasDedupReceipt("test-conversation")).toBe(false);
   });
 });

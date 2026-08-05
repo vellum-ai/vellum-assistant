@@ -1,9 +1,11 @@
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
+import { recordDedupReceipt } from "./retrospective-dedup-receipts.js";
 
 /**
  * A shortlisted skill enriched with its catalog name, description, and source.
@@ -126,6 +128,17 @@ export async function executeFindSimilarSkills(
           : undefined,
       score: hit.score,
     });
+  }
+
+  // Retrospective-origin runs get a dedup receipt for this successful check:
+  // the scaffold executor consumes one per authored skill and fails closed
+  // without one, enforcing the fork instruction's find-before-scaffold
+  // contract (see retrospective-dedup-receipts.ts).
+  if (
+    context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN &&
+    context.conversationId
+  ) {
+    recordDedupReceipt(context.conversationId, goal.trim());
   }
 
   return {
