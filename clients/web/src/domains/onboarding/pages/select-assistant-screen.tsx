@@ -328,7 +328,7 @@ export function SelectAssistantScreen() {
     if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
       return;
     }
-    if (connecting || autoSkipping) {
+    if (connecting || autoSkipping || connectDialogOpen) {
       return;
     }
     if (assistants.length === 0) {

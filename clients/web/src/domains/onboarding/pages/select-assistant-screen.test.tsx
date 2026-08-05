@@ -575,6 +575,26 @@ describe("SelectAssistantScreen paired assistants", () => {
     expect(screen.queryByText("Connect dialog open")).toBeNull();
   });
 
+  test("an open connect dialog suppresses the sole-assistant auto-skip", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [];
+
+    const { rerender } = render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Connect a remote assistant"));
+
+    // The import's lockfile reload populates the store while the dialog is
+    // still open (e.g. the access-only warning step is showing).
+    assistantsValue = [makePairedAssistant()];
+    rerender(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Connect dialog open")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
   test("confirming a locked platform removal still calls removePlatformAssistantFromLockfile", async () => {
     localModeHostAvailableValue = true;
     assistantsValue = [makePlatformAssistant()];
