@@ -110,7 +110,12 @@ export function localModePlugin(env: Record<string, string>): Plugin {
         statusMiddleware(config.lockfilePaths, upgradingLocalAssistantIds),
       );
       server.middlewares.use(
-        guardianTokenMiddleware(config.configDir, baseDir, env),
+        guardianTokenMiddleware(
+          config.lockfilePaths,
+          config.configDir,
+          baseDir,
+          env,
+        ),
       );
       server.middlewares.use(gatewayProxyMiddleware(config.lockfilePaths));
       server.middlewares.use(pairedGatewayProxyMiddleware(config.lockfilePaths));
@@ -842,6 +847,7 @@ function statusMiddleware(
 }
 
 function guardianTokenMiddleware(
+  lockfilePaths: string[],
   configDir: string,
   baseDir: string,
   env: Record<string, string>,
@@ -878,7 +884,17 @@ function guardianTokenMiddleware(
       return;
     }
 
-    getGuardianAccessToken(assistantId, configDir, invocation, true, env).then(
+    // Paired entries have no local daemon, so token-failure guidance must
+    // say re-pair rather than hatch/wake.
+    const lockfile = getLockfileData(lockfilePaths);
+    const paired =
+      lockfile.ok &&
+      lockfile.data.assistants.some(
+        (a) => a.assistantId === assistantId && a.cloud === "paired",
+      );
+    getGuardianAccessToken(assistantId, configDir, invocation, true, env, {
+      paired,
+    }).then(
       (result) => {
         if (result.ok) {
           res.setHeader("Content-Type", "application/json");
