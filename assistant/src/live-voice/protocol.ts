@@ -108,7 +108,7 @@ export interface LiveVoiceClientStartFrame {
    * macOS apps run the same web bundle over the same transport, so the thing
    * that actually differs between them is the OS surface. `ClientOs` is also
    * the vocabulary that is barred by contract from answering transport
-   * questions (see `channels/types.ts`), which is the invariant wanted here —
+   * questions (see `channels/types.ts`), which is the invariant wanted here:
    * this value is **analytics only**. It rides the voice turn's telemetry
    * `client` bag (see `voice-session-bridge.ts`) and never reaches
    * `userMessageInterface`, which feeds `resolveChannelCapabilities` and is

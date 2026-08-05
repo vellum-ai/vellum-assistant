@@ -2,7 +2,7 @@
  * Live-voice session telemetry: the started/ended funnel rows a session
  * records, and the attribution carried on its turns.
  *
- * The recorder is mocked — the outbox and its consent gate are covered by
+ * The recorder is mocked: the outbox and its consent gate are covered by
  * `telemetry-events-outbox.test.ts`. What these tests pin is the wiring that
  * decides whether a row exists at all and what it says, which is where the
  * measurement can silently go wrong: a session that fails before `ready` still

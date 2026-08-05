@@ -126,7 +126,7 @@ export function recordActivationEvent(params: {
 /**
  * Record a live-voice session milestone (started / ended). Reuses the same
  * onboarding telemetry substrate as {@link recordActivationEvent}, keyed by the
- * live-voice session id so the two events pair up downstream — see
+ * live-voice session id so the two events pair up downstream. See
  * `telemetry/live-voice-funnel.ts` for why duration and turn count are derived
  * from that pairing rather than carried as fields.
  *

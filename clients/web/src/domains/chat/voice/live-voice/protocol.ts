@@ -74,7 +74,7 @@ export interface LiveVoiceClientStartFrame {
   /**
    * Which client opened the session, as a `ClientOs` surface. The iOS and
    * macOS apps run this same bundle over this same transport, so the OS
-   * surface is the only thing that actually distinguishes them — a literal
+   * surface is the only thing that actually distinguishes them, and a literal
    * here would report every native session as `web`.
    *
    * Analytics only: the daemon puts it on the voice turn's telemetry `client`

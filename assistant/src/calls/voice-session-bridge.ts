@@ -270,7 +270,7 @@ export interface VoiceTurnOptions {
    * Analytics attribution for a live-voice turn: which client opened the
    * session, and that session's id. Persisted into the user message's
    * `metadata.client` bag, which `turn-events-store` projects onto
-   * `TurnTelemetryEvent.client` — so a live-voice turn is countable per client
+   * `TurnTelemetryEvent.client`, so a live-voice turn is countable per client
    * and joinable to its session's start/end funnel rows.
    *
    * Deliberately separate from {@link userMessageInterface}: that field feeds
@@ -967,13 +967,18 @@ export async function startVoiceTurn(
               // Projected onto `TurnTelemetryEvent.client` by
               // `turn-events-store`. `voice_session_id` is what joins these
               // turn rows to the session's funnel rows, so a session's turn
-              // count is a count of rows carrying its id — the metric is never
-              // restated as a field anyone has to keep correct.
+              // count is a count of rows carrying its id, never a field
+              // anyone has to keep correct.
+              //
+              // `os` is the standard per-platform dimension the HTTP send
+              // path already fills from the same `detectClientOs()` value, so
+              // a voice turn reports its platform in the column existing turn
+              // analytics read rather than one only voice knows about.
               client: {
                 voice: true,
                 voice_session_id: opts.voiceTelemetry.sessionId,
                 ...(opts.voiceTelemetry.client
-                  ? { voice_client: opts.voiceTelemetry.client }
+                  ? { os: opts.voiceTelemetry.client }
                   : {}),
               },
             }

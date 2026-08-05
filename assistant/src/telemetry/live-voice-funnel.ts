@@ -1,5 +1,5 @@
 /**
- * Live-voice session telemetry vocabulary — the single source of truth for the
+ * Live-voice session telemetry vocabulary: the single source of truth for the
  * step names, funnel version, and end-reason values the live-voice session
  * emitter uses.
  *
@@ -35,9 +35,9 @@ export const LIVE_VOICE_FUNNEL_VERSION = "live_voice_v1_2026_08";
  * is the ordinal position.
  *
  * `sessionStarted` fires for every *attempted* session, before the credential
- * preflight that can reject it — a session that fails to connect is exactly
- * the one worth counting, and gating the start event on `ready` would hide it
- * from the failure rate entirely.
+ * preflight that can reject it. A session that fails to connect is exactly the
+ * one worth counting, and gating the start event on `ready` would hide it from
+ * the failure rate entirely.
  */
 export const LIVE_VOICE_STEPS = {
   sessionStarted: { stepName: "live_voice_session_started", stepIndex: 0 },
@@ -50,7 +50,7 @@ export type LiveVoiceStepName =
 /**
  * How a session ended, stamped as `outcome`.
  *
- * `failed` means the session died on an error — a credential preflight
+ * `failed` means the session died on an error: a credential preflight
  * rejection before `ready`, or an utterance-arm failure after it. Everything
  * else, including a dropped socket, is `completed`: the session ran and then
  * stopped, and the close reason on `screen` says how.

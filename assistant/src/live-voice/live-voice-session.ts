@@ -982,7 +982,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * {@link sendFrame} when an error frame goes out on an already-`failed`
    * session. Both fatal paths (`failStartup` before `ready`, a failed
    * utterance arm after it) set `state = "failed"` before sending, and no
-   * other error frame does — so this catches exactly the session-ending
+   * other error frame does, so this catches exactly the session-ending
    * failures and ignores the recoverable mid-session ones. `null` on a
    * session that never failed.
    */
@@ -1289,7 +1289,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     // Recorded first, and independently of `shouldEmitSessionEndMetrics`
     // below: that flag governs the client-facing `metrics` frame, and a
-    // failed session — which suppresses the frame — is the one whose end
+    // failed session (which suppresses the frame) is the one whose end
     // telemetry matters most. Session duration downstream is this row's
     // `recorded_at` minus the started row's, so it must be written before the
     // teardown below, which awaits a pending continuation and can run long.
@@ -3844,7 +3844,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // Fixed, and NOT the originating client: this pair resolves the turn's
         // channel capabilities, where `macos` is what grants a live-voice turn
         // desktop UI and dynamic surfaces. Reporting the true client here would
-        // strip `supportsDynamicUi` from every iOS session — a behavior change
+        // strip `supportsDynamicUi` from every iOS session: a behavior change
         // wearing an attribution fix's clothes. The originating client travels
         // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
