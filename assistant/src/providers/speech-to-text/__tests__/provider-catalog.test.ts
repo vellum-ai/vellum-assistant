@@ -23,6 +23,7 @@ describe("STT provider catalog", () => {
     const ids = listProviderIds();
     expect(ids).toContain("openai-whisper");
     expect(ids).toContain("deepgram");
+    expect(ids).toContain("deepgram-flux");
     expect(ids).toContain("google-gemini");
   });
 
@@ -101,6 +102,13 @@ describe("STT provider catalog", () => {
     expect(supportsBoundary("openai-whisper", "daemon-streaming")).toBe(true);
   });
 
+  test("deepgram-flux is streaming-only", () => {
+    // Flux has no batch endpoint; the batch transcriber factory rejects it
+    // explicitly rather than silently falling through.
+    expect(supportsBoundary("deepgram-flux", "daemon-streaming")).toBe(true);
+    expect(supportsBoundary("deepgram-flux", "daemon-batch")).toBe(false);
+  });
+
   test("supportsBoundary returns false for unknown provider IDs", () => {
     // Cast to bypass type checking for the test
     expect(supportsBoundary("nonexistent" as never, "daemon-batch")).toBe(
@@ -148,6 +156,7 @@ describe("STT provider catalog", () => {
 
   const expectedLanguageSelection = [
     ["deepgram", "manual"],
+    ["deepgram-flux", "manual"],
     ["vellum", "manual"],
     ["xai", "manual"],
     ["google-gemini", "auto"],
@@ -169,6 +178,15 @@ describe("STT provider catalog", () => {
     expect(getCredentialProvider("openai-whisper")).toBe("openai");
     expect(getCredentialProvider("deepgram")).toBe("deepgram");
     expect(getCredentialProvider("google-gemini")).toBe("gemini");
+  });
+
+  test("deepgram-flux shares the deepgram credential", () => {
+    expect(getCredentialProvider("deepgram-flux")).toBe("deepgram");
+    // Sharing must not duplicate the key in the API-key provider list.
+    const deepgramEntries = listCredentialProviderNames().filter(
+      (name) => name === "deepgram",
+    );
+    expect(deepgramEntries).toEqual(["deepgram"]);
   });
 
   test("getCredentialProvider returns undefined for unknown ID", () => {

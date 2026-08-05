@@ -118,6 +118,17 @@ interface SttProviderEntry {
 // ---------------------------------------------------------------------------
 
 /**
+ * Shared by every provider that authenticates against a Deepgram account —
+ * the key is the same one, so the instructions must not drift apart.
+ */
+const DEEPGRAM_CREDENTIALS_GUIDE: SttCredentialsGuide = {
+  description:
+    "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
+  url: "https://console.deepgram.com/",
+  linkLabel: "Open Deepgram Console",
+};
+
+/**
  * Provider catalog entries, keyed by provider ID.
  *
  * To add a new STT provider:
@@ -148,12 +159,30 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: true,
       languageSelection: "manual",
-      credentialsGuide: {
-        description:
-          "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
-        url: "https://console.deepgram.com/",
-        linkLabel: "Open Deepgram Console",
-      },
+      credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
+    },
+  ],
+  [
+    "deepgram-flux",
+    {
+      id: "deepgram-flux",
+      displayName: "Deepgram Flux",
+      subtitle:
+        "Conversational speech-to-text with model-native turn detection. Uses your Deepgram API key.",
+      setupMode: "api-key",
+      setupHint:
+        "Enter your Deepgram API key — Flux shares the same key as Deepgram.",
+      // Shared with the `deepgram` provider: Flux is a model on the same
+      // account, not a separate credential.
+      credentialProvider: "deepgram",
+      // Streaming only — Flux has no batch endpoint.
+      supportedBoundaries: new Set<SttBoundaryId>(["daemon-streaming"]),
+      // Phone calls stay on the `deepgram` provider while Flux is a spike.
+      telephonyMode: "none",
+      conversationStreamingMode: "realtime-ws",
+      supportsDiarization: false,
+      languageSelection: "manual",
+      credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
     },
   ],
   [
