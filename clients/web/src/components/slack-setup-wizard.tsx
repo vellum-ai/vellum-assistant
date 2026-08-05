@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stepper, type StepperStep } from "@vellumai/design-library";
 import { SlackSetupCreateStep } from "@/components/slack-setup-create-step";
 import { SlackSetupNameStep } from "@/components/slack-setup-name-step";
+import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
 import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { buildSlackManifest } from "@/utils/slack-manifest";
@@ -16,12 +17,13 @@ export type MutationStatus = "idle" | "pending" | "success" | "error";
  */
 const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
-const WIZARD_STEP_IDS = ["name", "create", "connect"] as const;
+const WIZARD_STEP_IDS = ["name", "open", "create", "connect"] as const;
 export type SlackSetupStepId = (typeof WIZARD_STEP_IDS)[number];
 
 const WIZARD_STEPS: StepperStep[] = [
   { id: "name", label: "Name" },
-  { id: "create", label: "Create app" },
+  { id: "open", label: "Open" },
+  { id: "create", label: "Create" },
   { id: "connect", label: "Connect" },
 ];
 
@@ -89,11 +91,14 @@ export function SlackSetupWizard({
 
   const handleCopyAndContinue = useCallback(() => {
     handleCopyManifest();
-    setStepId("create");
+    setStepId("open");
   }, [handleCopyManifest]);
 
+  // Opening Slack is also what advances, so this step keeps a single forward
+  // action and the in-Slack directions get a screen of their own.
   const handleOpenSlack = useCallback(() => {
     window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
+    setStepId("create");
   }, []);
 
   const handleSave = useCallback(() => {
@@ -133,13 +138,16 @@ export function SlackSetupWizard({
           />
         )}
 
-        {stepId === "create" && (
-          <SlackSetupCreateStep
+        {stepId === "open" && (
+          <SlackSetupOpenStep
             copied={copied}
             onOpenSlack={handleOpenSlack}
             onCopyManifest={handleCopyManifest}
-            onContinue={() => setStepId("connect")}
           />
+        )}
+
+        {stepId === "create" && (
+          <SlackSetupCreateStep onContinue={() => setStepId("connect")} />
         )}
 
         {stepId === "connect" && (

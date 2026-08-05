@@ -56,7 +56,7 @@ export const NameEmpty: Story = {
  * Step 2, reached by copying rather than by `initialStepId`, so this also
  * covers the copy-and-advance handoff the flow depends on.
  */
-export const CreateApp: Story = {
+export const OpenSlack: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
@@ -65,7 +65,12 @@ export const CreateApp: Story = {
   },
 };
 
-/** Step 3: both tokens, empty. */
+/** Step 3: the in-Slack directions, with one way forward. */
+export const CreateApp: Story = {
+  args: { initialStepId: "create" },
+};
+
+/** Step 4: both tokens, empty. */
 export const Connect: Story = {
   args: { initialStepId: "connect" },
 };

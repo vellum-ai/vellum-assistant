@@ -1,62 +1,21 @@
-import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
-
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
 export interface SlackSetupCreateStepProps {
-  copied: boolean;
-  onOpenSlack: () => void;
-  onCopyManifest: () => void;
   onContinue: () => void;
 }
 
 /**
- * Step 2 of `SlackSetupWizard`: hand the manifest to Slack.
+ * Step 3 of `SlackSetupWizard`: what to do inside Slack.
  *
- * "Open Slack" leads, because everything below it happens in the tab that
- * button opens. The directions stay on screen here for the round trip back.
+ * These directions stay on screen while the user works in the other tab, so
+ * this step holds no handoff control of its own. Reopening Slack means
+ * stepping back, which the stepper already allows.
  */
 export function SlackSetupCreateStep({
-  copied,
-  onOpenSlack,
-  onCopyManifest,
   onContinue,
 }: SlackSetupCreateStepProps) {
   return (
     <div className="flex flex-col gap-4">
-      <Typography
-        as="p"
-        variant="body-medium-lighter"
-        className="text-[color:var(--content-default)]"
-      >
-        The manifest is on your clipboard. Create the app in Slack, then come
-        back here.
-      </Typography>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          variant="primary"
-          onClick={onOpenSlack}
-          rightIcon={<ExternalLink aria-hidden className="size-4" />}
-        >
-          Open Slack
-        </Button>
-        <Button
-          type="button"
-          variant="outlined"
-          onClick={onCopyManifest}
-          leftIcon={
-            copied ? (
-              <Check aria-hidden className="size-4" />
-            ) : (
-              <ClipboardCopy aria-hidden className="size-4" />
-            )
-          }
-        >
-          {copied ? "Copied!" : "Copy again"}
-        </Button>
-      </div>
-
       <Typography
         as="p"
         variant="body-medium-lighter"

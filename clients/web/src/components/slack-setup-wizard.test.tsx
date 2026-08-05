@@ -69,6 +69,50 @@ describe("SlackSetupWizard step flow", () => {
     });
   });
 
+  test("opening Slack is what advances past the handoff step", async () => {
+    const opened: string[] = [];
+    const realOpen = window.open;
+    window.open = ((url: string) => {
+      opened.push(url);
+      return null;
+    }) as typeof window.open;
+
+    try {
+      render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+      fireEvent.click(continueButton());
+      fireEvent.click(screen.getByRole("button", { name: /Open Slack/i }));
+
+      expect(opened).toHaveLength(1);
+      expect(opened[0]).toContain("api.slack.com/apps");
+
+      // The in-Slack directions are the next screen, not a peer of the button
+      // that sent the user there.
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: /I created the app/i }),
+        ).toBeTruthy();
+      });
+    } finally {
+      window.open = realOpen;
+    }
+  });
+
+  test("copying again does not advance past the handoff step", () => {
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    fireEvent.click(continueButton());
+    // Arriving here right after the copy, the button still reads "Copied!";
+    // it settles to "Copy again" once the transient flag resets.
+    fireEvent.click(
+      screen.getByRole("button", { name: /Copied!|Copy again/i }),
+    );
+
+    expect(clipboardWrites).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /Open Slack/i })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /I created the app/i }),
+    ).toBeNull();
+  });
+
   test("step 1 offers no way forward that skips the copy", () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
 
