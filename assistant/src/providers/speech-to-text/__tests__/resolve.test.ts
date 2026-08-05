@@ -491,6 +491,7 @@ describe("resolveTelephonySttCapability", () => {
 // Tests — telephony capability alignment with provider catalog
 // ---------------------------------------------------------------------------
 
+import type { SttProviderId } from "../../../stt/types.js";
 import { getProviderEntry, listProviderIds } from "../provider-catalog.js";
 
 describe("telephony capability catalog alignment", () => {
@@ -501,6 +502,15 @@ describe("telephony capability catalog alignment", () => {
    * telephonyMode or a new provider is added, these tests will catch
    * misalignment early.
    */
+
+  /**
+   * Providers that deliberately sit out telephony (`telephonyMode: "none"`).
+   * `deepgram-flux` is a streaming-only spike: phone calls stay on the
+   * `deepgram` provider until Flux proves itself in live voice.
+   */
+  const TELEPHONY_OPT_OUT: ReadonlySet<SttProviderId> = new Set([
+    "deepgram-flux",
+  ]);
 
   test("deepgram catalog entry has realtime-ws telephonyMode", () => {
     const entry = getProviderEntry("deepgram");
@@ -535,15 +545,31 @@ describe("telephony capability catalog alignment", () => {
     expect(entry!.credentialProvider).toBe("openai");
   });
 
-  test("every catalog provider has a non-none telephonyMode", () => {
-    // The telephony capability resolver assumes all known providers
-    // participate in telephony over the media-stream transport. If a
-    // provider with telephonyMode: "none" is added, the resolver reports
-    // it as unsupported.
+  test("every catalog provider has a non-none telephonyMode unless it opts out", () => {
+    // The telephony capability resolver assumes known providers participate
+    // in telephony over the media-stream transport. A provider with
+    // telephonyMode: "none" is reported as unsupported, so opting out has to
+    // be a deliberate, listed choice rather than an oversight.
     for (const id of listProviderIds()) {
       const entry = getProviderEntry(id);
       expect(entry).toBeDefined();
+      if (TELEPHONY_OPT_OUT.has(id)) {
+        expect(entry!.telephonyMode).toBe("none");
+        continue;
+      }
       expect(entry!.telephonyMode).not.toBe("none");
+    }
+  });
+
+  test("telephony opt-out providers resolve as unsupported", async () => {
+    for (const id of TELEPHONY_OPT_OUT) {
+      const entry = getProviderEntry(id);
+      mockVellumAvailable = false;
+      mockProviderKeys = { [entry!.credentialProvider]: `test-key-${id}` };
+      applyConfig({ provider: id });
+
+      const result = await resolveTelephonySttCapability();
+      expect(result.status).toBe("unsupported");
     }
   });
 
@@ -574,6 +600,9 @@ describe("telephony capability catalog alignment", () => {
     };
 
     for (const id of listProviderIds()) {
+      if (TELEPHONY_OPT_OUT.has(id)) {
+        continue;
+      }
       const credKey = credentialMap[id];
       expect(credKey).toBeDefined();
 
