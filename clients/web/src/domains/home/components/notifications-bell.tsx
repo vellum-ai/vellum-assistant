@@ -30,12 +30,12 @@ import {
   clearAllArgs,
   getVisibleFeedItems,
   markAllReadArgs,
+  resolveFeedItemTitle,
   sortFeedItems,
 } from "../utils";
 import {
   NOTIFICATIONS_PANEL_HEADER_CLASS,
   NotificationsBellDetail,
-  resolveNotificationTitle,
 } from "./notifications-bell-detail";
 
 /**
@@ -326,7 +326,7 @@ export function NotificationsBell() {
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>
               {selectedItem
-                ? resolveNotificationTitle(selectedItem)
+                ? resolveFeedItemTitle(selectedItem)
                 : "Notifications"}
             </BottomSheet.Title>
           </BottomSheet.Header>

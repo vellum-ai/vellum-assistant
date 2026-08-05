@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { FeedItem } from "@vellumai/assistant-api";
 
-import { getFeedItemScheduleId } from "./utils";
+import { getFeedItemScheduleId, resolveFeedItemTitle } from "./utils";
 
 function feedItem(overrides: Partial<FeedItem> = {}): FeedItem {
   const timestamp = new Date("2024-01-01T00:00:00.000Z").toISOString();
@@ -49,5 +49,22 @@ describe("getFeedItemScheduleId", () => {
 
   test("returns null when there is no item", () => {
     expect(getFeedItemScheduleId(null)).toBeNull();
+  });
+});
+
+describe("resolveFeedItemTitle", () => {
+  test("returns the item's own title", () => {
+    const item = feedItem({ title: "Deploy finished", summary: "**Details**" });
+    expect(resolveFeedItemTitle(item)).toBe("Deploy finished");
+  });
+
+  test("falls back to the summary as plain text when there is no title", () => {
+    const item = feedItem({ summary: "**Deploy** finished" });
+    expect(resolveFeedItemTitle(item)).toBe("Deploy finished");
+  });
+
+  test("falls back to a fixed name when the summary flattens to nothing", () => {
+    const item = feedItem({ summary: "```\nnpm run build\n```" });
+    expect(resolveFeedItemTitle(item)).toBe("Notification");
   });
 });

@@ -6,8 +6,7 @@ import { Button, Tag, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
-import { flattenSummary } from "../feed-preview";
-import { getFeedItemScheduleId } from "../utils";
+import { getFeedItemScheduleId, resolveFeedItemTitle } from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -16,19 +15,6 @@ import { getFeedItemScheduleId } from "../utils";
  */
 export const NOTIFICATIONS_PANEL_HEADER_CLASS =
   "mb-[var(--app-spacing-sm)] flex min-h-8 items-center gap-[var(--app-spacing-xs)]";
-
-/** Name for an item with neither a title nor a summary that renders as text. */
-const UNNAMED_ITEM_TITLE = "Notification";
-
-/**
- * Header name for a feed item: the same text its list row carries, so the
- * title the user clicked is the title they land on. `summary` is markdown, so
- * the fallback goes through the flattener rather than showing syntax.
- */
-export function resolveNotificationTitle(item: FeedItem): string {
-  const resolved = item.title ?? flattenSummary(item.summary);
-  return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
-}
 
 export interface NotificationsBellDetailProps {
   item: FeedItem;
@@ -119,7 +105,7 @@ export function NotificationsBellDetail({
           as="h2"
           className="min-w-0 flex-1 truncate text-[var(--content-default)]"
         >
-          {resolveNotificationTitle(item)}
+          {resolveFeedItemTitle(item)}
         </Typography>
       </div>
 
