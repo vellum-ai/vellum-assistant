@@ -10,10 +10,9 @@ import {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
-  decodePairBundle,
+  connectImport,
   getLockfileData,
   getLocalAssistantStatus,
-  pairAssistant,
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
@@ -540,9 +539,6 @@ function unpairMiddleware(
   };
 }
 
-// Bounds what a request can make the dev server buffer and decode.
-const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
-
 function connectImportMiddleware(
   lockfilePaths: string[],
   configDir: string,
@@ -571,29 +567,9 @@ function connectImportMiddleware(
         return;
       }
 
-      const bundle = body.bundle;
-      const name = body.name;
-      if (typeof bundle !== "string" || !bundle) {
-        respondJson(res, 400, { ok: false, error: "Missing pairing bundle" });
-        return;
-      }
-      if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
-        respondJson(res, 400, {
-          ok: false,
-          error: "Pairing bundle is too large",
-        });
-        return;
-      }
-
-      const decoded = decodePairBundle(bundle.trim());
-      if (!decoded.ok) {
-        respondJson(res, 400, { ok: false, error: decoded.error });
-        return;
-      }
-
-      const result = pairAssistant(lockfilePaths, configDir, {
-        bundle: decoded.bundle,
-        name: typeof name === "string" && name ? name : undefined,
+      const result = connectImport(lockfilePaths, configDir, {
+        bundle: body.bundle,
+        name: body.name,
       });
       respondJson(
         res,

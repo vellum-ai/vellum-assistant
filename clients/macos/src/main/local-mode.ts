@@ -4,12 +4,11 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
-  decodePairBundle,
+  connectImport,
   getGuardianAccessToken,
   isActiveAssistant,
   getLockfileData,
   getLocalAssistantStatus,
-  pairAssistant,
   replacePlatformAssistants,
   resolveConfigDir,
   resolveEnvironmentName,
@@ -226,13 +225,13 @@ const assistantIdArgs = z.tuple([z.string().optional()]);
 
 // `connectImport` takes a pairing bundle plus an optional local name. Both are
 // optional on the wire (missing values resolve with structured errors, keeping
-// the never-reject contract); the length cap bounds what a hostile renderer
-// can make the main process buffer and decode.
+// the never-reject contract); the shared `connectImport` op validates the
+// bundle, including the length cap that bounds what a hostile renderer can
+// make the main process buffer and decode.
 const connectImportArgs = z.tuple([
   z.string().optional(),
   z.string().optional(),
 ]);
-const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
 
 // `wake` additionally takes an options object so a user-confirmed repair can
 // pass `repairGuardian` through to the CLI's `--repair-guardian` flag. Both
@@ -351,20 +350,7 @@ export const installLocalMode = (): void => {
     "vellum:localMode:connectImport",
     connectImportArgs,
     ([bundle, name]): LocalConnectImportResult => {
-      if (!bundle) {
-        return { ok: false, error: "Missing pairing bundle" };
-      }
-      if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
-        return { ok: false, error: "Pairing bundle is too large" };
-      }
-      const decoded = decodePairBundle(bundle.trim());
-      if (!decoded.ok) {
-        return { ok: false, error: decoded.error };
-      }
-      const result = pairAssistant(lockfilePaths, configDir, {
-        bundle: decoded.bundle,
-        name: name || undefined,
-      });
+      const result = connectImport(lockfilePaths, configDir, { bundle, name });
       if (!result.ok) {
         return { ok: false, error: result.error };
       }

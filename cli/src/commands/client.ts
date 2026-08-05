@@ -34,8 +34,7 @@ import {
   isActiveAssistant,
   runHatch,
   runRetire,
-  decodePairBundle,
-  pairAssistant,
+  connectImport,
   unpairAssistant,
   getGuardianAccessToken,
   parseGatewayUrl,
@@ -454,8 +453,6 @@ const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
 const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
 const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
-// Bounds what a request can make the local web server buffer and decode.
-const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -735,12 +732,9 @@ async function handleLocalEndpoints(
       return new Response(null, { status: 405 });
     }
 
-    let bundle: unknown;
-    let name: unknown;
+    let body: { bundle?: unknown; name?: unknown };
     try {
-      const body = (await req.json()) as { bundle?: unknown; name?: unknown };
-      bundle = body.bundle;
-      name = body.name;
+      body = (await req.json()) as { bundle?: unknown; name?: unknown };
     } catch {
       return Response.json(
         { ok: false, error: "Invalid JSON body" },
@@ -748,30 +742,9 @@ async function handleLocalEndpoints(
       );
     }
 
-    if (typeof bundle !== "string" || !bundle) {
-      return Response.json(
-        { ok: false, error: "Missing pairing bundle" },
-        { status: 400 },
-      );
-    }
-    if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
-      return Response.json(
-        { ok: false, error: "Pairing bundle is too large" },
-        { status: 400 },
-      );
-    }
-
-    const decoded = decodePairBundle(bundle.trim());
-    if (!decoded.ok) {
-      return Response.json(
-        { ok: false, error: decoded.error },
-        { status: 400 },
-      );
-    }
-
-    const result = pairAssistant(lockfilePaths, configDir, {
-      bundle: decoded.bundle,
-      name: typeof name === "string" && name ? name : undefined,
+    const result = connectImport(lockfilePaths, configDir, {
+      bundle: body.bundle,
+      name: body.name,
     });
     if (result.ok) {
       return Response.json({
