@@ -2,17 +2,16 @@
  * Filing a background or scheduled conversation into a section the user reads
  * promotes it durably.
  *
- * Sidebar visibility for these rows used to depend on where the conversation
- * currently sat rather than on any record that it had been promoted, so the
- * same deliberate action produced two different outcomes: filing one into a
- * custom group showed it, then removing it from that group made it vanish
- * rather than fall back to Recents, and pinning never showed it at all
- * because `system:pinned` fails the custom-group arm's `system:` prefix
- * check. Placement now stamps `surfaced_at`, so promotion survives the next
- * move.
+ * Placement into Pinned or a custom group stamps `surfaced_at`, so the
+ * promotion outlives the placement that caused it: taking the conversation
+ * back out returns it to Recents rather than hiding it. Demotion is the
+ * mirror image, and filing into `system:background` / `system:scheduled`
+ * clears the stamp.
  *
- * Demotion is the mirror image and already worked: filing into
- * `system:background` / `system:scheduled` clears the promotion.
+ * The cases below pin both edges. Under-promoting hides a conversation the
+ * user deliberately filed somewhere; over-promoting drags hidden automation
+ * into the sidebar, so the "what promotion must not do" block is as
+ * load-bearing as the rest.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -155,6 +154,30 @@ describe("what promotion must not do", () => {
     ]);
 
     expect(visibleTitles()).toEqual([]);
+  });
+
+  test("unpinning through the legacy isPinned path still lands in Recents", () => {
+    // Old clients send `isPinned: false` with no `groupId`, and that branch
+    // restores the row's original system bucket to keep its provenance. It
+    // deliberately does not clear the promotion: unpinning is not a demotion,
+    // so the conversation belongs in Recents afterwards, the same as the
+    // modern path that sends `groupId: "system:all"`.
+    //
+    // The row therefore sits in `system:background` while remaining visible.
+    // That is the intended split: the bucket records where the conversation
+    // came from, `surfaced_at` records that the user promoted it, and only
+    // an explicit demotion clears the latter.
+    const conv = seedRoutedBackground("bg-job", "background");
+    batchSetDisplayOrders([
+      { id: conv.id, displayOrder: 0, groupId: "system:pinned" },
+    ]);
+
+    batchSetDisplayOrders([
+      { id: conv.id, displayOrder: null, isPinned: false },
+    ]);
+
+    expect(visibleTitles()).toEqual(["bg-job"]);
+    expect(titlesInGroup("system:all")).toEqual(["bg-job"]);
   });
 
   test("standard conversations are not stamped as surfaced", () => {

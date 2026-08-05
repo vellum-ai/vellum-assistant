@@ -4055,12 +4055,11 @@ export function batchSetDisplayOrders(
         // of their own groups) is the mirror image: an explicit promotion, so
         // it stamps `surfaced_at` the way the surface API does.
         //
-        // Promotion has to be durable rather than implied by where the row
-        // currently sits. A background row was previously visible only while
-        // it satisfied the custom-group arm of the listing predicate, so
-        // taking it back out of the group made it vanish instead of falling
-        // back to Recents, and pinning never made it visible at all because
-        // `system:pinned` fails that arm's `system:` prefix check.
+        // The stamp is what makes the promotion durable. Visibility must not
+        // depend on where the row currently sits, or removing it from a group
+        // would hide it instead of returning it to Recents, and pinning would
+        // not show it at all: `system:pinned` fails the custom-group arm of
+        // `standardListingVisibilitySql` on that arm's `system:` prefix check.
         //
         // Only background and scheduled rows need it: everything else is
         // already visible, and stamping them would leave `surfaced_at`
