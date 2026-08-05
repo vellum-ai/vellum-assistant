@@ -1,5 +1,5 @@
 /**
- * Tests for `withSqliteRetry()` — the shared retry wrapper for transient
+ * Tests for `withSqliteRetry()`, the shared retry wrapper for transient
  * SQLite write contention (`SQLITE_BUSY*` / `SQLITE_IOERR*`).
  */
 

@@ -266,8 +266,8 @@ export async function emitNotificationSignal<TEventName extends string>(
   try {
     // Step 1: Persist the event. The insert contends with other writers on
     // the shared database (notably the memory worker's bulk writes), and a
-    // lost signal is unrecoverable — the producer has already returned by
-    // the time contention surfaces — so transient `SQLITE_BUSY`/`SQLITE_IOERR`
+    // lost signal is unrecoverable (the producer has already returned by
+    // the time contention surfaces), so transient `SQLITE_BUSY`/`SQLITE_IOERR`
     // rides the shared retry helper instead of failing the pipeline.
     const eventRow = await withSqliteRetry(
       () =>
