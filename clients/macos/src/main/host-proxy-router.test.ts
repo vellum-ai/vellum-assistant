@@ -11,7 +11,9 @@ mock.module("./device-id", () => ({
 }));
 
 const mockGetGuardianAccessToken = mock(
-  async (): Promise<{ ok: true; accessToken: string } | { ok: false; status: number; error: string }> =>
+  async (
+    ..._args: unknown[]
+  ): Promise<{ ok: true; accessToken: string } | { ok: false; status: number; error: string }> =>
     ({ ok: true, accessToken: "test-token" }),
 );
 mock.module("@vellumai/local-mode", () => ({
@@ -501,6 +503,10 @@ describe("host-proxy-router", () => {
       expect(sseRequest).toBeDefined();
       expect(sseRequest!.headers.Authorization).toBe("Bearer test-token");
       expect(sseRequest!.headers["ngrok-skip-browser-warning"]).toBe("true");
+
+      // The paired flag rides along so an expired-refresh failure surfaces
+      // re-pair guidance instead of hatch/wake.
+      expect(mockGetGuardianAccessToken.mock.calls[0]?.[5]).toEqual({ paired: true });
     });
 
     test("never issues a token-exchange request for a paired entry", async () => {

@@ -17,6 +17,7 @@ import {
   resolveConfigDir,
   resolveEnvironmentName,
   type CliInvocation,
+  type GuardianTokenOptions,
 } from "@vellumai/local-mode";
 import { isUsableRuntimeUrl, type Lockfile } from "@vellumai/local-mode/contract";
 
@@ -230,7 +231,10 @@ async function exchangeForGatewayToken(
   }
 }
 
-async function acquireGuardianToken(assistantId: string): Promise<string | null> {
+async function acquireGuardianToken(
+  assistantId: string,
+  options?: GuardianTokenOptions,
+): Promise<string | null> {
   if (!resolveCliInvocation) return null;
 
   const configDir = resolveConfigDir(process.env);
@@ -252,6 +256,7 @@ async function acquireGuardianToken(assistantId: string): Promise<string | null>
     invocation,
     true,
     { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+    options,
   );
 
   if (!tokenResult.ok) {
@@ -358,7 +363,7 @@ async function connectPairedAssistant(
   const pending: PendingConnect = { fingerprint };
   pendingConnects.set(assistantId, pending);
   try {
-    const guardianToken = await acquireGuardianToken(assistantId);
+    const guardianToken = await acquireGuardianToken(assistantId, { paired: true });
     if (pendingConnects.get(assistantId) !== pending || connections.has(assistantId)) {
       log.info("[host-proxy-router] lockfile changed during token acquisition, aborting stale connect", { assistantId, runtimeUrl });
       return;
@@ -391,7 +396,7 @@ function openPairedConnection(
   });
 
   const onRefreshToken = async (): Promise<string | null> => {
-    const fresh = await acquireGuardianToken(assistantId);
+    const fresh = await acquireGuardianToken(assistantId, { paired: true });
     if (fresh) currentToken = fresh;
     return fresh;
   };

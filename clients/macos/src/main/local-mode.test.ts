@@ -386,6 +386,11 @@ const upgrade = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
     assistantId,
     options,
   ) as Promise<unknown>;
+const guardianToken = (assistantId?: unknown): Promise<unknown> =>
+  handlers["vellum:localMode:guardianToken"](
+    allowedEvent,
+    assistantId,
+  ) as Promise<unknown>;
 
 describe("lockfile IPC handlers", () => {
   beforeEach(() => {
@@ -599,13 +604,13 @@ describe("vellum:localMode:retire handler", () => {
   });
 });
 
-describe("vellum:localMode:unpair handler", () => {
-  // Matches the module's `resolveConfigDir(process.env)` under the
-  // production + XDG_CONFIG_HOME environment pinned above.
-  const configDir = path.join(configHomeDir, "vellum");
-  const tokenPath = (assistantId: string): string =>
-    path.join(configDir, "assistants", assistantId, "guardian-token.json");
+// Matches the module's `resolveConfigDir(process.env)` under the
+// production + XDG_CONFIG_HOME environment pinned above.
+const configDir = path.join(configHomeDir, "vellum");
+const tokenPath = (assistantId: string): string =>
+  path.join(configDir, "assistants", assistantId, "guardian-token.json");
 
+describe("vellum:localMode:unpair handler", () => {
   beforeEach(() => {
     fs.rmSync(lockfilePath, { force: true });
     fs.rmSync(path.join(configDir, "assistants"), {
@@ -752,5 +757,141 @@ describe("vellum:localMode:upgrade handler", () => {
     lastChild.emit("close", 0);
 
     await expect(pending).resolves.toEqual({ ok: true, version: "v1.2.3" });
+  });
+});
+
+describe("vellum:localMode:guardianToken handler", () => {
+  const FUTURE = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const PAST = new Date(Date.now() - 60_000).toISOString();
+
+  const writeToken = (
+    assistantId: string,
+    over: Record<string, unknown>,
+  ): void => {
+    fs.mkdirSync(path.dirname(tokenPath(assistantId)), { recursive: true });
+    fs.writeFileSync(
+      tokenPath(assistantId),
+      JSON.stringify({
+        guardianPrincipalId: "principal",
+        accessToken: "stored-token",
+        accessTokenExpiresAt: FUTURE,
+        refreshToken: "refresh",
+        refreshTokenExpiresAt: FUTURE,
+        refreshAfter: FUTURE,
+        isNew: false,
+        deviceId: "device",
+        leasedAt: new Date().toISOString(),
+        ...over,
+      }),
+    );
+  };
+
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    fs.rmSync(path.join(configDir, "assistants"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  test("returns a fresh token from the file without spawning the CLI", async () => {
+    writeToken("asst-g", {});
+
+    expect(await guardianToken("asst-g")).toEqual({
+      ok: true,
+      accessToken: "stored-token",
+    });
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("expired access token spawns `... gateway token refresh <id>` with the pinned env", async () => {
+    writeToken("asst-g", { accessTokenExpiresAt: PAST });
+
+    const pending = guardianToken("asst-g");
+    await tick();
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      [
+        "run",
+        path.join("/repo", "cli", "src", "index.ts"),
+        "gateway",
+        "token",
+        "refresh",
+        "asst-g",
+      ],
+    ]);
+    expect(
+      (spawnOptions[0] as { env?: NodeJS.ProcessEnv }).env?.VELLUM_ENVIRONMENT,
+    ).toBe("production");
+
+    lastChild.stdout.emit("data", Buffer.from("refreshed-token\n"));
+    lastChild.emit("close", 0);
+    expect(await pending).toEqual({ ok: true, accessToken: "refreshed-token" });
+  });
+
+  test("expired refresh token resolves a structured 401 with hatch/wake guidance", async () => {
+    writeToken("asst-g", {
+      accessTokenExpiresAt: PAST,
+      refreshTokenExpiresAt: PAST,
+    });
+
+    const result = (await guardianToken("asst-g")) as {
+      ok: boolean;
+      status: number;
+      error: string;
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(401);
+    expect(result.error).toContain("vellum hatch");
+    expect(result.error).toContain("vellum wake");
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("expired refresh token for a paired lockfile entry directs to re-pairing", async () => {
+    saveLockfileAssistant(
+      { assistantId: "paired-g", cloud: "paired", runtimeUrl: "https://h" },
+      "paired-g",
+    );
+    writeToken("paired-g", {
+      accessTokenExpiresAt: PAST,
+      refreshTokenExpiresAt: PAST,
+    });
+
+    const result = (await guardianToken("paired-g")) as {
+      ok: boolean;
+      status: number;
+      error: string;
+    };
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(401);
+    expect(result.error).toContain("vellum pair");
+    expect(result.error).toContain("vellum connect import");
+    expect(result.error).not.toContain("vellum hatch");
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("missing token file resolves a structured 404 without spawning", async () => {
+    expect(await guardianToken("asst-missing")).toEqual({
+      ok: false,
+      status: 404,
+      error: "Guardian token not found",
+    });
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("rejects a missing assistant id with a structured error", async () => {
+    expect(await guardianToken("")).toEqual({
+      ok: false,
+      status: 400,
+      error: "Missing assistantId",
+    });
+    expect(await guardianToken(undefined)).toEqual({
+      ok: false,
+      status: 400,
+      error: "Missing assistantId",
+    });
+    expect(spawnArgs).toHaveLength(0);
   });
 });

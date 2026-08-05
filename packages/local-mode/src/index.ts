@@ -65,7 +65,11 @@ export type {
   LocalAssistantStatusResult,
 } from "./status";
 export { getGuardianAccessToken, saveGuardianToken } from "./guardian-token";
-export type { TokenResult, GuardianTokenData } from "./guardian-token";
+export type {
+  TokenResult,
+  GuardianTokenData,
+  GuardianTokenOptions,
+} from "./guardian-token";
 export {
   parseGatewayUrl,
   readAllowedGatewayPorts,
