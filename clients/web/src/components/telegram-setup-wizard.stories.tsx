@@ -30,7 +30,18 @@ type Story = StoryObj<typeof TelegramSetupWizard>;
 const BOT_TOKEN = `123456789:${"A".repeat(10)}bCdEfGhIjKlMnOpQrStUvWx`;
 const WRONG_CHANNEL_TOKEN = `xoxb-${"0".repeat(10)}-${"0".repeat(10)}-abcdef`;
 
+/**
+ * Walk to the token step the way a user does. There is no prop to jump
+ * straight there: a story that renders a screen no real path produces would
+ * assert against a state the wizard cannot actually reach.
+ */
+async function goToConnect(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+}
+
 const fillToken: Story["play"] = async ({ canvasElement }) => {
+  await goToConnect(canvasElement);
   const canvas = within(canvasElement);
   await userEvent.type(canvas.getByLabelText(/Bot Token/i), BOT_TOKEN);
 };
@@ -38,7 +49,7 @@ const fillToken: Story["play"] = async ({ canvasElement }) => {
 /** Step 1: what to do in BotFather. */
 export const CreateBot: Story = {};
 
-/** Step 2, reached through Next rather than `initialStepId`. */
+/** Step 2, reached the way a user reaches it. */
 export const Connect: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -47,18 +58,17 @@ export const Connect: Story = {
 };
 
 export const Saving: Story = {
-  args: { initialStepId: "connect", saveStatus: "pending" },
+  args: { saveStatus: "pending" },
   play: fillToken,
 };
 
 export const Connected: Story = {
-  args: { initialStepId: "connect", saveStatus: "success" },
+  args: { saveStatus: "success" },
   play: fillToken,
 };
 
 export const SaveFailed: Story = {
   args: {
-    initialStepId: "connect",
     saveStatus: "error",
     saveError: "Telegram rejected the bot token (401 Unauthorized).",
   },
@@ -70,8 +80,8 @@ export const SaveFailed: Story = {
  * shape error renders and Connect stays disabled.
  */
 export const TokenFormatValidation: Story = {
-  args: { initialStepId: "connect" },
   play: async ({ canvasElement }) => {
+    await goToConnect(canvasElement);
     const canvas = within(canvasElement);
     await userEvent.type(
       canvas.getByLabelText(/Bot Token/i),

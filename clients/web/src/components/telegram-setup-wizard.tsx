@@ -22,11 +22,6 @@ const WIZARD_STEPS: StepperStep[] = [
 
 export interface TelegramSetupWizardProps {
   assistantName: string;
-  /**
-   * Step to open on. Production always starts at the beginning; stories use
-   * this to render a later step without clicking through the earlier ones.
-   */
-  initialStepId?: TelegramSetupStepId;
   onSave?: (botToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
@@ -42,12 +37,11 @@ export interface TelegramSetupWizardProps {
  */
 export function TelegramSetupWizard({
   assistantName,
-  initialStepId = "create",
   onSave,
   saveStatus = "idle",
   saveError = null,
 }: TelegramSetupWizardProps) {
-  const [stepId, setStepId] = useState<TelegramSetupStepId>(initialStepId);
+  const [stepId, setStepId] = useState<TelegramSetupStepId>("create");
   const [botToken, setBotToken] = useState("");
 
   const { copy, copied } = useCopyToClipboard({

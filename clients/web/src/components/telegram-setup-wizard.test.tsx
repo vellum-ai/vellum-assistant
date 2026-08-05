@@ -46,10 +46,14 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-const onConnectStep = () =>
-  screen.queryByLabelText(/Bot Token/i) !== null;
+const onConnectStep = () => screen.queryByLabelText(/Bot Token/i) !== null;
 const saveButton = () =>
   screen.getByRole("button", { name: /Connect Telegram/i });
+
+/** Walk to the token step the way a user does; there is no prop to jump. */
+function goToConnectStep() {
+  fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
+}
 
 describe("TelegramSetupWizard step flow", () => {
   test("copying the suggested name does not navigate", () => {
@@ -95,10 +99,11 @@ describe("TelegramSetupWizard step flow", () => {
     render(
       <TelegramSetupWizard
         assistantName={ASSISTANT_NAME}
-        initialStepId="connect"
         onSave={(token) => saved.push(token)}
       />,
     );
+
+    goToConnectStep();
 
     // A Slack bot token in the Telegram field: the old form would have sent
     // this and surfaced whatever Telegram returned.
@@ -112,12 +117,9 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("a truncated token is rejected", () => {
-    render(
-      <TelegramSetupWizard
-        assistantName={ASSISTANT_NAME}
-        initialStepId="connect"
-      />,
-    );
+    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    goToConnectStep();
 
     fireEvent.change(screen.getByLabelText(/Bot Token/i), {
       target: { value: "123456789:AAHkO1Qb" },
@@ -131,10 +133,11 @@ describe("TelegramSetupWizard step flow", () => {
     render(
       <TelegramSetupWizard
         assistantName={ASSISTANT_NAME}
-        initialStepId="connect"
         onSave={(token) => saved.push(token)}
       />,
     );
+
+    goToConnectStep();
 
     fireEvent.change(screen.getByLabelText(/Bot Token/i), {
       target: { value: `  ${BOT_TOKEN}  ` },
