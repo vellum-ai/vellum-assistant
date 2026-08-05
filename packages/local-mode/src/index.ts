@@ -32,6 +32,7 @@ export {
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
+  isPairedLockfileEntry,
 } from "./lockfile";
 export type { LockfileResult, WriteResult } from "./lockfile";
 export { parseLockfile } from "./lockfile-contract";

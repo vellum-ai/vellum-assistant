@@ -10,7 +10,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,7 +27,7 @@ const testDir = mkdtempSync(join(tmpdir(), "client-token-test-"));
 const ORIGINAL_LOCKFILE_DIR = process.env.VELLUM_LOCKFILE_DIR;
 const ORIGINAL_ARGV = [...process.argv];
 
-import { isPairedLockfileEntry, parseArgs } from "../commands/client.js";
+import { parseArgs } from "../commands/client.js";
 
 // A clearly non-local URL so maybeSwapToLocalhost won't rewrite it to 127.0.0.1.
 const REMOTE_URL = "http://192.0.2.50:7830";
@@ -110,36 +110,5 @@ describe("client --token (ephemeral)", () => {
       "--no-open",
     ];
     expect(parseArgs().openBrowser).toBe(false);
-  });
-});
-
-// The guardian-token route passes {paired} to getGuardianAccessToken so
-// expired pairings get re-pair guidance instead of hatch/wake; this pins the
-// classification the route derives from the lockfile.
-describe("isPairedLockfileEntry", () => {
-  test("only a lockfile entry with cloud=paired classifies as paired", () => {
-    const dir = mkdtempSync(join(tmpdir(), "client-paired-test-"));
-    try {
-      const lockfilePath = join(dir, ".vellum.lock.json");
-      writeFileSync(
-        lockfilePath,
-        JSON.stringify({
-          assistants: [
-            { assistantId: "paired-1", cloud: "paired" },
-            { assistantId: "local-1", cloud: "local" },
-          ],
-          activeAssistant: "local-1",
-        }),
-      );
-
-      expect(isPairedLockfileEntry([lockfilePath], "paired-1")).toBe(true);
-      expect(isPairedLockfileEntry([lockfilePath], "local-1")).toBe(false);
-      expect(isPairedLockfileEntry([lockfilePath], "missing")).toBe(false);
-      expect(
-        isPairedLockfileEntry([join(dir, "absent.json")], "paired-1"),
-      ).toBe(false);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 });

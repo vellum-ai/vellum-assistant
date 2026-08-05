@@ -50,6 +50,7 @@ mock.module("@vellumai/local-mode", () => ({
   resolveConfigDir: resolveConfigDirMock,
   resolveEnvironmentName: mock((_env: NodeJS.ProcessEnv) => "production"),
   isActiveAssistant: mock(() => true),
+  isPairedLockfileEntry: mock(() => false),
   getGuardianAccessToken: getGuardianAccessTokenMock,
   replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
   upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),
