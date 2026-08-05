@@ -1412,3 +1412,26 @@ describe("effectiveSttLanguage", () => {
     expect(effectiveSttLanguage("xai", "hi")).toBe("hi");
   });
 });
+
+describe("the multilingual default reaches configs with no stt block", () => {
+  test("a config that omits services.stt entirely still resolves multilingual", () => {
+    // The services-level default supplies the stt block for a fresh
+    // workspace. Handing that default a literal would short-circuit the
+    // inner parse and leave `language` undefined, so the block is parsed
+    // through its own schema and the field default materializes.
+    setConfig("services", {});
+    expect(getConfig().services.stt.language).toBe("multi");
+  });
+
+  test("a config that omits only the language gets it filled", () => {
+    setConfig("services", { stt: { provider: "deepgram", providers: {} } });
+    expect(getConfig().services.stt.language).toBe("multi");
+  });
+
+  test("an explicit language is never overwritten by the default", () => {
+    setConfig("services", {
+      stt: { provider: "deepgram", language: "ta", providers: {} },
+    });
+    expect(getConfig().services.stt.language).toBe("ta");
+  });
+});
