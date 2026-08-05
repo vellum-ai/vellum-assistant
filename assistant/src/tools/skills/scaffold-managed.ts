@@ -71,12 +71,13 @@ function normalizeOptionalStringArray(
  * Tell the user that a background pass changed a skill they already have.
  *
  * A newly authored skill announces itself in the conversation through the
- * `skill_card` surface, but an UPDATE had no signal at all: the pass rewrites
- * the body of a skill the user may be relying on, and `createManagedSkill`
- * writes through an atomic rename keeping no prior version. Routing it
- * through the notification pipeline puts it in the background feed alongside
- * the other unattended work (sweeps, scheduled jobs, heartbeat), which is
- * where a user already looks to see what the assistant did on its own.
+ * `skill_card` surface; an update announces itself here instead. The pass
+ * runs in a background fork and rewrites the body of a skill the user may be
+ * relying on, and `createManagedSkill` writes through an atomic rename
+ * keeping no prior version, so the notification pipeline is what puts the
+ * change in the background feed alongside the other unattended work (sweeps,
+ * scheduled jobs, heartbeat), where a user already looks to see what the
+ * assistant did on its own.
  *
  * `sourceContextId` is a conversation id so the feed item's "Go to Convo"
  * target resolves (see `home-feed-side-effect.ts`, which looks it up via
@@ -93,7 +94,12 @@ function notifyBackgroundSkillUpdate(args: {
 }): void {
   const day = new Date().toISOString().slice(0, 10);
   void emitNotificationSignal({
-    sourceChannel: "scheduler",
+    // This emit is a tool executor's, not the scheduler's. The channel is
+    // provenance the pipeline reads: `home-feed-side-effect` derives
+    // `fromAssistant` from it, so labelling this "scheduler" would drop the
+    // item from the feed's assistant-initiated filter despite being exactly
+    // that.
+    sourceChannel: "assistant_tool",
     sourceContextId: args.conversationId,
     sourceEventName: "activity.complete",
     dedupeKey: `skill-updated:${args.skillId}:${day}`,
@@ -417,9 +423,10 @@ export async function executeScaffoldManagedSkill(
   }
 
   // A background pass changed a skill that already existed. Creates announce
-  // themselves through the skill card below; an update had no signal at all.
-  // Covers an explicit `overwrite: true` refinement as well as any other
-  // background write onto a pre-existing skill.
+  // themselves through the skill card below; updates announce themselves in
+  // the background activity feed. Covers an explicit `overwrite: true`
+  // refinement as well as any other background write onto a pre-existing
+  // skill.
   const notifyConversationId =
     sourceConversationId ?? retrospectiveConversationId;
   if (fromRetrospective && managedSkillExistedBefore && notifyConversationId) {

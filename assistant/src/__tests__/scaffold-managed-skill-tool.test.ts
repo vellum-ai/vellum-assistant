@@ -1495,8 +1495,8 @@ describe("scaffold_managed_skill tool", () => {
 // ── Background skill updates are announced ─────────────────────────────────
 //
 // A background pass runs inside a hidden retrospective fork, so its tool call
-// renders in a conversation the user never opens. Creates already reach the
-// source conversation as a `skill_card`; an update had no signal anywhere.
+// renders in a conversation the user never opens. Creates reach the source
+// conversation as a `skill_card`; updates reach the background activity feed.
 
 describe("background skill update notification", () => {
   /** Seed an assistant-authored skill the background pass may overwrite. */
