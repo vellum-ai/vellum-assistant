@@ -1,4 +1,7 @@
-import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
+import type {
+  CallSiteOverrideDraft,
+  ConfigLlmCallsitesGetResponse,
+} from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Sentinel value for the "Custom" profile picker option
@@ -30,8 +33,20 @@ export interface CallSiteEffectiveProfile {
   via: "override" | "default";
 }
 
+/**
+ * The catalog fields naming a call site's default, in the order they are
+ * consulted. `shippedDefaultProfile` is the code-owned tier and is what the
+ * row caption shows, including for profileless sites the daemon reports as
+ * Balanced-tier; `defaultProfile` is the effective winner and covers
+ * assistants predating the shipped field.
+ */
+type CallSiteDefaults = Pick<
+  ConfigLlmCallsitesGetResponse["callSites"][number],
+  "defaultProfile" | "shippedDefaultProfile"
+>;
+
 export function effectiveCallSiteProfile(
-  defaultProfile: string | null | undefined,
+  callSite: CallSiteDefaults,
   override: CallSiteOverrideDraft | null | undefined,
 ): CallSiteEffectiveProfile | null {
   if (override?.provider || override?.model) {
@@ -40,10 +55,8 @@ export function effectiveCallSiteProfile(
   if (override?.profile) {
     return { profile: override.profile, via: "override" };
   }
-  if (defaultProfile) {
-    return { profile: defaultProfile, via: "default" };
-  }
-  return null;
+  const fallback = callSite.shippedDefaultProfile ?? callSite.defaultProfile;
+  return fallback ? { profile: fallback, via: "default" } : null;
 }
 
 export function draftsEqual(

@@ -215,10 +215,7 @@ export function OverridesDetailPanel({
     () =>
       gatedCallSites.some(
         (cs) =>
-          effectiveCallSiteProfile(
-            cs.shippedDefaultProfile ?? cs.defaultProfile,
-            persistedOverrides[cs.id],
-          ) !== null,
+          effectiveCallSiteProfile(cs, persistedOverrides[cs.id]) !== null,
       ),
     [gatedCallSites, persistedOverrides],
   );

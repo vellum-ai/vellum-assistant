@@ -53,6 +53,45 @@ export interface BulkOverrideSwapModalProps {
   onApplied: () => void;
 }
 
+function actionCount(n: number): string {
+  return `${n} ${n === 1 ? "action" : "actions"}`;
+}
+
+/** A dropdown with the label the swap dialog puts above both of its pickers. */
+function LabeledSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label
+        id={id}
+        className="block text-body-small-default text-[var(--content-tertiary)]"
+      >
+        {label}
+      </label>
+      <Dropdown
+        aria-labelledby={id}
+        value={value}
+        onChange={onChange}
+        options={options}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // BulkOverrideSwapModal
 // ---------------------------------------------------------------------------
@@ -83,18 +122,12 @@ export function BulkOverrideSwapModal({
     [requireOwnProviderAndModel],
   );
 
-  // What each action currently runs on. The default key matches the row
-  // caption: `shippedDefaultProfile` first, so profileless call sites
-  // (reported as Balanced-tier by the catalog) group where the panel says
-  // they belong; `defaultProfile` covers assistants that predate the
-  // shipped field. Sites with a provider/model ("Custom") pin stay out.
+  // What each action currently runs on. Sites with a provider/model
+  // ("Custom") pin reference no profile and stay out.
   const effectiveByCallSite = useMemo(() => {
     const map = new Map<string, CallSiteEffectiveProfile>();
     for (const cs of callSites) {
-      const effective = effectiveCallSiteProfile(
-        cs.shippedDefaultProfile ?? cs.defaultProfile,
-        persistedOverrides[cs.id],
-      );
+      const effective = effectiveCallSiteProfile(cs, persistedOverrides[cs.id]);
       if (effective) {
         map.set(cs.id, effective);
       }
@@ -160,7 +193,6 @@ export function BulkOverrideSwapModal({
   const sourceLabel = profileDisplayLabel(orderedProfiles, source);
   const targetLabel = profileDisplayLabel(orderedProfiles, target);
 
-  const actionNoun = selectedIds.length === 1 ? "action" : "actions";
   const allSelected = deselectedIds.size === 0;
 
   function handleSourceChange(next: string) {
@@ -198,7 +230,7 @@ export function BulkOverrideSwapModal({
         body: { llm: { callSites: callSitePatch } },
       });
       toast.success(
-        `Updated ${selectedIds.length} ${actionNoun} to "${targetLabel}".`,
+        `Updated ${actionCount(selectedIds.length)} to "${targetLabel}".`,
       );
       onApplied();
       onClose();
@@ -237,35 +269,21 @@ export function BulkOverrideSwapModal({
           </Typography>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label
-                className="block text-body-small-default text-[var(--content-tertiary)]"
-                id="bulk-swap-source-label"
-              >
-                Currently using
-              </label>
-              <Dropdown
-                aria-labelledby="bulk-swap-source-label"
-                value={source}
-                onChange={handleSourceChange}
-                options={sourceOptions}
-              />
-            </div>
-            <div className="space-y-1">
-              <label
-                className="block text-body-small-default text-[var(--content-tertiary)]"
-                id="bulk-swap-target-label"
-              >
-                Change to
-              </label>
-              <Dropdown
-                aria-labelledby="bulk-swap-target-label"
-                value={target}
-                onChange={setTarget}
-                placeholder="Select a profile…"
-                options={targetOptions}
-              />
-            </div>
+            <LabeledSelect
+              id="bulk-swap-source-label"
+              label="Currently using"
+              value={source}
+              onChange={handleSourceChange}
+              options={sourceOptions}
+            />
+            <LabeledSelect
+              id="bulk-swap-target-label"
+              label="Change to"
+              value={target}
+              onChange={setTarget}
+              options={targetOptions}
+              placeholder="Select a profile…"
+            />
           </div>
 
           <Notice tone="info" title="This happens once.">
@@ -277,8 +295,7 @@ export function BulkOverrideSwapModal({
             <div className="mb-2 flex items-baseline justify-between gap-2">
               <div>
                 <Typography variant="body-medium-default" as="p">
-                  {affected.length}{" "}
-                  {affected.length === 1 ? "action" : "actions"} currently{" "}
+                  {actionCount(affected.length)} currently{" "}
                   {affected.length === 1 ? "uses" : "use"} {sourceLabel}
                 </Typography>
                 <Typography
@@ -334,7 +351,7 @@ export function BulkOverrideSwapModal({
             as="p"
             className="mr-auto self-center text-[color:var(--content-secondary)]"
           >
-            {selectedIds.length} {actionNoun} will change
+            {actionCount(selectedIds.length)} will change
           </Typography>
           <Button
             variant="ghost"
@@ -355,7 +372,7 @@ export function BulkOverrideSwapModal({
             {applying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              `Apply to ${selectedIds.length} ${actionNoun}`
+              `Apply to ${actionCount(selectedIds.length)}`
             )}
           </Button>
         </Modal.Footer>

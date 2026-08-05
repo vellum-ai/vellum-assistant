@@ -41,34 +41,43 @@ describe("isDraftActive", () => {
 
 describe("effectiveCallSiteProfile", () => {
   test("a profile pin wins and is reported as an override", () => {
-    expect(effectiveCallSiteProfile("slow", { profile: "fast" })).toEqual({
+    expect(
+      effectiveCallSiteProfile({ defaultProfile: "slow" }, { profile: "fast" }),
+    ).toEqual({
       profile: "fast",
       via: "override",
     });
     expect(
-      effectiveCallSiteProfile(null, {
-        profile: "fast",
-        provider: null,
-        model: null,
-      }),
+      effectiveCallSiteProfile(
+        {},
+        {
+          profile: "fast",
+          provider: null,
+          model: null,
+        },
+      ),
     ).toEqual({ profile: "fast", via: "override" });
   });
 
   test("without a pin the default profile applies", () => {
-    expect(effectiveCallSiteProfile("slow", null)).toEqual({
+    expect(effectiveCallSiteProfile({ defaultProfile: "slow" }, null)).toEqual({
       profile: "slow",
       via: "default",
     });
-    expect(effectiveCallSiteProfile("slow", undefined)).toEqual({
+    expect(
+      effectiveCallSiteProfile({ defaultProfile: "slow" }, undefined),
+    ).toEqual({
       profile: "slow",
       via: "default",
     });
-    expect(effectiveCallSiteProfile("slow", {})).toEqual({
+    expect(effectiveCallSiteProfile({ defaultProfile: "slow" }, {})).toEqual({
       profile: "slow",
       via: "default",
     });
     // Tuning-only entries pin no profile, so the default still applies.
-    expect(effectiveCallSiteProfile("slow", { effort: "low" })).toEqual({
+    expect(
+      effectiveCallSiteProfile({ defaultProfile: "slow" }, { effort: "low" }),
+    ).toEqual({
       profile: "slow",
       via: "default",
     });
@@ -77,13 +86,39 @@ describe("effectiveCallSiteProfile", () => {
   test("custom pins and default-less sites carry no profile", () => {
     // A provider/model pin renders as "Custom" and references no profile,
     // even when the entry also names one.
-    expect(effectiveCallSiteProfile("slow", { model: "gpt-4o" })).toBe(null);
-    expect(effectiveCallSiteProfile("slow", { provider: "openai" })).toBe(null);
     expect(
-      effectiveCallSiteProfile("slow", { profile: "fast", model: "gpt-4o" }),
+      effectiveCallSiteProfile({ defaultProfile: "slow" }, { model: "gpt-4o" }),
     ).toBe(null);
-    expect(effectiveCallSiteProfile(null, null)).toBe(null);
-    expect(effectiveCallSiteProfile(undefined, {})).toBe(null);
+    expect(
+      effectiveCallSiteProfile(
+        { defaultProfile: "slow" },
+        { provider: "openai" },
+      ),
+    ).toBe(null);
+    expect(
+      effectiveCallSiteProfile(
+        { defaultProfile: "slow" },
+        { profile: "fast", model: "gpt-4o" },
+      ),
+    ).toBe(null);
+    expect(effectiveCallSiteProfile({}, null)).toBe(null);
+    expect(effectiveCallSiteProfile({}, {})).toBe(null);
+  });
+
+  // The shipped tier is what the row caption shows, so grouping follows it
+  // rather than `defaultProfile`, which is the effective winner and would
+  // echo a pin back. `defaultProfile` still covers assistants that predate
+  // the shipped field.
+  test("the shipped tier is preferred over the effective winner", () => {
+    expect(
+      effectiveCallSiteProfile(
+        { shippedDefaultProfile: "balanced", defaultProfile: "quality" },
+        null,
+      ),
+    ).toEqual({ profile: "balanced", via: "default" });
+    expect(
+      effectiveCallSiteProfile({ defaultProfile: "quality" }, null),
+    ).toEqual({ profile: "quality", via: "default" });
   });
 });
 
