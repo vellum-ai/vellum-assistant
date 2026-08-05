@@ -95,9 +95,9 @@ describe("useOpenAppFromChat", () => {
   });
 
   // LUM-2553: opening an app is a view action, so the entry point must not
-  // decide the layout. An active conversation used to upgrade the desktop
-  // viewer to the `app-editing` split, which made the same app open
-  // narrower from chat than from Home / Library.
+  // decide the layout. A wide viewport with an active conversation is the
+  // one combination that could justify the `app-editing` split, and it
+  // still lands full-width, matching an open from Home / Library.
   test("stays full-width with an active conversation on a wide viewport", async () => {
     useConversationStore.setState({ activeConversationId: "conv-7" });
     const { result } = renderHook(() => useOpenAppFromChat());
