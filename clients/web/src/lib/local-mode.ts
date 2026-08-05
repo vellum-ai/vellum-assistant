@@ -727,10 +727,21 @@ export function getAuthGatewayIngressUrl(
 
 /**
  * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
- * upstream daemon readiness). True only when the gateway answers
- * `{ status: "ok" }`; false when the gateway URL is unresolvable, the request
- * fails, or the gateway is up but not yet ready.
+ * upstream daemon readiness). True only when the gateway answers with an ok
+ * body that does not report `ready: false`; false when the gateway URL is
+ * unresolvable, the request fails, or the gateway is up but not yet ready.
  */
+function isReadyzResponseReady(body: unknown): boolean {
+  if (body === null || typeof body !== "object") {
+    return false;
+  }
+  const readiness = body as { status?: unknown; ready?: unknown };
+  return (
+    readiness.status === "ok" &&
+    (readiness.ready === undefined || readiness.ready === true)
+  );
+}
+
 export async function probeLocalGatewayReady(): Promise<boolean> {
   const gatewayUrl = getLocalGatewayUrl();
   if (!gatewayUrl) {
@@ -742,12 +753,7 @@ export async function probeLocalGatewayReady(): Promise<boolean> {
       return false;
     }
     const body: unknown = await res.json();
-    return (
-      body !== null &&
-      typeof body === "object" &&
-      "status" in body &&
-      body.status === "ok"
-    );
+    return isReadyzResponseReady(body);
   } catch {
     return false;
   }
@@ -814,6 +820,10 @@ export async function primeLocalGatewayConnection(
         response.status,
         message || `Paired gateway request failed: ${response.status}`,
       );
+    }
+    const readiness: unknown = await response.json().catch(() => null);
+    if (!isReadyzResponseReady(readiness)) {
+      throw new Error("Paired assistant is not ready");
     }
     clearGatewayToken();
     setSelfHostedConnection({

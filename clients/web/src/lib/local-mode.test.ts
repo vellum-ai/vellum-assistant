@@ -930,7 +930,9 @@ describe("primeLocalGatewayConnection", () => {
       expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
       source: "/assistant/__gateway-paired/paired-a/auth/token",
     });
-    const fetchSpy = mock(async () => new Response("ok"));
+    const fetchSpy = mock(async () =>
+      Response.json({ status: "ok", ready: true }),
+    );
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
     await primeLocalGatewayConnection(pairedEntry);
 
@@ -954,7 +956,7 @@ describe("primeLocalGatewayConnection", () => {
     enableLocalMode();
     setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
     globalThis.fetch = mock(
-      async () => new Response("ok"),
+      async () => Response.json({ status: "ok", ready: true }),
     ) as unknown as typeof fetch;
     await primeLocalGatewayConnection(pairedEntry);
     expect(isGatewayAuthMode()).toBe(true);
@@ -973,7 +975,7 @@ describe("primeLocalGatewayConnection", () => {
     expect(isGatewayAuthMode()).toBe(false);
   });
 
-  test("failed paired prime preserves the current local session", async () => {
+  test("unready paired prime preserves the current local session", async () => {
     enableLocalMode();
     setLockfile({
       assistants: [localA, pairedEntry],
@@ -990,12 +992,12 @@ describe("primeLocalGatewayConnection", () => {
       token: "local-actor-token",
     });
     globalThis.fetch = mock(
-      async () => new Response("Guardian token not found", { status: 404 }),
+      async () => Response.json({ status: "migrating", ready: false }),
     ) as unknown as typeof fetch;
 
-    await expect(
-      primeLocalGatewayConnection(pairedEntry),
-    ).rejects.toBeInstanceOf(localModeHost.GuardianTokenError);
+    await expect(primeLocalGatewayConnection(pairedEntry)).rejects.toThrow(
+      "Paired assistant is not ready",
+    );
 
     expect(getGatewayToken()).toBe("local-actor-token");
     expect(getSelfHostedIngressUrl()).toBe(
