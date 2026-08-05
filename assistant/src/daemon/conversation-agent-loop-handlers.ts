@@ -1936,7 +1936,7 @@ function ensureToolResultRowReserved(
  * SQLite handle and so cannot write the disk view. That row is absent from
  * `messages.jsonl`, and no automatic path adds it later: the rebuild helper
  * runs only from workspace migrations 009/013 and the credential scrub. See
- * LUM-3048 for the projection ownership work this sits under.
+ * JARVIS-1465 for the projection ownership work this sits under.
  */
 async function persistPendingToolResultRow(
   state: EventHandlerState,
