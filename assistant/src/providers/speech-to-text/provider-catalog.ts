@@ -177,7 +177,9 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       credentialProvider: "deepgram",
       // Streaming only: Flux has no batch endpoint.
       supportedBoundaries: new Set<SttBoundaryId>(["daemon-streaming"]),
-      // Phone calls stay on the `deepgram` provider while Flux is a spike.
+      // Telephony is out of scope for the spike. Nothing reroutes a call to
+      // another provider, so a Flux-configured assistant does not transcribe
+      // calls at all.
       telephonyMode: "none",
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: false,
@@ -331,6 +333,32 @@ export function supportsBoundary(
   boundary: SttBoundaryId,
 ): boolean {
   return CATALOG.get(id)?.supportedBoundaries.has(boundary) ?? false;
+}
+
+/**
+ * Message explaining why a provider cannot serve the `daemon-batch` boundary.
+ *
+ * Streaming-only providers are selected through the same
+ * `services.stt.provider` key as batch-capable ones, so a batch caller that
+ * reports only "nothing is configured" points the operator at the wrong
+ * problem. This names the provider and, where one exists, the batch-capable
+ * provider on the same credential, so acting on it needs no catalog reading.
+ */
+export function batchBoundaryGapReason(id: SttProviderId): string {
+  const entry = CATALOG.get(id);
+  const label = entry?.displayName ?? id;
+  const alternative = entry
+    ? [...CATALOG.values()].find(
+        (candidate) =>
+          candidate.id !== entry.id &&
+          candidate.credentialProvider === entry.credentialProvider &&
+          candidate.supportedBoundaries.has("daemon-batch"),
+      )
+    : undefined;
+  const remedy = alternative
+    ? `Batch transcription requires the ${alternative.id} provider: set services.stt.provider to "${alternative.id}".`
+    : "Set services.stt.provider to a provider that supports batch transcription.";
+  return `${label} is streaming-only. ${remedy}`;
 }
 
 /**

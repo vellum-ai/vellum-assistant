@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { batchBoundaryGapReason } from "../../providers/speech-to-text/provider-catalog.js";
 import { SttError } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -618,5 +619,26 @@ describe("vellum factory case", () => {
 
   test("still returns null for key-based providers without a key", () => {
     expect(createDaemonBatchTranscriber(null, "deepgram")).toBeNull();
+  });
+});
+
+describe("deepgram-flux factory case", () => {
+  // The copy itself is pinned in provider-catalog.test.ts; what matters here
+  // is that the factory speaks with the catalog's voice rather than its own.
+  test("throws the catalog's streaming-only reason", () => {
+    expect(() =>
+      createDaemonBatchTranscriber("dg-test-key", "deepgram-flux"),
+    ).toThrow(batchBoundaryGapReason("deepgram-flux"));
+  });
+
+  test("marks the error user-facing so friendly copy does not overwrite it", () => {
+    try {
+      createDaemonBatchTranscriber("dg-test-key", "deepgram-flux");
+      throw new Error("expected the factory to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(SttError);
+      expect((err as SttError).category).toBe("provider-error");
+      expect((err as SttError).userFacing).toBe(true);
+    }
   });
 });

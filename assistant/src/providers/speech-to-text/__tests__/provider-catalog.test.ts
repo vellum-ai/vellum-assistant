@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
   listCredentialProviderNames,
@@ -107,6 +108,20 @@ describe("STT provider catalog", () => {
     // explicitly rather than silently falling through.
     expect(supportsBoundary("deepgram-flux", "daemon-streaming")).toBe(true);
     expect(supportsBoundary("deepgram-flux", "daemon-batch")).toBe(false);
+  });
+
+  test("batchBoundaryGapReason names the batch provider on the same credential", () => {
+    const reason = batchBoundaryGapReason("deepgram-flux");
+    expect(reason).toBe(
+      'Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".',
+    );
+  });
+
+  test("batchBoundaryGapReason falls back to generic guidance for an unknown provider", () => {
+    // No catalog entry means no credential to search a batch-capable peer on.
+    const reason = batchBoundaryGapReason("nonexistent" as never);
+    expect(reason).toContain("nonexistent is streaming-only");
+    expect(reason).toContain("supports batch transcription");
   });
 
   test("supportsBoundary returns false for unknown provider IDs", () => {
