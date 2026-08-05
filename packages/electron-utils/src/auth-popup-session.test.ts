@@ -6,8 +6,9 @@ import {
   clearSignInCookiesForHosts,
   cookieDomainMatchesHost,
   cookieRemovalUrl,
+  createAuthPopupSignInTracker,
   isFirstPartyAuthHost,
-  navigationUrlFromArgs,
+  navigationDetailsFromArgs,
   selectSignInCookies,
   thirdPartyAuthHostFromUrl,
   trackAuthPopupSignInState,
@@ -40,19 +41,31 @@ const flush = async (): Promise<void> => {
 };
 
 // A stand-in for the popup BrowserWindow handed to `did-create-window`.
+// Navigation events are kept apart so a test can reproduce a chain the way
+// Electron reports it: where a navigation *starts* versus where it lands.
 const fakePopup = () => {
-  const navigationListeners: Array<(...args: unknown[]) => void> = [];
+  const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
   let closedListener: (() => void) | null = null;
+
+  const emit = (event: string, ...args: unknown[]) =>
+    listeners.get(event)?.forEach((listener) => listener(...args));
+
   return {
-    navigate: (...args: unknown[]) =>
-      navigationListeners.forEach((listener) => listener(...args)),
+    start: (...args: unknown[]) => emit("did-start-navigation", ...args),
+    redirect: (...args: unknown[]) => emit("did-redirect-navigation", ...args),
+    // The whole-chain shorthand most tests want: a navigation that starts and
+    // settles at the same URL.
+    navigate: (...args: unknown[]) => {
+      emit("did-start-navigation", ...args);
+      emit("did-navigate", ...args);
+    },
     close: () => closedListener?.(),
     window: {
       webContents: {
         on: (event: string, listener: (...args: unknown[]) => void) => {
-          if (event === "did-navigate" || event === "did-redirect-navigation") {
-            navigationListeners.push(listener);
-          }
+          const existing = listeners.get(event);
+          if (existing) existing.push(listener);
+          else listeners.set(event, [listener]);
         },
       },
       once: (_event: "closed", listener: () => void) => {
@@ -221,21 +234,42 @@ describe("clearSignInCookiesForHosts", () => {
   });
 });
 
-describe("navigationUrlFromArgs", () => {
+describe("navigationDetailsFromArgs", () => {
   test("reads the positional (event, url) form", () => {
-    expect(navigationUrlFromArgs([{}, "https://example.com/a"])).toBe(
-      "https://example.com/a",
-    );
+    expect(navigationDetailsFromArgs([{}, "https://example.com/a"])).toEqual({
+      url: "https://example.com/a",
+      isMainFrame: true,
+    });
   });
 
   test("reads the details-object form", () => {
-    expect(navigationUrlFromArgs([{ url: "https://example.com/b" }])).toBe(
-      "https://example.com/b",
-    );
+    expect(
+      navigationDetailsFromArgs([{ url: "https://example.com/b" }]),
+    ).toEqual({ url: "https://example.com/b", isMainFrame: true });
+  });
+
+  test("reads the frame flag from either shape", () => {
+    // (event, url, isInPlace, isMainFrame, …)
+    expect(
+      navigationDetailsFromArgs([{}, "https://example.com/c", false, false])
+        .isMainFrame,
+    ).toBe(false);
+    expect(
+      navigationDetailsFromArgs([
+        { url: "https://example.com/d", isMainFrame: false },
+      ]).isMainFrame,
+    ).toBe(false);
+  });
+
+  test("assumes the main frame when the event carries no flag", () => {
+    // `did-navigate`'s positional form is (event, url, statusCode, statusText).
+    expect(
+      navigationDetailsFromArgs([{}, "https://example.com/e", 200, "OK"]),
+    ).toEqual({ url: "https://example.com/e", isMainFrame: true });
   });
 
   test("returns null when no URL is present", () => {
-    expect(navigationUrlFromArgs([{}, 302])).toBe(null);
+    expect(navigationDetailsFromArgs([{}, 302]).url).toBe(null);
   });
 });
 
@@ -277,6 +311,51 @@ describe("trackAuthPopupSignInState", () => {
     ]);
   });
 
+  test("records a provider that only ever appears as a navigation's start", async () => {
+    const popup = fakePopup();
+    const jar = fakeJar([
+      { name: "ESTSAUTH", domain: "login.microsoftonline.com", path: "/" },
+    ]);
+
+    trackAuthPopupSignInState(popup.window, { cookies: () => jar });
+
+    // The stale-cookie case: a live SSO session bounces the authorize request
+    // straight back to the first-party callback. Microsoft is never a redirect
+    // target and never the final URL — only where the navigation began.
+    popup.start(
+      {},
+      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    );
+    popup.redirect(
+      {},
+      "https://www.vellum.ai/account/oauth/popup-complete?oauth_status=connected",
+    );
+    popup.navigate(
+      {},
+      "https://www.vellum.ai/account/oauth/popup-complete?oauth_status=connected",
+    );
+    popup.close();
+
+    await flush();
+
+    expect(jar.removed.map((r) => r.name)).toEqual(["ESTSAUTH"]);
+  });
+
+  test("ignores subframe navigations", async () => {
+    const popup = fakePopup();
+    const jar = fakeJar([{ name: "tracker", domain: "ads.example.com" }]);
+
+    trackAuthPopupSignInState(popup.window, { cookies: () => jar });
+
+    // (event, url, isInPlace, isMainFrame)
+    popup.start({}, "https://ads.example.com/pixel", false, false);
+    popup.close();
+
+    await flush();
+
+    expect(jar.removed).toEqual([]);
+  });
+
   test("leaves the jar untouched for a popup that never left first-party hosts", async () => {
     const popup = fakePopup();
     const jar = fakeJar([
@@ -311,5 +390,69 @@ describe("trackAuthPopupSignInState", () => {
     await flush();
 
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe("createAuthPopupSignInTracker", () => {
+  const microsoftCookie = {
+    name: "ESTSAUTH",
+    domain: "login.microsoftonline.com",
+    path: "/",
+  };
+
+  test("sweeps a child window the window-open handler marked", async () => {
+    const popup = fakePopup();
+    const jar = fakeJar([microsoftCookie]);
+    const tracker = createAuthPopupSignInTracker({ cookies: () => jar });
+
+    tracker.markNextChildAsAuthPopup();
+    tracker.trackCreatedChild(popup.window);
+
+    popup.navigate({}, "https://login.microsoftonline.com/common");
+    popup.close();
+
+    await flush();
+
+    expect(jar.removed.map((r) => r.name)).toEqual(["ESTSAUTH"]);
+  });
+
+  test("leaves an unmarked child window alone", async () => {
+    // A plain link popup — a Slack app-setup page, a GitHub repo. Closing it
+    // must not sign the user out of a service they signed in to on purpose.
+    const popup = fakePopup();
+    const jar = fakeJar([{ name: "user_session", domain: ".github.com" }]);
+    const tracker = createAuthPopupSignInTracker({ cookies: () => jar });
+
+    tracker.trackCreatedChild(popup.window);
+
+    popup.navigate({}, "https://github.com/vellum-ai/vellum-assistant");
+    popup.close();
+
+    await flush();
+
+    expect(jar.removed).toEqual([]);
+  });
+
+  test("the mark applies to one child window only", async () => {
+    const authPopup = fakePopup();
+    const linkPopup = fakePopup();
+    const jar = fakeJar([
+      microsoftCookie,
+      { name: "user_session", domain: ".github.com" },
+    ]);
+    const tracker = createAuthPopupSignInTracker({ cookies: () => jar });
+
+    tracker.markNextChildAsAuthPopup();
+    tracker.trackCreatedChild(authPopup.window);
+    tracker.trackCreatedChild(linkPopup.window);
+
+    linkPopup.navigate({}, "https://github.com/vellum-ai/vellum-assistant");
+    linkPopup.close();
+    authPopup.navigate({}, "https://login.microsoftonline.com/common");
+    authPopup.close();
+
+    await flush();
+
+    expect(jar.removed.map((r) => r.name)).toEqual(["ESTSAUTH"]);
   });
 });

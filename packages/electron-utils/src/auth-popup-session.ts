@@ -167,31 +167,56 @@ export const clearSignInCookiesForHosts = async (
   return removed;
 };
 
+export interface NavigationDetails {
+  url: string | null;
+  isMainFrame: boolean;
+}
+
 /**
- * Pull the navigated URL out of a webContents navigation event's arguments.
+ * Pull the navigated URL and frame flag out of a webContents navigation
+ * event's arguments.
  *
  * Electron has moved several navigation events from the positional
- * `(event, url, …)` form to a single details object carrying `url`, and the
- * two forms coexist across versions. Reading whichever shape arrives keeps the
- * tracker correct either way instead of silently recording nothing.
+ * `(event, url, isInPlace, isMainFrame, …)` form to a single details object
+ * carrying the same fields, and the two forms coexist across versions. Reading
+ * whichever shape arrives keeps the tracker correct either way instead of
+ * silently recording nothing. `isMainFrame` defaults to true when the event
+ * does not carry it — `did-navigate` only ever fires for the main frame, and
+ * its positional slots hold a status code and text rather than frame flags.
  */
-export const navigationUrlFromArgs = (
+export const navigationDetailsFromArgs = (
   args: readonly unknown[],
-): string | null => {
-  for (const arg of args) {
-    if (typeof arg === "string") return arg;
-    if (arg && typeof arg === "object") {
-      const { url } = arg as { url?: unknown };
-      if (typeof url === "string") return url;
+): NavigationDetails => {
+  const [first, second] = args;
+
+  if (typeof second === "string") {
+    return {
+      url: second,
+      isMainFrame: typeof args[3] === "boolean" ? args[3] : true,
+    };
+  }
+
+  if (first && typeof first === "object") {
+    const details = first as { url?: unknown; isMainFrame?: unknown };
+    if (typeof details.url === "string") {
+      return {
+        url: details.url,
+        isMainFrame:
+          typeof details.isMainFrame === "boolean" ? details.isMainFrame : true,
+      };
     }
   }
-  return null;
+
+  return { url: null, isMainFrame: true };
 };
 
 /**
  * Watch an authorization popup and clear the sign-in state it accumulated once
- * it closes. Wire this from the main process's `did-create-window` handler so
- * every child window the renderer opens is covered.
+ * it closes.
+ *
+ * Prefer `createAuthPopupSignInTracker` at a call site that also owns the
+ * window-open handler: tracking every child window indiscriminately would sweep
+ * the cookies of plain link popups too.
  */
 export const trackAuthPopupSignInState = (
   popup: AuthPopupWindow,
@@ -200,16 +225,23 @@ export const trackAuthPopupSignInState = (
   const visited = new Set<string>();
 
   const record = (...args: unknown[]): void => {
-    const url = navigationUrlFromArgs(args);
-    if (!url) return;
+    const { url, isMainFrame } = navigationDetailsFromArgs(args);
+    if (!url || !isMainFrame) return;
     const host = thirdPartyAuthHostFromUrl(url);
     if (host) visited.add(host);
   };
 
-  // `did-redirect-navigation` catches the hosts a 302 chain passes through —
-  // the provider's authorize endpoint is often only ever an intermediate hop.
-  popup.webContents.on("did-navigate", record);
+  // All three events are needed to see the whole chain, because each reports a
+  // different point of it: `did-start-navigation` carries the URL a navigation
+  // begins at, `did-redirect-navigation` the target of each hop, and
+  // `did-navigate` the URL it settled on. The start event is what catches the
+  // case this whole module exists for — an authorize request that a live SSO
+  // cookie bounces straight back to the first-party callback, where the
+  // provider's host is *only* ever the initial request and never a redirect
+  // target or a final URL.
+  popup.webContents.on("did-start-navigation", record);
   popup.webContents.on("did-redirect-navigation", record);
+  popup.webContents.on("did-navigate", record);
 
   popup.once("closed", () => {
     if (visited.size === 0) return;
@@ -218,4 +250,46 @@ export const trackAuthPopupSignInState = (
       .then((removed) => deps.onCleared?.(hosts, removed))
       .catch((err: unknown) => deps.onError?.(err));
   });
+};
+
+export interface AuthPopupSignInTracker {
+  /**
+   * Call from the window-open handler when the window it is about to allow is
+   * an authorization surface. Applies to the next child window only.
+   */
+  markNextChildAsAuthPopup(): void;
+  /** Call from `did-create-window`. Tracks the window only if it was marked. */
+  trackCreatedChild(popup: AuthPopupWindow): void;
+}
+
+/**
+ * Pair a window-open handler with a `did-create-window` listener so only the
+ * child windows the handler identified as authorization surfaces get their
+ * sign-in cookies swept.
+ *
+ * The gate matters because a renderer opens child windows for ordinary links
+ * too — a Slack app-setup page, a GitHub repo, a Discord invite. Sweeping those
+ * would sign the user out of services they deliberately signed in to, which is
+ * the opposite of the fix. The two callbacks fire in order for the same window
+ * (handler first, then the event), so a single-slot flag correlates them; the
+ * flag is consumed on read, so an unmarked window is never tracked.
+ *
+ * Create one tracker per opener webContents, so the flag cannot cross windows.
+ */
+export const createAuthPopupSignInTracker = (
+  deps: AuthPopupTrackingDeps,
+): AuthPopupSignInTracker => {
+  let nextChildIsAuthPopup = false;
+
+  return {
+    markNextChildAsAuthPopup: () => {
+      nextChildIsAuthPopup = true;
+    },
+    trackCreatedChild: (popup) => {
+      const isAuthPopup = nextChildIsAuthPopup;
+      nextChildIsAuthPopup = false;
+      if (!isAuthPopup) return;
+      trackAuthPopupSignInState(popup, deps);
+    },
+  };
 };

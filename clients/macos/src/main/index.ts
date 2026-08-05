@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
-import { trackAuthPopupSignInState } from "@vellumai/electron-utils/auth-popup-session";
+import { createAuthPopupSignInTracker } from "@vellumai/electron-utils/auth-popup-session";
 import {
   pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
@@ -577,6 +577,18 @@ app.on("web-contents-created", (_event, contents) => {
     else log.info(line);
   });
 
+  // Sign-in isolation for the connect / OAuth popups below. Created per
+  // opener so the marked-window flag cannot cross windows.
+  const authPopups = createAuthPopupSignInTracker({
+    cookies: () => session.defaultSession.cookies,
+    onCleared: (hosts, removed) =>
+      log.info(
+        `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,
+      ),
+    onError: (err) =>
+      log.warn("[auth-popup] failed to clear sign-in cookies:", err),
+  });
+
   contents.setWindowOpenHandler(({ url, disposition }) => {
     // Programmatic popups (`window.open(url, name, features)` with size
     // hints) come through as `new-window` disposition. The web app's OAuth /
@@ -587,6 +599,11 @@ app.on("web-contents-created", (_event, contents) => {
     // handle is returned to the renderer for the subsequent postMessage
     // callback chain.
     if (disposition === "new-window" && url === "about:blank") {
+      // That deferred-navigation shape is what identifies an authorization
+      // surface: a plain link popup always opens at its real URL. Only these
+      // get their third-party sign-in cookies swept on close, so closing a
+      // Slack / GitHub / Discord link window leaves those sessions intact.
+      authPopups.markNextChildAsAuthPopup();
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -626,24 +643,15 @@ app.on("web-contents-created", (_event, contents) => {
     return { action: "deny" };
   });
 
-  // Every child window the renderer opens is a connect / OAuth surface, and an
-  // in-app one has no address bar, profile switcher, or provider sign-out page
-  // to fall back on. Left alone, the identity provider's SSO cookie sticks
-  // around in the app's session and every later authorization silently reuses
-  // the first account — Microsoft skips the account picker outright. Treat each
-  // popup as a throwaway sign-in surface: drop the third-party sign-in cookies
-  // it left behind once it closes, so the next connect starts signed out and
-  // the provider asks who you are. Vellum's own cookies are never touched.
+  // Sweep the sign-in cookies of the popups marked above once they close. An
+  // in-app authorization window has no address bar, profile switcher, or
+  // provider sign-out page to fall back on, so without this the identity
+  // provider's SSO cookie sticks around in the app's session and every later
+  // authorization silently reuses the first account — Microsoft skips the
+  // account picker outright. Unmarked child windows (plain link opens) keep
+  // their cookies, as do Vellum's own.
   contents.on("did-create-window", (window) => {
-    trackAuthPopupSignInState(window, {
-      cookies: () => session.defaultSession.cookies,
-      onCleared: (hosts, removed) =>
-        log.info(
-          `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,
-        ),
-      onError: (err) =>
-        log.warn("[auth-popup] failed to clear sign-in cookies:", err),
-    });
+    authPopups.trackCreatedChild(window);
   });
 });
 
