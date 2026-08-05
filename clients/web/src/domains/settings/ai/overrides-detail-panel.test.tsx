@@ -75,10 +75,15 @@ let configPatchBodies: unknown[] = [];
 let servedConfig: unknown = CONFIG;
 // Same deal for the call-site catalog.
 let servedCatalog: unknown = CATALOG;
+// Counts catalog fetches so a test can prove a write refetched the winners.
+let catalogFetches = 0;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
-  configLlmCallsitesGet: mock(async () => ({ data: servedCatalog })),
+  configLlmCallsitesGet: mock(async () => {
+    catalogFetches += 1;
+    return { data: servedCatalog };
+  }),
   configGet: mock(async () => ({ data: servedConfig })),
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
@@ -130,6 +135,7 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
 
 beforeEach(() => {
   configPatchBodies = [];
+  catalogFetches = 0;
   servedConfig = CONFIG;
   servedCatalog = CATALOG;
 });
@@ -294,6 +300,29 @@ describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
     // here would delete settings the user never asked to remove.
     expect("heartbeatAgent" in body.llm.callSites).toBe(false);
     expect(body.llm.callSites.workflowLeaf).toBeTruthy();
+  });
+
+  // The catalog reports each call site's winning profile, and it is cached
+  // with a 60s staleTime. A save changes those winners, so without an
+  // explicit invalidation the panel keeps showing the pre-save winner for a
+  // full minute — and the bulk swap, which treats the winner as
+  // authoritative, would act on it.
+  test("saving refetches the call-site winners", async () => {
+    renderWith(CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+    const before = catalogFetches;
+
+    fireEvent.click(toggleFor("Workflow Leaf"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    await waitFor(() => {
+      expect(catalogFetches).toBeGreaterThan(before);
+    });
   });
 
   test("switching a row off still sends null so the entry is deleted", async () => {

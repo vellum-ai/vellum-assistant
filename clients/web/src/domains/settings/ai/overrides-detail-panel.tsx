@@ -1,7 +1,7 @@
 import { AlertCircle, Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   profilePickerIssue,
@@ -30,10 +30,9 @@ import {
 } from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
-  configGetSetQueryData,
   configLlmCallsitesGetOptions,
-  useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
@@ -58,8 +57,6 @@ export function OverridesDetailPanel({
   assistantId,
   onClose,
 }: OverridesDetailPanelProps) {
-  const queryClient = useQueryClient();
-
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -90,15 +87,7 @@ export function OverridesDetailPanel({
     [requireOwnProviderAndModel],
   );
 
-  const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
-      configGetSetQueryData(
-        queryClient,
-        { path: { assistant_id: assistantId } },
-        data,
-      );
-    },
-  });
+  const configMutation = useLlmConfigPatch(assistantId);
 
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
