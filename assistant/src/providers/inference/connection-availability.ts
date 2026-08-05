@@ -38,14 +38,24 @@ import {
 import { ROUTING_IDENTITY_PROVIDERS } from "./auth.js";
 import { getConnection, listConnections } from "./connections.js";
 
+/**
+ * Every availability verdict, in one place. Route schemas build their zod
+ * enums from this rather than restating it, so a new status reaches the wire
+ * for every surface at once instead of drifting between them.
+ */
+export const CONNECTION_AVAILABILITY_STATUSES = [
+  "ok",
+  "incomplete",
+  "missing_connection",
+  "missing_credential",
+  "provider_mismatch",
+  "unsupported_auth",
+  "vellum_unauthenticated",
+  "unknown",
+] as const;
+
 export type ConnectionAvailabilityStatus =
-  | "ok"
-  | "missing_connection"
-  | "missing_credential"
-  | "provider_mismatch"
-  | "unsupported_auth"
-  | "vellum_unauthenticated"
-  | "unknown";
+  (typeof CONNECTION_AVAILABILITY_STATUSES)[number];
 
 export interface ConnectionAvailability {
   status: ConnectionAvailabilityStatus;
@@ -254,16 +264,35 @@ export function isUnavailable(
  *     dispatch would auto-resolve (an active, model-compatible row for that
  *     provider) — with no such row, the profile cannot serve requests.
  *
- * Returns null when there is nothing to judge (no provider, e.g. mix profiles).
+ * Returns null when there is nothing to judge: a mix carries no provider or
+ * model of its own, because the resolver expands it to a seeded arm and
+ * judges that arm instead.
  */
 export async function computeProfileAvailability(
   entry: Record<string, unknown>,
 ): Promise<ConnectionAvailability | null> {
   const provider = entry.provider;
-  if (typeof provider !== "string") {
-    return null;
-  }
   const model = typeof entry.model === "string" ? entry.model : undefined;
+
+  // A rung only wins if its profile carries BOTH a provider and a model (see
+  // `usableEntry` in config/llm-resolver.ts); one without them is skipped as
+  // "incomplete" and the call site quietly resolves elsewhere. Report that so
+  // clients can show it rather than presenting the profile as healthy.
+  if (typeof provider !== "string" || model === undefined) {
+    if (entry.mix != null) {
+      return null;
+    }
+    const missing =
+      typeof provider !== "string"
+        ? model === undefined
+          ? "a provider and a model"
+          : "a provider"
+        : "a model";
+    return {
+      status: "incomplete",
+      message: `This profile is missing ${missing}, so it cannot be used. Finish setting it up ${SETTINGS_HINT}.`,
+    };
+  }
 
   // Routing-identity profiles carry no provider_connection. A model the
   // identity cannot route reports as a mismatch rather than throwing —
