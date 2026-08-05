@@ -868,6 +868,32 @@ describe("host-proxy-router", () => {
       expect(mockPresenceTeardown).toHaveBeenCalledTimes(2);
     });
 
+    test("keeps the bridge alive when the monitor fails to install", async () => {
+      mockInstallPresenceMonitor.mockImplementationOnce(() => {
+        throw new Error("powerMonitor unavailable");
+      });
+
+      // The bridge installs inside app.whenReady() ahead of the tray, native
+      // auth, and the main window, so a throw escaping here would cost the
+      // user the app for the sake of a notification optimization.
+      let teardown: (() => void) | undefined;
+      expect(() => {
+        teardown = installHostProxyBridge(fakeCliResolver);
+      }).not.toThrow();
+
+      expect(__testing.executors.has("host_bash")).toBe(true);
+      expect(__testing.executors.has("host_browser")).toBe(true);
+
+      lockfileListener?.(MIXED_LOCKFILE);
+      await flush();
+      expect(__testing.connections.has("local-1")).toBe(true);
+      expect(__testing.connections.has("cloud-1")).toBe(true);
+
+      expect(() => teardown?.()).not.toThrow();
+      expect(mockPresenceTeardown).not.toHaveBeenCalled();
+      expect(__testing.connections.size).toBe(0);
+    });
+
     test("keeps reporting to siblings when one poster rejects", async () => {
       installHostProxyBridge(fakeCliResolver);
       const unreachable = addPresenceConnection("a1", { reject: true });
