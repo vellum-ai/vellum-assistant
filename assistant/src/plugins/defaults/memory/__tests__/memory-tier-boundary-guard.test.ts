@@ -196,7 +196,7 @@ interface TierKeyExemption {
  *   shape.
  * - `telemetry/config-setting-snapshot.ts` (both) — reports both tier keys
  *   as-is.
- * - the named migrations — append-only history that rewrites or reads the
+ * - the named migrations: append-only history that rewrites or reads the
  *   historical tier keys it was written for. Listed per file, not per
  *   directory: a future migration reading a tier key is a new decision and
  *   gets challenged like any other.

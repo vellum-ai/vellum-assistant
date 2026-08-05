@@ -193,6 +193,28 @@ describe("140-repair-seed-pinned-memory-v3-live migration", () => {
     expect(readLive()).toBe(false);
   });
 
+  test("finds selection rows staged under the __relocating name mid-drain", () => {
+    writeConfig({ memory: { v3: { live: false } } });
+    writeCheckpoints(FIRST_BOOT_GAP_MS);
+    const db = new Database(join(workspaceDir, "data", "db", "assistant.db"));
+    db.exec(`
+      CREATE TABLE memory_v3_selections__relocating (
+        conversation_id TEXT NOT NULL,
+        turn INTEGER NOT NULL,
+        slug TEXT NOT NULL,
+        source TEXT NOT NULL
+      );
+      INSERT INTO memory_v3_selections__relocating
+        (conversation_id, turn, slug, source)
+        VALUES ('conv-1', 1, 'some-page', 'needle');
+    `);
+    db.close();
+
+    repairSeedPinnedMemoryV3LiveMigration.run(workspaceDir, UPGRADE_CTX);
+
+    expect(readLive()).toBe(false);
+  });
+
   test("finds selection rows in the pre-relocation assistant.db too", () => {
     writeConfig({ memory: { v3: { live: false } } });
     writeCheckpoints(FIRST_BOOT_GAP_MS);

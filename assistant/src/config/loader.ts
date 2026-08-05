@@ -1196,6 +1196,12 @@ export function loadConfig(): AssistantConfig {
         if (quarantinedConfigSaidMemoryV3Live(configPath)) {
           seed.memory.v3 = { live: true } as (typeof seed.memory)["v3"];
           config.memory.v3.live = true;
+          // Refresh the last-known-good safety net (mirrors the
+          // deployment-context refresh above): its snapshot was taken before
+          // the carry, so a later in-process validation recovery would
+          // otherwise restore live=false and demote the assistant in memory
+          // despite the reseeded file on disk carrying true.
+          lastKnownGoodConfig = structuredClone(config);
           log.info(
             "Carried memory.v3.live=true forward from the quarantined config",
           );

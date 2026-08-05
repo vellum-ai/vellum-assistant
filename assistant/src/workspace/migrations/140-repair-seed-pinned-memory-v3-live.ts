@@ -139,11 +139,14 @@ function wasCreatedInMigration105Era(workspaceDir: string): boolean {
 /**
  * Whether memory-v3 ever ran a selection on this workspace. The
  * `memory_v3_selections` table lives in `assistant-memory.db` after DB
- * migration 338 and in `assistant.db` before it; both are checked. A
+ * migration 338 and in `assistant.db` before it; both are checked, along
+ * with the `__relocating` staging name the relocation renames the source to
+ * mid-drain (a crash there leaves the rows only under the staging name). A
  * database file that exists but cannot be read counts as "may have run v3"
  * so an unreadable database never causes an opt-out to be overridden.
  */
 function memoryV3EverRan(workspaceDir: string): boolean {
+  const tables = ["memory_v3_selections", "memory_v3_selections__relocating"];
   for (const file of ["assistant-memory.db", "assistant.db"]) {
     const dbPath = join(workspaceDir, "data", "db", file);
     if (!existsSync(dbPath)) {
@@ -152,17 +155,19 @@ function memoryV3EverRan(workspaceDir: string): boolean {
     let db: Database | null = null;
     try {
       db = new Database(dbPath, { readonly: true });
-      const table = db
-        .query(
-          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_v3_selections'`,
-        )
-        .get();
-      if (!table) {
-        continue;
-      }
-      const row = db.query(`SELECT 1 FROM memory_v3_selections LIMIT 1`).get();
-      if (row) {
-        return true;
+      for (const table of tables) {
+        const exists = db
+          .query(
+            `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+          )
+          .get(table);
+        if (!exists) {
+          continue;
+        }
+        const row = db.query(`SELECT 1 FROM "${table}" LIMIT 1`).get();
+        if (row) {
+          return true;
+        }
       }
     } catch {
       return true;
