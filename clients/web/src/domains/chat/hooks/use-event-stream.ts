@@ -356,22 +356,23 @@ export function useEventStream({
   // success so the bus bounces its SSE; `reconcileOnReopen` runs the
   // post-reconnect reconcile on the resulting `sse.opened`.
   //
-  // Only a `"ready"` reached from `"connecting"` / `"checking"` is a
-  // recovery. A `"ready"` entered from any other phase is a boot or
-  // remount confirmation over an already-healthy stream, and bouncing
-  // it costs a duplicate daemon connect plus the full non-fresh
-  // reconcile fan-out. Every other phase still reaches the limiter so
-  // its budget bookkeeping is unchanged.
+  // A `"ready"` reached from a degraded phase (`"connecting"`,
+  // `"checking"`, `"failed"`) is a recovery and must bounce: the
+  // stream is closed or stale by then. A `"ready"` reached from
+  // `"idle"` or `"ready"` is a boot or remount confirmation over an
+  // already-healthy stream, and bouncing it costs a duplicate daemon
+  // connect plus the full non-fresh reconcile fan-out. Every other
+  // phase still reaches the limiter so its budget bookkeeping is
+  // unchanged.
   // --------------------------------------------------------------------------
   const previousReachabilityPhaseRef = useRef(reachabilityPhase);
   useEffect(() => {
     const previousPhase = previousReachabilityPhaseRef.current;
     previousReachabilityPhaseRef.current = reachabilityPhase;
-    if (
+    const isHealthyStreamConfirmation =
       reachabilityPhase === "ready" &&
-      previousPhase !== "connecting" &&
-      previousPhase !== "checking"
-    ) {
+      (previousPhase === "idle" || previousPhase === "ready");
+    if (isHealthyStreamConfirmation) {
       return;
     }
     burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);

@@ -86,11 +86,12 @@ export interface BusEventMap {
   "sse.closed": { reason: string };
   /**
    * Published by `useEventStream`'s reachability-retry burst limiter
-   * when the reachability probe recovers into "ready" from
-   * "connecting" or "checking". Tells the bus to close + reopen its
-   * SSE connection so the conversation-scoped reconcile pass can run.
-   * A "ready" entered from any other phase (boot, remount) confirms an
-   * already-healthy stream and does not publish.
+   * when the reachability probe recovers into "ready" from a degraded
+   * phase ("connecting", "checking", or "failed"). Tells the bus to
+   * close + reopen its SSE connection so the conversation-scoped
+   * reconcile pass can run. A "ready" entered from "idle" or "ready"
+   * confirms an already-healthy stream (boot, remount) and does not
+   * publish.
    */
   "reachability.retry-requested": Record<string, never>;
   /**

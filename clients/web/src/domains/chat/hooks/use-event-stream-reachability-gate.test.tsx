@@ -85,13 +85,13 @@ describe("useEventStream reachability retry gate", () => {
     expect(retries).toHaveBeenCalledTimes(1);
   });
 
-  test("failed to ready requests no retry (the user retry re-enters via connecting)", () => {
+  test("a late healthy probe that lands on failed requests a retry", () => {
     const retries = trackRetryRequests();
     const { rerender } = renderEventStream({ reachabilityPhase: "failed" });
 
     rerender({ phase: "ready" });
 
-    expect(retries).not.toHaveBeenCalled();
+    expect(retries).toHaveBeenCalledTimes(1);
   });
 
   test("the 3-per-window budget still exhausts across repeated recoveries", () => {
