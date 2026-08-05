@@ -6,8 +6,9 @@
  *   2. A failed clipboard write neither claims success nor moves the flow on.
  *   3. Navigation is never a side effect of another control: Next advances,
  *      Copy and Open Slack do not.
- *   4. The handoff step reports what is really on the clipboard, including the
- *      stale case where the app was renamed after copying.
+ *   4. The handoff step reports what this wizard copied, including the stale
+ *      case where the app was renamed afterwards, and never claims to know
+ *      what the clipboard now holds.
  *   5. An empty app name blocks both controls on step 1.
  *   6. Step 4 hands both tokens to `onSave`, trimmed.
  *
@@ -119,9 +120,9 @@ describe("SlackSetupWizard step flow", () => {
     expect(clipboardWrites).toHaveLength(0);
     expect(onOpenStep()).toBe(true);
     // Slack's modal cannot fetch the manifest, so the handoff step has to say
-    // the clipboard is not ready rather than let the user paste nothing.
+    // so rather than let the user paste nothing.
     expect(screen.getByRole("status").textContent).toMatch(
-      /does not hold this app's manifest/i,
+      /have not copied this app's manifest yet/i,
     );
   });
 
@@ -140,11 +141,11 @@ describe("SlackSetupWizard step flow", () => {
     fireEvent.click(nextButton());
 
     expect(screen.getByRole("status").textContent).toMatch(
-      /does not hold this app's manifest/i,
+      /have not copied this app's manifest yet/i,
     );
   });
 
-  test("copying at the handoff step marks the clipboard ready", async () => {
+  test("copying at the handoff step marks the manifest copied", async () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
 
     fireEvent.click(nextButton());
@@ -152,9 +153,14 @@ describe("SlackSetupWizard step flow", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("status").textContent).toMatch(
-        /manifest is on your clipboard/i,
+        /you copied this app's manifest here/i,
       );
     });
+    // The wizard knows it wrote the manifest, not that the clipboard still
+    // holds it, so the notice must not assert the latter.
+    expect(screen.getByRole("status").textContent).toMatch(
+      /copied anything since, copy it again/i,
+    );
     // Copying is still not navigation.
     expect(onOpenStep()).toBe(true);
   });

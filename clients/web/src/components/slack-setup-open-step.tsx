@@ -3,8 +3,13 @@ import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
 export interface SlackSetupOpenStepProps {
-  /** Whether the clipboard holds the manifest for the app as currently named. */
-  manifestOnClipboard: boolean;
+  /**
+   * Whether this wizard successfully copied the manifest for the app as
+   * currently named. Not a claim about the clipboard's present contents: a
+   * page cannot observe those without a permission prompt, and anything the
+   * user copies elsewhere replaces them silently.
+   */
+  manifestCopiedHere: boolean;
   copied: boolean;
   onCopyManifest: () => void;
   onOpenSlack: () => void;
@@ -18,14 +23,15 @@ export interface SlackSetupOpenStepProps {
  * or a rejected clipboard write would otherwise move the flow on without the
  * thing it claims to have done.
  *
- * Slack's create-app modal cannot fetch the manifest, so arriving there with an
- * empty or stale clipboard dead-ends. Rather than gate the forward action on a
- * copy, this step reports what is actually on the clipboard and offers to fix
- * it in place. The copy control lives inside that notice rather than beside
- * Open Slack, so the step keeps one primary action.
+ * Slack's create-app modal cannot fetch the manifest, so arriving there without
+ * it dead-ends. Rather than gate the forward action on a copy, this step
+ * reports whether the manifest was copied here and offers to copy it again in
+ * place. It deliberately does not claim the clipboard still holds it, because
+ * nothing here can know that. The copy control lives inside that notice rather
+ * than beside Open Slack, so the step keeps one primary action.
  */
 export function SlackSetupOpenStep({
-  manifestOnClipboard,
+  manifestCopiedHere,
   copied,
   onCopyManifest,
   onOpenSlack,
@@ -60,13 +66,14 @@ export function SlackSetupOpenStep({
         steps to follow.
       </Typography>
 
-      {manifestOnClipboard ? (
-        <Notice tone="success" actions={copyButton}>
-          The manifest is on your clipboard, ready to paste into Slack.
+      {manifestCopiedHere ? (
+        <Notice tone="info" actions={copyButton}>
+          You copied this app&apos;s manifest here. If you have copied anything
+          since, copy it again before you paste.
         </Notice>
       ) : (
         <Notice tone="warning" actions={copyButton}>
-          Your clipboard does not hold this app&apos;s manifest. Slack&apos;s
+          You have not copied this app&apos;s manifest yet. Slack&apos;s
           create-app modal has no other way to get it, so copy it before you
           paste.
         </Notice>

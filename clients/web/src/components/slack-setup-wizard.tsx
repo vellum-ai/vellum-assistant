@@ -67,9 +67,12 @@ export function SlackSetupWizard({
     }
   }, [assistantName]);
 
-  // The exact manifest last written to the clipboard, so the handoff step can
-  // tell "never copied" and "copied, then the name changed" apart from a live
-  // clipboard. The transient `copied` flag resets on a timer and cannot.
+  // The exact manifest this wizard last wrote to the clipboard, so the handoff
+  // step can tell "never copied" from "copied, then the name changed". The
+  // transient `copied` flag resets on a timer and cannot. This is what the
+  // wizard did, not what the clipboard now holds: a page cannot read the
+  // clipboard without a permission prompt, and a copy in any other app
+  // replaces it silently.
   const [copiedManifest, setCopiedManifest] = useState<string | null>(null);
 
   const [botToken, setBotToken] = useState("");
@@ -145,7 +148,7 @@ export function SlackSetupWizard({
 
         {stepId === "open" && (
           <SlackSetupOpenStep
-            manifestOnClipboard={copiedManifest === manifestJson}
+            manifestCopiedHere={copiedManifest === manifestJson}
             copied={copied}
             onCopyManifest={handleCopyManifest}
             onOpenSlack={handleOpenSlack}
