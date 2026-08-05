@@ -23,6 +23,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { FeedItem } from "@vellumai/assistant-api";
 
+import { feedItem } from "../feed-test-fixtures";
+
 const isMobileRef = { value: false };
 
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -77,18 +79,16 @@ const READ_LABEL = 'aria-label="Notifications"';
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
-function feedItem(overrides: Partial<FeedItem>): FeedItem {
+function bellItem(overrides: Partial<FeedItem>): FeedItem {
+  // Relative so the bell's recency treatment is exercised.
   const timestamp = new Date(Date.now() - THREE_HOURS_MS).toISOString();
-  return {
+  return feedItem({
     id: "item-1",
-    type: "notification",
-    priority: 50,
     summary: "Something happened",
     timestamp,
     createdAt: timestamp,
-    status: "new",
     ...overrides,
-  };
+  });
 }
 
 function renderBell(): string {
@@ -113,7 +113,7 @@ afterEach(() => {
 
 describe("NotificationsBell unread dot", () => {
   test("shows the dot when an unread notification exists", () => {
-    feedRef.items = [feedItem({ status: "new" })];
+    feedRef.items = [bellItem({ status: "new" })];
     const html = renderBell();
     expect(html).toContain(UNREAD_DOT);
     expect(html).toContain(UNREAD_LABEL);
@@ -121,8 +121,8 @@ describe("NotificationsBell unread dot", () => {
 
   test("hides the dot when every notification has been read", () => {
     feedRef.items = [
-      feedItem({ id: "a", status: "seen" }),
-      feedItem({ id: "b", status: "acted_on" }),
+      bellItem({ id: "a", status: "seen" }),
+      bellItem({ id: "b", status: "acted_on" }),
     ];
     const html = renderBell();
     expect(html).not.toContain(UNREAD_DOT);
@@ -140,8 +140,8 @@ describe("NotificationsBell unread dot", () => {
     // Dismissed and high-urgency items are filtered out of the list, so
     // they must not light a dot the panel can't explain.
     feedRef.items = [
-      feedItem({ id: "a", status: "dismissed" }),
-      feedItem({ id: "b", status: "new", urgency: "high" }),
+      bellItem({ id: "a", status: "dismissed" }),
+      bellItem({ id: "b", status: "new", urgency: "high" }),
     ];
     const html = renderBell();
     expect(html).not.toContain(UNREAD_DOT);
@@ -150,7 +150,7 @@ describe("NotificationsBell unread dot", () => {
 
   test("mobile trigger carries the same dot", () => {
     isMobileRef.value = true;
-    feedRef.items = [feedItem({ status: "new" })];
+    feedRef.items = [bellItem({ status: "new" })];
     const html = renderBell();
     expect(html).toContain(UNREAD_DOT);
     expect(html).toContain(UNREAD_LABEL);
@@ -160,7 +160,7 @@ describe("NotificationsBell unread dot", () => {
 describe("NotificationsBell panel", () => {
   test("renders each row with title, timestamp, and preview", async () => {
     feedRef.items = [
-      feedItem({
+      bellItem({
         category: "background",
         title: "Watcher job failed",
         summary: "The watcher job could not reach the upstream service.",
@@ -178,7 +178,7 @@ describe("NotificationsBell panel", () => {
 
   test("rows drop the category chip and the source label", async () => {
     feedRef.items = [
-      feedItem({
+      bellItem({
         category: "background",
         sourceLabel: "Heartbeat",
         title: "Watcher job failed",
@@ -192,7 +192,7 @@ describe("NotificationsBell panel", () => {
   });
 
   test("keeps its own unread dot distinct from the rows'", async () => {
-    feedRef.items = [feedItem({ status: "new" })];
+    feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
@@ -201,7 +201,7 @@ describe("NotificationsBell panel", () => {
   });
 
   test("keeps the panel header and bulk actions", async () => {
-    feedRef.items = [feedItem({ status: "new" })];
+    feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
