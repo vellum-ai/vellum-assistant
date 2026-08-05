@@ -29,7 +29,7 @@ export const hostFileEditInputSchema = z.looseObject({
     .string()
     .min(1)
     .describe(
-      "Absolute path on the guardian's device to edit. Their filesystem is separate from your workspace — workspace paths do not resolve here.",
+      "Absolute path on the guardian's device, which is a separate filesystem from your workspace, to edit.",
     ),
   old_string: z
     .string()

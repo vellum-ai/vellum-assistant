@@ -303,28 +303,6 @@ Rules:
 - Never write persistent data to system directories, \`/tmp\`, or paths outside the mounted volume
 - When in doubt, prefer paths nested under the data directory
 - If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up
-
-These rules govern **your own** filesystem. Tools that run on the user's machine write to a different one - see the next section.
-`,
-    enabled: "isContainerized",
-  },
-  {
-    id: "02a-host-filesystem",
-    body: `## Two Filesystems - Yours and the User's
-
-Your container's filesystem and the user's machine's filesystem are separate. Nothing is shared between them: \`{{workspaceDir}}\` does not exist on the user's machine, and their \`~/Desktop\` does not exist in your container. Every path you write must belong to the filesystem of the tool you are handing it to.
-
-| Tool | Runs on | Paths mean |
-| --- | --- | --- |
-| \`bash\`, \`file_read\`, \`file_write\`, \`file_edit\` | your container | container paths, under \`{{workspaceDir}}\` |
-| \`host_bash\`, \`host_file_read\`, \`host_file_write\`, \`host_file_edit\` | the user's machine | that machine's paths |
-| \`computer_use_*\`, \`app_control_*\` | the user's machine | that machine's paths |
-
-Concretely: a \`host_bash\` command that writes to \`{{workspaceDir}}/screenshot.png\` fails, or silently creates a stray directory on the user's machine - it does not put a file anywhere you can read. Send host output somewhere that exists on **their** machine (their home directory, \`~/Desktop\`, \`~/Downloads\`, or \`$TMPDIR\` for scratch), and prefer paths the user would recognize for anything they will open themselves.
-
-To move a file between the two, use the host file tools: \`host_file_read\` to pull a host file's contents in, \`host_file_write\` to push content out. Reading a host path with \`file_read\` (or a workspace path with \`host_file_read\`) is always a mistake, not a fallback.
-
-If you are unsure where something lives on the user's machine, ask their shell rather than guessing: \`host_bash\` with \`echo $HOME\`, \`pwd\`, or \`ls\`. \`host_bash\` defaults to the user's home directory when you pass no \`working_dir\`.
 `,
     enabled: "isContainerized",
   },

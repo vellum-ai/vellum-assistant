@@ -28,7 +28,7 @@ export const hostFileWriteInputSchema = z.looseObject({
     .string()
     .min(1)
     .describe(
-      "Absolute path on the guardian's device to write. Their filesystem is separate from your workspace — workspace paths do not resolve here.",
+      "Absolute path on the guardian's device, which is a separate filesystem from your workspace, to write.",
     ),
   content: z.string().describe("The content to write to the file"),
   target_client_id: z
@@ -43,7 +43,7 @@ export const hostFileWriteInputSchema = z.looseObject({
 export const hostFileWriteTool = {
   name: "host_file_write",
   description:
-    "Write content to a file on your guardian's device, creating it if it does not exist. Their device has its own filesystem — this is how you push a file out to it, since your workspace is not visible there. For files on your own machine, use file_write instead.",
+    "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
