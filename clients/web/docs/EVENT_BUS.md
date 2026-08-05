@@ -68,7 +68,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. |
 | `app.online` | `{}` | `window.online` fired. Always accompanies a paired `app.resume{signal:"online"}`. |
 | `app.offline` | `{}` | `window.offline` fired. |
-| `reachability.retry-requested` | `{}` | Burst-limited reachability retry succeeded; the bus bounces its SSE. |
+| `reachability.retry-requested` | `{}` | Burst-limited reachability retry succeeded on recovery into `"ready"` from a degraded phase (`"connecting"`, `"checking"`, or `"failed"`); the bus bounces its SSE. A `"ready"` entered from `"idle"` or `"ready"` confirms an already-healthy stream (boot, remount) and does not publish. |
 | `power.suspend` | `{}` | Electron host: `powerMonitor` `suspend` — system going to sleep. Bus tears down its SSE so the daemon sees a clean disconnect. Off Electron (web / iOS) never fires. |
 | `power.resume` | `{}` | Electron host: `powerMonitor` `resume` — system woke. Bus bounces (teardown + reopen) its SSE regardless of `current` state — the renderer may have stayed visible during sleep (tray-resident / full-screen) so the socket may be half-dead. Off Electron never fires. |
 | `power.lock` | `{}` | Electron host: screen locked. No bus-owned action today. Off Electron never fires. |
