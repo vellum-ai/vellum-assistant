@@ -122,7 +122,19 @@ export function VoiceFirstRunCard({
     .find((a) => a.id === assistantId)?.name;
 
   const [view, setView] = useState<FirstRunView>("intro");
+  // The language picker is reachable from two places, so leaving it returns
+  // where it was opened from rather than always to the intro. Escape and the
+  // back arrow share this, so a stray keypress cannot strand someone a view
+  // away from what they were doing.
+  const [languageReturnView, setLanguageReturnView] =
+    useState<Exclude<FirstRunView, "language">>("intro");
   const backToIntro = () => setView("intro");
+  const leaveCurrentView = () =>
+    setView(view === "language" ? languageReturnView : "intro");
+  const openLanguage = (from: Exclude<FirstRunView, "language">) => {
+    setLanguageReturnView(from);
+    setView("language");
+  };
 
   // Locale evidence for the listening-language row: null for English locales
   // and locales outside the catalog. Guarded for environments without a
@@ -171,7 +183,7 @@ export function VoiceFirstRunCard({
         // differently across DOM runtimes). `open` is controlled, so ignoring
         // the request costs nothing.
         if (view !== "intro") {
-          backToIntro();
+          leaveCurrentView();
           return;
         }
         // On the intro a close is a plain cancel: the first run stays
@@ -197,7 +209,7 @@ export function VoiceFirstRunCard({
           view !== "intro"
             ? (event) => {
                 event.preventDefault();
-                backToIntro();
+                leaveCurrentView();
               }
             : nonDismissible
               ? (event) => event.preventDefault()
@@ -219,7 +231,7 @@ export function VoiceFirstRunCard({
                 if (event.key === "Escape") {
                   event.preventDefault();
                   event.stopPropagation();
-                  backToIntro();
+                  leaveCurrentView();
                 }
               }
             : undefined
@@ -308,7 +320,7 @@ export function VoiceFirstRunCard({
                     size="compact"
                     aria-label="Listening language"
                     aria-haspopup="dialog"
-                    onClick={() => setView("language")}
+                    onClick={() => openLanguage("intro")}
                     value={sttLanguageLabelForCode(
                       languageCode,
                       configuredProviderId,
@@ -352,6 +364,12 @@ export function VoiceFirstRunCard({
             onStart={onStart}
             onBack={backToIntro}
             startBlocked={languageSelecting}
+            languageLabel={sttLanguageLabelForCode(
+              languageCode,
+              configuredProviderId,
+            )}
+            languageAvailable={languageAvailable}
+            onOpenLanguage={() => openLanguage("settings")}
           />
         )}
 
@@ -364,7 +382,7 @@ export function VoiceFirstRunCard({
           <>
             <Modal.Header>
               <div className="flex items-center gap-2">
-                <BackButton onClick={backToIntro} />
+                <BackButton onClick={leaveCurrentView} />
                 <div className="flex min-w-0 flex-col">
                   <Modal.Title className="leading-tight">
                     Listening language
@@ -382,7 +400,7 @@ export function VoiceFirstRunCard({
                 suggestedCode={suggestedCode}
                 selectLanguage={selectLanguage}
                 selecting={languageSelecting}
-                onDone={backToIntro}
+                onDone={leaveCurrentView}
               />
             </Modal.Body>
           </>
@@ -403,10 +421,19 @@ function VoiceSettingsView({
   onStart,
   onBack,
   startBlocked = false,
+  languageLabel,
+  languageAvailable,
+  onOpenLanguage,
 }: {
   assistantId: string | null;
   onStart: () => void;
   onBack: () => void;
+  /** Current listening language, already labelled for its provider. */
+  languageLabel: string;
+  /** False for providers the daemon reports as detecting natively. */
+  languageAvailable: boolean;
+  /** Opens the shared language picker as a view of this same dialog. */
+  onOpenLanguage: () => void;
   /**
    * An in-flight write elsewhere on the card (the intro's language pick)
    * that Start must also wait out, so the session cannot open on the
@@ -428,7 +455,7 @@ function VoiceSettingsView({
         <div className="flex items-center gap-2">
           <BackButton onClick={onBack} />
           <div className="flex min-w-0 flex-col">
-            <Modal.Title className="leading-tight">Voices</Modal.Title>
+            <Modal.Title className="leading-tight">Voice settings</Modal.Title>
             {available && (
               <Modal.Description>
                 {MANAGED_VOICE_CREDITS_NOTE}
@@ -437,11 +464,34 @@ function VoiceSettingsView({
           </div>
         </div>
       </Modal.Header>
-      <Modal.Body>
-        {/* Just the voice — the one thing most people come here to change, and
-            it hot-applies on the next reply (no Save). A provider dropdown
-            scopes the list; it hides itself for assistants on a bring-your-own
-            provider, leaving the footer note as their path. */}
+      <Modal.Body className="flex flex-col gap-4">
+        {/* The two halves of a spoken conversation, in the order they happen:
+            what the assistant hears, then how it sounds back. Language leads
+            because getting it wrong makes every turn wrong, where a voice is
+            only ever a preference. */}
+        {languageAvailable && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2.5">
+              <Languages
+                aria-hidden
+                className="size-4 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="text-body-medium-default">
+                Listening language
+              </span>
+            </span>
+            <SelectTriggerRow
+              size="compact"
+              aria-label="Listening language"
+              aria-haspopup="dialog"
+              onClick={onOpenLanguage}
+              value={languageLabel}
+            />
+          </div>
+        )}
+        {/* The voice hot-applies on the next reply (no Save). A provider
+            dropdown scopes the list; it hides itself for assistants on a
+            bring-your-own provider, leaving the footer note as their path. */}
         <VoiceList
           assistantId={assistantId}
           filterBySource

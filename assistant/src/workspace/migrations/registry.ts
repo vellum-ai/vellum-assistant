@@ -97,6 +97,7 @@ import { reduceQualityProfileEffortMigration } from "./096-reduce-quality-profil
 import { enableAdaptiveThinkingManagedProfilesMigration } from "./097-enable-adaptive-thinking-managed-profiles.js";
 import { removeStaleUpdatesBulletinFileMigration } from "./098-remove-stale-updates-bulletin-file.js";
 import { disableCacheOneShotCallsitesMigration } from "./099-disable-cache-one-shot-callsites.js";
+import { sttEnglishDefaultToMultilingualMigration } from "./100-stt-english-default-to-multilingual.js";
 import { upgradeQualityProfileToFable5Migration } from "./100-upgrade-quality-profile-to-fable-5.js";
 import { upgradeBalancedEconomyToMinimaxM3Migration } from "./101-upgrade-balanced-economy-to-minimax-m3.js";
 import { preserveHeartbeatEnabledForExistingWorkspacesMigration } from "./102-preserve-heartbeat-enabled-for-existing-workspaces.js";
@@ -246,6 +247,7 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   enableAdaptiveThinkingManagedProfilesMigration,
   removeStaleUpdatesBulletinFileMigration,
   disableCacheOneShotCallsitesMigration,
+  sttEnglishDefaultToMultilingualMigration,
   upgradeQualityProfileToFable5Migration,
   upgradeBalancedEconomyToMinimaxM3Migration,
   preserveHeartbeatEnabledForExistingWorkspacesMigration,

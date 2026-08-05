@@ -141,7 +141,9 @@ describe("useSttLanguageSelection", () => {
 
     const { result } = renderSelection();
     expect(result.current.available).toBe(true);
-    expect(result.current.currentCode).toBe("");
+    // An absent language can only come from a daemon predating the schema
+    // default, and there it meant English.
+    expect(result.current.currentCode).toBe("en");
   });
 
   test("exposes the configured provider id, mapping legacy managed mode", () => {
@@ -230,12 +232,11 @@ describe("useSttLanguageSelection", () => {
     await waitFor(() => expect(result.current.selecting).toBe(false));
   });
 
-  test("the default pick writes multi, and multi reads as the default code", async () => {
-    // The daemon resolves an unset language to "multi" on the managed relay,
-    // so that code and the default row are the same state seen from two
-    // sides: config records "multi", the picker shows the default row.
+  test("picking Multilingual writes multi, and it reads back as itself", async () => {
+    // Multilingual is a row you select, not a default you fall back to, so
+    // the code round-trips rather than collapsing into a sentinel.
     daemonConfigData = {
-      services: { stt: { provider: "vellum", language: "es" } },
+      services: { stt: { provider: "vellum", language: "en" } },
     };
     providerCatalogData = {
       providers: [
@@ -244,23 +245,19 @@ describe("useSttLanguageSelection", () => {
     };
 
     const { result } = renderSelection();
-    expect(result.current.currentCode).toBe("es");
+    expect(result.current.currentCode).toBe("en");
 
-    // config_patch cannot delete the key (a null leaf breaks schema
-    // validation on the next load), so the default pick writes the code the
-    // daemon would have filled in anyway.
     daemonConfigData = {
       services: { stt: { provider: "vellum", language: "multi" } },
     };
-    act(() => result.current.selectLanguage(""));
+    act(() => result.current.selectLanguage("multi"));
 
     await waitFor(() => expect(result.current.selecting).toBe(false));
     expect(configPatchCalls).toHaveLength(1);
     expect(configPatchCalls[0]!.body).toEqual({
       services: { stt: { language: "multi" } },
     });
-    // The refetched config holds "multi"; the hook reads it as the default.
-    await waitFor(() => expect(result.current.currentCode).toBe(""));
+    await waitFor(() => expect(result.current.currentCode).toBe("multi"));
   });
 
   test("en reads as a deliberate pin under a code-switching provider", async () => {

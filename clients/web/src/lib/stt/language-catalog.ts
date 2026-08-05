@@ -220,20 +220,6 @@ const STT_AUTO_DETECT_OPTION: SttLanguageOption = {
 };
 
 /**
- * The default-sentinel row for providers in
- * `MULTI_DEFAULT_DAEMON_PROVIDERS`, replacing the English-framed one. Carries
- * the same roster sentence as the standalone Multilingual entry it stands in
- * for, so the row explains what "default" actually does rather than leaving
- * the reader to infer it.
- */
-const STT_MULTILINGUAL_DEFAULT_OPTION: SttLanguageOption = {
-  code: STT_LANGUAGE_DEFAULT_CODE,
-  label: "Multilingual (default)",
-  description:
-    "Follows you between languages mid-sentence: English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian, and Dutch. Pick a specific language below if you speak one this list does not cover.",
-};
-
-/**
  * Explicit English for providers whose default row does not mean English:
  * the auto-detecting ones and the code-switching ones alike. Pinning English
  * has to stay a deliberate pick on both. Absent from `STT_LANGUAGES` because
@@ -285,15 +271,19 @@ export function sttLanguageOptionsFor(
           : [option],
       )
     : base;
-  // Providers whose unset state is code-switching get the same treatment,
-  // and shed the standalone Multilingual entry the default row now stands
-  // for: two rows doing the same thing invite a pick that changes nothing.
+  // Providers whose unset state is code-switching drop the sentinel row
+  // entirely. Multilingual and English are concrete, separately selectable
+  // things here, not a "default" standing in for one of them: config always
+  // carries a real language (the schema defaults it to "multi"), so a
+  // sentinel would describe a state that no longer exists, and folding
+  // Multilingual into it would leave the row unreachable for anyone already
+  // shown as being on it.
   const catalog = MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
     ? autoDetectScoped.flatMap((option) => {
         if (option.code === STT_LANGUAGE_DEFAULT_CODE) {
-          return [STT_MULTILINGUAL_DEFAULT_OPTION, STT_PINNED_ENGLISH_OPTION];
+          return [STT_PINNED_ENGLISH_OPTION];
         }
-        return option.code === STT_MULTI_CODE ? [] : [option];
+        return [option];
       })
     : autoDetectScoped;
   const inCatalog = catalog.some((option) => option.code === currentCode);
@@ -448,39 +438,33 @@ export function suggestedLanguageForLocale(
   if (!entry) {
     return null;
   }
-  // Already pinned to exactly this language: nothing left to propose.
+  // Already on exactly this language: nothing left to propose.
   if (currentCode === entry.code) {
     return null;
   }
+  // Outside what code-switching can follow (Tamil, Chinese, Korean), so the
+  // monolingual pin is the only thing that helps, and only where nova-3 runs.
   if (entry.extended) {
     return NOVA3_ROSTER_DAEMON_PROVIDERS.has(daemonProviderId)
       ? entry.code
       : null;
   }
-
-  // The locale's language is on the code-switching roster, so the question is
-  // whether the CURRENT selection already covers this speaker. The provider's
-  // default only settles that when the user is actually on it: someone who
-  // pinned English is transcribed as English no matter what unset would have
-  // meant, and is exactly who the row exists for.
-  const onCodeSwitching =
-    currentCode === STT_MULTI_CODE ||
-    (currentCode === STT_LANGUAGE_DEFAULT_CODE &&
-      MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId));
-  const onNativeDetection =
-    currentCode === STT_LANGUAGE_DEFAULT_CODE &&
-    AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId);
-  if (onCodeSwitching || onNativeDetection) {
+  // On the code-switching roster. Whether this speaker is covered depends on
+  // the current selection, not on any provider default: someone pinned to
+  // English is transcribed as English regardless.
+  if (currentCode === STT_MULTI_CODE) {
     return null;
   }
-
-  // Not covered. Point at whichever row grants code-switching here: the
-  // default row where that is what unset resolves to, the standalone
-  // Multilingual row where it is offered separately, and the monolingual pin
-  // under a provider that has neither.
-  if (MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)) {
-    return STT_LANGUAGE_DEFAULT_CODE;
+  // Native detection already covers them, and it is what an unset language
+  // means under those providers.
+  if (
+    currentCode === STT_LANGUAGE_DEFAULT_CODE &&
+    AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId)
+  ) {
+    return null;
   }
+  // Point at code-switching where it exists as a row, and at the monolingual
+  // pin under a provider whose adapter drops it.
   return MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
     ? STT_MULTI_CODE
     : entry.code;
