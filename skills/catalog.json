@@ -508,7 +508,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-08-04T00:09:51.000Z"
+      "updatedAt": "2026-08-04T23:11:27.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -521,7 +521,7 @@
           "display-name": "LLM Provider Setup"
         }
       },
-      "updatedAt": "2026-07-28T15:25:56.000Z"
+      "updatedAt": "2026-08-04T23:11:27.000Z"
     },
     {
       "id": "macos-automation",
@@ -1146,7 +1146,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-05T00:51:26.000Z"
     },
     {
       "id": "vellum-self-knowledge",

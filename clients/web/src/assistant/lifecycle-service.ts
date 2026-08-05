@@ -44,6 +44,7 @@ import { deriveLocalAssistantHealth } from "@/assistant/local-health";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { AssistantState, LocalAssistantHealth } from "@/assistant/types";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   getSelectedAssistant,
   getAuthGatewayIngressUrl,
@@ -130,6 +131,14 @@ class AssistantLifecycleService {
    * degraded without recursively starting another `/healthz` request.
    */
   private reachabilityProbeInFlightIds = new Set<string>();
+  /**
+   * Consecutive health probes that came back unreachable. A single failed
+   * probe is weak evidence over a tunnel or during a token rollover, so the
+   * healthy-to-unreachable flip (and the banners keyed off it) waits for a
+   * second consecutive failure. Reset on any successful probe and on
+   * heartbeat teardown.
+   */
+  private probeFailureStreak = 0;
   /**
    * Tracks the assistant being actively probed. Non-null when a probe
    * loop is running (timer pending OR tick in-flight). Prevents
@@ -678,9 +687,23 @@ class AssistantLifecycleService {
 
       if (health !== "upgrading") {
         try {
-          health = deriveLocalAssistantHealth(
-            await getAssistantHealthz(assistantId),
-          );
+          const healthz = await getAssistantHealthz(assistantId);
+          // An answered 401/403 proves the gateway is up: the session bearer
+          // went stale (remote-web access tokens rotate continuously), not
+          // the assistant. Keep the last known health, count the answer as
+          // evidence of reachability for the failure streak, and nudge the
+          // session refresh.
+          if (
+            !healthz.ok &&
+            (healthz.status === 401 || healthz.status === 403)
+          ) {
+            this.probeFailureStreak = 0;
+            if (isRemoteGatewayMode()) {
+              void refreshRemoteGatewaySession();
+            }
+            return;
+          }
+          health = deriveLocalAssistantHealth(healthz);
         } catch {
           health = "unreachable";
         }
@@ -713,6 +736,24 @@ class AssistantLifecycleService {
         useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
       ) {
         return;
+      }
+      if (health === "unreachable") {
+        this.probeFailureStreak += 1;
+        const lastKnownHealth =
+          this.state.kind === "self_hosted" ||
+          (this.state.kind === "active" && this.state.isLocal)
+            ? this.state.health
+            : undefined;
+        // Debounce the healthy-to-unreachable flip: one dropped probe on an
+        // otherwise-responding assistant is not enough to declare it down.
+        if (
+          this.probeFailureStreak < 2 &&
+          (lastKnownHealth === "healthy" || lastKnownHealth === "unhealthy")
+        ) {
+          return;
+        }
+      } else {
+        this.probeFailureStreak = 0;
       }
       if (this.state.kind === "self_hosted") {
         if (this.state.health !== health) {
@@ -817,6 +858,7 @@ class AssistantLifecycleService {
   private cancelHealthHeartbeat(): void {
     this.healthHeartbeatToken++;
     this.healthHeartbeatId = null;
+    this.probeFailureStreak = 0;
     if (this.healthHeartbeatTimer) {
       clearTimeout(this.healthHeartbeatTimer);
       this.healthHeartbeatTimer = null;
@@ -848,6 +890,15 @@ class AssistantLifecycleService {
       return;
     }
     this.transition({ ...this.state, reachable: false });
+    // A bus/SSE failure that arrives while no probe is in flight is
+    // independent evidence of trouble: count it as the first strike so the
+    // pulled-forward probe's own failure flips health immediately instead
+    // of being debounced like a lone heartbeat blip. A notification raised
+    // by an in-flight probe's own 5xx response must not seed the streak, or
+    // that probe's failure would be counted twice.
+    if (!this.reachabilityProbeInFlightIds.has(assistantId)) {
+      this.probeFailureStreak = Math.max(this.probeFailureStreak, 1);
+    }
     if (this.healthHeartbeatId === assistantId) {
       // The heartbeat owns the cadence — just pull the next probe
       // forward instead of racing a second retry loop against it.

@@ -23,7 +23,7 @@ describe("oauth provider profiles (DB-seeded)", () => {
     );
   });
 
-  test("google provider row contains bearer injection templates for 4 Google API hosts", () => {
+  test("google provider row contains bearer injection templates for 6 Google API hosts", () => {
     const provider = getProvider("google");
 
     expect(provider).toBeDefined();
@@ -36,7 +36,7 @@ describe("oauth provider profiles (DB-seeded)", () => {
       valuePrefix: string;
     }>;
 
-    expect(templates).toHaveLength(4);
+    expect(templates).toHaveLength(6);
 
     const byHost = new Map(templates.map((t) => [t.hostPattern, t]));
 
@@ -45,6 +45,8 @@ describe("oauth provider profiles (DB-seeded)", () => {
       "www.googleapis.com",
       "people.googleapis.com",
       "docs.googleapis.com",
+      "tasks.googleapis.com",
+      "calendar.googleapis.com",
     ]) {
       const tpl = byHost.get(host);
       expect(tpl).toBeDefined();
