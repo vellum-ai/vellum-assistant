@@ -54,13 +54,24 @@ export function saveGuardianToken(
  * plaintext-interception vector.
  */
 function isLoopbackHostname(hostname: string): boolean {
-  const h = hostname.toLowerCase();
+  // Strip URL brackets so IPv6 forms compare on the bare address.
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   return (
     h === "localhost" ||
     h === "::1" ||
-    h === "[::1]" ||
     h === "0:0:0:0:0:0:0:1" ||
-    /^127(?:\.\d{1,3}){3}$/.test(h)
+    /^127(?:\.\d{1,3}){3}$/.test(h) ||
+    // Wildcard hosts reach a local listener when dialed (0.0.0.0 / ::), so
+    // they count as local for both the refresh-channel and pairing guards.
+    h === "0.0.0.0" ||
+    h === "0" ||
+    h === "::" ||
+    h === "0:0:0:0:0:0:0:0" ||
+    // IPv4-mapped loopback and wildcard, in dotted and hex encodings.
+    /^(?:0:0:0:0:0|:):ffff:127(?:\.\d{1,3}){3}$/.test(h) ||
+    /^(?:0:0:0:0:0|:):ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(h) ||
+    /^(?:0:0:0:0:0|:):ffff:0\.0\.0\.0$/.test(h) ||
+    /^(?:0:0:0:0:0|:):ffff:0:0$/.test(h)
   );
 }
 

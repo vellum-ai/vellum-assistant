@@ -260,6 +260,13 @@ describe("pairAssistant", () => {
       "http://localhost:7830",
       "http://[::1]:7830",
       "https://127.0.0.1:7830",
+      // Wildcard and IPv4-mapped aliases reach local listeners when dialed.
+      "http://0.0.0.0:7830",
+      "http://0:7830",
+      "http://[::]:7830",
+      "http://[::ffff:127.0.0.1]:7830",
+      "http://[0:0:0:0:0:ffff:127.0.0.1]:7830",
+      "http://[::ffff:0.0.0.0]:7830",
     ]) {
       const result = pairAssistant([lockfilePath], configDir, {
         bundle: bundle({ gatewayUrl, deviceId: "dev-loop" }),
