@@ -6,6 +6,7 @@ import { ScheduleRow } from "@/domains/schedules/components/schedule-row";
 import { Button } from "@vellumai/design-library";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
 import type { ScheduleRowUsage } from "@/domains/settings/utils/schedule-formatters";
@@ -106,10 +107,7 @@ export function SchedulesPanel({
       return (
         <div className="space-y-3">
           {Array.from({ length: 2 }, (_, i) => (
-            <div
-              key={i}
-              className="h-12 animate-pulse rounded-md bg-[var(--surface-muted)]"
-            />
+            <Skeleton key={i} className="h-12 rounded-md" />
           ))}
         </div>
       );
