@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   connectImport,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken as getStoredPairedGuardianAccessToken,
   isActiveAssistant,
   isPairedLockfileEntry,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
@@ -21,8 +22,9 @@ import {
   runUpgrade,
   runWake,
   unpairAssistant,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   type CliInvocation,
+  type GuardianTokenOptions,
   type LockfileWriteResult,
   type TokenResult,
   type UpgradeOptions,
@@ -216,7 +218,7 @@ async function upgrade(
 async function getHostGuardianAccessToken(
   assistantId: string,
   configDir: string,
-  paired: boolean,
+  options: GuardianTokenOptions,
 ): Promise<TokenResult> {
   let invocation: CliInvocation;
   try {
@@ -230,18 +232,32 @@ async function getHostGuardianAccessToken(
     invocation,
     true,
     { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
-    { paired },
+    options,
   );
 }
 
 /** Read a paired guardian bearer for the trusted main-process proxy. */
-export function getPairedGuardianAccessToken(
+export async function getPairedGuardianAccessToken(
   assistantId: string,
+  runtimeUrl: string,
 ): Promise<TokenResult> {
-  return getHostGuardianAccessToken(
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: (err as Error).message,
+    };
+  }
+  return getStoredPairedGuardianAccessToken(
     assistantId,
+    runtimeUrl,
     resolveConfigDir(process.env),
+    invocation,
     true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
   );
 }
 
@@ -323,7 +339,7 @@ export const installLocalMode = (): void => {
     "vellum:localMode:saveLockfileAssistant",
     z.tuple([assistantRecord, z.string().optional()]),
     ([assistant, activeAssistant]): LockfileWriteResult => {
-      const result = upsertLockfileAssistant(
+      const result = upsertRendererLockfileAssistant(
         lockfilePaths,
         assistant,
         activeAssistant,
@@ -429,7 +445,9 @@ export const installLocalMode = (): void => {
           error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
         };
       }
-      return getHostGuardianAccessToken(assistantId, configDir, false);
+      return getHostGuardianAccessToken(assistantId, configDir, {
+        paired: false,
+      });
     },
   );
 };

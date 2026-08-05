@@ -48,6 +48,8 @@ export type GatewayForwardPlan =
       remote: true;
       /** Paired assistant whose guardian bearer the trusted host injects. */
       assistantId: string;
+      /** Imported gateway URL bound to that assistant's guardian bearer. */
+      runtimeUrl: string;
     };
 
 export interface GatewayForwardRequest {
@@ -154,6 +156,7 @@ export function planPairedGatewayForward(
         hasBody: request.method !== "GET" && request.method !== "HEAD",
         remote: true,
         assistantId: decision.assistantId,
+        runtimeUrl: decision.runtimeUrl,
       };
     }
   }
@@ -169,6 +172,7 @@ export async function authorizePairedGatewayForwardPlan(
   }
   const result = await authorizePairedForwardHeaders(
     plan.assistantId,
+    plan.runtimeUrl,
     plan.headers,
     getGuardianToken,
   );

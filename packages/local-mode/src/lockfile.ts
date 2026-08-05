@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { parseLockfile, type Lockfile } from "./lockfile-contract";
+import {
+  parseLockfile,
+  resolveCloud,
+  type Lockfile,
+} from "./lockfile-contract";
 import { stripSensitiveFields } from "./util";
 
 export type LockfileResult =
@@ -44,12 +48,14 @@ export function isPairedLockfileEntry(
   lockfilePaths: string[],
   assistantId: string,
 ): boolean {
-  const lockfile = getLockfileData(lockfilePaths);
-  return (
-    lockfile.ok &&
-    lockfile.data.assistants.some(
-      (a) => a.assistantId === assistantId && a.cloud === "paired",
-    )
+  const lockfile = readRawLockfile(lockfilePaths);
+  const assistants = Array.isArray(lockfile.assistants)
+    ? (lockfile.assistants as Array<Record<string, unknown>>)
+    : [];
+  return assistants.some(
+    (assistant) =>
+      assistant?.assistantId === assistantId &&
+      (resolveCloud(assistant) === "paired" || assistant.paired === true),
   );
 }
 
@@ -131,6 +137,52 @@ export function upsertLockfileAssistant(
   return writeRawLockfile(lockfilePaths, lockfile);
 }
 
+const PAIRED_LOCKFILE_WRITE_ERROR =
+  "Paired assistant identity can only be changed through the connect flow";
+
+/**
+ * Apply a renderer-originated lockfile upsert without allowing it to create,
+ * retarget, or reclassify a paired assistant. Existing paired entries may
+ * still update non-security fields and become the active assistant.
+ */
+export function upsertRendererLockfileAssistant(
+  lockfilePaths: string[],
+  assistant: Record<string, unknown>,
+  activeAssistant: string | undefined,
+): WriteResult {
+  if (!assistant || typeof assistant.assistantId !== "string") {
+    return { ok: false, status: 400, error: "Missing assistant.assistantId" };
+  }
+
+  const lockfile = readRawLockfile(lockfilePaths);
+  const assistants = Array.isArray(lockfile.assistants)
+    ? (lockfile.assistants as Array<Record<string, unknown>>)
+    : [];
+  const existing = assistants.find(
+    (entry) => entry?.assistantId === assistant.assistantId,
+  );
+  const merged = { ...existing, ...assistant };
+  const existingIsPaired =
+    existing != null &&
+    (resolveCloud(existing) === "paired" || existing.paired === true);
+  const mergedIsPaired =
+    resolveCloud(merged) === "paired" || merged.paired === true;
+
+  if (!existingIsPaired && mergedIsPaired) {
+    return { ok: false, status: 403, error: PAIRED_LOCKFILE_WRITE_ERROR };
+  }
+  if (
+    existingIsPaired &&
+    (resolveCloud(merged) !== "paired" ||
+      merged.runtimeUrl !== existing.runtimeUrl ||
+      merged.paired !== existing.paired)
+  ) {
+    return { ok: false, status: 403, error: PAIRED_LOCKFILE_WRITE_ERROR };
+  }
+
+  return upsertLockfileAssistant(lockfilePaths, assistant, activeAssistant);
+}
+
 export function isActiveAssistant(
   lockfilePaths: string[],
   assistantId: string,
@@ -158,6 +210,22 @@ export function replacePlatformAssistants(
   platformAssistants: Array<Record<string, unknown>>,
   organizationId?: string,
 ): WriteResult {
+  if (
+    platformAssistants.some(
+      (assistant) =>
+        typeof assistant?.assistantId !== "string" ||
+        assistant.assistantId === "" ||
+        resolveCloud(assistant) !== "vellum" ||
+        assistant.paired === true,
+    )
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Platform sync only accepts platform assistants",
+    };
+  }
+
   const lockfile = readRawLockfile(lockfilePaths);
   const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
   const syncedIds = new Set(platformAssistants.map((a) => a.assistantId));

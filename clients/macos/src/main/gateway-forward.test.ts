@@ -151,6 +151,7 @@ describe("planPairedGatewayForward", () => {
     }
     expect(plan.url).toBe("https://gw.example.com/v1/foo?x=1");
     expect(plan.assistantId).toBe("abc");
+    expect(plan.runtimeUrl).toBe("https://gw.example.com");
     expect(plan.method).toBe("GET");
     expect(plan.hasBody).toBe(false);
   });
@@ -228,8 +229,9 @@ describe("planPairedGatewayForward", () => {
 
     const authorized = await authorizePairedGatewayForwardPlan(
       plan,
-      async (assistantId) => {
+      async (assistantId, runtimeUrl) => {
         expect(assistantId).toBe("abc");
+        expect(runtimeUrl).toBe("https://gw.example.com");
         return { ok: true, accessToken: "host-token" };
       },
     );

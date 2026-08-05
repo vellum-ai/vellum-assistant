@@ -259,6 +259,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
     ).toEqual({
       kind: "forward",
       url: "https://gw.example.com/v1/foo?x=1",
+      runtimeUrl: "https://gw.example.com",
       assistantId: "abc",
     });
   });
@@ -272,6 +273,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
     ).toEqual({
       kind: "forward",
       url: "https://gw.example.com/?x=1",
+      runtimeUrl: "https://gw.example.com",
       assistantId: "abc",
     });
   });
@@ -300,6 +302,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
     ).toEqual({
       kind: "forward",
       url: "https://gw.example.com/v1/foo",
+      runtimeUrl: "https://gw.example.com/",
       assistantId: "abc",
     });
     expect(
@@ -310,6 +313,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
     ).toEqual({
       kind: "forward",
       url: "https://gw.example.com/edge/v1/foo",
+      runtimeUrl: "https://gw.example.com/edge/",
       assistantId: "abc",
     });
   });
@@ -323,6 +327,7 @@ describe("resolvePairedGatewayProxyTarget", () => {
     ).toEqual({
       kind: "forward",
       url: "https://gw.example.com/v1",
+      runtimeUrl: "https://gw.example.com",
       assistantId: "a b",
     });
   });
@@ -582,9 +587,11 @@ describe("authorizePairedForwardHeaders", () => {
 
     const result = await authorizePairedForwardHeaders(
       "paired-a",
+      "https://gw.example.com",
       headers,
-      async (assistantId) => {
+      async (assistantId, runtimeUrl) => {
         expect(assistantId).toBe("paired-a");
+        expect(runtimeUrl).toBe("https://gw.example.com");
         expect(headers.has("authorization")).toBe(false);
         expect(headers.has("cookie")).toBe(false);
         return { ok: true, accessToken: "host-token" };
@@ -601,6 +608,7 @@ describe("authorizePairedForwardHeaders", () => {
 
     const result = await authorizePairedForwardHeaders(
       "paired-a",
+      "https://gw.example.com",
       headers,
       async () => ({ ok: false, status: 404, error: "Token not found" }),
     );

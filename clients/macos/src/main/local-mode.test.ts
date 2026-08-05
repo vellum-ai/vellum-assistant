@@ -377,6 +377,22 @@ const saveLockfileAssistant = (
     assistant,
     activeAssistant,
   ) as WriteResult;
+const writePairedLockfileAssistant = (assistantId: string): void => {
+  fs.writeFileSync(
+    lockfilePath,
+    JSON.stringify({
+      assistants: [
+        {
+          assistantId,
+          cloud: "paired",
+          paired: true,
+          runtimeUrl: "https://h",
+        },
+      ],
+      activeAssistant: assistantId,
+    }),
+  );
+};
 const replacePlatformAssistants = (platformAssistants: unknown): WriteResult =>
   handlers["vellum:localMode:replacePlatformAssistants"](
     allowedEvent,
@@ -482,6 +498,31 @@ describe("lockfile IPC handlers", () => {
     expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 
+  test("saveLockfileAssistant cannot create or retarget a paired entry", () => {
+    expect(
+      saveLockfileAssistant({
+        assistantId: "paired-1",
+        cloud: "paired",
+        runtimeUrl: "https://h",
+      }).ok,
+    ).toBe(false);
+
+    writePairedLockfileAssistant("paired-1");
+    expect(
+      saveLockfileAssistant({
+        assistantId: "paired-1",
+        runtimeUrl: "https://attacker.example.com",
+      }).ok,
+    ).toBe(false);
+    expect(readLockfile().assistants).toEqual([
+      {
+        assistantId: "paired-1",
+        cloud: "paired",
+        runtimeUrl: "https://h",
+      },
+    ]);
+  });
+
   test("replacePlatformAssistants swaps platform entries while preserving local ones", () => {
     saveLockfileAssistant(
       {
@@ -528,6 +569,20 @@ describe("lockfile IPC handlers", () => {
       assistants: Array<{ assistantId: string }>;
     };
     expect(onDisk.assistants.map((a) => a.assistantId)).toEqual(["local-1"]);
+  });
+
+  test("replacePlatformAssistants cannot create a paired entry", () => {
+    const result = replacePlatformAssistants([
+      {
+        assistantId: "paired-1",
+        cloud: "paired",
+        paired: true,
+        runtimeUrl: "https://attacker.example.com",
+      },
+    ]);
+
+    expect(result.ok).toBe(false);
+    expect(readLockfile().assistants).toEqual([]);
   });
 });
 
@@ -629,10 +684,7 @@ describe("vellum:localMode:unpair handler", () => {
   });
 
   test("removes a paired entry and deletes its guardian token", () => {
-    saveLockfileAssistant(
-      { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
-      "paired-1",
-    );
+    writePairedLockfileAssistant("paired-1");
     fs.mkdirSync(path.dirname(guardianTokenPath(configDir, "paired-1")), {
       recursive: true,
     });
@@ -651,10 +703,7 @@ describe("vellum:localMode:unpair handler", () => {
   });
 
   test("a successful unpair refreshes the lockfile watcher in the same tick", () => {
-    saveLockfileAssistant(
-      { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
-      "paired-1",
-    );
+    writePairedLockfileAssistant("paired-1");
     refreshLockfileNowMock.mockClear();
 
     const result = unpair("paired-1");
@@ -1003,10 +1052,7 @@ describe("vellum:localMode:guardianToken handler", () => {
   });
 
   test("does not expose a paired credential through renderer IPC", async () => {
-    saveLockfileAssistant(
-      { assistantId: "paired-g", cloud: "paired", runtimeUrl: "https://h" },
-      "paired-g",
-    );
+    writePairedLockfileAssistant("paired-g");
     writeToken("paired-g", {});
 
     const result = (await guardianToken("paired-g")) as {
@@ -1024,10 +1070,12 @@ describe("vellum:localMode:guardianToken handler", () => {
   test("the trusted proxy helper can read a paired credential", async () => {
     writeToken("paired-g", {});
 
-    expect(await getPairedGuardianAccessToken("paired-g")).toEqual({
-      ok: true,
-      accessToken: "stored-token",
-    });
+    expect(await getPairedGuardianAccessToken("paired-g", "https://h")).toEqual(
+      {
+        ok: true,
+        accessToken: "stored-token",
+      },
+    );
   });
 
   test("missing token file resolves a structured 404 without spawning", async () => {

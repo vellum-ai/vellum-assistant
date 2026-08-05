@@ -158,7 +158,12 @@ export function parsePairedGatewayUrl(url: string): PairedGatewayParseResult {
 export type PairedGatewayProxyDecision =
   | { kind: "pass" }
   | { kind: "reject"; status: number; message: string }
-  | { kind: "forward"; url: string; assistantId: string };
+  | {
+      kind: "forward";
+      url: string;
+      runtimeUrl: string;
+      assistantId: string;
+    };
 
 const PAIRED_GATEWAY_REJECTION: PairedGatewayProxyDecision = {
   kind: "reject",
@@ -194,6 +199,7 @@ export function resolvePairedGatewayProxyTarget(
   return {
     kind: "forward",
     url: `${runtimeUrl.replace(/\/+$/, "")}${parsed.target.path}${parsed.target.search}`,
+    runtimeUrl,
     assistantId: parsed.target.assistantId,
   };
 }
@@ -226,6 +232,7 @@ export function sanitizePairedForwardHeaders(headers: Headers): void {
 
 export type PairedGuardianTokenProvider = (
   assistantId: string,
+  runtimeUrl: string,
 ) => Promise<TokenResult>;
 
 export type PairedForwardAuthorizationResult =
@@ -235,11 +242,12 @@ export type PairedForwardAuthorizationResult =
 /** Replace renderer authorization with the paired credential owned by the host. */
 export async function authorizePairedForwardHeaders(
   assistantId: string,
+  runtimeUrl: string,
   headers: Headers,
   getGuardianToken: PairedGuardianTokenProvider,
 ): Promise<PairedForwardAuthorizationResult> {
   sanitizePairedForwardHeaders(headers);
-  const result = await getGuardianToken(assistantId);
+  const result = await getGuardianToken(assistantId, runtimeUrl);
   if (!result.ok) {
     return result;
   }

@@ -13,7 +13,7 @@ import {
   connectImport,
   getLockfileData,
   getLocalAssistantStatus,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
@@ -25,6 +25,7 @@ import {
   runWake,
   unpairAssistant,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   resolveGatewayProxyTarget,
   resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
@@ -348,7 +349,7 @@ function lockfileMiddleware(
             body.organizationId as string | undefined,
           );
         } else {
-          result = upsertLockfileAssistant(
+          result = upsertRendererLockfileAssistant(
             lockfilePaths,
             body.assistant as Record<string, unknown>,
             body.activeAssistant as string | undefined,
@@ -1014,15 +1015,16 @@ function pairedGatewayProxyMiddleware(
     }
     void authorizePairedForwardHeaders(
       decision.assistantId,
+      decision.runtimeUrl,
       headers,
-      (assistantId) =>
-        getGuardianAccessToken(
+      (assistantId, runtimeUrl) =>
+        getPairedGuardianAccessToken(
           assistantId,
+          runtimeUrl,
           configDir,
           invocation,
           true,
           env,
-          { paired: true },
         ),
     ).then((result) => {
       if (!result.ok) {

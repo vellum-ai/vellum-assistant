@@ -1,7 +1,6 @@
 import {
   isLocalClient,
   getLocalGatewayUrl,
-  getAuthGatewayIngressUrl,
   getPairedGatewayUrl,
   getSelectedAssistant,
   isRemoteGatewayMode,
@@ -79,10 +78,11 @@ export function isGatewayAuthMode(): boolean {
   }
   if (!isRemoteGatewayMode()) {
     const selectedAssistant = getSelectedAssistant();
-    if (getPairedGatewayUrl(selectedAssistant) != null) {
+    const pairedGatewayUrl = getPairedGatewayUrl(selectedAssistant);
+    if (pairedGatewayUrl != null) {
       return (
         getSelfHostedIngressUrl() ===
-        getAuthGatewayIngressUrl(selectedAssistant)
+        `${window.location.origin}${pairedGatewayUrl}`
       );
     }
   }

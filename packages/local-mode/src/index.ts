@@ -30,6 +30,7 @@ export {
 export {
   getLockfileData,
   upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
@@ -61,8 +62,10 @@ export type {
 } from "./status";
 export {
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   isConfidentialRefreshUrl,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+  PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
   saveGuardianToken,
 } from "./guardian-token";
 export type {

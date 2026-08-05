@@ -153,4 +153,17 @@ describe("guardian-token middleware", () => {
     const { error } = JSON.parse(result.body) as { error: string };
     expect(error).toContain("paired gateway proxy");
   });
+
+  test("stored pairing metadata blocks a credential after lockfile reclassification", async () => {
+    writeLockfile([{ assistantId: "paired-g", cloud: "local" }]);
+    writeToken("paired-g", {
+      pairedGatewayUrl: "https://gateway.example.com",
+    });
+
+    const result = await dispatch("/__local/guardian-token/paired-g");
+
+    expect(result.status).toBe(403);
+    const { error } = JSON.parse(result.body) as { error: string };
+    expect(error).toContain("paired gateway proxy");
+  });
 });

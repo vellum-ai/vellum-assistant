@@ -29,7 +29,7 @@ import {
 } from "../lib/client-identity";
 import {
   getLockfileData,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
@@ -39,6 +39,7 @@ import {
   connectImport,
   unpairAssistant,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   parseGatewayUrl,
   parsePairedGatewayUrl,
   resolveGatewayProxyTarget,
@@ -586,7 +587,7 @@ async function handleLocalEndpoints(
           body.organizationId as string | undefined,
         );
       } else {
-        result = upsertLockfileAssistant(
+        result = upsertRendererLockfileAssistant(
           lockfilePaths,
           body.assistant as Record<string, unknown>,
           body.activeAssistant as string | undefined,
@@ -847,15 +848,16 @@ async function handleLocalEndpoints(
     const headers = new Headers(req.headers);
     const tokenResult = await authorizePairedForwardHeaders(
       pairedDecision.assistantId,
+      pairedDecision.runtimeUrl,
       headers,
-      (assistantId) =>
-        getGuardianAccessToken(
+      (assistantId, runtimeUrl) =>
+        getPairedGuardianAccessToken(
           assistantId,
+          runtimeUrl,
           configDir,
           invocation,
           true,
           _localEnv,
-          { paired: true },
         ),
     );
     if (!tokenResult.ok) {
