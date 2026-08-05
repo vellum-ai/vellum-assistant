@@ -711,6 +711,34 @@ imperative write.
 Reference: `lib/commit-pressure.ts` — the probe that measures this
 traffic and attaches it to error-185 Sentry events.
 
+### Never key an effect on a `ReactNode` prop
+
+An element is a fresh object on every render of whoever created it, so
+`useEffect(fn, [someNode])` re-runs `fn` in _every_ commit for as long as
+that node is mounted. When `fn` measures the DOM, swaps an observer, or
+calls `setState`, that is per-commit work landing in the commit stream,
+and it feeds the same counter described above (LUM-3062, LUM-2927).
+
+Key on what actually changed instead: a boolean for "is it mounted", an
+id for "which one is it". Content that changes _inside_ a mounted node
+changes its size, not its identity, so a `ResizeObserver` (or the
+relevant observer) already reports it.
+
+The same reasoning applies one level up, to any hook returning an object:
+
+```ts
+// Avoid: a fresh object every render busts every downstream useMemo,
+// which remints the elements built from it, which re-runs any effect
+// keyed on those elements.
+return { bannerShouldShow, handleDismiss };
+
+// Good
+return useMemo(
+  () => ({ bannerShouldShow, handleDismiss }),
+  [bannerShouldShow, handleDismiss],
+);
+```
+
 ---
 
 ## Framework strategy

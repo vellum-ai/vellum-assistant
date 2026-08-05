@@ -6,7 +6,7 @@
  * banner behind a minimum age (it surfaces ~24h after first observation).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getLocalBool,
@@ -139,15 +139,27 @@ export function useMacOsNudgeState(): {
     setBannerDismissed(true);
   }, []);
 
-  return {
-    // Drives the iOS/macOS → GitHub → Discord cascade: true until the user
-    // downloads or dismisses.
-    bannerShouldShow: !downloaded && !bannerDismissed,
-    // True once the banner has waited the minimum age (24h) to render.
-    ageEligible,
-    handleDownload,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      // Drives the iOS/macOS → GitHub → Discord cascade: true until the user
+      // downloads or dismisses.
+      bannerShouldShow: !downloaded && !bannerDismissed,
+      // True once the banner has waited the minimum age (24h) to render.
+      ageEligible,
+      handleDownload,
+      handleBannerDismiss,
+    }),
+    [
+      downloaded,
+      bannerDismissed,
+      ageEligible,
+      handleDownload,
+      handleBannerDismiss,
+    ],
+  );
 }
 
 // ---------------------------------------------------------------------------

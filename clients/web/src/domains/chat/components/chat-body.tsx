@@ -225,8 +225,28 @@ export function ChatBody({
   const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
   const [bottomBannerOverlayHeight, setBottomBannerOverlayHeight] = useState(0);
 
+  // Suppress the absolutely-positioned overlay on the empty state: its
+  // `bottom-full` positioning would overlap the greeting when the outer
+  // container centers greeting + composer + starters as a group.
+  // Banners (app-download nudge, GitHub star, Discord) show once the
+  // user sends a message and the empty state clears. `showScrollToLatest`
+  // is already false on the empty state (gated on `messages.length > 0`
+  // at the call site), so this only affects `bannerSlot`.
+  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
+
+  // Measures the banner overlay so the transcript can reserve its height.
+  //
+  // Keyed on whether a banner is mounted, never on `bannerSlot` itself: that
+  // prop is a fresh element on most parent renders, and a ReactNode-keyed
+  // effect would re-run this whole body (a synchronous `getBoundingClientRect`
+  // reflow plus a `ResizeObserver` teardown and re-observe) in every commit
+  // for as long as a banner is up, queueing a setState whose eager bailout is
+  // skipped exactly when the fiber already has pending lanes. Enough such
+  // commits back to back trip React's nested-update limit under streaming load
+  // (error 185, LUM-2927). Content swaps within a mounted banner change its
+  // height, not its identity, and the observer already reports those.
   useLayoutEffect(() => {
-    if (isEmptyState || !bannerSlot) {
+    if (!bannerRendered) {
       setBottomBannerOverlayHeight(0);
       return;
     }
@@ -252,7 +272,7 @@ export function ChatBody({
     const observer = new ResizeObserver(updateHeight);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [bannerSlot, isEmptyState]);
+  }, [bannerRendered]);
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
@@ -292,14 +312,6 @@ export function ChatBody({
     ? `flex min-h-full flex-col ${nonDockedAlignmentClass}`
     : "flex min-h-0 flex-1 flex-col";
 
-  // Suppress the absolutely-positioned overlay on the empty state: its
-  // `bottom-full` positioning would overlap the greeting when the outer
-  // container centers greeting + composer + starters as a group.
-  // Banners (app-download nudge, GitHub star, Discord) show once the
-  // user sends a message and the empty state clears. `showScrollToLatest`
-  // is already false on the empty state (gated on `messages.length > 0`
-  // at the call site), so this only affects `bannerSlot`.
-  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
   const hasOverlay = bannerRendered || (!isEmptyState && showScrollToLatest);
   const bottomOverlayReservePx =
     bannerRendered && bottomBannerOverlayHeight > 0

@@ -289,6 +289,57 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
       cleanup();
     }
   });
+
+  test("re-rendering with a fresh bannerSlot element does not re-run the measuring effect", () => {
+    // The failure shape behind the error-185 family (LUM-2927): keying the
+    // measuring layout effect on `bannerSlot` re-runs it on every parent
+    // render, because the slot is a fresh element each time. That is a
+    // synchronous reflow plus an observer teardown and re-observe in every
+    // commit for the whole life of the banner, each queueing a setState into
+    // the commit stream. Counting observer constructions pins the invariant:
+    // one mounted banner, one observer, however often the parent renders.
+    // A `[bannerSlot]`-keyed effect constructs one per render and fails this.
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let observersConstructed = 0;
+
+    globalThis.ResizeObserver = class {
+      constructor() {
+        observersConstructed += 1;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    try {
+      const { rerender } = render(
+        <ChatBody
+          {...baseProps({
+            bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+          })}
+        />,
+      );
+      const afterMount = observersConstructed;
+
+      const parentRenders = 3;
+      for (let i = 0; i < parentRenders; i += 1) {
+        // A fresh element each time, exactly like a re-rendering parent.
+        rerender(
+          <ChatBody
+            {...baseProps({
+              bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+            })}
+          />,
+        );
+      }
+
+      expect(afterMount).toBe(1);
+      expect(observersConstructed - afterMount).toBe(0);
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+      cleanup();
+    }
+  });
 });
 
 describe("ChatBody — banner-visibility store mirroring", () => {
