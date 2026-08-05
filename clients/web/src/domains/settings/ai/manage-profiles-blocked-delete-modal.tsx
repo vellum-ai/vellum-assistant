@@ -31,6 +31,22 @@ export interface BlockedDeleteState {
   scheduleLookupFailed: boolean;
 }
 
+/**
+ * Whether confirming this dialog moves schedules. A failed lookup counts: the
+ * reassign runs anyway, because the alternative is deleting blind.
+ *
+ * The single definition of "the reassign will run", shared by the flow that
+ * issues the call and the dialog that has to keep the user off a destination
+ * that call would reject.
+ */
+export function movesSchedules(blocked: BlockedDeleteState): boolean {
+  return (
+    blocked.scheduleNames.length > 0 ||
+    blocked.deferredReminderCount > 0 ||
+    blocked.scheduleLookupFailed
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Copy helpers
 // ---------------------------------------------------------------------------
@@ -139,6 +155,11 @@ export function BlockedDeleteModal({
   const scheduleNames = blocked?.scheduleNames ?? [];
   const shownSchedules = scheduleNames.slice(0, SCHEDULE_PREVIEW_LIMIT);
   const hiddenScheduleCount = scheduleNames.length - shownSchedules.length;
+  // A disabled profile cannot run a schedule, and the reassign endpoint says
+  // so by rejecting it. Keep it on the list, greyed out, rather than dropping
+  // it: a user who disabled their intended target needs to see that it is the
+  // reason, not wonder where the profile went.
+  const disabledTargetsBlocked = blocked != null && movesSchedules(blocked);
 
   return (
     <Modal.Root
@@ -199,10 +220,18 @@ export function BlockedDeleteModal({
               value={replacement}
               onChange={onReplacementChange}
               placeholder="Select a replacement…"
-              options={availableReplacements.map((p) => ({
-                value: p.name,
-                label: profilePickerLabel(p),
-              }))}
+              options={availableReplacements.map((p) => {
+                const unusable =
+                  disabledTargetsBlocked && p.status === "disabled";
+                return {
+                  value: p.name,
+                  label: profilePickerLabel(p),
+                  disabled: unusable,
+                  tooltip: unusable
+                    ? "Enable this profile to move schedules onto it."
+                    : undefined,
+                };
+              })}
             />
           </div>
           {error && (

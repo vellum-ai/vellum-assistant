@@ -1709,6 +1709,42 @@ describe("POST /schedules/reassign-profile", () => {
     expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
   });
 
+  test("refuses the whole move when a wake row is in scope and the caller is not the owner", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    await expect(
+      reassignRoute().handler({
+        body: { from: "cost-optimized", to: resolvedDefault! },
+        headers: { "x-vellum-principal-type": "actor" },
+      }),
+    ).rejects.toThrow(
+      "Deferred wake schedules can only be changed by the assistant's owner",
+    );
+    // All-or-nothing: the ordinary schedule sharing the profile does not move
+    // either.
+    expect(
+      listSchedules().every((j) => j.inferenceProfile === "cost-optimized"),
+    ).toBe(true);
+  });
+
   test("rejects an unknown target profile without touching any schedule", async () => {
     await createSchedule({
       name: "Cheap digest",

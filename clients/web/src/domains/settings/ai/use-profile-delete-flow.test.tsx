@@ -112,6 +112,10 @@ const { configGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
 const { ProfilesSection } =
   await import("@/domains/settings/ai/profiles-section");
+const { MIN_VERSION } =
+  await import("@/lib/backwards-compat/use-supports-schedule-profile-moves");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -228,6 +232,9 @@ function confirmButton(): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  // The schedule scan and the reassign are version-gated; every test below
+  // except the old-assistant ones runs against an assistant that has them.
+  useAssistantIdentityStore.getState().setIdentity("asst-1", MIN_VERSION);
   configPatchBodies = [];
   reassignBodies = [];
   reassignFails = false;
@@ -262,6 +269,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------
@@ -445,6 +453,79 @@ describe("profile delete flow - replacement preselection", () => {
   });
 });
 
+describe("profile delete flow - disabled replacements", () => {
+  beforeEach(() => {
+    profilesState["retired"] = {
+      label: "Retired",
+      source: "user",
+      status: "disabled",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    };
+  });
+
+  test("a disabled profile cannot be chosen when schedules are moving", async () => {
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(await replacementOptionLabels()).toEqual([
+      "Balanced",
+      "Other Custom",
+      "Retired (Disabled)",
+    ]);
+    const retired = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((o) => o.textContent?.trim() === "Retired (Disabled)");
+    expect(retired?.getAttribute("aria-disabled")).toBe("true");
+
+    // Clicking it is inert, so the preselected replacement survives.
+    fireEvent.click(retired!);
+    expect(selectedReplacementLabel()).toBe("Balanced");
+  });
+
+  test("a disabled profile stays selectable when no schedule moves", async () => {
+    // Deleting the default opens the dialog with no schedules in scope, so
+    // nothing goes through the reassign endpoint and its refusal of disabled
+    // targets does not apply.
+    activeProfileState = "my-custom";
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    await replacementOptionLabels();
+    const option = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((o) => o.textContent?.trim() === "Retired (Disabled)");
+    expect(option?.getAttribute("aria-disabled")).toBe("false");
+
+    fireEvent.click(option!);
+    expect(selectedReplacementLabel()).toBe("Retired (Disabled)");
+  });
+
+  test("the preselection skips a disabled profile when schedules are moving", async () => {
+    // No active default to fall back on, so preselection walks the list and
+    // must not land on the disabled entry.
+    activeProfileState = null;
+    profilesState = {
+      retired: profilesState.retired!,
+      "my-custom": profilesState["my-custom"]!,
+      "other-custom": profilesState["other-custom"]!,
+    };
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(selectedReplacementLabel()).toBe("Other Custom");
+  });
+});
+
 describe("profile delete flow - reassign then delete", () => {
   test("schedules move to the replacement before the profile is deleted", async () => {
     schedulesByProfile["my-custom"] = [
@@ -469,7 +550,7 @@ describe("profile delete flow - reassign then delete", () => {
     });
   });
 
-  test("a failed schedule move blocks the delete and surfaces the error", async () => {
+  test("a failed schedule move blocks the delete and says why", async () => {
     schedulesByProfile["my-custom"] = [
       { name: "Morning digest", isDeferred: false },
     ];
@@ -481,11 +562,59 @@ describe("profile delete flow - reassign then delete", () => {
     fireEvent.click(confirmButton());
 
     await waitFor(() => {
+      // The endpoint's own reason, not a fixed "something failed" string: on a
+      // destructive flow the user has to know what to change.
       expect(document.body.textContent).toContain(
-        "Failed to move the schedules. The profile was not deleted.",
+        "profile is gone. The profile was not deleted.",
       );
     });
     expect(configPatchBodies.length).toBe(0);
     expect(document.body.textContent).toContain("Choose a Replacement Profile");
+  });
+});
+
+// An assistant older than the reassign route answers the profile-filtered
+// list with everything it has and 404s the move. Scanning there would show
+// every schedule as a reference and then strand the delete behind a call that
+// cannot succeed, so the flow falls back to what it did before schedules
+// carried a profile pin.
+describe("profile delete flow - assistant without the schedule routes", () => {
+  beforeEach(() => {
+    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.2");
+  });
+
+  test("an unreferenced profile deletes without scanning schedules", async () => {
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    expect(scheduleQueries).toEqual([]);
+    expect(reassignBodies).toEqual([]);
+    expect(document.body.textContent).not.toContain(
+      "Choose a Replacement Profile",
+    );
+  });
+
+  test("a referenced profile still reassigns its config references", async () => {
+    activeProfileState = "my-custom";
+    renderSection();
+    await clickDelete("My Custom");
+    await waitForDialog();
+
+    expect(document.body.textContent).toContain("is your default profile");
+    expect(document.body.textContent).not.toContain("runs 1 schedule");
+
+    fireEvent.click(confirmButton());
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(2);
+    });
+    // No reassign call: the route does not exist on this assistant.
+    expect(reassignBodies).toEqual([]);
+    expect(scheduleQueries).toEqual([]);
   });
 });

@@ -4,7 +4,10 @@ import { useMemo, useRef, useState } from "react";
 import { isDispatchableProfile } from "@/assistant/profile-pickers";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { reassignScheduleInferenceProfile } from "@/domains/settings/api/schedules";
-import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
+import {
+  type BlockedDeleteState,
+  movesSchedules,
+} from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { useProfileActions } from "@/domains/settings/ai/use-profile-actions";
 import {
   buildOrderedProfiles,
@@ -19,7 +22,9 @@ import type {
   ConfigGetResponse,
   ConfigPatchRequest,
 } from "@/generated/daemon/types.gen";
+import { resolveSupportsScheduleProfileMoves } from "@/lib/backwards-compat/use-supports-schedule-profile-moves";
 import { captureError } from "@/lib/sentry/capture-error";
+import { badRequestMessage } from "@/utils/api-errors";
 
 export interface ProfileDeleteFlow {
   /**
@@ -46,8 +51,23 @@ export interface ProfileDeleteFlow {
   };
 }
 
-const SCHEDULE_REASSIGN_ERROR =
-  "Failed to move the schedules. The profile was not deleted.";
+const PROFILE_SURVIVED_SUFFIX = "The profile was not deleted.";
+const SCHEDULE_REASSIGN_ERROR = `Failed to move the schedules. ${PROFILE_SURVIVED_SUFFIX}`;
+
+/**
+ * The endpoint's own verdict when it rejected the move, followed by the note
+ * that the delete was abandoned. A rejected destination (disabled, unknown)
+ * names the thing the user has to change, which a fixed "something failed"
+ * string does not, and this dialog is where they would change it.
+ */
+function scheduleReassignErrorMessage(err: unknown): string {
+  const detail = badRequestMessage(err);
+  if (!detail) {
+    return SCHEDULE_REASSIGN_ERROR;
+  }
+  const sentence = /[.!?]$/.test(detail) ? detail : `${detail}.`;
+  return `${sentence} ${PROFILE_SURVIVED_SUFFIX}`;
+}
 
 /**
  * The delete-with-reassign flow shared by the Profiles rows (kebab Delete)
@@ -112,30 +132,53 @@ export function useProfileDeleteFlow(
    *
    * Reassignment rewrites live references, so a replacement the resolver
    * would skip leaves every call site and schedule it touched silently
-   * resolving elsewhere. Candidates are filtered the same way the pickers
-   * are, via `isDispatchableProfile`.
+   * resolving elsewhere. Incomplete profiles — active, but carrying no
+   * provider and model of their own — are the case the user cannot see for
+   * themselves, so they are filtered out here via `isDispatchableProfile`,
+   * the same predicate the pickers use.
    *
-   * Among what survives that filter, managed profiles are a poor default
-   * when the user has profiles of their own, but the current default is
-   * always offered: it is the preselection, and it is where a schedule
-   * carrying no pin of its own would run.
+   * Disabled profiles are the one exception the predicate would also drop:
+   * they stay on the list so a user who disabled their intended target can
+   * still pick it, and the modal marks them unselectable when schedules are
+   * moving, since the reassign endpoint refuses a disabled destination.
+   * Being told why the obvious target is unavailable beats it silently
+   * missing.
+   *
+   * Among what survives, managed profiles are a poor default when the user
+   * has profiles of their own, but the current default is always offered: it
+   * is the preselection, and it is where a schedule carrying no pin of its
+   * own would run.
    */
   function replacementCandidates(deleting: string | null): ProfileWithName[] {
-    const candidates = orderedProfiles.filter(
-      (p) =>
-        p.name !== deleting &&
-        isDispatchableProfile(p, orderedProfiles, {
-          requireOwnProviderAndModel,
-        }),
-    );
+    const candidates = orderedProfiles.filter((p) => {
+      if (p.name === deleting) {
+        return false;
+      }
+      if (p.status === "disabled") {
+        return true;
+      }
+      return isDispatchableProfile(p, orderedProfiles, {
+        requireOwnProviderAndModel,
+      });
+    });
     const preferred = candidates.filter(
       (p) => p.source !== "managed" || p.name === activeProfile,
     );
     return preferred.length > 0 ? preferred : candidates;
   }
 
-  function defaultReplacementFor(deleting: string): string {
-    const candidates = replacementCandidates(deleting);
+  /**
+   * Preselected replacement. When schedules are moving, a disabled profile is
+   * not a legal destination, so preselecting one would arm the confirm button
+   * with a target the server rejects.
+   */
+  function defaultReplacementFor(
+    deleting: string,
+    excludeDisabled: boolean,
+  ): string {
+    const candidates = replacementCandidates(deleting).filter(
+      (p) => !excludeDisabled || p.status !== "disabled",
+    );
     const current = candidates.find((p) => p.name === activeProfile);
     return (current ?? candidates[0])?.name ?? "";
   }
@@ -162,31 +205,38 @@ export function useProfileDeleteFlow(
     let scheduleNames: string[] = [];
     let deferredReminderCount = 0;
     let scheduleLookupFailed = false;
-    try {
-      const data = await queryClient.fetchQuery({
-        ...schedulesGetOptions({
-          path: { assistant_id: assistantId },
-          // include_all so the count the user is shown is the count the
-          // reassign actually moves: deferred reminders are hidden from the
-          // list by default but are moved like any other row.
-          query: { inference_profile: name, include_all: "true" },
-        }),
-        retry: false,
-        staleTime: 0,
-      });
-      const rows = data.schedules ?? [];
-      // Deferred reminders all carry the same generated name, so they are
-      // counted rather than listed; the user's own schedules are named.
-      scheduleNames = rows.filter((s) => !s.isDeferred).map((s) => s.name);
-      deferredReminderCount = rows.filter((s) => s.isDeferred).length;
-    } catch (err) {
-      // An unknown schedule list is not a reason to delete blind: fall through
-      // to the dialog so the user is told the check did not complete and the
-      // reassign still runs against whatever is pinned.
-      captureError(err, {
-        context: "settings-ai-profile-delete-schedule-scan",
-      });
-      scheduleLookupFailed = true;
+    // An assistant that predates the schedule-move routes answers the filtered
+    // list with every schedule it has and 404s the reassign, so scanning there
+    // would both misreport the references and strand the delete. Skip straight
+    // to the pre-schedule behavior instead.
+    const supportsScheduleMoves = await resolveSupportsScheduleProfileMoves();
+    if (supportsScheduleMoves) {
+      try {
+        const data = await queryClient.fetchQuery({
+          ...schedulesGetOptions({
+            path: { assistant_id: assistantId },
+            // include_all so the count the user is shown is the count the
+            // reassign actually moves: deferred reminders are hidden from the
+            // list by default but are moved like any other row.
+            query: { inference_profile: name, include_all: "true" },
+          }),
+          retry: false,
+          staleTime: 0,
+        });
+        const rows = data.schedules ?? [];
+        // Deferred reminders all carry the same generated name, so they are
+        // counted rather than listed; the user's own schedules are named.
+        scheduleNames = rows.filter((s) => !s.isDeferred).map((s) => s.name);
+        deferredReminderCount = rows.filter((s) => s.isDeferred).length;
+      } catch (err) {
+        // An unknown schedule list is not a reason to delete blind: fall
+        // through to the dialog so the user is told the check did not complete
+        // and the reassign still runs against whatever is pinned.
+        captureError(err, {
+          context: "settings-ai-profile-delete-schedule-scan",
+        });
+        scheduleLookupFailed = true;
+      }
     }
 
     const hasReferences =
@@ -199,7 +249,7 @@ export function useProfileDeleteFlow(
       return;
     }
 
-    setBlocked({
+    const nextBlocked: BlockedDeleteState = {
       name,
       label,
       isActive,
@@ -207,8 +257,9 @@ export function useProfileDeleteFlow(
       scheduleNames,
       deferredReminderCount,
       scheduleLookupFailed,
-    });
-    setReplacement(defaultReplacementFor(name));
+    };
+    setBlocked(nextBlocked);
+    setReplacement(defaultReplacementFor(name, movesSchedules(nextBlocked)));
     setError(null);
   }
 
@@ -238,11 +289,7 @@ export function useProfileDeleteFlow(
     // Schedules move first so the profile is never gone while a schedule still
     // names it. A failed scan also runs this, since the reassign is a no-op
     // when nothing is pinned and the alternative is deleting blind.
-    if (
-      blocked.scheduleNames.length > 0 ||
-      blocked.deferredReminderCount > 0 ||
-      blocked.scheduleLookupFailed
-    ) {
+    if (movesSchedules(blocked)) {
       try {
         await reassignScheduleInferenceProfile(
           assistantId,
@@ -258,7 +305,7 @@ export function useProfileDeleteFlow(
         captureError(err, {
           context: "settings-ai-profile-reassign-schedules",
         });
-        setError(SCHEDULE_REASSIGN_ERROR);
+        setError(scheduleReassignErrorMessage(err));
         setSaving(false);
         return;
       }

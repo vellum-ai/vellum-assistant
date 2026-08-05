@@ -348,9 +348,14 @@ async function handleReassignScheduleInferenceProfile(
   }
 
   const matches = listSchedules({ inferenceProfile: from });
-  for (const job of matches) {
-    await assertWakeMutationAllowed(job, undefined, headers);
-  }
+  // The guard depends only on the caller, so its answer is the same for every
+  // row: settle it once for the whole set. Checking per row would spend a
+  // cache-bypassing gateway round trip per matching reminder, and a profile
+  // that many reminders point at would take seconds to delete or time out.
+  // All-or-nothing either way: one wake row in scope refuses the whole call
+  // before anything moves.
+  const wakeMatch = matches.find((job) => job.mode === "wake") ?? null;
+  await assertWakeMutationAllowed(wakeMatch, undefined, headers);
 
   let reassigned = 0;
   for (const job of matches) {
