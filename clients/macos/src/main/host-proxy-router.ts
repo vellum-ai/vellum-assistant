@@ -52,17 +52,11 @@ interface AssistantConnection {
   fingerprint: string;
   /**
    * Set while presence posts to this assistant are failing, so an outage is
-   * logged once rather than once per poll.
+   * logged once rather than once per poll. Per connection on purpose: a
+   * reconnect is a new route to the daemon, and one line saying it is still
+   * broken is worth more than silence.
    */
   presencePostFailing?: boolean;
-  /** Set while a presence post to this assistant is awaiting its reply. */
-  presencePostInFlight?: boolean;
-  /**
-   * State reported while a post was in flight, sent once that post settles.
-   * Only the newest is kept: a state the user has already left is never worth
-   * a request of its own.
-   */
-  presencePendingState?: PresenceState;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +203,28 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
  */
 let lastPresenceState: PresenceState | null = null;
 
+interface PresenceQueue {
+  /**
+   * State reported while the post was in flight, sent once that post settles.
+   * Only the newest is kept: a state the user has already left is never worth
+   * a request of its own.
+   */
+  pending?: PresenceState;
+}
+
+/**
+ * Presence posts in flight, keyed by assistantId. An entry lives for exactly
+ * as long as a drain is running, so having one is the in-flight latch.
+ *
+ * Keyed by assistant rather than held on the connection because a reconnect
+ * (an organizationId change, lockfile churn) builds a fresh connection while
+ * the old one's post is still out, and nothing aborts that post. Both carry
+ * the same client id, so the daemon files them under one record: a latch that
+ * started over per connection would let a stale `active` land after a newer
+ * `away` and suppress the mobile push for the length of the staleness window.
+ */
+const presencePostQueues = new Map<string, PresenceQueue>();
+
 /**
  * Post one report, logging only the first failure of a run.
  *
@@ -248,7 +264,7 @@ async function postPresenceTo(
 }
 
 /**
- * Run this connection's presence posts one at a time until no newer state is
+ * Run one assistant's presence posts one at a time until no newer state is
  * waiting, so the daemon's last write is always the newest state the desktop
  * has observed.
  *
@@ -258,6 +274,11 @@ async function postPresenceTo(
  * push. That is the one outcome presence must never produce, so a report that
  * arrives mid-flight waits its turn instead of racing.
  *
+ * The connection is re-read each pass instead of captured, so a state queued
+ * before a reconnect goes out over whichever connection is live when its turn
+ * comes. An assistant with no connection ends the drain: with no stream to
+ * attribute a report to, saying nothing is the fail-open direction.
+ *
  * Only the newest waiting state is sent: intermediate states have already been
  * superseded, and the daemon only ever reads the latest record. A follow-up
  * that matches what just went out is dropped for the same reason. Nothing
@@ -265,42 +286,48 @@ async function postPresenceTo(
  */
 async function drainPresencePosts(
   assistantId: string,
-  conn: AssistantConnection,
+  queue: PresenceQueue,
   first: PresenceState,
 ): Promise<void> {
   let next: PresenceState | undefined = first;
   try {
     while (next !== undefined) {
+      const conn = connections.get(assistantId);
+      if (!conn) {
+        return;
+      }
       const posting: PresenceState = next;
-      conn.presencePendingState = undefined;
+      queue.pending = undefined;
       await postPresenceTo(assistantId, conn, posting);
-      const pending = conn.presencePendingState;
+      const pending = queue.pending;
       next = pending === posting ? undefined : pending;
     }
   } catch (err) {
     log.warn("[host-proxy-router] presence post loop failed", { assistantId, err });
   } finally {
-    conn.presencePendingState = undefined;
-    conn.presencePostInFlight = false;
+    queue.pending = undefined;
+    // Only if this drain still owns the latch: an assistant that went away and
+    // came back mid-drain has a queue of its own that must not be dropped.
+    if (presencePostQueues.get(assistantId) === queue) {
+      presencePostQueues.delete(assistantId);
+    }
   }
 }
 
 /**
  * Send a report to one assistant, holding it back if that assistant already
- * has a post in flight. State is per connection, so a slow daemon delays only
+ * has a post in flight. State is per assistant, so a slow daemon delays only
  * its own reports.
  */
-function queuePresencePost(
-  assistantId: string,
-  conn: AssistantConnection,
-  state: PresenceState,
-): void {
-  if (conn.presencePostInFlight) {
-    conn.presencePendingState = state;
+function queuePresencePost(assistantId: string, state: PresenceState): void {
+  const inFlight = presencePostQueues.get(assistantId);
+  if (inFlight) {
+    inFlight.pending = state;
     return;
   }
-  conn.presencePostInFlight = true;
-  void drainPresencePosts(assistantId, conn, state);
+  const queue: PresenceQueue = {};
+  presencePostQueues.set(assistantId, queue);
+  void drainPresencePosts(assistantId, queue, state);
 }
 
 /**
@@ -315,8 +342,8 @@ function queuePresencePost(
  */
 function reportPresence(state: PresenceState): void {
   lastPresenceState = state;
-  for (const [assistantId, conn] of connections) {
-    queuePresencePost(assistantId, conn, state);
+  for (const assistantId of connections.keys()) {
+    queuePresencePost(assistantId, state);
   }
 }
 
@@ -337,11 +364,10 @@ function seedPresence(assistantId: string): void {
   if (lastPresenceState === null) {
     return;
   }
-  const conn = connections.get(assistantId);
-  if (!conn) {
+  if (!connections.has(assistantId)) {
     return;
   }
-  queuePresencePost(assistantId, conn, lastPresenceState);
+  queuePresencePost(assistantId, lastPresenceState);
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +538,10 @@ function connectCloudAssistant(
 
 // -- Disconnect -------------------------------------------------------------
 
+// Deliberately leaves the assistant's presence queue in place: a reconnect
+// runs through here, nothing aborts the post the old connection has out, and a
+// fresh latch is what lets that stale post land last. Callers that know the
+// assistant is gone for good clear the queue themselves.
 function disconnectAssistant(assistantId: string): void {
   const conn = connections.get(assistantId);
   if (!conn) return;
@@ -563,6 +593,8 @@ function handleLockfileChange(lockfile: Lockfile): void {
   for (const assistantId of connections.keys()) {
     if (!activeIds.has(assistantId)) {
       disconnectAssistant(assistantId);
+      // Gone rather than reconnecting, so nothing is left to serve the queue.
+      presencePostQueues.delete(assistantId);
     }
   }
 }
@@ -628,6 +660,7 @@ export function installHostProxyBridge(
     for (const assistantId of [...connections.keys()]) {
       disconnectAssistant(assistantId);
     }
+    presencePostQueues.clear();
     browserExecutor.destroy();
     removeExecutor("host_browser");
     removeExecutor("host_cu");
@@ -648,6 +681,9 @@ export const __testing = {
   get executors() {
     return executors;
   },
+  get presencePostQueues() {
+    return presencePostQueues;
+  },
   dispatchMessage,
   connectLocalAssistant,
   connectCloudAssistant,
@@ -661,6 +697,7 @@ export const __testing = {
     for (const assistantId of [...connections.keys()]) {
       disconnectAssistant(assistantId);
     }
+    presencePostQueues.clear();
     executors.clear();
     resolveCliInvocation = null;
     unsubscribe?.();

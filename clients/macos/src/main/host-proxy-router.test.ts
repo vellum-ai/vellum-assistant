@@ -209,9 +209,13 @@ function addPresenceConnection(
  * Register a connection whose presence posts park until released, so a test
  * can inspect what the router does while one is in flight. `started` records a
  * state the moment its request is issued, so its length is the number of
- * requests actually made.
+ * requests actually made. `fingerprint` lets a test hand the router a
+ * connection the next lockfile change will decide is stale.
  */
-function addParkedPresenceConnection(assistantId: string): {
+function addParkedPresenceConnection(
+  assistantId: string,
+  fingerprint = `test:${assistantId}`,
+): {
   started: PresenceState[];
   release: () => Promise<void>;
 } {
@@ -229,7 +233,7 @@ function addParkedPresenceConnection(assistantId: string): {
   __testing.connections.set(assistantId, {
     sse: fakeSse(),
     poster,
-    fingerprint: `test:${assistantId}`,
+    fingerprint,
   } as unknown as Connection);
   return {
     started,
@@ -1079,6 +1083,155 @@ describe("host-proxy-router", () => {
 
       await daemon.release();
       expect(daemon.started).toEqual(["active", "away"]);
+    });
+
+    test("a reconnect while a post is in flight starts no second post", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const stale = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+      expect(stale.started).toEqual(["active"]);
+
+      // What a reconnect does: drop the connection, build a fresh one. The
+      // post the old connection has out is not aborted by either step.
+      __testing.disconnectAssistant("a1");
+      const fresh = addPresenceConnection("a1");
+
+      presenceReporter?.("away");
+      await flush();
+
+      // The queue is keyed by assistant, so the fresh connection inherits the
+      // latch instead of racing a post that is still out under the same
+      // client id.
+      expect(fresh).toEqual([]);
+      expect(stale.started).toEqual(["active"]);
+    });
+
+    test("sends a queued state through the connection that replaced the old one", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const stale = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+
+      __testing.disconnectAssistant("a1");
+      const fresh = addPresenceConnection("a1");
+      presenceReporter?.("away");
+      await flush();
+      expect(fresh).toEqual([]);
+
+      await stale.release();
+
+      // The drain re-reads the connection each pass, so once the stale post
+      // settles the waiting state goes out over the live connection rather
+      // than a poster nothing is listening to.
+      expect(fresh).toEqual(["away"]);
+      expect(stale.started).toEqual(["active"]);
+    });
+
+    test("a stale post cannot outlast the away reported after a reconnect", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      // Both generations post under the same client id, so the daemon files
+      // them under one record and stamps it on receipt: landing order is what
+      // decides the record.
+      const landed: PresenceState[] = [];
+      const setConnection = (latencyMs: number) => {
+        __testing.connections.set("a1", {
+          sse: fakeSse(),
+          poster: {
+            postPresence: async ({ state }: { state: PresenceState }) => {
+              await flush(latencyMs);
+              landed.push(state);
+              return true;
+            },
+          },
+          fingerprint: "test:a1",
+        } as unknown as Connection);
+      };
+
+      setConnection(80);
+      presenceReporter?.("active");
+      await flush();
+
+      setConnection(5);
+      presenceReporter?.("away");
+      await flush(400);
+
+      // A fresh latch per connection would let the quick away land first and
+      // the slow active overwrite it, leaving the daemon holding "attended"
+      // for a locked Mac and swallowing the push.
+      expect(landed).toEqual(["active", "away"]);
+    });
+
+    test("clears the presence queue when the assistant leaves the lockfile", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+      expect(__testing.presencePostQueues.has("a1")).toBe(true);
+
+      lockfileListener?.({ assistants: [], activeAssistant: null });
+      await flush();
+
+      expect(__testing.connections.has("a1")).toBe(false);
+      expect(__testing.presencePostQueues.has("a1")).toBe(false);
+
+      // Nothing is left to report to, and reporting nothing lets the push
+      // through, so the waiting state is dropped rather than posted.
+      await daemon.release();
+      expect(daemon.started).toEqual(["active"]);
+    });
+
+    test("keeps the presence queue across a fingerprint-change reconnect", async () => {
+      const presencePosts = capturePresencePosts();
+
+      installHostProxyBridge(fakeCliResolver);
+      const stale = addParkedPresenceConnection(
+        "cloud-1",
+        "cloud:https://platform.vellum.ai:org-a",
+      );
+
+      presenceReporter?.("active");
+      await flush();
+      expect(stale.started).toEqual(["active"]);
+      const queued = __testing.presencePostQueues.get("cloud-1");
+      expect(queued).toBeDefined();
+
+      // Same endpoint, new organizationId: the router rebuilds the connection
+      // while the old post is still out against that very daemon.
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            organizationId: "org-b",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe(
+        "cloud:https://platform.vellum.ai:org-b",
+      );
+      // Same queue object, so the fresh connection's seed waited its turn
+      // instead of opening a second post.
+      expect(__testing.presencePostQueues.get("cloud-1")).toBe(queued);
+      expect(presencePosts).toEqual([]);
+
+      await stale.release();
+      await flush();
+
+      expect(presencePosts).toHaveLength(1);
+      expect(JSON.parse(presencePosts[0]!.body)).toEqual({ state: "away" });
     });
 
     test("warns once for a run of failing posts, not once per report", async () => {
