@@ -1485,8 +1485,8 @@ describe("streaming capability matches the streaming factory", () => {
   });
 
   test("the advertised list includes deepgram-flux", () => {
-    // Guards the suite below against passing vacuously: Flux is the provider
-    // whose capability and factory used to disagree.
+    // Guards the suite below against passing vacuously: if Flux dropped out of
+    // the advertised list, those loops would assert nothing about it.
     expect(advertisedStreamingProviders()).toContain("deepgram-flux");
   });
 
