@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { type StepperStep } from "@vellumai/design-library";
 import {
@@ -47,6 +47,15 @@ export function TelegramSetupWizard({
   const { stepId, stepIndex, goTo, onStepSelect } =
     useChannelSetupSteps(WIZARD_STEP_IDS);
   const [botToken, setBotToken] = useState("");
+
+  // Drop the credential once it is saved. Neither surface unmounts this wizard
+  // on success, so without this a submitted bot token stays in the field,
+  // recoverable from a mounted component long after it was handed over.
+  useEffect(() => {
+    if (saveStatus === "success") {
+      setBotToken("");
+    }
+  }, [saveStatus]);
 
   const { copy, copied } = useCopyToClipboard({
     errorMessage: "Could not copy the name. Type it into BotFather instead.",

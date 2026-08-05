@@ -16,9 +16,9 @@ export interface ChannelSetupSteps<Id extends string> {
 /**
  * Step state for a channel setup wizard.
  *
- * Setup always starts at the first step: every mount is a fresh attempt, and
- * a prop to start elsewhere would exist only for stories, which is a test
- * harness in a component's public API.
+ * Setup starts at the first step. Every mount is a fresh attempt, and nothing
+ * in the product resumes one part-way, so there is no entry point for starting
+ * elsewhere.
  */
 export function useChannelSetupSteps<Id extends string>(
   ids: readonly Id[],

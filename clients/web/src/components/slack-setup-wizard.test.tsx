@@ -22,6 +22,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 
 import * as toastModule from "@vellumai/design-library/components/toast";
 
@@ -236,6 +237,39 @@ describe("SlackSetupWizard step flow", () => {
 
     fireEvent.click(nextButton());
     expect(onOpenStep()).toBe(false);
+  });
+
+  test("clears both tokens once the save succeeds", () => {
+    // The Channels page keeps this wizard mounted after a successful save, so
+    // a retained secret sits in a live field. The chat drawer closes and
+    // unmounts, which hides the problem on the surface most people use.
+    function Harness() {
+      const [status, setStatus] = useState<"idle" | "success">("idle");
+      return (
+        <SlackSetupWizard
+          assistantName={ASSISTANT_NAME}
+          saveStatus={status}
+          onSave={() => setStatus("success")}
+        />
+      );
+    }
+    render(<Harness />);
+
+    goToConnectStep();
+    fireEvent.change(screen.getByLabelText(/Bot Token/i), {
+      target: { value: BOT_TOKEN },
+    });
+    fireEvent.change(screen.getByLabelText(/App Token/i), {
+      target: { value: APP_TOKEN },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Connect Slack/i }));
+
+    expect(
+      (screen.getByLabelText(/Bot Token/i) as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (screen.getByLabelText(/App Token/i) as HTMLInputElement).value,
+    ).toBe("");
   });
 
   test("step 4 hands both tokens to onSave, trimmed", () => {

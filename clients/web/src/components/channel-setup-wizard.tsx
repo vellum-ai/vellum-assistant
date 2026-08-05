@@ -21,14 +21,13 @@ export interface ChannelSetupWizardProps {
  * Chrome shared by the channel setup wizards: the stepper, the sunken panel
  * the active step renders into, and focus handling across step changes.
  *
- * Steps swap the panel's entire contents, which takes the focused control out
- * of the document with it and drops focus to `<body>`. A keyboard user then
- * tabs from the top of the page on every step, and a screen reader is told
- * nothing about the move. On each change after the first, focus moves to the
- * panel, which is labelled with the step it now holds so the move is
- * announced. The first render is skipped: the wizard mounts inside a drawer
- * that the user opened deliberately, and stealing focus into it on arrival
- * would fight whatever they were doing.
+ * A step swaps the panel's entire contents, taking the focused control out of
+ * the document with it and dropping focus to `<body>`, which leaves a keyboard
+ * user tabbing from the top of the page and tells a screen reader nothing. So
+ * a step change moves focus to the panel, labelled with the step it now holds
+ * so the move announces something. Mounting does not: the wizard appears in a
+ * drawer the user opened deliberately, and taking focus on arrival fights
+ * whatever they were doing.
  */
 export function ChannelSetupWizard({
   channelLabel,
@@ -39,12 +38,10 @@ export function ChannelSetupWizard({
   children,
 }: ChannelSetupWizardProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  // Keyed on the step that was last focused rather than on a "first render"
-  // flag. A flag flips on StrictMode's second effect pass and then reads as a
-  // real step change, so development builds would pull focus in the moment the
-  // drawer opened, which is the one case this is meant to avoid. Comparing the
-  // index cannot: an effect that reruns without the step moving finds them
-  // equal.
+  // Holds the step this last focused, so a rerun that did not move the step is
+  // a no-op. StrictMode runs effects twice on mount, and any guard that only
+  // asks "have I run before" answers yes on the second pass and pulls focus
+  // into a drawer the user just opened.
   const focusedStepIndex = useRef(stepIndex);
 
   useEffect(() => {

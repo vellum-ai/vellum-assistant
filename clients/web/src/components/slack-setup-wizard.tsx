@@ -79,6 +79,17 @@ export function SlackSetupWizard({
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
+  // Drop the credentials once they are saved. The Channels page keeps this
+  // wizard mounted on success, so without this both tokens stay in their
+  // fields, recoverable from a mounted component long after they were handed
+  // over. The chat drawer closes on success and unmounts either way.
+  useEffect(() => {
+    if (saveStatus === "success") {
+      setBotToken("");
+      setAppToken("");
+    }
+  }, [saveStatus]);
+
   const { copy, copied } = useCopyToClipboard({
     errorMessage:
       "Could not copy the manifest. Copy it again before continuing.",

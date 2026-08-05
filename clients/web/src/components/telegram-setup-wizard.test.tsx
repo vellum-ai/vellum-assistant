@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 
 import * as toastModule from "@vellumai/design-library/components/toast";
 
@@ -126,6 +127,37 @@ describe("TelegramSetupWizard step flow", () => {
     });
 
     expect(saveButton().hasAttribute("disabled")).toBe(true);
+  });
+
+  test("clears the token once the save succeeds", () => {
+    // Neither surface unmounts this wizard on success. The Channels page in
+    // particular keeps it mounted, and the component it replaced cleared its
+    // field there, so a retained secret would be a regression on that surface.
+    function Harness() {
+      const [status, setStatus] = useState<"idle" | "success">("idle");
+      return (
+        <>
+          <TelegramSetupWizard
+            assistantName={ASSISTANT_NAME}
+            saveStatus={status}
+            onSave={() => setStatus("success")}
+          />
+          <span data-testid="status">{status}</span>
+        </>
+      );
+    }
+    render(<Harness />);
+
+    goToConnectStep();
+    const field = screen.getByLabelText(/Bot Token/i) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: BOT_TOKEN } });
+    expect(field.value).toBe(BOT_TOKEN);
+
+    fireEvent.click(saveButton());
+
+    expect(
+      (screen.getByLabelText(/Bot Token/i) as HTMLInputElement).value,
+    ).toBe("");
   });
 
   test("a well-formed token reaches onSave, trimmed", () => {
