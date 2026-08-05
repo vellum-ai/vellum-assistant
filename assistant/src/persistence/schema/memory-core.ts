@@ -110,3 +110,67 @@ export const memoryRetrospectiveState = sqliteTable(
     rememberedLog: text("remembered_log"),
   },
 );
+
+// Retrospective-proposed procedure candidates awaiting cross-episode
+// promotion into managed skills. One row per procedure cluster. Lives in the
+// dedicated memory database (`assistant-memory.db`), not main: access it via
+// the memory connection. Deliberately NOT concept pages, so an unpromoted
+// procedure never reaches memory recall. See
+// `plugins/defaults/memory/procedure-candidate-store.ts` for the state
+// machine and `migrations/363-create-memory-procedure-candidates.ts` for the
+// partial unique indexes that carry the concurrency invariants.
+export const memoryProcedureCandidates = sqliteTable(
+  "memory_procedure_candidates",
+  {
+    id: text("id").primaryKey(),
+    normalizedGoal: text("normalized_goal").notNull(),
+    goal: text("goal").notNull(),
+    proposedSkillId: text("proposed_skill_id").notNull(),
+    // JSON: the proposed skill artifact (name, description, body_markdown,
+    // emoji, includes, activation_hints, avoid_when, category, and companion
+    // files with their bytes materialized inline).
+    artifact: text("artifact").notNull(),
+    // The assistant-owned managed skill this candidate would update, resolved
+    // through the existing-skill matcher. Identifies the canonical target; it
+    // is not itself corroboration.
+    matchedSkillId: text("matched_skill_id"),
+    // 'pending' | 'covered' | 'promoted'.
+    status: text("status").notNull(),
+    canonicalSkillId: text("canonical_skill_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+);
+
+// One row per source conversation that contributed verified, procedure-
+// attributed evidence to a candidate. The compound primary key is the
+// recurrence invariant: a conversation can hold at most one row per
+// candidate, so reprocessing supersedes rather than accumulates.
+export const memoryProcedureCandidateSources = sqliteTable(
+  "memory_procedure_candidate_sources",
+  {
+    candidateId: text("candidate_id").notNull(),
+    sourceConversationId: text("source_conversation_id").notNull(),
+    retrospectiveConversationId: text(
+      "retrospective_conversation_id",
+    ).notNull(),
+    // JSON array of validated evidence references:
+    // { toolUseId, name, inputHash, resultHash }.
+    evidence: text("evidence").notNull(),
+    observedAt: integer("observed_at").notNull(),
+  },
+);
+
+// The promotion claim, keyed by the canonical skill id so exactly one
+// candidate may promote to a given skill. `completedAt` separates a crash
+// before the skill write from one after it, letting the owning candidate
+// resume either boundary while a different candidate is rejected.
+export const memoryProcedurePromotions = sqliteTable(
+  "memory_procedure_promotions",
+  {
+    skillId: text("skill_id").primaryKey(),
+    candidateId: text("candidate_id").notNull(),
+    claimedAt: integer("claimed_at").notNull(),
+    completedAt: integer("completed_at"),
+  },
+);

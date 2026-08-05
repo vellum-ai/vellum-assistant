@@ -1,16 +1,19 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import type { SkillSource } from "../../config/skills.js";
-import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
-import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
-import { readInstallMeta } from "../../skills/install-meta.js";
+import {
+  finalizePromotion,
+  type StabilizerDeps,
+  stabilizeRetrospectiveProcedure,
+} from "../../plugins/defaults/memory/procedure-candidate-stabilizer.js";
+import type { CandidateArtifact } from "../../plugins/defaults/memory/procedure-candidate-store.js";
 import {
   createManagedSkill,
   getManagedSkillDir,
+  validateCompanionSource,
 } from "../../skills/managed-store.js";
 import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -67,21 +70,63 @@ function normalizeOptionalStringArray(
 }
 
 /**
+ * Materialize a retrospective observation's companion files into inline
+ * bytes. A candidate can sit pending for days before it promotes, long after
+ * a `copy_from` source (a workspace scratch file, a /tmp path) is gone, so
+ * the bytes are read at capture time and persisted with the candidate rather
+ * than the path. Uses the same validation the managed store applies to a
+ * direct scaffold, so a candidate can never capture a source the store would
+ * have refused.
+ */
+function materializeCompanionFiles(
+  files: Array<{ path: string; content?: string; copyFrom?: string }>,
+): { value?: Array<{ path: string; content: string }>; error?: string } {
+  const materialized: Array<{ path: string; content: string }> = [];
+  for (const file of files) {
+    if (file.content !== undefined) {
+      materialized.push({ path: file.path, content: file.content });
+      continue;
+    }
+    if (file.copyFrom === undefined) {
+      return { error: `companion file "${file.path}" carries no content` };
+    }
+    const source = validateCompanionSource(file.copyFrom);
+    if (source.error !== undefined || source.content === undefined) {
+      return { error: source.error ?? "invalid copy_from source" };
+    }
+    materialized.push({ path: file.path, content: source.content });
+  }
+  return { value: materialized };
+}
+
+/**
  * Core execution logic for scaffold_managed_skill.
  * Exported so bundled-skill executors and tests can call it directly.
  *
- * `deps` injects the catalog and conversation-lookup seams so the ownership
- * backstop's non-managed collision check and the lineage resolution can be
- * exercised without standing up a real bundled/plugin catalog or a live DB.
+ * Interactive and user-directed calls behave exactly as they always have: the
+ * skill is created (or overwritten) immediately, tagged `author: "user"`.
+ *
+ * A call from the memory retrospective (`requestOrigin` is
+ * `memory_retrospective`) instead routes through the procedure-candidate
+ * stabilizer first: capture and promotion are separated, so a procedure
+ * observed in one conversation is recorded durably as a pending candidate and
+ * only becomes a live skill once it is confirmed (a second distinct source
+ * conversation, or a confident match against a skill the assistant already
+ * authored). When the stabilizer decides to promote, the canonical write
+ * still happens here, through this one path, so capability-memory refresh,
+ * the `skill_authored` counter, and the skill-created card all fire exactly
+ * where they always did: at an actual promotion. See
+ * `plugins/defaults/memory/procedure-candidate-stabilizer.ts`.
+ *
+ * `deps` injects the stabilizer seams so the promotion state machine can be
+ * exercised without a live catalog, matcher, or database.
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
   context: ToolContext,
   deps: {
-    loadCatalog?: () => { id: string; source: SkillSource }[];
-    getConversation?: (
-      id: string,
-    ) => { forkParentConversationId: string | null } | null;
+    stabilizer?: StabilizerDeps;
+    finalizePromotion?: typeof finalizePromotion;
   } = {},
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
@@ -227,77 +272,9 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
-  const id = skillId.trim();
+  const proposedId = skillId.trim();
   const fromRetrospective =
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
-  const author = fromRetrospective ? "assistant" : "user";
-
-  // Whether a managed SKILL.md already existed before this call. Drives the
-  // ownership backstop below, the created-vs-refined discriminant for the
-  // skill-card enqueue, and the `skill_authored` telemetry counter: only a
-  // genuine CREATE (no pre-existing skill, regardless of the `overwrite`
-  // flag) gets a card or a counter event.
-  const managedSkillExistedBefore = existsSync(
-    join(getManagedSkillDir(id), "SKILL.md"),
-  );
-
-  // Ownership backstop (retrospective origin only): the retrospective may author
-  // a skill ONLY if it owns it. Fail closed on either of two collisions.
-  if (fromRetrospective) {
-    // (1) A non-managed catalog entry (bundled, plugin, workspace, extra) owns
-    // this id. Creating a managed skill with that id SHADOWS the catalog entry,
-    // and an overwrite under the managed dir would never touch it — either way
-    // the retrospective must not stand on a skill it did not author. This covers
-    // create AND overwrite. The prompt directs the model to skip when an
-    // existing skill of any source already covers the procedure; this enforces
-    // it.
-    const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
-    const nonManagedOwner = loadCatalog().find(
-      (s) => s.id === id && s.source !== "managed",
-    );
-    if (nonManagedOwner) {
-      return {
-        content: `Error: skill "${id}" is owned by a ${nonManagedOwner.source} skill; the retrospective may not create, overwrite, or shadow it. The procedure is already covered — skip it.`,
-        isError: true,
-      };
-    }
-
-    // (2) A managed skill already exists on disk but is not VERIFIABLY
-    // assistant-authored. `readInstallMeta` returns null for a fresh create AND
-    // for an existing skill whose install-meta/version.json is missing or
-    // corrupt — so gate on the SKILL.md existing and the author tag reading
-    // exactly "assistant". This fails closed on user-authored, untagged, and
-    // unverifiable (missing/corrupt meta) managed skills alike, matching the
-    // prune side where such skills are never pruned.
-    if (
-      managedSkillExistedBefore &&
-      readInstallMeta(getManagedSkillDir(id))?.author !== "assistant"
-    ) {
-      return {
-        content: `Error: skill "${id}" is not verifiably assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
-        isError: true,
-      };
-    }
-  }
-
-  // Conversation lineage (retrospective origin only). The retrospective runs
-  // in a background fork of the conversation it distilled the procedure from,
-  // so the fork's parent is this skill's durable source conversation.
-  // Resolution is best-effort: a missing or unresolvable parent must never
-  // fail the scaffold.
-  let sourceConversationId: string | undefined;
-  let retrospectiveConversationId: string | undefined;
-  if (fromRetrospective && context.conversationId) {
-    retrospectiveConversationId = context.conversationId;
-    try {
-      const lookupConversation = deps.getConversation ?? getConversation;
-      sourceConversationId =
-        lookupConversation(context.conversationId)?.forkParentConversationId ??
-        undefined;
-    } catch {
-      // Lineage stays unset; the scaffold itself still proceeds.
-    }
-  }
 
   // Normalized frontmatter values, shared by the persisted SKILL.md and the
   // skill-card payload below so the card always shows the values as persisted.
@@ -308,25 +285,130 @@ export async function executeScaffoldManagedSkill(
       ? sanitizeFrontmatterValue(input.emoji)
       : undefined;
 
+  // What actually gets written, once anything does. For a user-directed call
+  // this is the call's own input. For a retrospective call the stabilizer
+  // decides, and on promotion supplies the merged candidate artifact (which
+  // carries companion bytes captured on earlier observations).
+  let targetId = proposedId;
+  let writeFiles = files;
+  let promotedCandidateId: string | undefined;
+  let sourceConversationId: string | undefined;
+  let retrospectiveConversationId: string | undefined;
+
+  if (fromRetrospective) {
+    // Companion bytes are materialized BEFORE capture: a candidate outlives
+    // the `copy_from` paths a single pass can see.
+    const materialized = materializeCompanionFiles(files ?? []);
+    if (materialized.error) {
+      return { content: `Error: ${materialized.error}`, isError: true };
+    }
+    const artifact: CandidateArtifact = {
+      name: normalizedName,
+      description: normalizedDescription,
+      bodyMarkdown,
+      ...(normalizedEmoji ? { emoji: normalizedEmoji } : {}),
+      ...(includes ? { includes } : {}),
+      ...(activationHints ? { activationHints } : {}),
+      ...(avoidWhen ? { avoidWhen } : {}),
+      ...(category ? { category } : {}),
+      ...(materialized.value && materialized.value.length > 0
+        ? { files: materialized.value }
+        : {}),
+    };
+
+    const citedEvidence = normalizeOptionalStringArray(
+      input.evidence_tool_use_ids,
+      "evidence_tool_use_ids",
+    );
+    if (citedEvidence.error) {
+      return { content: `Error: ${citedEvidence.error}`, isError: true };
+    }
+
+    const decision = await stabilizeRetrospectiveProcedure({
+      runConversationId: context.conversationId,
+      proposedSkillId: proposedId,
+      artifact,
+      citedToolUseIds: citedEvidence.value ?? [],
+      deps: deps.stabilizer,
+    });
+
+    // Fail closed. The errored tool result carries no durable evidence, so
+    // the observation stays available to a later pass.
+    if (decision.kind === "failed") {
+      return { content: `Error: ${decision.message}`, isError: true };
+    }
+    // Captured (pending or refined) and covered are both durable outcomes
+    // that deliberately write no skill.
+    if (decision.kind === "captured" || decision.kind === "covered") {
+      return {
+        content: JSON.stringify({
+          created: false,
+          status: decision.kind === "covered" ? "covered" : "pending",
+          candidate_id: decision.candidateId,
+          note: decision.message,
+        }),
+        isError: false,
+      };
+    }
+
+    targetId = decision.targetSkillId;
+    promotedCandidateId = decision.candidateId;
+    sourceConversationId = decision.sourceConversationId;
+    retrospectiveConversationId = context.conversationId;
+    writeFiles = decision.artifact.files;
+  }
+
+  // Whether a managed SKILL.md already existed before this call. Drives the
+  // created-vs-refined discriminant for the skill-card enqueue and the
+  // `skill_authored` telemetry counter: only a genuine CREATE (no
+  // pre-existing skill, regardless of the `overwrite` flag) gets a card or a
+  // counter event. On a promotion retry the skill already exists, so neither
+  // side effect repeats.
+  const managedSkillExistedBefore = existsSync(
+    join(getManagedSkillDir(targetId), "SKILL.md"),
+  );
+
   const result = createManagedSkill({
-    id,
+    id: targetId,
     name: normalizedName,
     description: normalizedDescription,
     bodyMarkdown: bodyMarkdown,
     emoji: normalizedEmoji,
-    overwrite: input.overwrite === true,
+    // A promotion onto an existing skill is the canonical UPDATE of that
+    // skill, so it always overwrites; a user-directed call keeps its explicit
+    // flag.
+    overwrite: fromRetrospective
+      ? managedSkillExistedBefore
+      : input.overwrite === true,
     includes,
     activationHints,
     avoidWhen,
     category,
-    files,
-    author,
+    files: writeFiles,
+    author: fromRetrospective ? "assistant" : "user",
     sourceConversationId,
     retrospectiveConversationId,
   });
 
   if (!result.created) {
     return { content: `Error: ${result.error}`, isError: true };
+  }
+
+  // Close the candidate out against the skill it produced. Ordered AFTER the
+  // write so a crash in between leaves the candidate promotable rather than
+  // marked-but-unwritten; the retry then finds the skill on disk and lands as
+  // a canonical update, which is why a lost mark can never mint a sibling or
+  // repeat the card.
+  if (promotedCandidateId) {
+    const finalize = deps.finalizePromotion ?? finalizePromotion;
+    try {
+      await finalize(promotedCandidateId, targetId, deps.stabilizer);
+    } catch (err) {
+      log.warn(
+        { err, candidateId: promotedCandidateId, skillId: targetId },
+        "procedure candidate: finalization failed; the skill write stands and the open claim lets the same candidate resume",
+      );
+    }
   }
 
   refreshSkillCapabilityMemories();
@@ -376,7 +458,7 @@ export async function executeScaffoldManagedSkill(
         runConversationId: retrospectiveConversationId,
         skills: [
           {
-            skillId: id,
+            skillId: targetId,
             name: normalizedName,
             description: normalizedDescription,
             ...(normalizedEmoji ? { emoji: normalizedEmoji } : {}),
@@ -385,7 +467,7 @@ export async function executeScaffoldManagedSkill(
       });
       log.info(
         {
-          skillId: id,
+          skillId: targetId,
           sourceConversationId,
           runConversationId: retrospectiveConversationId,
         },
@@ -393,7 +475,7 @@ export async function executeScaffoldManagedSkill(
       );
     } catch (err) {
       log.warn(
-        { err, skillId: id, sourceConversationId },
+        { err, skillId: targetId, sourceConversationId },
         "skill card: failed to enqueue skill_card_insert; skill creation unaffected",
       );
     }
@@ -402,7 +484,7 @@ export async function executeScaffoldManagedSkill(
   return {
     content: JSON.stringify({
       created: true,
-      skill_id: id,
+      skill_id: targetId,
       path: result.path,
     }),
     isError: false,

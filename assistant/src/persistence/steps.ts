@@ -470,6 +470,7 @@ import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memo
 import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-workspace-path.js";
 import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
 import { migrateAddConversationSubagentKind } from "./migrations/362-add-conversation-subagent-kind.js";
+import { migrateCreateMemoryProcedureCandidates } from "./migrations/363-create-memory-procedure-candidates.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1560,4 +1561,5 @@ export const migrationSteps: MigrationStep[] = [
     // must exist and be checkpointed first.
     dependsOn: ["migrateCreateSubagentsTable"],
   },
+  migrateCreateMemoryProcedureCandidates,
 ];

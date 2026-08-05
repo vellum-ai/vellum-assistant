@@ -52,6 +52,11 @@
             "items": { "type": "string" },
             "description": "Optional situations where this skill should NOT be used. Surfaced in memory as an \"Avoid when: …\" clause to steer retrieval away from the wrong contexts."
           },
+          "evidence_tool_use_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Background memory-review passes only, where it is REQUIRED: the `tool_use` ids from the reviewed conversation's trace that carried the procedure being recorded. Each id is verified server-side against that conversation's own steps and must have a successful result. Ignored for skills you create at a person's request."
+          },
           "files": {
             "type": "array",
             "items": {

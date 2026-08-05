@@ -103,11 +103,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../config/assistant-feature-flags.js",
     "../../../../config/default-profile-catalog.js",
     "../../../../config/loader.js",
-    // Sibling of the already-sanctioned memory-v3-gate: `memoryTier()` is
-    // defined as fully derived from that module's predicates, and the stats
-    // route reports both (`graph_supported` is exactly `tier === "v3"`).
-    // Re-deriving the tier inside the plugin would reintroduce exactly the
-    // drift the shared module exists to prevent. No plugin-api equivalent.
     "../../../../config/memory-tier.js",
     "../../../../config/memory-v3-gate.js",
     "../../../../config/schema.js",
@@ -162,6 +157,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../config/platform-rehydration.js",
     "../../../config/schema.js",
     "../../../config/schemas/memory.js",
+    "../../../config/skills.js",
     "../../../config/types.js",
     "../../../contacts/guardian-delivery-reader.js",
     "../../../context/compactor.js",
@@ -199,6 +195,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/job-handlers/message-lexical.js",
     "../../../persistence/job-utils.js",
     "../../../persistence/jobs-store.js",
+    "../../../persistence/migrations/363-create-memory-procedure-candidates.js",
     "../../../persistence/raw-query.js",
     "../../../persistence/schema/index.js",
     "../../../prompts/persona-resolver.js",
@@ -209,6 +206,8 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../runtime/capabilities.js",
     "../../../runtime/services/auto-analysis-guard.js",
     "../../../runtime/sync/resource-sync-events.js",
+    "../../../skills/install-meta.js",
+    "../../../skills/managed-store.js",
     "../../../telemetry/watchdog-events-store.js",
     "../../../tools/registry.js",
     "../../../tools/types.js",
@@ -231,6 +230,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../injection-presence.js",
     "../injector-order.js",
     "@qdrant/js-client-rest",
+    "bun:sqlite",
     "crypto",
     "drizzle-orm",
     "node:crypto",

@@ -93,16 +93,45 @@ export interface NearestExistingSkillsOptions {
 }
 
 /**
+ * A shortlist paired with the matcher's health. `degraded: true` means the
+ * scorer failed (after its bounded retries, or non-transiently) and the empty
+ * hit list is NOT evidence of novelty; callers that gate writes on the
+ * shortlist must fail closed on it.
+ */
+export interface SkillShortlistResult {
+  hits: SkillShortlistHit[];
+  degraded: boolean;
+}
+
+/**
  * Rank the existing skills whose capability pages are most similar to `goal`
  * and return the top-K at or above {@link SHORTLIST_THRESHOLD}, descending by
  * score. An empty catalog (or no hit clearing the floor) yields `[]`.
  *
- * Pure and read-only: no writes, no LLM call.
+ * Pure and read-only: no writes, no LLM call. Scorer failure degrades to an
+ * empty shortlist (logged at warn); callers that must distinguish "no similar
+ * skill" from "matcher unavailable" use
+ * {@link nearestExistingSkillsDetailed} instead.
  */
 export async function nearestExistingSkills(
   goal: string,
   opts: NearestExistingSkillsOptions = {},
 ): Promise<SkillShortlistHit[]> {
+  const { hits } = await nearestExistingSkillsDetailed(goal, opts);
+  return hits;
+}
+
+/**
+ * {@link nearestExistingSkills} with the matcher's health made explicit. A
+ * scorer failure (injected seam throwing, or the default simBatch path
+ * exhausting its retries) yields `{ hits: [], degraded: true }` instead of a
+ * silently successful empty shortlist, so write-gating callers can fail
+ * closed rather than mistake an outage for novelty.
+ */
+export async function nearestExistingSkillsDetailed(
+  goal: string,
+  opts: NearestExistingSkillsOptions = {},
+): Promise<SkillShortlistResult> {
   const config = opts.config ?? getConfig();
   const scoreSlugs =
     opts.scoreSlugs ?? ((g, slugs) => scoreSlugsWithSimBatch(config, g, slugs));
@@ -117,10 +146,19 @@ export async function nearestExistingSkills(
   }
   const slugs = [...slugToSkillId.keys()];
   if (slugs.length === 0) {
-    return [];
+    return { hits: [], degraded: false };
   }
 
-  const scored = await scoreSlugs(goal, slugs);
+  let scored: ScoredSlug[];
+  try {
+    scored = await scoreSlugs(goal, slugs);
+  } catch (err) {
+    log.warn(
+      { err },
+      "nearest-existing-skills scorer failed; degrading to empty shortlist",
+    );
+    return { hits: [], degraded: true };
+  }
   const hits: SkillShortlistHit[] = [];
   for (const { slug, score } of scored) {
     if (score < SHORTLIST_THRESHOLD) {
@@ -132,7 +170,7 @@ export async function nearestExistingSkills(
     }
   }
   hits.sort((a, b) => b.score - a.score);
-  return hits.slice(0, limit);
+  return { hits: hits.slice(0, limit), degraded: false };
 }
 
 /**
@@ -143,30 +181,22 @@ export async function nearestExistingSkills(
  * scale as v2 recall scores against {@link SHORTLIST_THRESHOLD}.
  *
  * `simBatch` embeds via `embedWithBackend` ONCE (not `embedWithRetry`), so a
- * brief provider blip (429 / 5xx / transient network error) would throw and
- * make this scorer return `[]` — an empty shortlist. To avoid a momentary
- * outage hiding an existing skill, the `simBatch` call is wrapped in a bounded
- * retry mirroring {@link embedWithRetry}'s policy (same max-retries / base-delay
- * / exponential backoff, same transient predicate, same abort handling). Only
- * AFTER retries are exhausted — or on a non-transient error (a real
- * Qdrant/config bug, where retrying is pointless) — do we degrade to `[]`,
- * logged at warn.
+ * brief provider blip (429 / 5xx / transient network error) would throw on
+ * the first attempt. To avoid a momentary outage hiding an existing skill,
+ * the `simBatch` call is wrapped in a bounded retry mirroring
+ * {@link embedWithRetry}'s policy (same max-retries / base-delay /
+ * exponential backoff, same transient predicate, same abort handling). An
+ * exhausted retry budget, or a non-transient error (a real Qdrant/config bug,
+ * where retrying is pointless), THROWS to the shortlist wrapper, which
+ * reports it as a degraded (not silently empty) shortlist.
  */
 async function scoreSlugsWithSimBatch(
   config: AssistantConfig,
   goal: string,
   restrictToSlugs: readonly string[],
 ): Promise<ScoredSlug[]> {
-  try {
-    const scores = await simBatchWithRetry(config, goal, restrictToSlugs);
-    return [...scores].map(([slug, score]) => ({ slug, score }));
-  } catch (err) {
-    log.warn(
-      { err },
-      "nearest-existing-skills scorer failed after retries; degrading to empty shortlist",
-    );
-    return [];
-  }
+  const scores = await simBatchWithRetry(config, goal, restrictToSlugs);
+  return [...scores].map(([slug, score]) => ({ slug, score }));
 }
 
 /**

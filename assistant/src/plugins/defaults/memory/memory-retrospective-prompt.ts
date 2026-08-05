@@ -219,7 +219,11 @@ function buildSkillAuthoringSection(): string {
   return `
 ---
 
-If your review window contains a PROCEDURE you actually carried out — a sequence of real \`tool_use\` steps you executed (not merely discussed or planned) that is plausibly worth reusing later — also consider capturing it as a managed skill. Keep this bar low: when in doubt and the procedure looks reusable, author it. If the window contains no executed, reusable procedure, skip this entirely and just \`remember\` as above.
+If your review window contains a PROCEDURE you actually carried out (a sequence of real \`tool_use\` steps you executed, not merely discussed or planned) that is plausibly worth reusing later, also record it with \`scaffold_managed_skill\`. Keep this bar low: when in doubt and the procedure looks reusable, record it. If the window contains no executed, reusable procedure, skip this entirely and just \`remember\` as above.
+
+Recording is not the same as publishing. What you record is kept as a procedure candidate; it becomes a live skill only once the same procedure has been seen in a second, different conversation, or once it refines a skill you already authored. So record the procedure as you observed it here and do not worry about whether one sighting is enough. That judgement is not yours to make in this pass. The tool result will tell you what happened (recorded, refined, already covered, or promoted to a skill); read it and do not retry a rejection by rewording the same proposal.
+
+Every recording must cite its evidence: set \`evidence_tool_use_ids\` to the ids of the \`tool_use\` blocks in THIS conversation's trace that actually carried the procedure. Each id is checked against the conversation's own steps and must have a succeeded result; citing a step that failed, a step from your own review turn (\`remember\`, \`find_similar_skills\`, \`scaffold_managed_skill\`, \`skill_load\`), or an id that is not there will be rejected. If you cannot point at real executed steps, the procedure is not one you observed, so skip it.
 
 When you do capture a procedure:
 
