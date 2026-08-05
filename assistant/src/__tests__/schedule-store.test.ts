@@ -1623,4 +1623,24 @@ describe("inference-profile pinning", () => {
       resolveDefaultScheduleInferenceProfile()!,
     );
   });
+
+  test("any wake row seeds its target's pin, not just a defer", async () => {
+    const conversation = createConversation({ id: "conv-wake-target" });
+    setConversationInferenceProfile(conversation.id, "cost-optimized");
+    expect(resolveDefaultScheduleInferenceProfile()).not.toBe("cost-optimized");
+
+    // Seeding is keyed on `mode: "wake"` at the insert chokepoint rather than
+    // on defer provenance: every wake row forces its pin as the woken turn's
+    // override, so a wake minted any other way must not flatten its target's
+    // choice onto the global default either.
+    const job = await createSchedule({
+      name: "Wake pinned conversation",
+      message: "resume",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: conversation.id,
+    });
+
+    expect(job.inferenceProfile).toBe("cost-optimized");
+  });
 });

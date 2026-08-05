@@ -232,11 +232,24 @@ async function insertSchedule(
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   // The single chokepoint that pins every schedule to a concrete profile: a
-  // caller that names none gets a snapshot of the currently resolved default,
-  // so the schedule's cost stays put when the user changes their global
-  // default profile.
+  // caller that names none gets a snapshot of what that row resolves today, so
+  // the schedule's cost stays put when the user changes their global default
+  // profile.
+  //
+  // A wake row snapshots its target conversation's durable pin instead of the
+  // global default, because `buildWakeScheduleOptions` forces the row's pin as
+  // the woken turn's override: an unpinned wake resolves the target's own
+  // choice live, so seeding anything else would silently re-point it. Seeding
+  // here rather than in `createOwnerDeferredWake` makes the rule structural —
+  // it holds for every wake row however it was minted — and matches what
+  // migration 363 backfills onto the rows that predate the pin.
   const inferenceProfile =
-    params.inferenceProfile ?? resolveDefaultScheduleInferenceProfile();
+    params.inferenceProfile ??
+    (mode === "wake"
+      ? resolveWakeScheduleInferenceProfile(
+          getConversation(params.wakeConversationId!) ?? null,
+        )
+      : resolveDefaultScheduleInferenceProfile());
   const groupId = params.groupId ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
@@ -336,14 +349,13 @@ export async function createSchedule(
  * only production caller and is gated accordingly.
  *
  * The pin seeds from the source conversation's durable choice rather than the
- * global default, via {@link resolveWakeScheduleInferenceProfile}. A defer
- * resumes the very conversation it was created in, and
+ * global default. A defer resumes the very conversation it was created in, and
  * `buildWakeScheduleOptions` forces the row's pin as the woken turn's
  * override, so a defer created inside a conversation the user pinned to a
- * specific profile must fire on that profile. Seeding lives here rather than
- * in the defer route because this function is what makes a row a defer: every
- * defer creator inherits the behaviour, and ordinary schedule creation, which
- * cannot reach this path, keeps the plain global default.
+ * specific profile must fire on that profile. That seeding lives in
+ * `insertSchedule`, keyed on `mode: "wake"` rather than on defer provenance,
+ * so no wake row can be minted that overrides its target's pin with the global
+ * default.
  */
 export async function createOwnerDeferredWake(params: {
   conversationId: string;
@@ -352,9 +364,6 @@ export async function createOwnerDeferredWake(params: {
   name?: string;
   inferenceProfile?: string | null;
 }): Promise<ScheduleJob> {
-  const inferenceProfile =
-    params.inferenceProfile ??
-    resolveWakeScheduleInferenceProfile(getConversation(params.conversationId));
   return insertSchedule({
     name: params.name ?? "Deferred wake",
     message: params.hint,
@@ -364,7 +373,7 @@ export async function createOwnerDeferredWake(params: {
     createdBy: OWNER_DEFER_CREATED_BY,
     nextRunAt: params.fireAt,
     quiet: true,
-    inferenceProfile,
+    inferenceProfile: params.inferenceProfile ?? null,
   });
 }
 
