@@ -588,7 +588,7 @@ async function reconcilePlatformAssistants(
   try {
     const orgOutcome = await useOrganizationStore
       .getState()
-      .fetchOrganizations();
+      .fetchOrganizations(syncIsCurrent);
     if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
       return true;
     }

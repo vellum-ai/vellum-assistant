@@ -98,6 +98,52 @@ describe("the organization requests are scoped to", () => {
 });
 
 describe("fetch outcome classification", () => {
+  test("a superseded fetch reports its outcome but commits nothing", async () => {
+    sessionStorage.setItem(STORAGE_KEY, ORG_A.id);
+    useOrganizationStore.setState({
+      persistedOrganizationId: ORG_A.id,
+      status: "ready",
+    });
+    listOrganizations = () =>
+      Promise.resolve({
+        data: undefined,
+        error: { detail: "Authentication credentials were not provided." },
+        response: new Response(null, { status: 403 }),
+      });
+
+    const outcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(() => false);
+
+    // The stale probe's rejection is reported to its caller, but the newer
+    // session's org fallback and store state stay untouched.
+    expect(outcome).toEqual({ ok: false, kind: "rejected", status: 403 });
+    expect(useOrganizationStore.getState().persistedOrganizationId).toBe(
+      ORG_A.id,
+    );
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
+    expect(useOrganizationStore.getState().error).toBeNull();
+  });
+
+  test("a current predicate commits normally", async () => {
+    sessionStorage.setItem(STORAGE_KEY, ORG_A.id);
+    useOrganizationStore.setState({ persistedOrganizationId: ORG_A.id });
+    listOrganizations = () =>
+      Promise.resolve({
+        data: undefined,
+        error: { detail: "Authentication credentials were not provided." },
+        response: new Response(null, { status: 403 }),
+      });
+
+    const outcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(() => true);
+
+    expect(outcome).toEqual({ ok: false, kind: "rejected", status: 403 });
+    expect(useOrganizationStore.getState().persistedOrganizationId).toBeNull();
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
   test("a settled 403 concludes as a rejected session", async () => {
     listOrganizations = () =>
       Promise.resolve({

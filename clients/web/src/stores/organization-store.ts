@@ -59,7 +59,14 @@ interface OrganizationState {
 }
 
 interface OrganizationActions {
-  fetchOrganizations: () => Promise<OrgFetchOutcome>;
+  /**
+   * Load the org list and report how the fetch concluded. When `isCurrent`
+   * is provided and answers false at commit time (a raced caller superseded
+   * mid-flight), the outcome is still returned but no store or storage state
+   * is written, so a stale probe's rejection cannot strip the org fallback
+   * out from under a newer session.
+   */
+  fetchOrganizations: (isCurrent?: () => boolean) => Promise<OrgFetchOutcome>;
   setCurrentOrganizationId: (organizationId: string) => void;
   clearOrganization: () => void;
 }
@@ -129,23 +136,11 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
   status: "idle",
   error: null,
 
-  fetchOrganizations: async () => {
+  fetchOrganizations: async (isCurrent?: () => boolean) => {
     set({ status: "loading", error: null });
 
     try {
       const result = await organizationsList();
-      const organizations = result.data?.results ?? [];
-      const candidateId =
-        get().currentOrganizationId ?? get().persistedOrganizationId;
-      const currentOrganizationId = resolveActiveOrganizationId(
-        organizations,
-        candidateId,
-      );
-
-      if (currentOrganizationId) {
-        setStoredOrganizationId(currentOrganizationId);
-      }
-
       // throwOnError is false, so an HTTP error surfaces as data-undefined
       // with the completed Response alongside.
       const failureStatus =
@@ -155,6 +150,29 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
         isSettledSessionRejection({ ok: false, status: failureStatus })
           ? failureStatus
           : null;
+      const organizations = result.data?.results ?? [];
+      const candidateId =
+        get().currentOrganizationId ?? get().persistedOrganizationId;
+      const currentOrganizationId = resolveActiveOrganizationId(
+        organizations,
+        candidateId,
+      );
+      const outcome: OrgFetchOutcome = currentOrganizationId
+        ? { ok: true }
+        : rejectionStatus !== null
+          ? { ok: false, kind: "rejected", status: rejectionStatus }
+          : { ok: false, kind: "unavailable" };
+
+      // A superseded caller reports its outcome but commits nothing: a stale
+      // probe's rejection must not strip the org fallback out from under a
+      // newer session.
+      if (!(isCurrent?.() ?? true)) {
+        return outcome;
+      }
+
+      if (currentOrganizationId) {
+        setStoredOrganizationId(currentOrganizationId);
+      }
 
       let error: string | null = null;
       if (!currentOrganizationId) {
@@ -182,19 +200,15 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
         error,
       });
 
-      if (currentOrganizationId) {
-        return { ok: true };
-      }
-      if (rejectionStatus !== null) {
-        return { ok: false, kind: "rejected", status: rejectionStatus };
-      }
-      return { ok: false, kind: "unavailable" };
+      return outcome;
     } catch (err) {
       const message =
         err instanceof Error && err.message
           ? err.message
           : "Failed to load organizations.";
-      set({ status: "error", error: message });
+      if (isCurrent?.() ?? true) {
+        set({ status: "error", error: message });
+      }
       return { ok: false, kind: "unavailable" };
     }
   },
