@@ -720,6 +720,50 @@ describe("mapRuntimeToolCalls — confirmationDecision", () => {
   });
 });
 
+describe("mapRuntimeToolCalls: answeredQuestion", () => {
+  test("rehydrates a persisted answered ask_question record", () => {
+    // GIVEN a reopened conversation whose ask_question row carries the answer
+    const wire: ConversationMessageToolCall = {
+      id: "tu_q",
+      name: "ask_question",
+      input: { questions: [{ question: "Which Alice?" }] },
+      result: "answered",
+      answeredQuestion: {
+        requestId: "req-1",
+        questions: [
+          {
+            id: "q1",
+            question: "Which Alice?",
+            options: [{ id: "alice_work", label: "Alice (work)" }],
+          },
+        ],
+        responses: [
+          { questionId: "q1", decision: "option", optionId: "alice_work" },
+        ],
+        overall: "completed",
+      },
+    };
+
+    // WHEN it is projected onto the rendered tool call
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    // THEN the answered card has everything it needs from history alone
+    expect(mapped!.answeredQuestion).toEqual(wire.answeredQuestion!);
+  });
+
+  test("leaves answeredQuestion absent on rows that never carried one", () => {
+    const wire: ConversationMessageToolCall = {
+      name: "bash",
+      input: {},
+      result: "ok",
+    };
+
+    const [mapped] = mapRuntimeToolCalls([wire], "msg-1");
+
+    expect(mapped!.answeredQuestion).toBeUndefined();
+  });
+});
+
 describe("mapRuntimeToolCalls — id", () => {
   test("uses the wire-provided provider tool-use id when present", () => {
     // GIVEN a history tool call carrying the provider tool-use id on the wire

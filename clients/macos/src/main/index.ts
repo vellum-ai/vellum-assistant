@@ -6,7 +6,9 @@ import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import {
+  pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
@@ -21,11 +23,18 @@ import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
-import { planGatewayForward } from "./gateway-forward";
+import {
+  authorizePairedGatewayForwardPlan,
+  executeGatewayForwardPlan,
+  planGatewayForward,
+  planPairedGatewayForward,
+  type GatewayForwardFetcher,
+} from "./gateway-forward";
 import {
   fetchForwardPlanWithRetry,
   planPlatformForward,
 } from "./platform-forward";
+import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -38,6 +47,7 @@ import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
+import { installDownloads } from "./downloads";
 import { installShare } from "./share";
 import {
   installEscapeMonitor,
@@ -53,9 +63,16 @@ import { installImageContextMenu } from "./image-context-menu";
 import { installTextContextMenu } from "./text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
-import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import {
+  getPairedGuardianAccessToken,
+  installLocalMode,
+  resolveCliInvocation,
+} from "./local-mode";
 import { installLoginItem, installLoginItemIpc } from "./login-item";
-import { installLockfileWatcher } from "./lockfile-watcher";
+import {
+  getWatchedLockfileSnapshot,
+  installLockfileWatcher,
+} from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
@@ -65,7 +82,11 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
-import { relocateToApplicationsFolder } from "./move-to-applications";
+import {
+  promptToRelocateIfStranded,
+  relocateToApplicationsFolder,
+} from "./move-to-applications";
+import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -155,9 +176,9 @@ initSentryMain();
 
 // Single-instance lock: relaunches focus the existing window instead of
 // spawning a parallel main process. The second-instance handler fires on the
-// instance that holds the lock (the primary). The instance that fails to
-// acquire calls app.quit() and never reaches whenReady.
-if (!app.requestSingleInstanceLock()) {
+// instance that holds the lock (the primary).
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
   app.quit();
 }
 
@@ -223,6 +244,14 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
+  // Prefer the watcher's in-memory snapshot so paired requests never read
+  // disk; the direct read covers only the window before the watcher installs.
+  const getPairedGatewayTargets = (): Map<string, string> => {
+    const watched = getWatchedLockfileSnapshot();
+    return watched
+      ? pairedGatewayTargetsFromLockfile(watched)
+      : readPairedGatewayTargets(lockfilePaths);
+  };
   const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
@@ -233,6 +262,19 @@ const registerAppProtocol = (): void => {
     // Vite dev-server proxy (`clients/web/vite-plugin-local-mode.ts`).
     const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
     if (proxied) return proxied;
+
+    // Paired remote gateways ride the same-origin path too, via
+    // `/assistant/__gateway-paired/{assistantId}/*`: the packaged app's CSP
+    // pins `connect-src` to Vellum origins, so the renderer cannot reach a
+    // paired gateway directly. The WebRequest guard admits only trusted app
+    // frames, and the lockfile's paired entries allowlist the remote targets.
+    const pairedProxied = await forwardPairedGatewayRequest(
+      request,
+      getPairedGatewayTargets,
+    );
+    if (pairedProxied) {
+      return pairedProxied;
+    }
 
     // Platform API routes (`/v1/*`, `/_allauth/*`, `/accounts/*`) forward to
     // the cloud platform so managed mode works in packaged builds. Mirrors the
@@ -269,37 +311,42 @@ const fileExists = async (candidate: string): Promise<boolean> => {
   }
 };
 
+const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
+  net.fetch(url, init);
+
 /**
  * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
  * local gateway on loopback, or return `null` when the URL is not a gateway
- * request so the caller serves it as a static asset. `net.fetch` runs in the
- * main process, so the renderer only ever talks to its own secure `app://`
- * origin — main does the `http://127.0.0.1` hop. The streaming `Response` is
- * returned verbatim, preserving SSE and chunked transfers (Electron's
- * `stream: true` scheme privilege). `planGatewayForward` owns the allowlist and
- * header decisions; this wrapper is just the effect.
+ * request. `net.fetch` runs in the main process, so the renderer only ever
+ * talks to its own secure `app://` origin; main does the `http://127.0.0.1`
+ * hop.
  */
 const forwardGatewayRequest = async (
   request: GlobalRequest,
   getAllowedPorts: () => Set<number>,
+): Promise<Response | null> =>
+  executeGatewayForwardPlan(
+    planGatewayForward(request, getAllowedPorts),
+    request,
+    gatewayForwardFetcher,
+  );
+
+/**
+ * Forward a paired-gateway data-plane request
+ * (`/assistant/__gateway-paired/{assistantId}/*`) to the remote gateway an
+ * imported pairing recorded as its `runtimeUrl`, or return `null` when the URL
+ * is not a paired-gateway request. Main does the remote hop so the renderer
+ * stays same-origin.
+ */
+const forwardPairedGatewayRequest = async (
+  request: GlobalRequest,
+  getTargets: () => Map<string, string>,
 ): Promise<Response | null> => {
-  const plan = planGatewayForward(request, getAllowedPorts);
-  switch (plan.kind) {
-    case "pass":
-      return null;
-    case "reject":
-      return new Response(plan.message, { status: plan.status });
-    case "forward":
-      return net.fetch(plan.url, {
-        method: plan.method,
-        headers: plan.headers,
-        body: plan.hasBody ? request.body : undefined,
-        // Stream the request body instead of buffering it; required by the
-        // fetch spec whenever a `ReadableStream` body is supplied.
-        ...(plan.hasBody ? { duplex: "half" } : {}),
-        redirect: "manual",
-      });
-  }
+  const plan = await authorizePairedGatewayForwardPlan(
+    planPairedGatewayForward(request, getTargets),
+    getPairedGuardianAccessToken,
+  );
+  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
 };
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
@@ -366,17 +413,30 @@ const forwardPlatformRequest = async (
 app
   .whenReady()
   .then(async () => {
+    // The instance that lost the single-instance lock is already quitting.
+    // `app.quit()` requests a shutdown rather than halting the module, and a
+    // `ready` that is already queued still fires, so the losing instance gates
+    // its own setup here. Electron's documented single-instance example puts
+    // every `whenReady` side effect behind this same branch.
+    // https://www.electronjs.org/docs/latest/api/app#apprequestsingleinstancelockadditionaldata
+    if (!gotSingleInstanceLock) {
+      return;
+    }
+
     // Install into /Applications before any other setup. On the first packaged
     // launch from a mounted DMG (or ~/Downloads), the app silently moves itself
     // there and relaunches — the "double-click to install" half of the DMG flow.
     // Skip it when a file or deep link triggered the launch: those events are
     // buffered in-process and would be lost during the relaunch.
-    if (!hasPendingFiles() && !hasPendingDeepLinks()) {
-      if (await relocateToApplicationsFolder()) return;
+    if (hasPendingFiles() || hasPendingDeepLinks()) {
+      markRelocationSkipped();
+    } else if (await relocateToApplicationsFolder()) {
+      return;
     }
 
     if (!isDev) {
       registerAppProtocol();
+      installPairedGatewayRequestGuard();
     }
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
@@ -426,6 +486,9 @@ app
     installAvatarIpc();
     installDock();
     installShare();
+    // Files renderer downloads into ~/Downloads instead of prompting a Save
+    // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
+    installDownloads();
     installPowerEvents();
     installNotifications();
     // Register the status channel before the tray installs so the tray's
@@ -449,6 +512,15 @@ app
     });
     installNativeAuth();
     installMainWindow();
+
+    // Runs after the main window so the recovery dialog has a window to sit in
+    // front of, and so a user who declines lands on a working app rather than
+    // an empty screen. A packaged app outside /Applications cannot update, and
+    // the relocation at the head of this block is the only thing that would
+    // have fixed it.
+    void promptToRelocateIfStranded().catch((err: unknown) => {
+      log.error("[app] relocation prompt failed:", err);
+    });
 
     // Dock-icon click / Cmd-Tab re-activation: bring the main window
     // back to front, recreating it if it was previously closed. The

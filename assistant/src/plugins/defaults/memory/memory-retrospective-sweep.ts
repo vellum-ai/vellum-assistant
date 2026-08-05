@@ -42,7 +42,9 @@
 //   - Enqueues route through `enqueueMemoryRetrospectiveIfEnabled`, whose
 //     `upsertMemoryRetrospectiveJob` coalesces against any already-pending job,
 //     so a conversation already queued by an event trigger is never
-//     double-processed.
+//     double-processed. An enqueue the funnel's gates decline (recursion,
+//     low-yield, user-activity) returns false and does not consume the
+//     per-pass cap.
 //   - Enqueues are capped at `SWEEP_MAX_ENQUEUES_PER_PASS` per pass. Inside
 //     the lookback window, organic stalled work is a handful of conversations;
 //     a pass wanting more signals an anomalous backlog. Each pass re-scans
@@ -277,7 +279,14 @@ export async function runRetrospectiveSweep(
         continue;
       }
 
-      enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger: "sweep" });
+      if (
+        !enqueueMemoryRetrospectiveIfEnabled({
+          conversationId,
+          trigger: "sweep",
+        })
+      ) {
+        continue;
+      }
       enqueued += 1;
       if (enqueued >= SWEEP_MAX_ENQUEUES_PER_PASS) {
         log.warn(

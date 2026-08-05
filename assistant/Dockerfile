@@ -22,9 +22,7 @@ ENV PATH="/root/.bun/bin:${PATH}"
 # Note that we don't need source code to resolve cross-workspace dependencies.
 COPY package.json bun.lock ./
 COPY patches ./patches
-COPY clients/docs/package.json ./clients/docs/
-COPY clients/macos/package.json ./clients/macos/
-COPY clients/web/package.json ./clients/web/
+COPY --parents clients/*/package.json ./
 COPY cli/package.json ./cli/
 COPY gateway/package.json ./gateway/
 COPY credential-executor/package.json ./credential-executor/

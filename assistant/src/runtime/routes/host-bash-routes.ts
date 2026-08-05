@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -99,6 +100,7 @@ async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId,
       op: "host_bash",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 

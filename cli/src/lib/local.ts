@@ -11,6 +11,10 @@ import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import {
+  findAssistantCommand,
+  isRepoCheckoutPath,
+} from "@vellumai/environments";
 import { isValidReleaseVersion } from "@vellumai/local-mode";
 
 import {
@@ -134,11 +138,13 @@ function resolveBunExecutable(): string {
 
 function envWithBunPath(
   env: Record<string, string | undefined>,
+  commandDirs: string[] = [],
 ): Record<string, string | undefined> {
   const bunPath = resolveBunExecutable();
   const basePath = env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
   const extraDirs = [
     bunPath.includes("/") ? dirname(bunPath) : "",
+    ...commandDirs,
     join(homedir(), ".bun", "bin"),
     join(homedir(), ".local", "bin"),
   ].filter((dir) => dir && !basePath.split(":").includes(dir));
@@ -675,9 +681,15 @@ async function startDaemonFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
-    VELLUM_DEV: "1",
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
   };
+  // "From source" covers both a developer's checkout and the npm-installed
+  // runtime the desktop app runs. Only the former is a dev run: marking an
+  // installed runtime as dev suppresses its telemetry and skips the
+  // `assistant` command install. An inherited VELLUM_DEV is left alone.
+  if (isRepoCheckoutPath(assistantIndex)) {
+    env.VELLUM_DEV = "1";
+  }
   applyDaemonEnvOverrides(env, resources, options);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -685,7 +697,11 @@ async function startDaemonFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const bunPath = resolveBunExecutable();
-  const spawnEnv = envWithBunPath(env);
+  const assistantCommand = findAssistantCommand(assistantIndex);
+  const spawnEnv = envWithBunPath(
+    env,
+    assistantCommand ? [dirname(assistantCommand)] : [],
+  );
   const child = foreground
     ? spawn(bunPath, ["run", daemonMainPath], {
         stdio: "inherit",
@@ -1394,7 +1410,13 @@ export async function startLocalDaemon(
       const localBinDir = join(home, ".local", "bin");
       const basePath =
         process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-      const extraDirs = [bunBinDir, localBinDir].filter(
+      // The compiled `assistant` ships beside the daemon binary, so its
+      // directory is what puts `assistant …` on PATH for agent-run commands.
+      const daemonBinaryDir = dirname(daemonBinary);
+      const assistantBinaryDir = existsSync(join(daemonBinaryDir, "assistant"))
+        ? [daemonBinaryDir]
+        : [];
+      const extraDirs = [...assistantBinaryDir, bunBinDir, localBinDir].filter(
         (d) => !basePath.split(":").includes(d),
       );
       const daemonEnv: Record<string, string> = {

@@ -261,6 +261,7 @@ describe("refreshGuardianToken", () => {
       isNew: false,
       deviceId: "dev",
       leasedAt: new Date().toISOString(),
+      pairedGatewayUrl: "https://gw.example.com",
     });
   }
 
@@ -302,6 +303,9 @@ describe("refreshGuardianToken", () => {
 
     expect(result?.accessToken).toBe("new-acc");
     expect(loadGuardianToken("px")?.accessToken).toBe("new-acc");
+    expect(loadGuardianToken("px")?.pairedGatewayUrl).toBe(
+      "https://gw.example.com",
+    );
     expect(sawSignal).toBe(true); // fetch carries a timeout AbortSignal
     expect(existsSync(lockPath("px"))).toBe(false); // lock released
   });

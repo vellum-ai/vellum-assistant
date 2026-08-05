@@ -6,6 +6,10 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import {
+  __resetConnectDialogForTesting,
+  useConnectDialogStore,
+} from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetPendingDeepLinkForTesting,
@@ -89,6 +93,7 @@ const seedEligibleAssistant = (version = "0.10.12") => {
 beforeEach(() => {
   __resetForTesting();
   __resetPendingDeepLinkForTesting();
+  __resetConnectDialogForTesting();
   mockPathname = routes.assistant;
   navigateMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
@@ -100,6 +105,7 @@ afterEach(() => {
   cleanup();
   __resetForTesting();
   __resetPendingDeepLinkForTesting();
+  __resetConnectDialogForTesting();
   resetStores();
 });
 
@@ -615,6 +621,73 @@ describe("deeplink.startVoice", () => {
   });
 });
 
+describe("deeplink.connect", () => {
+  test("a bundle link opens the connect dialog prefilled and navigates to the chooser", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" });
+    });
+
+    const dialog = useConnectDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
+    expect(dialog.guidanceMessage).toBeNull();
+    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a url+code QR link opens the dialog with guidance naming the host", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.connect", {
+        url: "https://office-mac.example:8443/assistant-1",
+        bundle: null,
+      });
+    });
+
+    const dialog = useConnectDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    expect(dialog.initialBundle).toBeNull();
+    expect(dialog.guidanceMessage).toBe(
+      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine at office-mac.example:8443 and paste the bundle here.",
+    );
+    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a link with no usable fields still routes to the flow with hostless guidance", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.connect", { url: null, bundle: null });
+    });
+
+    const dialog = useConnectDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    expect(dialog.guidanceMessage).toBe(
+      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine and paste the bundle here.",
+    );
+    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
+  });
+
+  test("a bundle wins over guidance when both fields arrive", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.connect", {
+        url: "https://office-mac.example",
+        bundle: "eyJnYXRld2F5",
+      });
+    });
+
+    const dialog = useConnectDialogStore.getState();
+    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
+    expect(dialog.guidanceMessage).toBeNull();
+  });
+});
+
 describe("deeplink.unknown", () => {
   test("Sentry breadcrumb only — no navigation or window activation", () => {
     renderHook(() => useGlobalDeepLinkConsumer());
@@ -643,10 +716,12 @@ describe("subscription lifecycle", () => {
       publish("deeplink.send", { message: "post-unmount" });
       publish("deeplink.openThread", { threadId: "z" });
       publish("deeplink.startVoice", { mode: "new", prompt: null });
+      publish("deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" });
       publish("deeplink.unknown", { url: "x" });
     });
 
     expect(navigateMock).not.toHaveBeenCalled();
+    expect(useConnectDialogStore.getState().open).toBe(false);
     expect(sentryBreadcrumbMock).not.toHaveBeenCalled();
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       null,

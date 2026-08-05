@@ -38,6 +38,7 @@
  * - Media stream `stop` event / WebSocket close -> finalize call.
  */
 
+import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
 import type { ServerWebSocket } from "bun";
 
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
@@ -344,9 +345,16 @@ export class MediaStreamCallSession {
         );
       }
     } else {
+      // The gateway's close reason does not survive the relay (Bun's
+      // WebSocket client drops it), so tunnel loss is decoded from the
+      // dedicated close code.
       const detail =
         reason ||
-        (code ? `media_stream_closed_${code}` : "media_stream_closed_abnormal");
+        (code === GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE
+          ? "public ingress tunnel disconnected"
+          : code
+            ? `media_stream_closed_${code}`
+            : "media_stream_closed_abnormal");
       updateCallSession(this.callSessionId, {
         status: "failed",
         endedAt: Date.now(),

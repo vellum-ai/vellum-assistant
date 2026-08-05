@@ -132,17 +132,17 @@ describe("sniffImageMimeType", () => {
 });
 
 describe("normalizeImageBytes passthrough", () => {
-  test("non-HEIF bytes pass through untouched", () => {
-    const result = normalizeImageBytes("image/png", PNG_1PX_BYTES);
+  test("non-HEIF bytes pass through untouched", async () => {
+    const result = await normalizeImageBytes("image/png", PNG_1PX_BYTES);
     expect(result.converted).toBe(false);
     expect(result.mimeType).toBe("image/png");
     expect(result.bytes).toBe(PNG_1PX_BYTES);
   });
 
-  test("HEIF header with undecodable payload passes through", () => {
+  test("HEIF header with undecodable payload passes through", async () => {
     // sips fails (or is absent off-macOS) → the original bytes are kept.
     const fake = fakeHeifHeaderBytes();
-    const result = normalizeImageBytes("image/heic", fake);
+    const result = await normalizeImageBytes("image/heic", fake);
     expect(result.converted).toBe(false);
     expect(result.mimeType).toBe("image/heic");
     expect(result.bytes).toBe(fake);
@@ -150,35 +150,35 @@ describe("normalizeImageBytes passthrough", () => {
 });
 
 describe("normalizeImageBase64 passthrough", () => {
-  test("non-HEIF payloads skip conversion", () => {
+  test("non-HEIF payloads skip conversion", async () => {
     const b64 = PNG_1PX_BYTES.toString("base64");
-    const result = normalizeImageBase64("image/png", b64);
+    const result = await normalizeImageBase64("image/png", b64);
     expect(result.converted).toBe(false);
     expect(result.dataBase64).toBe(b64);
   });
 });
 
 describe("declared-MIME correction from sniffed bytes", () => {
-  test("normalizeImageBytes relabels a mislabeled image, bytes untouched", () => {
+  test("normalizeImageBytes relabels a mislabeled image, bytes untouched", async () => {
     // A JPEG renamed to .png arrives declared as image/png; providers reject
     // the mismatch, so the sniffed format wins.
-    const result = normalizeImageBytes("image/png", JPEG_HEADER_BYTES);
+    const result = await normalizeImageBytes("image/png", JPEG_HEADER_BYTES);
     expect(result.converted).toBe(false);
     expect(result.mimeType).toBe("image/jpeg");
     expect(result.bytes).toBe(JPEG_HEADER_BYTES);
   });
 
-  test("normalizeImageBase64 relabels a mislabeled image, payload untouched", () => {
+  test("normalizeImageBase64 relabels a mislabeled image, payload untouched", async () => {
     const b64 = PNG_1PX_BYTES.toString("base64");
-    const result = normalizeImageBase64("image/jpeg", b64);
+    const result = await normalizeImageBase64("image/jpeg", b64);
     expect(result.converted).toBe(false);
     expect(result.mimeType).toBe("image/png");
     expect(result.dataBase64).toBe(b64);
   });
 
-  test("unrecognized bytes keep the declared MIME", () => {
+  test("unrecognized bytes keep the declared MIME", async () => {
     const bytes = Buffer.from("plain text content");
-    const result = normalizeImageBytes("text/plain", bytes);
+    const result = await normalizeImageBytes("text/plain", bytes);
     expect(result.mimeType).toBe("text/plain");
     expect(result.bytes).toBe(bytes);
   });
@@ -201,17 +201,17 @@ describe.skipIf(process.platform !== "darwin")(
       expect(isHeifImage(heicBytes)).toBe(true);
     });
 
-    test("convertImageToJpeg produces JPEG bytes", () => {
-      const converted = convertImageToJpeg(heicBytes);
+    test("convertImageToJpeg produces JPEG bytes", async () => {
+      const converted = await convertImageToJpeg(heicBytes);
       expect(converted).not.toBeNull();
       expect(startsWithJpegMagic(converted!)).toBe(true);
     });
 
-    test("conversion options produce distinct outputs (cache key isolation)", () => {
+    test("conversion options produce distinct outputs (cache key isolation)", async () => {
       // A hash-only cache key would make the second call return the first
       // call's cached full-resolution output.
-      const fullRes = convertImageToJpeg(heicBytes, { quality: 90 });
-      const downscaled = convertImageToJpeg(heicBytes, {
+      const fullRes = await convertImageToJpeg(heicBytes, { quality: 90 });
+      const downscaled = await convertImageToJpeg(heicBytes, {
         maxDimensionPx: 16,
         quality: 90,
       });
@@ -220,31 +220,34 @@ describe.skipIf(process.platform !== "darwin")(
       expect(fullRes!.equals(downscaled!)).toBe(false);
     });
 
-    test("repeated conversion is stable (cache round-trip)", () => {
-      const first = convertImageToJpeg(heicBytes, { quality: 90 });
-      const second = convertImageToJpeg(heicBytes, { quality: 90 });
+    test("repeated conversion is stable (cache round-trip)", async () => {
+      const first = await convertImageToJpeg(heicBytes, { quality: 90 });
+      const second = await convertImageToJpeg(heicBytes, { quality: 90 });
       expect(first).not.toBeNull();
       expect(second).not.toBeNull();
       expect(first!.equals(second!)).toBe(true);
     });
 
-    test("normalizeImageBytes converts to a JPEG master", () => {
-      const result = normalizeImageBytes("image/heic", heicBytes);
+    test("normalizeImageBytes converts to a JPEG master", async () => {
+      const result = await normalizeImageBytes("image/heic", heicBytes);
       expect(result.converted).toBe(true);
       expect(result.mimeType).toBe("image/jpeg");
       expect(startsWithJpegMagic(result.bytes)).toBe(true);
     });
 
-    test("normalizeImageBytes converts even when the declared mime is wrong", () => {
+    test("normalizeImageBytes converts even when the declared mime is wrong", async () => {
       // Chromium reports empty file.type for .heic; clients coerce it to
       // application/octet-stream. Detection is content-based.
-      const result = normalizeImageBytes("application/octet-stream", heicBytes);
+      const result = await normalizeImageBytes(
+        "application/octet-stream",
+        heicBytes,
+      );
       expect(result.converted).toBe(true);
       expect(result.mimeType).toBe("image/jpeg");
     });
 
-    test("normalizeImageBase64 converts and re-encodes", () => {
-      const result = normalizeImageBase64(
+    test("normalizeImageBase64 converts and re-encodes", async () => {
+      const result = await normalizeImageBase64(
         "image/heic",
         heicBytes.toString("base64"),
       );

@@ -19,6 +19,7 @@ const DEBUG_DEVTOOLS_DEFINE = "__VELLUM_ENABLE_CHROME_DEVTOOLS__";
 
 mock.module("electron", () => ({
   app: appState,
+  session: { defaultSession: { cookies: {} } },
   BrowserWindow: class {
     constructor(options: Record<string, unknown>) {
       const captured: CapturedWindow = {

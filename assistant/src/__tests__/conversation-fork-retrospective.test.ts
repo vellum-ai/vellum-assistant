@@ -198,7 +198,11 @@ describe("forkConversationForRetrospective", () => {
     const assistant = await addMessage(source.id, "assistant", "see mockup", {
       skipIndexing: true,
     });
-    const uploaded = uploadAttachment("wireframe.png", "image/png", "iVBORw0K");
+    const uploaded = await uploadAttachment(
+      "wireframe.png",
+      "image/png",
+      "iVBORw0K",
+    );
     linkAttachmentToMessage(assistant.id, uploaded.id, 0);
 
     const asyncFork = await forkConversationForRetrospective({

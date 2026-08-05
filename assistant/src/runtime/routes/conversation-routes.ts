@@ -115,6 +115,7 @@ import {
   isBackgroundEventMetadata,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isProviderErrorMetadata,
   isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
@@ -210,6 +211,21 @@ interface AlignedAttachments {
    */
   refIndexToAttachment: Map<number, RuntimeAttachmentMetadata>;
   rewriteContentOrder: ContentOrderRewrite;
+}
+
+/**
+ * Metadata-only projection of an attachment for inline `contentBlocks`
+ * placement. The flat `attachments` array is the payload carrier: it keeps
+ * `data`/`thumbnailData`, and `/v1/assistants/:id/attachments/:id/content`
+ * serves stored bytes on demand. Attachment blocks are positional references
+ * the renderer resolves against that array by id, so inlining the base64 here
+ * would ship every image twice in the same response.
+ */
+function toAttachmentBlockRef(
+  a: RuntimeAttachmentMetadata,
+): RuntimeAttachmentMetadata {
+  const { data: _data, thumbnailData: _thumbnailData, ...meta } = a;
+  return meta;
 }
 
 /**
@@ -336,6 +352,33 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   return (
     typeof value === "string" &&
     VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
+  );
+}
+
+/**
+ * Upper bound on the reported visible-app id. Sized so it can never clip an id
+ * the viewer can actually open: a plugin app id is `plugins~<plugin>~<app>`,
+ * and each of those two segments is a filesystem directory name bounded at 255
+ * bytes, so the longest openable id runs to ~519 characters. The cap exists
+ * only to bound what an arbitrary client can park on the conversation, not to
+ * validate the id — `resolveAppSource` decides what resolves.
+ */
+const VISIBLE_APP_ID_MAX_LENGTH = 640;
+
+/**
+ * True when the client-reported visible-app id is safe to carry as view state:
+ * non-empty, trimmed, bounded, and free of path separators or traversal.
+ * Mirrors the app store's own id validation so a malformed id is dropped at
+ * ingress instead of reaching a filesystem lookup.
+ */
+function isSafeVisibleAppId(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= VISIBLE_APP_ID_MAX_LENGTH &&
+    value === value.trim() &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !value.includes("..")
   );
 }
 
@@ -596,7 +639,7 @@ async function tryConsumeGuardianReply(params: {
       attachments,
     });
 
-    const cleanUserMessage = createUserMessage(content, attachments);
+    const cleanUserMessage = await createUserMessage(content, attachments);
     const llmUserMessage = enrichMessageWithSourcePaths(
       cleanUserMessage,
       attachments,
@@ -718,9 +761,9 @@ function buildQueuedMessagePayloads(
     });
 }
 
-export function handleListMessages({
+export async function handleListMessages({
   queryParams,
-}: RouteHandlerArgs): Record<string, unknown> {
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
   const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
 
@@ -890,6 +933,7 @@ export function handleListMessages({
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
+    let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
@@ -900,6 +944,19 @@ export function handleListMessages({
         // render as standalone system notices, not persona speech.
         if (isSystemCardMetadata(meta)) {
           systemCard = true;
+        }
+        // Daemon-persisted provider-failure notices carry the classified
+        // error code/category so clients can render a themed card instead
+        // of a persona bubble.
+        if (isProviderErrorMetadata(meta)) {
+          providerError = {
+            ...(typeof meta.providerErrorCode === "string"
+              ? { code: meta.providerErrorCode }
+              : {}),
+            ...(typeof meta.providerErrorCategory === "string"
+              ? { category: meta.providerErrorCategory }
+              : {}),
+          };
         }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
@@ -973,6 +1030,7 @@ export function handleListMessages({
       backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
+      providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -988,190 +1046,207 @@ export function handleListMessages({
   );
   const pendingQuestions = collectPendingQuestions(resolvedConversationId);
 
-  const messages: RuntimeMessagePayload[] = parsed.map((m) => {
-    const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
+  const messages: RuntimeMessagePayload[] = await Promise.all(
+    parsed.map(async (m) => {
+      const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
 
-    // Hydrate the row's attachments from the DB. A metadata-only query avoids
-    // loading large base64 blobs for non-image attachments (documents, audio);
-    // full data is fetched only for images so the client can generate
-    // thumbnails for inline display on history restore. Merged messages
-    // (consecutive assistant merge) are queried too so their attachments
-    // aren't lost before DB compaction relinks them.
-    let msgAttachments: RuntimeAttachmentMetadata[] = [];
-    if (m.id) {
-      const idsToQuery = [m.id, ...mergedMessageIds];
-      const linked = idsToQuery.flatMap((id) =>
-        getAttachmentMetadataForMessage(id),
-      );
-      if (linked.length > 0) {
-        msgAttachments = linked.map((a) => {
-          // Hydrate image rows for inline thumbnails. Legacy HEIC can be
-          // stored under application/octet-stream (empty File.type fallback),
-          // so `.heic`/`.heif` rows are hydrated by filename too;
-          // normalizeImageBase64 sniffs the bytes and rewrites only genuine
-          // HEIF, which Chromium-based clients cannot decode. Filename and
-          // sizeBytes keep describing the stored original, which
-          // /attachments/:id/content serves verbatim for downloads.
-          const isImage = a.mimeType.startsWith("image/");
-          const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
-          const full =
-            isImage || isLegacyHeic
-              ? getAttachmentById(a.id, { hydrateFileData: true })
-              : null;
-          const display = full?.dataBase64
-            ? normalizeImageBase64(a.mimeType, full.dataBase64)
-            : null;
-          // Image rows carry data even when unconverted (thumbnails); a
-          // non-image row only becomes renderable once conversion yields a
-          // JPEG, so it stays metadata-only when conversion is unavailable.
-          const useDisplay =
-            display && (isImage || display.converted) ? display : null;
-          return {
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: useDisplay?.mimeType ?? a.mimeType,
-            sizeBytes: a.sizeBytes,
-            kind: useDisplay?.converted
-              ? classifyKind(useDisplay.mimeType)
-              : a.kind,
-            ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
-            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-            fileBacked: true,
-          };
-        });
-      }
-    }
-
-    // Align the hydrated rows with the file-block refs, then render. Rendering
-    // after alignment lets renderHistoryContent inline each `attachment` block
-    // during its single content walk, so `contentBlocks` comes back ready to
-    // ship with no post-processing. The aligned reorder/rewrite keeps the
-    // legacy `attachments` array and `contentOrder` positions consistent.
-    const attachmentRefs = collectAttachmentRefs(m.content);
-    const aligned = alignAttachments(attachmentRefs, msgAttachments);
-    msgAttachments = aligned.attachments;
-    const attachmentBlocks = attachmentRefs.map(
-      (_ref, refIdx) => aligned.refIndexToAttachment.get(refIdx) ?? null,
-    );
-    const rendered = renderHistoryContent(
-      m.content,
-      attachmentBlocks,
-      m.id ?? undefined,
-    );
-
-    const toolCalls = enrichToolCallsWithQuestion(
-      enrichToolCallsWithConfirmation(rendered.toolCalls, {
-        workspaceDir,
-        pendingConfirmations,
-      }),
-      { pendingQuestions },
-    );
-
-    // Strip <no_response/> markers from assistant messages so web/API clients
-    // never see the raw sentinel. Only assistant messages produce it; user
-    // messages are untouched. The filter is applied consistently to the
-    // segments, the contentOrder text refs, and the text blocks of
-    // contentBlocks.
-    let textSegments = rendered.textSegments;
-    let contentOrder = rendered.contentOrder;
-    let contentBlocks = rendered.contentBlocks;
-    if (m.role === "assistant") {
-      const keepIndices: number[] = [];
-      const filteredSegments: string[] = [];
-      for (let i = 0; i < rendered.textSegments.length; i++) {
-        const cleaned = rendered.textSegments[i]
-          .replace(NO_RESPONSE_INLINE_RE, "")
-          .trim();
-        if (cleaned.length > 0) {
-          keepIndices.push(i);
-          filteredSegments.push(cleaned);
+      // Hydrate the row's attachments from the DB. A metadata-only query avoids
+      // loading large base64 blobs for non-image attachments (documents, audio);
+      // full data is fetched only for images so the client can generate
+      // thumbnails for inline display on history restore. Merged messages
+      // (consecutive assistant merge) are queried too so their attachments
+      // aren't lost before DB compaction relinks them.
+      let msgAttachments: RuntimeAttachmentMetadata[] = [];
+      if (m.id) {
+        const idsToQuery = [m.id, ...mergedMessageIds];
+        const linked = idsToQuery.flatMap((id) =>
+          getAttachmentMetadataForMessage(id),
+        );
+        if (linked.length > 0) {
+          msgAttachments = await Promise.all(
+            linked.map(async (a) => {
+              // Hydrate image rows for inline thumbnails. Legacy HEIC can be
+              // stored under application/octet-stream (empty File.type fallback),
+              // so `.heic`/`.heif` rows are hydrated by filename too;
+              // normalizeImageBase64 sniffs the bytes and rewrites only genuine
+              // HEIF, which Chromium-based clients cannot decode. Filename and
+              // sizeBytes keep describing the stored original, which
+              // /attachments/:id/content serves verbatim for downloads.
+              const isImage = a.mimeType.startsWith("image/");
+              const isLegacyHeic =
+                !isImage && isHeicFilename(a.originalFilename);
+              const full =
+                isImage || isLegacyHeic
+                  ? getAttachmentById(a.id, { hydrateFileData: true })
+                  : null;
+              const display = full?.dataBase64
+                ? await normalizeImageBase64(a.mimeType, full.dataBase64)
+                : null;
+              // Image rows carry data even when unconverted (thumbnails); a
+              // non-image row only becomes renderable once conversion yields a
+              // JPEG, so it stays metadata-only when conversion is unavailable.
+              const useDisplay =
+                display && (isImage || display.converted) ? display : null;
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: useDisplay?.mimeType ?? a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: useDisplay?.converted
+                  ? classifyKind(useDisplay.mimeType)
+                  : a.kind,
+                ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+                fileBacked: true,
+              };
+            }),
+          );
         }
       }
-      const indexMap = new Map<number, number>();
-      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
-      contentOrder = rendered.contentOrder
-        .map((entry) => {
-          const tm = entry.match(/^text:(\d+)$/);
-          if (!tm) {
-            return entry;
+
+      // Align the hydrated rows with the file-block refs, then render. Rendering
+      // after alignment lets renderHistoryContent inline each `attachment` block
+      // during its single content walk, so `contentBlocks` comes back ready to
+      // ship with no post-processing. The aligned reorder/rewrite keeps the
+      // legacy `attachments` array and `contentOrder` positions consistent.
+      const attachmentRefs = collectAttachmentRefs(m.content);
+      const aligned = alignAttachments(attachmentRefs, msgAttachments);
+      msgAttachments = aligned.attachments;
+      const attachmentBlocks = attachmentRefs.map((_ref, refIdx) => {
+        const att = aligned.refIndexToAttachment.get(refIdx);
+        return att ? toAttachmentBlockRef(att) : null;
+      });
+      const rendered = renderHistoryContent(
+        m.content,
+        attachmentBlocks,
+        m.id ?? undefined,
+      );
+
+      const toolCalls = enrichToolCallsWithQuestion(
+        enrichToolCallsWithConfirmation(rendered.toolCalls, {
+          workspaceDir,
+          pendingConfirmations,
+        }),
+        { pendingQuestions },
+      );
+
+      // Strip <no_response/> markers from assistant messages so web/API clients
+      // never see the raw sentinel. Only assistant messages produce it; user
+      // messages are untouched. The filter is applied consistently to the
+      // segments, the contentOrder text refs, and the text blocks of
+      // contentBlocks.
+      let textSegments = rendered.textSegments;
+      let contentOrder = rendered.contentOrder;
+      let contentBlocks = rendered.contentBlocks;
+      if (m.role === "assistant") {
+        const keepIndices: number[] = [];
+        const filteredSegments: string[] = [];
+        for (let i = 0; i < rendered.textSegments.length; i++) {
+          const cleaned = rendered.textSegments[i]
+            .replace(NO_RESPONSE_INLINE_RE, "")
+            .trim();
+          if (cleaned.length > 0) {
+            keepIndices.push(i);
+            filteredSegments.push(cleaned);
           }
-          const newIdx = indexMap.get(Number(tm[1]));
-          return newIdx !== undefined ? `text:${newIdx}` : undefined;
-        })
-        .filter((e): e is string => e !== undefined);
-      textSegments = filteredSegments;
-      contentBlocks = rendered.contentBlocks
-        .map((block) =>
-          block.type === "text"
-            ? {
-                type: "text" as const,
-                text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
-              }
-            : block,
-        )
-        .filter((block) => block.type !== "text" || block.text.length > 0);
-    }
-
-    // Ensure every hydrated attachment has a corresponding content block.
-    // renderHistoryContent inlines attachment blocks only when it has
-    // file-block refs with matching DB rows; directives (assistant-authored
-    // <vellum-attachment/> tags) don't leave a file block after stripping,
-    // so their attachments end up in the flat `attachments` array but not in
-    // `contentBlocks`. Append any that are missing so the canonical
-    // projection is complete.
-    const existingAttachmentIds = new Set(
-      contentBlocks
-        .filter(
-          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
-            b.type === "attachment",
-        )
-        .map((b) => b.attachment.id),
-    );
-    for (const att of msgAttachments) {
-      if (!existingAttachmentIds.has(att.id)) {
-        contentBlocks.push({ type: "attachment", attachment: att });
+        }
+        const indexMap = new Map<number, number>();
+        keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
+        contentOrder = rendered.contentOrder
+          .map((entry) => {
+            const tm = entry.match(/^text:(\d+)$/);
+            if (!tm) {
+              return entry;
+            }
+            const newIdx = indexMap.get(Number(tm[1]));
+            return newIdx !== undefined ? `text:${newIdx}` : undefined;
+          })
+          .filter((e): e is string => e !== undefined);
+        textSegments = filteredSegments;
+        contentBlocks = rendered.contentBlocks
+          .map((block) =>
+            block.type === "text"
+              ? {
+                  type: "text" as const,
+                  text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+                }
+              : block,
+          )
+          .filter((block) => block.type !== "text" || block.text.length > 0);
       }
-    }
 
-    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+      // Ensure every hydrated attachment has a corresponding content block.
+      // renderHistoryContent inlines attachment blocks only when it has
+      // file-block refs with matching DB rows; directives (assistant-authored
+      // <vellum-attachment/> tags) don't leave a file block after stripping,
+      // so their attachments end up in the flat `attachments` array but not in
+      // `contentBlocks`. Append any that are missing so the canonical
+      // projection is complete.
+      const existingAttachmentIds = new Set(
+        contentBlocks
+          .filter(
+            (
+              b,
+            ): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
+              b.type === "attachment",
+          )
+          .map((b) => b.attachment.id),
+      );
+      for (const att of msgAttachments) {
+        if (!existingAttachmentIds.has(att.id)) {
+          contentBlocks.push({
+            type: "attachment",
+            attachment: toAttachmentBlockRef(att),
+          });
+        }
+      }
 
-    // Use sentAt (actual event time) for the display timestamp when available,
-    // falling back to createdAt (persistence time). Clients use this display
-    // timestamp as their pagination cursor after memory-pressure trimming,
-    // while server-side pagination filters on createdAt. The mismatch is
-    // benign — it may return slightly extra data on a page boundary but never
-    // loses messages.
-    const displayTimestamp = m.sentAt ?? m.createdAt;
-    return {
-      id: m.id ?? "",
-      ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
-      ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
-      role: m.role,
-      timestamp: new Date(displayTimestamp).toISOString(),
-      attachments: msgAttachments,
-      ...(toolCalls.length > 0 ? { toolCalls } : {}),
-      ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
-      ...(textSegments.length > 0 ? { textSegments } : {}),
-      ...(rendered.thinkingSegments.length > 0
-        ? { thinkingSegments: rendered.thinkingSegments }
-        : {}),
-      ...(alignedContentOrder.length > 0
-        ? { contentOrder: alignedContentOrder }
-        : {}),
-      contentBlocks,
-      ...(m.subagentNotification
-        ? { subagentNotification: m.subagentNotification }
-        : {}),
-      ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
-      ...(m.backgroundEventNotification
-        ? { backgroundEventNotification: true }
-        : {}),
-      ...(m.backgroundToolCompletion
-        ? { backgroundToolCompletion: m.backgroundToolCompletion }
-        : {}),
-      ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
-    };
-  });
+      const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+
+      // Use sentAt (actual event time) for the display timestamp when available,
+      // falling back to createdAt (persistence time). Clients use this display
+      // timestamp as their pagination cursor after memory-pressure trimming,
+      // while server-side pagination filters on createdAt. The mismatch is
+      // benign: it may return slightly extra data on a page boundary but never
+      // loses messages.
+      const displayTimestamp = m.sentAt ?? m.createdAt;
+      return {
+        id: m.id ?? "",
+        ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
+        ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
+        role: m.role,
+        timestamp: new Date(displayTimestamp).toISOString(),
+        attachments: msgAttachments,
+        ...(toolCalls.length > 0 ? { toolCalls } : {}),
+        ...(rendered.surfaces.length > 0
+          ? { surfaces: rendered.surfaces }
+          : {}),
+        ...(textSegments.length > 0 ? { textSegments } : {}),
+        ...(rendered.thinkingSegments.length > 0
+          ? { thinkingSegments: rendered.thinkingSegments }
+          : {}),
+        ...(alignedContentOrder.length > 0
+          ? { contentOrder: alignedContentOrder }
+          : {}),
+        contentBlocks,
+        ...(m.subagentNotification
+          ? { subagentNotification: m.subagentNotification }
+          : {}),
+        ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
+        ...(m.backgroundEventNotification
+          ? { backgroundEventNotification: true }
+          : {}),
+        ...(m.backgroundToolCompletion
+          ? { backgroundToolCompletion: m.backgroundToolCompletion }
+          : {}),
+        ...(m.systemCard ? { systemCard: true } : {}),
+        ...(m.providerError ? { providerError: m.providerError } : {}),
+        ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
+      };
+    }),
+  );
 
   // Snapshot↔stream alignment token: the `seq` of the last event whose
   // content is durably persisted for this conversation, read from the
@@ -1387,11 +1462,16 @@ export async function handleSendMessage(
     // handoff to prime a proactive assistant greeting without showing the
     // triggering user message. Honored on the standard send path only.
     hidden?: boolean;
+    // True when the turn was auto-sent on the user's behalf rather than typed.
+    // Independent of `hidden`: the research prompt is visible AND scripted,
+    // the kickoff greeting is hidden AND scripted. Absent means UNKNOWN.
+    scripted?: boolean;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
     clientTimezone?: unknown;
     clientOs?: unknown;
+    visibleAppId?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
@@ -1518,6 +1598,16 @@ export async function handleSendMessage(
   const clientOs =
     typeof body.clientOs === "string"
       ? (parseClientOs(body.clientOs) ?? undefined)
+      : undefined;
+  // App the client has open on screen. Purely view state: it drives the
+  // per-turn `visible_app:` context line and nothing else, so an id that no
+  // longer resolves (deleted app) is dropped silently during assembly rather
+  // than failing the send. Traversal-shaped ids are rejected here so nothing
+  // downstream has to treat the value as a path segment.
+  const visibleAppId =
+    typeof body.visibleAppId === "string" &&
+    isSafeVisibleAppId(body.visibleAppId)
+      ? body.visibleAppId
       : undefined;
 
   // Reject non-string content values (numbers, objects, etc.)
@@ -1679,12 +1769,14 @@ export async function handleSendMessage(
         hostUsername: body.hostUsername,
         ...(clientTimezone ? { clientTimezone } : {}),
         ...(clientOs ? { clientOs } : {}),
+        ...(visibleAppId ? { visibleAppId } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
         ...(clientTimezone ? { clientTimezone } : {}),
         ...(clientOs ? { clientOs } : {}),
+        ...(visibleAppId ? { visibleAppId } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -1918,6 +2010,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: greetingMeta,
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
 
       const conversationId = mapping.conversationId;
@@ -2089,6 +2182,13 @@ export async function handleSendMessage(
           // hidden send that lands mid-turn stays hidden when drained —
           // the drain path persists this metadata and skips the echo.
           ...(body.hidden === true ? { hidden: true } : {}),
+          // Same reason: the queue round-trips metadata, not persist options,
+          // so a scripted send that lands mid-turn can only keep its marker
+          // this way. Both booleans forwarded, since false is a real assertion
+          // ("the user typed this"), not an absence.
+          ...(typeof body.scripted === "boolean"
+            ? { scripted: body.scripted }
+            : {}),
         },
         clientMetadata,
       ),
@@ -2231,6 +2331,9 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        ...(typeof body.scripted === "boolean"
+          ? { scripted: body.scripted }
+          : {}),
       };
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
@@ -2238,6 +2341,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
       if (persisted.deduplicated) {
         return {
@@ -2337,6 +2441,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
     } catch (err) {
       // The fire-and-forget compaction below owns clearing `processing`, but a
@@ -2375,7 +2480,9 @@ export async function handleSendMessage(
         });
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
-        const result = await conversation.forceCompact();
+        // Same sink the result card below goes out on, so the indicator and
+        // the card can never be delivered to different places.
+        const result = await conversation.forceCompact(broadcastMessage);
         const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
@@ -2429,6 +2536,7 @@ export async function handleSendMessage(
         requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
       });
       if (persisted.deduplicated) {
         return {
@@ -2496,7 +2604,9 @@ export async function handleSendMessage(
         : undefined,
       clientMetadata,
     ),
+    scripted: body.scripted,
     clientMessageId,
+    ...(clientOs ? { requestClientOs: clientOs } : {}),
   });
 
   const messageId = persistResult.id;
@@ -3003,6 +3113,12 @@ export const ROUTES: RouteDefinition[] = [
         .describe(
           'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
         ),
+      visibleAppId: z
+        .string()
+        .optional()
+        .describe(
+          'Id of the app the client currently has open on screen (app viewer or the app-editing split). Drives the per-turn `visible_app:` context line so the assistant can resolve "the app" to what the user is looking at. View state only: it never affects transport, routing, or tool gating, and is omitted whenever no app is in view.',
+        ),
       clientMessageId: z
         .string()
         .describe(
@@ -3029,6 +3145,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
+        ),
+      scripted: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, this turn was auto-sent on the user's behalf rather than typed by them: onboarding research prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the client genuinely cannot tell, since absent means UNKNOWN and a wrong false is trusted downstream. Independent of `hidden`: a turn can be visible and scripted (the research prompt) or hidden and scripted (the kickoff greeting).",
         ),
       onboarding: z
         .object({

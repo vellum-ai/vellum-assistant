@@ -1,6 +1,5 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
   type RefObject,
@@ -27,8 +26,10 @@ import {
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
-import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
-import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voice-live-transcript";
+import {
+  COMPOSER_RADIUS_CLASS,
+  VoiceComposerBar,
+} from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import { useSupportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import {
@@ -52,14 +53,9 @@ import {
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
-import {
-  VOICE_SURFACE_DARK,
-  resolveVoiceRoomLook,
-} from "@/domains/chat/voice/voice-room/voice-room-eyes";
-import { toneForBg } from "@/utils/avatar-tone";
+import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-surface-paint";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
@@ -325,74 +321,29 @@ export function ChatComposer({
   // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
-  // The session assistant's avatar, which is where the block's fill comes from.
-  // Fetch-gated to live sessions; the query is shared with every other avatar
-  // consumer. The band no longer takes an accent from it: the block is painted
-  // that color, so its ink has to contrast with the fill instead (see
-  // `BAND_VOICE` in voice-composer-bar.tsx).
-  const {
-    components: avatarComponents,
-    traits: avatarTraits,
-    customImageUrl: avatarCustomImageUrl,
-    isLoading: avatarLoading,
-  } = useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
-  // The minimized session paints the whole composer card in the room's own
-  // background color, so the two surfaces are one thing at two sizes. The look
-  // resolves to null for assistants with no character color (custom-image /
-  // "none"), which is exactly when the room falls back to its deep ambient
-  // surface, so the card follows it there.
+  // What the minimized bar paints itself with, from the session assistant's
+  // avatar — the same hook the room and the header pill resolve their fill
+  // through, so the three surfaces can never disagree about the session's
+  // color. Fetch-gated to live sessions; the query is shared with every other
+  // avatar consumer.
   //
-  // Gated on the avatar query having settled: `resolveVoiceRoomLook` returns
-  // null both for "no character color" and for "not fetched yet", so painting
-  // on the in-flight read would flash the card to the ambient dark and then
-  // again to the avatar color. Hold the normal card surface until the answer
-  // is real, and the card changes color once.
-  const voiceRoomLook =
-    isLiveVoiceActive && !avatarLoading
-      ? resolveVoiceRoomLook(
-          avatarComponents,
-          avatarTraits,
-          avatarCustomImageUrl,
-        )
-      : null;
-  const voiceCardBg =
-    isLiveVoiceActive && !avatarLoading
-      ? (voiceRoomLook?.bgHex ?? VOICE_SURFACE_DARK)
-      : null;
-  // Foreground tone for that fill. Published as the `--room-*` vars, the same
-  // contract the room uses, so the block's chrome contrasts against whichever
-  // avatar color it landed on. `data-theme` covers the descendants that read
-  // plain theme tokens (the live transcript's body text) by flipping the whole
-  // card's polarity to match the fill.
-  const voiceCardTone = voiceCardBg ? toneForBg(voiceCardBg) : null;
+  // The paint stops at the bar. The composer card underneath keeps the app's
+  // normal surface, because the card is a working input during a session now
+  // (see the bar's placement below), and an input painted in the room's color
+  // reads as part of the room rather than as somewhere to type.
+  const voiceSurfacePaint = useVoiceSurfacePaint(
+    isLiveVoiceActive ? assistantId : null,
+  );
   // The two mute states (controller-published) behind the block's toggles: one
   // per direction of the conversation, like the room's.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
   const liveVoiceOutputMuted = useLiveVoiceStore.use.outputMuted();
-  // Whether the session has any speech transcript to show. A boolean
-  // *presence* subscription, not the text itself: zustand only re-renders
-  // when the selected value changes identity, so per-delta transcript
-  // updates never reach the composer — the bit flips once when speech
-  // starts and once when the store clears. The streaming text is rendered
-  // by `VoiceLiveTranscript`, which subscribes to the store on its own,
-  // keeping the composer's deliberate opt-out of high-frequency live-voice
-  // updates (amplitude ticks, transcript deltas) intact.
-  const hasLiveVoiceTranscript = useLiveVoiceStore((s) =>
-    Boolean(s.partialTranscript || s.finalTranscript),
-  );
-  // The in-composer transcript shows the *user's* own speech, so it must
-  // honor the "Show the words you say" voice preference (default OFF). When
-  // the pref is off we never swap in the transcript — the disabled textarea
-  // and its placeholder stay visible instead. This gate is scoped to the
-  // transcript rendering only; `isLiveVoiceActive` still drives the voice-bar
-  // row swap, ghost-suffix suppression, and textarea disabled state.
-  const showUserTranscriptPref = useVoicePrefsStore.use.showUserTranscript();
-  // While speech is streaming, the disabled textarea is visually hidden and
-  // the display-only transcript renders in its grid cell (Light 55). With no
-  // transcript yet (or the pref off) the textarea stays visible so its
-  // placeholder shows through (Light 53 baseline).
-  const showLiveVoiceTranscript =
-    isLiveVoiceActive && hasLiveVoiceTranscript && showUserTranscriptPref;
+  // The composer no longer renders the user's own speech: the textarea is a
+  // live input for the whole session now, so there is no cell to stream it
+  // into without taking typing away again. "Show the words you say" is served
+  // by the room's own transcript (`VoiceAmbientTranscript`), which is where a
+  // user who wants to watch their words is looking; minimizing is the gesture
+  // that puts them back on the thread instead.
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
   // start, per-session `controls` to end/interrupt — the latter via the shared
@@ -622,14 +573,10 @@ export function ChatComposer({
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
-  // A live-voice session disables the textarea outright (see its `disabled`
-  // below), so its placeholder is dead chrome inviting an interaction that
-  // cannot happen — the voice bar is the only live control. Collapse the row
-  // away and let the bar stand alone. The user transcript, when the pref is
-  // on, occupies that same grid cell and is real content, so it keeps the row.
-  const hideTextareaForLiveVoice =
-    isLiveVoiceActive && !showLiveVoiceTranscript;
-  const hideTextareaRow = hideTextareaForVoice || hideTextareaForLiveVoice;
+  // A live-voice session no longer touches the textarea row: the bar sits
+  // above the card and the composer stays a working composer underneath, so
+  // the user can type and send mid-session.
+  const hideTextareaRow = hideTextareaForVoice;
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
@@ -640,27 +587,36 @@ export function ChatComposer({
   // mode is unavailable. The version gate replaces the retired `voice-mode`
   // flag, which used to hide the entry point on older assistants by failing
   // closed — see `use-supports-live-voice.ts`.
+  // Dictation is gone from the row while this composer owns a live session:
+  // two mic capture flows can't run at once, and a permanently dead mic button
+  // sitting under a live voice bar reads as a broken control rather than an
+  // unavailable one. The bar's own mic (mute) is the mic that matters there.
+  const showDictationButton = showVoiceInput && !isLiveVoiceActive;
+  //
+  // Suppressed while this composer owns a live session: the bar above is the
+  // session's control, so the slot would offer a second, dead entry point into
+  // the thing already running. The send arrow takes the slot back instead,
+  // which is the control that matters now that the input works mid-session.
   const showVoiceModeInSendSlot =
     showVoiceInput &&
     Boolean(assistantId) &&
     supportsLiveVoice &&
-    !canSendMessageContent;
+    !canSendMessageContent &&
+    !isLiveVoiceActive;
 
+  // No longer suppressed during a live-voice session: it was suppressed
+  // because the streaming speech rendered in the ghost-suffix mirror's own
+  // grid cell, and nothing renders there now. The textarea is an ordinary
+  // input for the session's duration, so it keeps its ordinary suggestion.
   const ghostSuffix = useMemo(
     () =>
-      // Suppressed while this composer owns a live-voice session: the streaming
-      // speech (`VoiceLiveTranscript`) renders in the same grid cell as the
-      // ghost-suffix mirror, and the draft is empty during voice so the mirror
-      // would paint the full suggestion straight over the transcript.
-      isLiveVoiceActive
-        ? null
-        : computeGhostSuffix({
-            pointerCoarse,
-            suggestion: suggestion ?? null,
-            input,
-            hasAttachments: attachments.length > 0,
-          }),
-    [isLiveVoiceActive, pointerCoarse, suggestion, input, attachments],
+      computeGhostSuffix({
+        pointerCoarse,
+        suggestion: suggestion ?? null,
+        input,
+        hasAttachments: attachments.length > 0,
+      }),
+    [pointerCoarse, suggestion, input, attachments],
   );
 
   return (
@@ -724,328 +680,293 @@ export function ChatComposer({
         </div>
       )}
       {noticesAboveFormSlot}
+      {isLiveVoiceActive && (
+        // The minimized session surface, directly above the composer card
+        // rather than in place of it: the session gets a bar, the user keeps a
+        // working chat input. ✕ ends the session, ⤢ grows it back into the
+        // room (omitted in pop-out windows, where the room never renders and
+        // the standalone pill is the only other surface).
+        <div className="mb-2">
+          <VoiceComposerBar
+            state={liveVoiceState}
+            getAmplitude={getLiveVoiceInputAmplitude}
+            getOutputAmplitude={getLiveVoiceOutputAmplitude}
+            muted={liveVoiceMuted}
+            onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
+            outputMuted={liveVoiceOutputMuted}
+            onToggleOutputMute={() =>
+              setLiveVoiceOutputMuted(!liveVoiceOutputMuted)
+            }
+            onEnd={endLiveVoiceSession}
+            onExpand={isPopout ? undefined : restoreVoiceRoom}
+            paint={voiceSurfacePaint}
+          />
+        </div>
+      )}
       <Popover.Root open={emoji.show || slash.show}>
         <Popover.Anchor asChild>
           <form
             data-slot="chat-composer"
             onSubmit={onSubmit}
-            // A live session repaints the card in the room's color (see
-            // `voiceCardBg`); `overflow-hidden` clips that fill to the card's
-            // radius, so the block reads as a solid rounded panel rather than
-            // a strip inside a white card.
-            className={`overflow-hidden shadow-[0px_2px_2px_rgba(0,0,0,0.05)] transition-colors duration-300 ${
-              voiceCardBg ? "" : "bg-[var(--surface-lift)]"
-            } ${hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"}`}
-            data-theme={
-              voiceCardTone
-                ? voiceCardTone.isLight
-                  ? "light"
-                  : "dark"
-                : undefined
-            }
-            style={
-              voiceCardBg && voiceCardTone
-                ? ({
-                    backgroundColor: voiceCardBg,
-                    "--room-fg": voiceCardTone.fg,
-                    "--room-fg-muted": voiceCardTone.fgMuted,
-                    "--room-wash": voiceCardTone.wash,
-                  } as CSSProperties)
-                : undefined
-            }
+            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
+              hasBillingBanner ? "rounded-b-[10px]" : COMPOSER_RADIUS_CLASS
+            }`}
           >
             {/* overflow-hidden lives here, not on the form itself: the form
                 casts the shadow above, and overflow-hidden on the same box
                 would clip that shadow along with the rounded corners. */}
             <div
               className={`overflow-hidden ${
-                hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
+                hasBillingBanner ? "rounded-b-[10px]" : COMPOSER_RADIUS_CLASS
               }`}
             >
-            <ChatAttachmentsStrip
-              attachments={attachments}
-              onRemove={removeAttachment}
-            />
-            {/* CSS Grid hidden-mirror technique for auto-growing textarea.
+              <ChatAttachmentsStrip
+                attachments={attachments}
+                onRemove={removeAttachment}
+              />
+              {/* CSS Grid hidden-mirror technique for auto-growing textarea.
             A hidden div mirrors the textarea content in the same grid cell.
             The grid auto-sizes to max(mirror_height, textarea_intrinsic_height),
             so the textarea stretches to fit — no JS height measurement needed.
             This avoids the iOS WKWebView re-dispatch bug entirely: no DOM
             geometry mutation means no re-fired input events.
             Reference: https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/ */}
-            <div className={hideTextareaRow ? "hidden" : "grid"}>
-              <div
-                aria-hidden
-                className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
-                style={{
-                  fontFamily: "inherit",
-                  letterSpacing: "inherit",
-                  maxHeight: `${textareaMaxHeightPx}px`,
-                }}
-              >
-                <span className="invisible">{input}</span>
-                {ghostSuffix && (
-                  <span className="text-[var(--content-disabled)]">
-                    {ghostSuffix}
-                  </span>
-                )}
-                <span className="invisible"> </span>
-              </div>
-              <textarea
-                ref={inputRef}
-                value={input}
-                autoComplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                onChange={(e) => {
-                  const value = e.target.value;
-                  cursorRef.current = e.target.selectionStart ?? value.length;
-                  setInput(value);
-                  // The user has edited the text, so it's no longer a pristine
-                  // restored draft — retire the "draft restored" marker (and its
-                  // notice). Keeps `restoredDraftConversationId` an accurate
-                  // signal for "unedited restored draft" (see use-deep-link-consumer).
-                  if (
-                    useComposerStore.getState().restoredDraftConversationId !==
-                    null
-                  ) {
-                    useComposerStore.getState().clearRestoredDraftNotice();
-                  }
-                }}
-                onPaste={(e) => {
-                  const items = e.clipboardData?.items;
-                  if (!items) {
-                    return;
-                  }
-                  const files: File[] = [];
-                  for (let i = 0; i < items.length; i++) {
-                    const item = items[i];
-                    if (item?.kind === "file") {
-                      const file = item.getAsFile();
-                      if (file) {
-                        files.push(file);
+              <div className={hideTextareaRow ? "hidden" : "grid"}>
+                <div
+                  aria-hidden
+                  className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
+                  style={{
+                    fontFamily: "inherit",
+                    letterSpacing: "inherit",
+                    maxHeight: `${textareaMaxHeightPx}px`,
+                  }}
+                >
+                  <span className="invisible">{input}</span>
+                  {ghostSuffix && (
+                    <span className="text-[var(--content-disabled)]">
+                      {ghostSuffix}
+                    </span>
+                  )}
+                  <span className="invisible"> </span>
+                </div>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    cursorRef.current = e.target.selectionStart ?? value.length;
+                    setInput(value);
+                    // The user has edited the text, so it's no longer a pristine
+                    // restored draft — retire the "draft restored" marker (and its
+                    // notice). Keeps `restoredDraftConversationId` an accurate
+                    // signal for "unedited restored draft" (see use-deep-link-consumer).
+                    if (
+                      useComposerStore.getState()
+                        .restoredDraftConversationId !== null
+                    ) {
+                      useComposerStore.getState().clearRestoredDraftNotice();
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) {
+                      return;
+                    }
+                    const files: File[] = [];
+                    for (let i = 0; i < items.length; i++) {
+                      const item = items[i];
+                      if (item?.kind === "file") {
+                        const file = item.getAsFile();
+                        if (file) {
+                          files.push(file);
+                        }
                       }
                     }
-                  }
-                  if (files.length > 0) {
-                    e.preventDefault();
-                    onAddAttachmentFiles(files);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (slash.show) {
-                    if (e.key === "ArrowUp") {
+                    if (files.length > 0) {
                       e.preventDefault();
-                      slash.moveUp();
-                      return;
+                      onAddAttachmentFiles(files);
                     }
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      slash.moveDown();
-                      return;
-                    }
-                    if (e.key === "Tab" || e.key === "Enter") {
-                      e.preventDefault();
-                      const cmd = slash.items[slash.selectedIndex];
-                      if (cmd) {
-                        handleSlashCommandSelect(cmd);
+                  }}
+                  onKeyDown={(e) => {
+                    if (slash.show) {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        slash.moveUp();
+                        return;
                       }
-                      return;
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      slash.dismiss();
-                      setInput("");
-                      return;
-                    }
-                  }
-
-                  if (emoji.show) {
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      emoji.moveUp();
-                      return;
-                    }
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      emoji.moveDown();
-                      return;
-                    }
-                    if (e.key === "Tab" || e.key === "Enter") {
-                      e.preventDefault();
-                      const selected = emoji.items[emoji.selectedIndex];
-                      if (selected) {
-                        insertEmoji(selected);
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        slash.moveDown();
+                        return;
                       }
-                      return;
+                      if (e.key === "Tab" || e.key === "Enter") {
+                        e.preventDefault();
+                        const cmd = slash.items[slash.selectedIndex];
+                        if (cmd) {
+                          handleSlashCommandSelect(cmd);
+                        }
+                        return;
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        slash.dismiss();
+                        setInput("");
+                        return;
+                      }
                     }
-                    if (e.key === "Escape") {
+
+                    if (emoji.show) {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        emoji.moveUp();
+                        return;
+                      }
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        emoji.moveDown();
+                        return;
+                      }
+                      if (e.key === "Tab" || e.key === "Enter") {
+                        e.preventDefault();
+                        const selected = emoji.items[emoji.selectedIndex];
+                        if (selected) {
+                          insertEmoji(selected);
+                        }
+                        return;
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        emoji.dismiss();
+                        return;
+                      }
+                    }
+
+                    if (
+                      e.key === "ArrowUp" &&
+                      !input.trim() &&
+                      onRecallLastMessage
+                    ) {
                       e.preventDefault();
-                      emoji.dismiss();
+                      onRecallLastMessage();
                       return;
                     }
-                  }
 
-                  if (
-                    e.key === "ArrowUp" &&
-                    !input.trim() &&
-                    onRecallLastMessage
-                  ) {
-                    e.preventDefault();
-                    onRecallLastMessage();
-                    return;
-                  }
+                    if (e.key === "Escape" && onCancelEdit) {
+                      e.preventDefault();
+                      onCancelEdit();
+                      return;
+                    }
 
-                  if (e.key === "Escape" && onCancelEdit) {
-                    e.preventDefault();
-                    onCancelEdit();
-                    return;
-                  }
+                    const marker = matchFormattingShortcut(e);
+                    if (marker) {
+                      e.preventDefault();
+                      const el = inputRef.current;
+                      const start = el?.selectionStart ?? input.length;
+                      const end = el?.selectionEnd ?? start;
+                      const result = applyMarkdownFormatting(
+                        input,
+                        start,
+                        end,
+                        marker,
+                      );
+                      cursorRef.current = result.selectionStart;
+                      setInput(result.text);
+                      requestAnimationFrame(() => {
+                        if (el) {
+                          el.setSelectionRange(
+                            result.selectionStart,
+                            result.selectionEnd,
+                          );
+                          el.focus();
+                        }
+                      });
+                      return;
+                    }
 
-                  const marker = matchFormattingShortcut(e);
-                  if (marker) {
-                    e.preventDefault();
-                    const el = inputRef.current;
-                    const start = el?.selectionStart ?? input.length;
-                    const end = el?.selectionEnd ?? start;
-                    const result = applyMarkdownFormatting(
-                      input,
-                      start,
-                      end,
-                      marker,
+                    if (e.key === "Tab" && ghostSuffix) {
+                      e.preventDefault();
+                      const accepted = input + ghostSuffix;
+                      cursorRef.current = accepted.length;
+                      setInput(accepted);
+                      return;
+                    }
+                    const decision = shouldSubmitOnEnter(
+                      {
+                        key: e.key,
+                        shiftKey: e.shiftKey,
+                        metaKey: e.metaKey,
+                        ctrlKey: e.ctrlKey,
+                        isComposing: e.nativeEvent.isComposing,
+                        keyCode: e.keyCode,
+                      },
+                      pointerCoarse,
+                      {
+                        input,
+                        canSendAttachments,
+                        sendDisabled,
+                        attachmentsUploadingCount,
+                        cmdEnterMode,
+                        hasStagedQuotes,
+                      },
                     );
-                    cursorRef.current = result.selectionStart;
-                    setInput(result.text);
-                    requestAnimationFrame(() => {
-                      if (el) {
-                        el.setSelectionRange(
-                          result.selectionStart,
-                          result.selectionEnd,
-                        );
-                        el.focus();
-                      }
-                    });
-                    return;
-                  }
-
-                  if (e.key === "Tab" && ghostSuffix) {
+                    if (decision === "ignore") {
+                      return;
+                    }
                     e.preventDefault();
-                    const accepted = input + ghostSuffix;
-                    cursorRef.current = accepted.length;
-                    setInput(accepted);
-                    return;
-                  }
-                  const decision = shouldSubmitOnEnter(
-                    {
-                      key: e.key,
-                      shiftKey: e.shiftKey,
-                      metaKey: e.metaKey,
-                      ctrlKey: e.ctrlKey,
-                      isComposing: e.nativeEvent.isComposing,
-                      keyCode: e.keyCode,
-                    },
-                    pointerCoarse,
-                    {
-                      input,
-                      canSendAttachments,
-                      sendDisabled,
-                      attachmentsUploadingCount,
-                      cmdEnterMode,
-                      hasStagedQuotes,
-                    },
-                  );
-                  if (decision === "ignore") {
-                    return;
-                  }
-                  e.preventDefault();
-                  if (decision === "submit") {
-                    onSubmit(e as unknown as FormEvent);
-                  }
-                }}
-                placeholder={ghostSuffix ? "" : placeholder}
-                // Inert while this composer's live-voice session is active so
-                // focus/typing can't fight the session — `VoiceLiveTranscript`
-                // streams the live speech into this grid cell (see below).
-                // The grid mirror keeps the height stable.
-                disabled={typingDisabled || isLiveVoiceActive}
-                rows={1}
-                className={`col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50 ${
-                  showLiveVoiceTranscript ? "hidden" : ""
-                }`}
-                style={{ maxHeight: `${textareaMaxHeightPx}px` }}
-              />
-              {showLiveVoiceTranscript && (
-                // Live speech streams display-only into the textarea's grid
-                // cell (Light 55); gated on `showLiveVoiceTranscript` so it
-                // only mounts once there is text *and* the user opted in via
-                // the "Show the words you say" pref — otherwise the disabled
-                // textarea and its placeholder stay visible. The shared cell
-                // keeps the grid's auto-grow/max-height behavior identical to
-                // the textarea it visually replaces.
-                <VoiceLiveTranscript
-                  className="col-start-1 row-start-1"
-                  maxHeightPx={textareaMaxHeightPx}
+                    if (decision === "submit") {
+                      onSubmit(e as unknown as FormEvent);
+                    }
+                  }}
+                  placeholder={ghostSuffix ? "" : placeholder}
+                  // A live-voice session leaves this alone: the bar above owns
+                  // the session, and typing alongside it is the point of moving
+                  // the bar out of the card.
+                  disabled={typingDisabled}
+                  rows={1}
+                  className="col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50"
+                  style={{ maxHeight: `${textareaMaxHeightPx}px` }}
                 />
-              )}
-            </div>
-            {showInlineVoicePreview && (
-              // Non-Electron fallback: Electron uses the shared top-center
-              // dictation overlay for both focused and global recording.
-              // Browser/iOS hosts keep this inline waveform because the
-              // overlay bridge no-ops there.
-              <div
-                className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-                aria-label={
-                  voicePhase === "processing" ? "Transcribing" : "Recording"
-                }
-                aria-live="polite"
-              >
-                <StreamingWaveform
-                  amplitude={amplitude}
-                  paused={voicePhase === "processing"}
-                />
-                {voicePhase === "processing" ? (
-                  <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-                    Transcribing…
-                  </p>
-                ) : (
-                  voiceInterim && (
-                    // Partial transcript ghost text — mirrors macOS composerTextField
-                    // showing interim results in the input binding while speaking.
-                    <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-                      {voiceInterim}
-                    </p>
-                  )
-                )}
               </div>
-            )}
-            {isLiveVoiceActive ? (
-              // Voice session bar (Light 53): the whole action row — slots,
-              // attach, both mic buttons, and send — is replaced by the bar
-              // for the duration of the session. ✕ ends the session (the
-              // normal row returns via `isLiveVoiceActive` flipping false).
-              <VoiceComposerBar
-                state={liveVoiceState}
-                getAmplitude={getLiveVoiceInputAmplitude}
-                getOutputAmplitude={getLiveVoiceOutputAmplitude}
-                muted={liveVoiceMuted}
-                onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
-                fillIsLight={voiceCardTone?.isLight ?? false}
-                outputMuted={liveVoiceOutputMuted}
-                onToggleOutputMute={() =>
-                  setLiveVoiceOutputMuted(!liveVoiceOutputMuted)
-                }
-                onEnd={endLiveVoiceSession}
-                // Expand back to the full-screen room — omitted in pop-out
-                // windows, where the room never renders (the standalone pill
-                // is their only session surface).
-                onExpand={isPopout ? undefined : restoreVoiceRoom}
-                standalone={hideTextareaForLiveVoice}
-              />
-            ) : (
-              // Action row per Figma 7471-25234: attach | divider | access
-              // on the left; model profile | divider | mic, send on the
-              // right.
+              {showInlineVoicePreview && (
+                // Non-Electron fallback: Electron uses the shared top-center
+                // dictation overlay for both focused and global recording.
+                // Browser/iOS hosts keep this inline waveform because the
+                // overlay bridge no-ops there.
+                <div
+                  className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
+                  aria-label={
+                    voicePhase === "processing" ? "Transcribing" : "Recording"
+                  }
+                  aria-live="polite"
+                >
+                  <StreamingWaveform
+                    amplitude={amplitude}
+                    paused={voicePhase === "processing"}
+                  />
+                  {voicePhase === "processing" ? (
+                    <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
+                      Transcribing…
+                    </p>
+                  ) : (
+                    voiceInterim && (
+                      // Partial transcript ghost text — mirrors macOS composerTextField
+                      // showing interim results in the input binding while speaking.
+                      <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
+                        {voiceInterim}
+                      </p>
+                    )
+                  )}
+                </div>
+              )}
+              {/* Action row per Figma 7471-25234: attach | divider | access
+                on the left; model profile | divider | mic, send on the
+                right. It stays mounted through a live-voice session — the
+                session's own controls live in the bar above the card, and
+                everything here (attach, model picker, send) keeps working
+                alongside it. */}
               <div className="flex items-center justify-between gap-1 px-2 pb-2">
                 <div className="flex min-w-0 items-center gap-2">
                   {contextWindowIndicatorSlot}
@@ -1102,21 +1023,21 @@ export function ChatComposer({
                   ) : (
                     <>
                       {modelPickerSlot}
-                      {modelPickerSlot && showVoiceInput ? (
+                      {modelPickerSlot && showDictationButton ? (
                         <div
                           aria-hidden="true"
                           className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
                         />
                       ) : null}
-                      {showVoiceInput && (
+                      {showDictationButton && (
                         <VoiceInputButton
                           ref={voiceInputRef}
                           assistantId={assistantId}
-                          // Mutual exclusion: a live-voice session anywhere —
-                          // owned by this composer (whose row is swapped for
-                          // the voice bar anyway) or by another thread — must
-                          // block dictation, or two mic capture flows could
-                          // run at once.
+                          // Mutual exclusion: a live-voice session in another
+                          // thread must block dictation, or two mic capture
+                          // flows could run at once. (This composer's own
+                          // session takes the button away entirely — see
+                          // `showDictationButton`.)
                           disabled={typingDisabled || isLiveVoiceSessionLive}
                           onTranscript={onVoiceTranscript}
                           onInterimTranscript={onVoiceInterimTranscript}
@@ -1135,11 +1056,12 @@ export function ChatComposer({
                       which point the send arrow takes over. */}
                       {!isVoiceActive &&
                         (showVoiceModeInSendSlot ? (
-                          // Session entry point: once a session starts, this row
-                          // (button included) swaps for `VoiceComposerBar`, whose
-                          // ✕ owns stopping. Disabled while dictation is active or
-                          // a live-voice session already runs elsewhere, so a
-                          // second mic/voice capture can't open alongside it.
+                          // Session entry point: once a session starts here the
+                          // slot gives way to the send arrow and the bar above
+                          // the card owns stopping. Disabled while dictation is
+                          // active or a live-voice session already runs
+                          // elsewhere, so a second mic/voice capture can't open
+                          // alongside it.
                           <LiveVoiceButton
                             onStart={handleLiveVoiceStart}
                             disabled={
@@ -1174,7 +1096,6 @@ export function ChatComposer({
                   )}
                 </div>
               </div>
-            )}
             </div>
           </form>
         </Popover.Anchor>

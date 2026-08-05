@@ -8,13 +8,16 @@ import {
   detectClientOs,
 } from "@/runtime/platform-detection";
 
+import { mintRandomId } from "./random-id";
+
 let cached: string | null = null;
 
 /**
- * Returns a UUID identifying this page load.
+ * Returns an opaque id identifying this page load (a UUID wherever
+ * `crypto.randomUUID` is reachable, see `mintRandomId`).
  *
  * Generated on first call, cached in module memory for the rest of the
- * page's lifetime. Not persisted anywhere — each page load (initial nav,
+ * page's lifetime. Not persisted anywhere: each page load (initial nav,
  * reload, duplicated tab, restored bfcache entry) produces a fresh id.
  *
  * This is the unit the assistant daemon's self-echo suppression keys off:
@@ -27,7 +30,7 @@ export function getClientId(): string {
   if (cached) {
     return cached;
   }
-  cached = crypto.randomUUID();
+  cached = mintRandomId();
   return cached;
 }
 

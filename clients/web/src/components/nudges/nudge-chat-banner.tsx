@@ -52,7 +52,7 @@ export function NudgeChatBanner({
         animation: "fadeInUp 0.25s ease-out both",
         maxWidth: "var(--chat-max-width)",
         width: "100%",
-        boxShadow: "0 5px 8px 6px rgba(0,0,0,0.03), 0 7px 16px 6px rgba(0,0,0,0.03)",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.03), 0 5px 12px rgba(0,0,0,0.03)",
       }}
       role="status"
       aria-label={ariaLabel}

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 
 import { minimatch } from "minimatch";
@@ -48,11 +48,10 @@ const MAX_DISPLAY_LINE_LENGTH = 2000;
 // report the result as truncated.
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024; // 4 MiB
 
-// Wall-clock deadline for the whole search. The synchronous scan never yields,
-// so the promise-based tool timeout / abort signal can't fire mid-scan. Checking
-// this deadline (and the abort signal) once per line bounds how long a search
-// over a very large tree can block the event loop and lets an external abort
-// stop the walk promptly.
+// Wall-clock deadline for the whole search. File I/O yields between files,
+// but the per-file line loop is CPU-bound; checking this deadline (and the
+// abort signal) once per line bounds how long a search over a very large tree
+// can occupy the event loop and lets an external abort stop the walk promptly.
 const MAX_SEARCH_MS = 10_000; // 10 s
 
 const DEFAULT_MAX_RESULTS = 200;
@@ -150,7 +149,7 @@ export const codeSearchTool = {
     // Match with the linear-time RE2 engine (via re2js) instead of V8's
     // backtracking RegExp. RE2 guarantees linear-time matching, so a
     // user/subagent-supplied pattern cannot trigger catastrophic backtracking
-    // and block the synchronous scan. The trade-off is that RE2 rejects
+    // and pin the event loop inside the per-file line loop. The trade-off is that RE2 rejects
     // backreferences and lookarounds; compile() throws on those, surfaced as a
     // clean error below.
     let regex: RE2JS;
@@ -189,7 +188,7 @@ export const codeSearchTool = {
     // NOT_FOUND / NOT_A_DIRECTORY reporting in file_list.
     let rootStat: import("node:fs").Stats;
     try {
-      rootStat = statSync(root);
+      rootStat = await stat(root);
     } catch {
       return {
         content: `Error: path not found: ${rawPath}`,
@@ -198,8 +197,8 @@ export const codeSearchTool = {
     }
 
     // Start the wall-clock deadline before walking so a pathological regex
-    // (or an external abort) can stop the synchronous scan mid-flight instead
-    // of blocking the event loop until the whole tree is exhausted.
+    // (or an external abort) can stop the scan mid-flight instead of running
+    // until the whole tree is exhausted.
     const searchStart = Date.now();
 
     const lines: string[] = [];
@@ -228,7 +227,7 @@ export const codeSearchTool = {
     let totalBytes = 0;
     // Number of directory entries visited during the walk (files + subdirs),
     // bounded by MAX_ENTRIES_TRAVERSED so a pathological tree can't run the
-    // synchronous readdir/stat work unbounded even when no file is ever read.
+    // readdir/stat work unbounded even when no file is ever read.
     let entriesTraversed = 0;
     // Set when an EXPLICIT file root (not a child discovered mid-walk) can't be
     // read — e.g. EACCES/EPERM. A child file's read failure is optional and
@@ -264,7 +263,10 @@ export const codeSearchTool = {
 
     // Scan a single regular file for matches. Applies the denied-basename guard
     // and per-file size caps. Returns nothing; mutates the shared accumulators.
-    const scanFile = (full: string, isExplicitRoot = false): void => {
+    const scanFile = async (
+      full: string,
+      isExplicitRoot = false,
+    ): Promise<void> => {
       if (truncated) {
         return;
       }
@@ -306,7 +308,7 @@ export const codeSearchTool = {
 
       let size: number;
       try {
-        size = statSync(full).size;
+        size = (await stat(full)).size;
       } catch {
         return;
       }
@@ -323,7 +325,7 @@ export const codeSearchTool = {
 
       let buf: Buffer;
       try {
-        buf = readFileSync(full);
+        buf = await readFile(full);
       } catch (err) {
         // A child file discovered mid-walk is optional — skip it silently. But
         // an explicit file root that can't be read was never searched, so record
@@ -407,13 +409,13 @@ export const codeSearchTool = {
       }
     };
 
-    const walk = (dir: string, isExplicitRoot = false): void => {
+    const walk = async (dir: string, isExplicitRoot = false): Promise<void> => {
       if (truncated) {
         return;
       }
       // Bound the traversal itself, not just file reads: a deep/wide tree of
       // directories (or many entries that never get read) could otherwise run
-      // the synchronous readdir/stat work far past the advertised deadline.
+      // the readdir/stat work far past the advertised deadline.
       if (Date.now() - searchStart > MAX_SEARCH_MS || context.signal?.aborted) {
         truncated = true;
         timedOut = true;
@@ -421,7 +423,7 @@ export const codeSearchTool = {
       }
       let entries: import("node:fs").Dirent[];
       try {
-        entries = readdirSync(dir, { withFileTypes: true });
+        entries = await readdir(dir, { withFileTypes: true });
       } catch (err) {
         // A child directory discovered mid-walk is optional — skip it silently.
         // But an explicit directory root that can't be read (e.g. EACCES/EPERM)
@@ -458,18 +460,18 @@ export const codeSearchTool = {
           if (IGNORED_DIRS.has(entry.name)) {
             continue;
           }
-          walk(full);
+          await walk(full);
           continue;
         }
         if (!entry.isFile()) {
           continue;
         }
-        scanFile(full);
+        await scanFile(full);
       }
     };
 
     if (rootStat.isDirectory()) {
-      walk(root, true);
+      await walk(root, true);
       // An explicit directory root that statSync sees but readdirSync can't read
       // (EACCES/EPERM) was never searched — surface a hard error instead of a
       // false "No matches found", mirroring the unreadable explicit-file root.
@@ -487,7 +489,7 @@ export const codeSearchTool = {
           isError: true,
         };
       }
-      scanFile(root, true);
+      await scanFile(root, true);
       if (rootReadError) {
         return { content: rootReadError, isError: true };
       }

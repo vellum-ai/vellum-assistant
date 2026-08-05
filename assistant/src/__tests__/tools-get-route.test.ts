@@ -25,6 +25,7 @@ import {
   registerPluginTools,
   registerSkillTools,
   registerTool,
+  registerWorkspaceTools,
 } from "../tools/registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
@@ -41,6 +42,12 @@ interface ToolsGetResponse {
   names: string[];
   schemas: Record<string, unknown>;
   tools: ToolListEntry[];
+  agent?: {
+    requested: string;
+    role: string;
+    alias?: string;
+    persona?: string;
+  };
 }
 
 function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
@@ -277,31 +284,34 @@ describe("GET /tools", () => {
     expect(names).not.toContain("file_edit");
   });
 
-  test("with agent=general, returns all tools (no allowlist filter)", async () => {
-    // GIVEN core tools
+  test("with agent=builder, returns the whole tool surface, not a fixed list", async () => {
+    // GIVEN core tools plus one no fixed builder list would think to name
     registerTool(makeFakeTool("web_search"));
     registerTool(makeFakeTool("bash"));
     registerTool(makeFakeTool("notify_parent"));
+    registerTool(makeFakeTool("send_email"));
 
-    // WHEN the handler runs with agent=general (allowedTools: undefined)
+    // WHEN the handler runs with agent=builder
     const { names } = (await handler({
-      queryParams: { agent: "general" },
+      queryParams: { agent: "builder" },
     })) as ToolsGetResponse;
 
-    // THEN all registered tools are visible — the general role has no
-    // allowlist, so nothing is filtered
+    // THEN nothing is filtered out: a builder, and so every spawn that names
+    // no role, reaches connectors, MCP tools, and everything else the parent
+    // can reach.
     expect(names).toContain("web_search");
     expect(names).toContain("bash");
     expect(names).toContain("notify_parent");
+    expect(names).toContain("send_email");
   });
 
   test("with agent=role, notify_parent is visible (subagent-only gating works)", async () => {
     // GIVEN notify_parent registered as a core tool
     registerTool(makeFakeTool("notify_parent"));
 
-    // WHEN the handler runs with agent=coder
+    // WHEN the handler runs with agent=researcher
     const { names, tools } = (await handler({
-      queryParams: { agent: "coder" },
+      queryParams: { agent: "researcher" },
     })) as ToolsGetResponse;
 
     // THEN notify_parent appears because isSubagent=true satisfies
@@ -310,9 +320,72 @@ describe("GET /tools", () => {
     expect(tools.some((t) => t.name === "notify_parent")).toBe(true);
   });
 
-  test("with an unknown agent, throws a 404 RouteError", () => {
-    expect(() =>
-      handler({ queryParams: { agent: "nonexistent_role" } }),
-    ).toThrow(/Unknown agent "nonexistent_role"/);
+  test("with agent=role, reports the type it listed", async () => {
+    registerTool(makeFakeTool("file_read"));
+
+    const { agent } = (await handler({
+      queryParams: { agent: "researcher" },
+    })) as ToolsGetResponse;
+
+    expect(agent).toEqual({ requested: "researcher", role: "researcher" });
+  });
+
+  test("a legacy role name lists its successor type and names the alias", async () => {
+    // GIVEN tools on both sides of the researcher allowlist
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("bash"));
+
+    // WHEN the handler runs with an older role name a spawn still accepts
+    const { names, agent } = (await handler({
+      queryParams: { agent: "coder" },
+    })) as ToolsGetResponse;
+
+    // THEN it previews the type that name resolves to, and says which alias
+    // produced it rather than 404ing on a name spawns still take.
+    expect(agent).toEqual({
+      requested: "coder",
+      role: "builder",
+      alias: "coder",
+    });
+    expect(names).toContain("bash");
+  });
+
+  test("free text previews the persona fallback surface instead of 404ing", async () => {
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("bash"));
+
+    const { names, agent } = (await handler({
+      queryParams: { agent: "a skeptical security reviewer" },
+    })) as ToolsGetResponse;
+
+    // A role naming no type runs as a researcher carrying the text as a
+    // persona, so the preview is the read-only surface, reported as such.
+    expect(agent).toEqual({
+      requested: "a skeptical security reviewer",
+      role: "researcher",
+      persona: "a skeptical security reviewer",
+    });
+    expect(names).toContain("file_read");
+    expect(names).not.toContain("bash");
+  });
+
+  test("agent=advisor hides a workspace tool that claims an allowed name", async () => {
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("file_list"));
+    // A workspace tool may register under a name the advisor allows. The
+    // advisor's guarantee is provenance, not the name, so the preview has to
+    // drop it exactly as a live consult does; otherwise the diagnostic
+    // advertises a tool the advisor refuses at dispatch.
+    registerWorkspaceTools([
+      { tool: makeFakeTool("file_read"), workspacePath: "/ws/file_read.ts" },
+    ]);
+
+    const { names, agent } = (await handler({
+      queryParams: { agent: "advisor" },
+    })) as ToolsGetResponse;
+
+    expect(agent?.role).toBe("advisor");
+    expect(names).not.toContain("file_read");
+    expect(names).toContain("file_list");
   });
 });

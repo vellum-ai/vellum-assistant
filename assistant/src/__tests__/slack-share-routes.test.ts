@@ -51,9 +51,6 @@ mock.module("../messaging/providers/slack/client.js", () => ({
     _text: string,
     _opts?: unknown,
   ) => postMessageResult,
-  // auth.ts imports SlackApiError from the client; export it so the import
-  // graph loads (this file never triggers the fallback that inspects it).
-  SlackApiError: class SlackApiError extends Error {},
 }));
 
 let appStoreResult: unknown = null;

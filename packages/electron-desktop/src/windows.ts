@@ -1,10 +1,13 @@
 import {
   BrowserWindow,
+  session,
   type BrowserWindowConstructorOptions,
   type WebContents,
   type WebPreferences,
 } from "electron";
 import path from "node:path";
+
+import { createAuthPopupSignInTracker } from "@vellumai/electron-utils/auth-popup-session";
 
 import { areChromeDevToolsEnabled } from "./devtools";
 
@@ -111,8 +114,19 @@ export const installWebContentsSecurity = (
     }
   });
 
+  const authPopups = createAuthPopupSignInTracker({
+    cookies: () => session.defaultSession.cookies,
+    onCleared: (hosts, removed) =>
+      options.logger.info(
+        `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,
+      ),
+    onError: (err) =>
+      options.logger.warn("[auth-popup] failed to clear sign-in cookies:", err),
+  });
+
   contents.setWindowOpenHandler(({ url, disposition }) => {
     if (disposition === "new-window" && url === "about:blank") {
+      authPopups.markNextChildAsAuthPopup();
       return allowPreloadFreePopup();
     }
 
@@ -131,6 +145,10 @@ export const installWebContentsSecurity = (
 
     void options.openExternal(url);
     return { action: "deny" };
+  });
+
+  contents.on("did-create-window", (window) => {
+    authPopups.trackCreatedChild(window);
   });
 };
 

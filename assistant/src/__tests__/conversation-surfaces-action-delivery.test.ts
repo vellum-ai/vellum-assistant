@@ -9,12 +9,23 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: AssistantEvent) => broadcastedMessages.push(msg),
 }));
 
+// These surfaces are shown live and asserted through their client messages, so
+// history holds nothing. Stand in an empty store: the completion path reads
+// persisted `ui_surface` blocks, and this file's DB carries no schema, so the
+// real read would throw and be indistinguishable from a persistence failure.
+const realCrud = await import("../persistence/conversation-crud.js");
+mock.module("../persistence/conversation-crud.js", () => ({
+  ...realCrud,
+  getMessages: () => [],
+}));
+
 const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 interface ProcessMessageCall {
   content: string;
@@ -25,13 +36,11 @@ interface ProcessMessageCall {
   sourceActorPrincipalId?: string;
 }
 
-function makeContext(
-  sent: AssistantEvent[] = [],
-): SurfaceConversationContext & {
+function makeContext(sent: AssistantEvent[] = []): Conversation & {
   processMessageCalls: ProcessMessageCall[];
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
-  return {
+  return asConversation({
     conversationId: "conv-1",
     sendToClient: (msg: AssistantEvent) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -60,7 +69,7 @@ function makeContext(
     },
     withSurface: createSurfaceMutex(),
     processMessageCalls,
-  };
+  });
 }
 
 describe("surface action delivery to assistant", () => {

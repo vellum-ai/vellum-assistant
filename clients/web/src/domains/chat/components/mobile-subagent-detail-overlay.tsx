@@ -31,6 +31,8 @@ interface MobileSubagentDetailOverlayProps {
   onStop?: (subagentId: string) => void;
   /** Request detail fetch for a subagent. */
   onRequestDetail?: (subagentId: string) => void;
+  /** Assistant that owns the conversation the subagent was spawned from. */
+  assistantId?: string | null;
 }
 
 /**
@@ -44,6 +46,7 @@ export function MobileSubagentDetailOverlay({
   onClose,
   onStop,
   onRequestDetail,
+  assistantId,
 }: MobileSubagentDetailOverlayProps) {
   const reduce = useReducedMotion();
   const shellStyle = useMobileOverlayViewportStyle();
@@ -113,6 +116,7 @@ export function MobileSubagentDetailOverlay({
                 onClose={onClose}
                 onStop={onStop}
                 onRequestDetail={onRequestDetail}
+                assistantId={assistantId}
               />
             </LazyBoundary>
           </div>

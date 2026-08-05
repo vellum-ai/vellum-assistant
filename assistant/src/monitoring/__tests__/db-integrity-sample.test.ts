@@ -7,6 +7,7 @@
 import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Database } from "bun:sqlite";
 import {
   afterEach,
@@ -99,7 +100,9 @@ test("boundErrors caps by UTF-8 bytes without splitting code points", () => {
 test("subprocess entry prints the JSON verdict", () => {
   seedDb(false);
   corruptDb();
-  const entry = new URL("../db-integrity-check.ts", import.meta.url).pathname;
+  const entry = fileURLToPath(
+    new URL("../db-integrity-check.ts", import.meta.url),
+  );
   const proc = Bun.spawnSync({ cmd: ["bun", "run", entry, dbPath] });
   expect(proc.exitCode).toBe(0);
   const result = JSON.parse(

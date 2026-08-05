@@ -214,6 +214,8 @@ class VellumManagedBatchTranscriber implements BatchTranscriber {
   readonly providerId = "vellum" as const;
   readonly boundaryId = "daemon-batch" as const;
 
+  constructor(private readonly language: string | undefined) {}
+
   async transcribe(
     request: SttTranscribeRequest,
   ): Promise<SttTranscribeResult> {
@@ -223,6 +225,7 @@ class VellumManagedBatchTranscriber implements BatchTranscriber {
       request.audio,
       request.mimeType,
       request.signal,
+      this.language,
     );
   }
 }
@@ -237,12 +240,11 @@ class VellumManagedBatchTranscriber implements BatchTranscriber {
  * is unavailable.
  *
  * `language` is the spoken language, forwarded to providers whose batch API
- * accepts one: Deepgram (where `"multi"` also pins nova-3) and xAI (where
+ * accepts one: Deepgram (where `"multi"` also pins nova-3), xAI (where
  * `"multi"` is dropped because it is a Deepgram-specific value, not a
- * language code). Whisper and Gemini auto-detect natively and take no
- * language parameter, so it is silently ignored for them, as is the vellum
- * managed path (the platform speech proxy accepts no language parameter;
- * see the deferral note in `resolveBatchTranscriber`).
+ * language code), and the vellum managed path, whose platform proxy passes
+ * it to Deepgram server-side. Whisper and Gemini auto-detect natively and
+ * take no language parameter, so it is silently ignored for them.
  */
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
@@ -251,7 +253,7 @@ export function createDaemonBatchTranscriber(
 ): BatchTranscriber | null {
   // vellum authenticates via the platform connection, not an API key.
   if (providerId === "vellum") {
-    return new VellumManagedBatchTranscriber();
+    return new VellumManagedBatchTranscriber(language);
   }
   if (!apiKey) {
     return null;

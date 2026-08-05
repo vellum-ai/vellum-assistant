@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── platform guard ───────────────────────────────────────────────────────────
 //
-// `native-auth` is mocked rather than loaded because its module-load
-// `registerPlugin("NativeAuth")` would fail outside a Capacitor runtime
-// (mirrors push-registration.test.ts).
+// Platform detection is mocked so each native shell can be exercised without
+// loading the Capacitor runtime.
 
-let isNative = true;
-mock.module("@/runtime/native-auth", () => ({
-  isNativePlatform: () => isNative,
+let nativePlatform: "ios" | "android" | null = "ios";
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeIOS: () => nativePlatform === "ios",
+  isNativeMobile: () => nativePlatform !== null,
 }));
 
 // ── @capacitor/haptics (lazy-imported plugin Proxy) ──────────────────────────
@@ -46,13 +46,13 @@ mock.module("@capacitor/haptics", () => ({
 const { haptic } = await import("@/utils/haptics");
 
 beforeEach(() => {
-  isNative = true;
+  nativePlatform = "ios";
   pluginError = null;
   impactMock.mockClear();
   notificationMock.mockClear();
 });
 
-describe("haptic on native", () => {
+describe("haptic on iOS", () => {
   test("light() fires a Light impact", async () => {
     await haptic.light();
 
@@ -82,14 +82,31 @@ describe("haptic on native", () => {
   });
 });
 
-describe("haptic on web", () => {
-  test("never touches the plugin", async () => {
-    isNative = false;
+describe("haptic on Android", () => {
+  test("only fires the pull-to-refresh threshold impact", async () => {
+    nativePlatform = "android";
 
     await haptic.light();
     await haptic.medium();
     await haptic.success();
     await haptic.error();
+    await haptic.refreshThreshold();
+
+    expect(impactMock).toHaveBeenCalledTimes(1);
+    expect(impactMock).toHaveBeenCalledWith({ style: "LIGHT" });
+    expect(notificationMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("haptic on web", () => {
+  test("never touches the plugin", async () => {
+    nativePlatform = null;
+
+    await haptic.light();
+    await haptic.medium();
+    await haptic.success();
+    await haptic.error();
+    await haptic.refreshThreshold();
 
     expect(impactMock).not.toHaveBeenCalled();
     expect(notificationMock).not.toHaveBeenCalled();

@@ -6,7 +6,17 @@
  * single-row projection per conversation (conversation_assistant_attention_state).
  */
 
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { UserError } from "../util/errors.js";
@@ -85,6 +95,24 @@ export function hasUnseenLatestAssistantMessage(
     state.lastSeenAssistantMessageAt == null ||
     state.lastSeenAssistantMessageAt < state.latestAssistantMessageAt
   );
+}
+
+/**
+ * SQL twin of {@link hasUnseenLatestAssistantMessage}: conditions over
+ * `conversation_assistant_attention_state` selecting rows whose latest
+ * assistant cursor is ahead of the last-seen cursor. Shared by
+ * {@link listConversationAttention} and `countUnreadConversations`
+ * (`conversation-queries.ts`) so every SQL reader of "unseen" agrees with
+ * the TS predicate.
+ */
+export function unseenAttentionStateConditions(): SQL[] {
+  return [
+    sql`${conversationAssistantAttentionState.latestAssistantMessageAt} IS NOT NULL`,
+    or(
+      isNull(conversationAssistantAttentionState.lastSeenAssistantMessageAt),
+      sql`${conversationAssistantAttentionState.lastSeenAssistantMessageAt} < ${conversationAssistantAttentionState.latestAssistantMessageAt}`,
+    )!,
+  ];
 }
 
 // ── Row mappers ──────────────────────────────────────────────────────
@@ -654,15 +682,7 @@ export function listConversationAttention(
 
   if (filterState === "unseen") {
     // Unseen: latest assistant message exists but no seen cursor, or seen cursor is behind latest
-    conditions.push(
-      sql`${conversationAssistantAttentionState.latestAssistantMessageAt} IS NOT NULL`,
-    );
-    conditions.push(
-      or(
-        isNull(conversationAssistantAttentionState.lastSeenAssistantMessageAt),
-        sql`${conversationAssistantAttentionState.lastSeenAssistantMessageAt} < ${conversationAssistantAttentionState.latestAssistantMessageAt}`,
-      )!,
-    );
+    conditions.push(...unseenAttentionStateConditions());
   } else if (filterState === "seen") {
     // Seen: seen cursor equals latest assistant message
     conditions.push(

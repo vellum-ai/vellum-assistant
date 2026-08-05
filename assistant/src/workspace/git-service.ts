@@ -1,4 +1,4 @@
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -413,18 +413,19 @@ export class WorkspaceGitService {
    * open, we leave it alone. If no process holds it, it's stale (crashed
    * process) and safe to remove.
    */
-  private cleanStaleLockFile(): void {
+  private async cleanStaleLockFile(): Promise<void> {
     const lockPath = join(this.workspaceDir, ".git", "index.lock");
     if (!existsSync(lockPath)) {
       return;
     }
 
     try {
-      const result = spawnSync("lsof", ["-t", lockPath], {
+      // lsof exits non-zero when no process holds the file, which rejects the
+      // promise and falls through to removal below.
+      const { stdout } = await execFileAsync("lsof", ["-t", lockPath], {
         timeout: 3000,
-        stdio: ["ignore", "pipe", "ignore"],
       });
-      if (result.status === 0 && result.stdout?.length > 0) {
+      if (stdout.length > 0) {
         log.debug("index.lock held by an active process, skipping removal");
         return;
       }
@@ -490,7 +491,7 @@ export class WorkspaceGitService {
 
           // Clean up stale lock files before any git operations.
           if (existsSync(gitDir)) {
-            this.cleanStaleLockFile();
+            await this.cleanStaleLockFile();
           }
 
           if (existsSync(gitDir)) {
@@ -657,7 +658,7 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
 
     await this.mutex.withLock(async () => {
-      this.cleanStaleLockFile();
+      await this.cleanStaleLockFile();
 
       // Stage all changes (minus oversized files)
       await this.stageAllLocked();
@@ -734,7 +735,7 @@ export class WorkspaceGitService {
 
     try {
       const result = await this.mutex.withLock(async () => {
-        this.cleanStaleLockFile();
+        await this.cleanStaleLockFile();
 
         // Re-check breaker under lock: a queued call that started before the
         // breaker opened should not proceed with expensive git work now that
@@ -916,6 +917,15 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Whether background history compaction is enabled for this workspace.
+   * Gates only the scheduler — {@link compactHistoryNow} stays callable so
+   * operators can compact manually while automatic runs are off.
+   */
+  private isHistoryCompactionEnabled(): boolean {
+    return getConfig().workspaceGit?.historyCompaction?.enabled ?? true;
+  }
+
+  /**
    * Working-tree size check for a repo-relative path. Uses lstat so a
    * symlink is measured by the link itself, not its target. Missing or
    * unreadable paths (deletions, races) are treated as not oversized.
@@ -1003,10 +1013,21 @@ export class WorkspaceGitService {
    * history is still within retention, the attempt reschedules itself for
    * when the oldest commit ages past the cutoff. Best-effort like the
    * untrack sweeps: failures are logged and never affect commits.
+   *
+   * Gated by workspaceGit.historyCompaction.enabled, checked both here and
+   * when the timer fires (config hot-reloads, so a pending timer must honor
+   * a flip to disabled).
    */
   private scheduleHistoryCompaction(
     delayMs = HISTORY_COMPACTION_INITIAL_DELAY_MS,
   ): void {
+    if (!this.isHistoryCompactionEnabled()) {
+      log.debug(
+        { workspaceDir: this.workspaceDir },
+        "Background history compaction disabled by config; not scheduling",
+      );
+      return;
+    }
     const dueAtMs = Date.now() + delayMs;
     if (this.historyCompactionTimer) {
       if (dueAtMs >= this.historyCompactionDueAtMs) {
@@ -1020,6 +1041,14 @@ export class WorkspaceGitService {
     }
     const timer = setTimeout(() => {
       void (async () => {
+        if (!this.isHistoryCompactionEnabled()) {
+          log.debug(
+            { workspaceDir: this.workspaceDir },
+            "Background history compaction disabled by config; skipping scheduled run",
+          );
+          this.historyCompactionTimer = null;
+          return;
+        }
         let retryAfterMs: number | undefined;
         try {
           const result = await this.compactHistoryNow();
@@ -1044,14 +1073,19 @@ export class WorkspaceGitService {
 
   /**
    * Rewrite workspace history so blobs over workspaceGit.maxFileSizeBytes
-   * stop occupying .git. Commits older than HISTORY_RETENTION_DAYS are
+   * stop occupying .git. Commits older than the retention window
+   * (HISTORY_RETENTION_DAYS unless `retentionDays` overrides it) are
    * squashed into a single base commit whose tree is scrubbed of oversized
    * entries; younger commits are replayed verbatim (trees, messages,
    * authors, and dates preserved); reflogs are then expired and unreachable
-   * objects pruned. Runs only when the object store contains an oversized
-   * blob that is actionable — unreachable, or reachable at a non-exempt
-   * path (see SIZE_GUARD_EXEMPT_PATTERNS) — so the steady state is a cheap
-   * detection scan and exempt canonical state never triggers rewrites.
+   * objects pruned. By default runs only when the object store contains an
+   * oversized blob that is actionable — unreachable, or reachable at a
+   * non-exempt path (see SIZE_GUARD_EXEMPT_PATTERNS) — so the steady state
+   * is a cheap detection scan and exempt canonical state never triggers
+   * rewrites. With `force`, the squash runs unconditionally whenever any
+   * commit is older than the cutoff — the manual path for reclaiming bulk
+   * history (including old versions of exempt canonical state referenced
+   * only by squashed commits).
    *
    * Oversized blobs still referenced by replayed recent commits survive
    * until those commits age past retention — the result carries
@@ -1061,7 +1095,12 @@ export class WorkspaceGitService {
    * Git notes attached to rewritten commits are orphaned; enrichment only
    * targets commits created after the rewrite, so this is cosmetic.
    */
-  async compactHistoryNow(): Promise<{
+  async compactHistoryNow(options?: {
+    /** Squash aged history even when no oversized blob is actionable. */
+    force?: boolean;
+    /** Retention window override in days for this run. */
+    retentionDays?: number;
+  }): Promise<{
     rewrote: boolean;
     squashedCommits: number;
     keptCommits: number;
@@ -1069,7 +1108,7 @@ export class WorkspaceGitService {
     retryAfterMs?: number;
   }> {
     await this.ensureInitialized();
-    return this.mutex.withLock(() => this.compactHistoryLocked());
+    return this.mutex.withLock(() => this.compactHistoryLocked(options));
   }
 
   /**
@@ -1180,7 +1219,10 @@ export class WorkspaceGitService {
     return remaining.size > 0 ? "prunable" : "none";
   }
 
-  private async compactHistoryLocked(): Promise<{
+  private async compactHistoryLocked(options?: {
+    force?: boolean;
+    retentionDays?: number;
+  }): Promise<{
     rewrote: boolean;
     squashedCommits: number;
     keptCommits: number;
@@ -1188,11 +1230,13 @@ export class WorkspaceGitService {
   }> {
     const noop = { rewrote: false, squashedCommits: 0, keptCommits: 0 };
     const limit = this.maxFileSizeBytes();
+    const force = options?.force === true;
+    const retentionDays = options?.retentionDays ?? HISTORY_RETENTION_DAYS;
 
     // Any oversized blobs at all? Bounds the cost of every boot where there
-    // is nothing to do.
+    // is nothing to do. Forced runs squash regardless.
     const oversizedOids = await this.collectOversizedBlobOidsLocked(limit);
-    if (oversizedOids.size === 0) {
+    if (oversizedOids.size === 0 && !force) {
       return noop;
     }
 
@@ -1236,31 +1280,39 @@ export class WorkspaceGitService {
       return noop;
     }
 
-    const verdict = await this.classifyOversizedBlobsLocked(oversizedOids);
-    if (verdict === "none") {
-      // Exempt canonical state or ref-retained only — nothing to reclaim.
-      return { ...noop, keptCommits: commits.length };
-    }
-    if (verdict === "prunable") {
-      // Only unreachable blobs (e.g. an external add that stageAllLocked
-      // reset) — prune reclaims them without rewriting any history.
-      await this.expireReflogsAndPruneLocked();
-      log.info(
-        { workspaceDir: this.workspaceDir },
-        "Pruned unreachable oversized blobs from workspace git",
-      );
-      return { ...noop, keptCommits: commits.length };
+    // Forced runs skip classification: they squash whenever aged history
+    // exists, so the reachable/exempt distinction does not short-circuit.
+    if (!force) {
+      const verdict = await this.classifyOversizedBlobsLocked(oversizedOids);
+      if (verdict === "none") {
+        // Exempt canonical state or ref-retained only — nothing to reclaim.
+        return { ...noop, keptCommits: commits.length };
+      }
+      if (verdict === "prunable") {
+        // Only unreachable blobs (e.g. an external add that stageAllLocked
+        // reset) — prune reclaims them without rewriting any history.
+        await this.expireReflogsAndPruneLocked();
+        log.info(
+          { workspaceDir: this.workspaceDir },
+          "Pruned unreachable oversized blobs from workspace git",
+        );
+        return { ...noop, keptCommits: commits.length };
+      }
     }
 
     // Squash a PREFIX of the chain so replay order stays consistent even if
     // commit timestamps are not monotonic.
-    const cutoffSec =
-      Math.floor(Date.now() / 1000) - HISTORY_RETENTION_DAYS * 86400;
+    const cutoffSec = Math.floor(Date.now() / 1000) - retentionDays * 86400;
     let splitIdx = commits.findIndex((c) => c.committedAtSec >= cutoffSec);
     if (splitIdx === -1) {
       splitIdx = commits.length;
     }
     if (splitIdx === 0) {
+      if (oversizedOids.size === 0) {
+        // Forced run, but every commit is inside retention and there is
+        // nothing to reclaim — no rewrite.
+        return { ...noop, keptCommits: commits.length };
+      }
       // Main holds the blobs, but only in commits still within retention.
       // A mixed case can also carry unreachable blobs — prune those now,
       // and re-check in case they were all that remained actionable.
@@ -1279,7 +1331,7 @@ export class WorkspaceGitService {
       // bloat until restart.
       const oldestCommittedAtSec = commits[0]?.committedAtSec ?? cutoffSec;
       const oldestAgesOutMs =
-        (oldestCommittedAtSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
+        (oldestCommittedAtSec + retentionDays * 86400) * 1000 -
         Date.now() +
         60_000;
       const retryAfterMs = Math.max(
@@ -1358,9 +1410,7 @@ export class WorkspaceGitService {
       const oldestKeptSec =
         kept[0]?.committedAtSec ?? Math.floor(Date.now() / 1000);
       retryAfterMs = Math.max(
-        (oldestKeptSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
-          Date.now() +
-          60_000,
+        (oldestKeptSec + retentionDays * 86400) * 1000 - Date.now() + 60_000,
         HISTORY_COMPACTION_MIN_RETRY_MS,
       );
     }
@@ -1954,7 +2004,7 @@ export class WorkspaceGitService {
   ): Promise<void> {
     await this.ensureInitialized();
     await this.mutex.withLock(async () => {
-      this.cleanStaleLockFile();
+      await this.cleanStaleLockFile();
       await fn((args) => {
         // Intercept commit commands to enforce hook hardening.
         if (args[0] === "commit") {

@@ -7,11 +7,13 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
 
 ## What works today
 
-- Hardened main window (context isolation, sandbox, single creation seam in
-  `src/main/windows.ts`) loading the assistant web UI.
+- Hardened main window (context isolation, sandbox, shared creation seam in
+  `packages/electron-desktop/src/windows.ts`) loading the assistant web UI.
+  `src/main/windows.client.ts` is the Windows adapter.
 - Same-origin navigation guard; external links open in the default browser;
   OAuth-style `window.open` popups allowed with the hardened baseline.
-- Sender-validated IPC seam (`src/main/ipc.ts`) with a minimal bridge:
+- Sender-validated IPC seam (`packages/electron-desktop/src/ipc.ts`) with a
+  Windows adapter in `src/main/ipc.client.ts` and a minimal bridge:
   `window.vellum.app` (version info, open website), `window.vellum.commands`,
   `mainWindow.ensureVisible`, plus the `__VELLUM_CONFIG__` /
   `__VELLUM_FLAG_OVERRIDES__` globals. Namespaces the renderer dereferences
@@ -19,9 +21,10 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   `menu`, `localMode`, `mainWindow.setOnboarding`) ship as documented no-op
   stubs; the rest are feature-detected by the renderer's runtime wrappers and
   degrade to web behavior until ported.
-- Packaged static serving of the renderer with path-traversal protection
-  (`src/main/app-protocol.ts`), single-instance lock, per-environment
-  `userData` separation, `electron-log` file logging.
+- Packaged static serving of the renderer from `src/main/index.ts`, with
+  path-traversal protection from `@vellumai/electron-utils/app-protocol`,
+  single-instance lock, per-environment `userData` separation, and
+  `electron-log` file logging.
 - `electron-builder` NSIS installer target (`bun run pack`).
 
 ## Not ported yet (see `clients/macos/src/main/` for reference implementations)
@@ -57,5 +60,5 @@ Unsigned; code signing and publishing are not wired up yet.
 
 ```bash
 bun run typecheck
-bun test
+bun run test:ci
 ```

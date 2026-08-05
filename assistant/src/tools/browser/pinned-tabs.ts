@@ -14,7 +14,9 @@
  * `host_browser_session_invalidated`.
  */
 
-import { log } from "../../cli/logger.js";
+import { getLogger } from "../../util/logger.js";
+
+const log = getLogger("pinned-tabs");
 
 const pinnedTabs = new Map<string, Map<string, string>>();
 

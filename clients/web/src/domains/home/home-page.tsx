@@ -7,7 +7,7 @@ import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button } from "@vellumai/design-library";
+import { Button, Skeleton } from "@vellumai/design-library";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
@@ -18,14 +18,11 @@ import { useHomeStateQuery } from "./hooks/use-home-state-query";
 function HomePageSkeleton() {
   return (
     <div className="flex flex-col gap-[var(--app-spacing-xl)]">
-      <div className="h-7 w-64 animate-pulse rounded-md bg-[var(--surface-lift)]" />
+      <Skeleton className="h-7 w-64 rounded-md" />
 
       <div className="flex flex-col gap-[var(--app-spacing-sm)]">
         {Array.from({ length: 4 }, (_, i) => (
-          <div
-            key={i}
-            className="h-16 animate-pulse rounded-md bg-[var(--surface-lift)]"
-          />
+          <Skeleton key={i} className="h-16 rounded-md" />
         ))}
       </div>
     </div>

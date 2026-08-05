@@ -1,6 +1,7 @@
 import { CalendarClock } from "lucide-react";
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
+import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 
 interface DailyLimitBannerProps {
   onAdjustLimit: () => void;
@@ -17,9 +18,8 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
         />
       }
       title="Daily credit limit reached"
-      subtitle="This limit applies to Vellum credit spend and resets at midnight UTC."
-      ctaLabel="Adjust Limit"
-      onAction={onAdjustLimit}
+      subtitle={`This limit applies to Vellum credit spend and resets at ${dailyResetTimePhrase()}.`}
+      action={{ label: "Adjust Limit", onClick: onAdjustLimit }}
     />
   );
 }

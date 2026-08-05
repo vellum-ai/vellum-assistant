@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
@@ -133,6 +134,14 @@ export interface ToolExecutionResult {
   /** Structured activity metadata for client rendering (web search, web fetch, etc).
    *  Populated by daemon-internal tools; plugins must not set this. */
   activityMetadata?: ToolActivityMetadata;
+  /**
+   * Typed side channel from the `ask_question` executor to the agent loop: the
+   * questions asked and the answers the user gave. The loop forwards it on the
+   * `tool_result` event and persists it on the tool_use block, so the answered
+   * card renders live and survives a history reopen instead of the decision
+   * disappearing with the interactive prompt. Set only by `ask_question`.
+   */
+  answeredQuestion?: AnsweredQuestion;
 }
 
 export type ProxyToolResolver = (
@@ -408,6 +417,14 @@ export interface ToolContext {
    */
   overrideProfile?: string;
   /**
+   * The firing's `cron_runs.id` when a schedule triggered this turn, `null`
+   * otherwise. Tools that spawn further LLM work (`subagent_spawn`,
+   * `subagent_message`) forward it so the delegated usage rows carry the same
+   * stamp and attribute to the firing rather than dropping out of schedule
+   * cost reporting.
+   */
+  cronRunId?: string | null;
+  /**
    * The LLM call site of the turn currently executing this tool (`mainAgent`,
    * `heartbeatAgent`, scheduled work, etc.). `subagent_spawn` reads it to
    * default a spawned subagent's inference profile to the profile the invoking
@@ -418,10 +435,12 @@ export interface ToolContext {
   invokingCallSite?: LLMCallSite;
   /**
    * Canonical principal ID of the actor on whose behalf this tool invocation
-   * is running. Sourced from `conversation.trustContext.guardianPrincipalId`.
+   * is running — the turn's actor principal, falling back to the trust
+   * context's `guardianPrincipalId` (see `resolveTurnActorPrincipalId`).
    * Used by host proxies to bind cross-client targeted execution to the same
-   * authenticated user identity. May be undefined for legacy/internal flows
-   * with no resolved actor identity.
+   * authenticated user identity, so it must resolve to the SAME principal a
+   * desktop client registers with on its SSE stream. May be undefined for
+   * legacy/internal flows with no resolved actor identity.
    * @legacy
    */
   sourceActorPrincipalId?: string;

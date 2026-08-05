@@ -28,9 +28,9 @@ The markdown mirror route lives at `src/app/docs/%5Fmd/[[...slug]]/route.ts` and
 
 ## Generated artifacts
 
-| Command | Output |
-| --- | --- |
-| `bun run docs:search:index` | `public/docs/search-index.json` |
+| Command                           | Output                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `bun run docs:search:index`       | `public/docs/search-index.json`                                           |
 | `bun run generate:agent-markdown` | `generated/md/**`, `generated/md/docs-index.json`, `public/docs/llms.txt` |
 
 Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next standalone output omits `public/` and `generated/`, so the Dockerfile copies both into the runtime image explicitly.
@@ -48,25 +48,25 @@ Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next
 - Prefetch suppression (`Next-Router-Prefetch`, `Next-Router-Segment-Prefetch`, `Purpose`/`Sec-Purpose`) is load-bearing: dbt carries a scrubber for a historical phantom-prefetch bug. `skipMiddlewareUrlNormalize: true` in `next.config.ts` keeps those headers visible to the proxy; do not remove it.
 - This app's Kubernetes container name is `docs`. Page_view lines only reach BigQuery after the Phase 2 platform Terraform change extends the pageview sink filter (currently `container_name="nextjs"`) to container `docs`.
 
-## Content sync contract
+## Content ownership: this tree is canonical
 
-Docs content is synced **verbatim** from the platform repo's docs tree (`vellum-assistant-platform/web/src/app/(marketing)/docs`) — the platform source is canonical. Do not editorialize, re-style, or paraphrase during a sync; copy edits (terminology, style, factual corrections) must land in the platform source first and flow down through a sync. The only permitted deltas from the platform source are:
+`src/app/docs/` is the only source of the public docs. The platform repo's docs tree (`vellum-assistant-platform/web/src/app/(marketing)/docs`) was deleted by "Docs migration Phase 4" (platform #9705), so there is no upstream to sync from and no follow-up copy to keep in step. Copy edits, new pages, and factual corrections land here directly.
 
-- Mechanical transforms: `@/app/(marketing)/docs/` → `@/app/docs/` imports, `/docs`-prefixed WebP asset paths, cross-app links absolutized to `https://www.vellum.ai/...`, and `eslint --fix` output for this package's lint rules.
-- Placeholder-persona substitution required by the root `AGENTS.md` "Generic Examples" rule (this repo is public): real names in platform copy are replaced deterministically (`Marina` → `Alice`, `Sarah` → `Alice`, `Becky` → `Bob`). Extend the substitution map if new real names appear upstream.
-- The structural severances and shared-shell components listed under "Deviations from the platform source" below.
+The rules that governed the migration still constrain the content itself:
 
-Verify every sync with a fidelity audit: each file must be byte-identical to its platform source after the transforms above, and every exception must be individually explainable.
+- The root `AGENTS.md` "Generic Examples" rule applies (this repo is public): no real names in docs copy. The migration replaced the personal names it found with that rule's placeholders, mapping each original to one placeholder consistently so a page still reads as being about the same person. Keep new copy on placeholder personas.
+- Pages are authored against this app's import paths (`@/app/docs/`), `/docs`-prefixed WebP asset paths, and cross-app links absolutized to `https://www.vellum.ai/...`.
 
-## Deviations from the platform source
+## Behavior ported from the platform app
 
 Behavior ported from the platform app that intentionally differs:
 
 - Attribution referrer/click-id classification is stricter than the platform emitter: empty click-id params (e.g. a bare `?gclid=`) emit no paid attribution, referrer domains match at hostname boundaries (exact host or dot-suffix, never substring), and `copilot.bing.com` classifies as GEO. The emitted JSON key set is unchanged.
 - Search extraction/ranking adds element-boundary spacing during text extraction, indexes standalone headings unconditionally as their own chunks with level-aware scoping, and returns matched-term snippets.
 - Tailwind has no class-keyed dark variant. The pre-hydration bootstrap stamps both `.dark` and `data-theme="dark"` on `<html>`; `dark:` utilities key off `data-theme` (the design-library `tokens.css` custom variant) while `docs-theme.css` selectors key off `.dark`.
-- The mobile nav drawer is refactored around a shared `NavPanelShell` (`_components/nav-panel-shell.tsx`) with a ref-counted body-scroll lock (`_components/body-scroll-lock.ts`) and single-owner Cmd/Ctrl+K registration (`DocsSearch registerShortcut`). `docs-nav.tsx`, `releases-nav.tsx`, and `docs-nav-context.tsx` are therefore **hand-merged** during syncs: keep this app's shell structure and mirror only the platform's nav item data.
+- The mobile nav drawer is refactored around a shared `NavPanelShell` (`_components/nav-panel-shell.tsx`) with a ref-counted body-scroll lock (`_components/body-scroll-lock.ts`) and single-owner Cmd/Ctrl+K registration (`DocsSearch registerShortcut`). `docs-nav.tsx`, `releases-nav.tsx`, and `docs-nav-context.tsx` therefore keep this app's shell structure; edit nav item data inside it rather than restoring the per-drawer copies the port replaced.
 - Release anchor/month formatting is centralized in `src/lib/releases-server.ts` (`releaseAnchor`, `monthLabel`) and shared by `releases-content.tsx` and `releases-nav.tsx` so sidebar links always match article IDs; the platform version keeps local copies of these helpers. `releases-content.tsx` is hand-merged during syncs.
+- The TOC peek urchin is a **hand-maintained** trimmed port, `_components/peek-character.tsx`, not a byte-identical copy of the platform's `AnimatedAvatar` + full character catalog: it inlines only the urchin body, curious eyes, and teal color, drops the streaming morph, and suppresses all animation (including blink/twitch) under `prefers-reduced-motion: reduce`, where the platform passes `ignoreReducedMotion`. Sync procedure: the SVG path data and transform math must match `assistant/src/avatar/character-components.ts` and `svg-compositor.ts`; re-copy the urchin/curious/teal definitions when the catalog changes. `table-of-contents.tsx` is hand-merged during syncs: mirror the platform structure but keep the local `PeekCharacter` import in place of `AnimatedAvatar`.
 
 ## Deferred items and known divergences from the platform app
 

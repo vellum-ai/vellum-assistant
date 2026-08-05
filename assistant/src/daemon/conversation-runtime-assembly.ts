@@ -13,6 +13,7 @@ import {
   getAppDirPath,
   listAppFiles,
   resolveAppDir,
+  resolveAppSource,
 } from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
@@ -431,6 +432,54 @@ export function buildActiveDocuments(conversationId: string): Array<{
         updatedAt: d.updatedAt,
       }))
     : null;
+}
+
+/**
+ * Resolves the app the client reported as on-screen into the summary the
+ * `unified-turn-context` injector renders as the `visible_app:` line. Returns
+ * `null` when no app is in view or the id no longer resolves to an app (e.g.
+ * it was deleted while open).
+ *
+ * Resolution goes through `resolveAppSource` rather than `getApp` so both id
+ * shapes the viewer can hold are covered: workspace apps (opaque id) and
+ * plugin-bundled apps (`plugins~<plugin>~<app>`), which the apps list and open
+ * routes serve alongside them. Plugin apps carry their owning plugin so the
+ * rendered line can say the source belongs to a plugin rather than reading as
+ * an ordinary sandbox app to rewrite.
+ *
+ * Both identifiers come back: a workspace app's `appId` is an opaque UUID and
+ * the readable handle is its `slug` (the directory stem, frozen at creation).
+ * The app tools key off the id, so the line carries it for tool calls and the
+ * slug for everything a human or the model would recognize.
+ */
+export function buildVisibleAppContext(appId: string | undefined): {
+  appId: string;
+  name: string;
+  slug: string;
+  sourceDir: string;
+  pluginName?: string;
+} | null {
+  if (!appId) {
+    return null;
+  }
+  try {
+    const source = resolveAppSource(appId);
+    if (!source) {
+      return null;
+    }
+    return {
+      appId: source.id,
+      name: source.name,
+      slug: source.dirName,
+      sourceDir: source.sourceDir,
+      ...(source.origin.kind === "plugin"
+        ? { pluginName: source.origin.pluginName }
+        : {}),
+    };
+  } catch {
+    // Malformed id (traversal-shaped, empty): treat as no app in view.
+    return null;
+  }
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
@@ -2195,6 +2244,13 @@ export async function applyRuntimeInjections(
   // `clientOs`) so a queued message from another surface can't perturb the
   // in-flight turn — same anti-race pattern as `clientTimezone`.
   const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
+  // The app the client has on screen (app viewer or the app-editing split),
+  // resolved to its name and source directory so the assistant can act on it
+  // without asking the user which app they mean. Frozen per turn like
+  // `clientOs` for the same anti-race reason.
+  const visibleApp = buildVisibleAppContext(
+    liveConversation?.currentTurnVisibleAppId,
+  );
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
@@ -2304,6 +2360,7 @@ export async function applyRuntimeInjections(
     timestamp,
     interfaceName,
     clientOs,
+    visibleApp,
     channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,

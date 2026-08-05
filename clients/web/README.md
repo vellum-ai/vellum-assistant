@@ -26,7 +26,7 @@ Vellum assistant web app (chat, settings, library, docs).
 
 ```bash
 cd clients/web
-bun install
+bun install   # installs the whole workspace
 bun run openapi-ts  # generate API client (required before typecheck/dev)
 bun run dev         # Vite dev server on localhost:3000
 ```

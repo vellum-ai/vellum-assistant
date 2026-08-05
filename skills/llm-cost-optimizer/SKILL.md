@@ -1,6 +1,6 @@
 ---
 name: "llm-cost-optimizer"
-description: "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Speed) only where they should deviate from shipped defaults."
+description: "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Cost / Speed) only where they should deviate from shipped defaults."
 metadata:
   emoji: "💸"
   vellum:
@@ -13,10 +13,11 @@ metadata:
 This skill walks through analyzing and reducing LLM spend on a Vellum assistant. There are three layers:
 
 1. **Provider connections** — named auth configs (e.g. `anthropic-managed`, `my-personal-key`)
-2. **Model profiles** — named presets (provider + model + effort + thinking + contextWindow). Three managed defaults, with UI labels:
+2. **Model profiles** — named presets (provider + model + effort + thinking + contextWindow). Four managed defaults, with UI labels. Note that the keys do not track the labels: read the key, not the name, when pinning a call site.
    - `balanced` → **Balanced** (the general agent-loop profile)
    - `quality-optimized` → **Quality** (the expensive escalation profile)
-   - `cost-optimized` → **Speed** (the cheap utility/background profile)
+   - `cost-optimized` → **Cost** (the cheap utility/background profile, and the one to pin for spend reduction)
+   - `latency-optimized` → **Speed** (the low time-to-first-token profile, used by live voice; faster but not cheaper than Cost)
 3. **Call-site profile pins** (`llm.callSites.<id>.profile`) — optional per-task overrides of the shipped defaults.
 
 The concrete model behind each managed profile depends on the install: platform-managed installs and BYOK installs resolve different providers/models, and the catalog changes over time. **Never assume which model a profile maps to** — read `assistant config get llm.profiles` and the usage breakdown by `model` to see what actually ran.
@@ -86,7 +87,7 @@ assistant inference profiles list      # effective profiles: managed + user, wit
 assistant inference profiles active    # the chat-model selection
 assistant inference providers default  # default provider + availability
 assistant inference session list
-assistant inference providers connections list
+assistant inference providers list
 assistant schedules list
 ```
 
@@ -102,10 +103,10 @@ For each recurring schedule, check which profile its runs use — `assistant sch
 
 ## Step 4 — Optimize
 
-- **Chat model**: if the user is happy to reduce chat cost, set the active profile — this is the same thing the model picker in the UI writes:
+- **Chat model**: if the user is happy to reduce chat cost, set the active profile — this is the same thing the model picker in the UI writes. Use the dedicated verb, not a raw `config set`: it validates the profile and refuses one that cannot dispatch, so a typo or an uncredentialed profile can't lock the user out of chat.
 
   ```bash
-  assistant config set llm.activeProfile balanced
+  assistant inference profiles active balanced
   ```
 
 - **Downgrade one specific site** that the breakdown shows is expensive and quality-insensitive (leaf path, see Step 5):
@@ -156,7 +157,7 @@ For the full setup procedure (managed-first, secure key collection, model discov
 
 If the user wants a custom profile on a specific provider, work down this ladder — do not start by asking for a key:
 
-1. **Check for a managed connection first.** `assistant inference providers connections list` — managed entries (`auth=platform`, e.g. `anthropic-managed`) need no API key. If one covers the target provider, create the profile against it and skip the rest of this ladder.
+1. **Check for a managed route first.** `assistant inference providers list` — managed entries (`auth=platform`, e.g. `anthropic-managed`) need no API key, and when the user is signed in to Vellum a profile built as `--provider vellum --model <model-id>` (no `--connection`) routes through the platform proxy. If either covers the target model, create the profile that way and skip the rest of this ladder.
 2. **Check for an existing stored key.** `assistant credentials list` — if a suitable credential is already in the vault, reference it by vault path instead of prompting for a new one.
 3. **Only then collect a new key — securely, never in chat:**
 
@@ -164,7 +165,7 @@ If the user wants a custom profile on a specific provider, work down this ladder
 assistant credentials prompt --service anthropic --field api_key \
   --label "Anthropic API Key" --placeholder "sk-ant-..."
 
-assistant inference providers connections create my-anthropic-key \
+assistant inference providers create my-anthropic-key \
   --provider anthropic \
   --auth api_key \
   --credential credential/anthropic/api_key
@@ -201,11 +202,11 @@ assistant config set llm.callSites.memoryExtraction.profile balanced
 ## Reference: provider connections
 
 ```bash
-assistant inference providers connections list
-assistant inference providers connections get <name>
-assistant inference providers connections create <name> --provider <p> --auth api_key --credential <vault-key>
-assistant inference providers connections update <name> --auth platform
-assistant inference providers connections delete <name>
+assistant inference providers list
+assistant inference providers get <name>
+assistant inference providers create <name> --provider <p> --auth api_key --credential <vault-key>
+assistant inference providers update <name> --auth platform
+assistant inference providers delete <name>
 ```
 
 Canonical managed connections are seeded automatically (auth=platform, no key needed).

@@ -14,6 +14,36 @@ describe("extractSlackUserMentionIds", () => {
       extractSlackUserMentionIds("<@U123> hi <@W456> and <@U123> again"),
     ).toEqual(["U123", "W456"]);
   });
+
+  test("includes pipe-form user mention IDs", () => {
+    expect(extractSlackUserMentionIds("<@U123|jane> and <@W456|>")).toEqual([
+      "U123",
+      "W456",
+    ]);
+  });
+});
+
+describe("buildSlackUserLabelMap", () => {
+  test("skips pipe-form mentions with usable embedded labels, queues the rest", async () => {
+    const requested: string[] = [];
+    const labels = await buildSlackUserLabelMap(
+      ["<@U123|jane> <@U456|> <@U789|U789> <@U999>"],
+      async (id) => {
+        requested.push(id);
+        return `name-${id}`;
+      },
+    );
+
+    // Usable embedded label: rendered from the token, no lookup.
+    expect(requested).not.toContain("U123");
+    // Empty or ID-shaped embedded labels still need resolution.
+    expect(requested.sort()).toEqual(["U456", "U789", "U999"]);
+    expect(labels).toEqual({
+      U456: "name-U456",
+      U789: "name-U789",
+      U999: "name-U999",
+    });
+  });
 });
 
 describe("extractSlackChannelReferenceIds", () => {
@@ -50,6 +80,24 @@ describe("renderSlackTextForModel", () => {
         userLabels: { U123: "U123" },
       }),
     ).toBe("hello @unknown-user");
+  });
+
+  test("prefers embedded pipe-form user labels over lookups", () => {
+    expect(renderSlackTextForModel("hi <@U123|jane>")).toBe("hi @jane");
+    expect(
+      renderSlackTextForModel("hi <@U123|jane>", {
+        userLabels: { U123: "Jane Doe" },
+      }),
+    ).toBe("hi @jane");
+  });
+
+  test("falls back past ID-shaped embedded user labels to resolved ones", () => {
+    expect(
+      renderSlackTextForModel("hi <@U123|U123>", {
+        userLabels: { U123: "Jane Doe" },
+      }),
+    ).toBe("hi @Jane Doe");
+    expect(renderSlackTextForModel("hi <@U123|U123>")).toBe("hi @unknown-user");
   });
 
   test("renders channel references with labels and fallbacks", () => {

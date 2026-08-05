@@ -49,6 +49,10 @@ import {
 } from "@/domains/chat/transcript/rolling-snapshot";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
+import {
+  abandonSwitchMeasurement,
+  noteConversationSwitchStarted,
+} from "@/lib/telemetry/switch-telemetry";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
@@ -457,8 +461,11 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   switchToConversation: ({ assistantId, activeConversationId }) => {
     const state = get();
 
-    // Draft-key resolution (draft→server ID) is not a real switch.
+    // Draft-key resolution (draft→server ID) is not a real switch. A window
+    // opened under the draft key can only be closed by a paint under that key,
+    // and the transcript paints under the server id, so close it here.
     if (state.draftConversationIdResolution) {
+      abandonSwitchMeasurement("draft_resolution");
       set({ draftConversationIdResolution: false });
       return;
     }
@@ -515,6 +522,19 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     const usageByConversation = needsHydration
       ? loadContextWindowUsageMap(assistantId)
       : state.contextWindowUsageByConversation;
+
+    // Start the paint measurement at the same instant the transcript blanks,
+    // but only for a real conversation-to-conversation move within the same
+    // assistant. A cold mount, a last-viewed bootstrap, or an assistant change
+    // is boot latency, which the boot family already owns; folding it in here
+    // would mix first-fetch time into the switch distribution.
+    if (isConversationSwitch && !isAssistantSwitch) {
+      noteConversationSwitchStarted(activeConversationId);
+    } else {
+      // Unmeasured move: nothing will paint under the pending window's id, so
+      // close it here instead of letting the TTL bill it as a stall.
+      abandonSwitchMeasurement("context_change");
+    }
 
     set({
       snapshot: null,

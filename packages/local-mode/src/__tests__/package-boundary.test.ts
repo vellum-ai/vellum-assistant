@@ -7,8 +7,9 @@
  *
  * Enforces that the package:
  * 1. Imports only node builtins, its own relative modules, `@vellumai/environments`,
- *    and `zod` (the lockfile contract's schema library) — nothing else.
- * 2. Declares exactly those two runtime dependencies.
+ *    `zod` (the lockfile contract's schema library), and `nanoid` (pair's
+ *    fallback local-id generator); nothing else.
+ * 2. Declares exactly those runtime dependencies.
  * 3. Is marked `private`.
  */
 
@@ -19,7 +20,7 @@ import { join, resolve } from "node:path";
 const PACKAGE_ROOT = resolve(import.meta.dirname, "../..");
 const SRC_DIR = join(PACKAGE_ROOT, "src");
 
-const ALLOWED_PACKAGES = new Set(["@vellumai/environments", "zod"]);
+const ALLOWED_PACKAGES = new Set(["@vellumai/environments", "zod", "nanoid"]);
 
 function collectSourceFiles(dir: string): string[] {
   const files: string[] = [];
@@ -91,13 +92,14 @@ describe("package boundary", () => {
     }
   });
 
-  test("package.json declares it as private with only its environments and zod dependencies", () => {
+  test("package.json declares it as private with only its allowed dependencies", () => {
     const pkg = JSON.parse(
       readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8"),
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
       "@vellumai/environments": "file:../environments",
+      nanoid: "5.1.7",
       zod: "4.3.6",
     });
   });

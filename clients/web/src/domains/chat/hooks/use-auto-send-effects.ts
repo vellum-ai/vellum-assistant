@@ -34,7 +34,7 @@ export interface UseAutoSendEffectsOptions {
   sendMessage: (
     content: string,
     attachments?: never[],
-    opts?: { hidden?: boolean },
+    opts?: { hidden?: boolean; scripted?: boolean },
   ) => Promise<void>;
   reachabilityPhase: ReachabilityState["phase"];
   reachabilityProbe: (options?: ReachabilityProbeOptions) => void;
@@ -136,6 +136,16 @@ export function useAutoSendEffects({
     }
     initialMessageConsumedRef.current = true;
     const hidden = getPendingInitialMessageHiddenRef.current?.() ?? false;
-    void sendMessage(message, [], { hidden });
+    // Every message that reaches here is auto-sent by an onboarding flow, not
+    // typed: the research prompt, the "Let's chat" kickoff greeting, or the
+    // legacy pre-chat bootstrap. Marked unconditionally rather than keyed off
+    // `hidden`, because the two are independent: the research prompt is
+    // visible AND scripted.
+    //
+    // Note this is the pre-chat staged message only. The `?prompt=` auto-send
+    // above is deliberately NOT marked: those are user-initiated (quick input,
+    // a check-in CTA the user clicked), and the analytics classifier does not
+    // treat them as scripted either.
+    void sendMessage(message, [], { hidden, scripted: true });
   }, [activeConversationId, assistantId, reachabilityPhase, sendMessage]);
 }

@@ -39,7 +39,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
 import { organizationsBillingDailyCreditLimitRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { DailyCreditLimitResponse } from "@/generated/api/types.gen";
 
-const { DailyCreditLimitCard, validateDailyLimit } =
+import { routes } from "@/utils/routes";
+
+const { DAILY_CREDIT_LIMIT_ANCHOR_ID, DailyCreditLimitCard, validateDailyLimit } =
   await import("./daily-credit-limit-card");
 
 function makeClient(config: DailyCreditLimitResponse): QueryClient {
@@ -146,5 +148,11 @@ describe("DailyCreditLimitCard", () => {
 
     expect(container.textContent).toContain("Must be at least $1");
     expect(updateCalls.length).toBe(0);
+  });
+});
+
+describe("DAILY_CREDIT_LIMIT_ANCHOR_ID", () => {
+  test("matches the hash in the deep-link route constant", () => {
+    expect(routes.settings.usageBillingDailyLimit.endsWith(`#${DAILY_CREDIT_LIMIT_ANCHOR_ID}`)).toBe(true);
   });
 });

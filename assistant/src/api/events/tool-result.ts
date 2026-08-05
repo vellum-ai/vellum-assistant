@@ -34,6 +34,7 @@ import {
   ConfirmationDiffSchema,
   DirectoryScopeOptionSchema,
 } from "./confirmation-request.js";
+import { AnsweredQuestionSchema } from "./question-answered.js";
 
 export const RiskScopeOptionSchema = z.object({
   pattern: z.string(),
@@ -131,6 +132,12 @@ export const ToolResultEventSchema = z.object({
   approvalReason: z.string().optional(),
   riskThreshold: z.string().optional(),
   activityMetadata: ToolActivityMetadataSchema.optional(),
+  /**
+   * Set only by `ask_question`: the questions asked and the answers the user
+   * gave. Carried here so the answered card renders the instant the prompt
+   * resolves, from the same record the daemon persists on the tool_use block.
+   */
+  answeredQuestion: AnsweredQuestionSchema.optional(),
   /**
    * Stable, machine-readable classification for an error result (only set when
    * `isError`). Lets a client branch on a known failure — e.g.

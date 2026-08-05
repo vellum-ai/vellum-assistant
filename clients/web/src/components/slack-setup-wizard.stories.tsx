@@ -9,9 +9,13 @@ const meta: Meta<typeof SlackSetupWizard> = {
   args: {
     assistantName: "Example Assistant",
   },
+  // 400px matches the drawer the wizard actually renders in: `chat-content-
+  // layout.tsx` mounts it in an `AnimatedRightDrawer` with `defaultWidth` and
+  // `minWidth` both 400. A wider frame hides the density these stories exist to
+  // show.
   decorators: [
     (Story) => (
-      <div style={{ maxWidth: 800, margin: "2rem auto" }}>
+      <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
       </div>
     ),
@@ -34,22 +38,62 @@ const fillTokens: Story["play"] = async ({ canvasElement }) => {
   await userEvent.type(canvas.getByLabelText(/App Token/i), APP_TOKEN);
 };
 
-export const Default: Story = {};
+/** Step 1: name the app and take its manifest. */
+export const Name: Story = {};
+
+/** Step 1 with the name cleared: both Copy manifest and Next are blocked. */
+export const NameEmpty: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.clear(canvas.getByLabelText(/App Name/i));
+  },
+};
+
+/** Step 1 after a successful copy, showing the transient confirmation. */
+export const Copied: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /Copy manifest/i }),
+    );
+  },
+};
+
+/** Step 2, reached through Next rather than `initialStepId`. */
+export const OpenSlack: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+  },
+};
+
+/** Step 3: the in-Slack directions, with one way forward. */
+export const CreateApp: Story = {
+  args: { initialStepId: "create" },
+};
+
+/** Step 4: both tokens, empty. */
+export const Connect: Story = {
+  args: { initialStepId: "connect" },
+};
 
 export const Saving: Story = {
-  args: { saveStatus: "pending" },
+  args: { initialStepId: "connect", saveStatus: "pending" },
+  play: fillTokens,
 };
 
 export const Connected: Story = {
-  args: { saveStatus: "success" },
+  args: { initialStepId: "connect", saveStatus: "success" },
   play: fillTokens,
 };
 
 export const SaveFailed: Story = {
   args: {
+    initialStepId: "connect",
     saveStatus: "error",
     saveError: "Slack rejected the bot token (invalid_auth).",
   },
+  play: fillTokens,
 };
 
 /**
@@ -58,6 +102,7 @@ export const SaveFailed: Story = {
  * Connect stays disabled.
  */
 export const TokenFormatValidation: Story = {
+  args: { initialStepId: "connect" },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.type(canvas.getByLabelText(/Bot Token/i), APP_TOKEN);

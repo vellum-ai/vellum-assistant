@@ -44,7 +44,7 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     isRecoverableImageError(ctx.error.message) &&
     !isImageRecoveryAttempted(ctx.conversationId)
   ) {
-    const { messages, changed } = recoverUnsendableImages(ctx.messages);
+    const { messages, changed } = await recoverUnsendableImages(ctx.messages);
     // A rejection can be classified as recoverable yet leave nothing to fix —
     // e.g. a media-type mismatch on a format the sniffer cannot identify. Retrying
     // an unchanged history would resend the identical rejected image and surface a
@@ -59,7 +59,9 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     // turns, so a persistence failure must never abort the retry that is about
     // to run — log it and continue with the in-memory recovery.
     try {
-      const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+      const rewritten = await persistUnsendableImageDowngrades(
+        ctx.conversationId,
+      );
       if (rewritten > 0) {
         ctx.logger.info(
           { plugin: "image-recovery", rewritten },

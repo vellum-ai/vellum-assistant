@@ -194,6 +194,11 @@ export {
   type MarkdownLinkComponent,
 } from "./components/markdown-message";
 export {
+  Skeleton,
+  type SkeletonProps,
+  type SkeletonAs,
+} from "./components/skeleton";
+export {
   SideMenu,
   SideMenuBody,
   SideMenuFooter,

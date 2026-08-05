@@ -215,3 +215,33 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
     expect(drainQueue).toHaveBeenCalledWith("loop_complete");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Turn-scoped view state
+//
+// The app the client has on screen rides in on a message's transport. Nothing
+// tells the daemon when the user closes it, so leaving the value on the
+// conversation would let a later turn with no fresh client transport (a
+// scheduled wake, a background follow-up) assert the user is looking at an app
+// they closed. This suite reuses the loop harness above because the clear
+// lives in the loop's per-turn teardown.
+// ---------------------------------------------------------------------------
+
+describe("runAgentLoopImpl per-turn view state", () => {
+  test("clears the reported visible app at turn end so a later turn cannot inherit it", async () => {
+    const events: AssistantEvent[] = [];
+    const ctx = makeCtx({
+      visibleAppId: "app-on-screen",
+      commitTurnChanges: mock(
+        async () => {},
+      ) as unknown as Context["commitTurnChanges"],
+    });
+
+    await runAgentLoopImpl(ctx, "background task", "msg-visible-app", (event) =>
+      events.push(event),
+    );
+
+    expect(ctx.visibleAppId).toBeUndefined();
+    expect(ctx.currentTurnVisibleAppId).toBeUndefined();
+  });
+});

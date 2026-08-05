@@ -95,8 +95,14 @@ export async function vellumManagedTranscribe(
   audio: Buffer,
   mimeType: string,
   signal?: AbortSignal,
+  language?: string,
 ): Promise<SttTranscribeResult> {
-  const result = await managedSpeechTranscribe({ audio, mimeType, signal });
+  const result = await managedSpeechTranscribe({
+    audio,
+    mimeType,
+    signal,
+    language,
+  });
   if (!result.ok) {
     throw sttErrorFromManagedSpeech(result);
   }

@@ -1,5 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
+import {
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_EXIT_MS,
+  EDGE_SWIPE_FALLBACK_SLACK_MS,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
 import { computeVisualOffset, useEdgeSwipe } from "@/hooks/use-edge-swipe";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
@@ -7,20 +13,8 @@ import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Duration (ms) for the cancel/snap-back animation. */
-const CANCEL_ANIMATION_MS = 200;
-
-/** Duration (ms) for the commit/slide-off-screen animation. */
-const COMMIT_ANIMATION_MS = 180;
-
-/** Duration (ms) for the incoming page entrance animation. */
-const ENTRANCE_ANIMATION_MS = 200;
-
 /** Fraction of viewport width the incoming page slides in from. */
 const ENTRANCE_OFFSET_RATIO = 0.25;
-
-/** Slack (ms) added to animation durations for the safety-fallback timers. */
-const ANIMATION_FALLBACK_SLACK_MS = 50;
 
 /** Clear the four inline styles this hook owns, returning the element to rest. */
 function resetTransientStyles(el: HTMLElement): void {
@@ -135,7 +129,7 @@ export function useEdgeSwipeBack({
   };
 
   const snapBack = (el: HTMLElement) => {
-    el.style.transition = `transform ${CANCEL_ANIMATION_MS}ms ease-out`;
+    el.style.transition = `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`;
     applyOffset(el, 0);
     const onEnd = () => {
       el.removeEventListener("transitionend", onEnd);
@@ -145,13 +139,13 @@ export function useEdgeSwipeBack({
     // Safety fallback if transitionend doesn't fire.
     scheduleTimeout(
       () => resetTransientStyles(el),
-      CANCEL_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS,
+      EDGE_SWIPE_SLIDE_MS + EDGE_SWIPE_FALLBACK_SLACK_MS,
     );
   };
 
   const runCommitAnimation = (el: HTMLElement) => {
     // Slide the outgoing page off to the right.
-    el.style.transition = `transform ${COMMIT_ANIMATION_MS}ms ease-in`;
+    el.style.transition = `transform ${EDGE_SWIPE_EXIT_MS}ms ${EDGE_SWIPE_EASING}`;
     applyOffset(el, window.innerWidth);
     let didFinish = false;
     const finish = () => {
@@ -182,10 +176,10 @@ export function useEdgeSwipeBack({
           pendingRevealRef.current = false;
           resetTransientStyles(el);
         }
-      }, ENTRANCE_ANIMATION_MS * 2);
+      }, EDGE_SWIPE_SLIDE_MS * 2);
     };
     el.addEventListener("transitionend", finish, { once: true });
-    scheduleTimeout(finish, COMMIT_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS);
+    scheduleTimeout(finish, EDGE_SWIPE_EXIT_MS + EDGE_SWIPE_FALLBACK_SLACK_MS);
   };
 
   useEdgeSwipe({
@@ -257,7 +251,7 @@ export function useEdgeSwipeBack({
       resetTransientStyles(el);
     };
 
-    el.style.transition = `transform ${ENTRANCE_ANIMATION_MS}ms ease-out, opacity ${ENTRANCE_ANIMATION_MS}ms ease-out`;
+    el.style.transition = `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}, opacity ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`;
     el.style.transform = "";
     el.style.opacity = "";
     el.addEventListener("transitionend", settle, { once: true });
@@ -265,7 +259,7 @@ export function useEdgeSwipeBack({
     // fire after a normal end is a no-op.
     const fallbackId = setTimeout(
       settle,
-      ENTRANCE_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS,
+      EDGE_SWIPE_SLIDE_MS + EDGE_SWIPE_FALLBACK_SLACK_MS,
     );
 
     return () => {

@@ -7,7 +7,7 @@
 // `resolveConversationKind` classifier, and the pure predicates over a
 // persisted message's `metadata` record.
 
-import { parseChannelId } from "../channels/types.js";
+import { parseChannelId, parseClientOs } from "../channels/types.js";
 
 /**
  * Canonical `conversations.source` string for background memory v2
@@ -23,6 +23,15 @@ export type ConversationCreateType = "standard" | "background" | "scheduled";
 
 /** Read-side alias of {@link ConversationCreateType}. */
 export type ConversationType = ConversationCreateType;
+
+/**
+ * Conversation types minted outside the schedule pipeline. Scheduled rows are
+ * owned by it and created through `createConversation`.
+ */
+export type NonScheduledConversationType = Exclude<
+  ConversationCreateType,
+  "scheduled"
+>;
 
 /**
  * Conversation types created by background machinery (heartbeat runs,
@@ -149,6 +158,34 @@ export function isVoiceSessionUserMessage(
 }
 
 /**
+ * True when the row that opened the turn was sent from the macOS app, on that
+ * row's own evidence.
+ *
+ * Two markers, both required. The `client` bag's `os` entry is the only
+ * per-platform attribution on a message: `userMessageInterface` is `"web"` for
+ * the macOS app, the iOS app, and a desktop browser alike. `clientOsFromRequest`
+ * says that `os` was reported by this row's request or transport rather than
+ * inherited from the conversation's live client state, which names the surface
+ * of an earlier turn: a button tapped on the phone against a conversation last
+ * sent to from the Mac persists `os: "macos"` with no marker.
+ *
+ * Origin a row did not report itself is origin unknown. Callers gate
+ * suppression on this, so unknown has to read as not-macOS.
+ */
+export function isMacOriginatedUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  if (metadata?.clientOsFromRequest !== true) {
+    return false;
+  }
+  const client = metadata.client;
+  if (typeof client !== "object" || client === null) {
+    return false;
+  }
+  return parseClientOs((client as Record<string, unknown>).os) === "macos";
+}
+
+/**
  * True when the row that opened the turn arrived over an external messaging
  * surface (Slack, Telegram, WhatsApp, email, a phone call) rather than the
  * native app.
@@ -220,3 +257,13 @@ export function isReplyPushIneligibleUserMessage(
     (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }
+
+/**
+ * The reserved `group_id` values the sidebar's system sections use.
+ *
+ * `group_id` is nullable, and a conversation that has never been filed
+ * carries NULL rather than {@link UNGROUPED_GROUP_ID}, so predicates over the
+ * column read it through `COALESCE(group_id, 'system:all')`.
+ */
+export const UNGROUPED_GROUP_ID = "system:all";
+export const PINNED_GROUP_ID = "system:pinned";

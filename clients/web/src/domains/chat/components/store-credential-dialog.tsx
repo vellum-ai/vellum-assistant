@@ -237,7 +237,7 @@ export function StoreCredentialDialog({
       open={open && storable}
       onClose={onClose}
       onSaved={handleSaved}
-      successToastMessage="Stored securely — the key never entered the chat"
+      successToastMessage="Stored securely. The key never entered the chat."
       initialValues={{
         service: suggestion.service,
         field: suggestion.field,

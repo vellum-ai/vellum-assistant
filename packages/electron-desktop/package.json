@@ -15,6 +15,9 @@
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test src/capability-registry.test.ts"
   },
+  "dependencies": {
+    "@vellumai/electron-utils": "workspace:*"
+  },
   "peerDependencies": {
     "electron": ">=42.2.0",
     "zod": ">=4.0.0"
