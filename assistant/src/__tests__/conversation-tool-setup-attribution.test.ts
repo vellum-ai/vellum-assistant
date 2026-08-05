@@ -99,6 +99,7 @@ function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
+    getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
@@ -400,5 +401,65 @@ describe("createToolExecutor channel-permission coordinate threading", () => {
 
     expect(calls[0].context.channelPermissionChannelId).toBeUndefined();
     expect(bindingLookups).toEqual([]);
+  });
+});
+
+describe("createToolExecutor source-actor threading", () => {
+  test("submits the turn's actor principal, not the trust context's guardian", async () => {
+    // `ToolContext.sourceActorPrincipalId` is compared against the principal a
+    // client registered with on its SSE stream, so it has to be the turn's
+    // actor. Reading `trustContext.guardianPrincipalId` instead meant any turn
+    // whose trust resolution degraded submitted nothing, and the same-actor
+    // gate rejected it as a user mismatch.
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => "actor-1",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+          guardianPrincipalId: "guardian-1",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBe("actor-1");
+  });
+
+  test("carries the actor through even when trust resolved without a guardian principal", async () => {
+    // The regression: degraded trust resolution (unreachable gateway, binding
+    // drift) or a service-principal turn leaves `guardianPrincipalId` unset
+    // while the turn's actor is perfectly well known.
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => "actor-1",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "unknown",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBe("actor-1");
+  });
+
+  test("submits nothing when the turn has no actor identity at all", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => undefined,
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+          guardianPrincipalId: "guardian-1",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBeUndefined();
   });
 });

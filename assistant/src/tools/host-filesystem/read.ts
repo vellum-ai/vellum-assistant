@@ -10,7 +10,10 @@ import {
   AUDIO_EXTENSIONS,
   readAudioFile,
 } from "../shared/filesystem/audio-read.js";
-import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
+import {
+  DEFAULT_READ_LINE_LIMIT,
+  FileSystemOps,
+} from "../shared/filesystem/file-ops-service.js";
 import {
   IMAGE_EXTENSIONS,
   readImageFile,
@@ -30,8 +33,8 @@ import type {
  * Model-input schema, the single source for both runtime validation (via
  * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below — mirrors
  * `filesystem/read.ts`. `offset`/`limit` catch to `undefined` so a
- * non-numeric value reads the whole file instead of failing the call;
- * `target_client_id` catches so a non-string (or empty) value means
+ * non-numeric value falls back to the default line window instead of failing
+ * the call; `target_client_id` catches so a non-string (or empty) value means
  * "untargeted".
  */
 export const hostFileReadInputSchema = z.looseObject({
@@ -43,7 +46,7 @@ export const hostFileReadInputSchema = z.looseObject({
     .catch(undefined),
   limit: z
     .number()
-    .describe("Maximum number of lines to read")
+    .describe("Maximum number of lines to read (defaults to 2000)")
     .optional()
     .catch(undefined),
   target_client_id: z
@@ -58,7 +61,7 @@ export const hostFileReadInputSchema = z.looseObject({
 export const hostFileReadTool = {
   name: "host_file_read",
   description:
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). For files on your own machine, use file_read instead.",
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). Text reads return the first 2000 lines unless you pass `limit`; when a read stops short the result says so, and `offset` pages on from there. For files on your own machine, use file_read instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
@@ -73,7 +76,12 @@ export const hostFileReadTool = {
     if (!parsed.success) {
       return invalidToolInputResult("host_file_read", parsed.error);
     }
-    const { path: rawPath, offset, limit } = parsed.data;
+    const { path: rawPath, offset } = parsed.data;
+    // Resolve the default here rather than leaving it to the read, so the
+    // proxied branch below is bounded by the same window as the local one. A
+    // proxied read that sent no limit would stream a whole host file across
+    // the bridge before anything could trim it.
+    const limit = parsed.data.limit ?? DEFAULT_READ_LINE_LIMIT;
 
     const targetClientId =
       parsed.data.target_client_id !== ""

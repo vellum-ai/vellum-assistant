@@ -34,6 +34,21 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
   }),
 }));
 
+// The listening-language card reads daemon config through React Query too.
+// Hoisted with the mocks above (a mid-file `mock.module` does not re-link on
+// CI's bun), so its shape is swapped through this mutable seed instead.
+const languageSelection = {
+  available: false,
+  currentCode: "",
+  configuredProviderId: "deepgram",
+  daemonDefaultsToMulti: true,
+  selectLanguage: () => {},
+  selecting: false,
+};
+mock.module("@/components/speech/use-stt-language-selection", () => ({
+  useSttLanguageSelection: () => languageSelection,
+}));
+
 import { VoiceSections } from "@/domains/settings/pages/voice-page";
 import {
   DEFAULT_PAUSE_BEFORE_REPLY_MS,
@@ -49,6 +64,9 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  languageSelection.available = false;
+  languageSelection.currentCode = "";
+  languageSelection.configuredProviderId = "deepgram";
   localStorage.clear();
   useVoicePrefsStore.setState({
     showUserTranscript: false,
@@ -149,5 +167,37 @@ describe("VoiceSections caption toggles", () => {
 
     expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(true);
     expect(useVoicePrefsStore.getState().showUserTranscript).toBe(false);
+  });
+});
+
+describe("VoiceSections listening language", () => {
+  test("renders nothing when the provider is not language-selectable", () => {
+    // Gemini and Whisper detect natively, and old daemons omit the
+    // capability: showing a control whose value the daemon ignores is worse
+    // than showing none.
+    renderPage();
+
+    expect(screen.queryByText("Listening language")).toBeNull();
+  });
+
+  test("shows the current language in the Input section when selectable", () => {
+    languageSelection.available = true;
+    languageSelection.currentCode = "";
+
+    renderPage();
+
+    expect(screen.getByText("Listening language")).toBeTruthy();
+    // The unset code reads as the provider's resolved default rather than as
+    // a blank row.
+    expect(screen.getByText("Multilingual (default)")).toBeTruthy();
+  });
+
+  test("names a deliberate pin rather than the default", () => {
+    languageSelection.available = true;
+    languageSelection.currentCode = "ta";
+
+    renderPage();
+
+    expect(screen.getByText("Tamil (தமிழ்)")).toBeTruthy();
   });
 });

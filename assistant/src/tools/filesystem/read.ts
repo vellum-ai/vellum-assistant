@@ -43,7 +43,7 @@ export const fileReadInputSchema = z.looseObject({
     .catch(undefined),
   limit: z
     .number()
-    .describe("Maximum number of lines to read")
+    .describe("Maximum number of lines to read (defaults to 2000)")
     .optional()
     .catch(undefined),
   activity: z
@@ -58,7 +58,7 @@ export const fileReadInputSchema = z.looseObject({
 export const fileReadTool = {
   name: "file_read",
   description:
-    "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
+    "Read the contents of a file on your own machine. Text reads return the first 2000 lines unless you pass `limit`; when a read stops short the result says so, and `offset` pages on from there. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
   category: "filesystem",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,

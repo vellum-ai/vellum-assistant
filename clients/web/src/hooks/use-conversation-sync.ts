@@ -37,6 +37,7 @@ import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen"
 import {
   archivedConversationsQueryKey,
   originChannelListPrefix,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
@@ -78,14 +79,21 @@ export function useConversationSync(
 ): void {
   const queryClient = useQueryClient();
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unreadCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
-  // Clear pending debounce when the assistant changes or deactivates
+  // Clear pending debounces when the assistant changes or deactivates
   // so stale callbacks never fire with an old assistantId.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
+      }
+      if (unreadCountTimerRef.current) {
+        clearTimeout(unreadCountTimerRef.current);
+        unreadCountTimerRef.current = null;
       }
     };
   }, [assistantId, isAssistantActive]);
@@ -110,6 +118,7 @@ export function useConversationSync(
           assistantId,
           queryClient,
           debounceTimerRef,
+          unreadCountTimerRef,
         );
         return;
 
@@ -152,16 +161,33 @@ const limitedRefreshConversationRow = createConcurrencyLimiter(
   MAX_CONCURRENT_ROW_REFRESHES,
 );
 
+/**
+ * Run `task` after {@link CONVERSATION_LIST_DEBOUNCE_MS}, replacing whatever
+ * run is already pending on `timerRef`.
+ *
+ * Every scheduler here collapses a burst: sync signals arrive one per
+ * conversation (a bulk mark-read on another client emits hundreds), and each
+ * burst should cost one refetch rather than one per event.
+ */
+function scheduleDebounced(
+  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  task: () => void,
+): void {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+  }
+  timerRef.current = setTimeout(() => {
+    timerRef.current = null;
+    task();
+  }, CONVERSATION_LIST_DEBOUNCE_MS);
+}
+
 function scheduleConversationListRefetch(
   queryClient: ReturnType<typeof useQueryClient>,
   assistantId: string,
   debounceTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
-  if (debounceTimerRef.current) {
-    clearTimeout(debounceTimerRef.current);
-  }
-  debounceTimerRef.current = setTimeout(() => {
-    debounceTimerRef.current = null;
+  scheduleDebounced(debounceTimerRef, () => {
     // One first-page GET per populated list bucket — never a full
     // paginated drain (see refreshConversationListWindows).
     void refreshConversationListWindows(queryClient, assistantId).catch(
@@ -187,7 +213,31 @@ function scheduleConversationListRefetch(
         path: { assistant_id: assistantId ?? "" },
       }),
     });
-  }, CONVERSATION_LIST_DEBOUNCE_MS);
+    void queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    });
+  });
+}
+
+/**
+ * Debounced invalidation of the server-side unread-count cache.
+ *
+ * Seen-state changes and newly landed assistant replies surface as
+ * per-conversation `conversation:<id>:metadata` tags without a
+ * `conversationsList` umbrella tag, so the count must refetch on metadata
+ * signals too. It runs on its own timer so a burst of metadata tags does not
+ * keep pushing back the list refresh (and vice versa).
+ */
+function scheduleUnreadCountRefetch(
+  queryClient: ReturnType<typeof useQueryClient>,
+  assistantId: string,
+  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+): void {
+  scheduleDebounced(timerRef, () => {
+    void queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    });
+  });
 }
 
 function handleConversationSyncTags(
@@ -195,6 +245,7 @@ function handleConversationSyncTags(
   assistantId: string,
   queryClient: ReturnType<typeof useQueryClient>,
   debounceTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  unreadCountTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
   for (const tag of event.tags) {
     if (tag === SYNC_TAGS.conversationsList) {
@@ -211,6 +262,11 @@ function handleConversationSyncTags(
       // work for fields the UI tolerates going slightly stale.
       const parsed = parseConversationSyncTag(tag);
       if (parsed?.resource === "metadata") {
+        scheduleUnreadCountRefetch(
+          queryClient,
+          assistantId,
+          unreadCountTimerRef,
+        );
         void limitedRefreshConversationRow(
           queryClient,
           assistantId,

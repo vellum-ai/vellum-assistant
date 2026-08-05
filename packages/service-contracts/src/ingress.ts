@@ -20,6 +20,16 @@ export function normalizePublicBaseUrl(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+/**
+ * Application close code the gateway's velay bridge sends to proxied
+ * WebSockets when the tunnel itself is lost (velay disconnect, gateway
+ * shutdown). A dedicated code because the natural 1001 (going away) cannot
+ * be sent through the JS `close()` API (the bridge would remap it to a
+ * misleading 4001), and Bun's WebSocket client drops close reasons, so the
+ * code is the only signal that survives the relay to the daemon.
+ */
+export const GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE = 4801;
+
 export function normalizeHttpPublicBaseUrl(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();

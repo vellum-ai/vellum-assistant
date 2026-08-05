@@ -13,6 +13,7 @@ import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const NOW = 1700000000000;
 
@@ -55,25 +56,43 @@ describe("SubagentSpawnGroup", () => {
     expect(queryAllByTestId("inline-process-card")).toHaveLength(0);
   });
 
-  test("expanding fetches the group's detail and still expands", async () => {
-    const ids = spawnIds(3);
+  test("expanded rows demand their missing timelines; the collapsed summary demands nothing", async () => {
+    // Terminal + addressable entries with no events: exactly the state whose
+    // card projects "Loading" until its timeline is fetched. The demand lives
+    // in `useSubagentCardData` (rendering a row IS the fetch trigger), so
+    // expanding must fetch each member and the resting summary must not.
+    useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+    const ids = ["sa-done-0", "sa-done-1"];
+    for (const id of ids) {
+      useSubagentStore.getState().spawnSubagent({
+        subagentId: id,
+        label: "Research Agent",
+        objective: "",
+        status: "completed",
+        conversationId: `conv-${id}`,
+        timestamp: NOW,
+      });
+    }
+    const spy = spyOn(
+      useSubagentStore.getState(),
+      "fetchDetailIfNeeded",
+    ).mockImplementation(async () => {});
+
     const { getByTestId, findAllByTestId } = render(
       <SubagentSpawnGroup subagentIds={ids} />,
     );
-
-    const spy = spyOn(
-      useSubagentStore.getState(),
-      "fetchGroupDetail",
-    ).mockImplementation(() => {});
+    // Collapsed avatar summary mounts no card data, so nothing fetches on load.
+    expect(spy).not.toHaveBeenCalled();
 
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
 
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(ids);
-    // The expand still happens. the fetch is a side-effect, not a gate.
-    expect(await findAllByTestId("inline-process-card")).toHaveLength(3);
+    // The expand still happens; the fetch is a side-effect, not a gate.
+    expect(await findAllByTestId("inline-process-card")).toHaveLength(2);
+    expect(spy).toHaveBeenCalledWith("assistant-1", "sa-done-0");
+    expect(spy).toHaveBeenCalledWith("assistant-1", "sa-done-1");
 
     spy.mockRestore();
+    useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   });
 
   test("Details expands to the row list plus a Collapse toggle", async () => {

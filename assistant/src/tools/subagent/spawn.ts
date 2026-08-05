@@ -1,16 +1,11 @@
 import { z } from "zod";
 
 import type { AssistantEvent } from "../../api/index.js";
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
-import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { profileSupportsTools } from "../../config/profile-tool-support.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import {
-  getConversationOverrideProfile,
-  getMessages,
-} from "../../persistence/conversation-crud.js";
+import { getMessages } from "../../persistence/conversation-crud.js";
 import {
   countRecentSimilarSpawns,
   normalizeSpawnObjective,
@@ -224,10 +219,7 @@ export async function executeSubagentSpawn(
   // day buys the same answer twice, so the guard hands the repetition back to
   // the caller with what it has already cost. It never blocks: `confirm_repeat`
   // always spawns, and the advisor consult returned above is never guarded.
-  if (
-    isAssistantFeatureFlagEnabled("subagent-loop-guard") &&
-    parsed.confirm_repeat !== true
-  ) {
+  if (parsed.confirm_repeat !== true) {
     const guardResult = repeatSpawnGuardResult(
       context.conversationId,
       objective,
@@ -267,89 +259,45 @@ export async function executeSubagentSpawn(
     };
   }
 
-  // The subagent runs as its own background conversation, so the agent
-  // loop's background-skip rule would zero out any inherited profile.
-  // Forward the invoker's profile explicitly via `SubagentConfig` so
-  // `SubagentManager.spawn` passes it into the subagent's `runAgentLoop` as
-  // `options.overrideProfile`.
+  // A subagent resolves the `subagentSpawn` call site's own default profile.
+  // A profile pinned on a conversation is a choice about that conversation,
+  // not about the work it delegates, and carrying it into a child would apply
+  // the pinned model's price and its tool-calling reliability to every spawn
+  // the turn makes.
   //
-  // Resolution order: an explicit spawn-time profile, then the per-turn
-  // `context.overrideProfile` (populated by `runAgentLoopImpl` from its
-  // resolved `turnOverrideProfile`, covering per-conversation overrides and
-  // tool-routed switches), then a row read, and finally the resolved DEFAULT
-  // profile of the call site that invoked us. That last fallback is what makes
-  // a subagent match its invoker when the invoking turn ran purely on its
-  // call-site default — the workspace `activeProfile` for `mainAgent`, or the
-  // call site's own winning default (a `llm.callSites.<callSite>` pin or the
-  // catalog intent, e.g. `cost-optimized`) for a heartbeat/background
-  // invoker (`resolveDefaultProfileKey` runs the same winner selection as
-  // dispatch, minus a per-turn override).
+  // Landing on the call site's own profile means passing NO override: the
+  // child already runs its loop under `callSite: "subagentSpawn"`, so the
+  // resolver picks that profile on its own. Passing it explicitly would select
+  // the same model but register as an override, and `resolveUsageAttribution`
+  // classifies an override winner as `conversation`, which would file every
+  // subagent's spend under a pin the caller never set and break the call-site
+  // breakdown this telemetry exists for.
   //
-  // An explicit `llm.callSites.subagentSpawn` profile must still win over
-  // the invoker-default tier: that tier is a matching heuristic, not a user
-  // choice, and any override outranks the call-site pin under single-winner
-  // resolution — so the heuristic is only forwarded when no explicit pin
-  // exists. An explicit `inference_profile` argument keeps
-  // `forceOverrideProfile` and wins outright; the row read short-circuits
-  // to `undefined` for the background subagent conversation and for tool
-  // calls outside an agent-loop turn.
-  //
-  // `subagent-profile-isolation` replaces the two inheritance rungs for
-  // non-advisor spawns. A profile pinned on a conversation is a choice about
-  // that conversation, not about delegated work, yet it carries the pinned
-  // model's price and its tool-calling reliability into every child the turn
-  // spawns. Under the flag a spawn that names no `inference_profile` resolves
-  // to the `subagentSpawn` call site's own default instead, and an explicit
-  // profile the catalog states cannot call tools falls back to that same
-  // default with a note on the result.
+  // An explicit `inference_profile` argument keeps `forceOverrideProfile` and
+  // wins outright, unless the catalog states it cannot call tools, in which
+  // case it falls back to the same default with a note on the result.
   const config = getConfig();
   const llm = config.llm;
-  const isolateProfile = isAssistantFeatureFlagEnabled(
-    "subagent-profile-isolation",
-  );
-  // Landing on the subagentSpawn call site's own profile means passing NO
-  // override: the child already runs its loop under `callSite: "subagentSpawn"`,
-  // so the resolver picks that profile on its own. Passing it explicitly would
-  // select the same model but register as an override, and
-  // `resolveUsageAttribution` classifies an override winner as `conversation`,
-  // which would file every isolated subagent's spend under a pin the caller
-  // never set and break the call-site breakdown this telemetry exists for.
 
   let profileNote: string | undefined;
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
     if (outputContract === "verdict") {
       // A verdict is a check rather than an investigation, so it takes the
-      // cheap tier ahead of every inheritance rung below. The tier is this
-      // tool's preset, not a caller's choice, and an override outranks a call
-      // site's own profile under single-winner resolution, so the preset is
-      // only applied when the user pinned nothing: with an explicit
-      // `llm.callSites.subagentSpawn` profile the field is left unset and that
-      // pin wins. An `inference_profile` argument beats both and never enters
-      // this branch at all.
+      // cheap tier. The tier is this tool's preset, not a caller's choice, and
+      // an override outranks a call site's own profile under single-winner
+      // resolution, so the preset is only applied when the user pinned
+      // nothing: with an explicit `llm.callSites.subagentSpawn` profile the
+      // field is left unset and that pin wins. An `inference_profile` argument
+      // beats both and never enters this branch at all.
       inheritedOverrideProfile =
         llm.callSites?.subagentSpawn?.profile == null
           ? VERDICT_PROFILE_KEY
           : undefined;
-    } else if (isolateProfile) {
-      // Isolation means the parent's pinned profile does not reach the child.
-      // Leaving this unset is what lands it on the subagentSpawn default.
-      inheritedOverrideProfile = undefined;
-    } else {
-      inheritedOverrideProfile =
-        context.overrideProfile ??
-        getConversationOverrideProfile(context.conversationId) ??
-        (llm.callSites?.subagentSpawn?.profile == null
-          ? resolveDefaultProfileKey(
-              context.invokingCallSite ?? "mainAgent",
-              llm,
-            )
-          : undefined);
     }
-  } else if (
-    isolateProfile &&
-    profileSupportsTools(inheritedOverrideProfile, config) === false
-  ) {
+    // Every other spawn leaves this unset, which is what lands it on the
+    // subagentSpawn default rather than anything the parent turn was pinned to.
+  } else if (profileSupportsTools(inheritedOverrideProfile, config) === false) {
     profileNote = `requested profile "${inheritedOverrideProfile}" is not verified for tool calling; ran on the default profile instead.`;
     inheritedOverrideProfile = undefined;
     forceOverrideProfile = false;

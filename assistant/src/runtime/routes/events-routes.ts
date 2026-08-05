@@ -456,8 +456,8 @@ export function handleSubscribeAssistantEvents(
   }
 
   // Self-heal for dev-bypass connections: the sync resolution above reads
-  // only the guardian-delivery cache, which can be cold at connect time —
-  // without this, the subscription would carry no principal for its whole
+  // only the guardian-delivery cache, which can be cold at connect time.
+  // Without this, the subscription would carry no principal for its whole
   // lifetime and every host-proxy result would 403. Fire-and-forget so the
   // stream is not delayed; keyed by connectionId so a reconnect race cannot
   // patch the subscription that replaced this one.

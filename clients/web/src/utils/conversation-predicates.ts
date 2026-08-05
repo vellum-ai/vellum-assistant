@@ -65,11 +65,39 @@ export function canMarkRead(conversation: Conversation): boolean {
  * threads and automated background / scheduled threads — those have
  * their own surfaces and don't represent attention the user is
  * expected to clear.
+ *
+ * The daemon applies the same rules in SQL to serve
+ * `GET /v1/conversations/unread-count` (`countUnreadConversations` in
+ * `assistant/src/persistence/conversation-queries.ts`). **Changing the rules
+ * here means changing them there too**, or the badge and the sidebar's unread
+ * dots disagree. `conversation-predicates.test.ts` and the daemon's
+ * `conversation-list-routes.test.ts` assert the same scenario matrix on
+ * either side of that boundary.
  */
 export function contributesToUnreadCount(conversation: Conversation): boolean {
   return (
     conversation.hasUnseenLatestAssistantMessage === true &&
     !isBackgroundConversation(conversation) &&
     conversation.archivedAt == null
+  );
+}
+
+/**
+ * Count the conversations in `conversations` that contribute to unread
+ * counters.
+ *
+ * **Only as complete as the list it is given.** It is the fallback for
+ * assistants that do not serve `GET /v1/conversations/unread-count`, and it
+ * is correct only while the client holds every conversation. Once the list
+ * loads progressively, a partial list yields an under-count, so this must not
+ * become the primary source for any surface.
+ */
+export function countUnreadConversationsInList(
+  conversations: readonly Conversation[],
+): number {
+  return conversations.reduce(
+    (total, conversation) =>
+      contributesToUnreadCount(conversation) ? total + 1 : total,
+    0,
   );
 }

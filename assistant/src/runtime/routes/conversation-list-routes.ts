@@ -2,6 +2,7 @@
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
  * GET    /v1/conversations              — paginated conversation list
+ * GET    /v1/conversations/unread-count - count of unseen foreground conversations
  * POST   /v1/conversations/seen         — record a seen signal (single)
  * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
  * POST   /v1/conversations/unread       — mark a conversation unread
@@ -27,6 +28,7 @@ import {
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
   countConversations,
+  countUnreadConversations,
   listConversations,
   listPinnedConversations,
 } from "../../persistence/conversation-queries.js";
@@ -139,6 +141,10 @@ const listConversationsResponseSchema = z.object({
 
 const conversationDetailResponseSchema = z.object({
   conversation: conversationSummarySchema,
+});
+
+const unreadConversationCountResponseSchema = z.object({
+  count: z.number(),
 });
 
 // ---------------------------------------------------------------------------
@@ -263,6 +269,10 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   }
 
   return response;
+}
+
+function handleGetUnreadConversationCount() {
+  return { count: countUnreadConversations() };
 }
 
 function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
@@ -453,6 +463,21 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: listConversationsResponseSchema,
     handler: handleListConversations,
+  },
+  {
+    operationId: "getUnreadConversationCount",
+    endpoint: "conversations/unread-count",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Unread conversation count",
+    description:
+      "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread indicators: archived rows and non-surfaced background/scheduled rows are excluded.",
+    tags: ["conversations"],
+    responseBody: unreadConversationCountResponseSchema,
+    handler: handleGetUnreadConversationCount,
   },
   {
     operationId: "recordConversationSeen",

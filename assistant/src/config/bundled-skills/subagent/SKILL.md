@@ -119,11 +119,11 @@ Either way it is advisory, not a block: pass `confirm_repeat: true` to spawn any
 
 Set `inference_profile` to an `llm.profiles` key when a subagent should run under a specific model profile.
 
-When it is omitted, one of two things happens. Normally the subagent inherits the parent turn's active profile if one exists, and otherwise uses the `subagentSpawn` call site's default model selection. When profile isolation is enabled, the subagent always takes the `subagentSpawn` default rather than the parent's profile, and an explicit `inference_profile` the model catalog does not report as tool-capable is replaced by that default with a note on the spawn result.
+When it is omitted, the subagent takes the `subagentSpawn` call site's default model selection. It does not pick up the profile the spawning turn is running on: a profile pinned on a conversation is a choice about that conversation, and it does not follow the work that conversation delegates.
 
-An `advisor` consult is the exception to that second half: it carries read-only tools whether or not profile isolation is on, so a profile the catalog does not report as tool-capable is always replaced by the `subagentSpawn` default, with a note alongside the guidance.
+An `inference_profile` you name explicitly wins, unless the model catalog does not report it as tool-capable, in which case it is replaced by the `subagentSpawn` default with a note on the spawn result. An `advisor` consult applies that same fallback, with the note alongside its guidance.
 
-`output_contract: "verdict"` takes a cheaper profile ahead of either path, so a verdict runs cheap unless you name an `inference_profile` yourself. A profile pinned on the `subagentSpawn` call site in config also beats the cheap preset, so an operator can decide what checks run on.
+`output_contract: "verdict"` takes a cheaper profile, so a verdict runs cheap unless you name an `inference_profile` yourself. A profile pinned on the `subagentSpawn` call site in config also beats the cheap preset, so an operator can decide what checks run on.
 
 ## Fork Mode
 

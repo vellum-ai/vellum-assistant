@@ -152,7 +152,7 @@ export async function getGuardianDelivery(input?: {
  * when the cache is cold or expired. Used by sync hot paths (SSE subscribe)
  * that cannot await {@link getGuardianDelivery} but must resolve the SAME
  * gateway-owned principal the async paths land on. There is no fallback
- * fetch — on a cold/expired cache the caller proceeds without a principal.
+ * fetch: on a cold/expired cache the caller proceeds without a principal.
  */
 export function peekCachedGuardianDelivery(input?: {
   channelTypes?: string[];

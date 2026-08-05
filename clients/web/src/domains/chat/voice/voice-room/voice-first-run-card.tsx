@@ -49,12 +49,14 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * The second sanctioned exception is the listening-language row: a wrong STT
  * language is broken rather than suboptimal (the assistant would mishear every
  * turn), so it is the one default worth surfacing before the first session.
- * The row appears only on locale evidence (the browser locale suggests a
- * non-English spoken language), only when the daemon reports the configured
- * STT provider as language-selectable, and only when that provider's option
- * set actually offers the suggested language (a Tamil locale under xai has
- * nothing valid to suggest, so no row); English-locale users see the card
- * unchanged. It is a surfaced smart default, not a question: nothing is
+ * The row appears only where the daemon's own default leaves the user broken:
+ * on locale evidence for a language that default cannot follow, only when the
+ * daemon reports the configured STT provider as language-selectable, and only
+ * when that provider's option set actually offers the suggested language (a
+ * Tamil locale under xai has nothing valid to suggest, so no row). A Hindi
+ * locale under Deepgram sees no row either, because code-switching covers
+ * it, and proposing a setting that is already in effect reads as an
+ * unfinished task. It is a surfaced smart default, not a question: nothing is
  * written unless the user explicitly picks, and a pick hot-applies from the
  * next spoken turn (no Save, matching the voice picker's semantics).
  *
@@ -137,6 +139,7 @@ export function VoiceFirstRunCard({
     available: languageAvailable,
     currentCode: languageCode,
     configuredProviderId,
+    daemonDefaultsToMulti,
     selectLanguage,
     selecting: languageSelecting,
   } = useSttLanguageSelection(localeEntry !== null ? assistantId : null);
@@ -145,9 +148,14 @@ export function VoiceFirstRunCard({
   // locale under xai), so the row never renders a suggestion the picker
   // withholds. `languageAvailable` stays false until config arrives, so the
   // row only renders once `configuredProviderId` is the real provider.
+  // `languageCode` matters as much as the provider default here: a user who
+  // pinned English is transcribed as English whatever unset would have meant,
+  // so the row has to stay visible for them.
   const suggestedCode = suggestedLanguageForLocale(
     navigatorLanguage,
     configuredProviderId,
+    daemonDefaultsToMulti,
+    languageCode,
   );
 
   return (
@@ -306,6 +314,7 @@ export function VoiceFirstRunCard({
                     value={sttLanguageLabelForCode(
                       languageCode,
                       configuredProviderId,
+                      daemonDefaultsToMulti,
                     )}
                   />
                 </div>
@@ -374,6 +383,7 @@ export function VoiceFirstRunCard({
                 currentCode={languageCode}
                 configuredProviderId={configuredProviderId}
                 suggestedCode={suggestedCode}
+                daemonDefaultsToMulti={daemonDefaultsToMulti}
                 selectLanguage={selectLanguage}
                 selecting={languageSelecting}
                 onDone={backToIntro}

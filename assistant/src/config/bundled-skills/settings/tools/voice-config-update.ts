@@ -179,6 +179,7 @@ const STT_LANGUAGE_ALIASES: Record<
   thai: "th",
   turkish: "tr",
   ukrainian: "uk",
+  urdu: "ur",
   vietnamese: "vi",
   multilingual: "multi",
   auto: "multi",

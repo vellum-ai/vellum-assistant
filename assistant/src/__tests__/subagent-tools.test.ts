@@ -107,7 +107,6 @@ import { executeSubagentMessage } from "../tools/subagent/message.js";
 import { executeSubagentRead } from "../tools/subagent/read.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 import { executeSubagentStatus } from "../tools/subagent/status.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // The tools fall back to the durable table for a subagent the manager does not
 // hold, so every executor here reaches it. Idempotent; the table may already
@@ -637,7 +636,7 @@ describe("Subagent spawn success and failure", () => {
     }
   });
 
-  test("spawn inherits the invoking call site's default profile when no override is present", async () => {
+  test("spawn passes no override, landing the child on the subagentSpawn default", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
     let capturedConfig: Record<string, unknown> | undefined;
@@ -657,17 +656,17 @@ describe("Subagent spawn success and failure", () => {
       );
 
       expect(result.isError).toBe(false);
-      // No explicit profile and no per-turn override → the child matches the
-      // invoking call site's resolved default profile (balanced for mainAgent
-      // in the test config).
-      expect(capturedConfig!.overrideProfile).toBe("balanced");
+      // No override travels with the spawn. The child runs its loop under
+      // `callSite: "subagentSpawn"` and resolves that call site's own profile,
+      // which also keeps its usage attribution off `conversation`.
+      expect(capturedConfig!.overrideProfile).toBeUndefined();
       expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
     } finally {
       manager.spawn = originalSpawn;
     }
   });
 
-  test("spawn inherits a non-main invoker's call-site default profile", async () => {
+  test("a non-main invoker's call-site default does not reach the child", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
     let capturedConfig: Record<string, unknown> | undefined;
@@ -687,15 +686,16 @@ describe("Subagent spawn success and failure", () => {
       );
 
       expect(result.isError).toBe(false);
-      // A subagent spawned from a heartbeat turn matches heartbeatAgent's own
-      // cost-optimized default, not the mainAgent default.
-      expect(capturedConfig!.overrideProfile).toBe("cost-optimized");
+      // A subagent spawned from a heartbeat turn does not pick up
+      // heartbeatAgent's cost-optimized default. Delegated work is priced by
+      // where it runs, not by which call site happened to delegate it.
+      expect(capturedConfig!.overrideProfile).toBeUndefined();
     } finally {
       manager.spawn = originalSpawn;
     }
   });
 
-  test("spawn prefers a per-turn override profile over the invoker default", async () => {
+  test("a per-turn override profile does not reach the child", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
     let capturedConfig: Record<string, unknown> | undefined;
@@ -716,9 +716,10 @@ describe("Subagent spawn success and failure", () => {
       );
 
       expect(result.isError).toBe(false);
-      // The live per-turn override wins over
-      // the call-site default, and is forwarded non-forced.
-      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+      // A profile switched mid-conversation is a choice about that
+      // conversation, not about the work it delegates, so it stops at the
+      // spawn boundary.
+      expect(capturedConfig!.overrideProfile).toBeUndefined();
       expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
     } finally {
       manager.spawn = originalSpawn;
@@ -842,12 +843,8 @@ describe("Subagent spawn success and failure", () => {
 // ── Profile isolation ───────────────────────────────────────────────
 
 describe("Subagent spawn profile isolation", () => {
-  /**
-   * Capture the config `executeSubagentSpawn` hands the manager, with
-   * `subagent-profile-isolation` seeded on or off for the duration.
-   */
-  async function spawnWithFlag(
-    enabled: boolean,
+  /** Capture the config `executeSubagentSpawn` hands the manager. */
+  async function spawnCapturingConfig(
     input: Record<string, unknown>,
     contextExtras: Record<string, unknown> = {},
   ): Promise<{
@@ -861,7 +858,6 @@ describe("Subagent spawn profile isolation", () => {
       capturedConfig = config;
       return "isolation-subagent-id";
     };
-    setOverridesForTesting({ "subagent-profile-isolation": enabled });
     try {
       const result = await executeSubagentSpawn(
         input,
@@ -872,25 +868,14 @@ describe("Subagent spawn profile isolation", () => {
       );
       return { result, config: capturedConfig };
     } finally {
-      setOverridesForTesting({});
       mockConversationOverrideProfile = undefined;
       manager.spawn = originalSpawn;
     }
   }
 
-  test("flag off keeps inheriting the conversation-pinned profile", async () => {
+  test("keeps the conversation-pinned profile away from the child", async () => {
     mockConversationOverrideProfile = "quality-optimized";
-    const { config } = await spawnWithFlag(false, {
-      label: "Pinned parent",
-      objective: "Do it",
-    });
-    expect(config.overrideProfile).toBe("quality-optimized");
-    expect(config.forceOverrideProfile).toBeUndefined();
-  });
-
-  test("flag on keeps the conversation-pinned profile away from the child", async () => {
-    mockConversationOverrideProfile = "quality-optimized";
-    const { config } = await spawnWithFlag(true, {
+    const { config } = await spawnCapturingConfig({
       label: "Pinned parent",
       objective: "Do it",
     });
@@ -901,18 +886,17 @@ describe("Subagent spawn profile isolation", () => {
     expect(config.forceOverrideProfile).toBeUndefined();
   });
 
-  test("flag on keeps the per-turn override profile away from the child", async () => {
-    const { config } = await spawnWithFlag(
-      true,
+  test("keeps the per-turn override profile away from the child", async () => {
+    const { config } = await spawnCapturingConfig(
       { label: "Override parent", objective: "Do it" },
       { invokingCallSite: "mainAgent", overrideProfile: "quality-optimized" },
     );
     expect(config.overrideProfile).toBeUndefined();
   });
 
-  test("flag on still honors an explicit inference_profile", async () => {
+  test("still honors an explicit inference_profile", async () => {
     mockConversationOverrideProfile = "cost-optimized";
-    const { result, config } = await spawnWithFlag(true, {
+    const { result, config } = await spawnCapturingConfig({
       label: "Explicit",
       objective: "Do it",
       inference_profile: "quality-optimized",
@@ -922,8 +906,8 @@ describe("Subagent spawn profile isolation", () => {
     expect(JSON.parse(result.content).note).toBeUndefined();
   });
 
-  test("flag on falls back with a note when the catalog denies tool use", async () => {
-    const { result, config } = await spawnWithFlag(true, {
+  test("falls back with a note when the catalog denies tool use", async () => {
+    const { result, config } = await spawnCapturingConfig({
       label: "No tools",
       objective: "Do it",
       inference_profile: "no-tool-model",
@@ -940,24 +924,14 @@ describe("Subagent spawn profile isolation", () => {
     );
   });
 
-  test("flag on fails open for a model the catalog does not list", async () => {
-    const { result, config } = await spawnWithFlag(true, {
+  test("fails open for a model the catalog does not list", async () => {
+    const { result, config } = await spawnCapturingConfig({
       label: "BYOK",
       objective: "Do it",
       inference_profile: "byok-unknown-model",
     });
     expect(config.overrideProfile).toBe("byok-unknown-model");
     expect(config.forceOverrideProfile).toBe(true);
-    expect(JSON.parse(result.content).note).toBeUndefined();
-  });
-
-  test("flag off leaves an unverified profile alone", async () => {
-    const { result, config } = await spawnWithFlag(false, {
-      label: "No tools",
-      objective: "Do it",
-      inference_profile: "no-tool-model",
-    });
-    expect(config.overrideProfile).toBe("no-tool-model");
     expect(JSON.parse(result.content).note).toBeUndefined();
   });
 });
@@ -1007,11 +981,10 @@ describe("Subagent spawn repeat-loop guard", () => {
   }
 
   /**
-   * Run the spawn tool with `subagent-loop-guard` seeded on or off, reporting
-   * whether the manager was actually asked to spawn.
+   * Run the spawn tool, reporting whether the manager was actually asked to
+   * spawn.
    */
   async function spawnWithGuard(
-    enabled: boolean,
     input: Record<string, unknown>,
     conversationId = guardParent,
   ) {
@@ -1022,7 +995,6 @@ describe("Subagent spawn repeat-loop guard", () => {
       spawned = true;
       return "guard-subagent-id";
     };
-    setOverridesForTesting({ "subagent-loop-guard": enabled });
     try {
       const result = await executeSubagentSpawn(
         input,
@@ -1030,29 +1002,15 @@ describe("Subagent spawn repeat-loop guard", () => {
       );
       return { result, spawned };
     } finally {
-      setOverridesForTesting({});
       manager.spawn = originalSpawn;
     }
   }
-
-  test("flag off spawns however often the objective has already run", async () => {
-    const objective = "Audit the flag-off pipeline for drift";
-    seedSpawns("guard-off", objective, 6);
-
-    const { result, spawned } = await spawnWithGuard(false, {
-      label: "Repeat",
-      objective,
-    });
-
-    expect(spawned).toBe(true);
-    expect(JSON.parse(result.content).subagentId).toBe("guard-subagent-id");
-  });
 
   test("a conversation under the threshold spawns normally", async () => {
     const objective = "Audit the under-threshold pipeline for drift";
     seedSpawns("guard-under", objective, 2);
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1064,7 +1022,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     const objective = "Audit the retention pipeline for drift";
     seedSpawns("guard-conv", objective, 3);
 
-    const { result, spawned } = await spawnWithGuard(true, {
+    const { result, spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1087,7 +1045,6 @@ describe("Subagent spawn repeat-loop guard", () => {
     }
 
     const { result, spawned } = await spawnWithGuard(
-      true,
       { label: "Repeat", objective },
       "guard-fresh-conversation",
     );
@@ -1102,7 +1059,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     const objective = "Audit the confirmed pipeline for drift";
     seedSpawns("guard-confirm", objective, 5);
 
-    const { result, spawned } = await spawnWithGuard(true, {
+    const { result, spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
       confirm_repeat: true,
@@ -1116,7 +1073,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     const objective = "Audit the advisor pipeline for drift";
     seedSpawns("guard-advisor", objective, 6);
 
-    const { result } = await spawnWithGuard(true, {
+    const { result } = await spawnWithGuard({
       label: "Consult",
       objective,
       role: "advisor",
@@ -1135,7 +1092,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     seedSpawn("guard-flight-0", objective, { status: "running" });
     seedSpawn("guard-flight-1", objective, { status: "pending" });
 
-    const { result, spawned } = await spawnWithGuard(true, {
+    const { result, spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1155,7 +1112,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     const objective = "Audit the single-flight pipeline for drift";
     seedSpawn("guard-flight-solo", objective, { status: "running" });
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1173,7 +1130,6 @@ describe("Subagent spawn repeat-loop guard", () => {
     }
 
     const { result, spawned } = await spawnWithGuard(
-      true,
       { label: "Repeat", objective },
       "guard-flight-fresh-conversation",
     );
@@ -1192,7 +1148,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     seedSpawn("guard-mixed-running-0", objective, { status: "running" });
     seedSpawn("guard-mixed-running-1", objective, { status: "running" });
 
-    const { result, spawned } = await spawnWithGuard(true, {
+    const { result, spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1211,7 +1167,7 @@ describe("Subagent spawn repeat-loop guard", () => {
       seedSpawn(`guard-flight-confirm-${i}`, objective, { status: "running" });
     }
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
       confirm_repeat: true,
@@ -1228,7 +1184,7 @@ describe("Subagent spawn repeat-loop guard", () => {
       }
     }
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Retry",
       objective,
     });
@@ -1243,7 +1199,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     seedSpawn("guard-norm-2", objective.replace(/ /gu, "\n"));
     seedSpawn("guard-norm-3", objective.replace(/ /gu, "   "));
 
-    const { result, spawned } = await spawnWithGuard(true, {
+    const { result, spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1256,7 +1212,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     const objective = "Audit the distinct pipeline for drift";
     seedSpawns("guard-distinct", objective, 5);
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Different",
       objective: "Audit the payouts ledger for drift",
     });
@@ -1278,7 +1234,7 @@ describe("Subagent spawn repeat-loop guard", () => {
       });
     }
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Retry",
       objective,
     });
@@ -1294,7 +1250,7 @@ describe("Subagent spawn repeat-loop guard", () => {
     seedSpawns("guard-inflight-done", objective, 2);
     seedSpawn("guard-inflight-0", objective, { status: "awaiting_input" });
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -1308,7 +1264,7 @@ describe("Subagent spawn repeat-loop guard", () => {
       "what you found and what should change, focusing on ";
     seedSpawns("guard-batch", `${preamble}the billing service`, 5);
 
-    const { spawned } = await spawnWithGuard(true, {
+    const { spawned } = await spawnWithGuard({
       label: "Next in batch",
       objective: `${preamble}the payouts service`,
     });
@@ -1322,7 +1278,7 @@ describe("Subagent spawn repeat-loop guard", () => {
       "what you found and what should change, focusing on the ledger service";
     seedSpawns("guard-long", objective, 3);
 
-    const { result, spawned } = await spawnWithGuard(true, {
+    const { result, spawned } = await spawnWithGuard({
       label: "Repeat",
       objective,
     });
@@ -2979,7 +2935,9 @@ describe("Subagent output contract", () => {
       },
       { invokingCallSite: "mainAgent" },
     );
-    expect(config!.overrideProfile).toBe("balanced");
+    // A report is the default contract, so it applies no preset of its own and
+    // leaves the child on the subagentSpawn default like any other spawn.
+    expect(config!.overrideProfile).toBeUndefined();
     expect(
       buildSubagentSystemPrompt(
         {
@@ -3251,13 +3209,12 @@ describe("Subagent advisor-role consult", () => {
     }
   });
 
-  test("advisor still uses llm.advisorProfile under profile isolation", async () => {
+  test("advisor uses llm.advisorProfile, not the conversation pin", async () => {
     mockFindConversation = () => ({
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       getCurrentSystemPrompt: () => "SYS",
     });
     mockConversationOverrideProfile = "quality-optimized";
-    setOverridesForTesting({ "subagent-profile-isolation": true });
     const { captured, restore } = stubAwait("advice");
     try {
       await executeSubagentSpawn(
@@ -3268,7 +3225,6 @@ describe("Subagent advisor-role consult", () => {
       expect(captured.current!.config.forceOverrideProfile).toBe(true);
     } finally {
       restore();
-      setOverridesForTesting({});
       mockConversationOverrideProfile = undefined;
       mockFindConversation = () => undefined;
     }

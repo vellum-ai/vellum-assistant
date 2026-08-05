@@ -67,17 +67,37 @@ export interface CommitPressureSnapshot {
   commits: number;
   /** Longest run of commits separated by less than {@link BACK_TO_BACK_MS}. */
   maxBackToBackCommits: number;
+  /**
+   * Commits with no recorded update since the previous commit: traffic the
+   * per-source tallies cannot name. When this dwarfs `updates`, the driver is
+   * an uninstrumented updater and `sources` lists bystanders (LUM-3062).
+   */
+  unattributedCommits: number;
+  /**
+   * Longest consecutive run of unattributed commits. A long run fingerprints
+   * a per-commit updater outside the instrumented set, such as a setState in
+   * a passive effect; instrumented traffic interleaving every other commit
+   * caps the run at 1, so read it together with `unattributedCommits`.
+   */
+  maxUnattributedCommits: number;
 }
 
 interface Bucket {
   startedAt: number;
   updates: number;
   commits: number;
+  unattributed: number;
   sources: Map<string, number>;
 }
 
 function emptyBucket(startedAt: number): Bucket {
-  return { startedAt, updates: 0, commits: 0, sources: new Map() };
+  return {
+    startedAt,
+    updates: 0,
+    commits: 0,
+    unattributed: 0,
+    sources: new Map(),
+  };
 }
 
 let current: Bucket = emptyBucket(0);
@@ -88,6 +108,14 @@ let previous: Bucket = emptyBucket(0);
 let lastCommitAt = 0;
 let backToBackRun = 0;
 let maxBackToBackRun = 0;
+
+// Attribution tracking. A commit is attributed when at least one
+// `recordUpdate` landed since the previous commit; anything else is update
+// traffic the source tallies cannot see. Spans buckets like the back-to-back
+// run, for the same reason.
+let updateSinceLastCommit = false;
+let unattributedRun = 0;
+let maxUnattributedRun = 0;
 
 function now(): number {
   return typeof performance !== "undefined" && performance.now
@@ -106,6 +134,9 @@ function roll(ts: number): void {
     previous = emptyBucket(ts);
     maxBackToBackRun = 0;
     backToBackRun = 0;
+    updateSinceLastCommit = false;
+    unattributedRun = 0;
+    maxUnattributedRun = 0;
   } else {
     previous = current;
   }
@@ -120,6 +151,7 @@ function roll(ts: number): void {
 export function recordUpdate(source: UpdateSource): void {
   const ts = now();
   roll(ts);
+  updateSinceLastCommit = true;
   current.updates += 1;
   const key =
     current.sources.has(source) || current.sources.size < MAX_SOURCES
@@ -129,13 +161,30 @@ export function recordUpdate(source: UpdateSource): void {
 }
 
 /**
- * Record a React commit. Called from a dependency-less effect in the chat
- * route, so it counts commits of that subtree — not every root commit.
+ * Record a React commit. Called from a dependency-less layout effect in the
+ * chat route, so it counts commits of that subtree, not every root commit.
+ * Layout-effect timing keeps attribution honest: the commit is recorded
+ * before ResizeObserver, rAF, and timer callbacks run, so an instrumented
+ * update firing in those callbacks attributes the commit it schedules, not
+ * the one that just finished. Updates scheduled inside the render or layout
+ * window itself are still consumed by the finishing commit, so an isolated
+ * `unattributedCommits` tick with a run of 1 is scheduling noise; the signal
+ * is counts rivaling `commits` and long runs.
  */
 export function recordCommit(): void {
   const ts = now();
   roll(ts);
   current.commits += 1;
+  if (updateSinceLastCommit) {
+    unattributedRun = 0;
+  } else {
+    current.unattributed += 1;
+    unattributedRun += 1;
+    if (unattributedRun > maxUnattributedRun) {
+      maxUnattributedRun = unattributedRun;
+    }
+  }
+  updateSinceLastCommit = false;
   if (lastCommitAt !== 0 && ts - lastCommitAt < BACK_TO_BACK_MS) {
     backToBackRun += 1;
     if (backToBackRun > maxBackToBackRun) {
@@ -179,6 +228,8 @@ export function snapshotCommitPressure(): CommitPressureSnapshot | null {
     sources,
     commits,
     maxBackToBackCommits: maxBackToBackRun,
+    unattributedCommits: current.unattributed + previous.unattributed,
+    maxUnattributedCommits: maxUnattributedRun,
   };
 }
 
@@ -228,4 +279,7 @@ export function resetCommitPressure(): void {
   lastCommitAt = 0;
   backToBackRun = 0;
   maxBackToBackRun = 0;
+  updateSinceLastCommit = false;
+  unattributedRun = 0;
+  maxUnattributedRun = 0;
 }

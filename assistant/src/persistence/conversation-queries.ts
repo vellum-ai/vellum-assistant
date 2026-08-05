@@ -8,6 +8,7 @@ import {
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
 import { isLexicalBackfillComplete } from "./checkpoints.js";
+import { unseenAttentionStateConditions } from "./conversation-attention-store.js";
 import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
@@ -21,7 +22,11 @@ import {
   resolveMessageContentBlocks,
 } from "./message-content-file.js";
 import { rawAll } from "./raw-query.js";
-import { conversations, messages } from "./schema/index.js";
+import {
+  conversationAssistantAttentionState,
+  conversations,
+  messages,
+} from "./schema/index.js";
 
 const log = getLogger("conversation-store");
 
@@ -166,6 +171,26 @@ function surfacedVisibilitySql(alias = "conversations"): string {
     `(${alias}.surfaced_at IS NOT NULL` +
     ` AND ${alias}.conversation_type != 'private'` +
     ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
+  );
+}
+
+/**
+ * Raw SQL predicate for "not an automated background/scheduled row".
+ *
+ * A background or scheduled row counts as foreground only once it has been
+ * explicitly surfaced. {@link standardListingVisibilitySql} already admits
+ * such rows through its surfaced and custom-group arms, so a caller that
+ * must distinguish "visible in the listing" from "user-facing foreground"
+ * (unread counting) applies this on top.
+ *
+ * The SQL twin of `isBackgroundConversation` in the web client's
+ * `utils/conversation-predicates.ts`.
+ */
+function notBackgroundVisibilitySql(alias = "conversations"): string {
+  return (
+    `NOT ((${alias}.conversation_type IN ('background', 'scheduled')` +
+    ` OR COALESCE(${alias}.group_id, 'system:all') IN ('system:background', 'system:scheduled'))` +
+    ` AND ${alias}.surfaced_at IS NULL)`
   );
 }
 
@@ -439,6 +464,54 @@ export function countConversations(
     .select({ total: count() })
     .from(conversations)
     .where(where)
+    .all();
+  return total;
+}
+
+/**
+ * Count of foreground conversations whose latest assistant message is unseen.
+ *
+ * The server-side twin of the web client's `contributesToUnreadCount`
+ * predicate (`clients/web/src/utils/conversation-predicates.ts`), so the
+ * count returned by `GET /v1/conversations/unread-count` always matches what
+ * the sidebar's unread indicators would sum to over the full list.
+ *
+ * **Two definitions of one rule.** Changing what counts here means changing
+ * the client predicate too. Both sides assert the same named scenario matrix
+ * ("unread-count contract") so a one-sided change is visible in review: see
+ * `__tests__/conversation-list-routes.test.ts` here and
+ * `conversation-predicates.test.ts` there. The duplication exists only to
+ * keep a fallback for assistants without this route, and goes away with it.
+ *
+ * The rules:
+ *
+ * - visible in the standard (Recents) listing ({@link conversationTypeClause}),
+ * - not archived,
+ * - not an unsurfaced background/scheduled row
+ *   ({@link notBackgroundVisibilitySql}), which excludes automated rows the
+ *   listing admits through its custom-group arm,
+ * - unseen per the attention projection
+ *   ({@link unseenAttentionStateConditions}); conversations without a
+ *   projection row read as seen, hence the inner join.
+ */
+export function countUnreadConversations(): number {
+  ensureGroupMigration();
+  const db = getDb();
+  const [{ total }] = db
+    .select({ total: count() })
+    .from(conversations)
+    .innerJoin(
+      conversationAssistantAttentionState,
+      eq(conversationAssistantAttentionState.conversationId, conversations.id),
+    )
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        sql.raw(notBackgroundVisibilitySql()),
+        ...unseenAttentionStateConditions(),
+      ),
+    )
     .all();
   return total;
 }

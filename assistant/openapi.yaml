@@ -9565,6 +9565,28 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/conversations/unread-count:
+    get:
+      operationId: conversations_unreadcount_get
+      summary: Unread conversation count
+      description:
+        "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread
+        indicators: archived rows and non-surfaced background/scheduled rows are excluded."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+                required:
+                  - count
+                additionalProperties: false
   /v1/conversations/wake:
     post:
       operationId: conversations_wake_post

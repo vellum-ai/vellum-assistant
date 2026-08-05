@@ -1,6 +1,6 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -13,17 +13,13 @@ import {
   type ProPackage,
   type SwitchRelation,
 } from "@/domains/settings/billing/package-types";
-import { PlanPromoCard } from "@/domains/settings/billing/plan-promo-card";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
-import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
-import {
-  CustomPlanModal,
-  type CustomPlanSeed,
-  type CustomPlanSelection,
-} from "@/domains/settings/billing/plans/custom-plan-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
-import { packageSpecs } from "@/domains/settings/billing/plan-spec";
-import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
+import {
+  freePlanSpecs,
+  packageSpecs,
+} from "@/domains/settings/billing/plan-spec";
+import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -38,11 +34,11 @@ import {
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { ProPlan } from "@/generated/api/types.gen";
+import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
-import type { ButtonProps } from "@vellumai/design-library/components/button";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -50,33 +46,13 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import {
+  formatDollars,
+  priceLabelFromCents,
+} from "@/domains/settings/components/tier-pricing";
+import {
   extractMutationError,
   isPackageSwitchEligible,
 } from "./adjust-plan-utils";
-
-interface PlanDisplay {
-  actionLabel: string;
-  actionVariant: ButtonProps["variant"];
-  actionTestId: string;
-  showsRenewal: boolean;
-}
-
-const PLAN_DISPLAY: Record<string, PlanDisplay> = {
-  pro: {
-    actionLabel: "Manage",
-    actionVariant: "outlined",
-    actionTestId: "plan-card-manage-button",
-    showsRenewal: true,
-  },
-  base: {
-    actionLabel: "View All Plans",
-    actionVariant: "primary",
-    actionTestId: "plan-card-upgrade-button",
-    showsRenewal: true,
-  },
-};
-
-const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.pro;
 
 export interface PlanCardProps {
   onManage: () => void;
@@ -102,13 +78,13 @@ function PlanHeading() {
 
 interface RecommendedUpgradeProps {
   packages: ProPackage[];
-  /**
-   * The live Pro plan from the catalog, supplying the machine/storage/credit
-   * tiers the `CustomPlanModal` configures. Undefined only when the Pro plan is
-   * absent from the catalog — in which case there is no customize path to offer.
-   */
-  proPlan: ProPlan | undefined;
   currentKey: string | null;
+  /**
+   * The current plan's monthly price, for the CTA's delta. Null when no honest
+   * total is known (a Custom sub, or a pin the live catalog cannot price),
+   * which drops the delta from the label.
+   */
+  currentPriceCents: number | null;
   /**
    * Whether the org already has a Pro subscription. Pro users change their
    * package in place (prorated) via the change-package endpoint; base users
@@ -125,29 +101,26 @@ interface RecommendedUpgradeProps {
   canChangePackage: boolean;
   /**
    * How the target package relates to the current sub. A clean pin's next
-   * package is an "upgrade" (the promo "Upgrade to X" variant); a customized or
-   * unpinned (Custom) sub gets "switch", which routes to the "Create a custom
-   * plan" variant instead.
+   * package is an "upgrade"; a customized or unpinned (Custom) sub gets
+   * "switch", which has no next tile to show.
    */
   relation: SwitchRelation;
   /**
    * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
-   * non-entitlement Pro sub that the change-package/change-tier flows cannot
-   * act on.
+   * non-entitlement Pro sub that the change-package flow cannot act on.
    */
   onManage: () => void;
   /**
    * Opens the provisioning takeover (resize modal) after a Pro user's in-place
-   * package or tier change succeeds — the same signal the tier-change flow
-   * raises.
+   * package change succeeds. Same signal the tier-change flow raises.
    */
   onTierUpgraded?: () => void;
 }
 
 function RecommendedUpgrade({
   packages,
-  proPlan,
   currentKey,
+  currentPriceCents,
   isProUser,
   canChangePackage,
   relation,
@@ -159,55 +132,15 @@ function RecommendedUpgrade({
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const { changePackage, isPending: changePending } = useChangePackage();
-  // The customize variant edits the Pro sub's tiers in place; only enable the
-  // hook's org-scoped reads for a Pro sub (a base user never sees that variant).
-  const {
-    changeTiers,
-    isPending: changeTiersPending,
-    current,
-    currentReady,
-  } = useChangeTiers({ enabled: isProUser });
   const [pending, setPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [customPlanOpen, setCustomPlanOpen] = useState(false);
+  // The next tile inverts the app theme: a dark tile on a light app and a light
+  // tile on a dark app. Velvet counts as dark-family, so it gets a light tile.
+  const inverted = useDocumentTheme() === "light" ? "dark" : "light";
   // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
   useCheckoutDismissRefresh();
 
-  // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
-  // edit doesn't force re-picking — and dropping — a dimension the user still
-  // holds. Null until the current tiers load (mirrors plans-page).
-  const customInitialSelection = useMemo<CustomPlanSeed | null>(() => {
-    if (!isProUser || current.storageTier == null) {
-      return null;
-    }
-    // `machineTier` may be null for a baseline (Small) package — the modal
-    // seeds storage/credit and leaves the machine picker empty in that case.
-    return {
-      machineTier: current.machineTier,
-      storageTier: current.storageTier,
-      creditTier: current.creditTier,
-    };
-  }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
-
   const recommended = nextPackageUp(packages, currentKey);
-  const hasCatalog = packages.length > 0;
-
-  // Upgrade variant: base users and Pro clean pins with a stronger package to
-  // step up to. A neutral "switch" (customized/unpinned sub) is never an
-  // upgrade — it routes to the customize variant below instead.
-  const showUpgrade = recommended != null && relation !== "switch";
-  // Customize variant: a Pro sub whose tiers can diverge from stock (customized
-  // or unpinned, i.e. relation "switch"), or a clean pin already on the top
-  // catalog package (no package left to upgrade to). Both open the new
-  // CustomPlanModal. Requires a live catalog — with the flag off there are no
-  // tiers to configure.
-  const showCustomize =
-    isProUser &&
-    hasCatalog &&
-    (relation === "switch" ||
-      (recommended == null &&
-        currentKey != null &&
-        packages.some((p) => p.key === currentKey)));
 
   const isPending = pending || upgradeMutation.isPending || changePending;
 
@@ -295,108 +228,76 @@ function RecommendedUpgrade({
     }
   };
 
-  // Active Pro orgs edit their tiers in place via the change-tier endpoints,
-  // mirroring AdjustPlanModal's billing-page semantics (not plans-page's). The
-  // billing-page resize takeover is credit-agnostic — `onTierUpgraded` is
-  // argument-less and opens a resize-only takeover with no credit prop — so a
-  // credit-only change must toast instead of popping a blank takeover.
-  const applyCustomTierChange = async (selection: CustomPlanSelection) => {
-    const result = await changeTiers(selection);
-    if (!result) {
-      // The hook toasted; keep the modal open so the user can retry.
-      return;
-    }
-    setCustomPlanOpen(false);
-    // Only a real machine/storage resize hands off to the takeover; a
-    // credit-only change toasts, like AdjustPlanModal.
-    if (result.needsResize) {
-      onTierUpgraded?.();
-    } else {
-      toast.success(
-        result.creditChanged ? "Credit bundle updated." : "Plan updated.",
-      );
-    }
-  };
-
-  // The customize CTA opens the configurator; a switch-ineligible sub (cancelling
-  // or non-entitlement status) falls back to the manage path, like the upgrade
-  // CTA. Guard the open like plans-page's `handleConfigure`: hold until the
-  // current tiers load and no tier change is in flight.
-  const handleCustomize = () => {
-    if (!canChangePackage) {
-      onManage();
-      return;
-    }
-    if (changeTiersPending || !currentReady) {
-      return;
-    }
-    // `currentReady` also flips true when the current-tier read settles with an
-    // error or a missing storage tier, leaving `customInitialSelection` null.
-    // Opening the configurator unseeded would let a submit diff the user's
-    // selections against null current tiers and overwrite tiers they already
-    // hold, so route to manage (which reads tiers independently) instead.
-    if (customInitialSelection == null) {
-      onManage();
-      return;
-    }
-    setCustomPlanOpen(true);
-  };
-  // Disable only when the modal-open path is the live one — a switch-ineligible
-  // sub keeps the CTA enabled so it can reach the manage fallback.
-  const customizeDisabled =
-    canChangePackage && (changeTiersPending || !currentReady);
-
-  if (showUpgrade) {
-    return (
-      <>
-        <PlanPromoCard
-          className="lg:flex-[2]"
-          title={`Upgrade to ${recommended.name}`}
-          specs={packageSpecs(recommended)}
-          ctaLabel="Upgrade"
-          ctaTestId="recommended-upgrade-button"
-          pending={isPending}
-          onCtaClick={() => void handleUpgrade()}
-        />
-        <PackageSwitchConfirmModal
-          open={confirmOpen}
-          relation={relation}
-          packageName={recommended.name}
-          targetPackage={recommended}
-          pending={isPending}
-          onConfirm={() => void handleConfirmChange()}
-          onCancel={() => setConfirmOpen(false)}
-        />
-      </>
-    );
+  // The next tile is offered to base users and to Pro clean pins with a
+  // stronger package to step up to. A neutral "switch" (a customized or
+  // unpinned sub) is never an upgrade, and a top-of-catalog pin has nothing
+  // left to step up to; both hide the tile, and the current tile stretches to
+  // fill the row. The customize path lives in the plans takeover.
+  if (recommended == null || relation === "switch") {
+    return null;
   }
 
-  if (showCustomize && proPlan) {
-    return (
-      <>
-        <PlanPromoCard
-          className="lg:flex-[2]"
-          title="Create a custom plan"
-          ctaLabel="Customize"
-          ctaTestId="recommended-customize-button"
-          pending={changeTiersPending}
-          disabled={customizeDisabled}
-          onCtaClick={handleCustomize}
-        />
-        <CustomPlanModal
-          open={customPlanOpen}
-          proPlan={proPlan}
-          pending={changeTiersPending}
-          currentStorageGib={current.storageGib}
-          initialSelection={customInitialSelection}
-          onClose={() => setCustomPlanOpen(false)}
-          onContinue={(selection) => void applyCustomTierChange(selection)}
-        />
-      </>
-    );
-  }
+  // Only state a delta we can actually compute: `nextPackageUp` falls back to
+  // the first catalog package for a pinned key the live catalog no longer
+  // carries, so an unknown current price (or a non-positive delta) drops the
+  // amount rather than quoting a wrong one.
+  const delta =
+    currentPriceCents != null
+      ? recommended.total_price_cents - currentPriceCents
+      : null;
+  const ctaLabel =
+    delta != null && delta > 0
+      ? `Power Up for +${formatDollars(delta)}/month`
+      : "Power Up";
 
-  return null;
+  return (
+    <>
+      <PlanTile
+        theme={inverted}
+        testId="plan-tile-next"
+        tierKey={recommended.key}
+        name={recommended.name}
+        tag={
+          <Tag
+            className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
+            leftIcon={
+              <Sparkles className="text-[var(--credits-accent)]" aria-hidden />
+            }
+          >
+            Next Plan
+          </Tag>
+        }
+        specs={packageSpecs(recommended)}
+        footer={
+          <Button
+            variant="primary"
+            fullWidth
+            tintColor="var(--aux-white)"
+            className="h-10 border-transparent bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] hover:opacity-90 active:bg-[var(--system-positive-strong)]"
+            onClick={() => void handleUpgrade()}
+            disabled={isPending}
+            leftIcon={
+              isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : undefined
+            }
+            data-testid="recommended-upgrade-button"
+          >
+            {ctaLabel}
+          </Button>
+        }
+      />
+      <PackageSwitchConfirmModal
+        open={confirmOpen}
+        relation={relation}
+        packageName={recommended.name}
+        targetPackage={recommended}
+        pending={isPending}
+        onConfirm={() => void handleConfirmChange()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
+  );
 }
 
 export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
@@ -434,28 +335,22 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     return <Notice tone="error">Failed to load plan.</Notice>;
   }
 
-  const display = PLAN_DISPLAY[currentPlan.id] ?? DEFAULT_DISPLAY;
   const planName =
     currentPlan.id === "pro"
       ? proPackageDisplayName(subscription.package)
       : (currentPlan.name ?? currentPlan.id);
 
   const isCancelling =
-    display.showsRenewal &&
-    (subscription.cancel_at_period_end === true ||
-      Boolean(subscription.cancel_at));
+    subscription.cancel_at_period_end === true ||
+    Boolean(subscription.cancel_at);
   const isCanceled = subscription.status === "canceled";
   const cancelDate = getEffectiveCancelDate(subscription);
   const showRenewal =
-    display.showsRenewal &&
-    !isCancelling &&
-    !isCanceled &&
-    subscription.current_period_end;
-  const showCancellation =
-    display.showsRenewal && isCancelling && !isCanceled && cancelDate;
+    !isCancelling && !isCanceled && subscription.current_period_end;
+  const showCancellation = isCancelling && !isCanceled && cancelDate;
 
   const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
-  // Empty while the `pro-packages` flag is off — the upgrade banner no-ops.
+  // Empty while the `pro-packages` flag is off, which hides the next tile.
   const packages = proPlan?.packages ?? [];
   const currentKey = subscription.package?.key ?? null;
   const currentTier = currentKey ?? "free";
@@ -466,19 +361,19 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // recovery actions; the takeover can't act on it (every change is rejected),
   // and a clean pin already reaches the manage surface through its package CTA.
   // An empty catalog (the `pro-packages` flag off) has no takeover to open, so
-  // Manage falls back to the manage modal.
+  // the CTA falls back to the manage modal.
   const canOpenPlansTakeover =
     packages.length > 0 &&
     (currentPlan.id === "base" ||
       isCleanPin(subscription.package) ||
       isPackageSwitchEligible(subscription));
-  // The banner's one-click switch is offered to any switch-eligible Pro sub —
-  // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
+  // The next tile's one-click switch is offered to any switch-eligible Pro sub
+  // (a clean pin, a customized pin, or an unpinned Custom sub), inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
   // `switchRelation`.
   const canChangePackage = isPackageSwitchEligible(subscription);
   // A base user (Stripe checkout) and a clean-pinned Pro sub both make a real
-  // upgrade, so the banner keeps its directional copy and stock chips. Only a
+  // upgrade, so the next tile keeps its directional copy and stock chips. Only a
   // Custom Pro sub — a customized pin or an unpinned legacy sub, whose real
   // tiers can diverge from any stock package — gets the direction-neutral
   // switch, since a stock delta could misstate the change.
@@ -488,15 +383,32 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       : "switch";
 
   const isFreePlan = currentPlan.id === "base";
-  // Chips render only for a paid plan whose stock package specs are known.
-  // Free shows a minimal centered card (no chips); a clean pin absent from the
-  // catalog and a customized/unpinned "Custom" sub show no chips either (never
-  // fall back to the free baseline, which would mislabel a paid sub).
+  const pin = subscription.package;
+  // Paid chips render only when the sub's stock package specs are known. A
+  // clean pin absent from the catalog and a customized/unpinned "Custom" sub
+  // show no chips and no price (never fall back to the free baseline, which
+  // would mislabel a paid sub). A pin on an older package version degrades the
+  // same way: its price and specs are grandfathered at the version the org
+  // subscribed under, so today's catalog entry does not describe what they
+  // actually pay for.
   const currentPackage =
-    !isFreePlan && isCleanPin(subscription.package)
-      ? (packages.find((p) => p.key === currentKey) ?? null)
+    !isFreePlan && isCleanPin(pin)
+      ? (packages.find((p) => p.key === pin.key && p.version === pin.version) ??
+        null)
       : null;
-  const currentSpecs = currentPackage ? packageSpecs(currentPackage) : null;
+  const currentSpecs = isFreePlan
+    ? freePlanSpecs()
+    : currentPackage
+      ? packageSpecs(currentPackage)
+      : null;
+  const currentPriceCents = isFreePlan
+    ? 0
+    : (currentPackage?.total_price_cents ?? null);
+  const priceLabel = isFreePlan
+    ? "Free Forever"
+    : currentPackage
+      ? priceLabelFromCents(currentPackage.total_price_cents)
+      : null;
 
   return (
     <Card padding="md">
@@ -527,33 +439,43 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             )}
           </div>
           <Button
-            variant={display.actionVariant}
+            variant="outlined"
             onClick={
               canOpenPlansTakeover ? () => navigate(routes.plans) : onManage
             }
-            data-testid={display.actionTestId}
+            data-testid="plan-card-plans-button"
             className="shrink-0"
           >
-            {display.actionLabel}
+            View All Plans
           </Button>
         </div>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
-          <PlanSpecCard
+          <PlanTile
+            testId="plan-tile-current"
             tierKey={currentTier}
             name={planName}
             nameTestId="plan-card-name"
-            className="lg:flex-[3]"
-            tag={
-              <Tag className="bg-[var(--feed-digest-weak)] text-[var(--content-default)]">
-                Current Plan
-              </Tag>
-            }
+            tag={<Tag tone="info">Current</Tag>}
             specs={currentSpecs}
+            footer={
+              priceLabel ? (
+                <div className="flex h-10 items-center border-t border-[var(--border-base)]">
+                  <Typography
+                    as="span"
+                    variant="body-large-default"
+                    className="text-[var(--content-tertiary)]"
+                    data-testid="plan-card-price"
+                  >
+                    {priceLabel}
+                  </Typography>
+                </div>
+              ) : undefined
+            }
           />
           <RecommendedUpgrade
             packages={packages}
-            proPlan={proPlan}
             currentKey={currentKey}
+            currentPriceCents={currentPriceCents}
             isProUser={currentPlan.id !== "base"}
             canChangePackage={canChangePackage}
             relation={switchRelation}

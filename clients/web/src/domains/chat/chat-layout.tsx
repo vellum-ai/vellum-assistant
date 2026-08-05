@@ -229,11 +229,11 @@ export function ChatLayout({
       conversationGroups,
     });
 
-  // Mirror the unread count + signed-in flag into the Electron Dock
-  // (no-op off Electron). Uses the conversation list this layout
-  // already subscribes to, so there's no extra query — see
+  // Mirror the unread count into the Electron Dock (no-op off Electron).
+  // Prefers the server-side unread count, falling back to counting the
+  // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
-  useElectronDockSync(conversations);
+  useElectronDockSync(assistantId, conversations, isAssistantActive);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their

@@ -401,7 +401,7 @@ export function createToolExecutor(
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
       requestOrigin: ctx.currentTurnRequestOrigin,
-      sourceActorPrincipalId: turnTrust.guardianPrincipalId,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId(),
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,

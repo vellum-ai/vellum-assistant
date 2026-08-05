@@ -10,6 +10,8 @@ import {
 import { createPortal } from "react-dom";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
@@ -147,11 +149,16 @@ function measureComposerRect(): TourTargetRect | null {
   };
 }
 
-/** Viewport rect of the composer's live-voice button, or null when the
- *  assistant serves no live voice (the button is the entry point, so where it
- *  is absent the beat has nothing to land on and is dropped). Prefers the tour
- *  overlay's scenery composer over the app's, and is measured at beat entry,
- *  for the same reasons as {@link measureComposerRect}. */
+/** Viewport rect of the composer's live-voice button, or null when it is not
+ *  currently rendered. Prefers the tour overlay's scenery composer over the
+ *  app's, and is measured at beat entry, for the same reasons as
+ *  {@link measureComposerRect}.
+ *
+ *  A placement probe, not a capability check: the button leaves the DOM
+ *  whenever the composer's action row is busy or holds sendable content, so
+ *  null means "not on screen right now", never "this assistant serves no live
+ *  voice". Whether the finale exists at all is decided by
+ *  {@link supportsLiveVoice} in `start()`. */
 function measureVoiceRect(): TourTargetRect | null {
   const el =
     document.querySelector<HTMLElement>(
@@ -248,6 +255,14 @@ export function AvatarTour({
     "none" | "page" | "menu" | "row" | "composer" | "voice"
   >("none");
   const activeRef = useRef(false);
+  /** Read by the beat-building effect, which must not re-run (and so restart
+   *  the tour from its intro) when the bound assistant changes. A mid-tour
+   *  swap is handled at the finale's entry, which ends the tour when the
+   *  button it lands on is gone. */
+  const assistantIdRef = useRef(assistantId);
+  useEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
 
   const accent =
     (components &&
@@ -429,7 +444,17 @@ export function AvatarTour({
       setBeatIndex(-1);
       setBeatCount(0);
       visualRef.current = "none";
-      await sleep(TOUR_LEAD_IN_MS);
+      // The lead-in doubles as the hydration window for the finale's
+      // capability gate below, so it reads a resolved version rather than the
+      // conservative `false`-on-unknown default. Bounded by the lead-in
+      // itself: the controller paints its input-blocking capture layer the
+      // moment the tour stage opens, so any wait past this point is an inert
+      // chat the user cannot touch. A hydrated version resolves
+      // synchronously, which is the common case on the onboarding hand-off.
+      await Promise.all([
+        sleep(TOUR_LEAD_IN_MS),
+        whenAssistantVersionKnown(TOUR_LEAD_IN_MS),
+      ]);
       if (!activeRef.current) {
         return;
       }
@@ -451,11 +476,14 @@ export function AvatarTour({
       if (measureComposerRect()) {
         beats.push({ kind: "composer" });
       }
-      // The finale, on the voice button inside that composer. Presence is
-      // probed here against the app's own composer (the scenery one is not
-      // mounted until the first beat lands), so an assistant without live
-      // voice never gets the beat and the tour ends on the chat beat.
-      if (measureVoiceRect()) {
+      // The finale, on the voice button inside that composer. Gated on the
+      // assistant's live-voice capability rather than the button's presence,
+      // because the beat list is frozen here while the composer is mid
+      // auto-greet: a busy composer swaps its whole action row, voice button
+      // included, for the stop button, so a DOM probe at this instant reads
+      // as "no live voice" for an assistant that serves it. The rect is
+      // measured at beat entry, which is what places the avatar.
+      if (supportsLiveVoice(assistantIdRef.current)) {
         beats.push({ kind: "voice" });
       }
       beatsRef.current = beats;
