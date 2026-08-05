@@ -1,5 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
@@ -103,6 +104,9 @@ function createHarness(options: {
   }>;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
   emitMetrics?: boolean;
+  // Holds the STT dial open so a test can drive a whole utterance through the
+  // window between `ready` and the resolved provider.
+  resolveGate?: Promise<unknown>;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -118,6 +122,9 @@ function createHarness(options: {
 
   const transcribers: MockFluxTranscriber[] = [];
   const resolveTranscriber = mock(async () => {
+    if (options.resolveGate) {
+      await options.resolveGate;
+    }
     const transcriber = new MockFluxTranscriber(
       options.providerId ?? "deepgram-flux",
     );
@@ -205,6 +212,16 @@ async function flushAsyncCallbacks(): Promise<void> {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Holds the STT dial open until the test opens it, so the whole
+// ready-before-resolve window is under the test's control.
+function createDialGate(): { promise: Promise<void>; open: () => void } {
+  let open = (): void => {};
+  const promise = new Promise<void>((resolve) => {
+    open = () => resolve();
+  });
+  return { promise, open };
 }
 
 function countFrames(
@@ -581,4 +598,136 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
       await session.close("client_end");
     });
   }
+});
+
+/**
+ * The window between `ready` and the resolved transcriber. `start()` arms the
+ * utterance in the background so the client's mic acquisition overlaps the STT
+ * handshake, which means a fast caller can speak AND fall silent before the
+ * dial answers. These tests seed `services.stt.provider` for real, because the
+ * latch is armed from the configured provider before the dial and reconciled
+ * with the resolved one after it.
+ */
+describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
+  beforeEach(() => {
+    setConfig("services", {
+      stt: { provider: "deepgram-flux", providers: {} },
+    });
+  });
+
+  afterEach(() => {
+    setConfig("services", { stt: { provider: "deepgram", providers: {} } });
+  });
+
+  test("waits for turn-end when the boundary lands before the dial resolves", async () => {
+    const gate = createDialGate();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      resolveGate: gate.promise,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    expect(transcribers).toHaveLength(0);
+
+    // The caller speaks and falls silent entirely inside the handshake
+    // window, so the whole first turn is decided before any provider answers.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    // The silence boundary passed and committed nothing: the latch was seeded
+    // from the configured provider, so Flux owns this boundary like any other.
+    expect(transcribers).toHaveLength(0);
+    expect(countFrames(frames, "utterance_end")).toBe(0);
+    expect(turnCalls).toHaveLength(0);
+
+    gate.open();
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.endOfTurn("what is the weather");
+
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The first utterance never committed on the Flux end-of-turn",
+    );
+    // Committed by Flux, not by the silence path: non-speculative dispatch.
+    expect(turnCalls[0]?.content).toBe("what is the weather");
+    expect(turnCalls[0]?.unifiedVerdict).toBeUndefined();
+    expect(countFrames(frames, "utterance_end")).toBe(1);
+
+    await session.close("client_end");
+  });
+
+  test("unwinds the seeded latch when the dial resolves to another provider", async () => {
+    const gate = createDialGate();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      // Config names Flux, so the latch is seeded, but the dial answers with
+      // another provider: a fallback, or a resolver reading a config the
+      // session no longer matches. That provider never sends an end-of-turn.
+      providerId: "deepgram",
+      // Far enough out that the fail-open deadline alone cannot be what
+      // releases this utterance inside the test's budget.
+      fluxConfig: { turnEnd: { enabled: true }, eotTimeoutMs: 30_000 },
+      silenceThresholdMs: 40,
+      resolveGate: gate.promise,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+    // Deferred under the seeded latch, exactly as a real Flux session would.
+    expect(countFrames(frames, "utterance_end")).toBe(0);
+
+    gate.open();
+    await waitFor(() => transcribers.length > 0);
+
+    // The deferred boundary is replayed as soon as the dial disproves the
+    // seed, instead of being stranded on a deadline 30 s away.
+    await waitFor(
+      () => countFrames(frames, "utterance_end") === 1,
+      "The utterance deferred under the seeded latch never released",
+    );
+    await waitFor(
+      () => transcribers[0]?.stopped === true,
+      "The utterance never finished releasing",
+    );
+    // ...and nothing routed through the Flux commit path.
+    expect(turnCalls.every((call) => call.unifiedVerdict !== undefined)).toBe(
+      true,
+    );
+
+    await session.close("client_end");
+  });
+
+  test("never seeds the latch when the flag is off", async () => {
+    const gate = createDialGate();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      // No fluxConfig: `turnEnd.enabled` keeps its schema default of false
+      // while config still names deepgram-flux as the provider.
+      silenceThresholdMs: 40,
+      resolveGate: gate.promise,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // Unchanged from today: the silence boundary releases during the dial.
+    await waitFor(
+      () => countFrames(frames, "utterance_end") === 1,
+      "The flag-off silence boundary stopped releasing during the dial",
+    );
+    expect(turnCalls).toHaveLength(0);
+
+    gate.open();
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.endOfTurn("hello there");
+    await flushAsyncCallbacks();
+
+    // The turn-end commits nothing on top of the boundary that already ran.
+    expect(countFrames(frames, "utterance_end")).toBe(1);
+
+    await session.close("client_end");
+  });
 });
