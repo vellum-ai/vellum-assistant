@@ -727,8 +727,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   test("a baseline (null machine) Pro sub opens seeded to the baseline machine", () => {
     // A package with no paid machine tier reports max_machine_tier: null. That
     // sub must still reach the modal (not route to manage), and every dimension
-    // seeds, the baseline included, so the picker states what they run on
-    // instead of reading as unset.
+    // seeds, the baseline included, so the picker names the machine they run on
+    // rather than showing its placeholder.
     const { getByRole, getByText } = renderPage(
       proMightySubscription(),
       onboarding({ max_machine_tier: null }),
@@ -768,7 +768,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   });
 
   test("the recap states the billing cadence", () => {
-    // Moved here off the Custom Plan row, where it sat apart from any price.
+    // The recap owns the cadence, so it reads beside the total it describes.
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));

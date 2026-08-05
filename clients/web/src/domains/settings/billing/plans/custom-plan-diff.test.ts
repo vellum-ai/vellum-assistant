@@ -259,8 +259,8 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
       creditChoice: NO_EXTRA_CREDITS,
     });
 
-    // Previously the baseline produced no machine row at all, so the recap
-    // silently omitted a spec the sub actually holds.
+    // The baseline earns a row like any other machine, so the recap accounts
+    // for every spec the sub holds.
     const machineRow = diff.rows.find((r) => r.key === "machine");
     expect(machineRow?.label).toBe(BASELINE_MACHINE_LABEL);
     expect(machineRow?.changed).toBe(false);

@@ -73,8 +73,9 @@ export interface CustomPlanModalProps {
    * stays disabled until a dimension changes, and an unrelated edit can't force
    * re-picking — and dropping — a tier the user still holds. A null
    * `machineTier` is the baseline machine, seeded as a disabled option so the
-   * picker states what the sub runs on rather than reading as unset. Leave
-   * null/undefined for base checkout, which starts every dimension empty.
+   * picker names the machine the sub runs on rather than showing its
+   * placeholder. Leave null/undefined for base checkout, which starts every
+   * dimension empty.
    */
   initialSelection?: CustomPlanSeed | null;
   onClose: () => void;
