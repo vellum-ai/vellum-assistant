@@ -31,10 +31,11 @@ function section(
 }
 
 /**
- * Sections the native mobile shells leave off the overview. These are the
- * desktop-oriented surfaces (files on the host machine, the contact book, the
- * channel wiring), so on a phone they are noise rather than a way in. Only the
- * overview cards go: the routes stay registered and reachable by deep link.
+ * Sections the native mobile shells leave off the overview. Their UI needs
+ * more work before it earns a place on a phone, so on iOS and Android they
+ * offer the user little. Only the overview cards go: the routes stay
+ * registered and reachable by deep link, so putting a section back is a
+ * single edit to this list once its mobile UI is ready.
  */
 const NATIVE_MOBILE_HIDDEN_KEYS: readonly string[] = [
   "memory",

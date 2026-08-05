@@ -3,7 +3,8 @@
  * on backend capability. Whatever the backend reports, the list is the same,
  * so an assistant that can't draw the memory concept graph still gets a
  * Memory card leading into the tab that explains it. The one subtraction is
- * the native mobile shell, which omits the desktop-oriented sections.
+ * the native mobile shell, which omits the sections whose UI is not ready
+ * for a phone.
  */
 import { describe, expect, test } from "bun:test";
 
