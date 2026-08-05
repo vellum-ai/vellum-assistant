@@ -241,6 +241,26 @@ function countFrames(
   return frames.filter((frame) => frame.type === type).length;
 }
 
+// Waits for the completed turn's metrics frame and hands it back narrowed, so
+// the assertions below read the endpoint fields without a type guard.
+async function waitForTurnMetrics(
+  frames: LiveVoiceServerFrame[],
+): Promise<Extract<LiveVoiceServerFrame, { type: "metrics" }>> {
+  const isTurnMetrics = (
+    frame: LiveVoiceServerFrame,
+  ): frame is Extract<LiveVoiceServerFrame, { type: "metrics" }> =>
+    frame.type === "metrics" && frame.event === "turn_completed";
+  await waitFor(
+    () => frames.some(isTurnMetrics),
+    "The completed turn never reported its metrics",
+  );
+  const metricsFrame = frames.find(isTurnMetrics);
+  if (!metricsFrame) {
+    throw new Error("The completed turn never reported its metrics");
+  }
+  return metricsFrame;
+}
+
 // Long enough for the 40 ms local silence timer to fire and hand the boundary
 // to Flux (which arms the fail-open deadline and commits nothing).
 const PAST_SILENCE_BOUNDARY_MS = 150;
@@ -355,22 +375,86 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     await waitFor(() => transcribers.length > 0);
     transcribers[0]?.endOfTurn("hello there");
     await waitFor(() => turnCalls.length === 1);
-    await waitFor(() =>
-      frames.some(
-        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
-      ),
-    );
 
-    const metricsFrame = frames.find(
-      (frame) => frame.type === "metrics" && frame.event === "turn_completed",
-    );
-    expect(metricsFrame).toBeDefined();
-    if (metricsFrame?.type === "metrics") {
-      expect(metricsFrame.endpointDecisionSource).toBe("flux");
-      expect(metricsFrame.endpointHoldCount).toBe(0);
-    }
+    const metricsFrame = await waitForTurnMetrics(frames);
+    expect(metricsFrame.endpointDecisionSource).toBe("flux");
+    expect(metricsFrame.endpointHoldCount).toBe(0);
 
     await session.close("client_end");
+  });
+
+  test("anchors the flux commit latency at the local speech-stop mark", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: { turnEnd: { enabled: true }, eotTimeoutMs: 30_000 },
+      // Long enough that the local silence boundary cannot be what commits,
+      // and that the fail-open deadline stays far away.
+      silenceThresholdMs: 10_000,
+      emitMetrics: true,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    // Silence between the caller's last above-gate chunk and the commit. A
+    // dispatch-anchored number would not see it; the speech-stop anchor must.
+    await sleep(250);
+    transcribers[0]?.endOfTurn("hello there");
+    await waitFor(() => turnCalls.length === 1);
+
+    const metricsFrame = await waitForTurnMetrics(frames);
+    expect(metricsFrame.endpointCommitLatencyMs).toBeGreaterThanOrEqual(250);
+
+    await session.close("client_end");
+  });
+
+  test("records the commit latency on the front-door path too, with no hold", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      // No flux config: the latch is down and the local silence boundary owns
+      // the commit, which is arm A of the measurement run.
+      silenceThresholdMs: 40,
+      emitMetrics: true,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.emit({ type: "partial", text: "hello there" });
+    await waitFor(() => turnCalls.length === 1);
+
+    // The turn committed straight through, so it records no endpoint decision
+    // at all. The commit latency is recorded regardless, which is what makes
+    // the two arms one population rather than two.
+    const metricsFrame = await waitForTurnMetrics(frames);
+    expect(metricsFrame.endpointDecisionSource).toBeUndefined();
+    expect(metricsFrame.endpointCommitLatencyMs).toBeGreaterThanOrEqual(40);
+
+    await session.close("client_end");
+  });
+
+  test("records no commit latency for a turn that never committed", async () => {
+    const { frames, session, transcribers } = createHarness({
+      fluxConfig: { turnEnd: { enabled: true }, eotTimeoutMs: 30_000 },
+      silenceThresholdMs: 10_000,
+      emitMetrics: true,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.emit({ type: "partial", text: "hello the" });
+    // Nothing ends this turn: no flux turn-end, no silence boundary, and the
+    // fail-open deadline is 30 s away.
+    await flushAsyncCallbacks();
+    await session.close("client_end");
+
+    const metricsFrames = frames.filter((frame) => frame.type === "metrics");
+    expect(metricsFrames.length).toBeGreaterThan(0);
+    for (const frame of metricsFrames) {
+      expect(frame).not.toHaveProperty("endpointCommitLatencyMs");
+    }
   });
 
   test("falls back to the silence-boundary path when no turn-end arrives", async () => {
@@ -521,21 +605,8 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     expect(turnCalls[0]?.unifiedVerdict).toBeUndefined();
     expect(frames.some((frame) => frame.type === "utterance_end")).toBe(true);
 
-    await waitFor(
-      () =>
-        frames.some(
-          (frame) =>
-            frame.type === "metrics" && frame.event === "turn_completed",
-        ),
-      "The completed turn never reported its metrics",
-    );
-    const metricsFrame = frames.find(
-      (frame) => frame.type === "metrics" && frame.event === "turn_completed",
-    );
-    expect(metricsFrame).toBeDefined();
-    if (metricsFrame?.type === "metrics") {
-      expect(metricsFrame.endpointDecisionSource).toBe("flux");
-    }
+    const metricsFrame = await waitForTurnMetrics(frames);
+    expect(metricsFrame.endpointDecisionSource).toBe("flux");
 
     await session.close("client_end");
   });

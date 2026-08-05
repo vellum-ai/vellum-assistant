@@ -437,6 +437,7 @@ describe("LiveVoiceMetricsCollector", () => {
     collector.markFirstAudio();
     const completed = collector.completeTurn();
 
+    expect(completed).not.toHaveProperty("endpointCommitLatencyMs");
     expect(completed).not.toHaveProperty("endpointHoldCount");
     expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(completed).not.toHaveProperty("endpointDecisionSource");
@@ -447,11 +448,57 @@ describe("LiveVoiceMetricsCollector", () => {
       collector.getSnapshot(),
       "turn-off",
     );
+    expect(aggregateFields).not.toHaveProperty("endpointCommitLatencyMs");
     expect(aggregateFields).not.toHaveProperty("endpointHoldCount");
     expect(aggregateFields).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(aggregateFields).not.toHaveProperty("endpointDecisionSource");
     expect(aggregateFields).not.toHaveProperty("ackSpoken");
     expect(aggregateFields).not.toHaveProperty("progressUpdatesSpoken");
+  });
+
+  test("markEndpointCommit records the commit latency independently of the decision fields", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-commit",
+      conversationId: "conversation-commit",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-commit");
+    collector.markEndpointCommit("turn-commit", 1_340);
+    const completed = collector.completeTurn();
+
+    expect(completed).toMatchObject({ endpointCommitLatencyMs: 1_340 });
+    // No decision was ever recorded, so the diagnostic trio stays absent: the
+    // comparable number does not depend on the decider having been consulted.
+    expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
+    expect(
+      getLiveVoiceMetricsAggregateFields(
+        collector.getSnapshot(),
+        "turn-commit",
+      ),
+    ).toMatchObject({ endpointCommitLatencyMs: 1_340 });
+  });
+
+  test("the first commit latency wins and a non-finite one records zero", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-commit-first",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-first");
+    collector.markEndpointCommit("turn-first", 900);
+    collector.markEndpointCommit("turn-first", 4_000);
+    expect(collector.completeTurn()).toMatchObject({
+      endpointCommitLatencyMs: 900,
+    });
+
+    collector.startTurn("turn-nan");
+    collector.markEndpointCommit("turn-nan", Number.NaN);
+    expect(collector.completeTurn()).toMatchObject({
+      endpointCommitLatencyMs: 0,
+    });
   });
 
   test("markBargeIn records a first-wins timestamp on the active turn", () => {

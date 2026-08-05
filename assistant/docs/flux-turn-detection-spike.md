@@ -8,7 +8,15 @@ Flux is a spike. `liveVoice.flux.turnEnd.enabled` defaults to `false`, the exist
 
 ## Read this before you read any number
 
-**The two paths do not measure the same span.** If you compare `endpointDecisionMaxLatencyMs` between a Flux run and a front-door run without correcting for it, you will get a number that flatters Flux by roughly a full second, and nothing in the output will tell you.
+**`endpointCommitLatencyMs` is the headline, and it is the only endpoint field that is like-for-like across the two arms.** It measures the local VAD speech-stop mark to the moment the turn committed. Take its median per arm and compare the two medians. There is no arithmetic to do and no source-specific semantics to remember.
+
+It is stamped in `releaseUtterance` (`live-voice-session.ts`), which every committed turn passes through whichever decider released it, from the same speech-stop anchor on both. So the two arms are one population measured over one span. It is absent only on a turn that never committed, and in push-to-talk, which this spike does not run.
+
+### Why the other endpoint fields are not the comparison
+
+`endpointDecisionMaxLatencyMs`, `endpointHoldCount`, and `endpointDecisionSource` all still exist and are all still worth reading. But `endpointDecisionMaxLatencyMs` is **not** comparable between arms, in two independent ways, and comparing it flatters Flux by roughly a full second with nothing in the output to tell you.
+
+**It spans different things.**
 
 | Path                                   | What `endpointDecisionMaxLatencyMs` actually spans                                                                                                                                                                                     |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -17,32 +25,17 @@ Flux is a spike. `liveVoice.flux.turnEnd.enabled` defaults to `false`, the exist
 
 Source: `handleFluxTurnEnd` passes `this.msSinceLocalSpeechStop()` (`live-voice-session.ts`), while `holdSpeculativeTurn` passes `Date.now() - turn.speculativeDispatchedAtMs`, and the dispatch happens at the silence boundary.
 
-### The correction to apply
+**It samples different populations.** `markEndpointDecision` is called from exactly two places: the Flux commit, and the hold verdict. A front-door turn that committed straight through the boundary emits **no** `endpoint_decision` at all, and its metrics frame carries none of the three endpoint fields. So the front-door sample is "turns the model judged mid-thought", the slow tail by construction, while the Flux sample is every turn. Two denominators that cannot be reconciled after the fact is exactly why `endpointCommitLatencyMs` exists.
 
-Do this arithmetic on every front-door number before you put it next to a Flux number:
+Read `endpointDecisionMaxLatencyMs` as a **breakdown of** the headline, not against the other arm: on a Flux turn it isolates how much of the commit latency was Flux's own decision, and on a held front-door turn it isolates the decider LLM roundtrip.
 
-```
-front_door_end_of_turn_ms  >=  silenceThresholdMs
-                             + (endpointHoldCount * endpointExtensionMs)
-                             + endpointDecisionMaxLatencyMs
-```
+### What the front door actually costs
 
-- `silenceThresholdMs` is the trailing-silence wait the boundary cost. Its value is, in precedence order: the client's explicit "pause before reply" setting sent on the start frame, else `liveVoice.vad.silenceThresholdMs` (schema default **1200**, `config/schemas/live-voice.ts`), else the in-code `DEFAULT_SILENCE_THRESHOLD_MS` of **800** (`live-voice-session.ts`). In a real daemon run the factory always seeds the config value, so **1200 is the number to use** unless you set the web client's pause slider or overrode the config key. The 800 constant only governs a session built with no `liveVoice` config at all, which in practice means tests. A code comment near `createLiveVoiceSession` still claims the schema default is 800; the schema is the authority and it says 1200.
-- `endpointExtensionMs` defaults to **1500** and `endpointMaxExtensions` to **2**, so a fully held turn can absorb up to 3000ms of extension on top of everything else.
-- It is `>=`, not `=`, because `endpointDecisionMaxLatencyMs` is the **worst single** roundtrip in the turn, not their sum. A turn with two holds paid two roundtrips and the frame reports one of them.
+You do not need this to read the headline. You need it when a front-door number surprises you.
 
-Worked example with the defaults, one hold, and an 800ms decider roundtrip:
-
-```
-1200 + (1 * 1500) + 800  =  3500 ms
-```
-
-A Flux turn reporting `endpointDecisionMaxLatencyMs: 450` is being compared against 3500ms, not against 800ms.
-
-### Two more reasons the raw comparison misleads
-
-- **The front door only records a decision when it holds.** `markEndpointDecision` is called from exactly two places: the Flux commit, and the hold verdict. A front-door turn that committed straight through the boundary emits **no** `endpoint_decision` at all, and the metrics frame carries none of the three endpoint fields. So the population of front-door samples is "turns the model judged mid-thought", which is the slow tail by construction, while the Flux population is every turn. Do not read a mean across the two as if they were the same denominator.
-- **On a non-held front-door turn the roundtrip is not added latency.** The speculative leg dispatched at the boundary _is_ the assistant turn. If the model does not return the hold token, generation has already been running since the boundary. So an unheld front-door turn's added end-of-turn cost is just `silenceThresholdMs`. That is the real bar Flux has to beat on the common case, and it is a lower bar than the held-turn arithmetic above.
+- On an **unheld** turn the added end-of-turn cost is `silenceThresholdMs` alone. The speculative leg dispatched at the boundary _is_ the assistant turn, so if the model does not return the hold token, generation has been running since the boundary and the decider roundtrip is not added latency. That is the common case, and the real bar Flux has to beat.
+- On a **held** turn, add `endpointExtensionMs` (default **1500**) per hold, capped at `endpointMaxExtensions` (default **2**), so up to 3000ms on top.
+- `silenceThresholdMs` is the trailing-silence wait the boundary cost. Its value is, in precedence order: the client's explicit "pause before reply" setting sent on the start frame, else `liveVoice.vad.silenceThresholdMs` (schema default **1200**, `config/schemas/live-voice.ts`), else the in-code `DEFAULT_SILENCE_THRESHOLD_MS` of **800** (`live-voice-session.ts`). In a real daemon run the factory always seeds the config value, so **1200 is the number in force** unless you moved the web client's pause slider or overrode the config key. The 800 constant governs only a session built with no `liveVoice` config at all, which in practice means tests.
 
 ### The cross-check that needs no correction
 
@@ -52,7 +45,7 @@ The per-turn timestamps in the metrics snapshot are absolute and come from one c
 utteranceEndAtMs - speechStartAtMs
 ```
 
-Say the **same scripted sentence** on both arms, and the difference between the arms in that figure is the endpointing cost, with no arithmetic and no source-specific semantics. Use this to sanity-check whatever the corrected `endpointDecisionMaxLatencyMs` comparison tells you. If the two disagree, trust this one.
+Say the **same scripted sentence** on both arms, and the difference between the arms in that figure is the endpointing cost. It is an independent path to the same answer as `endpointCommitLatencyMs`: that field anchors at the speech-stop mark and this one at the VAD speech onset, so a run where the two disagree means the mic was picking up something the script did not say. Use it to sanity-check the headline.
 
 ---
 
@@ -89,12 +82,12 @@ Restart the daemon so the config is reloaded, then start a live-voice session **
 
 The rest of `liveVoice.flux` is optional and defaulted (`config/schemas/live-voice.ts`):
 
-| Key                 | Default           | Range        | Notes                                                                    |
-| ------------------- | ----------------- | ------------ | ------------------------------------------------------------------------ |
-| `model`             | `flux-general-en` | any string   | English only in this spike.                                              |
-| `eotThreshold`      | `0.7`             | 0.5 to 0.9   | Lower commits sooner and cuts speakers off more; higher adds latency.    |
-| `eagerEotThreshold` | _unset_           | 0.3 to 0.9   | Leave it unset. See "Known gaps".                                        |
-| `eotTimeoutMs`      | `5000`            | 500 to 60000 | Silence after which Flux force-ends a turn it never got confident about. |
+| Key                 | Default           | Range        | Notes                                                                                                                                   |
+| ------------------- | ----------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`             | `flux-general-en` | any string   | English only in this spike.                                                                                                             |
+| `eotThreshold`      | `0.7`             | 0.5 to 0.9   | Lower commits sooner and cuts speakers off more; higher adds latency.                                                                   |
+| `eagerEotThreshold` | _unset_           | 0.3 to 0.9   | Leave it unset. See "Known gaps".                                                                                                       |
+| `eotTimeoutMs`      | `5000`            | 500 to 60000 | Silence after which Flux force-ends a turn it never got confident about. Lower it to 1500 to 2000 for a measurement run; see section 4. |
 
 ## 3. Run the A/B
 
@@ -116,15 +109,16 @@ With Flux as the provider in both arms, the transcript **final** arrives at diff
 
 ## 4. Read the numbers
 
-The daemon sends a `metrics` frame over the live-voice WebSocket on `turn_completed`, `turn_cancelled`, and `session_ended`. The three endpoint fields are flattened onto that frame by `getLiveVoiceMetricsAggregateFields`:
+The daemon sends a `metrics` frame over the live-voice WebSocket on `turn_completed`, `turn_cancelled`, and `session_ended`. The endpoint fields are flattened onto that frame by `getLiveVoiceMetricsAggregateFields`:
 
-| Field                          | Meaning                                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `endpointDecisionSource`       | `"flux"` or `"front-door"`. Present only when an endpoint decision was recorded.                 |
-| `endpointDecisionMaxLatencyMs` | The headline number, subject to the correction above. Worst single decision latency in the turn. |
-| `endpointHoldCount`            | Hold verdicts in the turn. Always 0 on a Flux-committed turn.                                    |
+| Field                          | Meaning                                                                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `endpointCommitLatencyMs`      | **The headline.** Local VAD speech-stop mark to the commit. Present on every committed turn on both arms. Compare medians across arms. |
+| `endpointDecisionSource`       | `"flux"` or `"front-door"`. Present only when an endpoint decision was recorded.                                                       |
+| `endpointDecisionMaxLatencyMs` | Worst single decision latency in the turn. A breakdown of the headline, never a cross-arm comparison. See the first section.           |
+| `endpointHoldCount`            | Hold verdicts in the turn. Always 0 on a Flux-committed turn.                                                                          |
 
-All three are **absent** unless a decision was recorded, which is deliberate: the absence is itself the signal.
+The last three are **absent** unless a decision was recorded, which is deliberate: the absence is itself the signal, and it is what makes them useless as a cross-arm comparison. `endpointCommitLatencyMs` is absent only on a turn that never committed.
 
 **How to see them.** The web client stores the whole frame but its `console.debug("[live-voice] turn latency", ...)` line does not print the endpoint fields. Read them from the raw frame instead: DevTools, Network, WS, select the live-voice socket, filter frames for `"type":"metrics"`, and read the `turn_completed` frames. The per-turn `metrics.recentTurns[]` array in the same frame carries the `timestamps` you need for the cross-check in the first section.
 
@@ -144,9 +138,25 @@ No Flux end-of-turn is coming; falling back to the silence boundary for this utt
 
 The deadline is `liveVoice.flux.eotTimeoutMs` plus a 1000ms margin (`FLUX_TURN_END_FALLBACK_MARGIN_MS`), measured from the local speech-stop mark. If you see these routinely, you are measuring the fallback path, not Flux.
 
+#### Lower `eotTimeoutMs` for the run
+
+With the shipped defaults the fail-open budget is `eotTimeoutMs` (**5000**) plus `FLUX_TURN_END_FALLBACK_MARGIN_MS` (**1000**), so **6000ms from the local speech-stop mark**. The local silence boundary fires at ~1200ms and then hands the turn to Flux, so a stalled turn is roughly **4.8 seconds of dead air** before the utterance replays onto the hold path and anyone answers.
+
+That is the worst case by design (the budget has to clear Flux's own force-end), but it is a bad property to carry through a measurement run. It makes a stall expensive to sit through, which biases you toward not reproducing one, and it means arm B's slow turns are dominated by a timeout rather than by turn detection.
+
+Set `liveVoice.flux.eotTimeoutMs` to **1500 to 2000** for the duration of the run. The budget drops to 2500 to 3000ms, a stall costs about 1.3 to 1.8 seconds past the silence boundary instead of 4.8, and arm B stays representative of what Flux does rather than of what the deadline does. Put it back before drawing any conclusion about the shipped configuration: it also changes how long Flux itself waits before force-ending a turn it never got confident about.
+
 ### Prefer medians, and do not chase a single bad sample
 
-Per-turn Flux latency has a known outlier mode. If the caller resumes speaking and stops again before a delayed `turn-end` lands, the second boundary re-stamps `fluxBoundaryGeneration`, so `isStaleFluxTurnEnd` no longer recognizes the in-flight event as stale and accepts it. The **commit is still correct** (the caller has finished, and the transcript is the accumulated one), but `msSinceLocalSpeechStop()` measures from the newer speech-stop, so the recorded latency is wrong for that turn.
+Per-turn Flux latency has a known outlier mode. If the caller resumes speaking and stops again before a delayed `turn-end` lands, the second boundary re-stamps `fluxBoundaryGeneration`, so `isStaleFluxTurnEnd` no longer recognizes the in-flight event as stale and accepts it. The **commit is still correct** (the caller has finished, and the transcript is the accumulated one), but the speech-stop mark is the newer one, so the recorded latency is wrong for that turn. This affects `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike: they share the anchor.
+
+The nearby case, where the event **is** recognized as stale and dropped, logs at `info` and so is visible at the default log level:
+
+```
+Dropping a stale Flux end-of-turn: the caller resumed speaking past the boundary it closed
+```
+
+A drop is not itself an error (the turn still commits, on the end-of-turn for the resumed speech or on the fail-open deadline), but the two cases are the same race and only one of them announces itself. Count the drops in your run: if they are frequent, assume the silent variant is skewing individual samples too.
 
 This is not fixable session-side. It needs Flux's turn id carried on the `turn-end` event so the session can match the event to the boundary it closed. Until then, report medians over a run of turns and ignore individual extremes.
 
@@ -164,12 +174,7 @@ Check the URL is `/v2/listen` and contains `model=flux-general-en`, `eot_thresho
 
 ### Seeing the debug lines
 
-The pino level is hardcoded to `info` in `src/util/logger.ts`. Two useful lines are at `debug` and will **not** appear in a normal run:
-
-- The per-session chunk cadence line (below).
-- `Dropping a stale Flux end-of-turn: the caller resumed speaking past the boundary it closed`.
-
-To see them, temporarily change the `level: "info"` values in `getRootLogger` / `buildRotatingLogger` to `"debug"`. There is no config key or env var for it.
+The pino level is hardcoded to `info` in `src/util/logger.ts`, with no config key and no env var. Every diagnostic this runbook tells you to read is at `info` or `warn` and needs no change. The per-session chunk cadence line (section 6) is the one at `debug`; to see it, temporarily change the `level: "info"` values in `getRootLogger` / `buildRotatingLogger` to `"debug"`.
 
 ## 6. Chunk cadence
 
@@ -199,7 +204,7 @@ Do not rediscover these.
 Both are fixed on this branch. They matter only if you are measuring on an older build.
 
 - **A first utterance during a slow STT dial used to run the old path while looking like a Flux session.** `start()` sends `ready` without waiting on the transcriber resolve, so the caller could speak and close a whole silence boundary while the handshake was still in flight, with the latch still on its default `false`. The latch is now seeded from the **configured** provider before the dial and reconciled against the resolved one afterwards. Symptom on an older build: the session's opening turn silently uses the front door.
-- **The first turn's latency used to be anchored at zero rather than the real speech-stop,** inflating it. `msSinceLocalSpeechStop()` now returns 0 when no speech has been heard, and `fluxLastSpeechAtMs` is stamped on every above-gate chunk.
+- **The first turn's latency used to be anchored at zero rather than the real speech-stop,** inflating it. `msSinceLocalSpeechStop()` returns 0 when no speech has been heard, and `localSpeechStopAtMs` is stamped on every above-gate chunk in every server-VAD session, so both arms share the anchor.
 
 ## 8. Falling back
 
@@ -211,9 +216,9 @@ Runtime fallback needs no action. A Flux stream that never emits `turn-end` is c
 
 The follow-up cleanup is not small: `HOLD_VERDICT_TOKEN`, the `includeHold` branch of `frontDoorDecisionRule`, the `holdEnabled` parameter on `classifyFrontDoorLeading`, six pieces of speculative-dispatch state in the session, and the `endpointExtensionMs` / `endpointMaxExtensions` config surface. It is worth doing only if Flux clears a real bar. Deepgram claims Flux decides in under 400ms; that claim is the hypothesis under test here, not an input.
 
-Suggested bar, all measured on the corrected basis from the first section, over enough turns for a median to mean something:
+Suggested bar, all measured on `endpointCommitLatencyMs` over enough turns for a median to mean something:
 
-1. **Median end-of-turn latency beats the unheld front-door case.** That is `silenceThresholdMs` alone, so about 1200ms with the defaults. Beating the held case is easy and proves nothing, because most turns are not held.
+1. **Median `endpointCommitLatencyMs` in arm B beats the median in arm A.** Most arm-A turns are unheld, so that median sits near `silenceThresholdMs`, about 1200ms with the defaults. Do not set the bar against arm A's held turns: beating those is easy and proves nothing, because most turns are not held.
 2. **No regression on thinking pauses.** The hold path exists so a mid-sentence pause does not trigger a premature reply. Count premature commits on the scripted pause utterances in both arms. Flux has to be at least as good, not merely faster. A fast path that interrupts people is worse than the slow one.
 3. **The fallback is rare.** If `warn`-level fallback lines appear on a meaningful fraction of turns, the hold path is not dead code, it is the live path, and deleting it removes the thing keeping the feature usable.
 4. **Escalate and the spoken ack / progress phrasing still behave.** Flux bypasses only the `[0]` hold branch. Confirm `[1]` escalate still fires and acks still land before concluding the front door has nothing left to do.

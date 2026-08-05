@@ -1157,10 +1157,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * the picture.
    */
   private fluxTurnEndActive = false;
-  // Wall-clock of the newest above-gate audio chunk, tracked only while the
-  // latch is active. It is the local VAD's speech-stop mark: the anchor for
-  // the end-of-turn latency this path reports, and for the fallback deadline.
-  private fluxLastSpeechAtMs: number | null = null;
+  // Wall-clock of the newest above-gate audio chunk, tracked in every
+  // server-VAD session. It is the local VAD's speech-stop mark: the one anchor
+  // the reported end-of-turn latency is measured from whichever decider
+  // commits the turn, and the anchor for the Flux fallback deadline. Null in
+  // push-to-talk, where no local VAD runs.
+  private localSpeechStopAtMs: number | null = null;
   // Fail-open deadline for a Flux end-of-turn that never arrives. On expiry
   // the utterance falls back to the silence-boundary path, so a dead Flux
   // stream degrades to today's behavior instead of a hung turn.
@@ -1706,8 +1708,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(hasSpeech, chunk);
-    if (this.fluxTurnEndActive && hasSpeech) {
-      this.fluxLastSpeechAtMs = Date.now();
+    if (hasSpeech) {
+      this.localSpeechStopAtMs = Date.now();
     }
 
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
@@ -3007,10 +3009,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // mark both the fallback deadline and the reported end-of-turn latency are
   // measured from. Zero when no speech has been heard at all.
   private msSinceLocalSpeechStop(): number {
-    if (this.fluxLastSpeechAtMs === null) {
+    if (this.localSpeechStopAtMs === null) {
       return 0;
     }
-    return Math.max(0, Date.now() - this.fluxLastSpeechAtMs);
+    return Math.max(0, Date.now() - this.localSpeechStopAtMs);
   }
 
   /**
@@ -3039,7 +3041,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     if (this.isStaleFluxTurnEnd(utterance, turnIndex)) {
-      log.debug(
+      // At `info`, not `debug`: a drop is rare and is the only signal of the
+      // one known latency-outlier mode, so an operator measuring the two
+      // paths has to be able to see it at the default log level.
+      log.info(
         {
           turnIndex,
           openTurnIndex: utterance.fluxOpenTurnIndex,
@@ -3305,6 +3310,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance.phase === "transcriber_closed") {
       utterance.released = true;
       this.markUtteranceReleased(utterance);
+      this.markEndpointCommit(utterance);
       await this.startAssistantTurnIfReady();
       await this.drainOutboundFrames();
       return;
@@ -3316,6 +3322,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     utterance.released = true;
     this.markUtteranceReleased(utterance);
+    this.markEndpointCommit(utterance);
 
     if (utterance.phase === "pending") {
       // The transcriber is still starting; beginUtterance completes the release.
@@ -5618,6 +5625,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
+  /**
+   * The turn's end-of-turn latency, stamped at the moment it commits. Called
+   * from `releaseUtterance`, which every committed turn passes through
+   * whichever decider released it, so the front-door and Flux samples span
+   * the same thing from the same anchor over the same population. That is
+   * what `endpointDecisionMaxLatencyMs` cannot offer, and why this exists
+   * alongside it.
+   *
+   * Skipped with no speech-stop mark, which is push-to-talk: there the
+   * client's release is the boundary and no local VAD runs.
+   */
+  private markEndpointCommit(utterance: UtteranceCycle): void {
+    if (this.localSpeechStopAtMs === null) {
+      return;
+    }
+    const turnId = this.ensureTurnId(utterance);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) {
+      return;
+    }
+    this.metrics.markEndpointCommit(turnId, this.msSinceLocalSpeechStop());
+  }
+
   private markAckSpoken(
     activeTurn: ActiveAssistantTurn,
     kind: LiveVoiceSpokenAckKind,
@@ -5982,11 +6011,13 @@ export function createLiveVoiceSession(
   options: LiveVoiceSessionOptions = {},
 ): LiveVoiceSession {
   // Workspace-tunable server-VAD thresholds. The `liveVoice.vad` schema
-  // defaults match the code defaults (800 energy / 800 ms silence / 30 s max
-  // turn / 60 ms barge-in guard), so an unset config leaves behavior
-  // unchanged. Optional-chained
-  // because hand-built test configs may predate the liveVoice namespace;
-  // absent config falls through to the in-code defaults.
+  // defaults are 800 energy / 1200 ms silence / 30 s max turn / 250 ms
+  // barge-in guard. Three of the four match their in-code fallback; the
+  // trailing-silence threshold does not, so a session built with a
+  // `liveVoice` config waits 1200 ms and one built without waits the in-code
+  // DEFAULT_SILENCE_THRESHOLD_MS of 800. Optional-chained because hand-built
+  // test configs may predate the liveVoice namespace; absent config falls
+  // through to the in-code defaults.
   const liveVoiceConfig = getConfig().liveVoice;
   const vadConfig = liveVoiceConfig?.vad;
   // Parsed once here into a complete config, shared by the decider and the

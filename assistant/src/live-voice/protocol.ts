@@ -319,12 +319,26 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly roundTripMs: number | null;
   readonly totalMs: number | null;
   /**
+   * End-of-turn latency: the local VAD speech-stop mark to the moment the
+   * turn committed. Recorded on every committed turn, and measured from the
+   * same anchor whichever decider owned the boundary, so front-door and Flux
+   * turns are one comparable population. Absent on a turn that never
+   * committed and in push-to-talk mode, where there is no local VAD
+   * speech-stop mark.
+   */
+  readonly endpointCommitLatencyMs?: number;
+  /**
    * Semantic-endpointing "hold" decisions taken during the turn. Present only
    * when the endpoint decider was consulted (otherwise the field is absent,
    * keeping frames unchanged).
    */
   readonly endpointHoldCount?: number;
-  /** Worst endpoint-decision latency observed during the turn. */
+  /**
+   * Worst endpoint-decision latency observed during the turn. It spans only
+   * the decider's own work, and the two deciders start it at different
+   * moments, so it is a diagnostic rather than a cross-path comparison: read
+   * `endpointCommitLatencyMs` for that.
+   */
   readonly endpointDecisionMaxLatencyMs?: number;
   /**
    * Which path decided the turn's endpoint: the front-door hold verdict or
