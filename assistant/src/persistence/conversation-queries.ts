@@ -16,6 +16,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   type ConversationType,
+  PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
@@ -281,7 +282,19 @@ function groupIdClause(groupId: string) {
   if (groupId === UNGROUPED_GROUP_ID) {
     return sql`(group_id IS NULL OR group_id = ${UNGROUPED_GROUP_ID})`;
   }
-  return sql`group_id = ${groupId}`;
+  if (groupId === PINNED_GROUP_ID) {
+    // Pinned state is stored twice, as `is_pinned` and as membership of the
+    // reserved group, and the two can disagree on rows written before the
+    // group migration. Accepting either is what keeps this filter and
+    // `listPinnedConversations` (which reads `is_pinned`) returning the same
+    // set, without a reconcile migration that would itself break under a
+    // daemon rollback.
+    return sql`(is_pinned = 1 OR group_id = ${PINNED_GROUP_ID})`;
+  }
+  // A pinned row is only ever in the Pinned section: pinning overwrites
+  // `group_id`, but a stale `is_pinned` must not let a row surface in both
+  // its custom group and Pinned.
+  return sql`group_id = ${groupId} AND COALESCE(is_pinned, 0) != 1`;
 }
 
 /**
@@ -320,9 +333,15 @@ export function listConversations(
   const recency = desc(
     sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
   );
+  // `id` closes the ordering. Without a unique final term the sort is not a
+  // total order, so rows tied on every preceding key may come back in a
+  // different arrangement between identical queries, which shows up as rows
+  // swapping places on refetch and, once this list pages, as duplicated and
+  // skipped rows across page boundaries.
+  const tiebreak = desc(conversations.id);
   const orderBy = isUserOrderedGroup(filter.groupId)
-    ? [sql`COALESCE(display_order, 999999) ASC`, recency]
-    : [recency];
+    ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
+    : [recency, tiebreak];
   return db
     .select()
     .from(conversations)

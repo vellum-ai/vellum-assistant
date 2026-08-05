@@ -357,6 +357,70 @@ describe("GET /v1/conversations with groupId", () => {
     expect(result.conversations.map((c) => c.title)).toEqual(["car-1"]);
   });
 
+  test("system:pinned finds a row pinned only by the legacy column", async () => {
+    // Pinned state is stored twice and the two can disagree on rows written
+    // before the group migration. The filter accepts either, so no reconcile
+    // migration is needed to make the Pinned card correct.
+    const conv = createConversation("legacy-pinned");
+    rawRun(
+      "test:legacyPin",
+      "UPDATE conversations SET is_pinned = 1, group_id = NULL WHERE id = ?",
+      conv.id,
+    );
+
+    const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["legacy-pinned"]);
+  });
+
+  test("a pinned row does not also surface in its custom group", async () => {
+    // A stale `is_pinned` alongside a custom group_id must not render the
+    // same conversation in two sections.
+    const group = createGroup("Car Chat");
+    const conv = createConversation("pinned-and-grouped");
+    rawRun(
+      "test:pinnedWithStaleGroup",
+      "UPDATE conversations SET is_pinned = 1, group_id = ? WHERE id = ?",
+      group.id,
+      conv.id,
+    );
+
+    const inGroup = (await invoke({ groupId: group.id })) as ListResponse;
+    const inPinned = (await invoke({
+      groupId: "system:pinned",
+    })) as ListResponse;
+
+    expect(inGroup.conversations.map((c) => c.title)).toEqual([]);
+    expect(inPinned.conversations.map((c) => c.title)).toEqual([
+      "pinned-and-grouped",
+    ]);
+  });
+
+  test("rows tied on every sort key come back in a stable order", async () => {
+    // Without a unique final sort term the order is not total, so identical
+    // queries may return tied rows in different arrangements. That surfaces as
+    // rows swapping on refetch, and as duplicates and gaps once this list
+    // pages.
+    const group = createGroup("Car Chat");
+    for (const title of ["tie-a", "tie-b", "tie-c"]) {
+      const conv = createConversation(title);
+      rawRun(
+        "test:tiedRows",
+        "UPDATE conversations SET group_id = ?, display_order = 0, last_message_at = 1000 WHERE id = ?",
+        group.id,
+        conv.id,
+      );
+    }
+
+    const first = (await invoke({ groupId: group.id })) as ListResponse;
+    const second = (await invoke({ groupId: group.id })) as ListResponse;
+
+    expect(first.conversations).toHaveLength(3);
+    expect(second.conversations.map((c) => c.id)).toEqual(
+      first.conversations.map((c) => c.id),
+    );
+  });
+
   test("hasMore reflects the group's own total, not the whole table", async () => {
     const group = createGroup("Car Chat");
     seedInGroup("car-1", group.id);
