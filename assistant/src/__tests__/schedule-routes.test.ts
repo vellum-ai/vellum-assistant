@@ -1231,6 +1231,36 @@ describe("POST /schedules — create", () => {
     expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 
+  // The endpoint validates inferenceProfile once, before branching on mode, so
+  // every mode it accepts has to honour the value it just validated.
+  test("persists a valid inferenceProfile on a workflow-mode create", async () => {
+    const result = await postCreate({
+      name: "Cheap triage",
+      description: "Workflow run on a cheap model",
+      expression: "0 * * * *",
+      message: "trigger",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("persists a valid inferenceProfile on a script-mode create", async () => {
+    const result = await postCreate({
+      name: "Cheap script",
+      description: "Script run on a cheap model",
+      expression: "0 * * * *",
+      message: "trigger",
+      mode: "script",
+      script: "console.log('hi')",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
   test("pins inferenceProfile to the resolved default when omitted", async () => {
     const expected = resolveDefaultScheduleInferenceProfile();
     // A schedule that followed the global default would change model whenever
