@@ -39,13 +39,19 @@ export function ChannelSetupWizard({
   children,
 }: ChannelSetupWizardProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const settledOnFirstStep = useRef(false);
+  // Keyed on the step that was last focused rather than on a "first render"
+  // flag. A flag flips on StrictMode's second effect pass and then reads as a
+  // real step change, so development builds would pull focus in the moment the
+  // drawer opened, which is the one case this is meant to avoid. Comparing the
+  // index cannot: an effect that reruns without the step moving finds them
+  // equal.
+  const focusedStepIndex = useRef(stepIndex);
 
   useEffect(() => {
-    if (!settledOnFirstStep.current) {
-      settledOnFirstStep.current = true;
+    if (focusedStepIndex.current === stepIndex) {
       return;
     }
+    focusedStepIndex.current = stepIndex;
     panelRef.current?.focus();
   }, [stepIndex]);
 

@@ -13,7 +13,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 
 import { ChannelSetupWizard } from "@/components/channel-setup-wizard";
 
@@ -59,6 +59,21 @@ describe("ChannelSetupWizard", () => {
     render(<Harness />);
 
     expect(document.activeElement).not.toBe(panel());
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  test("does not steal focus on first render under StrictMode", () => {
+    // The app mounts under StrictMode (`main.tsx`), which runs effects, cleans
+    // up, and runs them again. A "have I rendered before" flag flips on that
+    // second pass and then reads as a real step change, so development builds
+    // pulled focus into the drawer the moment it opened. The plain render
+    // above cannot catch that: it only runs the effect once.
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+
     expect(document.activeElement).toBe(document.body);
   });
 

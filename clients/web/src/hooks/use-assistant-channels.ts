@@ -142,12 +142,15 @@ export function useAssistantChannels({
     },
   });
 
-  const saveTelegramMutateAsync = saveTelegramMutation.mutateAsync;
+  // Mirrors the Slack shape: `mutate` rather than `mutateAsync`, with status
+  // and error published alongside, so the setup wizard reads outcome from the
+  // mutation instead of owning save state of its own.
+  const saveTelegramMutate = saveTelegramMutation.mutate;
   const onSaveTelegramToken = useCallback(
-    async (botToken: string): Promise<void> => {
-      await saveTelegramMutateAsync(botToken);
+    (botToken: string) => {
+      saveTelegramMutate(botToken);
     },
-    [saveTelegramMutateAsync],
+    [saveTelegramMutate],
   );
 
   const saveSlackMutate = saveSlackMutation.mutate;
@@ -210,6 +213,8 @@ export function useAssistantChannels({
     onSetup: onStartSetupConversation ? handleSetup : undefined,
     onDisconnect,
     onSaveTelegramToken,
+    telegramSaveStatus: saveTelegramMutation.status,
+    telegramSaveError: saveTelegramMutation.error?.message ?? null,
     onSaveSlackConfig,
     slackSaveStatus: saveSlackMutation.status,
     slackSaveError: saveSlackMutation.error?.message ?? null,

@@ -9,6 +9,7 @@ import { TelegramSetupConnectStep } from "@/components/telegram-setup-connect-st
 import { TelegramSetupCreateStep } from "@/components/telegram-setup-create-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { openExternalUrl } from "@/runtime/browser";
 
 export type { MutationStatus };
 
@@ -56,7 +57,7 @@ export function TelegramSetupWizard({
   }, [copy, assistantName]);
 
   const handleOpenBotFather = useCallback(() => {
-    window.open(BOTFATHER_URL, "_blank", "noopener,noreferrer");
+    void openExternalUrl(BOTFATHER_URL);
   }, []);
 
   const handleContinueToConnect = useCallback(() => goTo("connect"), [goTo]);

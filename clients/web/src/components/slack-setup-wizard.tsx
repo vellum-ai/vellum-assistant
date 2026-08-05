@@ -11,6 +11,7 @@ import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
 import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { openExternalUrl } from "@/runtime/browser";
 import { buildSlackManifest } from "@/utils/slack-manifest";
 
 export type { MutationStatus };
@@ -106,7 +107,7 @@ export function SlackSetupWizard({
   }, [copy, manifestJson]);
 
   const handleOpenSlack = useCallback(() => {
-    window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
+    void openExternalUrl(SLACK_NEW_APP_URL);
   }, []);
 
   const handleContinueToOpen = useCallback(() => goTo("open"), [goTo]);
