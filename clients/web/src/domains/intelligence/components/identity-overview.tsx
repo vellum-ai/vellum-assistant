@@ -529,9 +529,15 @@ function SectionCard({
                 : undefined
             }
           >
+            {/* The mark's height follows its WIDTH (aspect ratio), which the
+                card's height doesn't constrain — a wide, short window sizes
+                it taller than the space between the header and the bottom
+                inset. `max-h-full` clamps the viewport there and the default
+                `xMidYMid meet` scales the whole mark down to fit, rather than
+                letting the card's `overflow-hidden` cut the top labels off. */}
             <PersonalitySignature
               values={stat.signature}
-              className="h-auto w-full"
+              className="h-auto max-h-full w-full"
             />
           </span>
         )}
