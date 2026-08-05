@@ -50,7 +50,10 @@ const DOMAINS = [
 // - conversationTitle:       tuning-only override, default balanced -> balanced
 // - memoryRouter:            profileless site; catalog reports only the
 //                            shipped Balanced tier -> balanced
-// - heartbeatAgent:          override -> speed (default quality is shadowed)
+// - heartbeatAgent:          live pin -> speed (catalog reports it winning
+//                            over the quality tier it would otherwise use)
+// - callAgent:               pin naming a profile the resolver skipped, so
+//                            the catalog still reports balanced
 // - conversationCompaction:  model pin -> Custom, no profile
 // - voiceFrontDoor:          neither field (old-daemon shape) -> no profile
 const CALL_SITES = [
@@ -87,7 +90,15 @@ const CALL_SITES = [
     displayName: "Heartbeat Agent",
     description: "Runs background tasks on a schedule.",
     domain: "background",
-    defaultProfile: "quality",
+    defaultProfile: "speed",
+    shippedDefaultProfile: "quality",
+  },
+  {
+    id: "callAgent",
+    displayName: "Call Agent",
+    description: "Handles voice call conversations.",
+    domain: "background",
+    defaultProfile: "balanced",
   },
   {
     id: "conversationCompaction",
@@ -105,6 +116,9 @@ const CALL_SITES = [
 ];
 
 const PERSISTED_OVERRIDES = {
+  // Names a disabled profile, so the resolver skips the rung; the catalog
+  // reports balanced, which is what this action actually runs on.
+  callAgent: { profile: "legacy" },
   workflowLeaf: { profile: "balanced" },
   conversationTitle: { effort: "low" as const },
   heartbeatAgent: { profile: "speed" },
@@ -219,15 +233,18 @@ describe("BulkOverrideSwapModal - eligibility", () => {
     // tuning-only conversationTitle, shipped-tier-only memoryRouter). The
     // Custom pin and the field-less site stay out; heartbeatAgent is on
     // Speed.
-    expect(renderedText()).toContain("4 actions currently use Balanced");
+    expect(renderedText()).toContain("5 actions currently use Balanced");
     expect(renderedText()).toContain("Workflow Leaf");
     expect(renderedText()).toContain("Subagent Spawn");
     expect(renderedText()).toContain("Conversation Title");
     expect(renderedText()).toContain("Memory Router");
+    // Its pin is dead, so it is filed under what it actually runs on.
+    expect(renderedText()).toContain("Call Agent");
+    expect(rowContainerText("Call Agent")).toContain("Default");
     expect(renderedText()).not.toContain("Conversation Compaction");
     expect(renderedText()).not.toContain("Voice Front Door");
     expect(renderedText()).not.toContain("Heartbeat Agent");
-    expect(renderedText()).toContain("4 actions will change");
+    expect(renderedText()).toContain("5 actions will change");
   });
 
   test("rows are marked with how they use the profile", () => {
@@ -268,7 +285,7 @@ describe("BulkOverrideSwapModal - eligibility", () => {
     renderModal();
 
     fireEvent.click(rowFor("Workflow Leaf"));
-    expect(renderedText()).toContain("3 actions will change");
+    expect(renderedText()).toContain("4 actions will change");
 
     const [sourceTrigger] = comboboxes();
     pickOption(sourceTrigger!, "Speed");
@@ -277,7 +294,7 @@ describe("BulkOverrideSwapModal - eligibility", () => {
 
     // Back to Balanced: the earlier deselection is gone.
     pickOption(comboboxes()[0]!, "Balanced");
-    expect(renderedText()).toContain("4 actions will change");
+    expect(renderedText()).toContain("5 actions will change");
   });
 });
 
@@ -285,9 +302,9 @@ describe("BulkOverrideSwapModal - apply", () => {
   test("apply stays disabled until a target profile is chosen", () => {
     renderModal();
 
-    expect(findButton("Apply to 4 actions").disabled).toBe(true);
+    expect(findButton("Apply to 5 actions").disabled).toBe(true);
     pickOption(comboboxes()[1]!, "Quality");
-    expect(findButton("Apply to 4 actions").disabled).toBe(false);
+    expect(findButton("Apply to 5 actions").disabled).toBe(false);
   });
 
   test("apply patches exactly the selected actions and nothing else", async () => {
@@ -296,22 +313,24 @@ describe("BulkOverrideSwapModal - apply", () => {
     pickOption(comboboxes()[1]!, "Quality");
     fireEvent.click(rowFor("Subagent Spawn"));
     fireEvent.click(rowFor("Memory Router"));
-    expect(renderedText()).toContain("2 actions will change");
+    expect(renderedText()).toContain("3 actions will change");
 
-    fireEvent.click(findButton("Apply to 2 actions"));
+    fireEvent.click(findButton("Apply to 3 actions"));
 
     await waitFor(() => {
       expect(configPatchBodies.length).toBe(1);
     });
     const body = configPatchBodies[0] as { llm: Record<string, unknown> };
     // The patch names only the swapped actions: the default-using row gets
-    // a brand-new override entry, the override row is rewritten, and the
+    // a brand-new override entry, the override row is rewritten, the dead
+    // pin is replaced with a profile that resolves, and the
     // deselected/ineligible rows are absent. Only `profile` is written, so
     // the merge preserves tuning fields on entries that carry them.
     expect(Object.keys(body.llm)).toEqual(["callSites"]);
     expect(body.llm.callSites).toEqual({
       workflowLeaf: { profile: "quality" },
       conversationTitle: { profile: "quality" },
+      callAgent: { profile: "quality" },
     });
     expect(applied).toBe(true);
     expect(closed).toBe(true);
@@ -326,6 +345,6 @@ describe("BulkOverrideSwapModal - apply", () => {
     expect(findButton("Apply to 0 actions").disabled).toBe(true);
 
     fireEvent.click(findButton("Select all"));
-    expect(findButton("Apply to 4 actions").disabled).toBe(false);
+    expect(findButton("Apply to 5 actions").disabled).toBe(false);
   });
 });

@@ -40,52 +40,45 @@ describe("isDraftActive", () => {
 // ---------------------------------------------------------------------------
 
 describe("effectiveCallSiteProfile", () => {
-  test("a profile pin wins and is reported as an override", () => {
+  // `defaultProfile` is the daemon's winning profile for the call site, so a
+  // live pin is reflected there. Reporting "override" is a comparison, not an
+  // assumption that the pin won.
+  test("a live pin is reported as an override", () => {
     expect(
-      effectiveCallSiteProfile({ defaultProfile: "slow" }, { profile: "fast" }),
-    ).toEqual({
-      profile: "fast",
-      via: "override",
-    });
-    expect(
-      effectiveCallSiteProfile(
-        {},
-        {
-          profile: "fast",
-          provider: null,
-          model: null,
-        },
-      ),
+      effectiveCallSiteProfile({ defaultProfile: "fast" }, { profile: "fast" }),
     ).toEqual({ profile: "fast", via: "override" });
   });
 
-  test("without a pin the default profile applies", () => {
-    expect(effectiveCallSiteProfile({ defaultProfile: "slow" }, null)).toEqual({
-      profile: "slow",
-      via: "default",
-    });
+  // The case this exists for: the pin names a profile the resolver cannot
+  // use, so it skips the rung and the action runs on its default. Trusting
+  // the raw override would file the action under a profile it is not using,
+  // and offer to swap it away from a profile it never ran on.
+  test("a pin the resolver skipped reports what actually runs", () => {
     expect(
-      effectiveCallSiteProfile({ defaultProfile: "slow" }, undefined),
-    ).toEqual({
-      profile: "slow",
-      via: "default",
-    });
-    expect(effectiveCallSiteProfile({ defaultProfile: "slow" }, {})).toEqual({
-      profile: "slow",
-      via: "default",
-    });
-    // Tuning-only entries pin no profile, so the default still applies.
-    expect(
-      effectiveCallSiteProfile({ defaultProfile: "slow" }, { effort: "low" }),
-    ).toEqual({
-      profile: "slow",
-      via: "default",
-    });
+      effectiveCallSiteProfile(
+        { defaultProfile: "balanced" },
+        { profile: "retired" },
+      ),
+    ).toEqual({ profile: "balanced", via: "default" });
   });
 
-  test("custom pins and default-less sites carry no profile", () => {
-    // A provider/model pin renders as "Custom" and references no profile,
-    // even when the entry also names one.
+  test("without a pin the winner is reported as the default", () => {
+    for (const override of [null, undefined, {}, { effort: "low" as const }]) {
+      expect(
+        effectiveCallSiteProfile({ defaultProfile: "slow" }, override),
+      ).toEqual({ profile: "slow", via: "default" });
+    }
+  });
+
+  // A profileless call site has no named winner, so the catalog reports only
+  // the shipped tier, which is also what the row caption shows.
+  test("falls back to the shipped tier when there is no named winner", () => {
+    expect(
+      effectiveCallSiteProfile({ shippedDefaultProfile: "balanced" }, null),
+    ).toEqual({ profile: "balanced", via: "default" });
+  });
+
+  test("a provider or model pin references no profile", () => {
     expect(
       effectiveCallSiteProfile({ defaultProfile: "slow" }, { model: "gpt-4o" }),
     ).toBe(null);
@@ -101,24 +94,11 @@ describe("effectiveCallSiteProfile", () => {
         { profile: "fast", model: "gpt-4o" },
       ),
     ).toBe(null);
-    expect(effectiveCallSiteProfile({}, null)).toBe(null);
-    expect(effectiveCallSiteProfile({}, {})).toBe(null);
   });
 
-  // The shipped tier is what the row caption shows, so grouping follows it
-  // rather than `defaultProfile`, which is the effective winner and would
-  // echo a pin back. `defaultProfile` still covers assistants that predate
-  // the shipped field.
-  test("the shipped tier is preferred over the effective winner", () => {
-    expect(
-      effectiveCallSiteProfile(
-        { shippedDefaultProfile: "balanced", defaultProfile: "quality" },
-        null,
-      ),
-    ).toEqual({ profile: "balanced", via: "default" });
-    expect(
-      effectiveCallSiteProfile({ defaultProfile: "quality" }, null),
-    ).toEqual({ profile: "quality", via: "default" });
+  test("a site with nothing to resolve carries no profile", () => {
+    expect(effectiveCallSiteProfile({}, null)).toBe(null);
+    expect(effectiveCallSiteProfile({}, {})).toBe(null);
   });
 });
 

@@ -403,6 +403,16 @@ describe("OverridesDetailPanel - bulk change", () => {
     },
   };
 
+  // A live pin shows up as the call site's winning profile, so the catalog
+  // has to report it. The base fixture reports no winner anywhere, which is
+  // the shape of a pin the resolver could not use.
+  const PINNED_CATALOG = {
+    ...CATALOG,
+    callSites: CATALOG.callSites.map((cs) =>
+      cs.id === "workflowLeaf" ? { ...cs, defaultProfile: "quality" } : cs,
+    ),
+  };
+
   test("disabled when no action carries a profile", async () => {
     // The fixture catalog has no default profiles, and a provider/model
     // pin renders as "Custom" and references no profile, so nothing is
@@ -460,8 +470,19 @@ describe("OverridesDetailPanel - bulk change", () => {
     expect(renderedText()).toContain("2 actions currently use Quality");
   });
 
-  test("opens the swap modal seeded with the overridden profile", async () => {
+  test("a pin the resolver skipped leaves nothing to swap", async () => {
+    // The catalog reports no winner for the pinned site, so the action is
+    // not running on the pinned profile and must not be offered as if it
+    // were. The only other entries are Custom pins, so nothing is eligible.
     renderWith(OVERRIDDEN_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+    expect(getButton("Bulk change").disabled).toBe(true);
+  });
+
+  test("opens the swap modal seeded with the overridden profile", async () => {
+    renderWith(OVERRIDDEN_CONFIG, PINNED_CATALOG);
     await waitFor(() => {
       expect(renderedText()).toContain("Workflow Leaf");
     });
@@ -477,7 +498,7 @@ describe("OverridesDetailPanel - bulk change", () => {
   });
 
   test("disabled while the editor holds unsaved drafts", async () => {
-    renderWith(OVERRIDDEN_CONFIG);
+    renderWith(OVERRIDDEN_CONFIG, PINNED_CATALOG);
     await waitFor(() => {
       expect(renderedText()).toContain("Advisor");
     });

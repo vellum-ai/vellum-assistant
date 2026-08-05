@@ -23,23 +23,25 @@ export function isDraftActive(
 }
 
 /**
- * The profile a call site currently runs on, and how it got there: an
- * explicit profile override, or the site's default profile when nothing
- * pins it. Returns null for provider/model ("Custom") pins, which
- * reference no profile, and for sites with no resolvable default.
+ * The profile a call site currently runs on, and how it got there.
+ *
+ * The authority is the catalog's `defaultProfile`, which is the daemon's own
+ * winning profile for the call site: pins included, and rungs the resolver
+ * cannot use already skipped. Reading the raw override instead would report
+ * a pin that names a disabled or incomplete profile as the current
+ * selection, when the resolver skips it and the action runs on something
+ * else entirely.
+ *
+ * `via` is therefore derived by asking whether the winner is the pin, rather
+ * than assuming a pin wins. Returns null for provider/model ("Custom") pins,
+ * which reference no profile at all.
  */
 export interface CallSiteEffectiveProfile {
   profile: string;
   via: "override" | "default";
 }
 
-/**
- * The catalog fields naming a call site's default, in the order they are
- * consulted. `shippedDefaultProfile` is the code-owned tier and is what the
- * row caption shows, including for profileless sites the daemon reports as
- * Balanced-tier; `defaultProfile` is the effective winner and covers
- * assistants predating the shipped field.
- */
+/** The catalog fields naming which profile a call site resolves to. */
 type CallSiteDefaults = Pick<
   ConfigLlmCallsitesGetResponse["callSites"][number],
   "defaultProfile" | "shippedDefaultProfile"
@@ -52,11 +54,17 @@ export function effectiveCallSiteProfile(
   if (override?.provider || override?.model) {
     return null;
   }
-  if (override?.profile) {
-    return { profile: override.profile, via: "override" };
+  // `shippedDefaultProfile` covers the profileless case, where the winner is
+  // the code-owned anchor rather than a named profile and `defaultProfile`
+  // is absent. It matches what the row caption shows for those sites.
+  const winner = callSite.defaultProfile ?? callSite.shippedDefaultProfile;
+  if (!winner) {
+    return null;
   }
-  const fallback = callSite.shippedDefaultProfile ?? callSite.defaultProfile;
-  return fallback ? { profile: fallback, via: "default" } : null;
+  return {
+    profile: winner,
+    via: override?.profile === winner ? "override" : "default",
+  };
 }
 
 export function draftsEqual(
