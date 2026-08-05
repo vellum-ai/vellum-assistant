@@ -71,12 +71,14 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
 // ---------------------------------------------------------------------------
 
 import type { Conversation } from "../daemon/conversation.js";
+import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
   isRefusedInReadOnlyPass,
-  type ToolSetupContext,
+  type SubagentToolStats,
 } from "../daemon/conversation-tool-setup.js";
+import { SUBAGENT_ROLE_REGISTRY } from "../subagent/types.js";
 import {
   __clearRegistryForTesting,
   registerMcpTools,
@@ -86,6 +88,7 @@ import {
 } from "../tools/registry.js";
 import { RiskLevel } from "../tools/tool-types.js";
 import type { Tool } from "../tools/types.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,21 +103,20 @@ function makeToolDef(name: string): ToolDefinition {
 function makeProjectionCtx(
   overrides: Partial<Conversation> = {},
 ): Conversation {
-  return {
+  return asConversation({
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
     toolsDisabledDepth: 0,
     ...overrides,
-  } as unknown as Conversation;
+  }) as unknown as Conversation;
 }
 
-function makeSetupCtx(
-  overrides: Partial<ToolSetupContext> = {},
-): ToolSetupContext {
-  return {
+function makeSetupCtx(overrides: Partial<Conversation> = {}): Conversation {
+  return asConversation({
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
+    getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
@@ -128,9 +130,9 @@ function makeSetupCtx(
     enqueueMessage: () => ({ queued: false, requestId: "r" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
+    withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
 /** Fake ToolExecutor that records every execute() invocation. */
@@ -156,7 +158,7 @@ const noopSecretPrompter = {
   prompt: mock(async () => ({ cancelled: true })),
 } as unknown as SecretPrompter;
 
-function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
+function makeToolFn(executor: ToolExecutor, ctx: Conversation) {
   return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
@@ -666,6 +668,120 @@ describe("subagentDenySideEffects — read-only continuation", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The advisor consult's effective tool surface: role allowlist AND owner gate
+// ---------------------------------------------------------------------------
+
+describe("advisor consult tool surface", () => {
+  const advisorAllowed = new Set(SUBAGENT_ROLE_REGISTRY.advisor.allowedTools);
+
+  function registerDefaultTool(name: string): void {
+    registerTool({
+      name,
+      description: name,
+      input_schema: { type: "object" },
+      execute: async () => ({ content: "ok", isError: false }),
+    } as unknown as Parameters<typeof registerTool>[0]);
+  }
+
+  /** Register a workspace tool that claims a built-in's name. */
+  function registerWorkspaceOverride(name: string): void {
+    registerWorkspaceTools([
+      {
+        tool: {
+          name,
+          description: `workspace ${name}`,
+          input_schema: { type: "object" },
+          execute: async () => ({ content: "ok", isError: false }),
+        } as unknown as Tool,
+        workspacePath: "/tmp/ws",
+      },
+    ]);
+  }
+
+  beforeEach(() => {
+    for (const name of advisorAllowed) {
+      registerDefaultTool(name);
+    }
+  });
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("the built-in readers survive both gates", () => {
+    const toolDefs = [...advisorAllowed, "bash", "file_write"].map(makeToolDef);
+    const ctx = makeProjectionCtx({
+      subagentAllowedTools: new Set(advisorAllowed),
+      subagentDenySideEffects: true,
+      isSubagent: true,
+    });
+
+    const tools = createResolveToolsCallback(toolDefs, ctx)!(EMPTY_HISTORY);
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      [...advisorAllowed].sort() as string[],
+    );
+  });
+
+  test("a workspace tool shadowing an allowlisted name is kept off the wire", () => {
+    // The role allowlist matches on NAME, so `file_read` passes it even when a
+    // workspace tool owns the name. Only the owner check removes it.
+    registerWorkspaceOverride("file_read");
+    const toolDefs = [...advisorAllowed].map(makeToolDef);
+    const ctx = makeProjectionCtx({
+      subagentAllowedTools: new Set(advisorAllowed),
+      subagentDenySideEffects: true,
+      isSubagent: true,
+    });
+
+    const tools = createResolveToolsCallback(toolDefs, ctx)!(EMPTY_HISTORY);
+
+    expect(tools.map((t) => t.name)).not.toContain("file_read");
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "code_search",
+      "file_list",
+    ]);
+  });
+
+  test("a workspace tool shadowing an allowlisted name is refused at dispatch", async () => {
+    // Belt and braces: even reached by name (a stale tool_use block, an
+    // indirect dispatch), the executor never runs the workspace implementation.
+    registerWorkspaceOverride("file_read");
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: advisorAllowed,
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    const result = await toolFn("file_read", { path: "secrets.env" });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(denied.has("file_read")).toBe(true);
+  });
+
+  test("the built-in reader still executes when no override is registered", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: advisorAllowed,
+        subagentDenySideEffects: true,
+      }),
+    );
+
+    const result = await toolFn("file_read", { path: "a.ts" });
+
+    expect(result?.isError).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(["file_read"]);
+  });
+});
+
 describe("isRefusedInReadOnlyPass — strict read-only allowlist", () => {
   test("allows an allowlisted name only when it is the trusted built-in (default owner)", () => {
     for (const name of [
@@ -779,6 +895,105 @@ describe("createToolExecutor — per-chat plugin scope (skill_execute dispatch)"
 
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Executor: machine tool-call stats for the subagent truth envelope
+// ---------------------------------------------------------------------------
+
+describe("createToolExecutor: subagent tool-call stats", () => {
+  function makeStats(): SubagentToolStats {
+    return { calls: 0, succeeded: 0, filesWritten: new Set<string>() };
+  }
+
+  /** Executor that returns an error result for the named tools, ok otherwise. */
+  function makeExecutor(failing: Set<string> = new Set<string>()) {
+    return {
+      execute: async (name: string): Promise<ToolExecutionResult> =>
+        failing.has(name)
+          ? { content: "boom", isError: true }
+          : { content: "ok", isError: false },
+    } as unknown as ToolExecutor;
+  }
+
+  test("counts every dispatch but only the results that were not errors", async () => {
+    const stats = makeStats();
+    const toolFn = makeToolFn(
+      makeExecutor(new Set(["bash"])),
+      makeSetupCtx({ isSubagent: true, subagentToolStats: stats }),
+    );
+
+    await toolFn("file_read", { path: "/a.ts" });
+    await toolFn("bash", { command: "false" });
+    await toolFn("file_read", { path: "/b.ts" });
+
+    expect(stats.calls).toBe(3);
+    expect(stats.succeeded).toBe(2);
+    expect(stats.filesWritten.size).toBe(0);
+  });
+
+  test("collects file_write and file_edit targets, deduped by path", async () => {
+    const stats = makeStats();
+    const toolFn = makeToolFn(
+      makeExecutor(),
+      makeSetupCtx({ isSubagent: true, subagentToolStats: stats }),
+    );
+
+    await toolFn("file_write", { path: "/report.md", content: "x" });
+    await toolFn("file_edit", { path: "/report.md", old_string: "x" });
+    await toolFn("file_edit", { path: "/notes.md", old_string: "y" });
+
+    expect([...stats.filesWritten].sort()).toEqual(["/notes.md", "/report.md"]);
+  });
+
+  test("a failed write is not counted as a file written", async () => {
+    const stats = makeStats();
+    const toolFn = makeToolFn(
+      makeExecutor(new Set(["file_write"])),
+      makeSetupCtx({ isSubagent: true, subagentToolStats: stats }),
+    );
+
+    await toolFn("file_write", { path: "/nope.md", content: "x" });
+
+    expect(stats.calls).toBe(1);
+    expect(stats.succeeded).toBe(0);
+    expect(stats.filesWritten.size).toBe(0);
+  });
+
+  test("skill_execute is counted under the resolved inner tool", async () => {
+    const stats = makeStats();
+    const toolFn = makeToolFn(
+      makeExecutor(),
+      makeSetupCtx({ isSubagent: true, subagentToolStats: stats }),
+    );
+
+    await toolFn("skill_execute", {
+      tool: "file_write",
+      input: { path: "/inner.md", content: "x" },
+    });
+
+    expect(stats.calls).toBe(1);
+    expect(stats.succeeded).toBe(1);
+    expect([...stats.filesWritten]).toEqual(["/inner.md"]);
+  });
+
+  test("a non-subagent conversation records nothing", async () => {
+    const stats = makeStats();
+    const toolFn = makeToolFn(
+      makeExecutor(),
+      // No isSubagent: a parent conversation shares this code path but must
+      // never accumulate counters.
+      makeSetupCtx({ subagentToolStats: stats }),
+    );
+
+    await toolFn("file_write", { path: "/a.md", content: "x" });
+
+    expect(stats).toEqual({
+      calls: 0,
+      succeeded: 0,
+      filesWritten: new Set<string>(),
+    });
   });
 });
 

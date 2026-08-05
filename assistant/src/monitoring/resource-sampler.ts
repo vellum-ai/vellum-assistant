@@ -36,6 +36,7 @@ import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
 import { readActiveConversations } from "./active-conversations.js";
+import { topProcessesByFd } from "./file-descriptors.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
 import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
@@ -82,10 +83,10 @@ export function computeSampleDeltas(
  * Take a single point-in-time sample of memory + disk. When `prev` is given,
  * the sample carries counter deltas relative to it.
  */
-export function takeSample(
+export async function takeSample(
   now: number,
   prev: ResourceSample | null = null,
-): ResourceSample {
+): Promise<ResourceSample> {
   const currentBytes = getContainerMemoryUsageBytes();
   const limitBytes = getContainerMemoryLimitBytes();
   const memory: ResourceSampleMemory | null =
@@ -98,7 +99,7 @@ export function takeSample(
         }
       : null;
 
-  const disk = getDiskUsageInfo();
+  const disk = await getDiskUsageInfo();
 
   // One read feeds both parsers so the breakdown and counters are coherent.
   const statRaw = readMemoryStatRaw();
@@ -176,6 +177,10 @@ export async function writeSnapshot(
     // Slab memory belongs to no process; without this, cgroup usage that
     // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
+    // Descriptor pressure, ranked against each process's own soft limit. An
+    // EMFILE storm and a memory spike look alike from the outside (unrelated
+    // failures across the daemon), so the capture records both.
+    topProcessesByFd: topProcessesByFd(15),
     processTree: tree,
   };
 
@@ -231,11 +236,27 @@ export function startResourceSampler(
   // thread's kernel state mid-stall when the heartbeat goes stale.
   const stallCapture = createStallCaptureMonitor(dataDir);
 
-  const tick = () => {
+  // Skip ticks while a sample is in flight: the disk measurement can take
+  // seconds (du over the workspace), and overlapping ticks would all delta
+  // against the same stale prevSample and land in one burst.
+  let sampleInFlight = false;
+  const tick = async () => {
+    if (sampleInFlight) {
+      return;
+    }
+    sampleInFlight = true;
+    try {
+      await runTick();
+    } finally {
+      sampleInFlight = false;
+    }
+  };
+
+  const runTick = async () => {
     const now = clock();
     let sample: ResourceSample;
     try {
-      sample = takeSample(now, prevSample);
+      sample = await takeSample(now, prevSample);
       prevSample = sample;
       buffer.append(sample);
     } catch (err) {

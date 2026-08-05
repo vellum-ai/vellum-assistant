@@ -33,6 +33,7 @@ import {
   backgroundConversationsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import {
   type ConversationListPage,
@@ -80,6 +81,42 @@ export function markConversationSeenLocal(
     return changed ? next : conversations;
   };
   updateAllConversationCaches(queryClient, assistantId, markSeen);
+}
+
+/**
+ * Apply a delta to the cached server-side unread conversation count.
+ *
+ * Optimistic companion to the seen/unseen mutations: a mark-read
+ * decrements, a mark-unread increments, and the caller reverts a failed
+ * mutation by applying the inverse delta (delta-based reversal, not a
+ * snapshot restore, so concurrent adjustments from other in-flight
+ * mutations are never clobbered). Drift is reconciled by the authoritative
+ * refetch in `invalidateConversationQueries` on settle.
+ *
+ * **Deliberately unclamped**, so `+n` and `-n` are exact inverses and a
+ * revert restores precisely what it took. Clamping here would break that:
+ * a decrement that saturated at zero would be undone by more than it
+ * removed, leaving the badge over-reporting. The cached value can therefore
+ * go briefly negative when optimistic writes outrun the server; presentation
+ * clamps it (`useUnreadConversationCount`), which keeps the arithmetic
+ * reversible and the display honest.
+ *
+ * Returns `true` when a numeric count was adjusted. No-ops (returns
+ * `false`) when the cache is empty or holds `null` (the connected
+ * assistant does not serve the count endpoint).
+ */
+export function adjustUnreadCountCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  delta: number,
+): boolean {
+  const queryKey = unreadConversationCountQueryKey(assistantId);
+  const current = queryClient.getQueryData<number | null>(queryKey);
+  if (typeof current !== "number") {
+    return false;
+  }
+  queryClient.setQueryData<number | null>(queryKey, current + delta);
+  return true;
 }
 
 export function prependConversation(

@@ -35,6 +35,7 @@ import type { ToolDefinition } from "../../llm-helpers.js";
 mock.module("../../substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => [],
+  listAlwaysCandidateSkillSlugs: () => [],
   seedV2SkillEntries: async () => undefined,
 }));
 

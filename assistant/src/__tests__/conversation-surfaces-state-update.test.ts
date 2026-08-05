@@ -1,23 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
   restoreSurfaceStateEntry,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 /**
- * Build a minimal SurfaceConversationContext for testing.
+ * Build a minimal Conversation for testing.
  * Tracks calls to enqueueMessage and processMessage so tests can assert
  * whether an LLM turn was triggered.
  */
-function makeContext(opts?: {
-  sent?: AssistantEvent[];
-}): SurfaceConversationContext & {
+function makeContext(opts?: { sent?: AssistantEvent[] }): Conversation & {
   enqueueCalls: Array<{ content: string; requestId: string }>;
   processCalls: Array<{ content: string; requestId?: string }>;
 } {
@@ -25,7 +24,7 @@ function makeContext(opts?: {
   const enqueueCalls: Array<{ content: string; requestId: string }> = [];
   const processCalls: Array<{ content: string; requestId?: string }> = [];
 
-  return {
+  return asConversation({
     conversationId: "test-session",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -55,14 +54,11 @@ function makeContext(opts?: {
     withSurface: createSurfaceMutex(),
     enqueueCalls,
     processCalls,
-  };
+  });
 }
 
 /** Register a dynamic_page surface in the context so state_update is accepted. */
-function registerDynamicPage(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-): void {
+function registerDynamicPage(ctx: Conversation, surfaceId: string): void {
   ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "dynamic_page",

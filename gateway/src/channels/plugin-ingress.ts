@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
+import { IngressVerificationSchema } from "./ingress-verification.js";
 
 const log = getLogger("plugin-ingress");
 
@@ -30,6 +31,16 @@ export type IngressRouteKind = z.infer<typeof IngressRouteKindSchema>;
  */
 export const IngressSignerSchema = z.enum(["plugin", "vellum"]);
 export type IngressSigner = z.infer<typeof IngressSignerSchema>;
+
+/**
+ * Where the caller carries its signature. Selects the scheme, never whether
+ * one is required — an unsigned plugin route does not exist.
+ */
+export const IngressHandshakeSchema = z.enum([
+  "signed-headers",
+  "signed-query",
+]);
+export type IngressHandshake = z.infer<typeof IngressHandshakeSchema>;
 
 /** Plugin directory name usable as a public URL path segment. */
 const SAFE_PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
@@ -99,6 +110,55 @@ export const IngressRouteSchema = z.object({
    * route between the two without the change being visible.
    */
   signer: IngressSignerSchema.default("plugin"),
+  /**
+   * How the caller proves it holds the signing secret.
+   *
+   * `signed-headers` (the default) is the platform's scheme: the signature
+   * travels in `Vellum-Signature`, over the body for HTTP and over
+   * `<timestamp>.<pathname>` for a WebSocket upgrade.
+   *
+   * `signed-query` puts the same HMAC in the URL instead, for a caller that
+   * is handed a URL and nothing else. Recall.ai's realtime endpoint is the
+   * case that forced it: a third party dialing a socket has no place to put a
+   * header. The tradeoff is that such a URL is a bearer credential until it
+   * expires, which is why it carries an expiry the minter chooses and the
+   * scheme bounds (`@vellumai/service-contracts/plugin-ingress-handshake`).
+   *
+   * WebSocket only. An HTTP route declaring it is rejected: an HTTP request
+   * always has somewhere to put a header, so the weaker scheme would buy
+   * nothing.
+   *
+   * Part of the digest, so a route cannot move between schemes under an
+   * approval a guardian granted for the other one.
+   */
+  handshake: IngressHandshakeSchema.default("signed-headers"),
+  /**
+   * How a third-party caller's signature is checked, when it is not ours.
+   *
+   * Absent (the default) means the platform scheme: `Vellum-Signature` over
+   * the body, keyed by whichever `webhook_secret` {@link signer} selects.
+   * That is right for a caller Vellum controls and wrong for every other one
+   * — Comms signs `X-Osis-Signature`, Photon signs `X-Spectrum-Signature` over
+   * a timestamped preamble, and neither can be asked to sign ours.
+   *
+   * Present, the route is verified by the descriptor instead: the gateway
+   * runs one HMAC engine and reads the vendor's specifics as data, so a new
+   * vendor is a manifest edit rather than gateway code. See
+   * `ingress-verification.ts` for the scheme and for what stays gateway-side.
+   *
+   * The descriptor supersedes {@link signer} — it names its own credential
+   * field, under this plugin's own service — so declaring it alongside
+   * `signer: "vellum"` is rejected: `vellum` routes are served without a
+   * guardian approval (see `findServableRoute`), and a route that both skips
+   * approval and verifies against a secret the plugin chose would be reach a
+   * plugin grants itself. HTTP only, for the same reason `signed-query` is
+   * WebSocket only: a socket upgrade is bridged elsewhere and carries none of
+   * this.
+   *
+   * Part of the digest, so what verifies a route cannot change under an
+   * approval granted for something else.
+   */
+  verification: IngressVerificationSchema.optional(),
   /** Human-readable purpose, surfaced in gateway logs and admin UI. */
   description: z.string().min(1),
 });
@@ -168,6 +228,25 @@ export function parsePluginIngressManifest(
       throw new Error(`duplicate route ${route.path}`);
     }
     seen.add(route.path);
+    // Rejected here rather than in the schema so the whole declaration fails
+    // with one message, the same way a duplicate path does.
+    if (route.handshake === "signed-query" && route.kind !== "websocket") {
+      throw new Error(
+        `route ${route.path}: signed-query handshakes are only valid for websocket routes`,
+      );
+    }
+    if (route.verification) {
+      if (route.signer === "vellum") {
+        throw new Error(
+          `route ${route.path}: declared verification cannot be combined with signer "vellum"`,
+        );
+      }
+      if (route.kind !== "http") {
+        throw new Error(
+          `route ${route.path}: declared verification is only valid for http routes`,
+        );
+      }
+    }
   }
   return manifest;
 }

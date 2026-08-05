@@ -121,3 +121,112 @@ type Story = StoryObj<typeof OverridesDetailPanel>;
  * never enters the `llm.callSites` patch.
  */
 export const Default: Story = {};
+
+// A config carrying every state the picker has to judge. Only the two
+// healthy profiles and the sound mix are dispatchable; the rest are what the
+// resolver would skip.
+const MIXED_HEALTH_CONFIG: ConfigGetResponse = {
+  llm: {
+    profiles: {
+      balanced: {
+        label: "Balanced",
+        provider: "vellum",
+        model: "glm-5.2",
+        source: "managed",
+        status: "active",
+      },
+      "quality-optimized": {
+        label: "Quality",
+        provider: "vellum",
+        model: "gpt-5.6-sol",
+        source: "managed",
+        status: "active",
+      },
+      // Names a provider but no model, so the resolver reports the rung as
+      // "incomplete" and falls through.
+      "half-made": { label: "Half Made", provider: "anthropic" },
+      retired: {
+        label: "Retired",
+        provider: "vellum",
+        model: "glm-5.2",
+        status: "disabled",
+      },
+      // Every arm dispatches, so the mix is offered.
+      "sound-mix": {
+        label: "Sound Mix",
+        mix: [
+          { profile: "balanced", weight: 1 },
+          { profile: "quality-optimized", weight: 1 },
+        ],
+      },
+      // One arm cannot dispatch. The arm is picked per conversation, so this
+      // would work on some turns and silently fall through on others.
+      "flaky-mix": {
+        label: "Flaky Mix",
+        mix: [
+          { profile: "balanced", weight: 1 },
+          { profile: "half-made", weight: 1 },
+        ],
+      },
+    },
+    profileOrder: [
+      "balanced",
+      "quality-optimized",
+      "half-made",
+      "retired",
+      "sound-mix",
+      "flaky-mix",
+    ],
+    activeProfile: "balanced",
+    // Deliberately pointing at a profile that cannot dispatch, to show the
+    // carve-out: the current selection is never hidden, or the trigger would
+    // render blank with no way out.
+    advisorProfile: "half-made",
+    callSites: {},
+  },
+};
+
+/**
+ * What the pickers hide and what they keep.
+ *
+ * Open the Advisor dropdown, or toggle a call-site row on and open its
+ * dropdown: only Balanced, Quality, and Sound Mix are offered. Half Made
+ * (no model), Retired (disabled), and Flaky Mix (one arm with no model) are
+ * all absent, because the resolver would skip each of them and run something
+ * else while the picker showed your choice.
+ *
+ * The Advisor is set to Half Made, so it renders as the current selection
+ * labeled "(Unavailable)": the one entry that stays visible whatever its
+ * state, so the trigger has a label and there is a way back.
+ */
+export const UndispatchableProfilesHidden: Story = {
+  decorators: [
+    (Story) => {
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: {
+            retry: false,
+            refetchOnWindowFocus: false,
+            staleTime: Infinity,
+          },
+        },
+      });
+      const path = { assistant_id: ASSISTANT_ID };
+      client.setQueryData(
+        configLlmCallsitesGetOptions({ path }).queryKey,
+        CATALOG,
+      );
+      client.setQueryData(
+        configGetOptions({ path }).queryKey,
+        MIXED_HEALTH_CONFIG,
+      );
+      return (
+        <QueryClientProvider client={client}>
+          <div style={{ maxWidth: 560, height: 720 }}>
+            <Story />
+          </div>
+        </QueryClientProvider>
+      );
+    },
+  ],
+};

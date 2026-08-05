@@ -61,18 +61,13 @@ import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-const AddCreditsModal = lazy(() =>
-  import("@/components/add-credits-modal").then((m) => ({
-    default: m.AddCreditsModal,
-  })),
-);
-
 const DeployDialogs = lazy(() =>
   import("@/components/deploy-dialogs").then((m) => ({
     default: m.DeployDialogs,
   })),
 );
 
+import { LazyAddCreditsModal } from "@/domains/chat/components/lazy-add-credits-modal";
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
@@ -107,7 +102,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
-  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
@@ -566,7 +560,6 @@ export function ActiveChatView() {
 
     // Upward signals
     setRefreshEpoch,
-    setShowAddCreditsModal,
 
     // Shared refs
     inputRef,
@@ -584,15 +577,6 @@ export function ActiveChatView() {
   return (
     <>
       <ChatContentLayout {...chatRouteProps} />
-
-      {showAddCreditsModal ? (
-        <LazyBoundary>
-          <AddCreditsModal
-            open={showAddCreditsModal}
-            onOpenChange={setShowAddCreditsModal}
-          />
-        </LazyBoundary>
-      ) : null}
 
       {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>
@@ -622,6 +606,9 @@ export function ActiveChatView() {
         onCancel={handleCancelRetry}
       />
       <MobileChatOverlays />
+      {/* Stable mount for the Add Credits checkout, so it outlives the
+          billing-state-conditional CTAs that open it. */}
+      <LazyAddCreditsModal />
     </>
   );
 }

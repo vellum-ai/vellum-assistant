@@ -4,10 +4,8 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
-import {
-  getSlackConversationInfo,
-  SlackApiError,
-} from "../../messaging/providers/slack/api.js";
+import { getSlackConversationInfo } from "../../messaging/providers/slack/api.js";
+import { SlackApiError } from "../../messaging/providers/slack/web-api-transport.js";
 import {
   getBindingByConversation,
   updateExternalChatName,

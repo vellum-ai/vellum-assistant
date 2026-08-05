@@ -70,7 +70,9 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
             </span>
           </div>
           <p className="m-0">
-            Free up space or add more storage to avoid interruptions.
+            {onUpgradeStorage
+              ? "Free up space or add more storage to avoid interruptions."
+              : "Free up space to avoid interruptions."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {onReviewWorkspaceData && (

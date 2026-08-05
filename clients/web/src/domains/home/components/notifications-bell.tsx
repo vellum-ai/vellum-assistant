@@ -32,9 +32,12 @@ export interface ActivityLocationState {
   feedItemId?: string;
 }
 
-// Caps the visible list at roughly five rows (48px rows + 4px gaps);
-// older notifications stay reachable by scrolling.
-const LIST_MAX_HEIGHT_CLASS = "max-h-[280px]";
+// Caps the visible list at five compact cards plus the four 8px gaps between
+// them. A compact card is 73px tall: 2px borders, 16px padding, a 32px title
+// line (sized by the h-8 hover actions that share it with the timestamp), a 2px
+// gap, and a 21px preview line. 5 * 73 + 4 * 8 = 397. Older notifications stay
+// reachable by scrolling.
+const LIST_MAX_HEIGHT_CLASS = "max-h-[397px]";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
@@ -103,12 +106,6 @@ export function NotificationsBell() {
   const trigger = (
     <Button
       variant="ghost"
-      // The bell reads at 18px (vs. the Button's 14px icon-only default) so
-      // it holds its own in the top bar next to the dot. The touch-mobile
-      // variant must be repeated: expandOnMobile (on by default) adds a
-      // touch-mobile:[&_svg]:size-4 rule that would otherwise win over the
-      // unprefixed override inside the media query.
-      iconOnlyGlyphClassName="[&_svg]:size-4.5 touch-mobile:[&_svg]:size-4.5"
       iconOnly={
         <span className="relative flex" aria-hidden>
           <Bell />
@@ -120,8 +117,11 @@ export function NotificationsBell() {
             // --surface-lift inside the circular tap target that ghost
             // icon-only buttons grow on touch-mobile. The 2px ring eats into
             // the box (border-box), so size/offset grow by 2px each to keep
-            // the 8px amber core in place.
-            <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]" />
+            // the 6px amber core in place.
+            <span
+              data-testid="notifications-bell-unread-dot"
+              className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]"
+            />
           ) : null}
         </span>
       }
@@ -141,7 +141,7 @@ export function NotificationsBell() {
       </Typography>
     ) : (
       <div
-        className={`flex flex-col gap-[var(--app-spacing-xs)] overflow-y-auto ${
+        className={`flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto ${
           isMobile ? "max-h-[60dvh]" : LIST_MAX_HEIGHT_CLASS
         }`}
       >
@@ -149,6 +149,7 @@ export function NotificationsBell() {
           <HomeRecapRow
             key={item.id}
             item={item}
+            density="compact"
             onSelect={handleSelectItem}
             onDismiss={(itemId) =>
               feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })

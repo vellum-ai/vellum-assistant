@@ -27,6 +27,9 @@ mock.module("../messaging/providers/telegram-bot/send.js", () => ({
       text,
       approval: approval as (typeof sendCalls)[0]["approval"],
     });
+    // Mirror the real send result: the id of the sent message, which the
+    // adapter surfaces so the delivery row can address the card later.
+    return { lastMessageId: String(1000 + sendCalls.length) };
   },
   sendTelegramAttachments: async () => ({
     allFailed: false,
@@ -196,6 +199,9 @@ describe("TelegramAdapter", () => {
     const result = await adapter.send(payload, makeDestination());
 
     expect(result.success).toBe(true);
+    // The sent message's channel-native id is surfaced so the delivery row
+    // can address the card for in-place withdrawal later.
+    expect(result.messageId).toBe("1001");
     expect(sendCalls).toHaveLength(1);
 
     const call = sendCalls[0]!;

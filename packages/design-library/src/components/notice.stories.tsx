@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { Button } from "./button";
 import { Notice } from "./notice";
 
 const meta: Meta<typeof Notice> = {
@@ -84,6 +85,41 @@ export const WithActions: Story = {
         <button type="button">Renew</button>
         <button type="button">Sign out</button>
       </div>
+    ),
+  },
+};
+
+/**
+ * Several actions inside a narrow notice. The actions sit under the message so
+ * the text keeps the full width instead of collapsing into a one-word-per-line
+ * column. A notice that offers an explicit "Dismiss" action leaves `onDismiss`
+ * unset, so the corner control is not a second way to do the same thing.
+ */
+export const NarrowWithActions: Story = {
+  decorators: [
+    (Story) => (
+      <div style={{ maxWidth: 340 }}>
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    onDismiss: undefined,
+    tone: "warning",
+    title: "Message not sent. It looks like it contains an API key.",
+    children: "Credentials sent in chat are visible in the transcript.",
+    actions: (
+      <>
+        <Button variant="primary" size="compact">
+          Store securely
+        </Button>
+        <Button variant="outlined" size="compact">
+          Send anyway
+        </Button>
+        <Button variant="ghost" size="compact">
+          Dismiss
+        </Button>
+      </>
     ),
   },
 };

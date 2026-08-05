@@ -157,6 +157,14 @@ export {
   type ContextMenuTriggerProps,
 } from "./components/context-menu";
 export {
+  Select,
+  type SelectOption,
+  type SelectProps,
+  type SelectMenuAlign,
+  type SelectSize,
+} from "./components/select";
+/** @deprecated Use `Select`. */
+export {
   Dropdown,
   resolveDropdownMenuPosition,
   type DropdownOption,
@@ -185,6 +193,11 @@ export {
   type MarkdownImageComponent,
   type MarkdownLinkComponent,
 } from "./components/markdown-message";
+export {
+  Skeleton,
+  type SkeletonProps,
+  type SkeletonAs,
+} from "./components/skeleton";
 export {
   SideMenu,
   SideMenuBody,

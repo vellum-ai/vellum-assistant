@@ -123,8 +123,8 @@ export function AssistantUpgrades({
         setSelectedVersion(null);
         toast.success(
           isPollingRollback
-            ? "Rollback complete — assistant is healthy."
-            : "Update complete — assistant is healthy.",
+            ? "Rollback complete. Your assistant is healthy."
+            : "Update complete. Your assistant is healthy.",
           { id: "runtime-upgrade-complete", tone: "strong" },
         );
         onUpgradeComplete?.();
@@ -446,7 +446,7 @@ export function LocalAssistantUpgrades({
           ? `Successfully updated to version ${result.version}.`
           : `Successfully updated to version ${targetVersion ?? "latest"}.`,
       );
-      toast.success("Update complete — assistant is healthy.", {
+      toast.success("Update complete. Your assistant is healthy.", {
         id: "runtime-upgrade-complete",
         tone: "strong",
       });

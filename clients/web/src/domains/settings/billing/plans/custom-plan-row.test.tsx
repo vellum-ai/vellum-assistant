@@ -22,6 +22,11 @@ describe("CustomPlanRow", () => {
     expect(queryByText("Your Current Plan")).toBeNull();
   });
 
+  test("states no billing cadence, which belongs to the configurator", () => {
+    const { queryByText } = render(<CustomPlanRow onConfigure={() => {}} />);
+    expect(queryByText("Billed monthly")).toBeNull();
+  });
+
   test("renders the current-plan tag when isCurrent", () => {
     const { queryByText } = render(
       <CustomPlanRow onConfigure={() => {}} isCurrent />,

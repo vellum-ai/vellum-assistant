@@ -25,7 +25,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -81,8 +81,8 @@ interface UseConversationLoaderParams {
  * polling for new messages.
  *
  * Owns the primary data-fetching lifecycle for the chat sidebar and
- * transcript. Returns `switchConversation`, `startNewConversation`,
- * and `refreshConversations` for use by sibling hooks.
+ * transcript. Returns `startNewConversation` and `refreshConversations` for
+ * use by sibling hooks.
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
@@ -304,12 +304,12 @@ export function useConversationLoader({
     const currentConversationId =
       useConversationStore.getState().activeConversationId;
 
-    // The Capacitor iOS shell cold-launches into a fresh draft instead of
+    // Native mobile shells cold-launch into a fresh draft instead of
     // resuming a conversation. A draft is minted only while nothing is selected
     // in the URL or the store, and the minting pass writes the key to the store
     // in the same body, so the gate closes for the rest of the session.
     const newChatDraftConversationId = shouldMintNewChatDraft({
-      platformStartsInNewChat: isNativeIOS(),
+      platformStartsInNewChat: isNativeMobile(),
       urlConversationId: explicitConversationId,
       currentConversationId,
     })
@@ -416,26 +416,6 @@ export function useConversationLoader({
   });
 
   // -------------------------------------------------------------------------
-  // switchConversation
-  // -------------------------------------------------------------------------
-  const switchConversation = useCallback(
-    (key: string) => {
-      useViewerStore.getState().setMainView("chat");
-      // Same-conversation reselect: return to the chat view but keep the
-      // per-conversation process stores — wiping them kills the inline
-      // cards of still-running subagents, which only repopulate from live
-      // SSE events (LUM-2875).
-      if (key === useConversationStore.getState().activeConversationId) {
-        return;
-      }
-      useSubagentStore.getState().reset();
-      useWorkflowStore.getState().reset();
-      void navigate(routes.conversation(key));
-    },
-    [navigate],
-  );
-
-  // -------------------------------------------------------------------------
   // startNewConversation
   // -------------------------------------------------------------------------
   const startNewConversation = useCallback(
@@ -445,6 +425,7 @@ export function useConversationLoader({
       }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
+      useViewerStore.getState().clearTranscriptPanelPayloads();
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
       useConversationStore
@@ -458,7 +439,6 @@ export function useConversationLoader({
 
   return {
     refreshConversations,
-    switchConversation,
     startNewConversation,
     conversationExistsOnServer,
     historyResult,

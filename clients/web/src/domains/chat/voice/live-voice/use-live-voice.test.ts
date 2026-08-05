@@ -3096,3 +3096,41 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(h.client.connectArgs).toBe(connectArgsBeforeStop);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Echo-cancelling output route
+// ---------------------------------------------------------------------------
+
+describe("echo-cancelling output route", () => {
+  async function reachListening(h: ReturnType<typeof renderController>) {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+  }
+
+  test("re-renders the output route once the microphone is live", async () => {
+    const h = renderController();
+    expect(h.player.restartOutputRouteCount).toBe(0);
+
+    await reachListening(h);
+
+    // The player is unlocked in the entry gesture, before getUserMedia exists.
+    // WebKit binds a MediaStream renderer to whichever capture unit is running
+    // when it starts, so the rebind has to happen after capture comes up or the
+    // renderer can hold no echo reference at all.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.player.restartOutputRouteCount).toBe(1);
+  });
+});

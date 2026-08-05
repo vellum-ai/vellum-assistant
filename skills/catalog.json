@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T02:16:04.000Z"
+      "updatedAt": "2026-07-30T14:17:04.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -500,7 +500,7 @@
     {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
-      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Speed) only where they should deviate from shipped defaults.",
+      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Cost / Speed) only where they should deviate from shipped defaults.",
       "metadata": {
         "emoji": "💸",
         "vellum": {
@@ -508,7 +508,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-07-28T05:02:41.000Z"
+      "updatedAt": "2026-08-04T23:11:27.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -521,7 +521,7 @@
           "display-name": "LLM Provider Setup"
         }
       },
-      "updatedAt": "2026-07-10T04:43:15.000Z"
+      "updatedAt": "2026-08-04T23:11:27.000Z"
     },
     {
       "id": "macos-automation",
@@ -623,7 +623,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T02:27:39.000Z"
+      "updatedAt": "2026-07-30T14:17:04.000Z"
     },
     {
       "id": "notifications",
@@ -756,7 +756,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-27T13:35:46.000Z"
+      "updatedAt": "2026-07-31T11:59:40.000Z"
     },
     {
       "id": "public-ingress",
@@ -1146,7 +1146,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-05T00:51:26.000Z"
     },
     {
       "id": "vellum-self-knowledge",

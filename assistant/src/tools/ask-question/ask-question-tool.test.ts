@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
+  QuestionPromptOutcome,
   QuestionPromptParams,
   QuestionPromptResult,
 } from "../../permissions/question-prompter.js";
@@ -25,16 +26,22 @@ function setNextResult(result: QuestionPromptResult): void {
 
 mock.module("../../permissions/question-prompter.js", () => ({
   QuestionPrompter: class {
-    async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
+    async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
       calls.push(params);
-      return nextResult;
+      // Mirror the real prompter: it mints the request id and assigns the
+      // per-question `q1..qN` ids, then returns them alongside the resolution.
+      return {
+        requestId: "req-stub",
+        questions: params.questions.map((q, i) => ({ id: `q${i + 1}`, ...q })),
+        ...nextResult,
+      };
     }
   },
 }));
 
 // Import after the mock so the tool's `import { QuestionPrompter }` binds
 // to the stub class above.
-const { askQuestionTool, formatQuestionsAsTextFallback } =
+const { askQuestionTool, formatQuestionsAsTextFallback, toAnsweredQuestion } =
   await import("./ask-question-tool.js");
 
 type PromptParams = QuestionPromptParams;
@@ -708,5 +715,113 @@ describe("askQuestionTool definition (batched schema)", () => {
     // The legacy flat fields are gone.
     expect(schema.properties.question).toBeUndefined();
     expect(schema.properties.options).toBeUndefined();
+  });
+});
+
+describe("answered-question record", () => {
+  test("carries the option the user chose, keyed to the questions as asked", async () => {
+    setNextResult({
+      entries: [{ questionId: "q1", decision: "option", optionId: "b" }],
+      overall: "completed",
+    });
+
+    const result = await askQuestionTool.execute(validInput, makeContext());
+
+    expect(result.answeredQuestion).toEqual({
+      requestId: "req-stub",
+      questions: [{ id: "q1", ...singleQ }],
+      responses: [{ questionId: "q1", decision: "option", optionId: "b" }],
+      overall: "completed",
+    });
+  });
+
+  test("carries a free-text answer", async () => {
+    setNextResult({
+      entries: [{ questionId: "q1", decision: "free_text", text: "Cherry" }],
+      overall: "completed",
+    });
+
+    const result = await askQuestionTool.execute(validInput, makeContext());
+
+    expect(result.answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "free_text", text: "Cherry" },
+    ]);
+  });
+
+  test("records a closed card as every question skipped", async () => {
+    setNextResult({
+      entries: [
+        { questionId: "q1", decision: "skipped" },
+        { questionId: "q2", decision: "skipped" },
+      ],
+      overall: "closed",
+    });
+
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, singleQ] },
+      makeContext(),
+    );
+
+    expect(result.answeredQuestion?.overall).toBe("closed");
+    expect(result.answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "skipped" },
+      { questionId: "q2", decision: "skipped" },
+    ]);
+  });
+
+  test("keeps per-question skips inside an otherwise completed batch", async () => {
+    setNextResult({
+      entries: [
+        { questionId: "q1", decision: "option", optionId: "a" },
+        { questionId: "q2", decision: "skipped" },
+      ],
+      overall: "completed",
+    });
+
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, singleQ] },
+      makeContext(),
+    );
+
+    expect(result.answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "option", optionId: "a" },
+      { questionId: "q2", decision: "skipped" },
+    ]);
+  });
+
+  test("records nothing for a prompt that timed out or was aborted", async () => {
+    for (const overall of ["timed_out", "aborted"] as const) {
+      setNextResult({
+        entries: [{ questionId: "q1", decision: overall }],
+        overall,
+      });
+
+      const result = await askQuestionTool.execute(validInput, makeContext());
+
+      expect(result.isError).toBe(true);
+      expect(result.answeredQuestion).toBeUndefined();
+    }
+  });
+
+  test("records nothing when the channel degrades to the text fallback", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false }),
+    );
+
+    // No card was ever shown, so there is no answered state to keep.
+    expect(result.answeredQuestion).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("toAnsweredQuestion is undefined for non-user outcomes", () => {
+    expect(
+      toAnsweredQuestion({
+        requestId: "req-1",
+        questions: [],
+        entries: [],
+        overall: "timed_out",
+      }),
+    ).toBeUndefined();
   });
 });

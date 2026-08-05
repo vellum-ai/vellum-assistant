@@ -24,6 +24,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
 
@@ -46,16 +47,25 @@ function statusTone(status: string | null): TagTone {
   }
 }
 
+/**
+ * Amounts are in Stripe's minor units; render as major units using Stripe's
+ * amount scaling rules (2 for USD, 0 for JPY, 3 for BHD). The display
+ * fraction digits are forced to match the same scale so Intl's ISO metadata
+ * cannot round Stripe's two-decimal special cases (ISK, HUF, TWD, UGX).
+ */
 function formatAmount(minorUnits: number, currency: string): string {
   const code = currency.toUpperCase();
+  const digits = stripeScaleDigits(code);
   try {
     const formatter = new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: code,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
     });
-    const exponent = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-    return formatter.format(minorUnits / 10 ** exponent);
+    return formatter.format(minorUnits / 10 ** digits);
   } catch {
+    // Intl.NumberFormat throws a RangeError on invalid currency codes.
     return `${(minorUnits / 100).toFixed(2)} ${code}`;
   }
 }

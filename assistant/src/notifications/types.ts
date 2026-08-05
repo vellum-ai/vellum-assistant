@@ -58,6 +58,10 @@ export const DeliveryResultSchema = z.object({
   success: z.boolean(),
   error: z.string().optional(),
   messageId: z.string().optional(),
+  /** Set only by the platform push adapter: true when the platform accepted
+   *  at least one device push for delivery (not proof of device receipt). */
+  remotePushAccepted: z.boolean().optional(),
+  remotePushPlatforms: z.array(z.enum(["ios", "android"])).optional(),
 });
 export type DeliveryResult = z.infer<typeof DeliveryResultSchema>;
 
@@ -95,6 +99,7 @@ export type RenderedChannelCopy = z.infer<typeof RenderedChannelCopySchema>;
 
 export const ChannelDeliveryPayloadSchema = z.object({
   deliveryId: z.string().optional(),
+  correlationId: z.string().optional(),
   sourceEventName: z.string(),
   copy: RenderedChannelCopySchema,
   deepLinkTarget: z.record(z.string(), z.unknown()).optional(),
@@ -106,6 +111,11 @@ export const ChannelDeliveryPayloadSchema = z.object({
    *  broadcaster so channel adapters render it without re-parsing
    *  `contextPayload`. */
   toolApprovalSource: ToolApprovalSourceViewSchema.optional(),
+  /** True when the platform (APNs) channel accepted a remote push for this
+   *  delivery. Set only on the vellum channel's payload so clients can avoid
+   *  double-bannering. */
+  remotePushDispatched: z.boolean().optional(),
+  remotePushPlatforms: z.array(z.enum(["ios", "android"])).optional(),
 });
 export type ChannelDeliveryPayload = z.infer<
   typeof ChannelDeliveryPayloadSchema
@@ -119,11 +129,16 @@ export interface ChannelUpdatePayload {
 // -- Channel adapter interface ------------------------------------------------
 
 /** Interface that each channel adapter must implement. */
+export type ChannelDeliveryObserver = {
+  onRemotePushPlatforms(platforms: ("ios" | "android")[]): void;
+};
+
 export interface ChannelAdapter {
   channel: NotificationChannel;
   send(
     payload: ChannelDeliveryPayload,
     destination: ChannelDestination,
+    observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult>;
   update?(
     delivery: ChannelUpdateContext,
@@ -183,5 +198,7 @@ export interface NotificationDecision {
   dedupeKey: string;
   confidence: number;
   fallbackUsed: boolean;
+  /** Set by deterministic pass-through branches whose copy is producer-supplied verbatim; exempts the copy from the event-name-collision quality check. */
+  verbatimCopy?: boolean;
   persistedDecisionId?: string;
 }

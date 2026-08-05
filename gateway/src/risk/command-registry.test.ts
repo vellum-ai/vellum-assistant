@@ -619,6 +619,8 @@ describe("command-registry", () => {
       expect(getAssistantPath("plugins uninstall").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins enable").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins disable").baseRisk).toBe("medium");
+      expect(getAssistantPath("platform invoices list").baseRisk).toBe("low");
+      expect(getAssistantPath("platform invoices get").baseRisk).toBe("low");
     });
 
     test("assistant schedules update escalates to high for script payloads", () => {

@@ -45,6 +45,28 @@ export const conversations = sqliteTable(
      * conversations not spawned by another conversation.
      */
     parentConversationId: text("parent_conversation_id"),
+    /**
+     * Role the subagent that owns this conversation was spawned with, from
+     * `SUBAGENT_ROLE_REGISTRY` (`researcher`, `builder`, `advisor`); a spawn
+     * that named no role records the default, `builder`. NULL for every
+     * conversation that is not a subagent.
+     *
+     * Denormalized here rather than read from the `subagents` table at
+     * telemetry-flush time on purpose: `subagents` rows are deleted on
+     * dispose (TTL sweep ~30 minutes after the run goes terminal), while
+     * usage telemetry flushes on a watermark that can trail arbitrarily far
+     * behind after an ingest outage. Stamping the conversation row, the same
+     * rationale that put `parent_conversation_id` here, makes the
+     * attribution durable for the life of the usage row.
+     */
+    subagentRole: text("subagent_role"),
+    /**
+     * How the subagent that owns this conversation was spawned: context
+     * inheritance and lifecycle, orthogonal to {@link subagentRole}. One of
+     * the modes described on `SubagentSpawnMode` in `subagent/types.ts`. NULL
+     * for every conversation that is not a subagent.
+     */
+    subagentSpawnMode: text("subagent_spawn_mode"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),

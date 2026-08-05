@@ -68,19 +68,6 @@ export interface DropdownProps<T extends string> {
   readonly "data-testid"?: string;
 }
 
-/**
- * Single-select dropdown for choosing a text item.
- *
- * Generic over `T extends string` so callers can narrow selection to a union
- * of literal values (e.g. `"managed" | "your-own"`) and get a typed
- * `onChange` callback. Visuals follow semantic tokens (`--surface-lift`,
- * `--border-base`, etc.) and mirror the desktop dropdown behavior.
- *
- * The menu is portaled into the element provided by the nearest
- * `<PortalContainerProvider>` so it escapes ancestor `overflow: hidden` and
- * design tokens resolve correctly. Falls back to inline rendering when no
- * provider is mounted.
- */
 const TRIGGER_SIZE_CLASSES: Record<DropdownSize, string> = {
   regular: "h-9 px-3 text-body-medium-lighter",
   compact: "h-7 px-2.5 text-body-small-default",
@@ -96,6 +83,55 @@ const CHEVRON_SIZE_CLASSES: Record<DropdownSize, string> = {
   compact: "h-3 w-3",
 };
 
+/**
+ * Single-select dropdown for choosing a text item.
+ *
+ * @deprecated Use `Select` instead. `Dropdown` hand-rolls its own positioning,
+ * keyboard navigation, outside-click handling and focus management; `Select`
+ * is a thin wrapper over Radix Select, which is what every other overlay in
+ * this package already uses. The two render identically.
+ *
+ * Two behaviour differences to check before moving a call site, not just one:
+ *
+ * 1. **Re-selecting the current value does not call `onChange`.** `Dropdown`
+ *    fires on every click; `Select` reports changes, so choosing the option
+ *    that is already selected is silent. A call site that treats the click
+ *    itself as a signal (pinning an inherited default, re-triggering a fetch,
+ *    marking a form dirty) needs a local change, not just an import swap. At
+ *    least one caller depends on this today. Tracked on LUM-2959.
+ * 2. **Options may not carry an empty-string `value`**, which Radix reserves
+ *    to mean "cleared". Use `placeholder`, or a real sentinel.
+ *
+ * Migrating also fixes two defects this component still has: the menu cannot
+ * flip upward, so a trigger low in the viewport opens below the fold, and it
+ * is only safe from ancestor `transform`s because it portals to
+ * `document.body` by hand rather than through a primitive that guarantees it.
+ *
+ * No rush on any individual call site: move them as you touch the files. This
+ * component is not going anywhere until the last one is gone.
+ *
+ * Generic over `T extends string` so callers can narrow selection to a union
+ * of literal values (e.g. `"managed" | "your-own"`) and get a typed
+ * `onChange` callback. Visuals follow semantic tokens (`--surface-lift`,
+ * `--border-base`, etc.) and mirror the desktop dropdown behavior.
+ *
+ * The menu is portaled into the element provided by the nearest
+ * `<PortalContainerProvider>` so it escapes ancestor `overflow: hidden` and
+ * design tokens resolve correctly. Falls back to `document.body` when no
+ * provider is mounted, matching every other overlay in this package
+ * (`Popover`, `Tooltip`, `Menu`, `Modal`, `ContextMenu`, `BottomSheet`, which
+ * all hand `container ?? undefined` to a Radix `Portal`).
+ *
+ * Portaling is not optional. The menu positions itself with `position: fixed`
+ * at viewport coordinates read off the trigger's `getBoundingClientRect()`,
+ * which only lands correctly when the viewport is its containing block. Any
+ * ancestor with a `transform`, `filter`, or `will-change` becomes that
+ * containing block instead and shifts the menu by that ancestor's origin,
+ * usually clear off-screen, which reads as "the dropdown won't open". The web
+ * app's detail drawer does exactly this: its slide-in animation uses
+ * `animation-fill-mode: both`, so the final keyframe's identity matrix stays
+ * applied for the life of the drawer.
+ */
 export function Dropdown<T extends string>({
   options,
   value,
@@ -474,9 +510,9 @@ export function Dropdown<T extends string>({
         />
       </button>
 
-      {menuNode && portalContainer
-        ? createPortal(menuNode, portalContainer)
-        : menuNode}
+      {menuNode
+        ? createPortal(menuNode, portalContainer ?? document.body)
+        : null}
     </div>
   );
 }

@@ -4,9 +4,6 @@
  */
 
 import type { InterfaceId } from "../channels/types.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { SurfaceConversationContext } from "./conversation-surfaces.js";
-import type { TrustContext } from "./trust-context-types.js";
 
 /**
  * How a subagent/wake tool allowlist is enforced.
@@ -23,6 +20,25 @@ import type { TrustContext } from "./trust-context-types.js";
  *   executor.
  */
 export type SubagentToolGateMode = "wire" | "execution";
+
+/**
+ * Live tool-call counters for a subagent child, recorded by the tool executor
+ * and harvested by the SubagentManager when the run ends.
+ *
+ * This is the machine half of a subagent's result: the parent reads the child's
+ * own prose narrative, and these counts say what the child actually ran, so a
+ * claim of executed work that never touched a tool is visible rather than
+ * taken on trust. Ephemeral (in-memory only, never persisted) and only ever
+ * written for subagent conversations.
+ */
+export interface SubagentToolStats {
+  /** Tool calls dispatched, including ones that returned an error. */
+  calls: number;
+  /** Of those, the calls whose result was not an error. */
+  succeeded: number;
+  /** Distinct paths successfully passed to `file_write` / `file_edit`. */
+  filesWritten: Set<string>;
+}
 
 /**
  * Client-context inputs frozen for tool-DEFINITION resolution during a wake
@@ -63,123 +79,4 @@ export interface WakeToolContextPin {
    * `scopeWakeAllowedTools`. Unset for wakes that need no origin-scoped grant.
    */
   requestOrigin?: string;
-}
-
-/**
- * Subset of Conversation state that the tool executor callback reads at
- * call time (not construction time). These are captured by the
- * returned closure, so they must be live references.
- */
-export interface ToolSetupContext extends SurfaceConversationContext {
-  readonly conversationId: string;
-  assistantId?: string;
-  currentRequestId?: string;
-  workingDir: string;
-  abortController: AbortController | null;
-  /** When set, only tools in this set may execute during the current turn. */
-  allowedToolNames?: Set<string>;
-  /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
-  subagentAllowedTools?: Set<string>;
-  /**
-   * When true, side-effecting tools are refused for this subagent regardless of
-   * trust class (the read-only background continuation): kept off the wire tool
-   * surface and rejected in the executor gate. Independent of the allowlist.
-   */
-  subagentDenySideEffects?: boolean;
-  /**
-   * Collects tool names the subagent attempted but that
-   * {@link subagentAllowedTools} denied, for parent-visible reporting. The
-   * executor records into this Set (shared by reference with the Conversation).
-   */
-  subagentDeniedToolNames?: Set<string>;
-  /**
-   * How {@link subagentAllowedTools} is enforced. Absent or `"wire"` keeps
-   * the historical behavior (definitions filtered before the provider
-   * request); `"execution"` keeps the full tool surface on the wire and
-   * rejects non-allowlisted calls in the executor callback instead.
-   */
-  subagentToolGateMode?: SubagentToolGateMode;
-  /** Turn-scoped disk-pressure cleanup mode flag. */
-  diskPressureCleanupModeActive?: boolean;
-  /** True when the conversation has no connected client (HTTP-only path). */
-  hasNoClient?: boolean;
-  /** When true, the conversation is executing a task run and must not become interactive. */
-  headlessLock?: boolean;
-  /** When set, this conversation is executing a task run. Used to retrieve ephemeral permission rules. */
-  taskRunId?: string;
-  /** Guardian runtime context for the conversation — trustClass is propagated into ToolContext for control-plane policy enforcement. */
-  trustContext?: TrustContext;
-  /** Per-turn trust snapshot, captured at turn start. Preferred over the live
-   *  `trustContext` for mid-turn trust decisions (tool approval, control-plane
-   *  policy) so a concurrent mutation cannot elevate the in-flight turn. */
-  currentTurnTrustContext?: TrustContext;
-  /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
-  callSessionId?: string;
-  /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
-  readonly transportInterface?: InterfaceId;
-  /**
-   * Per-turn snapshot of the channel's UI capabilities, captured at turn start
-   * (mirrors {@link Conversation.currentTurnChannelCapabilities}). Read per tool
-   * call — together with the structural {@link SurfaceConversationContext.channelCapabilities}
-   * fallback — to derive `ToolContext.supportsDynamicUi`, so UI-dependent tools
-   * (e.g. `ask_question`) can degrade to text on channels that can't render
-   * dynamic surfaces.
-   */
-  readonly currentTurnChannelCapabilities?: {
-    readonly channel: string;
-    readonly supportsDynamicUi: boolean;
-  };
-  /**
-   * The conversation's per-chat plugin scope (mirrors
-   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
-   * restriction. Read per tool call to derive the effective enabled-plugin set
-   * (via `getEffectiveEnabledPluginSet`) for the `ToolContext.enabledPluginSet`
-   * field and the `skill_execute` dispatch guard.
-   */
-  readonly enabledPlugins?: string[] | null;
-
-  /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
-  approvedViaPromptThisTurn?: boolean;
-  /**
-   * When true, side-effect tools must prompt for confirmation even if a
-   * trust/allow rule would auto-allow them. Set by callers without an
-   * interactive approval UI (e.g. non-guardian phone voice turns) to force
-   * a `confirmation_request` event that the caller's auto-deny / scoped-grant
-   * handler can intercept. Provides a second layer of defense against broad
-   * trust rules auto-executing side-effect tools in non-interactive contexts.
-   */
-  forcePromptSideEffects?: boolean;
-  /**
-   * The LLM call site driving the current turn, set by `runAgentLoopImpl`
-   * (`options.callSite ?? "mainAgent"`). Non-main turns (voice `callAgent`,
-   * `filingAgent`, …) resolve different provider/model/profile config, so
-   * tool telemetry attribution must use this rather than assuming
-   * `mainAgent`. Absent before the first turn starts.
-   */
-  currentCallSite?: LLMCallSite;
-  /**
-   * Per-turn snapshot of the resolved inference-profile override, set by
-   * `runAgentLoopImpl`. Propagated into `ToolContext.overrideProfile` so
-   * tools that spawn nested invocations (e.g. `subagent_spawn`) can forward
-   * the override without round-tripping through a row read that would
-   * return `undefined` for the in-flight (background) subagent.
-   */
-  currentTurnOverrideProfile?: string;
-  /**
-   * Whether the current turn has no human present to answer clarification
-   * prompts. Resolved once per turn by the agent loop — honoring an explicit
-   * per-run `isInteractive` option (e.g. scheduled/background turns) over the
-   * live client state — so tool execution sees turn-level interactivity rather
-   * than re-deriving it from `hasNoClient`/`headlessLock`, which would read a
-   * scheduled turn running on a client-attached conversation as interactive.
-   */
-  currentTurnIsNonInteractive?: boolean;
-  /**
-   * Origin tag of the current turn (the conversation's `TitleOrigin`, e.g.
-   * "memory_consolidation"), set by `runAgentLoop` from its `requestOrigin`
-   * option. Propagated into `ToolContext.requestOrigin` so the permission
-   * checker can scope narrow non-interactive auto-grants to a specific
-   * internal background origin. Absent for normal interactive turns.
-   */
-  currentTurnRequestOrigin?: string;
 }

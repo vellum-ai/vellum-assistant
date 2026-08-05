@@ -15,8 +15,9 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SCRIPT_DIR = dirname(new URL(import.meta.url).pathname);
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(SCRIPT_DIR, "..");
 const GATEWAY_SPEC_PATH = resolve(WEB_ROOT, "../../gateway/openapi.json");
 const OUTPUT_PATH = resolve(WEB_ROOT, "openapi-schemas/gateway.json");

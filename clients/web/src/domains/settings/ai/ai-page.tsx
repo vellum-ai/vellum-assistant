@@ -62,12 +62,16 @@ export function AiPage() {
     </div>
   );
 
-  const detailKey =
+  // Keyed by assistant so a panel that stays open across an assistant
+  // switch remounts instead of carrying one assistant's draft edits into
+  // another's save.
+  const detailKey = `${assistantId ?? "none"}:${
     lmPanel?.kind === "profile"
       ? `profile:${lmPanel.name}`
       : lmPanel?.kind === "provider"
         ? `provider:${lmPanel.name}`
-        : (lmPanel?.kind ?? "closed");
+        : (lmPanel?.kind ?? "closed")
+  }`;
   const isProviderPanel =
     lmPanel?.kind === "provider" || lmPanel?.kind === "add-provider";
   const detail =

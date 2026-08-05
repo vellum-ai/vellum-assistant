@@ -74,6 +74,9 @@ import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete
 import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
+  isHiddenMessageMetadata,
+  PINNED_GROUP_ID,
+  UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -263,6 +266,20 @@ export const messageMetadataSchema = z
      * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * True when the `client.os` above was reported by this row's own request
+     * or transport rather than inherited from the conversation's live client
+     * state. `Conversation.clientOs` is refreshed only by a message that
+     * carries transport metadata, so a transport-less turn (surface action,
+     * signal ingress) stamps the OS of an earlier send. Consumers that must
+     * not misattribute a turn to a surface require this marker (the
+     * `chat.assistant_reply` presence gate, which drops the push when the Mac
+     * that opened the turn is attended). Absent reads as "origin unknown".
+     * Deliberately a sibling of `client` rather than an entry inside it:
+     * `turn-events-store` forwards `$.client` verbatim onto
+     * `TurnTelemetryEvent.client`.
+     */
+    clientOsFromRequest: z.boolean().optional(),
     subagentNotification: subagentNotificationSchema.optional(),
     acpNotification: acpNotificationSchema.optional(),
     /**
@@ -298,13 +315,34 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
+     * Test with {@link isVoiceSessionUserMessage}, which documents why the
+     * channel/interface fields cannot stand in for it.
+     */
+    voiceSessionTurn: z.boolean().optional(),
+    /**
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
-     * Kept as a plain string so unknown future kinds never fail metadata
-     * validation.
+     * `"provider_error"` marks the synthetic assistant row the agent loop
+     * persists when a turn dies on the provider-error path; see
+     * {@link PROVIDER_ERROR_MESSAGE_KIND}. Kept as a plain string so unknown
+     * future kinds never fail metadata validation.
      */
     messageKind: z.string().optional(),
+    /**
+     * Stable classified error code (`ClassifiedConversationError.code`, e.g.
+     * `"PROVIDER_BILLING"`) stamped alongside
+     * `messageKind: "provider_error"` on persisted provider-failure rows.
+     */
+    providerErrorCode: z.string().optional(),
+    /**
+     * Classified error category (`ClassifiedConversationError.errorCategory`,
+     * e.g. `"credits_exhausted"`) stamped alongside
+     * `messageKind: "provider_error"`. Clients switch on this to pick a
+     * themed rendering for the row.
+     */
+    providerErrorCategory: z.string().optional(),
     /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
@@ -348,17 +386,17 @@ export const messageMetadataSchema = z
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
- * Shared predicate for the transcript-suppression flag on user-message
- * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
- * definition so the sites that must agree — echo suppression, list-messages
- * filtering, queued-snapshot filtering, indexing exclusion, and downstream
- * consumers of message text — cannot drift.
+ * Pure predicates over the `metadata` record above. They live in the
+ * `conversation-types` leaf so a caller that only classifies a row does not
+ * pull in this module's DB graph, and are re-exported here alongside the
+ * schema they read.
  */
-export function isHiddenMessageMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.hidden === true;
-}
+export {
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
+  isVoiceSessionUserMessage,
+} from "./conversation-types.js";
 
 /**
  * `messageKind` value marking a daemon-authored system card — a pre-composed
@@ -368,6 +406,16 @@ export function isHiddenMessageMetadata(
  * display turns.
  */
 export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * `messageKind` value marking the synthetic assistant row the agent loop
+ * persists when a turn terminates on the provider-error path (see the
+ * `persistProviderErrorAsAssistantMessage` branch). The row's text stays in
+ * LLM history like any assistant message; the marker (plus the
+ * `providerErrorCode`/`providerErrorCategory` fields stamped next to it) lets
+ * clients render the row as a themed notice instead of persona speech.
+ */
+export const PROVIDER_ERROR_MESSAGE_KIND = "provider_error";
 
 /**
  * Shared predicate for the system-card marker on assistant-message metadata
@@ -382,11 +430,24 @@ export function isSystemCardMetadata(
 }
 
 /**
- * Row-level variant of {@link isSystemCardMetadata} for callers holding the
- * raw persisted `metadata` JSON string. The single place the parse lives so
- * display merging and turn grouping agree on what a card is.
+ * Shared predicate for the provider-error marker on assistant-message
+ * metadata (see the `messageKind` field on {@link messageMetadataSchema}).
+ * One definition so persistence stamping and wire projection cannot drift.
  */
-export function isSystemCardMessage(
+export function isProviderErrorMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === PROVIDER_ERROR_MESSAGE_KIND;
+}
+
+/**
+ * True when an assistant row is a standalone display turn: a system card or
+ * a provider-error notice. Standalone rows never merge with adjacent
+ * assistant rows, and turn grouping closes on them, so display merging and
+ * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
+ * JSON string; malformed JSON and non-assistant roles are never standalone.
+ */
+export function isStandaloneAssistantMessage(
   role: string,
   metadata: string | null,
 ): boolean {
@@ -394,9 +455,8 @@ export function isSystemCardMessage(
     return false;
   }
   try {
-    return isSystemCardMetadata(
-      JSON.parse(metadata) as Record<string, unknown>,
-    );
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
   } catch {
     return false;
   }
@@ -914,6 +974,14 @@ export function createConversation(
          * `forkParentConversationId` it implies no history inheritance.
          */
         parentConversationId?: string;
+        /**
+         * Role of the subagent that owns this conversation, and how it was
+         * spawned. Persisted here (not only on the ephemeral `subagents` row)
+         * so usage telemetry can decompose delegated spend by variety long
+         * after the subagent record is disposed. See migration 362.
+         */
+        subagentRole?: string;
+        subagentSpawnMode?: string;
       },
 ) {
   const db = getDb();
@@ -957,6 +1025,8 @@ export function createConversation(
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     parentConversationId: opts.parentConversationId ?? null,
+    subagentRole: opts.subagentRole ?? null,
+    subagentSpawnMode: opts.subagentSpawnMode ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
@@ -972,7 +1042,7 @@ export function createConversation(
   // write-contended paths wrap the call in `withSqliteRetry`, and because the
   // insert+update are atomic here, such a retry re-runs the whole thing cleanly
   // (a failed attempt rolls back, so no half-written row is ever left behind).
-  const effectiveGroupId = groupId ?? "system:all";
+  const effectiveGroupId = groupId ?? UNGROUPED_GROUP_ID;
   const raw = getSqliteFrom(db);
   raw.exec("SAVEPOINT create_conv");
   try {
@@ -981,7 +1051,7 @@ export function createConversation(
       "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
-      effectiveGroupId === "system:pinned" ? 1 : 0,
+      effectiveGroupId === PINNED_GROUP_ID ? 1 : 0,
       id,
     );
     raw.exec("RELEASE create_conv");
@@ -2781,6 +2851,21 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
+ * The persisted `processing_started_at` stamp, or null when idle or missing.
+ * Deliberately reads only the column (no in-memory fallback): consumers use
+ * it to age a flag {@link isConversationProcessing} already reported set, and
+ * the column is the only signal that carries a start time.
+ */
+export function getConversationProcessingStartedAt(id: string): number | null {
+  const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:getProcessingStartedAt",
+    "SELECT processing_started_at FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.processing_started_at ?? null;
+}
+
+/**
  * Conversations currently mid-turn, longest-running first. Throws on a read
  * failure — drain callers must distinguish "nothing processing" from "could
  * not read", so this does not degrade to an empty list.
@@ -3948,7 +4033,7 @@ export function batchSetDisplayOrders(
         // the entire batch.
         let safeGroupId = update.groupId;
         if (safeGroupId === null) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
             "conversation:batchSetDisplayOrders:groupCheck",
@@ -3956,7 +4041,7 @@ export function batchSetDisplayOrders(
             safeGroupId,
           )
         ) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         }
         // Moving a conversation into the Scheduled/Background system groups
         // is an explicit demotion out of Recents, so clear any `surfaced_at`
@@ -3966,15 +4051,49 @@ export function batchSetDisplayOrders(
         const clearsSurfaced =
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
+        // Filing a conversation into a section the user reads (Pinned or one
+        // of their own groups) is the mirror image: an explicit promotion, so
+        // it stamps `surfaced_at` the way the surface API does.
+        //
+        // The stamp is what makes the promotion durable. Visibility must not
+        // depend on where the row currently sits, or removing it from a group
+        // would hide it instead of returning it to Recents, and pinning would
+        // not show it at all: `system:pinned` fails the custom-group arm of
+        // `standardListingVisibilitySql` on that arm's `system:` prefix check.
+        //
+        // Only background and scheduled rows need it: everything else is
+        // already visible, and stamping them would leave `surfaced_at`
+        // meaning nothing. `COALESCE` keeps the original promotion time when
+        // the row is re-filed later.
+        const promotes =
+          !clearsSurfaced &&
+          safeGroupId !== UNGROUPED_GROUP_ID &&
+          (safeGroupId === PINNED_GROUP_ID ||
+            !safeGroupId.startsWith("system:"));
+        const setClauses = [
+          "display_order = ?",
+          "is_pinned = ?",
+          "group_id = ?",
+        ];
+        const params: Array<string | number | null> = [
+          update.displayOrder,
+          safeGroupId === PINNED_GROUP_ID ? 1 : 0,
+          safeGroupId,
+        ];
+        if (clearsSurfaced) {
+          setClauses.push("surfaced_at = NULL");
+        } else if (promotes) {
+          setClauses.push(
+            "surfaced_at = CASE WHEN conversation_type IN ('background', 'scheduled')" +
+              " THEN COALESCE(surfaced_at, ?) ELSE surfaced_at END",
+          );
+          params.push(Date.now());
+        }
+        params.push(update.id);
         rawRun(
           "conversation:batchSetDisplayOrders:group",
-          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
-            clearsSurfaced ? ", surfaced_at = NULL" : ""
-          } WHERE id = ?`,
-          update.displayOrder,
-          safeGroupId === "system:pinned" ? 1 : 0,
-          safeGroupId,
-          update.id,
+          `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
+          ...params,
         );
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
@@ -4209,8 +4328,10 @@ export function getTurnTimeBounds(
 /**
  * Resolve all assistant message IDs that belong to the same agent turn
  * as the given `messageId`. A "turn" is bounded by:
- *   - The start of the conversation, or
- *   - A user message whose content is NOT a tool_result array.
+ *   - The start of the conversation,
+ *   - A user message whose content is NOT a tool_result array, or
+ *   - A standalone assistant row (see {@link isStandaloneAssistantMessage}),
+ *     which always forms its own single-row turn.
  *
  * Within a multi-step agent loop, the pattern is:
  *   user msg → assistant A1 → user (tool_result) → assistant A2 → ...
@@ -4229,9 +4350,10 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     return [messageId];
   }
 
-  // A system card is its own single-row group — its linked calls (e.g. the
-  // summarize-up-to compaction call) never mix into a neighbouring turn.
-  if (isSystemCardMessage(target.role, target.metadata)) {
+  // A standalone row (system card or provider-error notice) is its own
+  // single-row group: its linked calls (e.g. the summarize-up-to compaction
+  // call) never mix into a neighbouring turn.
+  if (isStandaloneAssistantMessage(target.role, target.metadata)) {
     return [target.id];
   }
 
@@ -4261,9 +4383,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of backwardRows) {
     if (row.role === "assistant") {
-      if (isSystemCardMessage(row.role, row.metadata)) {
-        // A system card closes the groups on either side of it — rows
-        // before the card belong to an earlier display group.
+      if (isStandaloneAssistantMessage(row.role, row.metadata)) {
+        // A standalone row closes the groups on either side of it: rows
+        // before it belong to an earlier display group.
         boundaryCreatedAt = row.createdAt;
         break;
       }
@@ -4303,10 +4425,10 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of forwardRows) {
     if (row.role === "assistant") {
-      if (isSystemCardMessage(row.role, row.metadata)) {
-        // A card that is the queried user message's only reply (e.g. the
-        // /compact result) IS the turn's response; otherwise the card
-        // closes the group.
+      if (isStandaloneAssistantMessage(row.role, row.metadata)) {
+        // A standalone row that is the queried user message's only reply
+        // (e.g. the /compact result card, or a provider-error notice) IS
+        // the turn's response; otherwise it closes the group.
         if (assistantIds.length === 0) {
           assistantIds.push(row.id);
         }
@@ -4350,7 +4472,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     for (const row of gapRows) {
       if (
         row.role === "assistant" &&
-        !isSystemCardMessage(row.role, row.metadata) &&
+        !isStandaloneAssistantMessage(row.role, row.metadata) &&
         !assistantIds.includes(row.id)
       ) {
         assistantIds.push(row.id);

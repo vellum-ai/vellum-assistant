@@ -50,6 +50,11 @@ export function channelSectionKey(channelId: string): string {
   return `${CHANNEL_SECTION_PREFIX}${channelId}`;
 }
 
+/** True for a per-origin-channel section key (e.g. `"channel:slack"`). */
+export function isChannelSectionKey(key: string): boolean {
+  return key.startsWith(CHANNEL_SECTION_PREFIX);
+}
+
 /**
  * True for the built-in collapsible categories (Scheduled, Background, and
  * every `channel:` section). Exported so the sidebar can route a key from the
@@ -57,10 +62,7 @@ export function channelSectionKey(channelId: string): string {
  * - matching neither - a custom group id.
  */
 export function isKnownCategoryKey(category: string): boolean {
-  return (
-    OPEN_CATEGORY_KEYS.has(category) ||
-    category.startsWith(CHANNEL_SECTION_PREFIX)
-  );
+  return OPEN_CATEGORY_KEYS.has(category) || isChannelSectionKey(category);
 }
 
 const categoriesStorage = createKeyedStorageAccessor<string[]>({

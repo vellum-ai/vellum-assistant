@@ -358,7 +358,7 @@ export function ToolProgressCardShell({
             >
               <Typography
                 variant="body-small-default"
-                className="text-[var(--content-emphasised)]"
+                className="text-[var(--content-tertiary)]"
               >
                 {stepCount}
               </Typography>

@@ -1,7 +1,7 @@
 /**
  * Platform route handlers for the shared HTTP/IPC route table.
  *
- * Serves eight operations:
+ * Serves ten operations:
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, and webhook secret. (Velay tunnel status
  *     lives on the gateway — see gateway_status.)
@@ -18,6 +18,10 @@
  *   - platform_subscription (GET platform/subscription): fetches the org's
  *     current plan, subscription status, and entitlements.
  *   - platform_plans (GET platform/plans): fetches the plan catalog with pricing.
+ *   - platform_invoices_list (GET platform/invoices): fetches one
+ *     cursor-paginated page of the org's Stripe invoice history.
+ *   - platform_invoices_by_id_get (GET platform/invoices/:id): pages through the
+ *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
 import { z } from "zod";
@@ -38,6 +42,7 @@ import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
+  NotFoundError,
   UnprocessableEntityError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -125,6 +130,28 @@ const PlatformCreditsResponseSchema = z.object({
   as_of: z.string(),
 });
 type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
+
+const PlatformInvoiceSchema = z.object({
+  id: z.string(),
+  number: z.string().nullable(),
+  status: z.string().nullable(),
+  currency: z.string(),
+  amount_due: z.number(),
+  amount_paid: z.number(),
+  amount_remaining: z.number(),
+  created: z.number(),
+  hosted_invoice_url: z.string().nullable(),
+  invoice_pdf: z.string().nullable(),
+});
+type PlatformInvoice = z.infer<typeof PlatformInvoiceSchema>;
+
+const PlatformInvoicesListResponseSchema = z.object({
+  invoices: z.array(PlatformInvoiceSchema),
+  has_more: z.boolean(),
+});
+type PlatformInvoicesListResponse = z.infer<
+  typeof PlatformInvoicesListResponseSchema
+>;
 
 const SubscriptionPackageSchema = z.object({
   key: z.string(),
@@ -383,15 +410,47 @@ async function handlePlatformCredits(
   };
 }
 
+/** Default per-request timeout for platform fetches. */
+const PLATFORM_FETCH_TIMEOUT_MS = 10_000;
+
+interface FetchPlatformJsonOptions {
+  /**
+   * Abort signal from the caller's request. Combined with the per-request
+   * timeout so whichever fires first cancels the fetch.
+   */
+  signal?: AbortSignal;
+  /**
+   * Per-request timeout override in milliseconds. Defaults to
+   * PLATFORM_FETCH_TIMEOUT_MS; callers with an aggregate deadline (the
+   * invoices_get cursor walk) pass the remaining budget instead.
+   */
+  timeoutMs?: number;
+  /**
+   * When set, an upstream HTTP 400 is surfaced as a BadRequestError combining
+   * the response detail with this hint, so caller-correctable input errors
+   * (e.g. an invalid pagination cursor) keep their 400 status. When unset, a
+   * 400 falls through to the generic InternalError path.
+   */
+  badRequestHint?: string;
+  /**
+   * When set, an upstream HTTP 404 resolves to this value instead of the
+   * generic InternalError path, for resources where the platform signals
+   * "nothing here" with a 404 (e.g. the invoice list for an organization
+   * without invoice history). When unset, a 404 stays an InternalError.
+   */
+  notFoundValue?: unknown;
+}
+
 /**
  * GET a JSON resource from the platform using the assistant's stored platform
  * credentials. Throws UnprocessableEntityError when credentials are missing and
  * InternalError on transport / non-2xx failures; `label` names the resource in
- * those error messages.
+ * those error messages. See FetchPlatformJsonOptions for per-call overrides.
  */
 async function fetchPlatformJson(
   path: string,
   label: string,
+  options?: FetchPlatformJsonOptions,
 ): Promise<unknown> {
   const context = await resolvePlatformCallbackRegistrationContext();
 
@@ -402,6 +461,9 @@ async function fetchPlatformJson(
   }
 
   const url = `${context.platformBaseUrl}${path}`;
+  const timeout = AbortSignal.timeout(
+    options?.timeoutMs ?? PLATFORM_FETCH_TIMEOUT_MS,
+  );
   let response: Response;
   try {
     response = await fetch(url, {
@@ -410,7 +472,9 @@ async function fetchPlatformJson(
         Authorization: context.authHeader,
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: options?.signal
+        ? AbortSignal.any([options.signal, timeout])
+        : timeout,
     });
   } catch (err) {
     throw new InternalError(
@@ -419,7 +483,16 @@ async function fetchPlatformJson(
   }
 
   if (!response.ok) {
+    if (response.status === 404 && options?.notFoundValue !== undefined) {
+      return options.notFoundValue;
+    }
     const detail = await response.text().catch(() => "");
+    if (response.status === 400 && options?.badRequestHint) {
+      throw new BadRequestError(
+        `Platform rejected the ${label} request${detail ? `: ${detail}` : ""}. ` +
+          options.badRequestHint,
+      );
+    }
     throw new InternalError(
       `Failed to fetch ${label} (HTTP ${response.status}): ${detail}`,
     );
@@ -483,6 +556,129 @@ async function handlePlatformPlans(
   )) as { plans?: Array<Record<string, unknown>> };
 
   return { plans: data.plans ?? [] };
+}
+
+/**
+ * Fetch one cursor-paginated page of the org's Stripe invoice history from
+ * the platform. Pass the previous page's last invoice id as `startingAfter`
+ * to fetch the next (older) page.
+ */
+async function fetchPlatformInvoicesPage(
+  startingAfter: string | undefined,
+  options?: FetchPlatformJsonOptions,
+): Promise<PlatformInvoicesListResponse> {
+  let path = "/v1/organizations/billing/invoices/";
+  if (startingAfter) {
+    path += `?${new URLSearchParams({ starting_after: startingAfter })}`;
+  }
+  return (await fetchPlatformJson(path, "invoices", {
+    ...options,
+    // The platform returns 404 for an organization without invoice history;
+    // the web client treats that as an empty page
+    // (clients/web/src/domains/settings/components/invoices-table.tsx) and
+    // the daemon matches it.
+    notFoundValue: { invoices: [], has_more: false },
+  })) as PlatformInvoicesListResponse;
+}
+
+async function handlePlatformInvoicesList(
+  args: RouteHandlerArgs,
+): Promise<PlatformInvoicesListResponse> {
+  const startingAfter = args.queryParams?.starting_after;
+  return await fetchPlatformInvoicesPage(startingAfter, {
+    signal: args.abortSignal,
+    // The platform returns 400 for an invalid or expired starting_after
+    // cursor. Only a caller-supplied cursor is caller-correctable, so the
+    // hint (and the BadRequestError it triggers) applies just when one was
+    // passed; a 400 on a cursor-less request stays an InternalError.
+    badRequestHint: startingAfter
+      ? "If you passed starting_after, use the id of the last invoice from the previous page."
+      : undefined,
+  });
+}
+
+/**
+ * Runaway guard for the invoices_get cursor walk: 25 pages is 2,500
+ * invoices at the platform's 100-per-page size.
+ */
+export const MAX_INVOICE_PAGES = 25;
+
+/**
+ * Aggregate wall-clock deadline for the invoices_get cursor walk, matching
+ * the gateway IPC client's 30s request timeout. Guards against the walk
+ * running long after the caller has given up, since a gateway IPC timeout
+ * does not abort the request signal.
+ */
+export const INVOICE_WALK_DEADLINE_MS = 30_000;
+
+function invoiceWalkTimeoutError(id: string): InternalError {
+  return new InternalError(
+    `Invoice lookup for "${id}" timed out after ` +
+      `${INVOICE_WALK_DEADLINE_MS / 1000} seconds while paging invoice history`,
+  );
+}
+
+async function handlePlatformInvoiceGet(
+  args: RouteHandlerArgs,
+): Promise<PlatformInvoice> {
+  const id = args.pathParams?.id;
+  if (!id) {
+    throw new BadRequestError("invoice id is required");
+  }
+
+  // There is no per-invoice platform endpoint, so walk the paginated list
+  // until the invoice turns up or the cursor is exhausted.
+  const walkStartedAt = Date.now();
+  let cursor: string | undefined;
+  for (let pages = 0; pages < MAX_INVOICE_PAGES; pages++) {
+    // Stop walking pages once the caller has gone away (gateway IPC timeout,
+    // disconnected HTTP client). In-flight fetches are cancelled via the
+    // signal passed to fetchPlatformInvoicesPage.
+    if (args.abortSignal?.aborted) {
+      throw new InternalError(
+        `Invoice lookup for "${id}" aborted: caller disconnected`,
+      );
+    }
+    const remainingMs = walkStartedAt + INVOICE_WALK_DEADLINE_MS - Date.now();
+    if (remainingMs <= 0) {
+      throw invoiceWalkTimeoutError(id);
+    }
+    // Bound the page fetch by the remaining aggregate budget so a fetch
+    // started just under the deadline cannot run the walk past it.
+    let page: PlatformInvoicesListResponse;
+    try {
+      // No badRequestHint: the cursor is internally generated, so an
+      // upstream 400 here is an internal failure, not a caller input error.
+      page = await fetchPlatformInvoicesPage(cursor, {
+        signal: args.abortSignal,
+        timeoutMs: Math.min(PLATFORM_FETCH_TIMEOUT_MS, remainingMs),
+      });
+    } catch (err) {
+      // A fetch cancelled by the deadline remainder should read as the
+      // walk's aggregate timeout, not a generic network failure.
+      if (
+        !args.abortSignal?.aborted &&
+        Date.now() - walkStartedAt >= INVOICE_WALK_DEADLINE_MS
+      ) {
+        throw invoiceWalkTimeoutError(id);
+      }
+      throw err;
+    }
+    const match = page.invoices.find((invoice) => invoice.id === id);
+    if (match) {
+      return match;
+    }
+    if (!page.has_more || page.invoices.length === 0) {
+      throw new NotFoundError(
+        `Invoice "${id}" not found. Run 'assistant platform invoices list' to see available invoices.`,
+      );
+    }
+    cursor = page.invoices.at(-1)!.id;
+  }
+
+  throw new InternalError(
+    `Invoice "${id}" not found in the first ${MAX_INVOICE_PAGES} pages of invoice history`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -610,5 +806,44 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["platform"],
     handler: handlePlatformPlans,
     responseBody: PlatformPlansResponseSchema,
+  },
+  {
+    operationId: "platform_invoices_list",
+    endpoint: "platform/invoices",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List one page of the organization's Stripe invoices",
+    description:
+      "Fetches one page of the org's Stripe invoice history (newest first) from the platform billing invoices endpoint. Amounts are in the currency's minor units. When has_more is true, pass the last invoice's id as starting_after to fetch the next page.",
+    tags: ["platform"],
+    queryParams: [
+      {
+        name: "starting_after",
+        type: "string",
+        required: false,
+        description:
+          "Cursor: return invoices older than the invoice with this id (from the previous page's last entry).",
+      },
+    ],
+    handler: handlePlatformInvoicesList,
+    responseBody: PlatformInvoicesListResponseSchema,
+  },
+  {
+    operationId: "platform_invoices_by_id_get",
+    endpoint: "platform/invoices/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get a single Stripe invoice by ID",
+    description:
+      "Pages through the org's invoice list from the platform and returns the invoice matching the given Stripe invoice ID (e.g. in_xxx). 404 if no such invoice.",
+    tags: ["platform"],
+    handler: handlePlatformInvoiceGet,
+    responseBody: PlatformInvoiceSchema,
   },
 ];

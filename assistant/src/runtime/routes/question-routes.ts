@@ -18,6 +18,11 @@
  *
  * Cross-talk safety: pending interactions of other kinds (`confirmation`,
  * `secret`, host_*, etc.) return 404 here rather than being mis-resolved.
+ *
+ * Status ordering: a missing interaction is always 404, never a body-validation
+ * 400, whichever shape was submitted. Clients treat 404 as the terminal signal
+ * that retires a stale card, so a gone interaction reported as 400 would strand
+ * the card and surface a validation string the user cannot act on.
  */
 import { z } from "zod";
 
@@ -112,8 +117,25 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
   const response: QuestionResponseBody = parsed.data;
   const { requestId } = response;
 
-  // The legacy single-question shim needs the interaction's stashed metadata to
-  // synthesize a one-element batch; peek (don't consume) before resolving.
+  // Establish the interaction exists BEFORE normalizing the body. A missing or
+  // wrong-kind interaction is not-found regardless of which body shape asked,
+  // and the legacy shim below reads its stashed metadata: normalizing first
+  // would surface a gone interaction as a body-validation 400, telling the
+  // client its payload was malformed when the real answer is that there is
+  // nothing left to answer. Clients rely on 404 being the terminal signal that
+  // retires a stale card, so the status has to be right for every shape.
+  // Peek, don't consume; `resolvePendingQuestion` performs the real consume.
+  const interaction = pendingInteractions.get(requestId);
+  if (!interaction || interaction.kind !== "question") {
+    log.warn(
+      { requestId },
+      "Question response for unknown or wrong-kind requestId",
+    );
+    throw new NotFoundError(
+      "No pending question interaction found for this requestId",
+    );
+  }
+
   let input;
   try {
     input =
@@ -121,10 +143,7 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
         ? ({ kind: "close" } as const)
         : ({
             kind: "submit",
-            submissions: buildSubmissions(
-              response,
-              pendingInteractions.get(requestId),
-            ),
+            submissions: buildSubmissions(response, interaction),
           } as const);
   } catch (err) {
     if (err instanceof QuestionBatchValidationError) {
@@ -135,11 +154,10 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
 
   const outcome = resolvePendingQuestion(requestId, input);
 
+  // Still reachable: the interaction can be consumed between the peek above and
+  // the resolve (a channel answer, a timeout firing).
   if (outcome.status === "not_found") {
-    log.warn(
-      { requestId },
-      "Question response for unknown or wrong-kind requestId",
-    );
+    log.warn({ requestId }, "Question interaction resolved before submission");
     throw new NotFoundError(
       "No pending question interaction found for this requestId",
     );

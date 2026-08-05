@@ -24,12 +24,14 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
+import { isReplyPushIneligibleUserMessage } from "../persistence/conversation-types.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import {
@@ -62,48 +64,6 @@ import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
-
-/**
- * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
- * ACP run (`acpNotification`), and any wake trigger (the persisted
- * `<background_event source="...">` row every wake reads) — are persisted into
- * the parent conversation so the orchestrator wakes and reads the trigger, but
- * they are internal scaffolding: the user sees the wake through its inline card
- * ("Conversation Woke", or a terminal card for a backgrounded bash run), not a
- * chat turn. Skip the `user_message_echo` broadcast for these so they never
- * render as a live user bubble; the persisted row is filtered from the rendered
- * transcript on the client.
- *
- * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
- * queued behind an in-flight turn, e.g. the channel-setup wizard-close
- * marker) are suppressed the same way — the immediate route path already
- * skips their echo, and the persisted `hidden` metadata keeps them out of
- * the fetched transcript.
- */
-export function isEchoSuppressedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return (
-    isHiddenMessageMetadata(metadata) ||
-    metadata?.subagentNotification != null ||
-    metadata?.acpNotification != null ||
-    isBackgroundEventMetadata(metadata)
-  );
-}
-
-/**
- * True when the row is a persisted `<background_event source="...">` trigger —
- * every wake, scheduled run, and backgrounded-tool completion stamps one (see
- * {@link persistWakeTriggerMessage}). The permission mode such a turn ran under
- * varies (most run interactive; clientless/headless wakes do not) and is
- * recorded separately in `backgroundEventInteractive`; this predicate only
- * identifies the row as a background event.
- */
-export function isBackgroundEventMetadata(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return typeof metadata?.backgroundEventSource === "string";
-}
 
 /** Locale-formatted count for the user-facing context stats cards. */
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
@@ -331,6 +291,12 @@ async function buildPassthroughBatch(
     if (candidate.transport?.clientOs !== head.transport?.clientOs) {
       break;
     }
+    // Same head-wins problem for the app on screen: batching a message sent
+    // while a different app was open would run it against the head's
+    // `visible_app`, pointing "the app" at the wrong one.
+    if (candidate.transport?.visibleAppId !== head.transport?.visibleAppId) {
+      break;
+    }
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
       break;
     }
@@ -358,10 +324,11 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
-// ── Steer repair ────────────────────────────────────────────────────
+// ── Steer / interrupt repair ────────────────────────────────────────
 
 /**
- * When a steer-to-message abort interrupts an in-flight tool call, the
+ * When a steer-to-message abort (or a user interrupt with messages still
+ * queued behind the stopped turn) cuts off an in-flight tool call, the
  * conversation history may end with an assistant message containing one
  * or more `tool_use` blocks that have no corresponding `tool_result`.
  * LLM providers reject this sequence. This helper scans the tail of the
@@ -369,10 +336,12 @@ async function buildPassthroughBatch(
  * unmatched `tool_use` blocks.
  */
 function repairPendingToolUseBlocks(conversation: Conversation): void {
-  if (!conversation.pendingSteerRepair) {
+  const steered = conversation.pendingSteerRepair;
+  if (!steered && !conversation.pendingInterruptRepair) {
     return;
   }
   conversation.pendingSteerRepair = false;
+  conversation.pendingInterruptRepair = false;
 
   const messages = conversation.messages;
   if (messages.length === 0) {
@@ -415,15 +384,18 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
     {
       conversationId: conversation.conversationId,
       pendingToolUseCount: pendingToolUseIds.length,
+      trigger: steered ? "steer" : "interrupt",
     },
-    "Injecting synthetic tool_result for pending tool_use blocks after steer",
+    "Injecting synthetic tool_result for pending tool_use blocks",
   );
 
   // Build a single user message with tool_result blocks for all pending IDs.
   const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
     type: "tool_result" as const,
     tool_use_id: toolUseId,
-    content: "Tool execution was interrupted by user steering.",
+    content: steered
+      ? "Tool execution was interrupted by user steering."
+      : "Tool execution was interrupted by the user.",
     is_error: true,
   }));
   conversation.messages.push({
@@ -435,6 +407,51 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
+ * Tell this message's sender it left the queue for a turn, and remember that
+ * we did. The flag is what makes the requeue paths able to distinguish a
+ * message clients still believe is running from one they never stopped
+ * showing as queued. See {@link requeueDrainedMessages}.
+ */
+function announceDequeue(
+  conversation: Conversation,
+  message: QueuedMessage,
+): void {
+  message.onEvent({
+    type: "message_dequeued",
+    conversationId: conversation.conversationId,
+    requestId: message.requestId,
+    ...(message.clientMessageId
+      ? { clientMessageId: message.clientMessageId }
+      : {}),
+  });
+  message.dequeueAnnounced = true;
+}
+
+/**
+ * 1-based position of `requestId` among the queue's VISIBLE items, or
+ * undefined when the queue holds no such message. Mirrors the accounting the
+ * `message_queued` ack uses (and the list-messages queued snapshot filter),
+ * so a corrective requeue event places the row exactly where a cold reload
+ * would render it.
+ */
+function visibleQueuePosition(
+  conversation: Conversation,
+  requestId: string,
+): number | undefined {
+  let position = 0;
+  for (const item of conversation.queue.snapshot()) {
+    if (isHiddenMessageMetadata(item.metadata)) {
+      continue;
+    }
+    position += 1;
+    if (item.requestId === requestId) {
+      return position;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Restore drained messages to the front of the queue, in their original
  * order, when the drain cannot run them: another turn (e.g. a barged-in
  * voice turn woken by the idle transition) owns the processing lock, or the
@@ -443,6 +460,14 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
  * up. A steered drain also re-arms `pendingSteerRepair` so the re-drain
  * promotes the steered head on its own instead of batching it with tails;
  * the tool-use repair it re-triggers is idempotent.
+ *
+ * Any message whose dequeue was already announced gets the corrective
+ * `message_requeued`: its sender cleared the pending indicator on the
+ * `message_dequeued` and would otherwise see the row vanish until a later
+ * drain. Messages requeued before the announcement (the pre-flight
+ * processing-lock checks) get nothing, because clients never stopped showing
+ * them as queued and an event there would be noise. Hidden sends are suppressed
+ * for the same reason they get no queued ack: they have no client row.
  */
 function requeueDrainedMessages(
   conversation: Conversation,
@@ -463,6 +488,28 @@ function requeueDrainedMessages(
   }
   if (steered) {
     conversation.pendingSteerRepair = true;
+  }
+  for (const message of messages) {
+    if (!message.dequeueAnnounced) {
+      continue;
+    }
+    message.dequeueAnnounced = false;
+    if (isHiddenMessageMetadata(message.metadata)) {
+      continue;
+    }
+    const position = visibleQueuePosition(conversation, message.requestId);
+    if (position === undefined) {
+      continue;
+    }
+    message.onEvent({
+      type: "message_requeued",
+      conversationId: conversation.conversationId,
+      requestId: message.requestId,
+      position,
+      ...(message.clientMessageId
+        ? { clientMessageId: message.clientMessageId }
+        : {}),
+    });
   }
 }
 
@@ -660,12 +707,7 @@ async function drainSingleMessage(
     },
     "Dequeuing message",
   );
-  next.onEvent({
-    type: "message_dequeued",
-    conversationId: conversation.conversationId,
-    requestId: next.requestId,
-    ...(next.clientMessageId ? { clientMessageId: next.clientMessageId } : {}),
-  });
+  announceDequeue(conversation, next);
   conversation.emitActivityState("thinking", "message_dequeued", {
     requestId: next.requestId,
   });
@@ -699,6 +741,7 @@ async function drainSingleMessage(
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
     conversation.applyClientOsFromTransport(next.transport);
+    conversation.applyVisibleAppFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -776,7 +819,10 @@ async function drainSingleMessage(
           : {}),
         sentAt: next.sentAt,
       };
-      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = await createUserMessage(
+        next.content,
+        next.attachments,
+      );
       const llmUserMsg = enrichMessageWithSourcePaths(
         cleanUserMsg,
         next.attachments,
@@ -784,7 +830,7 @@ async function drainSingleMessage(
       // When displayContent is provided (e.g. original text before recording
       // intent stripping), persist that to DB so users see the full message.
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-      const contentToPersist = serializePersistedUserMessageContent(
+      const contentToPersist = await serializePersistedUserMessageContent(
         next.content,
         next.displayContent,
         next.attachments,
@@ -876,11 +922,14 @@ async function drainSingleMessage(
           : {}),
         sentAt: next.sentAt,
       };
-      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = await createUserMessage(
+        next.content,
+        next.attachments,
+      );
       await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           next.content,
           next.displayContent,
           next.attachments,
@@ -893,7 +942,11 @@ async function drainSingleMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId: next.requestId,
       });
-      const result = await conversation.forceCompact();
+      // Push the usage refresh to the queued item's own sink, the one the
+      // result card below streams on. `sendToClient` is reset to a no-op once
+      // an interactive turn finishes, so a `/compact` draining behind one
+      // would otherwise refresh nothing.
+      const result = await conversation.forceCompact(next.onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -962,11 +1015,14 @@ async function drainSingleMessage(
           : {}),
         sentAt: next.sentAt,
       };
-      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      const cleanUserMsg = await createUserMessage(
+        next.content,
+        next.attachments,
+      );
       await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           next.content,
           next.displayContent,
           next.attachments,
@@ -1056,6 +1112,9 @@ async function drainSingleMessage(
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
       clientMessageId: next.clientMessageId,
+      ...(next.transport?.clientOs
+        ? { requestClientOs: next.transport.clientOs }
+        : {}),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1275,6 +1334,7 @@ async function drainBatch(
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
     conversation.applyClientOsFromTransport(head.transport);
+    conversation.applyVisibleAppFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;
@@ -1322,6 +1382,11 @@ async function drainBatch(
   let lastSuccessfulCurrentPage: string | undefined;
   let lastSuccessfulContent: string | undefined;
   let lastUserMessageId: string | undefined;
+  // `messages.id` of the last member the reply-push producer would actually
+  // notify about. Selected with the producer's own eligibility predicate so a
+  // trailing row it suppresses (a hidden marker, a channel send) cannot stand
+  // in for the prompt ahead of it and swallow that prompt's push.
+  let lastPushEligibleUserMessageId: string | undefined;
   // Members whose persist succeeded. `fanOutOnEvent` below must only
   // broadcast agent-loop events to these — clients whose persist failed
   // already received an error event and must not also receive the
@@ -1334,12 +1399,7 @@ async function drainBatch(
   const persistedMessageIds: string[] = [];
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
-    qm.onEvent({
-      type: "message_dequeued",
-      conversationId: conversation.conversationId,
-      requestId: qm.requestId,
-      ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
-    });
+    announceDequeue(conversation, qm);
 
     const qmSlash = await resolveSlash(
       qm.content,
@@ -1405,6 +1465,9 @@ async function drainBatch(
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
         clientMessageId: qm.clientMessageId,
+        ...(qm.transport?.clientOs
+          ? { requestClientOs: qm.transport.clientOs }
+          : {}),
       };
       if (i === 0) {
         batchPersistResult =
@@ -1490,6 +1553,10 @@ async function drainBatch(
       // update lastSuccessful* here, so runAgentLoop tags completion with
       // the most recent successfully-persisted message's requestId.
       continue;
+    }
+
+    if (!isReplyPushIneligibleUserMessage(qm.metadata)) {
+      lastPushEligibleUserMessageId = lastUserMessageId;
     }
 
     // Broadcast the user message to all hub subscribers so passive devices
@@ -1628,7 +1695,13 @@ async function drainBatch(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-  } = { isUserMessage: true };
+    notifyUserMessageId?: string;
+  } = {
+    isUserMessage: true,
+  };
+  if (lastPushEligibleUserMessageId !== undefined) {
+    drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
+  }
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
   const lastSuccessfulBatchEntry =
@@ -1696,6 +1769,26 @@ export interface ProcessMessageOptions {
   displayContent?: string;
   /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
   sourceActorPrincipalId?: string;
+  /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * (see `PersistMessageOptions.scripted`). Forwarded to persistence so the
+   * turn is excluded from activation counts. Defaults to false. A caller
+   * sending machine-authored content into a `standard` conversation must set
+   * it explicitly.
+   *
+   * Related to `metadata.automated` below but not the same knob: `automated`
+   * implies scripted (machine-authored is by definition not typed), while
+   * `scripted` carries no memory-indexing side effect. A caller that wants a
+   * turn excluded from activation but still indexed sets this, not that.
+   */
+  scripted?: boolean;
+  /**
+   * Extra metadata stamped onto the persisted user row alongside the channel
+   * and provenance fields the turn derives. Callers that drive a turn on
+   * someone's behalf use it to mark the row's provenance (e.g. the plugin-api
+   * facade stamps `automated`).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -1720,6 +1813,8 @@ export async function processMessage(
     overrideProfile,
     displayContent,
     sourceActorPrincipalId,
+    scripted,
+    metadata: callerMetadata,
   } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -1799,7 +1894,7 @@ export async function processMessage(
           : {}),
       };
 
-      const cleanUserMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = await createUserMessage(content, attachments);
       const llmUserMsg = enrichMessageWithSourcePaths(
         cleanUserMsg,
         attachments,
@@ -1807,7 +1902,7 @@ export async function processMessage(
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           content,
           displayContent,
           attachments,
@@ -1891,12 +1986,12 @@ export async function processMessage(
         ? { imageSourcePaths: pmImageSourcePaths }
         : {}),
     };
-    const cleanUserMsg = createUserMessage(content, attachments);
+    const cleanUserMsg = await createUserMessage(content, attachments);
     const llmUserMsg = enrichMessageWithSourcePaths(cleanUserMsg, attachments);
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message.
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-    const contentToPersist = serializePersistedUserMessageContent(
+    const contentToPersist = await serializePersistedUserMessageContent(
       content,
       displayContent,
       attachments,
@@ -1975,11 +2070,11 @@ export async function processMessage(
             }
           : {}),
       };
-      const cleanUserMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = await createUserMessage(content, attachments);
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           content,
           displayContent,
           attachments,
@@ -1992,7 +2087,8 @@ export async function processMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
       });
-      const result = await conversation.forceCompact();
+      // Same sink the result card below streams on (see the drain branch).
+      const result = await conversation.forceCompact(onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -2052,11 +2148,11 @@ export async function processMessage(
             }
           : {}),
       };
-      const cleanUserMsg = createUserMessage(content, attachments);
+      const cleanUserMsg = await createUserMessage(content, attachments);
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        serializePersistedUserMessageContent(
+        await serializePersistedUserMessageContent(
           content,
           displayContent,
           attachments,
@@ -2131,6 +2227,8 @@ export async function processMessage(
       attachments,
       requestId,
       displayContent,
+      scripted,
+      ...(callerMetadata ? { metadata: callerMetadata } : {}),
     });
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {

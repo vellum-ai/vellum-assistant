@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
@@ -14,9 +14,10 @@ import type {
 } from "../daemon/message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
-function makeContext(sent: AssistantEvent[] = []): SurfaceConversationContext {
-  return {
+function makeContext(sent: AssistantEvent[] = []): Conversation {
+  return asConversation({
     conversationId: "session-1",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -34,7 +35,7 @@ function makeContext(sent: AssistantEvent[] = []): SurfaceConversationContext {
     getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
-  };
+  });
 }
 
 function getSurfaceTypeEnum(): string[] {

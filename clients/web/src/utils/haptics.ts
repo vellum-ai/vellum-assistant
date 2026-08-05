@@ -1,7 +1,13 @@
-import { isNativePlatform } from "@/runtime/native-auth";
+import {
+  isNativeIOS,
+  isNativeMobile,
+} from "@/runtime/platform-detection";
 
-const runNative = async (fire: () => Promise<void>): Promise<void> => {
-  if (!isNativePlatform()) {
+const runWhen = async (
+  enabled: boolean,
+  fire: () => Promise<void>,
+): Promise<void> => {
+  if (!enabled) {
     return;
   }
   try {
@@ -11,31 +17,33 @@ const runNative = async (fire: () => Promise<void>): Promise<void> => {
   }
 };
 
+const lightImpact = (enabled: boolean): Promise<void> =>
+  runWhen(enabled, async () => {
+    const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
+    await Haptics.impact({ style: ImpactStyle.Light });
+  });
+
 /**
- * Thin haptic-feedback wrapper. On native Capacitor platforms this delegates
- * to `@capacitor/haptics`; on web it's a no-op. The lazy import ensures the
- * Capacitor plugin's `registerPlugin()` call (which throws without the full
- * runtime) never runs in a plain browser context.
+ * Thin haptic-feedback wrapper. Standard effects run only on native iOS. The
+ * pull-to-refresh threshold also runs on Android. The lazy imports keep the
+ * plugin out of plain browser contexts.
  */
 export const haptic = {
-  light: () =>
-    runNative(async () => {
-      const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
-      await Haptics.impact({ style: ImpactStyle.Light });
-    }),
+  light: () => lightImpact(isNativeIOS()),
   medium: () =>
-    runNative(async () => {
+    runWhen(isNativeIOS(), async () => {
       const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
       await Haptics.impact({ style: ImpactStyle.Medium });
     }),
   success: () =>
-    runNative(async () => {
+    runWhen(isNativeIOS(), async () => {
       const { Haptics, NotificationType } = await import("@capacitor/haptics");
       await Haptics.notification({ type: NotificationType.Success });
     }),
   error: () =>
-    runNative(async () => {
+    runWhen(isNativeIOS(), async () => {
       const { Haptics, NotificationType } = await import("@capacitor/haptics");
       await Haptics.notification({ type: NotificationType.Error });
     }),
+  refreshThreshold: () => lightImpact(isNativeMobile()),
 };

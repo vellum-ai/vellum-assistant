@@ -25,6 +25,7 @@ import type { SqliteRetryOptions } from "../../../util/sqlite-retry.js";
 import * as hostSqliteRetry from "../../../util/sqlite-retry.js";
 import * as hostStripCommentLines from "../../../util/strip-comment-lines.js";
 import * as hostTruncate from "../../../util/truncate.js";
+import * as hostWorkerCompute from "../../../util/worker-compute.js";
 import * as hostWorkerMemory from "../../../util/worker-memory.js";
 
 export { BackendUnavailableError } from "../../../util/errors.js";
@@ -77,4 +78,8 @@ export function truncate(str: string, maxLen: number, suffix?: string): string {
 
 export function workerMemoryEnv(): Record<string, string | undefined> {
   return hostWorkerMemory.workerMemoryEnv();
+}
+
+export function workerComputeEnv(): Record<string, string> {
+  return hostWorkerCompute.workerComputeEnv();
 }

@@ -6,6 +6,7 @@ import "../../__tests__/test-preload.js";
 import { initSigningKey } from "../../auth/token-service.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
 import type { GatewayConfig } from "../../config.js";
+import { signHandshakeUrl } from "../plugin-ingress-handshake.js";
 import {
   createPluginWebhookWebsocketHandler,
   getPluginWebhookWebsocketHandlers,
@@ -29,6 +30,7 @@ const ROUTE = {
   path: "realtime",
   kind: "websocket" as const,
   signer: "plugin" as const,
+  handshake: "signed-headers" as const,
   description: "events",
 };
 
@@ -56,6 +58,7 @@ function approvedWith(
     path: string;
     kind: "http" | "websocket";
     signer: "plugin" | "vellum";
+    handshake: "signed-headers" | "signed-query";
     description: string;
   }[],
 ): PluginIngressResolution {
@@ -398,6 +401,133 @@ describe("handshake signature", () => {
       "realtime",
     );
     expect(rejected?.status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Signed-query handshake
+// ---------------------------------------------------------------------------
+
+const QUERY_ROUTE = { ...ROUTE, handshake: "signed-query" as const };
+
+/** An upgrade request whose whole credential is in the URL. */
+function signedQueryRequest(
+  opts: { secret?: string; ttlSeconds?: number; path?: string } = {},
+): Request {
+  const { secret = PLUGIN_SECRET, ttlSeconds = 3600, path = WS_PATH } = opts;
+  const url = signHandshakeUrl({
+    url: new URL(`http://gateway${path}`),
+    secret,
+    ttlSeconds,
+  });
+  return new Request(url.toString(), { headers: { upgrade: "websocket" } });
+}
+
+describe("signed-query handshake", () => {
+  it("upgrades a route that declares it, with no headers at all", async () => {
+    // The point of the scheme: Recall is handed a URL and dials it. If this
+    // needed a header, the caller could not comply.
+    const handle = makeHandler({ resolve: () => approvedWith([QUERY_ROUTE]) });
+    const { server, upgrades } = fakeServer();
+
+    const res = await handle(
+      signedQueryRequest(),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res).toBeUndefined();
+    expect(upgrades).toHaveLength(1);
+  });
+
+  it("refuses a URL whose expiry has passed", async () => {
+    const handle = makeHandler({ resolve: () => approvedWith([QUERY_ROUTE]) });
+    const { server, upgrades } = fakeServer();
+    const url = signHandshakeUrl({
+      url: new URL(`http://gateway${WS_PATH}`),
+      secret: PLUGIN_SECRET,
+      ttlSeconds: 60,
+      nowMs: Date.now() - 120_000,
+    });
+
+    const res = await handle(
+      new Request(url.toString(), { headers: { upgrade: "websocket" } }),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res?.status).toBe(403);
+    expect(upgrades).toEqual([]);
+  });
+
+  it("refuses a URL signed with the wrong secret", async () => {
+    const handle = makeHandler({ resolve: () => approvedWith([QUERY_ROUTE]) });
+    const { server, upgrades } = fakeServer();
+
+    const res = await handle(
+      signedQueryRequest({ secret: "not-the-plugin-secret" }),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res?.status).toBe(403);
+    expect(upgrades).toEqual([]);
+  });
+
+  it("does not accept a signed URL on a route declaring signed-headers", async () => {
+    // The declaration selects the scheme. A route a guardian approved as
+    // header-signed must not also open to a URL-borne credential, or the
+    // handshake field would be advisory rather than binding.
+    const handle = makeHandler({ resolve: () => approvedWith([ROUTE]) });
+    const { server, upgrades } = fakeServer();
+
+    const res = await handle(
+      signedQueryRequest(),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res?.status).toBe(403);
+    expect(upgrades).toEqual([]);
+  });
+
+  it("does not accept header signing on a route declaring signed-query", async () => {
+    // And the converse, so the two cannot be mixed in either direction.
+    const handle = makeHandler({ resolve: () => approvedWith([QUERY_ROUTE]) });
+    const { server, upgrades } = fakeServer();
+
+    const res = await handle(
+      upgradeRequest({ secret: PLUGIN_SECRET }),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res?.status).toBe(403);
+    expect(upgrades).toEqual([]);
+  });
+
+  it("still requires the upgrade header", async () => {
+    const handle = makeHandler({ resolve: () => approvedWith([QUERY_ROUTE]) });
+    const { server } = fakeServer();
+    const url = signHandshakeUrl({
+      url: new URL(`http://gateway${WS_PATH}`),
+      secret: PLUGIN_SECRET,
+      ttlSeconds: 3600,
+    });
+
+    const res = await handle(
+      new Request(url.toString()),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res?.status).toBe(426);
   });
 });
 

@@ -1,16 +1,24 @@
 /**
  * Data-shaping hook for the assistant sidebar.
  *
- * Owns conversation grouping, pagination ("show more"), collapse/expand
- * state, attention-forced expansion, and the user's section order. Returns a
+ * Owns conversation grouping, collapse/expand state, attention-forced
+ * expansion, and the user's section order. Returns a
  * typed object the presentational `AssistantSideMenu` renders without any
  * inline computation, `useEffect`, or derived state.
+ *
+ * Two views share all of that. In `all` (the default) the sections stop at
+ * the curated layer - Pinned and the custom groups - and everything else
+ * renders as {@link SidebarState.flatList}, one recency-sorted list the
+ * sidebar virtualizes. In `grouped`, Chats and one section per origin channel
+ * follow the curated layer, and the flat list goes unused.
  *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
  * group) as a discriminated union. The sidebar walks that list in order -
  * it does not know which section types exist or where they "belong", which
- * is what lets the user put a custom group above Recents.
+ * is what lets the user reorder them at all. The one constraint is the view
+ * switch: Pinned and the custom groups always lead it, Chats and the channel
+ * sections always follow, and sections reorder freely within their own tier.
  *
  * Memoizes grouping per `conversations` reference so parent re-renders
  * that don't change the conversation list skip the grouping work.
@@ -19,13 +27,7 @@
  * @see {@link https://react.dev/reference/react/useMemo}
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  startTransition,
-} from "react";
+import { useCallback, useEffect, useMemo, startTransition } from "react";
 
 import type {
   Conversation,
@@ -38,14 +40,22 @@ import {
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import {
   channelSectionKey,
+  isChannelSectionKey,
   isKnownCategoryKey,
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import {
+  enforceCuratedLead,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
+  type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
+import {
+  saveViewMode,
+  useViewMode,
+  type SidebarViewMode,
+} from "@/domains/chat/utils/sidebar-view-mode";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
@@ -53,12 +63,11 @@ import {
 } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
+import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
 
 // ---------------------------------------------------------------------------
 // Public constants
 // ---------------------------------------------------------------------------
-
-export const SIDEBAR_CONVERSATION_LIMIT = 5;
 
 /**
  * Shared empty array for the "no attention anywhere" case - the common one.
@@ -71,64 +80,16 @@ const EMPTY_KEYS: string[] = [];
 // Types
 // ---------------------------------------------------------------------------
 
-export interface PaginatedSection {
-  all: Conversation[];
-  items: Conversation[];
-  totalCount: number;
-  /**
-   * At most one of `showMore` / `showLess` is true: "Show more" while
-   * items remain hidden, "Show less" only once the section is fully
-   * revealed past the default limit.
-   */
-  showMore: boolean;
-  showLess: boolean;
-  onShowMore: () => void;
-  onShowLess: () => void;
-}
-
-/** A paginated sidebar section bound to a specific origin channel. */
-export interface ChannelSectionState extends PaginatedSection {
-  channelId: string;
-}
-
 /**
- * Shape a conversation list into a paginated sidebar section. Shared by the
- * Recents section and every per-channel section so the "show more / show
- * less" and attention-reveal behavior stays identical across them.
+ * Which side of the view switch a section sits on. Chats and the channel
+ * sections are what the switch changes, so they sit under it; Pinned and the
+ * custom groups are untouched by it and lead.
  */
-function buildPaginatedSection(
-  all: Conversation[],
-  visibleCount: number,
-  setVisibleCount: (updater: (prev: number) => number) => void,
-  attentionConversationIds?: Set<string>,
-): PaginatedSection {
-  const attentionIndex = attentionConversationIds
-    ? all.findIndex((c) => attentionConversationIds.has(c.conversationId))
-    : -1;
-  // Force enough rows visible to reveal a conversation that needs attention.
-  const effectiveVisibleCount =
-    attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
-  const showMore = effectiveVisibleCount < all.length;
-  return {
-    all,
-    items: all.slice(0, effectiveVisibleCount),
-    totalCount: all.length,
-    showMore,
-    // Never alongside showMore — two stacked, contradictory affordances.
-    // Collapse is offered only once the section is fully revealed.
-    showLess:
-      !showMore &&
-      visibleCount > SIDEBAR_CONVERSATION_LIMIT &&
-      all.length > SIDEBAR_CONVERSATION_LIMIT,
-    onShowMore: () =>
-      setVisibleCount((prev) =>
-        Math.min(
-          all.length,
-          Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-        ),
-      ),
-    onShowLess: () => setVisibleCount(() => SIDEBAR_CONVERSATION_LIMIT),
-  };
+function classifySectionKey(key: string): SectionOrderClass {
+  if (key === "recents" || isChannelSectionKey(key)) {
+    return "governed";
+  }
+  return "curated";
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +104,7 @@ interface SidebarSectionBase {
   key: string;
   /** Header label. */
   label: string;
-  /** Every conversation in the section, ignoring "show more" truncation. */
+  /** Every conversation in the section. */
   all: Conversation[];
 }
 
@@ -154,27 +115,37 @@ interface SidebarSectionBase {
  */
 export type SidebarSection =
   | (SidebarSectionBase & { type: "pinned" })
-  | (SidebarSectionBase & { type: "recents"; pagination: PaginatedSection })
-  | (SidebarSectionBase & {
-      type: "channel";
-      channelId: string;
-      pagination: ChannelSectionState;
-    })
+  | (SidebarSectionBase & { type: "recents" })
+  | (SidebarSectionBase & { type: "channel"; channelId: string })
   | (SidebarSectionBase & { type: "group"; group: CustomGroup });
 
 export interface SidebarState {
-  pinned: Conversation[];
-  channelSections: ChannelSectionState[];
-  recents: PaginatedSection;
-
-  customGroups: CustomGroup[];
+  /** Which view the sidebar renders. */
+  viewMode: SidebarViewMode;
+  /** Switch views and persist the choice for this assistant. */
+  onViewModeChange: (next: SidebarViewMode) => void;
 
   /**
-   * Every section in the user's chosen order - the list the sidebar renders.
-   * Sections the user has never touched fall back to the default order
-   * (Pinned, custom groups, Chats, channel sections).
+   * The `all` view's list: every conversation that is neither pinned nor in a
+   * custom group, newest first. Windowed at render, so it carries no page
+   * size or reveal state of its own.
+   */
+  flatList: Conversation[];
+
+  /**
+   * Every section in the user's chosen order - the list the sidebar renders
+   * above the flat list. Sections the user has never touched fall back to the
+   * default order (Pinned, custom groups, then - in `grouped` view - Chats
+   * and the channel sections).
    */
   sections: SidebarSection[];
+  /**
+   * How many leading entries of {@link SidebarState.sections} are the curated
+   * layer. The view switch renders at that offset, which is the tier boundary
+   * `enforceCuratedLead` guarantees - so the sidebar places it without
+   * re-deriving what "curated" means.
+   */
+  curatedSectionCount: number;
   /**
    * Persist a new section order. Takes the full ordered key list of the
    * sections currently on screen.
@@ -186,6 +157,12 @@ export interface SidebarState {
    * for neither.
    */
   onMoveSection: (key: string, delta: -1 | 1) => void;
+  /**
+   * Whether {@link SidebarState.onMoveSection} would actually move anything -
+   * false at the ends of the list, and for a move that would carry a section
+   * across the view switch into the other tier.
+   */
+  canMoveSection: (key: string, delta: -1 | 1) => boolean;
 
   /**
    * Open keys for the single accordion root that holds *every* section -
@@ -237,6 +214,20 @@ export function useSidebarState({
   const setOpenPrimary = useSidebarLayoutStore.use.setOpenPrimary();
   const sectionOrder = useSidebarLayoutStore.use.sectionOrder();
   const setSectionOrder = useSidebarLayoutStore.use.setSectionOrder();
+
+  // Read straight from storage rather than through the layout store. The store
+  // hydrates in an effect, so anything it owns renders as the default on the
+  // first paint; the view mode decides which list the sidebar draws, making
+  // that flash the most visible one. Subscribing instead means the stored
+  // choice is there on the first paint, and a change in another window lands
+  // here without a reload.
+  const viewMode = useViewMode(assistantId);
+  const setViewMode = useCallback(
+    (next: SidebarViewMode) => {
+      saveViewMode(assistantId, next);
+    },
+    [assistantId],
+  );
   const backgroundActivated = useSidebarLayoutStore.use.backgroundActivated();
   const scheduledActivated = useSidebarLayoutStore.use.scheduledActivated();
   const collapseAssistantId = useSidebarLayoutStore.use.assistantId();
@@ -280,58 +271,19 @@ export function useSidebarState({
     () =>
       groupConversations(allConversations, {
         groups: conversationGroups,
+        groupByChannel: viewMode === "grouped",
       }),
-    [allConversations, conversationGroups],
-  );
-
-  // --- Pagination ("show more") ---
-
-  const [visibleRecentsCount, setVisibleRecentsCount] = useState(
-    SIDEBAR_CONVERSATION_LIMIT,
-  );
-  // Per-channel "show more" counts, keyed by channel id. Channels absent from
-  // the map default to SIDEBAR_CONVERSATION_LIMIT.
-  const [visibleChannelCounts, setVisibleChannelCounts] = useState<
-    Record<string, number>
-  >({});
-
-  const recentsSection = useMemo(
-    (): PaginatedSection =>
-      buildPaginatedSection(
-        grouped.recents,
-        visibleRecentsCount,
-        setVisibleRecentsCount,
-        attentionConversationIds,
-      ),
-    [grouped.recents, visibleRecentsCount, attentionConversationIds],
-  );
-
-  const channelSections = useMemo(
-    (): ChannelSectionState[] =>
-      grouped.channelSections.map((section) => ({
-        channelId: section.channelId,
-        ...buildPaginatedSection(
-          section.conversations,
-          visibleChannelCounts[section.channelId] ?? SIDEBAR_CONVERSATION_LIMIT,
-          (updater) =>
-            setVisibleChannelCounts((prev) => ({
-              ...prev,
-              [section.channelId]: updater(
-                prev[section.channelId] ?? SIDEBAR_CONVERSATION_LIMIT,
-              ),
-            })),
-          attentionConversationIds,
-        ),
-      })),
-    [grouped.channelSections, visibleChannelCounts, attentionConversationIds],
+    [allConversations, conversationGroups, viewMode],
   );
 
   // --- Section order ---
 
-  // Default layout: Pinned, then the user's custom groups, then Chats and the
-  // channel sections. Groups lead because they are the deliberate, curated
-  // organization layer, and they hold their place while channel sections come
-  // and go with traffic.
+  // Default layout: Pinned, then the user's custom groups, then - in the
+  // grouped view - Chats and the channel sections. Groups lead because they
+  // are the deliberate, curated organization layer, and they hold their place
+  // while channel sections come and go with traffic. In the flat view the
+  // sections stop at the curated layer: everything else renders as one list
+  // below them.
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
     if (grouped.pinned.length > 0) {
@@ -351,61 +303,92 @@ export function useSidebarState({
         group,
       });
     }
-    list.push({
-      type: "recents",
-      key: "recents",
-      label: "Chats",
-      all: recentsSection.all,
-      pagination: recentsSection,
-    });
-    for (const section of channelSections) {
+    if (viewMode === "grouped") {
       list.push({
-        type: "channel",
-        key: channelSectionKey(section.channelId),
-        label: getChannelLabel(section.channelId),
-        all: section.all,
-        channelId: section.channelId,
-        pagination: section,
+        type: "recents",
+        key: "recents",
+        label: RECENTS_SECTION_LABEL,
+        all: grouped.recents,
       });
+      for (const section of grouped.channelSections) {
+        list.push({
+          type: "channel",
+          key: channelSectionKey(section.channelId),
+          label: getChannelLabel(section.channelId),
+          all: section.conversations,
+          channelId: section.channelId,
+        });
+      }
     }
     return list;
   }, [
+    viewMode,
     grouped.pinned,
     grouped.customGroups,
-    recentsSection,
-    channelSections,
+    grouped.recents,
+    grouped.channelSections,
   ]);
 
   const sections = useMemo((): SidebarSection[] => {
-    if (sectionOrder.length === 0) {
-      return defaultSections;
-    }
+    const defaultKeys = defaultSections.map((s) => s.key);
+    const ordered =
+      sectionOrder.length === 0
+        ? defaultKeys
+        : mergeSectionOrder(defaultKeys, sectionOrder);
     const byKey = new Map(defaultSections.map((s) => [s.key, s]));
-    return mergeSectionOrder(
-      defaultSections.map((s) => s.key),
-      sectionOrder,
-    ).map((key) => byKey.get(key)!);
+    return enforceCuratedLead(ordered, classifySectionKey).map(
+      (key) => byKey.get(key)!,
+    );
   }, [defaultSections, sectionOrder]);
+
+  const curatedSectionCount = useMemo(
+    () =>
+      sections.filter((section) => classifySectionKey(section.key) === "curated")
+        .length,
+    [sections],
+  );
 
   const onReorderSections = useCallback(
     (orderedKeys: string[]) => {
-      setSectionOrder(nextStoredOrder(sectionOrder, orderedKeys));
+      setSectionOrder(
+        nextStoredOrder(
+          sectionOrder,
+          enforceCuratedLead(orderedKeys, classifySectionKey),
+        ),
+      );
     },
     [sectionOrder, setSectionOrder],
   );
 
+  // The order `key` would land in after a nudge, or null when the nudge
+  // changes nothing - either end of the list, or a move across the tier
+  // boundary that the curated-lead rule pushes straight back.
+  const orderAfterMove = useCallback(
+    (key: string, delta: -1 | 1): string[] | null => {
+      const current = sections.map((s) => s.key);
+      const moved = moveSectionKey(current, key, delta);
+      if (!moved) {
+        return null;
+      }
+      const settled = enforceCuratedLead(moved, classifySectionKey);
+      return settled.join(" ") === current.join(" ") ? null : settled;
+    },
+    [sections],
+  );
+
   const onMoveSection = useCallback(
     (key: string, delta: -1 | 1) => {
-      const moved = moveSectionKey(
-        sections.map((s) => s.key),
-        key,
-        delta,
-      );
+      const moved = orderAfterMove(key, delta);
       if (moved) {
         setSectionOrder(nextStoredOrder(sectionOrder, moved));
       }
     },
-    [sections, sectionOrder, setSectionOrder],
+    [orderAfterMove, sectionOrder, setSectionOrder],
+  );
+
+  const canMoveSection = useCallback(
+    (key: string, delta: -1 | 1) => orderAfterMove(key, delta) !== null,
+    [orderAfterMove],
   );
 
   // --- Open/closed state ---
@@ -473,13 +456,14 @@ export function useSidebarState({
   );
 
   return {
-    pinned: grouped.pinned,
-    channelSections,
-    recents: recentsSection,
-    customGroups: grouped.customGroups,
+    viewMode,
+    onViewModeChange: setViewMode,
+    flatList: grouped.recents,
     sections,
+    curatedSectionCount,
     onReorderSections,
     onMoveSection,
+    canMoveSection,
     effectiveOpenSections,
     onOpenSectionsChange,
   };

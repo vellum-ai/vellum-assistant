@@ -9,11 +9,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asConversation } from "./helpers/mock-conversation.js";
+
 const sentMessages: unknown[] = [];
 let mockHasClient = true;
 // Default principal id used for both ctx.trustContext and clients in the
 // existing single-user tests. Tests that exercise cross-user behaviour
-// override this on individual clients and on the SurfaceConversationContext.
+// override this on individual clients and on the Conversation.
 const DEFAULT_PRINCIPAL = "user-1";
 type MockClient = {
   clientId: string;
@@ -47,22 +49,21 @@ mock.module("../runtime/pending-interactions.js", () => ({
   removeByConversation: () => {},
 }));
 
-const { surfaceProxyResolver } =
+const { createSurfaceMutex, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 const {
   HostAppControlProxy,
   _resetActiveAppControlSession,
   _setActiveAppControlSession,
 } = await import("../daemon/host-app-control-proxy.js");
-type SurfaceConversationContext =
-  import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
+type Conversation = import("../daemon/conversation.js").Conversation;
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal SurfaceConversationContext with an optional
+ * Build a minimal Conversation with an optional
  * hostAppControlProxy. Only the fields required by the app-control routing
  * path are populated.
  */
@@ -74,8 +75,8 @@ function buildMockContext(
   ) => void,
   trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
   actorPrincipalId: string | null = trustGuardianPrincipalId,
-): SurfaceConversationContext {
-  return {
+): Conversation {
+  return asConversation({
     conversationId,
     trustContext:
       trustGuardianPrincipalId != null
@@ -87,13 +88,13 @@ function buildMockContext(
         : undefined,
     authContext:
       actorPrincipalId != null
-        ? ({ actorPrincipalId } as SurfaceConversationContext["authContext"])
+        ? ({ actorPrincipalId } as Conversation["authContext"])
         : undefined,
     currentTurnAuthContext:
       actorPrincipalId != null
         ? ({
             actorPrincipalId,
-          } as SurfaceConversationContext["currentTurnAuthContext"])
+          } as Conversation["currentTurnAuthContext"])
         : undefined,
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
@@ -109,8 +110,8 @@ function buildMockContext(
     enqueueMessage: () => ({ queued: false, requestId: "r1" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async (_id, fn) => fn(),
-  };
+    withSurface: createSurfaceMutex(),
+  });
 }
 
 // ---------------------------------------------------------------------------

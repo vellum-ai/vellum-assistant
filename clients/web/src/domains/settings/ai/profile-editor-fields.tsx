@@ -8,9 +8,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
-import {
-  ProfileAdvancedParams,
-} from "@/domains/settings/ai/profile-advanced-params";
+import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
 import {
   PickerMeta,
   ProfileEditorProviderSection,
@@ -20,8 +18,10 @@ import {
   expandEndpointEntries,
   parseEndpointPickerValue,
   providersServedByConnections,
+  unconnectedSelectableProviders,
 } from "@/domains/settings/ai/provider-availability";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
+import { connectionAuthTypeForProvider } from "@/domains/settings/ai/provider-editor-constants";
 import type { ProfileEditor } from "@/domains/settings/ai/use-profile-editor";
 import type {
   ConnectionProvider,
@@ -33,6 +33,17 @@ import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
+
+/**
+ * Right-aligned annotation on a supported-but-unconnected provider row. It
+ * names the one thing standing between the user and that provider, so picking
+ * the row and landing on the create form reads as the same action.
+ */
+function unconnectedProviderMeta(provider: ConnectionProvider): string {
+  return connectionAuthTypeForProvider(provider) === "api_key"
+    ? "Add API key"
+    : "Set up";
+}
 
 export interface ProfileEditorFieldsProps {
   editor: ProfileEditor;
@@ -195,6 +206,21 @@ export function ProfileEditorFields({
 
   // ---- Create-mode: provider-first picker with inline create ----
 
+  // Supported providers with no connection yet. Listed after the connected
+  // entries so a ready-to-use provider is never buried, and routed into the
+  // inline create form on selection.
+  const unconnectedProviders = useMemo(
+    () =>
+      unconnectedSelectableProviders(
+        editor.effectiveConnections,
+        activeAssistantIsSelfHosted,
+      ),
+    [editor.effectiveConnections, activeAssistantIsSelfHosted],
+  );
+
+  // Every provider this assistant can dispatch through, connected ones first,
+  // then the rest annotated with what they still need, then the always-present
+  // "+ Create new provider" sentinel for custom endpoints.
   const createModeProviderOptions = useMemo(() => {
     const opts: { value: string; label: string; suffix?: ReactNode }[] =
       expandEndpointEntries(
@@ -209,12 +235,23 @@ export function ProfileEditorFields({
         label,
         suffix: meta ? <PickerMeta text={meta} /> : undefined,
       }));
+    for (const unconnected of unconnectedProviders) {
+      opts.push({
+        value: unconnected,
+        label: PROVIDER_DISPLAY_NAMES[unconnected] ?? unconnected,
+        suffix: <PickerMeta text={unconnectedProviderMeta(unconnected)} />,
+      });
+    }
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: "+ Create new provider",
     });
     return opts;
-  }, [activeAssistantIsSelfHosted, editor.effectiveConnections]);
+  }, [
+    activeAssistantIsSelfHosted,
+    editor.effectiveConnections,
+    unconnectedProviders,
+  ]);
 
   const createProviderSection = (
     <div className="space-y-4">
@@ -228,7 +265,7 @@ export function ProfileEditorFields({
         <Dropdown
           value={
             editor.creatingProvider
-              ? CREATE_NEW_PROVIDER_SENTINEL
+              ? (editor.pendingCreateProvider ?? CREATE_NEW_PROVIDER_SENTINEL)
               : editor.provider === OPENAI_COMPATIBLE_PROVIDER &&
                   editor.providerConnection
                 ? endpointPickerValue(editor.providerConnection)
@@ -237,17 +274,19 @@ export function ProfileEditorFields({
           onChange={(next) => {
             if (next === CREATE_NEW_PROVIDER_SENTINEL) {
               editor.setCreatingProvider(true);
+              editor.setPendingCreateProvider(null);
               editor.setNewProviderNote(false);
               return;
             }
             if (!next) {
               return;
             }
-            editor.setCreatingProvider(false);
             const endpoint = parseEndpointPickerValue(next);
             if (endpoint) {
               // Each endpoint entry implies the openai-compatible provider
               // plus its binding; switching endpoints re-picks the model.
+              editor.setCreatingProvider(false);
+              editor.setPendingCreateProvider(null);
               if (editor.provider !== OPENAI_COMPATIBLE_PROVIDER) {
                 editor.handleProviderChange(OPENAI_COMPATIBLE_PROVIDER);
               } else {
@@ -256,7 +295,18 @@ export function ProfileEditorFields({
               editor.setProviderConnection(endpoint);
               return;
             }
-            editor.handleProviderChange(next as ConnectionProvider);
+            const picked = next as ConnectionProvider;
+            if (unconnectedProviders.includes(picked)) {
+              // Nothing to dispatch through yet — hand the user straight to
+              // the create form for that provider instead of a dead selection.
+              editor.setCreatingProvider(true);
+              editor.setPendingCreateProvider(picked);
+              editor.setNewProviderNote(false);
+              return;
+            }
+            editor.setCreatingProvider(false);
+            editor.setPendingCreateProvider(null);
+            editor.handleProviderChange(picked);
           }}
           placeholder="Select a provider…"
           aria-labelledby="profile-editor-provider-label"
@@ -274,14 +324,24 @@ export function ProfileEditorFields({
       </div>
 
       {editor.creatingProvider ? (
+        // Keyed by the preselected provider: the sub-form seeds its provider,
+        // label, and credential ref from props at mount, so switching the
+        // outer picker to another unconnected provider must remount it.
         <ProviderCreateForm
+          key={editor.pendingCreateProvider ?? "any"}
           variant="inline"
           assistantId={assistantId}
           existingNames={editor.effectiveConnections.map((c) => c.name)}
           connections={editor.effectiveConnections}
-          defaultProviderType={editor.provider || undefined}
+          defaultProviderType={
+            (editor.pendingCreateProvider ?? editor.provider) || undefined
+          }
+          hideProviderSelect={editor.pendingCreateProvider !== null}
           onCreated={editor.handleProviderCreated}
-          onCancel={() => editor.setCreatingProvider(false)}
+          onCancel={() => {
+            editor.setCreatingProvider(false);
+            editor.setPendingCreateProvider(null);
+          }}
         />
       ) : (
         <ProfileEditorProviderSection

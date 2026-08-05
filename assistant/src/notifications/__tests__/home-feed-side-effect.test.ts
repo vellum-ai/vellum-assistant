@@ -320,11 +320,9 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(0);
   });
 
-  test("writes a feed item with undefined title when only the body is available", async () => {
-    // Regression: when `notifications send` is called without `--title`, the
-    // notification pipeline must not manufacture a title (the LLM's rendered
-    // copy echoes the body into `renderedCopy.title`). Leave `title`
-    // undefined so renderers fall back to `summary` instead of stuttering.
+  test("derives a title from the summary when only the body is available", async () => {
+    // With no authored candidate at all, the title is derived from the
+    // summary rather than left off: every row carries a headline.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
@@ -335,14 +333,14 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
-    expect(appendCalls[0]!.title).toBeUndefined();
+    expect(appendCalls[0]!.title).toBe("Real body");
     expect(appendCalls[0]!.summary).toBe("Real body");
   });
 
-  test("ignores LLM-rendered title when no payload title was supplied", async () => {
-    // The LLM often echoes the body verbatim into `renderedCopy.title` when
-    // the source didn't pass one. The home-feed writer must NOT promote that
-    // echo into the feed item — only an explicit source title is honored.
+  test("uses the LLM-rendered title when no payload title was supplied", async () => {
+    // The model authors `renderedCopy.title` as a topic headline, and the
+    // decision engine validates it before it gets here, so it is the second
+    // candidate after the payload title.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
@@ -351,7 +349,7 @@ describe("writeHomeFeedItemForSignal", () => {
     const decision = makeDecision({
       renderedCopy: {
         vellum: {
-          title: "Real body",
+          title: "Nightly sync finished",
           body: "Real body",
         },
       },
@@ -361,8 +359,168 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
-    expect(appendCalls[0]!.title).toBeUndefined();
+    expect(appendCalls[0]!.title).toBe("Nightly sync finished");
     expect(appendCalls[0]!.summary).toBe("Real body");
+  });
+
+  test("payload title wins over the rendered title when it is clean", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Payload headline" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Model headline",
+          body: "A description of what the run did.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Payload headline");
+    expect(appendCalls[0]!.title).toBe("Payload headline");
+  });
+
+  test("keeps a payload title that opens the summary", async () => {
+    // A correct topic headline is usually the opening noun phrase of the body,
+    // so an authored title that overlaps the summary still wins.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Nightly Backup Failure" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Reminder plumbing check",
+          body: "Nightly backup failure on db-primary at 02:14. Retry scheduled.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Nightly Backup Failure");
+    expect(appendCalls[0]!.summary).toBe(
+      "Nightly backup failure on db-primary at 02:14. Retry scheduled.",
+    );
+  });
+
+  test("keeps a payload title that matches the summary's first sentence", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Test notifications reminder." },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Model headline",
+          body: "Test notifications reminder. It fired on schedule.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Test notifications reminder.");
+    expect(appendCalls[0]!.summary).toBe(
+      "Test notifications reminder. It fired on schedule.",
+    );
+  });
+
+  test("always writes a non-empty title even when the copy is unusable", async () => {
+    // `normalizeTitle` rejects prose-shaped candidates, so both authored
+    // titles drop out and the derivation carries the row.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "I need to name this notification somehow" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Let me summarize what happened",
+          body: "Disk usage crossed 90 percent. Cleanup ran.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Disk usage crossed 90 percent.");
+    expect(appendCalls[0]!.title).toBeTruthy();
+  });
+
+  test("derives a single-line plain title from a markdown-headed conversation seed", async () => {
+    // The summary prefers `conversationSeedMessage`, which carries structured
+    // markdown and hard line breaks. The derived title must not.
+    conversationRow = { conversationType: "background" };
+    const seed =
+      "## Nightly Backup Report\n\nThe backup job on db-primary failed at 02:14.";
+    const signal = makeSignal({ sourceEventName: "example.event" });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "",
+          body: "The backup job failed.",
+          conversationSeedMessage: seed,
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe(
+      "Nightly Backup Report The backup job on db-primary failed at…",
+    );
+    expect(item?.summary).toBe(seed);
+  });
+
+  test("strips tilde fences and indented headings, matching migration 138", async () => {
+    // Workspace migration 138 backfills titles with its own self-contained copy
+    // of these rules. A backfilled title and a freshly written one must match
+    // for the same summary, so both accept CommonMark's 3-space indent and both
+    // fence styles.
+    conversationRow = { conversationType: "background" };
+    const seed = "   ## Indented heading\n\n~~~\ntilde fence\n~~~\nBody text.";
+    const signal = makeSignal({ sourceEventName: "example.event" });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "",
+          body: "Body text.",
+          conversationSeedMessage: seed,
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Indented heading tilde fence Body text.");
+  });
+
+  test("derives a single-line plain title from a markdown-list conversation seed", async () => {
+    conversationRow = { conversationType: "background" };
+    const seed = "- Ran 12 checks\n- 3 failed\n\nSee the log for details.";
+    const signal = makeSignal({ sourceEventName: "example.event" });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "",
+          body: "Check run finished.",
+          conversationSeedMessage: seed,
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item?.title).toBe("Ran 12 checks 3 failed See the log for details.");
+    expect(item?.summary).toBe(seed);
   });
 
   test("treats whitespace-only rendered copy and payload values as missing and returns null", async () => {

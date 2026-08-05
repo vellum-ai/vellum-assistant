@@ -107,16 +107,20 @@ export function AnimatedRightDrawer({
   // live `right` renders directly (below) so a streaming panel paints
   // immediately; this retained copy only backs the close wipe.
   const [retainedRight, setRetainedRight] = useState<ReactNode>(right);
-  useEffect(() => {
-    if (open) {
-      setMounted(true);
-    }
-  }, [open]);
-  useEffect(() => {
-    if (right != null) {
-      setRetainedRight(right);
-    }
-  }, [right]);
+  // Both adjustments are guarded render-phase setState (the "adjusting state
+  // when a prop changes" pattern from react.dev). `right` is a fresh element
+  // on every parent render, so an effect keyed on it would queue a setState
+  // into every commit's passive phase while the drawer is open, and enough
+  // such commits back to back trip React's nested-update limit under
+  // streaming load (error 185, LUM-3062). A render-phase adjustment
+  // re-renders before commit and adds nothing to the commit stream. See
+  // `lib/commit-pressure.ts` for the accounting.
+  if (open && !mounted) {
+    setMounted(true);
+  }
+  if (right != null && right !== retainedRight) {
+    setRetainedRight(right);
+  }
 
   const clamp = useCallback(
     (next: number) => {

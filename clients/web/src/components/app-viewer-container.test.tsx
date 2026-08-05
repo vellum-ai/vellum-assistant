@@ -13,7 +13,7 @@
  * while open.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -36,8 +36,23 @@ mock.module("@/utils/sandbox-bridge", () => ({
 }));
 
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
+
+spyOn(console, "warn").mockImplementation(() => {});
+spyOn(console, "info").mockImplementation(() => {});
+
+function setSandboxFlag(value: boolean): void {
+  act(() => {
+    toggleAppIframeSandboxDisabled(value);
+  });
+}
+
+function getIframe(): HTMLIFrameElement {
+  return document.querySelector("iframe") as HTMLIFrameElement;
+}
 
 afterEach(() => {
+  setSandboxFlag(false);
   cleanup();
   capturedOptions = undefined;
 });
@@ -152,5 +167,50 @@ describe("AppViewerContainer app actions", () => {
     renderViewer();
 
     expect(capturedOptions?.onAction).toBeUndefined();
+  });
+});
+
+describe("AppViewerContainer sandbox debug flag", () => {
+  test("sandboxes the app frame by default", () => {
+    renderViewer();
+
+    expect(getIframe().getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+  });
+
+  test("drops the sandbox and reloads the frame once the flag is set", () => {
+    renderViewer();
+    const sandboxed = getIframe();
+
+    setSandboxFlag(true);
+
+    const unsandboxed = getIframe();
+    expect(unsandboxed.hasAttribute("sandbox")).toBe(false);
+    // A new element, so the document reloads into the real origin instead
+    // of keeping the opaque one it was created with.
+    expect(unsandboxed).not.toBe(sandboxed);
+  });
+
+  test("restores the sandbox when the flag goes back to false", () => {
+    renderViewer();
+
+    setSandboxFlag(true);
+    setSandboxFlag(false);
+
+    expect(getIframe().getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+  });
+
+  test("keeps the sandbox for a non-boolean from the untyped console", () => {
+    renderViewer();
+
+    // The console has no types, so a stray string can reach the toggle.
+    act(() => {
+      toggleAppIframeSandboxDisabled("true" as unknown as boolean);
+    });
+
+    expect(getIframe().hasAttribute("sandbox")).toBe(true);
   });
 });

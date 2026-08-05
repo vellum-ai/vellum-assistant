@@ -50,7 +50,10 @@ function getDebugInfo() {
   // Debug view counts every standard conversation, archived or not, so the
   // diagnostics report doesn't undercount after the route-level default
   // moved to "active".
-  const conversationCount = countConversations("standard", "all");
+  const conversationCount = countConversations({
+    conversationType: "standard",
+    archiveStatus: "all",
+  });
   const memoryItemCount = getMemoryItemCount();
   const dbSizeBytes = getDatabaseSizeBytes();
 

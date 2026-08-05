@@ -42,7 +42,8 @@ export function useChatLayoutDrawer({
         return;
       }
 
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
         onClose();
         return;
       }

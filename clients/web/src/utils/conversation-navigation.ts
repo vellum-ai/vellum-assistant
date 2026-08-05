@@ -23,8 +23,8 @@ export interface NavigateToConversationOptions {
 
 /**
  * Navigate to an existing conversation, resetting stale viewer state (main
- * view, subagent / workflow panels) and updating the active conversation in
- * the store.
+ * view, subagent / workflow panels, transcript side-panel payloads) and
+ * updating the active conversation in the store.
  *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
@@ -46,6 +46,7 @@ export function navigateToConversation(
   ) {
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();
+    useViewerStore.getState().clearTranscriptPanelPayloads();
   }
   useConversationStore.getState().setActiveConversationId(conversationId);
   void navigate(
@@ -64,8 +65,9 @@ export interface NavigateToNewConversationOptions {
 /**
  * Create a fresh draft conversation and navigate to it.
  *
- * Always resets subagent state (a subagent detail panel from a prior
- * conversation must not persist into the new draft). When `silent` is true
+ * Always resets subagent state and the transcript side-panel payloads (a
+ * subagent detail or files panel from a prior conversation must not persist
+ * into the new draft). When `silent` is true
  * (e.g. fallback after archiving the active conversation), the haptic tap
  * is suppressed.
  *
@@ -86,6 +88,7 @@ export function navigateToNewConversation(
   useViewerStore.getState().setMainView("chat");
   useSubagentStore.getState().reset();
   useWorkflowStore.getState().reset();
+  useViewerStore.getState().clearTranscriptPanelPayloads();
   const draftId = createDraftConversationId();
   useConversationStore.getState().setActiveConversationId(draftId);
 

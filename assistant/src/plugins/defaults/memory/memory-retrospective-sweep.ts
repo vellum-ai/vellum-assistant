@@ -42,7 +42,9 @@
 //   - Enqueues route through `enqueueMemoryRetrospectiveIfEnabled`, whose
 //     `upsertMemoryRetrospectiveJob` coalesces against any already-pending job,
 //     so a conversation already queued by an event trigger is never
-//     double-processed.
+//     double-processed. An enqueue the funnel's gates decline (recursion,
+//     low-yield, user-activity) returns false and does not consume the
+//     per-pass cap.
 //   - Enqueues are capped at `SWEEP_MAX_ENQUEUES_PER_PASS` per pass. Inside
 //     the lookback window, organic stalled work is a handful of conversations;
 //     a pass wanting more signals an anomalous backlog. Each pass re-scans
@@ -65,6 +67,7 @@ import { and, asc, gt, ne, notInArray } from "drizzle-orm";
 import type { AssistantConfig } from "../../../config/types.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import { getConversationRecentProvenanceTrustClass } from "../../../persistence/conversation-crud.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import {
@@ -77,7 +80,6 @@ import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounti
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./substrate/constants.js";
 
 const log = getLogger("memory-retrospective-sweep");
 
@@ -277,7 +279,14 @@ export async function runRetrospectiveSweep(
         continue;
       }
 
-      enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger: "sweep" });
+      if (
+        !enqueueMemoryRetrospectiveIfEnabled({
+          conversationId,
+          trigger: "sweep",
+        })
+      ) {
+        continue;
+      }
       enqueued += 1;
       if (enqueued >= SWEEP_MAX_ENQUEUES_PER_PASS) {
         log.warn(

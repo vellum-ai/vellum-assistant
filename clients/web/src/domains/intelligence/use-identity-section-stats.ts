@@ -40,8 +40,8 @@ export interface IdentitySectionStat {
   label?: string;
   /** Plain one-liner for sections without a countable stat. */
   text?: string;
-  /** Persisted personality slider values, plotted as a radar chart. */
-  radar?: Record<string, number>;
+  /** Persisted personality slider values, drawn as the signature mark. */
+  signature?: Record<string, number>;
   /** Upcoming enabled schedules (soonest first) + how many were cut. */
   schedules?: { items: SchedulePreview[]; more: number };
 }
@@ -58,11 +58,16 @@ function pluralLabel(n: number, singular: string, pluralForm: string): string {
 interface UseIdentitySectionStatsOptions {
   /** Skip the plugin fetch on assistants without the plugin routes. */
   supportsPlugins: boolean;
+  /**
+   * Skip the reads behind cards the native mobile shells don't render
+   * (see `NATIVE_MOBILE_HIDDEN_KEYS` in `components/identity-sections.ts`).
+   */
+  isNativeMobile: boolean;
 }
 
 export function useIdentitySectionStats(
   assistantId: string,
-  { supportsPlugins }: UseIdentitySectionStatsOptions,
+  { supportsPlugins, isNativeMobile }: UseIdentitySectionStatsOptions,
 ): Record<string, IdentitySectionStat | undefined> {
   const path = { assistant_id: assistantId };
   const common = { staleTime: STATS_STALE_MS, retry: false, enabled: true };
@@ -94,16 +99,19 @@ export function useIdentitySectionStats(
     ...workspaceTreeGetOptions({ path }),
     select: (data) => data.entries.length,
     ...common,
+    enabled: !isNativeMobile,
   });
   const contacts = useQuery({
     ...contactsGetOptions({ path }),
     select: (data) => data.contacts.length,
     ...common,
+    enabled: !isNativeMobile,
   });
   const channels = useQuery({
     ...channelsReadinessGetOptions({ path }),
     select: (data) => data.snapshots.filter((s) => s.ready).length,
     ...common,
+    enabled: !isNativeMobile,
   });
   // Shares the schedules cache entry owned by `fetchSchedules` (Settings
   // and the Activity page key it identically with a `Schedule[]` payload)
@@ -129,7 +137,7 @@ export function useIdentitySectionStats(
     ...common,
   });
   // Shares the personality page's query key, so applying an update there
-  // refreshes the card's radar too.
+  // refreshes the card's signature too.
   const sliders = useQuery({
     queryKey: personalitySlidersQueryKey(assistantId),
     queryFn: () => fetchPersonalitySliders(assistantId),
@@ -140,10 +148,10 @@ export function useIdentitySectionStats(
     personality: {
       // `null` means the sidecar was never persisted (onboarded before it
       // was saved, or never touched the sliders) — fall back to the
-      // all-centered neutral shape instead of a blank card. `undefined`
+      // all-centered flat line instead of a blank card. `undefined`
       // covers still-loading and read errors, which stay a no-stat card so a
-      // transient failure never overwrites saved dials with a neutral radar.
-      radar:
+      // transient failure never overwrites saved dials with a neutral mark.
+      signature:
         sliders.data !== undefined
           ? completeSliderValues(sliders.data ?? {})
           : undefined,

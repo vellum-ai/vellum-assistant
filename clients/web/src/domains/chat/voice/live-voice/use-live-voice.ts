@@ -681,7 +681,8 @@ export function useLiveVoice(
       const client = (
         opts.createClient ?? (() => new LiveVoiceChannelClient())
       )();
-      const player = standbyPlayerRef.current ?? createPlayer();
+      const prewarmedPlayer = standbyPlayerRef.current;
+      const player = prewarmedPlayer ?? createPlayer();
       standbyPlayerRef.current = null;
       // The composer reserves and prewarms this player before its async
       // readiness check. Reconnects reuse it too; this repeated call is a no-op
@@ -904,6 +905,22 @@ export function useLiveVoice(
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
           s.setState("thinking");
+        }),
+        client.on("activity", (frame) => {
+          if (!live()) {
+            return;
+          }
+          // Stored verbatim. The daemon composes this wording precisely so
+          // that this driver and the APNs push carry the same string, and
+          // rewording it here would break the equality it exists to provide.
+          //
+          // A frame with no `approvalRequestId` clears the pending one rather
+          // than leaving it — the daemon retires a wait by sending the line
+          // without it, so treating absence as "unchanged" would strand the
+          // island's Approve/Deny buttons on a decision already made.
+          useLiveVoiceStore
+            .getState()
+            .setActivityLabel(frame.label, frame.approvalRequestId ?? null);
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) {
@@ -1345,6 +1362,26 @@ async function finishCaptureStartup(
   if (s.state === "connecting") {
     s.setState("listening");
   }
+  rebindOutputRouteToCapture(session);
+}
+
+/**
+ * Re-render the TTS output route against the now-live capture unit, then record
+ * where playback actually ended up.
+ *
+ * Runs at the one moment both halves of the full-duplex path exist: the player
+ * was unlocked back in the entry gesture, and the microphone has just come up.
+ * WebKit binds a MediaStream renderer to whichever capture unit is active when
+ * it starts, and the echo reference belongs to that unit, so a renderer started
+ * before `getUserMedia` may hold no reference at all.
+ *
+ * The restart itself is inaudible (nothing is queued yet), and it is
+ * fire-and-forget: a refused `play()` falls back to the direct output path from
+ * its own rejection handler, so there is no outcome here for a caller to act on
+ * and a session must never be gated on it.
+ */
+function rebindOutputRouteToCapture(session: SessionContext): void {
+  void session.player.restartOutputRoute();
 }
 
 /**
@@ -1387,9 +1424,9 @@ function handleAmplitude(
     return;
   }
   // Muted: the server hears silence (see handleChunk), so the UI and the
-  // manual-mode amplitude barge-in must too — a hot-looking waveform (or a
+  // manual-mode amplitude barge-in must too. A hot-looking waveform (or a
   // barge-in) from a muted mic would contradict the substituted stream.
-  const muted = useLiveVoiceStore.getState().muted;
+  const { muted } = useLiveVoiceStore.getState();
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
   if (
     !muted &&

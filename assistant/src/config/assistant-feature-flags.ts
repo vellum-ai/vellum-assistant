@@ -313,10 +313,15 @@ export async function refreshOverridesFromGateway(): Promise<boolean> {
  *      registry)
  *   2. Registry `defaultEnabled` (for declared assistant-scope keys)
  *   3. `false` (for undeclared keys with no override)
+ *
+ * Resolution reads only the override and registry caches, so `_config` is
+ * accepted for the convenience of call sites that already hold one and never
+ * consulted. Callers without a config in hand should omit it rather than load
+ * one for this.
  */
 export function getAssistantFeatureFlagValue(
   key: string,
-  _config: AssistantConfig,
+  _config?: AssistantConfig,
 ): boolean | string {
   const defaults = loadDefaultsRegistry();
   const declared = defaults[key];
@@ -343,7 +348,7 @@ export function getAssistantFeatureFlagValue(
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
-  config: AssistantConfig,
+  config?: AssistantConfig,
 ): boolean {
   return !!getAssistantFeatureFlagValue(key, config);
 }

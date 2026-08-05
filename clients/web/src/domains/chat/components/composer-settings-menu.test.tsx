@@ -143,7 +143,13 @@ const configGetMock = mock(
     data: {
       llm: {
         profileOrder: ["smart"],
-        profiles: { smart: { label: "Smart" } },
+        profiles: {
+          smart: {
+            label: "Smart",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+        },
         activeProfile: "smart",
       },
     },
@@ -176,6 +182,7 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
 import { useConversationStore } from "@/stores/conversation-store";
+import { ApiError } from "@/utils/api-errors";
 
 function renderMenu() {
   const queryClient = new QueryClient({
@@ -283,8 +290,16 @@ describe("Model Profile quick-add", () => {
         llm: {
           profileOrder: ["smart", NEW_PROFILE_NAME],
           profiles: {
-            smart: { label: "Smart" },
-            [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL },
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+            [NEW_PROFILE_NAME]: {
+              label: NEW_PROFILE_LABEL,
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
           },
           activeProfile: "smart",
         },
@@ -411,8 +426,16 @@ describe("Profile trigger updates", () => {
       llm: {
         profileOrder: ["balanced", "quality"],
         profiles: {
-          balanced: { label: "Balanced" },
-          quality: { label: "Quality" },
+          balanced: {
+            label: "Balanced",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
         },
         activeProfile: "balanced",
       },
@@ -482,7 +505,13 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" } },
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
           activeProfile: "smart",
         },
       },
@@ -529,5 +558,72 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
     // is written (no server conversation exists yet).
     expect(configPatchMock).not.toHaveBeenCalled();
     expect(inferenceprofilePut).not.toHaveBeenCalled();
+  });
+});
+
+describe("Profile activation rejected by the daemon", () => {
+  /** Load the menu and click the "Smart" profile row. */
+  async function selectSmart() {
+    // Guard against a hanging/altered config impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+          activeProfile: "smart",
+        },
+      },
+    }));
+    renderMenu();
+    await waitFor(() =>
+      expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
+    );
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((b) => b.textContent?.includes("Smart"));
+    // The rejection rolls the optimistic selection back asynchronously — flush
+    // that state update inside `act` so the assertion sees a settled tree.
+    await act(async () => {
+      fireEvent.click(smart!);
+    });
+  }
+
+  test("surfaces the server's 400 reason instead of generic retry copy", async () => {
+    // The daemon rejects a profile it can't dispatch through with a 400 naming
+    // what's missing; retry copy would send the user round the same loop.
+    inferenceprofilePut.mockImplementationOnce(async () => {
+      throw new ApiError(
+        400,
+        'Profile "smart" has no API key for provider "gemini".',
+      );
+    });
+
+    await selectSmart();
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        'Profile "smart" has no API key for provider "gemini".',
+      );
+    });
+  });
+
+  test("keeps the generic copy for a non-400 failure", async () => {
+    inferenceprofilePut.mockImplementationOnce(async () => {
+      throw new ApiError(500, "boom: db offline");
+    });
+
+    await selectSmart();
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        "Failed to switch profile. Please try again.",
+      );
+    });
   });
 });

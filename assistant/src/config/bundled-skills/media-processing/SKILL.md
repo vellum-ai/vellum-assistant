@@ -72,7 +72,7 @@ Parameters:
 - `output_schema` (required) - JSON Schema for structured output.
 - `mode` - Analysis mode: `'keyframes'` (default) or `'direct_video'`.
 - `context` - Additional context to include in the prompt.
-- `model` - Gemini model to use (default: `gemini-2.5-flash`).
+- `model` - Gemini model to use (defaults to the Gemini provider's recommended vision model).
 - `concurrency` - Maximum concurrent API requests (default: 10, keyframes mode only).
 - `max_retries` - Retry attempts per segment on failure (default: 3).
 

@@ -5,7 +5,8 @@
  * `assistant/src/live-voice/protocol.ts`. Field names and shapes mirror that
  * module exactly so the browser client and daemon agree on the wire format.
  *
- * Pure module: no DOM / WebSocket imports.
+ * Pure module: no DOM / WebSocket imports. The one import below is a `type`,
+ * so it is erased at build time and the module stays side-effect free.
  *
  * ## Framing
  *
@@ -16,6 +17,8 @@
  * - Every server frame ({@link LiveVoiceServerFrame}) is JSON text and carries a
  *   monotonically increasing `seq` number.
  */
+
+import type { ClientOs } from "@/runtime/platform-detection";
 
 // ---------------------------------------------------------------------------
 // Client frames (text/JSON control frames; audio goes over binary frames)
@@ -68,6 +71,17 @@ export interface LiveVoiceClientStartFrame {
    * daemon use its configured default.
    */
   readonly bargeInMinSpeechMs?: number;
+  /**
+   * Which client opened the session, as a `ClientOs` surface. The iOS and
+   * macOS apps run this same bundle over this same transport, so the OS
+   * surface is the only thing that actually distinguishes them, and a literal
+   * here would report every native session as `web`.
+   *
+   * Analytics only: the daemon puts it on the voice turn's telemetry `client`
+   * bag so voice turns are countable per client, and never on the turn's
+   * interface id, which decides what the turn is allowed to do.
+   */
+  readonly client?: ClientOs;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {
@@ -113,6 +127,7 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "stt_partial",
   "stt_final",
   "thinking",
+  "activity",
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
@@ -187,6 +202,34 @@ export interface LiveVoiceSttFinalServerFrame extends LiveVoiceServerFrameBase {
 export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "thinking";
   readonly turnId: string;
+}
+
+/**
+ * What the assistant is doing inside a turn, as one short user-facing line
+ * ("Reading a file"), or `""` when it is doing nothing nameable.
+ *
+ * The wording is the daemon's, not this layer's, and that is deliberate: the
+ * iOS Live Activity is driven both by this socket and by an APNs push the
+ * daemon dispatches when this web layer is suspended, the two must carry
+ * identical content state, and handing both the same string is the only way to
+ * guarantee it. See `assistant/src/live-voice/activity-label.ts`.
+ */
+export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "activity";
+  readonly turnId: string;
+  readonly label: string;
+  /**
+   * The confirmation this turn is blocked on, when the label describes a wait
+   * rather than work in flight. Absent otherwise, including on the frame that
+   * retires a wait — so a handler must treat "absent" as "no longer pending",
+   * never as "unchanged".
+   *
+   * It is what makes the wait answerable from the Live Activity: an approval,
+   * unlike the island's mute and end buttons, must not be re-resolved against
+   * whatever is pending when the tap lands. Mirrors the daemon's frame in
+   * `assistant/src/live-voice/protocol.ts`.
+   */
+  readonly approvalRequestId?: string;
 }
 
 export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {
@@ -300,6 +343,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
   | LiveVoiceThinkingServerFrame
+  | LiveVoiceActivityServerFrame
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame

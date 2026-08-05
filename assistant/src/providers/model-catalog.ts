@@ -927,17 +927,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
       },
       {
-        id: "accounts/fireworks/models/minimax-m2p5",
-        displayName: "MiniMax M2.5",
-        contextWindowTokens: 196608,
-        maxOutputTokens: 25000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
-      },
-      {
         id: "accounts/fireworks/models/deepseek-v4-pro",
         displayName: "DeepSeek V4 Pro",
         contextWindowTokens: 1040000,
@@ -2242,6 +2231,21 @@ export function getCatalogProviderForModel(
 ): string | undefined {
   return PROVIDER_CATALOG.find((p) => p.models.some((m) => m.id === modelId))
     ?.id;
+}
+
+/**
+ * Human-readable display name for a model id, from the first catalog entry
+ * that serves it (a model carries the same display name under every provider
+ * that offers it). Undefined for uncataloged ids.
+ */
+export function getModelDisplayName(modelId: string): string | undefined {
+  for (const provider of PROVIDER_CATALOG) {
+    const match = provider.models.find((m) => m.id === modelId);
+    if (match) {
+      return match.displayName;
+    }
+  }
+  return undefined;
 }
 
 /**

@@ -1,5 +1,5 @@
 {
-  "note": "Maps each bundled skill with a public reference page (https://www.vellum.ai/docs/skills-reference/<docsSlug>, authored in the vellum-assistant-platform repo) to a fingerprint of its SKILL.md. Enforced by scripts/check-skill-docs-sync.ts and assistant/src/__tests__/skill-docs-sync-guard.test.ts. When a SKILL.md changes, review its docs page, then run `bun run scripts/check-skill-docs-sync.ts --write` to re-record the fingerprint. Add an entry here when a bundled skill gains a public docs page.",
+  "note": "Maps each bundled skill with a public reference page (https://www.vellum.ai/docs/skills-reference/<docsSlug>, authored in this repo at clients/docs/src/app/docs/_components/skills-reference-<docsSlug>-content.tsx) to a fingerprint of its SKILL.md. Enforced by scripts/check-skill-docs-sync.ts and assistant/src/__tests__/skill-docs-sync-guard.test.ts. When a SKILL.md changes, review its docs page, then run `bun run scripts/check-skill-docs-sync.ts --write` to re-record the fingerprint. Add an entry here when a bundled skill gains a public docs page.",
   "skills": {
     "acp": {
       "docsSlug": "acp",
@@ -7,7 +7,7 @@
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "e7bcebd572719b70e7206fe32056d1fa62e6b9d74691a34c195b961c76c45e05"
+      "sha256": "0e2e522d8735a4ea9331c994a2520e0e1a57aca7c728b7105cac1b94166ed595"
     },
     "computer-use": {
       "docsSlug": "computer-use",
@@ -31,7 +31,7 @@
     },
     "media-processing": {
       "docsSlug": "media-processing",
-      "sha256": "4c93682daa54a9f74ccb12306e82409ae5417fcae253b26f8364bdd28f90a3d4"
+      "sha256": "2355e860b9ae5c06036ca2ef206679647a9c73ff38af50a23268503959f189cd"
     },
     "messaging": {
       "docsSlug": "messaging",
@@ -55,7 +55,7 @@
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "c6c75fd2b200c09f7c12b60a87846ffbc6b8021723532f2d4b13bdd87c4683b2"
+      "sha256": "a2e96b06c557c31c40a0adc26a61e6ea74b9c8b7c1e826d29063fd5c262757ac"
     },
     "transcribe": {
       "docsSlug": "transcribe",

@@ -57,6 +57,9 @@ export interface MemoryV2ConceptRowRecord {
    *     A single-batch (no-tier carve-out) workspace produces `tier3:0`.
    *     The bucket index lets inspector queries attribute selections to
    *     specific hash-bucketed parallel calls.
+   *   - `always_candidate` — a skill pinned by its `always-candidate`
+   *     frontmatter rather than selected by activation or the router. Like
+   *     the router-mode tags it carries zeroed activation values.
    *   - `carry_over`  — router-mode row representing a slug carried over
    *     from `priorEverInjected` that the router did NOT re-pick on this
    *     turn. The cached attachment from a prior turn is still present
@@ -72,6 +75,7 @@ export interface MemoryV2ConceptRowRecord {
     | "ann_top50"
     | "both"
     | "router"
+    | "always_candidate"
     | "carry_over"
     | "tier1"
     | "tier2"

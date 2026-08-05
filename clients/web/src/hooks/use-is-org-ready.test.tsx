@@ -183,4 +183,19 @@ describe("useOrgHeaderReadiness", () => {
     render(<ReadinessProbe />);
     expect(latestReadiness).toBe("ready");
   });
+
+  test("a settled-absent session with a failed org fetch is ready", () => {
+    // The half-dead end state: the platform API conclusively rejected the
+    // session, so the probe settled `platformSession: "absent"` (no platform
+    // session) while the org fetch landed on "error". Readiness must be
+    // "ready" here; this is what un-gates the org-gated daemon queries
+    // (conversation skeletons) on bearer-auth connections.
+    hasPlatformSessionMock = false;
+    useOrganizationStore.setState({
+      status: "error",
+      error: "Platform session was rejected (HTTP 403).",
+    });
+    render(<ReadinessProbe />);
+    expect(latestReadiness).toBe("ready");
+  });
 });

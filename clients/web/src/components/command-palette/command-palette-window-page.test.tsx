@@ -76,7 +76,10 @@ mock.module("@/lib/auth/gateway-session", () => ({
 
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
-    use: { multiPlatformAssistant: () => true },
+    use: {
+      multiPlatformAssistant: () => true,
+      assistantSwitcher: () => false,
+    },
   },
 }));
 
@@ -100,7 +103,10 @@ mock.module("@/stores/organization-store", () => {
   useOrganizationStore.getState = () => ({
     currentOrganizationId: orgRef.currentOrganizationId,
   });
-  return { useOrganizationStore };
+  return {
+    useOrganizationStore,
+    useRequestOrganizationId: () => orgRef.currentOrganizationId,
+  };
 });
 
 mock.module("@/stores/resolved-assistants-store", () => {
@@ -109,6 +115,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
     assistants: () => resolvedRef.assistants,
     activeAssistantId: () => resolvedRef.activeAssistantId,
     selectedAssistantId: () => resolvedRef.selectedAssistantId,
+    assistantsHydrated: () => resolvedRef.assistantsHydrated,
   };
   useResolvedAssistantsStore.getState = () => ({
     assistants: resolvedRef.assistants,

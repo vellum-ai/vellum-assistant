@@ -71,9 +71,6 @@ export function CustomPlanRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
-            Billed monthly
-          </span>
           <Button
             variant="outlined"
             onClick={onConfigure}

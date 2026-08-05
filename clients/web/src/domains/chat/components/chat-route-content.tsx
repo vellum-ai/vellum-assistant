@@ -31,6 +31,7 @@ import {
   useState,
 } from "react";
 
+import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
@@ -55,6 +56,8 @@ import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attach
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -75,8 +78,8 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
-import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
+import { LowBalanceBanner } from "@/domains/chat/components/low-balance-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -105,15 +108,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import {
   getChatBillingBannerDecision,
   isManagedCredentialChatError,
+  resolveComposerBillingBanner,
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
-import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
-import {
-  isBillingCtaUpgradeArm,
-  useBillingCtaExperimentArm,
-} from "@/hooks/use-billing-cta-experiment";
-import { useIsFreePlan } from "@/hooks/use-is-free-plan";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
@@ -155,6 +154,16 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
+import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
+
+/**
+ * Self-hosted recovery for a rejected assistant API key. Mirrors the hint the
+ * daemon returns from its own auth route (`runtime/routes/auth-routes.ts`) —
+ * keep the two in step.
+ */
+const REPROVISION_ASSISTANT_KEY_COMMAND =
+  "assistant keys set credential/vellum/assistant_api_key <key>";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -191,7 +200,6 @@ export interface ChatMainPanelProps {
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
-  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
 
   // Shared refs (owned by ActiveChatView for debug API / keydown handler)
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -275,7 +283,6 @@ export function ChatMainPanel({
   historyPagination,
   diskPressure,
   setRefreshEpoch,
-  setShowAddCreditsModal,
   inputRef,
   sanitizedMessagesRef,
   transcriptItemsRef,
@@ -437,12 +444,8 @@ export function ChatMainPanel({
     void navigate(routes.settings.ai);
   }, [navigate]);
 
-  const pushToBillingSettings = useCallback(() => {
-    void navigate(routes.settings.usageBilling);
-  }, [navigate]);
-
-  const pushToPlansTakeover = useCallback(() => {
-    void navigate(routes.plans);
+  const pushToDailyLimitSettings = useCallback(() => {
+    void navigate(routes.settings.usageBillingDailyLimit);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -501,10 +504,32 @@ export function ChatMainPanel({
 
   // Commit counter for the chat-route subtree. Deliberately dependency-less:
   // it has to run on every commit to measure how tightly they are packed,
-  // which is what `Maximum update depth exceeded` actually reacts to. Records
-  // nothing but two integers — see `lib/commit-pressure.ts`.
-  useEffect(() => {
+  // which is what `Maximum update depth exceeded` actually reacts to. A layout
+  // effect rather than a passive one, so the commit is recorded before
+  // ResizeObserver, rAF, and timer callbacks can fire: an instrumented update
+  // landing in that window would otherwise be consumed as attribution of the
+  // commit that just finished instead of the commit it causes. Records nothing
+  // but a few integers; see `lib/commit-pressure.ts`.
+  useLayoutEffect(() => {
     recordCommit();
+  });
+
+  // Closes the switch measurement `switchToConversation` opened. That action
+  // blanks the snapshot and sets `isLoadingHistory` in one commit, so the first
+  // render that is not an empty loading transcript is the incoming
+  // conversation's first paint. It runs from an ancestor effect
+  // (`ActiveChatView`), which React commits after this one, so the render that
+  // first carries the new id finds no pending window and measures nothing.
+  // A history fetch that errored with nothing on screen reads exactly like an
+  // instant empty conversation, so it has to veto the paint; an error that
+  // still has a painted transcript behind it (a failed older page, a failed
+  // background refetch) does not.
+  const historyLoadFailed = historyPagination.isError && messages.length === 0;
+  useSwitchPaintMeasurement({
+    conversationId: activeConversationId,
+    historyLoadFailed,
+    transcriptPainted: !(isLoadingHistory && messages.length === 0),
+    hadHistory: messages.length > 0,
   });
 
   // Clear staged quotes and dismiss the reply bubble when the active
@@ -618,12 +643,18 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Transcript data (sanitise + build items)
   // -------------------------------------------------------------------------
+  // Single balance-status read shared by every proactive billing surface in
+  // this component: the transcript's tail card, the empty state's card, and
+  // the low-balance composer banner.
+  const balanceStatus = useBillingBalanceStatus();
+
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
     showThinking,
     turnActive: isAssistantBusy,
     thinkingLabel,
     showOnboardingChoice,
+    creditsExhausted: balanceStatus.isExhausted,
   });
 
   // --- Ref writes (connect hook outputs to ActiveChatView's debug refs) ---
@@ -650,6 +681,18 @@ export function ChatMainPanel({
     status: diskPressure.status,
   });
   const diskPressureInputDisabled = diskPressureChatBlockReason !== null;
+
+  // First meaningful transcript paint: the exact condition under which
+  // `ChatScrollArea` stops rendering `<ChatSkeleton />`. On the new-conversation
+  // draft there is no history to wait for, so this lands immediately; on an
+  // existing conversation it is the history fetch. `markBoot` is first-write-wins,
+  // so later conversation switches within the page load do not overwrite it.
+  const transcriptPainted = !(isLoadingHistory && messages.length === 0);
+  useEffect(() => {
+    if (transcriptPainted) {
+      markBoot("transcript_painted");
+    }
+  }, [transcriptPainted]);
 
   const typingDisabled =
     isLoadingHistory ||
@@ -691,6 +734,45 @@ export function ChatMainPanel({
     </Button>
   ) : undefined;
 
+  // The assistant API key is provisioned by the platform, so unlike a rejected
+  // personal key there is nothing for the user to fix in Settings. Recovery
+  // differs by how the assistant is hosted, so the banner offers one of two
+  // actions rather than a single link:
+  //
+  //   platform-hosted → the Doctor, which can re-issue the key. The request is
+  //     parked in the same one-shot store `/doctor <message>` uses, so the
+  //     panel auto-starts a session already on topic, not on a blank prompt.
+  //   self-hosted → the Doctor tab doesn't exist (it is platform-hosted only),
+  //     but `assistant keys set` does. Copying the command is the whole fix, so
+  //     the banner hands it over rather than leaving the user with no action.
+  const reprovisionAssistantKeyAction = showDoctorAction ? (
+    <Button asChild variant="outlined" size="compact">
+      <Link
+        to={`${routes.settings.debug}?tab=doctor`}
+        onClick={() =>
+          useDoctorHandoffStore
+            .getState()
+            .setPendingPrompt("Help me re-provision my assistant's API key")
+        }
+      >
+        Ask the Doctor
+      </Link>
+    </Button>
+  ) : assistantState.kind === "active" ? (
+    <Button
+      variant="outlined"
+      size="compact"
+      onClick={() =>
+        copyToClipboard(REPROVISION_ASSISTANT_KEY_COMMAND, {
+          successMessage: "Command copied. Run it where the assistant runs.",
+          errorMessage: "Couldn't copy the command.",
+        })
+      }
+    >
+      Copy CLI fix
+    </Button>
+  ) : undefined;
+
   // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
   // `actionUrl`; the button click is a real user gesture, so the re-open
   // always succeeds and the banner clears itself.
@@ -720,7 +802,10 @@ export function ChatMainPanel({
           actions:
             buildOpenUrlAction(error.actionUrl, () =>
               useChatSessionStore.getState().setError(null),
-            ) ?? doctorAction,
+            ) ??
+            (isManagedCredentialChatError(error)
+              ? reprovisionAssistantKeyAction
+              : doctorAction),
         }
       : null;
   const hasGenericChatError = genericChatError !== null;
@@ -733,7 +818,9 @@ export function ChatMainPanel({
             buildOpenUrlAction(notice.actionUrl, () =>
               useChatSessionStore.getState().setNotice(null),
             ) ??
-            (isManagedCredentialChatError(notice) ? doctorAction : undefined),
+            (isManagedCredentialChatError(notice)
+              ? reprovisionAssistantKeyAction
+              : undefined),
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;
@@ -1014,6 +1101,7 @@ export function ChatMainPanel({
     mainView,
     openedAppState,
     isAssistantBusy,
+    showCreditsUpsell: balanceStatus.isExhausted,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -1041,13 +1129,11 @@ export function ChatMainPanel({
   const billingBannerDecision =
     errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
-  // Credit-paywall CTA: single CTA gated by experiment arm + plan. Only fetch
-  // the subscription when the credit paywall is actually shown.
-  const billingCtaArm = useBillingCtaExperimentArm();
-  const isFreePlan = useIsFreePlan(billingBannerDecision === "managed_credits");
-  const creditPaywallMode = resolveCreditPaywallCta({
-    isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
-    isFreePlan,
+  const lowBalanceBannerDismissed = useLowBalanceBannerStore.use.dismissed();
+  const composerBillingBanner = resolveComposerBillingBanner({
+    billingBannerDecision,
+    isLowBalance: balanceStatus.isLowBalance,
+    dismissed: lowBalanceBannerDismissed,
   });
 
   // -------------------------------------------------------------------------
@@ -1125,10 +1211,7 @@ export function ChatMainPanel({
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
-      hasBillingBanner={
-        billingBannerDecision !== null &&
-        billingBannerDecision !== "managed_credits"
-      }
+      hasBillingBanner={composerBillingBanner !== null}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
@@ -1187,16 +1270,12 @@ export function ChatMainPanel({
             onOpenMicSettings={handleOpenMicSettings}
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
-              billingBannerDecision === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
-              ) : billingBannerDecision === "managed_credits" ? (
-                <CreditsExhaustedBanner
-                  mode={creditPaywallMode}
-                  onAddCredits={() => setShowAddCreditsModal(true)}
-                  onUpgrade={pushToPlansTakeover}
-                />
-              ) : billingBannerDecision === "provider_billing" ? (
+              composerBillingBanner === "daily_limit" ? (
+                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
+              ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+              ) : composerBillingBanner === "low_balance" ? (
+                <LowBalanceBanner />
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}

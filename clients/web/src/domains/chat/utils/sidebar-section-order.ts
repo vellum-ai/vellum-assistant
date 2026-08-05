@@ -149,6 +149,44 @@ export function nextStoredOrder(
   return trimmed;
 }
 
+// ---------------------------------------------------------------------------
+// Ordering constraints
+// ---------------------------------------------------------------------------
+
+/**
+ * Which side of the view switch a section sits on:
+ *
+ * - `curated` - Pinned and the custom groups. The user's own organization
+ *   layer, which the switch does not affect and which always leads.
+ * - `governed` - Chats and the per-channel sections. What the switch actually
+ *   changes, so it always follows.
+ *
+ * Sections reorder freely within their own tier and never cross between them.
+ */
+export type SectionOrderClass = "curated" | "governed";
+
+/**
+ * `keys` with every `curated` section ahead of every `governed` one,
+ * preserving relative order within each tier.
+ *
+ * The switch renders on the tier boundary, so this is what makes "the switch
+ * controls everything below it" structural rather than a convention: no
+ * stored order, however it was arrived at, can put a governed section above
+ * the curated layer or the switch below a list it governs. Applied to the
+ * render order and to what gets persisted, so the stored preference always
+ * describes a layout that renders.
+ */
+export function enforceCuratedLead(
+  keys: readonly string[],
+  classify: (key: string) => SectionOrderClass,
+): string[] {
+  const curated = keys.filter((key) => classify(key) === "curated");
+  if (curated.length === 0 || curated.length === keys.length) {
+    return [...keys];
+  }
+  return [...curated, ...keys.filter((key) => classify(key) === "governed")];
+}
+
 /**
  * `keys` with `key` moved one slot toward the start (`-1`) or end (`+1`).
  * Returns `null` when the move is a no-op - the key is missing or already at

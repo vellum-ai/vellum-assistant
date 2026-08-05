@@ -8,7 +8,9 @@ import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -58,7 +60,10 @@ interface AddCreditsModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
+function AddCreditsModalContent({
+  open,
+  onOpenChange,
+}: AddCreditsModalProps) {
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
@@ -192,6 +197,30 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
           >
             Continue
           </Button>
+        </Modal.Footer>
+      </Modal.Content>
+    </Modal.Root>
+  );
+}
+
+export function AddCreditsModal(props: AddCreditsModalProps) {
+  const isNativeAndroid = useIsNativeAndroid();
+
+  if (!isNativeAndroid) {
+    return <AddCreditsModalContent {...props} />;
+  }
+
+  return (
+    <Modal.Root open={props.open} onOpenChange={props.onOpenChange}>
+      <Modal.Content size="sm">
+        <Modal.Header>
+          <Modal.Title>Billing</Modal.Title>
+          <Modal.Description>{ANDROID_BILLING_MESSAGE}</Modal.Description>
+        </Modal.Header>
+        <Modal.Footer>
+          <Modal.Close asChild>
+            <Button variant="outlined">Close</Button>
+          </Modal.Close>
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

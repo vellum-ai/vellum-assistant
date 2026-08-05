@@ -143,16 +143,17 @@ References:
 
 ## Native voice bridge
 
-Live voice is a web feature with native accessories. The session — mic capture, the velay socket, TTS playback, every user-facing string — lives entirely under `src/domains/chat/voice/live-voice/`. The iOS shell adds an `AVAudioSession`, a Dynamic Island / Lock Screen presence, and a set of App Intents on top of it.
+Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus and an ongoing status notification.
 
-The shell registers **four** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) — count them there, not from prose:
+The shell registers **five** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose):
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
-| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption events. **Unproven on hardware** — see the background-audio contract below |
-| `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | The one ActivityKit activity mirroring a session |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android foreground audio focus. See the background-audio contract below |
+| `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
+| `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 
@@ -162,7 +163,7 @@ The two voice plugins are consumed only through `use-live-voice-session-controll
 
 This is a rule, not a caveat. The iOS app is a `server.url` shell: it bundles no web assets and navigates `WKWebView` straight at the deployed origin at launch (see [`clients/ios/README.md` § Web content delivery](../../../clients/ios/README.md#web-content-delivery)). So this bundle is live for every iOS user on their next app load, while the shell hosting it only changes after an App Store review cycle. At any moment an arbitrarily old shell can be running an arbitrarily new bundle. There is no build flag that tells you which.
 
-**Route every JS → native voice call through `callNativeVoice`** ([`src/runtime/native-voice.ts`](../src/runtime/native-voice.ts) — read it there, it is twenty lines). It short-circuits off-iOS, swallows any bridge failure into the caller's fallback, and never throws or rejects.
+**Route every JS to native voice call through `callNativeVoice`** ([`src/runtime/native-voice.ts`](../src/runtime/native-voice.ts)). It short-circuits outside the native mobile shells, swallows any bridge failure into the caller's fallback, and never throws or rejects.
 
 Three things follow from the rule:
 
@@ -170,21 +171,23 @@ Three things follow from the rule:
 - **Fire and forget at the call site.** A bare `void` is enough: because every export in these modules goes through `callNativeVoice`, none of them can reject, so there is no rejection for a call site to handle. A hung or failed bridge call must never delay a voice session.
 - **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
 
-**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: off-iOS, an older shell, and the user having switched Live Activities off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
+**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: outside a native mobile shell, an older shell, or a disabled platform status surface. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
 ### The background-audio contract
 
-**Read § "Full-duplex TTS must render through a MediaStream track" before you touch any of this.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. `VoiceAudioSession` is the one plugin in the tree that can do it, and **nothing calls it any more**: `activateVoiceAudioSession()` has no production caller, by the decision recorded below. The bridge function and the native plugin both remain, so reintroducing activation is one line away and must not be taken casually.
+**Read § "Full-duplex TTS must render through a MediaStream track" before you touch the iOS implementation.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. The iOS `activate` method has no production caller by the decision recorded below. Android's `useNativeAudioSessionLifecycle` caller uses the same bridge method only to request audio focus, without reconfiguring WebView capture.
 
 That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that has now shipped twice.
 
 **Echo cancellation does not depend on this.** It used to be the argument for `.voiceChat`; since #39347 it comes from WebKit's own voice-processing unit, reached by routing TTS through a `MediaStreamAudioDestinationNode`. So if this plugin ever has to go, AEC does not go with it.
 
-**The rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` now only subscribes to interruptions; it never calls `activate`. Do not reintroduce the activation without a device test, and note that a green Simulator run is not one.
+**The iOS rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` subscribes to iOS interruptions but never calls iOS `activate`. Do not reintroduce iOS activation without a device test, and note that a green Simulator run is not one.
 
-The `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
+Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()` to request transient audio focus for the foreground WebView. It does not move capture into native code or claim screen-lock or app-switching support.
 
-What is genuinely still open is **background audio**, and note that the list below describes what an active session *would* buy. None of it is in effect today, because nothing activates one. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
+The iOS `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
+
+What is genuinely still open on iOS is **background audio**. The list below describes what an active iOS session *would* buy. None of it is in effect today because iOS never activates one. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
 
 - audio keeps playing while the app is backgrounded or the screen is locked;
 - the mic route survives backgrounding;
@@ -245,13 +248,9 @@ requested. Do not add a Capacitor plugin that reconfigures or reactivates that
 session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
 
-One such plugin exists — `VoiceAudioSession`, for background/lock-screen audio,
-which echo cancellation no longer needs. It activates once at a session's
-leading edge and never re-asserts mid-session, which is the narrowest form of
-the thing this section warns about rather than an exemption from it. It is
-unproven on hardware; see § "Native voice bridge" → "The background-audio
-contract" for what has to be measured before trusting it. Treat it as the single
-exception under measurement, not as a precedent.
+The iOS `VoiceAudioSession` plugin can perform that reconfiguration, but its
+`activate` method has no production caller. Android only requests audio focus;
+it does not change the WebView audio mode or capture path.
 
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route
@@ -266,6 +265,52 @@ work. On teardown, pause it, clear `srcObject`, and stop every track owned by
 the destination stream. Automatic reconnects must reuse the already-started
 player and MediaStream element: creating a replacement from a backoff timer
 loses the original user activation and can make `play()` fail.
+
+**Re-render the track once the microphone is live.** WebKit binds a MediaStream
+renderer to whichever capture unit is active when the renderer starts, and the
+echo reference belongs to that unit. Starting the element in the entry gesture
+is therefore necessary but not sufficient: at that moment `getUserMedia` has not
+run, so the renderer can come up bound to a plain output unit and never acquire
+a reference. `LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the
+element, and the session calls it once capture reports running. The queue is
+silent at that point, so the restart is inaudible.
+
+It also **rebuilds a route that has already fallen back**, which is what the
+gesture-less entry points depend on. A session started from Siri, the Action
+Button, or a Live Activity has no activation to borrow, so its prewarm `play()`
+is refused and the fallback tears the route down; by capture time the page holds
+a live `getUserMedia` stream, which is grounds for playing a MediaStream element
+that an unactivated page could not. Treating a fallen-back route as nothing to
+retry would strand exactly those sessions on the direct path for their whole
+lifetime.
+
+**The route degrades silently.** A refused `play()` falls back to
+`AudioContext.destination`: audio still plays and echo cancellation is simply
+gone, which surfaces only as the assistant transcribing fragments of its own
+speech. `getOutputRouteDiagnostics()` reports the resolved route, the `play()`
+rejection, and live element state. It exists so the fallback path is testable
+(`tts-playback.test.ts`), and nothing in production consumes it.
+
+**The live-voice path writes nothing to the diagnostics rings, deliberately.** A
+voice session is the most private surface the app has, and the rings are carried
+off the device inside support bundles. Anything derived from the microphone is
+out of bounds outright: not only speech, but aggregates over it, such as an
+amplitude envelope, a correlation, or a room noise floor. Those characterise a
+user's home. This was instrumented once, in #39687, to prove the rebind above
+engaged; it did, on device and on the web, and the instrumentation was removed
+with the question it answered.
+
+Console output is held to the same intent but is not yet the same rule. The
+session's own logging is error-path `console.warn`s carrying codes and reasons,
+never content. The one exception is a per-turn
+`console.debug("[live-voice] turn latency", ...)` in `use-live-voice.ts`,
+carrying a turn id and timings (added in #37710, awaiting a debug panel). It
+predates this section and is listed here so the paragraph stays honest, not as a
+precedent: new per-turn logging does not belong on this path.
+
+If echo returns, that is a device-debugging session with a build that carries a
+probe, not a reason to reinstate one in the shipped bundle. Prefer a temporary
+branch over a permanent field, and delete it the same way.
 
 References:
 

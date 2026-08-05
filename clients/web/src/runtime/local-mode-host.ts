@@ -1,5 +1,6 @@
 import type {
   LocalAssistantStatusResult,
+  LocalConnectImportResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
 } from "@vellumai/ipc-contract";
@@ -84,6 +85,7 @@ export interface LocalUpgradeResult {
 }
 
 export type { LocalAssistantStatusResult };
+export type { LocalConnectImportResult };
 export type { LocalUpgradeOptions };
 
 /**
@@ -293,6 +295,69 @@ export async function retireLocalAssistantHost(
   return postLocalCommand<LocalRetireResult>(
     "/assistant/__local/retire",
     { assistantId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * Forget a paired assistant (`cloud: "paired"`): remove its lockfile entry and
+ * delete its stored guardian token on this machine. Client-side only: the
+ * remote assistant is never touched. Both hosts run the shared package op in a
+ * trusted process and return the same `LockfileWriteResult` contract; hosts
+ * refuse non-paired entries (local/managed assistants go through
+ * {@link retireLocalAssistantHost}). Older Electron hosts that predate the IPC
+ * channel degrade to a structured unsupported error, mirroring
+ * {@link sleepLocalAssistantHost}.
+ */
+export async function unpairAssistantHost(
+  assistantId: string,
+): Promise<LockfileWriteResult> {
+  if (isElectron()) {
+    const unpair = window.vellum!.localMode.unpair;
+    if (!unpair) {
+      return {
+        ok: false,
+        error: "Unpair is not supported by this app version",
+      };
+    }
+    return unpair(assistantId);
+  }
+
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/unpair",
+    { assistantId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * Register a pairing bundle printed by `vellum pair` on another machine:
+ * persist its guardian token and create a `cloud: "paired"` lockfile entry on
+ * this machine, the write counterpart of {@link unpairAssistantHost}. Both
+ * hosts run the shared package's `pairAssistant` in a trusted process and
+ * return the same `{ ok, assistantId, accessOnly }` contract. Older Electron
+ * hosts that predate the IPC channel degrade to a structured unsupported
+ * error, mirroring {@link unpairAssistantHost}.
+ */
+export async function connectImportHost(
+  bundle: string,
+  name?: string,
+): Promise<LocalConnectImportResult> {
+  if (isElectron()) {
+    const connectImport = window.vellum!.localMode.connectImport;
+    if (!connectImport) {
+      return {
+        ok: false,
+        error:
+          "Connecting a paired assistant is not supported by this app version",
+      };
+    }
+    return connectImport(bundle, name);
+  }
+
+  return postLocalCommand<LocalConnectImportResult>(
+    "/assistant/__local/connect-import",
+    { bundle, name },
     LOCAL_HOST_UNAVAILABLE_ERROR,
   );
 }

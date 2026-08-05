@@ -20,7 +20,7 @@
 import { isMemoryV1Active } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
-import type { JobHandlerEntry } from "../../types.js";
+import type { JobHandlerEntry, JobQueueResolution } from "../../types.js";
 // The all-tier graph store: `embedGraphNodeJob` serves the V1 section,
 // `embedGraphTriggerJob` the SUBSTRATE one.
 import {
@@ -31,11 +31,17 @@ import {
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { getLogger } from "./logging.js";
 // RETROSPECTIVE (all tiers).
-import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
+import {
+  memoryRetrospectiveJob,
+  type MemoryRetrospectiveOutcome,
+} from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
 // SUBSTRATE (v2+v3).
-import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
+import {
+  type ConsolidationOutcome,
+  memoryV2ConsolidateJob,
+} from "./substrate/consolidation-job.js";
 import { memoryV2ReembedJob } from "./substrate/reembed-job.js";
 import { memoryV2SweepJob } from "./substrate/sweep-job.js";
 // V1 — delete with v1.
@@ -269,7 +275,8 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   },
   {
     type: "memory_v2_consolidate",
-    handler: (job, config) => memoryV2ConsolidateJob(job, config),
+    handler: async (job, config) =>
+      resolveConsolidationOutcome(await memoryV2ConsolidateJob(job, config)),
   },
   {
     type: "memory_v2_reembed",
@@ -303,7 +310,8 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   // v3 but is owned by the retrospective, so it groups here.
   {
     type: "memory_retrospective",
-    handler: (job, config) => memoryRetrospectiveJob(job, config),
+    handler: async (job, config) =>
+      resolveRetrospectiveOutcome(await memoryRetrospectiveJob(job, config)),
   },
   {
     type: "memory_retrospective_sweep",
@@ -314,3 +322,77 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: (job) => skillCardInsertJob(job),
   },
 ];
+
+/**
+ * Terminal `last_error` for a retrospective row whose source conversation
+ * stayed mid-turn through the whole deferral budget. Named so the dead-letter
+ * row points at the stranded `processing_started_at` flag rather than a
+ * generic backend message; the sweep re-enqueues a fresh row once the source
+ * is eligible again.
+ */
+const SOURCE_PROCESSING_EXHAUSTED_MESSAGE =
+  "source conversation stayed mid-turn through the deferral budget " +
+  "(processing_started_at may be stranded); the retrospective sweep will re-enqueue";
+
+/**
+ * Translate the retrospective handler's domain outcome into the queue
+ * resolution persisted on its job row. The domain outcome is the source of
+ * truth for what happened; this mapping owns only how the row reads
+ * afterward:
+ *
+ * - benign no-ops and successful runs complete;
+ * - a mid-turn source defers the SAME row on the bounded deferral counter
+ *   (the turn-end trigger check's upsert coalesces onto this row, so the
+ *   event-driven retry keeps its immediacy) instead of completing it and
+ *   re-upserting a fresh row per attempt;
+ * - a failed or unusable wake dead-letters the row with an honest
+ *   `last_error`. Retry stays event-driven (cooldown + re-enqueue), so the
+ *   queue's attempt budget is deliberately not double-driving it.
+ */
+function resolveRetrospectiveOutcome(
+  outcome: MemoryRetrospectiveOutcome,
+): JobQueueResolution {
+  switch (outcome.kind) {
+    case "source_processing": {
+      return {
+        queueResolution: "deferred",
+        deferralExhaustedMessage: SOURCE_PROCESSING_EXHAUSTED_MESSAGE,
+      };
+    }
+    case "wake_failed": {
+      return {
+        queueResolution: "failed",
+        errorMessage: `retrospective wake failed: ${outcome.reason ?? "unknown"}`,
+      };
+    }
+    case "no_usable_output": {
+      return {
+        queueResolution: "failed",
+        errorMessage: `retrospective run produced no usable output: ${outcome.reason ?? "unknown"}`,
+      };
+    }
+    default: {
+      return { queueResolution: "completed" };
+    }
+  }
+}
+
+/**
+ * Translate the consolidation handler's domain outcome into the queue
+ * resolution persisted on its job row. A `run_failed` dead-letters the row
+ * with the failure reason; retry cadence is owned by the durable
+ * consolidation failure-state checkpoint (`memory_v2_consolidate_failure_state`),
+ * not the queue's attempt budget. Skips (disabled / locked / empty buffer)
+ * and successful runs complete.
+ */
+function resolveConsolidationOutcome(
+  outcome: ConsolidationOutcome,
+): JobQueueResolution {
+  if (outcome.kind === "run_failed") {
+    return {
+      queueResolution: "failed",
+      errorMessage: `consolidation run failed: ${outcome.reason ?? "unknown"}`,
+    };
+  }
+  return { queueResolution: "completed" };
+}

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { LanguageModelSection } from "@/domains/settings/ai/language-model-section";
@@ -95,10 +96,7 @@ export function ProvidersSection({
       {isLoading ? (
         <div className="space-y-2 py-2">
           {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="h-10 animate-pulse rounded-lg bg-[var(--surface-active)]"
-            />
+            <Skeleton key={i} className="h-10 rounded-lg" />
           ))}
         </div>
       ) : isError ? (
