@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   STT_LANGUAGES,
-  STT_LANGUAGE_DEFAULT_CODE,
   STT_MULTI_CODE,
   sttCatalogEntryForLocale,
   sttLanguageGroupsFor,
