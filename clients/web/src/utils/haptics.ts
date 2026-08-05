@@ -1,7 +1,7 @@
-import { isNativePlatform } from "@/runtime/native-auth";
+import { isNativeIOS } from "@/runtime/platform-detection";
 
-const runNative = async (fire: () => Promise<void>): Promise<void> => {
-  if (!isNativePlatform()) {
+const runIOS = async (fire: () => Promise<void>): Promise<void> => {
+  if (!isNativeIOS()) {
     return;
   }
   try {
@@ -12,29 +12,28 @@ const runNative = async (fire: () => Promise<void>): Promise<void> => {
 };
 
 /**
- * Thin haptic-feedback wrapper. On native Capacitor platforms this delegates
- * to `@capacitor/haptics`; on web it's a no-op. The lazy import ensures the
- * Capacitor plugin's `registerPlugin()` call (which throws without the full
- * runtime) never runs in a plain browser context.
+ * Thin haptic-feedback wrapper. On native Capacitor iOS this delegates to
+ * `@capacitor/haptics`; on Android and web it's a no-op. The lazy import keeps
+ * the plugin out of plain browser contexts.
  */
 export const haptic = {
   light: () =>
-    runNative(async () => {
+    runIOS(async () => {
       const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
       await Haptics.impact({ style: ImpactStyle.Light });
     }),
   medium: () =>
-    runNative(async () => {
+    runIOS(async () => {
       const { Haptics, ImpactStyle } = await import("@capacitor/haptics");
       await Haptics.impact({ style: ImpactStyle.Medium });
     }),
   success: () =>
-    runNative(async () => {
+    runIOS(async () => {
       const { Haptics, NotificationType } = await import("@capacitor/haptics");
       await Haptics.notification({ type: NotificationType.Success });
     }),
   error: () =>
-    runNative(async () => {
+    runIOS(async () => {
       const { Haptics, NotificationType } = await import("@capacitor/haptics");
       await Haptics.notification({ type: NotificationType.Error });
     }),
