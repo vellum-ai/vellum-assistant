@@ -9,13 +9,20 @@
  * the trigger with an empty label and the user wondering what's in effect.
  */
 
+import type { ProfileEntry } from "@/generated/daemon/types.gen";
+
+/**
+ * The subset of a profile a picker needs. Fields are typed from the generated
+ * `ProfileEntry` so they cannot drift from the wire, and stay optional so
+ * callers can pass a summary shape that omits some of them.
+ */
 export interface ProfilePickerEntry {
   readonly name: string;
-  readonly label?: string | null;
-  readonly status?: "active" | "disabled" | null;
-  readonly provider?: string | null;
-  readonly model?: string | null;
-  readonly mix?: unknown;
+  readonly label?: ProfileEntry["label"];
+  readonly status?: ProfileEntry["status"];
+  readonly provider?: ProfileEntry["provider"] | null;
+  readonly model?: ProfileEntry["model"] | null;
+  readonly mix?: ProfileEntry["mix"];
 }
 
 /**
