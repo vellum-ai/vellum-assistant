@@ -171,11 +171,22 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
             : "No organization available for this user.";
       }
 
+      // A settled rejection means the platform no longer honors the session
+      // this org id came from, so the persisted fallback must not keep
+      // stamping requests with a stale Vellum-Organization-Id. Transport and
+      // other failures keep the fallback (offline reloads still need it).
+      if (rejectionStatus !== null) {
+        clearStoredOrganizationId();
+      }
+      const persistedOrganizationId =
+        rejectionStatus !== null
+          ? null
+          : (currentOrganizationId ?? get().persistedOrganizationId);
+
       set({
         organizations,
         currentOrganizationId,
-        persistedOrganizationId:
-          currentOrganizationId ?? get().persistedOrganizationId,
+        persistedOrganizationId,
         status: currentOrganizationId ? "ready" : "error",
         error,
         lastErrorStatus: failureStatus,
