@@ -67,7 +67,14 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   filingAgent: { profile: "cost-optimized" },
   memoryExtraction: { profile: "cost-optimized" },
   memoryRetrieval: { profile: "cost-optimized" },
-  memoryRetrospective: { profile: "cost-optimized" },
+  // Vision-capable by requirement, not by preference: the retrospective forks
+  // the source conversation and preserves its image blocks, so a text-only
+  // model rejects every image-bearing window. Because the retrospective
+  // cursor only advances on usable output, such a window is retried forever
+  // and the conversation stops forming derived memory from its first image
+  // onward. Matches the sibling background memory call site
+  // (`memoryV2Consolidation`). Keep this profile vision-capable.
+  memoryRetrospective: { profile: "balanced" },
   memoryV2Migration: { profile: "cost-optimized" },
   memoryV2Sweep: { profile: "cost-optimized" },
   memoryV2Consolidation: { profile: "balanced" },
