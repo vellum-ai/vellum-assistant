@@ -73,6 +73,21 @@ mock.module("../src/image-persist.js", () => ({
   persistImage: () => "/workspace/data/attachments/mock-hash.png",
 }));
 
+// The loop's host-side send-boundary guard (`context/outbound-media-guard.ts`)
+// imports these capability modules directly rather than through the
+// "@vellumai/plugin-api" barrel mocked above, so the same fakes are wired at
+// those specifiers too. Both layers must judge capabilities identically for
+// the boundary regressions to be meaningful.
+mock.module("../../../../plugin-api/model-profiles.js", () => ({
+  getModelProfiles: () => mockProfiles,
+}));
+mock.module("../../../../plugin-api/vision-support.js", () => ({
+  doesSupportVision: (arg: ModelProfileInfo | string) =>
+    typeof arg === "string"
+      ? visionModelKeys.has(arg)
+      : visionProfiles.has(arg.key),
+}));
+
 // ─── Imports (after mocks are registered) ───────────────────────────────────
 
 const preModelCall = (await import("../hooks/pre-model-call.js")).default;

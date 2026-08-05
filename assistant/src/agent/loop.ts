@@ -2,6 +2,10 @@ import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
+import {
+  modelLacksVisionSupport,
+  replaceOutboundImagesWithPlaceholders,
+} from "../context/outbound-media-guard.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
 import {
   estimatePromptTokensRaw,
@@ -29,11 +33,6 @@ import {
 import { HOOKS } from "../plugin-api/constants.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import {
-  captionOutboundImagesInMessages,
-  countImageBlocksInMessages,
-  needsImageFallback,
-} from "../plugins/defaults/image-fallback/src/caption-blocks.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
@@ -1728,35 +1727,38 @@ export class AgentLoop {
         // after it can reroute the call to a text-only profile. Whatever the
         // settled chain produced, raw image blocks must not be sent to a
         // model that cannot accept them, so any that remain are replaced
-        // with the plugin's deterministic static placeholders here. No
-        // captioning at this boundary: the proactive pass had its chance,
-        // and this pass must be cheap, bounded, and provider-call-free.
+        // with deterministic static placeholders here (the host-side
+        // `outbound-media-guard`, so the guarantee holds even with the
+        // plugin disabled). No captioning at this boundary: the proactive
+        // pass had its chance, and this pass must be cheap, bounded, and
+        // provider-call-free.
         // Substitution happens on a clone, so only the wire payload changes
         // and the loop's history bookkeeping is untouched (the same
         // wire-only contract the hook has).
-        const finalModelKey =
-          (typeof providerConfig.overrideProfile === "string"
-            ? providerConfig.overrideProfile
-            : undefined) ??
-          options.modelProfileKey ??
-          null;
-        if (finalModelKey != null && needsImageFallback(finalModelKey)) {
-          const residualMediaBlocks =
-            countImageBlocksInMessages(outboundMessages);
-          if (residualMediaBlocks > 0) {
+        const outboundHasMedia = outboundMessages.some((m) =>
+          m.content.some(
+            (b) =>
+              b.type === "image" ||
+              (b.type === "tool_result" &&
+                b.contentBlocks?.some((cb) => cb.type === "image")),
+          ),
+        );
+        if (outboundHasMedia) {
+          const finalModelKey =
+            (typeof providerConfig.overrideProfile === "string"
+              ? providerConfig.overrideProfile
+              : undefined) ??
+            options.modelProfileKey ??
+            null;
+          if (finalModelKey != null && modelLacksVisionSupport(finalModelKey)) {
             const wireClone = structuredClone(outboundMessages);
-            const placeholdered = await captionOutboundImagesInMessages(
-              wireClone,
-              this.conversationId,
-              null,
-              rlog,
-            );
+            const placeholdered =
+              replaceOutboundImagesWithPlaceholders(wireClone);
             outboundMessages = wireClone;
             rlog.warn(
               {
                 callSite,
                 modelProfileKey: finalModelKey,
-                residualMediaBlocks,
                 placeholdered,
                 decision: "boundary_placeholdered",
               },

@@ -34,11 +34,12 @@
  * text-only profile bypasses it (default hooks dispatch before user hooks),
  * and the pipeline discards this hook's mutation entirely when it throws or
  * times out. Both escapes are closed by the loop's final send-boundary
- * enforcement (`agent/loop.ts`), which judges the settled chain's FINAL
- * profile and statically placeholders any media still bound for a text-only
- * model. This hook stays the quality pass (captions when a vision profile
- * exists); the boundary is the guarantee, and the reactive
- * `post-model-call` recovery remains the net for provider-side surprises.
+ * enforcement (the host-side `context/outbound-media-guard.ts`, applied in
+ * `agent/loop.ts`), which judges the settled chain's FINAL profile and
+ * statically placeholders any media still bound for a text-only model. This
+ * hook stays the quality pass (captions when a vision profile exists); the
+ * boundary is the guarantee, and the reactive `post-model-call` recovery
+ * remains the net for provider-side surprises.
  *
  * Every non-trivial decision emits a structured log line with the call site,
  * resolved profile/model, media count, and decision.
