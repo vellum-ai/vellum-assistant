@@ -436,6 +436,42 @@ export class AssistantEventHub {
   }
 
   /**
+   * Fill a missing `actorPrincipalId` on a live client subscription.
+   *
+   * Used by the SSE dev-bypass self-heal: when the guardian-delivery cache is
+   * cold at subscribe time, the registration lands without a principal; the
+   * route resolves it async and patches the record here. Keyed by
+   * `connectionId` (not clientId) so a reconnect race cannot patch the
+   * subscription that replaced the one being healed. No-op when the
+   * connection is gone or already carries a principal — this only fills a
+   * missing value, never overwrites one. The value must come from the
+   * daemon's own server-side guardian lookup, never from client input.
+   */
+  fillClientActorPrincipalId(
+    connectionId: string,
+    actorPrincipalId: string,
+  ): void {
+    for (const entry of this.subscribers) {
+      if (entry.connectionId !== connectionId) {
+        continue;
+      }
+      if (
+        !entry.active ||
+        entry.type !== "client" ||
+        entry.actorPrincipalId != null
+      ) {
+        return;
+      }
+      entry.actorPrincipalId = actorPrincipalId;
+      log.info(
+        { clientId: entry.clientId, connectionId },
+        "filled missing actorPrincipalId for client subscription",
+      );
+      return;
+    }
+  }
+
+  /**
    * Returns true when at least one active subscriber would receive the given
    * event based on the same conversation matching rules as publish().
    */

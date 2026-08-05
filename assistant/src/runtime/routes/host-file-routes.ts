@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -97,6 +98,7 @@ async function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId: peeked.targetClientId,
       op: "host_file",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 

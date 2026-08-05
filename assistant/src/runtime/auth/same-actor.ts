@@ -21,6 +21,7 @@
  * in the audit log.
  */
 import type { HostProxyCapability } from "../../channels/types.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { ForbiddenError } from "../routes/errors.js";
@@ -74,6 +75,17 @@ export interface SameActorPersistedArgs {
   targetActorPrincipalId: string | undefined;
   targetClientId: string;
   op: SameActorOp;
+  /**
+   * Fill-if-missing fallback for dev-bypass deployments: when the PERSISTED
+   * target principal is absent (the request was registered before the SSE
+   * self-heal filled the target client's hub record), re-read the live hub
+   * record. Only consulted when `targetActorPrincipalId` is nullish AND HTTP
+   * auth is disabled — a present persisted value always wins, so a
+   * present-but-mismatched principal still rejects, and JWT-auth deployments
+   * are unaffected. The hub value is set server-side at SSE registration (or
+   * by the self-heal), never from client input.
+   */
+  hubForMissingTarget?: Pick<AssistantEventHub, "getActorPrincipalIdForClient">;
 }
 
 export type SameActorArgs = SameActorLiveArgs;
@@ -97,7 +109,12 @@ function detectRejection(
   const { sourceActorPrincipalId, targetClientId, op } = args;
   const targetActorPrincipalId = isLive(args)
     ? args.hub.getActorPrincipalIdForClient(targetClientId)
-    : args.targetActorPrincipalId;
+    : (args.targetActorPrincipalId ??
+      (isHttpAuthDisabled()
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
+            targetClientId,
+          )
+        : undefined));
 
   let reason: RejectionReason | undefined;
   if (sourceActorPrincipalId == null) {

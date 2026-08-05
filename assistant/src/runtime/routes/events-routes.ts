@@ -42,7 +42,10 @@ import type { ReplaySubscriber } from "../assistant-stream-state.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
-import { resolveActorPrincipalIdForLocalGuardianSync } from "../local-actor-identity.js";
+import {
+  resolveActorPrincipalIdForLocalGuardian,
+  resolveActorPrincipalIdForLocalGuardianSync,
+} from "../local-actor-identity.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -450,6 +453,30 @@ export function handleSubscribeAssistantEvents(
       throw new ServiceUnavailableError("Too many concurrent connections");
     }
     throw err;
+  }
+
+  // Self-heal for dev-bypass connections: the sync resolution above reads
+  // only the guardian-delivery cache, which can be cold at connect time —
+  // without this, the subscription would carry no principal for its whole
+  // lifetime and every host-proxy result would 403. Fire-and-forget so the
+  // stream is not delayed; keyed by connectionId so a reconnect race cannot
+  // patch the subscription that replaced this one.
+  if (
+    clientId &&
+    interfaceId &&
+    actorPrincipalId == null &&
+    rawActorPrincipalId?.trim() === "dev-bypass"
+  ) {
+    void resolveActorPrincipalIdForLocalGuardian("dev-bypass")
+      .then((resolved) => {
+        if (resolved) {
+          hub.fillClientActorPrincipalId(sub.connectionId, resolved);
+        }
+      })
+      .catch(() => {
+        // Best-effort: an unreachable gateway leaves the record unhealed;
+        // the next reconnect retries.
+      });
   }
 
   const stream = new ReadableStream<Uint8Array>(
