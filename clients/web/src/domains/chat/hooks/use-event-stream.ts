@@ -361,8 +361,16 @@ export function useEventStream({
   // stream is closed or stale by then. A `"ready"` reached from
   // `"idle"` or `"ready"` is a boot or remount confirmation over an
   // already-healthy stream, and bouncing it costs a duplicate daemon
-  // connect plus the full non-fresh reconcile fan-out. Every other
-  // phase still reaches the limiter so its budget bookkeeping is
+  // connect plus the full non-fresh reconcile fan-out.
+  //
+  // The suppression is scoped to the bounce alone. Entering `"ready"`
+  // always runs the limiter's stale-UI cleanup, so a remount that
+  // lands on an already-healthy assistant still drops a leftover
+  // "Connection lost" banner and stale turn UI left by an earlier
+  // transient error or an exhausted retry budget. `runReadyCleanup()`
+  // publishes nothing and leaves the burst window untouched, so a
+  // confirmation neither spends budget nor slides the window. Every
+  // other phase still reaches the limiter so its budget bookkeeping is
   // unchanged.
   // --------------------------------------------------------------------------
   const previousReachabilityPhaseRef = useRef(reachabilityPhase);
@@ -373,6 +381,7 @@ export function useEventStream({
       reachabilityPhase === "ready" &&
       (previousPhase === "idle" || previousPhase === "ready");
     if (isHealthyStreamConfirmation) {
+      burstLimiterRef.current!.runReadyCleanup();
       return;
     }
     burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);
