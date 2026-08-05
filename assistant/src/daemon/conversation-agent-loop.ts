@@ -722,14 +722,20 @@ export async function runAgentLoopImpl(
       return;
     }
 
-    // Ensure workspace git repo is initialized before any tools run.
-    try {
-      const getWorkspaceGitServiceFn =
-        ctx.getWorkspaceGitService ?? getWorkspaceGitService;
-      const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
-      await gitService.ensureInitialized();
-    } catch (err) {
-      rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
+    // Workspace Git readiness is required only when tools can run. Tool-less
+    // callers use the same depth gate consumed by tool resolution.
+    if (!(ctx.toolsDisabledDepth > 0)) {
+      try {
+        const getWorkspaceGitServiceFn =
+          ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+        const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
+        await gitService.ensureInitialized();
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to initialize workspace git repo (non-fatal)",
+        );
+      }
     }
 
     // Auto-complete stale interactive surfaces from previous turns.
