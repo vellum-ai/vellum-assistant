@@ -42,7 +42,7 @@ beforeEach(() => {
 });
 
 function assistant(id: string): ResolvedAssistant {
-  return { id, isLocal: false, isPlatformHosted: true };
+  return { id, isLocal: false, isPlatformHosted: true, isPaired: false };
 }
 
 /** A hydrated list holding exactly one assistant: the only shape capture stashes. */

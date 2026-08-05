@@ -639,7 +639,7 @@ async function tryConsumeGuardianReply(params: {
       attachments,
     });
 
-    const cleanUserMessage = createUserMessage(content, attachments);
+    const cleanUserMessage = await createUserMessage(content, attachments);
     const llmUserMessage = enrichMessageWithSourcePaths(
       cleanUserMessage,
       attachments,
@@ -761,9 +761,9 @@ function buildQueuedMessagePayloads(
     });
 }
 
-export function handleListMessages({
+export async function handleListMessages({
   queryParams,
-}: RouteHandlerArgs): Record<string, unknown> {
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
   const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
 
@@ -1046,196 +1046,207 @@ export function handleListMessages({
   );
   const pendingQuestions = collectPendingQuestions(resolvedConversationId);
 
-  const messages: RuntimeMessagePayload[] = parsed.map((m) => {
-    const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
+  const messages: RuntimeMessagePayload[] = await Promise.all(
+    parsed.map(async (m) => {
+      const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
 
-    // Hydrate the row's attachments from the DB. A metadata-only query avoids
-    // loading large base64 blobs for non-image attachments (documents, audio);
-    // full data is fetched only for images so the client can generate
-    // thumbnails for inline display on history restore. Merged messages
-    // (consecutive assistant merge) are queried too so their attachments
-    // aren't lost before DB compaction relinks them.
-    let msgAttachments: RuntimeAttachmentMetadata[] = [];
-    if (m.id) {
-      const idsToQuery = [m.id, ...mergedMessageIds];
-      const linked = idsToQuery.flatMap((id) =>
-        getAttachmentMetadataForMessage(id),
-      );
-      if (linked.length > 0) {
-        msgAttachments = linked.map((a) => {
-          // Hydrate image rows for inline thumbnails. Legacy HEIC can be
-          // stored under application/octet-stream (empty File.type fallback),
-          // so `.heic`/`.heif` rows are hydrated by filename too;
-          // normalizeImageBase64 sniffs the bytes and rewrites only genuine
-          // HEIF, which Chromium-based clients cannot decode. Filename and
-          // sizeBytes keep describing the stored original, which
-          // /attachments/:id/content serves verbatim for downloads.
-          const isImage = a.mimeType.startsWith("image/");
-          const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
-          const full =
-            isImage || isLegacyHeic
-              ? getAttachmentById(a.id, { hydrateFileData: true })
-              : null;
-          const display = full?.dataBase64
-            ? normalizeImageBase64(a.mimeType, full.dataBase64)
-            : null;
-          // Image rows carry data even when unconverted (thumbnails); a
-          // non-image row only becomes renderable once conversion yields a
-          // JPEG, so it stays metadata-only when conversion is unavailable.
-          const useDisplay =
-            display && (isImage || display.converted) ? display : null;
-          return {
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: useDisplay?.mimeType ?? a.mimeType,
-            sizeBytes: a.sizeBytes,
-            kind: useDisplay?.converted
-              ? classifyKind(useDisplay.mimeType)
-              : a.kind,
-            ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
-            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
-            fileBacked: true,
-          };
-        });
-      }
-    }
-
-    // Align the hydrated rows with the file-block refs, then render. Rendering
-    // after alignment lets renderHistoryContent inline each `attachment` block
-    // during its single content walk, so `contentBlocks` comes back ready to
-    // ship with no post-processing. The aligned reorder/rewrite keeps the
-    // legacy `attachments` array and `contentOrder` positions consistent.
-    const attachmentRefs = collectAttachmentRefs(m.content);
-    const aligned = alignAttachments(attachmentRefs, msgAttachments);
-    msgAttachments = aligned.attachments;
-    const attachmentBlocks = attachmentRefs.map((_ref, refIdx) => {
-      const att = aligned.refIndexToAttachment.get(refIdx);
-      return att ? toAttachmentBlockRef(att) : null;
-    });
-    const rendered = renderHistoryContent(
-      m.content,
-      attachmentBlocks,
-      m.id ?? undefined,
-    );
-
-    const toolCalls = enrichToolCallsWithQuestion(
-      enrichToolCallsWithConfirmation(rendered.toolCalls, {
-        workspaceDir,
-        pendingConfirmations,
-      }),
-      { pendingQuestions },
-    );
-
-    // Strip <no_response/> markers from assistant messages so web/API clients
-    // never see the raw sentinel. Only assistant messages produce it; user
-    // messages are untouched. The filter is applied consistently to the
-    // segments, the contentOrder text refs, and the text blocks of
-    // contentBlocks.
-    let textSegments = rendered.textSegments;
-    let contentOrder = rendered.contentOrder;
-    let contentBlocks = rendered.contentBlocks;
-    if (m.role === "assistant") {
-      const keepIndices: number[] = [];
-      const filteredSegments: string[] = [];
-      for (let i = 0; i < rendered.textSegments.length; i++) {
-        const cleaned = rendered.textSegments[i]
-          .replace(NO_RESPONSE_INLINE_RE, "")
-          .trim();
-        if (cleaned.length > 0) {
-          keepIndices.push(i);
-          filteredSegments.push(cleaned);
+      // Hydrate the row's attachments from the DB. A metadata-only query avoids
+      // loading large base64 blobs for non-image attachments (documents, audio);
+      // full data is fetched only for images so the client can generate
+      // thumbnails for inline display on history restore. Merged messages
+      // (consecutive assistant merge) are queried too so their attachments
+      // aren't lost before DB compaction relinks them.
+      let msgAttachments: RuntimeAttachmentMetadata[] = [];
+      if (m.id) {
+        const idsToQuery = [m.id, ...mergedMessageIds];
+        const linked = idsToQuery.flatMap((id) =>
+          getAttachmentMetadataForMessage(id),
+        );
+        if (linked.length > 0) {
+          msgAttachments = await Promise.all(
+            linked.map(async (a) => {
+              // Hydrate image rows for inline thumbnails. Legacy HEIC can be
+              // stored under application/octet-stream (empty File.type fallback),
+              // so `.heic`/`.heif` rows are hydrated by filename too;
+              // normalizeImageBase64 sniffs the bytes and rewrites only genuine
+              // HEIF, which Chromium-based clients cannot decode. Filename and
+              // sizeBytes keep describing the stored original, which
+              // /attachments/:id/content serves verbatim for downloads.
+              const isImage = a.mimeType.startsWith("image/");
+              const isLegacyHeic =
+                !isImage && isHeicFilename(a.originalFilename);
+              const full =
+                isImage || isLegacyHeic
+                  ? getAttachmentById(a.id, { hydrateFileData: true })
+                  : null;
+              const display = full?.dataBase64
+                ? await normalizeImageBase64(a.mimeType, full.dataBase64)
+                : null;
+              // Image rows carry data even when unconverted (thumbnails); a
+              // non-image row only becomes renderable once conversion yields a
+              // JPEG, so it stays metadata-only when conversion is unavailable.
+              const useDisplay =
+                display && (isImage || display.converted) ? display : null;
+              return {
+                id: a.id,
+                filename: a.originalFilename,
+                mimeType: useDisplay?.mimeType ?? a.mimeType,
+                sizeBytes: a.sizeBytes,
+                kind: useDisplay?.converted
+                  ? classifyKind(useDisplay.mimeType)
+                  : a.kind,
+                ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
+                ...(a.thumbnailBase64
+                  ? { thumbnailData: a.thumbnailBase64 }
+                  : {}),
+                fileBacked: true,
+              };
+            }),
+          );
         }
       }
-      const indexMap = new Map<number, number>();
-      keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
-      contentOrder = rendered.contentOrder
-        .map((entry) => {
-          const tm = entry.match(/^text:(\d+)$/);
-          if (!tm) {
-            return entry;
+
+      // Align the hydrated rows with the file-block refs, then render. Rendering
+      // after alignment lets renderHistoryContent inline each `attachment` block
+      // during its single content walk, so `contentBlocks` comes back ready to
+      // ship with no post-processing. The aligned reorder/rewrite keeps the
+      // legacy `attachments` array and `contentOrder` positions consistent.
+      const attachmentRefs = collectAttachmentRefs(m.content);
+      const aligned = alignAttachments(attachmentRefs, msgAttachments);
+      msgAttachments = aligned.attachments;
+      const attachmentBlocks = attachmentRefs.map((_ref, refIdx) => {
+        const att = aligned.refIndexToAttachment.get(refIdx);
+        return att ? toAttachmentBlockRef(att) : null;
+      });
+      const rendered = renderHistoryContent(
+        m.content,
+        attachmentBlocks,
+        m.id ?? undefined,
+      );
+
+      const toolCalls = enrichToolCallsWithQuestion(
+        enrichToolCallsWithConfirmation(rendered.toolCalls, {
+          workspaceDir,
+          pendingConfirmations,
+        }),
+        { pendingQuestions },
+      );
+
+      // Strip <no_response/> markers from assistant messages so web/API clients
+      // never see the raw sentinel. Only assistant messages produce it; user
+      // messages are untouched. The filter is applied consistently to the
+      // segments, the contentOrder text refs, and the text blocks of
+      // contentBlocks.
+      let textSegments = rendered.textSegments;
+      let contentOrder = rendered.contentOrder;
+      let contentBlocks = rendered.contentBlocks;
+      if (m.role === "assistant") {
+        const keepIndices: number[] = [];
+        const filteredSegments: string[] = [];
+        for (let i = 0; i < rendered.textSegments.length; i++) {
+          const cleaned = rendered.textSegments[i]
+            .replace(NO_RESPONSE_INLINE_RE, "")
+            .trim();
+          if (cleaned.length > 0) {
+            keepIndices.push(i);
+            filteredSegments.push(cleaned);
           }
-          const newIdx = indexMap.get(Number(tm[1]));
-          return newIdx !== undefined ? `text:${newIdx}` : undefined;
-        })
-        .filter((e): e is string => e !== undefined);
-      textSegments = filteredSegments;
-      contentBlocks = rendered.contentBlocks
-        .map((block) =>
-          block.type === "text"
-            ? {
-                type: "text" as const,
-                text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
-              }
-            : block,
-        )
-        .filter((block) => block.type !== "text" || block.text.length > 0);
-    }
-
-    // Ensure every hydrated attachment has a corresponding content block.
-    // renderHistoryContent inlines attachment blocks only when it has
-    // file-block refs with matching DB rows; directives (assistant-authored
-    // <vellum-attachment/> tags) don't leave a file block after stripping,
-    // so their attachments end up in the flat `attachments` array but not in
-    // `contentBlocks`. Append any that are missing so the canonical
-    // projection is complete.
-    const existingAttachmentIds = new Set(
-      contentBlocks
-        .filter(
-          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
-            b.type === "attachment",
-        )
-        .map((b) => b.attachment.id),
-    );
-    for (const att of msgAttachments) {
-      if (!existingAttachmentIds.has(att.id)) {
-        contentBlocks.push({
-          type: "attachment",
-          attachment: toAttachmentBlockRef(att),
-        });
+        }
+        const indexMap = new Map<number, number>();
+        keepIndices.forEach((oldIdx, newIdx) => indexMap.set(oldIdx, newIdx));
+        contentOrder = rendered.contentOrder
+          .map((entry) => {
+            const tm = entry.match(/^text:(\d+)$/);
+            if (!tm) {
+              return entry;
+            }
+            const newIdx = indexMap.get(Number(tm[1]));
+            return newIdx !== undefined ? `text:${newIdx}` : undefined;
+          })
+          .filter((e): e is string => e !== undefined);
+        textSegments = filteredSegments;
+        contentBlocks = rendered.contentBlocks
+          .map((block) =>
+            block.type === "text"
+              ? {
+                  type: "text" as const,
+                  text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+                }
+              : block,
+          )
+          .filter((block) => block.type !== "text" || block.text.length > 0);
       }
-    }
 
-    const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+      // Ensure every hydrated attachment has a corresponding content block.
+      // renderHistoryContent inlines attachment blocks only when it has
+      // file-block refs with matching DB rows; directives (assistant-authored
+      // <vellum-attachment/> tags) don't leave a file block after stripping,
+      // so their attachments end up in the flat `attachments` array but not in
+      // `contentBlocks`. Append any that are missing so the canonical
+      // projection is complete.
+      const existingAttachmentIds = new Set(
+        contentBlocks
+          .filter(
+            (
+              b,
+            ): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
+              b.type === "attachment",
+          )
+          .map((b) => b.attachment.id),
+      );
+      for (const att of msgAttachments) {
+        if (!existingAttachmentIds.has(att.id)) {
+          contentBlocks.push({
+            type: "attachment",
+            attachment: toAttachmentBlockRef(att),
+          });
+        }
+      }
 
-    // Use sentAt (actual event time) for the display timestamp when available,
-    // falling back to createdAt (persistence time). Clients use this display
-    // timestamp as their pagination cursor after memory-pressure trimming,
-    // while server-side pagination filters on createdAt. The mismatch is
-    // benign — it may return slightly extra data on a page boundary but never
-    // loses messages.
-    const displayTimestamp = m.sentAt ?? m.createdAt;
-    return {
-      id: m.id ?? "",
-      ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
-      ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
-      role: m.role,
-      timestamp: new Date(displayTimestamp).toISOString(),
-      attachments: msgAttachments,
-      ...(toolCalls.length > 0 ? { toolCalls } : {}),
-      ...(rendered.surfaces.length > 0 ? { surfaces: rendered.surfaces } : {}),
-      ...(textSegments.length > 0 ? { textSegments } : {}),
-      ...(rendered.thinkingSegments.length > 0
-        ? { thinkingSegments: rendered.thinkingSegments }
-        : {}),
-      ...(alignedContentOrder.length > 0
-        ? { contentOrder: alignedContentOrder }
-        : {}),
-      contentBlocks,
-      ...(m.subagentNotification
-        ? { subagentNotification: m.subagentNotification }
-        : {}),
-      ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
-      ...(m.backgroundEventNotification
-        ? { backgroundEventNotification: true }
-        : {}),
-      ...(m.backgroundToolCompletion
-        ? { backgroundToolCompletion: m.backgroundToolCompletion }
-        : {}),
-      ...(m.systemCard ? { systemCard: true } : {}),
-      ...(m.providerError ? { providerError: m.providerError } : {}),
-      ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
-    };
-  });
+      const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
+
+      // Use sentAt (actual event time) for the display timestamp when available,
+      // falling back to createdAt (persistence time). Clients use this display
+      // timestamp as their pagination cursor after memory-pressure trimming,
+      // while server-side pagination filters on createdAt. The mismatch is
+      // benign: it may return slightly extra data on a page boundary but never
+      // loses messages.
+      const displayTimestamp = m.sentAt ?? m.createdAt;
+      return {
+        id: m.id ?? "",
+        ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
+        ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
+        role: m.role,
+        timestamp: new Date(displayTimestamp).toISOString(),
+        attachments: msgAttachments,
+        ...(toolCalls.length > 0 ? { toolCalls } : {}),
+        ...(rendered.surfaces.length > 0
+          ? { surfaces: rendered.surfaces }
+          : {}),
+        ...(textSegments.length > 0 ? { textSegments } : {}),
+        ...(rendered.thinkingSegments.length > 0
+          ? { thinkingSegments: rendered.thinkingSegments }
+          : {}),
+        ...(alignedContentOrder.length > 0
+          ? { contentOrder: alignedContentOrder }
+          : {}),
+        contentBlocks,
+        ...(m.subagentNotification
+          ? { subagentNotification: m.subagentNotification }
+          : {}),
+        ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
+        ...(m.backgroundEventNotification
+          ? { backgroundEventNotification: true }
+          : {}),
+        ...(m.backgroundToolCompletion
+          ? { backgroundToolCompletion: m.backgroundToolCompletion }
+          : {}),
+        ...(m.systemCard ? { systemCard: true } : {}),
+        ...(m.providerError ? { providerError: m.providerError } : {}),
+        ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
+      };
+    }),
+  );
 
   // Snapshot↔stream alignment token: the `seq` of the last event whose
   // content is durably persisted for this conversation, read from the

@@ -469,11 +469,19 @@ describe("detail bag", () => {
       route: expect.any(String),
       surface: expect.any(String),
       os: expect.any(String),
-      nav_type: expect.any(String),
       lcp_supported: expect.any(Boolean),
       cls_supported: expect.any(Boolean),
+      unit: "ms",
     });
     expect(typeof detail.boot_id).toBe("string");
+
+    // An unavailable value is `null`, never a `"unknown"` string sentinel:
+    // `client-perf.ts` documents that convention for the shared `client_*`
+    // families, and a sentinel forces a cast before any aggregation.
+    expect(
+      detail.nav_type === null || typeof detail.nav_type === "string",
+    ).toBe(true);
+    expect(detail.nav_type).not.toBe("unknown");
 
     // Ingest silently drops a single event whose `detail` exceeds this when
     // serialized (WatchdogTelemetryEventSerializer.DETAIL_MAX_JSON_BYTES).

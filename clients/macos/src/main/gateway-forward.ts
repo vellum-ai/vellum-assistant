@@ -1,7 +1,13 @@
-import { resolveGatewayProxyTarget } from "@vellumai/local-mode";
+import {
+  resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
+  sanitizePairedForwardHeaders,
+} from "@vellumai/local-mode";
 
 /**
- * Pure planning for the gateway data-plane proxy (`/assistant/__gateway/{port}/*`).
+ * Pure planning for the gateway data-plane proxies: the loopback
+ * `/assistant/__gateway/{port}/*` forward and the paired-remote
+ * `/assistant/__gateway-paired/{assistantId}/*` forward.
  *
  * Lives in its own file — like `app-protocol.ts` — so the URL/header logic is
  * testable without importing `src/main/index.ts` (which evaluates the full
@@ -73,6 +79,62 @@ export function planGatewayForward(
       return {
         kind: "forward",
         url: `http://127.0.0.1:${port}${targetPath}`,
+        method: request.method,
+        headers,
+        hasBody: request.method !== "GET" && request.method !== "HEAD",
+      };
+    }
+  }
+}
+
+/**
+ * Resolve a renderer request to a paired-gateway proxy plan
+ * (`/assistant/__gateway-paired/{assistantId}/*`), reusing the shared
+ * lockfile-pairing decision so the security boundary is defined once for every
+ * host: only assistants the user actually imported are reachable.
+ *
+ * On `forward`, the browser-ambient headers (`Origin`, `Referer`, `Cookie`,
+ * `Sec-Fetch-*`) are stripped via the shared `sanitizePairedForwardHeaders`:
+ * this is a server-to-server hop to a remote gateway, so nothing about the
+ * renderer's `app://` context may leak into it. The guardian `Authorization`
+ * bearer passes through unchanged; the remote gateway validates it by
+ * signature and audience.
+ *
+ * Unlike `planPlatformForward`, this plan deliberately carries no
+ * initiator-trust gate on unsafe methods. The platform hop attaches ambient
+ * credentials on the far side (session cookie / token headers), so a mutation
+ * must prove it came from the renderer, and the renderer's API interceptor
+ * stamps `X-Vellum-Electron-Renderer-Origin` on platform-bound mutations to
+ * make that provable. Paired-bound requests carry no such stamp (the
+ * interceptor rewrites them to the self-hosted ingress before the
+ * platform-header step), and after sanitization this hop carries no ambient
+ * credential at all: the lockfile allowlists the target, and the only
+ * credential is the explicit `Authorization` bearer, which a cross-site
+ * initiator cannot attach. An initiator gate here would add no protection
+ * while rejecting legitimate paired mutations, which present neither the
+ * stamp nor a usable `Origin` on the `app://` scheme.
+ */
+export function planPairedGatewayForward(
+  request: GatewayForwardRequest,
+  getTargets: () => Map<string, string>,
+): GatewayForwardPlan {
+  const url = new URL(request.url);
+  const decision = resolvePairedGatewayProxyTarget(
+    url.pathname + url.search,
+    getTargets,
+  );
+
+  switch (decision.kind) {
+    case "pass":
+      return { kind: "pass" };
+    case "reject":
+      return decision;
+    case "forward": {
+      const headers = new Headers(request.headers);
+      sanitizePairedForwardHeaders(headers);
+      return {
+        kind: "forward",
+        url: decision.url,
         method: request.method,
         headers,
         hasBody: request.method !== "GET" && request.method !== "HEAD",

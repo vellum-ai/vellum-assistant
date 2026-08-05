@@ -49,7 +49,9 @@ export async function executeSubagentMessage(
     };
   }
 
-  const result = await manager.sendMessage(subagentId, content);
+  const result = await manager.sendMessage(subagentId, content, {
+    cronRunId: context.cronRunId ?? null,
+  });
 
   if (result === "empty") {
     return {

@@ -1,13 +1,24 @@
 import { Smartphone } from "lucide-react";
 
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
+import {
+  getNativeAppName,
+  type NativeAppPlatform,
+} from "@/hooks/use-native-app-nudge";
 
-interface IOSAppBannerProps {
+interface NativeAppBannerProps {
+  platform: NativeAppPlatform;
   onDownload: () => void;
   onDismiss: () => void;
 }
 
-export function IOSAppBanner({ onDownload, onDismiss }: IOSAppBannerProps) {
+export function NativeAppBanner({
+  platform,
+  onDownload,
+  onDismiss,
+}: NativeAppBannerProps) {
+  const appName = getNativeAppName(platform);
+
   return (
     <NudgeChatBanner
       icon={
@@ -17,11 +28,11 @@ export function IOSAppBanner({ onDownload, onDismiss }: IOSAppBannerProps) {
           aria-hidden
         />
       }
-      title="Get the iOS app"
+      title={`Get the ${appName} app`}
       subtitle="Push notifications · biometric login · haptics"
       ctaLabel="Download"
-      ctaAriaLabel="Download iOS app"
-      ariaLabel="Download the iOS app"
+      ctaAriaLabel={`Download ${appName} app`}
+      ariaLabel={`Download the ${appName} app`}
       onAction={onDownload}
       onDismiss={onDismiss}
     />

@@ -128,7 +128,11 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
       skipIndexing: true,
     });
 
-    const att = uploadAttachment("screenshot.png", "image/png", "iVBORw0K");
+    const att = await uploadAttachment(
+      "screenshot.png",
+      "image/png",
+      "iVBORw0K",
+    );
     linkAttachmentToMessage(msg.id, att.id, 0);
 
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);

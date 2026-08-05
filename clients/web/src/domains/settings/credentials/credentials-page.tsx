@@ -14,6 +14,7 @@ import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { Button } from "@vellumai/design-library/components/button";
@@ -106,9 +107,14 @@ function CredentialsPageInner() {
     () => listQuery.data?.credentials ?? [],
     [listQuery.data],
   );
+  // Managed credentials are provisioned by Vellum and can only be read here, so
+  // the list and the managed/personal split are developer-mode surfaces.
+  // Standard users see just the credentials they can act on.
+  const isDeveloperMode =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const managedCredentials = useMemo(
-    () => listQuery.data?.managedCredentials ?? [],
-    [listQuery.data],
+    () => (isDeveloperMode ? (listQuery.data?.managedCredentials ?? []) : []),
+    [isDeveloperMode, listQuery.data],
   );
 
   const deleteMutation = useCredentialsDeletePostMutation({

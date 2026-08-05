@@ -1,4 +1,11 @@
-import { Check, Cloud, EllipsisVertical, Laptop, Plus } from "lucide-react";
+import {
+  Check,
+  Cloud,
+  EllipsisVertical,
+  Laptop,
+  Link2,
+  Plus,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -10,6 +17,7 @@ import {
 } from "@/lib/auth/gateway-session";
 import {
   isCliWakeableAssistant,
+  removePairedAssistantFromLockfile,
   removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
@@ -39,11 +47,29 @@ function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
     return a.name;
   }
+  if (a.isPaired) {
+    return "Paired Assistant";
+  }
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
+function pairedHostingLabel(runtimeUrl: string | undefined): string {
+  if (runtimeUrl) {
+    try {
+      return `Paired · ${new URL(runtimeUrl).hostname}`;
+    } catch {
+      // Unparseable runtimeUrl: fall through to the plain label.
+    }
+  }
+  return "Paired";
+}
+
 function assistantSubtitle(a: ResolvedAssistant): string {
-  const hosting = a.isLocal ? "On this computer" : "Cloud-hosted";
+  const hosting = a.isPaired
+    ? pairedHostingLabel(a.runtimeUrl)
+    : a.isLocal
+      ? "On this computer"
+      : "Cloud-hosted";
   if (!a.hatchedAt) {
     return hosting;
   }
@@ -68,7 +94,7 @@ export function SelectAssistantScreen() {
   } = useOnboardingLogin();
 
   const isAccessible = (a: ResolvedAssistant): boolean =>
-    a.isLocal || hasPlatformSession;
+    a.isLocal || a.isPaired || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
@@ -76,6 +102,9 @@ export function SelectAssistantScreen() {
   // lockfile) only where a local-mode host can rewrite the lockfile.
   const canRemoveLockedAssistants =
     !hasPlatformSession && isLocalModeHostAvailable();
+  // A pairing is device-local regardless of platform session, so unpairing
+  // needs only the host, not a logged-out state.
+  const canRemovePairedAssistants = isLocalModeHostAvailable();
 
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -124,7 +153,9 @@ export function SelectAssistantScreen() {
     setConnecting(true);
     setError(null);
     try {
-      if (assistant.isLocal) {
+      if (assistant.isPaired) {
+        await useAuthStore.getState().connectPairedAssistant(assistant.id);
+      } else if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
@@ -148,6 +179,12 @@ export function SelectAssistantScreen() {
         isCliWakeableAssistant(assistant.id)
       ) {
         setRecoveryAssistant(assistant);
+      } else if (assistant.isPaired && requiresGuardianReprovision(err)) {
+        // The host's own guardian-token message says to re-run hatch/wake,
+        // which cannot fix a remote pairing; surface re-pair guidance instead.
+        setError(
+          "This pairing has expired. Run vellum pair on the assistant's machine and import it again with vellum connect import.",
+        );
       } else {
         setError("Failed to connect. Please try again.");
       }
@@ -235,8 +272,18 @@ export function SelectAssistantScreen() {
     setRemovePending(true);
     setRemoveError(null);
     try {
-      const result = await removePlatformAssistantFromLockfile(removeTarget.id);
+      const result = removeTarget.isPaired
+        ? await removePairedAssistantFromLockfile(removeTarget.id)
+        : await removePlatformAssistantFromLockfile(removeTarget.id);
       if (result.ok) {
+        // The lockfile subscription reconciles the list and the selection,
+        // but not the lifecycle's active id: without this, navigating back
+        // to /assistant could admit the removed assistant with no
+        // connection behind it.
+        const resolvedStore = useResolvedAssistantsStore.getState();
+        if (resolvedStore.activeAssistantId === removeTarget.id) {
+          resolvedStore.setActiveAssistantId(null);
+        }
         removedThisVisitRef.current = true;
         setRemoveTarget(null);
       } else {
@@ -358,7 +405,8 @@ export function SelectAssistantScreen() {
                     : undefined
                 }
                 onRemove={
-                  assistant.isPlatformHosted && canRemoveLockedAssistants
+                  (assistant.isPlatformHosted && canRemoveLockedAssistants) ||
+                  (assistant.isPaired && canRemovePairedAssistants)
                     ? () => setRemoveTarget(assistant)
                     : undefined
                 }
@@ -441,10 +489,20 @@ export function SelectAssistantScreen() {
         title="Remove from this device?"
         message={
           <>
-            This won&rsquo;t delete{" "}
-            {removeTarget ? assistantLabel(removeTarget) : "the assistant"}.
-            It only removes it from this device. Logging in will make it
-            available again.
+            {removeTarget?.isPaired ? (
+              <>
+                This won&rsquo;t affect {assistantLabel(removeTarget)} on its
+                host machine. It only forgets the pairing on this device. Pair
+                again anytime with vellum connect import.
+              </>
+            ) : (
+              <>
+                This won&rsquo;t delete{" "}
+                {removeTarget ? assistantLabel(removeTarget) : "the assistant"}.
+                It only removes it from this device. Logging in will make it
+                available again.
+              </>
+            )}
             {removeError && (
               <span className="mt-2 block text-[var(--system-negative-strong)]">
                 {removeError}
@@ -493,6 +551,28 @@ function AssistantCard({
   // the picker reads at the same density as the native windows.
   const electron = isElectron();
 
+  const removeMenu = onRemove && (
+    <Menu.Root>
+      <Menu.Trigger asChild>
+        <Button
+          variant="ghost"
+          size="regular"
+          className="text-[var(--content-tertiary)]"
+          iconOnly={<EllipsisVertical />}
+          aria-label={`Actions for ${assistantLabel(assistant)}`}
+        />
+      </Menu.Trigger>
+      <Menu.Content align="end" sideOffset={4}>
+        <Menu.Item
+          onSelect={onRemove}
+          className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+        >
+          Remove from this device…
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
+  );
+
   return (
     <div
       role={locked ? undefined : "radio"}
@@ -534,7 +614,9 @@ function AssistantCard({
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
         ].join(" ")}
       >
-        {assistant.isLocal ? (
+        {assistant.isPaired ? (
+          <Link2 className="h-5 w-5" />
+        ) : assistant.isLocal ? (
           <Laptop className="h-5 w-5" />
         ) : (
           <Cloud className="h-5 w-5" />
@@ -564,43 +646,36 @@ function AssistantCard({
               {loginLabel}
             </Button>
           )}
-          {onRemove && (
-            <Menu.Root>
-              <Menu.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  size="regular"
-                  className="text-[var(--content-tertiary)]"
-                  iconOnly={<EllipsisVertical />}
-                  aria-label={`Actions for ${assistantLabel(assistant)}`}
-                />
-              </Menu.Trigger>
-              <Menu.Content align="end" sideOffset={4}>
-                <Menu.Item
-                  onSelect={onRemove}
-                  className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
-                >
-                  Remove from this device…
-                </Menu.Item>
-              </Menu.Content>
-            </Menu.Root>
-          )}
+          {removeMenu}
         </div>
       ) : (
-        <div
-          className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
-            selected
-              ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
-              : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
-          ].join(" ")}
-        >
-          {selected && (
-            <Check
-              className="h-3 w-3 text-[var(--surface-base)]"
-              strokeWidth={3}
-            />
+        <div className="flex shrink-0 items-center gap-2">
+          {removeMenu && (
+            /* The trigger sits inside the radio card: stop clicks and keys
+               from bubbling so opening the menu never selects the card and
+               the radio's Enter/Space handler never swallows the trigger. */
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              {removeMenu}
+            </div>
           )}
+          <div
+            className={[
+              "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
+              selected
+                ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
+                : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
+            ].join(" ")}
+          >
+            {selected && (
+              <Check
+                className="h-3 w-3 text-[var(--surface-base)]"
+                strokeWidth={3}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>

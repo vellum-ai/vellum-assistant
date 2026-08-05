@@ -43,6 +43,18 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Auth a connection to `provider` uses. Ollama serves a local endpoint with no
+ * credential; every other catalog provider authenticates by API key. The
+ * ChatGPT subscription pseudo-provider (`oauth_subscription`) is a picker-level
+ * identity, not a `ConnectionProvider`, and is handled by its own OAuth flow.
+ */
+export function connectionAuthTypeForProvider(
+  provider: ConnectionProvider,
+): AuthType {
+  return provider === "ollama" ? "none" : "api_key";
+}
+
 export function parseCredentialRef(
   credRef: string,
 ): { service: string; field: string } | null {

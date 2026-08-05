@@ -134,10 +134,10 @@ function advanceGlobalSeq(count: number): void {
   }
 }
 
-function callList(query: Record<string, string>): ListResponse {
-  return handleListMessages({
+async function callList(query: Record<string, string>): Promise<ListResponse> {
+  return (await handleListMessages({
     queryParams: query,
-  }) as unknown as ListResponse;
+  })) as unknown as ListResponse;
 }
 
 describe("handleListMessages page=latest", () => {
@@ -148,7 +148,7 @@ describe("handleListMessages page=latest", () => {
   });
 
   describe("persisted seq", () => {
-    test("getMaxPersistedConversationSeq reports the highest anchor across conversations", () => {
+    test("getMaxPersistedConversationSeq reports the highest anchor across conversations", async () => {
       /**
        * The startup seq floor resumes issuance above this value, so it
        * must reflect the highest anchor any conversation has served.
@@ -161,7 +161,7 @@ describe("handleListMessages page=latest", () => {
       expect(getMaxPersistedConversationSeq()).toBe(907779);
     });
 
-    test("returns the recorded persisted seq for the conversation", () => {
+    test("returns the recorded persisted seq for the conversation", async () => {
       /**
        * The snapshot must advertise the `seq` of the last durably-persisted
        * event so a client can align it with the `/events` stream.
@@ -174,13 +174,13 @@ describe("handleListMessages page=latest", () => {
       recordConversationPersistedSeq(conv.id, 42);
 
       // WHEN the snapshot is fetched
-      const body = callList({ conversationId: conv.id, page: "latest" });
+      const body = await callList({ conversationId: conv.id, page: "latest" });
 
       // THEN the response carries that seq
       expect(body.seq).toBe(42);
     });
 
-    test("returns null seq when nothing has been persisted in-process", () => {
+    test("returns null seq when nothing has been persisted in-process", async () => {
       /**
        * A cold conversation (or one aged out / post-restart) reports no seq,
        * signalling the client to cold-start rather than align to a stale
@@ -192,13 +192,13 @@ describe("handleListMessages page=latest", () => {
       seedMessages(conv.id, 2);
 
       // WHEN the snapshot is fetched
-      const body = callList({ conversationId: conv.id, page: "latest" });
+      const body = await callList({ conversationId: conv.id, page: "latest" });
 
       // THEN seq is null
       expect(body.seq).toBeNull();
     });
 
-    test("the no-pagination path also returns the persisted seq", () => {
+    test("the no-pagination path also returns the persisted seq", async () => {
       /** `seq` is present on every resolved-conversation response shape. */
 
       // GIVEN a conversation with a recorded persisted seq
@@ -207,13 +207,13 @@ describe("handleListMessages page=latest", () => {
       recordConversationPersistedSeq(conv.id, 7);
 
       // WHEN fetched with no pagination params
-      const body = callList({ conversationId: conv.id });
+      const body = await callList({ conversationId: conv.id });
 
       // THEN the seq still rides along
       expect(body.seq).toBe(7);
     });
 
-    test("recording advances the seq monotonically and never regresses", () => {
+    test("recording advances the seq monotonically and never regresses", async () => {
       /**
        * Out-of-order async commits must not lower the high-water mark — the
        * `WHERE seq < ?` guard on the persist UPDATE keeps it monotonic.
@@ -227,14 +227,14 @@ describe("handleListMessages page=latest", () => {
       recordConversationPersistedSeq(conv.id, 8);
 
       // THEN the high-water seq is unchanged
-      expect(callList({ conversationId: conv.id }).seq).toBe(12);
+      expect((await callList({ conversationId: conv.id })).seq).toBe(12);
 
       // AND a higher seq still advances it
       recordConversationPersistedSeq(conv.id, 20);
-      expect(callList({ conversationId: conv.id }).seq).toBe(20);
+      expect((await callList({ conversationId: conv.id })).seq).toBe(20);
     });
 
-    test("recording ignores non-positive and non-finite seq values", () => {
+    test("recording ignores non-positive and non-finite seq values", async () => {
       // GIVEN a freshly created conversation (no stream activity → null seed)
       const conv = createConversation();
 
@@ -245,10 +245,10 @@ describe("handleListMessages page=latest", () => {
       recordConversationPersistedSeq(conv.id, Number.POSITIVE_INFINITY);
 
       // THEN none take effect and seq stays null
-      expect(callList({ conversationId: conv.id }).seq).toBeNull();
+      expect((await callList({ conversationId: conv.id })).seq).toBeNull();
     });
 
-    test("a freshly created conversation is anchored to the current global seq", () => {
+    test("a freshly created conversation is anchored to the current global seq", async () => {
       /**
        * Conversations created after some stream activity must not report a
        * null `seq` — that would force the client to cold-start with no
@@ -262,13 +262,13 @@ describe("handleListMessages page=latest", () => {
 
       // WHEN a brand-new conversation is created and its snapshot fetched
       const conv = createConversation();
-      const body = callList({ conversationId: conv.id, page: "latest" });
+      const body = await callList({ conversationId: conv.id, page: "latest" });
 
       // THEN the snapshot is anchored to the global seq at creation time
       expect(body.seq).toBe(5);
     });
 
-    test("a conversation created before any stream activity stays null", () => {
+    test("a conversation created before any stream activity stays null", async () => {
       /**
        * With nothing stamped this process, `getCurrentSeq()` is 0 and the
        * creation seed stores NULL (non-positive seqs aren't recorded), so the
@@ -280,7 +280,7 @@ describe("handleListMessages page=latest", () => {
 
       // WHEN a conversation is created and its snapshot fetched
       const conv = createConversation();
-      const body = callList({ conversationId: conv.id, page: "latest" });
+      const body = await callList({ conversationId: conv.id, page: "latest" });
 
       // THEN seq remains null
       expect(body.seq).toBeNull();
@@ -288,7 +288,7 @@ describe("handleListMessages page=latest", () => {
   });
 
   describe("processing state", () => {
-    test("reports processing=true while the conversation is mid-turn", () => {
+    test("reports processing=true while the conversation is mid-turn", async () => {
       /**
        * The authoritative processing flag lets a client recover from a
        * dropped stream: it can ask the server whether a turn is still
@@ -301,25 +301,25 @@ describe("handleListMessages page=latest", () => {
       setConversationProcessingStartedAt(conv.id, Date.now());
 
       // WHEN the snapshot is fetched
-      const body = callList({ conversationId: conv.id, page: "latest" });
+      const body = await callList({ conversationId: conv.id, page: "latest" });
 
       // THEN it reports the conversation is processing
       expect(body.processing).toBe(true);
     });
 
-    test("reports processing=false when the conversation is idle", () => {
+    test("reports processing=false when the conversation is idle", async () => {
       // GIVEN an idle conversation (processing_started_at is null)
       const conv = createConversation();
       seedMessages(conv.id, 2);
 
       // WHEN the snapshot is fetched
-      const body = callList({ conversationId: conv.id, page: "latest" });
+      const body = await callList({ conversationId: conv.id, page: "latest" });
 
       // THEN it reports the conversation is not processing
       expect(body.processing).toBe(false);
     });
 
-    test("the no-pagination path also reports processing state", () => {
+    test("the no-pagination path also reports processing state", async () => {
       /** `processing` is present on every resolved-conversation shape. */
 
       // GIVEN a processing conversation
@@ -328,15 +328,15 @@ describe("handleListMessages page=latest", () => {
       setConversationProcessingStartedAt(conv.id, Date.now());
 
       // WHEN fetched with no pagination params
-      const body = callList({ conversationId: conv.id });
+      const body = await callList({ conversationId: conv.id });
 
       // THEN processing rides along
       expect(body.processing).toBe(true);
     });
 
-    test("an unresolved conversationKey reports processing=false (page=latest)", () => {
+    test("an unresolved conversationKey reports processing=false (page=latest)", async () => {
       // WHEN a never-created key is fetched with the stable contract
-      const body = callList({
+      const body = await callList({
         conversationKey: "no-such-key",
         page: "latest",
       });
@@ -346,11 +346,11 @@ describe("handleListMessages page=latest", () => {
     });
   });
 
-  test("page=latest with no limit returns all messages chronologically", () => {
+  test("page=latest with no limit returns all messages chronologically", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 120);
 
-    const body = callList({ conversationId: conv.id, page: "latest" });
+    const body = await callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages).toHaveLength(120);
     expect(body.messages[0].id).toBe("msg-1");
@@ -360,11 +360,11 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBe("msg-1");
   });
 
-  test("page=latest&limit=50 with 120 seeded messages returns newest 50 chronologically", () => {
+  test("page=latest&limit=50 with 120 seeded messages returns newest 50 chronologically", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 120);
 
-    const body = callList({
+    const body = await callList({
       conversationId: conv.id,
       page: "latest",
       limit: "50",
@@ -379,11 +379,11 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBe("msg-71");
   });
 
-  test("page=latest&limit=50 with 10 seeded messages returns all 10 with hasMore=false", () => {
+  test("page=latest&limit=50 with 10 seeded messages returns all 10 with hasMore=false", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 10);
 
-    const body = callList({
+    const body = await callList({
       conversationId: conv.id,
       page: "latest",
       limit: "50",
@@ -397,20 +397,20 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBe("msg-1");
   });
 
-  test("beforeTimestamp wins when combined with page=latest", () => {
+  test("beforeTimestamp wins when combined with page=latest", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 120);
 
     // beforeTimestamp=100 + limit=50 should return msgs 50..99 (the 50 messages
     // immediately older than ts=100), regardless of the page=latest signal.
-    const combinedBody = callList({
+    const combinedBody = await callList({
       conversationId: conv.id,
       page: "latest",
       limit: "50",
       beforeTimestamp: "100",
     });
 
-    const beforeOnlyBody = callList({
+    const beforeOnlyBody = await callList({
       conversationId: conv.id,
       limit: "50",
       beforeTimestamp: "100",
@@ -428,10 +428,10 @@ describe("handleListMessages page=latest", () => {
     expect(combinedBody.messages[49].id).toBe("msg-99");
   });
 
-  test("page=latest on empty conversation returns null pagination metadata", () => {
+  test("page=latest on empty conversation returns null pagination metadata", async () => {
     const conv = createConversation();
 
-    const body = callList({ conversationId: conv.id, page: "latest" });
+    const body = await callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages).toEqual([]);
     expect(body.hasMore).toBe(false);
@@ -439,7 +439,7 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBeNull();
   });
 
-  test("messages expose Slack message and thread links from slackMeta", () => {
+  test("messages expose Slack message and thread links from slackMeta", async () => {
     const conv = createConversation();
     const db = getDb();
     db.insert(messages)
@@ -464,7 +464,7 @@ describe("handleListMessages page=latest", () => {
       })
       .run();
 
-    const body = callList({ conversationId: conv.id, page: "latest" });
+    const body = await callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages[0].slackMessage).toEqual({
       channelId: "C123ABCDEF",
@@ -491,7 +491,7 @@ describe("handleListMessages page=latest", () => {
     });
   });
 
-  test("top-level Slack messages with matching threadTs use plain permalinks", () => {
+  test("top-level Slack messages with matching threadTs use plain permalinks", async () => {
     const conv = createConversation();
     const db = getDb();
     db.insert(messages)
@@ -516,7 +516,7 @@ describe("handleListMessages page=latest", () => {
       })
       .run();
 
-    const body = callList({ conversationId: conv.id, page: "latest" });
+    const body = await callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages[0].slackMessage).toEqual({
       channelId: "C123ABCDEF",
@@ -537,7 +537,7 @@ describe("handleListMessages page=latest", () => {
     });
   });
 
-  test("assistant Slack messages without stored sender use the assistant name", () => {
+  test("assistant Slack messages without stored sender use the assistant name", async () => {
     mockAssistantName = "Nova";
     const conv = createConversation();
     const db = getDb();
@@ -559,14 +559,14 @@ describe("handleListMessages page=latest", () => {
       })
       .run();
 
-    const body = callList({ conversationId: conv.id, page: "latest" });
+    const body = await callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages[0].slackMessage?.sender).toEqual({
       displayName: "Nova",
     });
   });
 
-  test("user Slack messages without stored sender do not use the assistant name", () => {
+  test("user Slack messages without stored sender do not use the assistant name", async () => {
     mockAssistantName = "Nova";
     const conv = createConversation();
     const db = getDb();
@@ -588,13 +588,13 @@ describe("handleListMessages page=latest", () => {
       })
       .run();
 
-    const body = callList({ conversationId: conv.id, page: "latest" });
+    const body = await callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages[0].slackMessage?.sender).toBeUndefined();
   });
 
-  test("page=latest on unresolved conversationKey returns null metadata contract", () => {
-    const body = callList({
+  test("page=latest on unresolved conversationKey returns null metadata contract", async () => {
+    const body = await callList({
       conversationKey: "no-such-key",
       page: "latest",
     });
@@ -605,8 +605,8 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBeNull();
   });
 
-  test("no-page GET on unresolved conversationKey keeps minimal shape", () => {
-    const body = callList({ conversationKey: "no-such-key" });
+  test("no-page GET on unresolved conversationKey keeps minimal shape", async () => {
+    const body = await callList({ conversationKey: "no-such-key" });
 
     expect(body.messages).toEqual([]);
     expect("hasMore" in body).toBe(false);
@@ -614,26 +614,26 @@ describe("handleListMessages page=latest", () => {
     expect("oldestMessageId" in body).toBe(false);
   });
 
-  test("page=invalid throws BadRequestError", () => {
+  test("page=invalid throws BadRequestError", async () => {
     const conv = createConversation();
 
-    expect(() =>
+    await expect(
       handleListMessages({
         queryParams: { conversationId: conv.id, page: "invalid" },
       }),
-    ).toThrow(BadRequestError);
-    expect(() =>
+    ).rejects.toThrow(BadRequestError);
+    await expect(
       handleListMessages({
         queryParams: { conversationId: conv.id, page: "invalid" },
       }),
-    ).toThrow("page must be 'latest' when provided");
+    ).rejects.toThrow("page must be 'latest' when provided");
   });
 
-  test("no-param GET returns full history without pagination metadata", () => {
+  test("no-param GET returns full history without pagination metadata", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 5);
 
-    const body = callList({ conversationId: conv.id });
+    const body = await callList({ conversationId: conv.id });
 
     expect(body.messages).toHaveLength(5);
     expect(body.messages[0].id).toBe("msg-1");
@@ -644,12 +644,12 @@ describe("handleListMessages page=latest", () => {
     expect("oldestMessageId" in body).toBe(false);
   });
 
-  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (no results)", () => {
+  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (no results)", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 5);
 
     // beforeTimestamp before all seeded rows => no results, metadata omitted.
-    const body = callList({
+    const body = await callList({
       conversationId: conv.id,
       limit: "10",
       beforeTimestamp: "0",
@@ -662,11 +662,11 @@ describe("handleListMessages page=latest", () => {
     expect("oldestMessageId" in body).toBe(false);
   });
 
-  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (with results)", () => {
+  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (with results)", async () => {
     const conv = createConversation();
     seedMessages(conv.id, 5);
 
-    const body = callList({
+    const body = await callList({
       conversationId: conv.id,
       limit: "10",
       beforeTimestamp: "100",

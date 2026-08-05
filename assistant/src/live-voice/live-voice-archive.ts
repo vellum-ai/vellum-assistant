@@ -468,9 +468,9 @@ function artifactFromAttachment(input: {
   };
 }
 
-export function archiveLiveVoiceAudioArtifact(
+export async function archiveLiveVoiceAudioArtifact(
   input: ArchiveLiveVoiceAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   const validated = validateInput(input);
   if ("type" in validated) {
     return validated;
@@ -529,7 +529,7 @@ export function archiveLiveVoiceAudioArtifact(
     const position = input.position ?? nextAttachmentPosition(input.messageId);
     const stored =
       input.audio.type === "base64"
-        ? attachInlineAttachmentToMessage(
+        ? await attachInlineAttachmentToMessage(
             input.messageId,
             position,
             validated.filename,
@@ -614,15 +614,15 @@ interface LinkLiveVoiceAudioArtifactInput {
   position?: number;
 }
 
-export function archiveLiveVoiceUserUtteranceAudio(
+export async function archiveLiveVoiceUserUtteranceAudio(
   input: ArchiveLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return archiveLiveVoiceAudioArtifact({ ...input, role: "user" });
 }
 
-export function archiveLiveVoiceAssistantResponseAudio(
+export async function archiveLiveVoiceAssistantResponseAudio(
   input: ArchiveLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return archiveLiveVoiceAudioArtifact({ ...input, role: "assistant" });
 }
 
@@ -630,11 +630,11 @@ function normalizeMessageId(messageId: string | null | undefined): string {
   return messageId?.trim() ?? "";
 }
 
-function linkLiveVoiceAudioToMessage(
+async function linkLiveVoiceAudioToMessage(
   input: LinkLiveVoiceRolelessAudioInput & {
     role: LiveVoiceAudioArchiveRole;
   },
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   const messageId = normalizeMessageId(input.messageId);
   if (!messageId) {
     return resultUnlinked(
@@ -651,15 +651,15 @@ function linkLiveVoiceAudioToMessage(
   });
 }
 
-export function linkLiveVoiceUserUtteranceAudioToMessage(
+export async function linkLiveVoiceUserUtteranceAudioToMessage(
   input: LinkLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return linkLiveVoiceAudioToMessage({ ...input, role: "user" });
 }
 
-export function linkLiveVoiceAssistantResponseAudioToMessage(
+export async function linkLiveVoiceAssistantResponseAudioToMessage(
   input: LinkLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return linkLiveVoiceAudioToMessage({ ...input, role: "assistant" });
 }
 

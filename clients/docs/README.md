@@ -6,15 +6,25 @@ app, so every public URL and asset lives under the `/docs` prefix.
 
 ## Development
 
+The app is self-contained: no platform environment (`vel up`, Django) is
+required. The only network dependency is the releases page, which fetches
+published release notes from the public `www.vellum.ai` API at request time
+(override with `RELEASES_API_URL`) and renders an empty list if unreachable.
+
 ```bash
-export PATH="$HOME/.bun/bin:$PATH"
-bun install            # resolves to the workspace root
-bun run dev            # http://localhost:3005/docs
+export PATH="$HOME/.bun/bin:$PATH"   # if bun isn't already on your PATH
+bun install                          # resolves to the workspace root
+bun run dev
 ```
+
+Then open <http://localhost:3005/docs>. Everything lives under the `/docs`
+prefix, so the bare root (`http://localhost:3005/`) is a 404. Before the dev
+server starts, `predev` regenerates the search index and markdown mirrors
+automatically; no manual generation step is needed.
 
 | Command | What it does |
 | --- | --- |
-| `bun run dev` | Dev server on port 3005 (predev regenerates the search index and markdown mirrors) |
+| `bun run dev` | Dev server on port 3005 |
 | `bun run build` | Production build (standalone output; prebuild runs both generators) |
 | `bun run start` | Serve the production build |
 | `bun run lint` / `bun run typecheck` / `bun run test` | The usual checks |

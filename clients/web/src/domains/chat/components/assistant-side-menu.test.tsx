@@ -89,6 +89,7 @@ function renderMenu(props: {
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
   includeTipCard?: boolean;
+  isLoadingConversations?: boolean;
 }): string {
   const includeFooterAction = props.includeFooterAction ?? true;
   const { container } = render(
@@ -97,6 +98,7 @@ function renderMenu(props: {
       collapsed: props.collapsed ?? false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
+      isLoadingConversations: props.isLoadingConversations,
       conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
       onSelectConversation: () => {},
@@ -1092,8 +1094,9 @@ describe("AssistantSideMenu · equal section treatment", () => {
   // rows (user-curated, expected to stay short). Every derived section -
   // Chats and each channel section - caps at SIDEBAR_SECTION_MAX_HEIGHT
   // and scrolls within itself, so a busy section can never push its
-  // neighbours out of reach: an uncapped Chats would scroll against the
-  // sidebar body and park the channel sections below hundreds of rows.
+  // neighbours out of reach. Regression guard: a polish pass once unbound
+  // Chats onto the sidebar body, which parked the channel sections below
+  // hundreds of rows.
   test("Chats and channel sections cap/scroll internally; Pinned doesn't", () => {
     // A real DOM render, not `parse`: `scrollParent` only takes effect once
     // the sidebar body's ref has mounted.
@@ -1370,4 +1373,55 @@ describe("AssistantSideMenu · section reordering", () => {
       }
     },
   );
+});
+
+/**
+ * The conversation list resolves only once every page of it has been fetched,
+ * so "still loading" is a state the sidebar sits in for seconds on a cold
+ * load. Its natural rendering is an empty scrollport, which is also what "this
+ * assistant has no conversations" looks like. These assert the two stay
+ * distinguishable, and that a refetch never blanks a sidebar that already has
+ * rows.
+ */
+describe("AssistantSideMenu · conversation list loading state", () => {
+  const SKELETON = 'data-slot="sidebar-conversation-skeleton"';
+
+  test("draws placeholder rows while the first load is in flight", () => {
+    const html = renderMenu({
+      conversations: [],
+      isLoadingConversations: true,
+    });
+
+    expect(html).toContain(SKELETON);
+    // The section tree is what the placeholders stand in for, so it must not
+    // render alongside them.
+    expect(html).not.toContain(">Chats<");
+  });
+
+  test("draws no placeholders once an empty list has loaded", () => {
+    // The sensitivity check on the test above: an assistant with genuinely no
+    // conversations must not sit under placeholders forever. This is the
+    // assertion that fails if the skeleton renders unconditionally.
+    const html = renderMenu({
+      conversations: [],
+      isLoadingConversations: false,
+    });
+
+    expect(html).not.toContain(SKELETON);
+  });
+
+  test("keeps live rows during a refetch instead of reverting to placeholders", () => {
+    // `isLoadingConversations` is true here, but the cache is already
+    // populated, so the rows win. Guards against a background refresh
+    // flashing the sidebar back to placeholders mid-session.
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "r1", title: "Recent thread" }),
+      ],
+      isLoadingConversations: true,
+    });
+
+    expect(html).not.toContain(SKELETON);
+    expect(html).toContain(">Recent thread<");
+  });
 });

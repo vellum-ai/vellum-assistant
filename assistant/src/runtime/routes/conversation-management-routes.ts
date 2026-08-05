@@ -63,6 +63,7 @@ import {
   resolveConversationId,
   setConversationKeyIfAbsent,
 } from "../../persistence/conversation-key-store.js";
+import type { NonScheduledConversationType } from "../../persistence/conversation-types.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
@@ -100,6 +101,12 @@ const log = getLogger("conversation-management-routes");
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Conversation types this endpoint may mint. */
+const createConversationTypeSchema = z.enum([
+  "standard",
+  "background",
+] as const satisfies readonly NonScheduledConversationType[]);
+
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) {
@@ -126,14 +133,26 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   const conversationKey =
     (body.conversationKey as string | undefined) ?? crypto.randomUUID();
   // The shared route adapter does not runtime-validate the body against the
-  // Zod requestBody (it's codegen-only), so guard the type before trimming —
-  // a malformed `{ title: 123 }` would otherwise throw on `.trim()` and 500.
+  // Zod requestBody (it's codegen-only), so guard the types here: a malformed
+  // `{ title: 123 }` would otherwise throw on `.trim()` and 500, and an
+  // unsupported conversationType would reach the store unchecked.
+  // `.nullish()`: an explicit JSON `null` is how serializers spell an absent
+  // optional, so it means the same thing as omitting the key.
+  const requestedType = createConversationTypeSchema
+    .nullish()
+    .safeParse(body.conversationType);
+  if (!requestedType.success) {
+    throw new BadRequestError(
+      `conversationType must be one of ${createConversationTypeSchema.options.join(", ")}`,
+    );
+  }
   if (body.title !== undefined && typeof body.title !== "string") {
     throw new BadRequestError("title must be a string");
   }
   const customTitle = body.title?.trim() || undefined;
+  const conversationType = requestedType.data ?? "standard";
   const result = getOrCreateConversation(conversationKey, {
-    conversationType: "standard",
+    conversationType,
   });
   if (result.created) {
     // A caller-supplied title is user-set: persist it with isAutoTitle = 0 so
@@ -151,10 +170,14 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
       headers?.["x-vellum-client-id"]?.trim() || undefined,
     );
   }
+  // On a conversationKey hit the row already exists, so the type it carries
+  // can differ from the requested one.
+  const storedType = normalizeConversationType(result.conversationType);
   log.info(
     {
       conversationId: result.conversationId,
       conversationKey,
+      conversationType: storedType,
       created: result.created,
     },
     "Created conversation via POST",
@@ -162,7 +185,7 @@ function handleCreateConversation({ body = {}, headers }: RouteHandlerArgs) {
   return {
     id: result.conversationId,
     conversationKey,
-    conversationType: normalizeConversationType(result.conversationType),
+    conversationType: storedType,
     created: result.created,
   };
 }
@@ -863,10 +886,11 @@ export const ROUTES: RouteDefinition[] = [
         .describe(
           "Optional external key. Echoed back in the response. Non-vellum channels (Telegram, WhatsApp) use this to scope to a logical channel thread; vellum-web clients can omit it and rely on the assistant-minted `id`.",
         ),
-      conversationType: z
-        .literal("standard")
+      conversationType: createConversationTypeSchema
         .optional()
-        .describe("Only standard conversations are created by this endpoint"),
+        .describe(
+          'Conversation type for the new row. "background" keeps it out of the foreground list and the sidebar\'s Recents grouping, used by internal side-channel flows (onboarding research, persona/identity rewrites) that mint a throwaway thread the user should never see. "scheduled" is not accepted here; scheduled rows are owned by the schedule pipeline.',
+        ),
       title: z
         .string()
         .optional()

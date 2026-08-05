@@ -7,8 +7,11 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   isRepairableGatewayTokenError,
+  seedGatewayToken,
   setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
+import type { LockfileAssistant } from "@/runtime/local-mode-host";
+import { useLockfileStore } from "@/stores/lockfile-store";
 
 const realFetch = globalThis.fetch;
 
@@ -22,6 +25,8 @@ afterEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
   globalThis.fetch = realFetch;
   clearGatewayToken();
+  useLockfileStore.setState({ lockfile: null, committed: false });
+  process.env.VITE_PLATFORM_MODE = "true";
 });
 
 describe("remote gateway mode", () => {
@@ -37,6 +42,57 @@ describe("remote gateway mode", () => {
     });
 
     expect(isGatewayAuthMode()).toBe(true);
+  });
+});
+
+describe("paired selection", () => {
+  function selectPaired(runtimeUrl?: string): void {
+    const paired = {
+      assistantId: "paired-a",
+      cloud: "paired",
+      ...(runtimeUrl != null && { runtimeUrl }),
+    } as LockfileAssistant;
+    useLockfileStore.setState({
+      lockfile: { assistants: [paired], activeAssistant: "paired-a" },
+    });
+  }
+
+  test("gateway auth is enabled for a paired selection with a usable runtimeUrl", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired("https://gw.example.com");
+
+    expect(isGatewayAuthEnabled()).toBe(true);
+  });
+
+  test("gateway auth stays disabled when the paired runtimeUrl is unusable", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired();
+
+    expect(isGatewayAuthEnabled()).toBe(false);
+  });
+
+  test("gateway auth stays disabled for a paired selection outside local mode", () => {
+    selectPaired("https://gw.example.com");
+
+    expect(isGatewayAuthEnabled()).toBe(false);
+  });
+
+  test("a seeded token turns gateway auth mode on without any fetch", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired("https://gw.example.com");
+    const fetchSpy = mock(async () => {
+      throw new Error("unexpected fetch");
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    seedGatewayToken({
+      token: "guardian-tok",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "https://gw.example.com/auth/token",
+    });
+
+    expect(isGatewayAuthMode()).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

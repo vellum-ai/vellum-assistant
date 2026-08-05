@@ -736,9 +736,9 @@ describe("live-voice audio archiving default (JARVIS-1283)", () => {
 
   test("liveVoice.archiveAudio=true wires the default archiver through the factory", async () => {
     // The real linkers write to the DB; these are role-less inputs, so stub
-    // them (synchronously — the linkers are sync) with a valid archived result
-    // per role. The point under test is the config→default-archiver wiring, not
-    // the DB write, which the injected-archiver tests above already cover.
+    // them with a valid archived result per role. The point under test is the
+    // config→default-archiver wiring, not the DB write, which the
+    // injected-archiver tests above already cover.
     const audioInput = {
       sessionId: "session-123",
       turnId: "live-turn-1",
@@ -751,11 +751,13 @@ describe("live-voice audio archiving default (JARVIS-1283)", () => {
     const userSpy = spyOn(
       liveVoiceArchive,
       "linkLiveVoiceUserUtteranceAudioToMessage",
-    ).mockReturnValue(makeArchiveResult({ ...audioInput, role: "user" }));
+    ).mockResolvedValue(makeArchiveResult({ ...audioInput, role: "user" }));
     const assistantSpy = spyOn(
       liveVoiceArchive,
       "linkLiveVoiceAssistantResponseAudioToMessage",
-    ).mockReturnValue(makeArchiveResult({ ...audioInput, role: "assistant" }));
+    ).mockResolvedValue(
+      makeArchiveResult({ ...audioInput, role: "assistant" }),
+    );
     const originalRaw = loadRawConfig();
     saveRawConfig({ ...originalRaw, liveVoice: { archiveAudio: true } });
 

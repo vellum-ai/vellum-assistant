@@ -42,6 +42,9 @@ export function LiveVoiceButton({
       // fill) — rather than a low-emphasis ghost that reads as secondary.
       variant="primary"
       iconOnly={<AudioLines strokeWidth={2} />}
+      // Anchor for the in-chat tour's closing beat, which lands the assistant's
+      // avatar on this control.
+      data-tour-id="voice-mode"
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
         onStart({

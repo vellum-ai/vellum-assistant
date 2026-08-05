@@ -114,6 +114,26 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    * parent conversation.
    */
   parent_turn_index: number | null;
+  /**
+   * Role the subagent that owns this event's conversation was spawned with
+   * (`researcher`, `builder`, `advisor`; a spawn that named no role records
+   * the default, `builder`). An open string set: older rows carry role names
+   * nothing emits any more.
+   * The advisor is a ROLE, not an `LLMCallSiteEnum` value, so this is the only
+   * thing that tells an advisor consult apart from a regular subagent, since both
+   * emit under `llm_call_site = "subagentSpawn"`. Null when the LLM call did
+   * not run inside a subagent conversation.
+   */
+  subagent_role: string | null;
+  /**
+   * How that subagent was spawned, one of the modes described on
+   * `SubagentSpawnMode` in `subagent/types.ts`, carried here as an open string
+   * set. Orthogonal to `subagent_role`: the role selects the child's
+   * capabilities, the spawn mode selects its context inheritance and lifecycle
+   * (a fork's inherited transcript dominates its input tokens regardless of
+   * role). Null under the same condition as `subagent_role`.
+   */
+  subagent_spawn_mode: string | null;
   provider: string;
   model: string;
   input_tokens: number;

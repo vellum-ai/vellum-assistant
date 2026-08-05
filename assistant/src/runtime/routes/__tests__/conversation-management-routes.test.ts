@@ -111,6 +111,7 @@ describe("POST /v1/conversations (createConversation)", () => {
       .select({
         title: conversations.title,
         isAutoTitle: conversations.isAutoTitle,
+        conversationType: conversations.conversationType,
       })
       .from(conversations)
       .where(eq(conversations.id, id))
@@ -160,6 +161,51 @@ describe("POST /v1/conversations (createConversation)", () => {
     ).toThrow(/title must be a string/);
     expect(getDb().select().from(conversations).all()).toHaveLength(0);
   });
+
+  test("conversationType: background → persists a background row and echoes it back", async () => {
+    const result = (await createHandler({
+      body: {
+        conversationType: "background",
+        title: "Updating personality",
+      },
+    })) as { id: string; conversationType: string; created: boolean };
+
+    expect(result.created).toBe(true);
+    expect(result.conversationType).toBe("background");
+    const row = readConversation(result.id);
+    expect(row?.conversationType).toBe("background");
+    // An explicit title stays user-set on a background row too.
+    expect(row?.title).toBe("Updating personality");
+    expect(row?.isAutoTitle).toBe(0);
+  });
+
+  test("omitted conversationType still creates a standard row", async () => {
+    const result = (await createHandler({
+      body: { title: "Visible thread" },
+    })) as { id: string; conversationType: string };
+
+    expect(result.conversationType).toBe("standard");
+    expect(readConversation(result.id)?.conversationType).toBe("standard");
+  });
+
+  test("explicit conversationType: null behaves exactly like an omitted one", async () => {
+    const result = (await createHandler({
+      body: { conversationType: null, title: "Visible thread" },
+    })) as { id: string; conversationType: string };
+
+    expect(result.conversationType).toBe("standard");
+    expect(readConversation(result.id)?.conversationType).toBe("standard");
+  });
+
+  test.each(["scheduled", "nonsense"])(
+    "conversationType: %p → BadRequestError, no row created",
+    (conversationType) => {
+      expect(() => createHandler({ body: { conversationType } })).toThrow(
+        /conversationType must be one of standard, background/,
+      );
+      expect(getDb().select().from(conversations).all()).toHaveLength(0);
+    },
+  );
 });
 
 describe("PUT /v1/conversations/:id/inference-profile", () => {

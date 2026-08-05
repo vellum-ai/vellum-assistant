@@ -20,6 +20,31 @@ describe("buildAdvisorSystem", () => {
     expect(prompt).not.toContain("<agent_system_prompt>");
   });
 
+  test("tells the advisor it has read-only tools for verifying decisive facts", () => {
+    const prompt = buildAdvisorSystem(null);
+    expect(prompt).toContain("read-only tools");
+    expect(prompt).toContain("read files");
+    expect(prompt).toContain("verification, not exploration");
+    expect(prompt).toContain("You cannot change anything");
+  });
+
+  test("does not offer the advisor a memory or conversation search", () => {
+    // The advisor's read tools stop at the workspace. Naming `recall` here
+    // would advertise a search the role allowlist does not grant, and would
+    // contradict the scope the consult framing promises the user.
+    const prompt = buildAdvisorSystem(null);
+    expect(prompt).not.toContain("recall");
+    expect(prompt).toContain("you cannot see other conversations");
+  });
+
+  test("does not claim the advisor is tool-less", () => {
+    // The advisor can open a file to check a fact; a prompt that says otherwise
+    // suppresses the read it was given tools for.
+    const prompt = buildAdvisorSystem(null);
+    expect(prompt).not.toContain("You have no tools");
+    expect(prompt).not.toContain("cannot search, read files, or run commands");
+  });
+
   test("keeps the situational context pack out of the system prompt", () => {
     // System Prompt Minimalism: the pack rides in the request turn instead.
     expect(buildAdvisorSystem("parent")).not.toContain("<agent_environment>");

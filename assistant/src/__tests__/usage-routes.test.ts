@@ -9,6 +9,7 @@ import {
 } from "../persistence/llm-usage-store.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";
+import { getScheduleUsageSummaries } from "../schedule/schedule-usage-store.js";
 
 await initializeDb();
 
@@ -286,6 +287,26 @@ describe("usage routes", () => {
       expect(total).toBeCloseTo(0.04);
     });
 
+    test("includes delegated usage stamped with the run id from another conversation", () => {
+      // A subagent spawned by the scheduled turn runs as its own child
+      // conversation, so its usage rows carry the firing's stamp but a
+      // conversation_id the run record never names.
+      recordCostAt("conv-parent", "delegating-turn", 10_500, 0.1, "run-sub-1");
+      recordCostAt("conv-child", "subagent-turn", 10_600, 0.25, "run-sub-1");
+      // Unstamped usage from the child conversation belongs to nobody: the
+      // window fallback only matches the run's own conversation.
+      recordCostAt("conv-child", "unrelated-child-turn", 10_700, 0.9);
+
+      const total = getUsageCostForRun({
+        cronRunId: "run-sub-1",
+        conversationId: "conv-parent",
+        from: 10_000,
+        to: 11_000,
+      });
+
+      expect(total).toBeCloseTo(0.35);
+    });
+
     test("excludes rows stamped for a different run that overlap this run's window", () => {
       // A different firing's stamped row shares the conversation + window; it
       // must not count here — only the unstamped legacy row does.
@@ -300,6 +321,47 @@ describe("usage routes", () => {
       });
 
       expect(total).toBeCloseTo(0.04);
+    });
+  });
+
+  describe("getScheduleUsageSummaries", () => {
+    test("attributes delegated usage from another conversation to the schedule", () => {
+      insertScheduleJob("schedule-delegating", "Nightly research");
+      insertScheduleRun({
+        id: "run-delegating-1",
+        scheduleId: "schedule-delegating",
+        conversationId: "conv-parent",
+        startedAt: 10_000,
+        finishedAt: 11_000,
+      });
+
+      recordCostAt(
+        "conv-parent",
+        "delegating-turn",
+        10_500,
+        0.1,
+        "run-delegating-1",
+      );
+      // The subagent's own conversation, stamped with the firing that spawned
+      // it: without the stamp this spend is invisible to the schedule.
+      recordCostAt(
+        "conv-child",
+        "subagent-turn",
+        10_600,
+        0.25,
+        "run-delegating-1",
+      );
+      recordCostAt("conv-child", "unrelated-child-turn", 10_700, 0.9);
+
+      const summaries = getScheduleUsageSummaries({ from: 0, to: 20_000 });
+      const summary = summaries.find(
+        (s) => s.scheduleId === "schedule-delegating",
+      );
+
+      expect(summary).toBeDefined();
+      expect(summary!.runCount).toBe(1);
+      expect(summary!.eventCount).toBe(2);
+      expect(summary!.totalEstimatedCostUsd).toBeCloseTo(0.35);
     });
   });
 

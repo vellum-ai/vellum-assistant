@@ -34,6 +34,29 @@
  * families never overlap, so cold-vs-warm needs no discriminator field, the
  * check-name prefix is the discriminator.
  *
+ * ## Relationship to `client-perf.ts`
+ *
+ * `client-perf.ts` (#40106) is the shared emitter for the sibling measure-first
+ * families: `client_switch.*`, `client_resume.request_count`, and
+ * `client_list.drain`. It rides the same `watchdog` shape and the same detail-bag
+ * convention (raw JSON scalars, `null` for unavailable, no ids or raw pathnames),
+ * and this module follows that convention so the families stay queryable
+ * together. `startBootTelemetry` registers its `boot_id` through
+ * `setClientPerfBootId`, which is the join: every sibling event from the same
+ * page load then carries the boot it happened in, so a slow switch or list drain
+ * can be traced back to its boot waterfall.
+ *
+ * This module keeps its own envelope construction rather than calling
+ * `emitClientPerfEvent` per mark, for two reasons: a boot flushes ~10 marks as
+ * ONE batched POST (per-mark emits would mean ten requests on the boot path),
+ * and `emitClientPerfEvent` rounds `value` to an integer, which would destroy
+ * the CLS score (see `SCORE_MARKS`). Folding the two together needs a shared
+ * envelope builder with a unit-aware rounding hook; tracked in LUM-3060.
+ *
+ * Note that `client_resume.*` is a shared prefix: `to_sse_open` is emitted here,
+ * `request_count` by `resume-request-counter.ts`. Both describe the same warm
+ * start, so keep new resume check names consistent across the two.
+ *
  * ## Privacy
  *
  * Metadata only. No message content, no conversation/assistant ids, no URLs:
@@ -52,6 +75,7 @@
 
 import { subscribe } from "@/lib/event-bus";
 import { readAnalyticsConsent } from "@/lib/telemetry/consent";
+import { setClientPerfBootId } from "@/lib/telemetry/client-perf";
 import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 import { detectClientOs, isNativeMobile } from "@/runtime/platform-detection";
 
@@ -165,8 +189,8 @@ interface BootContext {
   boot_id: string;
   surface: BootSurface;
   os: string;
-  /** `PerformanceNavigationTiming.type`, `navigate` / `reload` / `back_forward`. */
-  nav_type: string;
+  /** `PerformanceNavigationTiming.type`, `navigate` / `reload` / `back_forward`. Null when unavailable. */
+  nav_type: string | null;
   route: string;
   /** Whether this engine can report `lcp` at all, see the `lcp` mark. */
   lcp_supported: boolean;
@@ -673,16 +697,28 @@ export function startBootTelemetry(): () => void {
     boot_id: crypto.randomUUID(),
     surface: detectSurface(),
     os: detectClientOs(),
+    // Null, not a `"unknown"` sentinel: `client-perf.ts` documents the shared
+    // detail-bag convention for the `client_*` families, and a string sentinel
+    // forces a cast before any aggregation.
     nav_type:
       (
         performance.getEntriesByType("navigation")[0] as
           | PerformanceNavigationTiming
           | undefined
-      )?.type ?? "unknown",
+      )?.type ?? null,
     route: bootRouteLabel(window.location.pathname),
     lcp_supported: supportsEntryType("largest-contentful-paint"),
     cls_supported: supportsEntryType("layout-shift"),
   };
+
+  // Join the two measure-first families. `client-perf.ts` (#40106) stamps
+  // `boot_id` onto every `client_switch.*` / `client_resume.request_count` /
+  // `client_list.drain` event once a caller registers one, and this is the boot
+  // series it was waiting for: nothing else calls it, and
+  // `resume-request-counter.ts` names the registration as the thing that makes
+  // the families converge. With it, a slow switch or list drain can be traced
+  // back to the boot it happened in.
+  setClientPerfBootId(context.boot_id);
 
   // Detach handles are kept for `__resetBootTelemetryForTests`, not for the
   // caller: see the no-op teardown note above.

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { planGatewayForward } from "./gateway-forward";
+import {
+  planGatewayForward,
+  planPairedGatewayForward,
+} from "./gateway-forward";
 
 const allow =
   (...ports: number[]) =>
@@ -93,5 +96,112 @@ describe("planGatewayForward", () => {
     if (plan.kind !== "forward") throw new Error("expected forward");
     expect(plan.headers.get("authorization")).toBe("Bearer guardian-token");
     expect(plan.headers.get("content-type")).toBe("application/json");
+  });
+});
+
+const pair =
+  (entries: Record<string, string> = {}) =>
+  () =>
+    new Map<string, string>(Object.entries(entries));
+
+describe("planPairedGatewayForward", () => {
+  test("passes non-paired requests through to static serving", () => {
+    expect(
+      planPairedGatewayForward(
+        request("/assistant/assets/app.js"),
+        pair({ abc: "https://gw.example.com" }),
+      ),
+    ).toEqual({ kind: "pass" });
+    // The loopback gateway path belongs to planGatewayForward, not this plan.
+    expect(
+      planPairedGatewayForward(request("/__gateway/8080/v1"), pair()),
+    ).toEqual({ kind: "pass" });
+  });
+
+  test("rejects an assistant absent from the lockfile pairings with 403", () => {
+    expect(
+      planPairedGatewayForward(
+        request("/__gateway-paired/unknown/v1"),
+        pair({ abc: "https://gw.example.com" }),
+      ),
+    ).toEqual({
+      kind: "reject",
+      status: 403,
+      message: "Assistant is not paired in lockfile",
+    });
+  });
+
+  test("forwards a paired assistant to its runtimeUrl, preserving the query", () => {
+    const plan = planPairedGatewayForward(
+      request("/assistant/__gateway-paired/abc/v1/foo?x=1"),
+      pair({ abc: "https://gw.example.com" }),
+    );
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
+    expect(plan.url).toBe("https://gw.example.com/v1/foo?x=1");
+    expect(plan.method).toBe("GET");
+    expect(plan.hasBody).toBe(false);
+  });
+
+  test("strips the browser-ambient headers on the server-to-server hop", () => {
+    const req = {
+      url: "app://vellum.ai/__gateway-paired/abc/v1/events",
+      method: "POST",
+      headers: new Headers({
+        origin: "app://vellum.ai",
+        referer: "app://vellum.ai/assistant",
+        cookie: "sessionid=abc",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+      }),
+    };
+    const plan = planPairedGatewayForward(
+      req,
+      pair({ abc: "https://gw.example.com" }),
+    );
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
+    expect(plan.headers.has("origin")).toBe(false);
+    expect(plan.headers.has("referer")).toBe(false);
+    expect(plan.headers.has("cookie")).toBe(false);
+    expect(plan.headers.has("sec-fetch-site")).toBe(false);
+    expect(plan.headers.has("sec-fetch-mode")).toBe(false);
+    expect(plan.hasBody).toBe(true);
+  });
+
+  test("rejects a dot-segment traversal tail with 403", () => {
+    expect(
+      planPairedGatewayForward(
+        request("/__gateway-paired/abc/%2e%2e/secrets"),
+        pair({ abc: "https://gw.example.com/edge" }),
+      ),
+    ).toEqual({
+      kind: "reject",
+      status: 403,
+      message: "Assistant is not paired in lockfile",
+    });
+  });
+
+  test("preserves non-ambient headers such as the guardian bearer", () => {
+    const req = {
+      url: "app://vellum.ai/assistant/__gateway-paired/abc/v1/foo",
+      method: "GET",
+      headers: new Headers({
+        origin: "app://vellum.ai",
+        authorization: "Bearer guardian-token",
+        accept: "text/event-stream",
+      }),
+    };
+    const plan = planPairedGatewayForward(
+      req,
+      pair({ abc: "https://gw.example.com" }),
+    );
+    if (plan.kind !== "forward") {
+      throw new Error("expected forward");
+    }
+    expect(plan.headers.get("authorization")).toBe("Bearer guardian-token");
+    expect(plan.headers.get("accept")).toBe("text/event-stream");
   });
 });

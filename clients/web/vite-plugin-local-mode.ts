@@ -1,4 +1,5 @@
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import type { Plugin, Connect, ViteDevServer } from "vite";
@@ -19,9 +20,13 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  unpairAssistant,
   getGuardianAccessToken,
   resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
+  sanitizePairedForwardHeaders,
   type CliInvocation,
 } from "@vellumai/local-mode";
 
@@ -84,6 +89,9 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
+      server.middlewares.use(
+        unpairMiddleware(config.lockfilePaths, config.configDir),
+      );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
       const upgradingLocalAssistantIds = new Set<string>();
@@ -101,9 +109,50 @@ export function localModePlugin(env: Record<string, string>): Plugin {
         guardianTokenMiddleware(config.configDir, baseDir, env),
       );
       server.middlewares.use(gatewayProxyMiddleware(config.lockfilePaths));
+      server.middlewares.use(pairedGatewayProxyMiddleware(config.lockfilePaths));
       server.middlewares.use(accountSpaFallback(server));
     },
   };
+}
+
+function respondJson(
+  res: http.ServerResponse,
+  status: number,
+  body: unknown,
+): void {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
+/**
+ * Buffer and parse a JSON request body. An empty body resolves to `{}` (the
+ * per-field validation reports what's missing); malformed JSON resolves to
+ * `null`.
+ */
+function readJsonBody(
+  req: http.IncomingMessage,
+): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      if (chunks.length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(
+          JSON.parse(Buffer.concat(chunks).toString()) as Record<
+            string,
+            unknown
+          >,
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+  });
 }
 
 function rejectUnlessLocalEndpointRequest(
@@ -396,40 +445,23 @@ function retireMiddleware(
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-          };
-          assistantId = body.assistantId;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
       if (!isActiveAssistant(lockfilePaths, assistantId)) {
-        res.statusCode = 403;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: "Can only retire the active local assistant",
-          }),
-        );
+        respondJson(res, 403, {
+          ok: false,
+          error: "Can only retire the active local assistant",
+        });
         return;
       }
 
@@ -437,28 +469,68 @@ function retireMiddleware(
       try {
         invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
 
-      runRetire(invocation, assistantId, {
+      void runRetire(invocation, assistantId, {
         platformToken: getDevPlatformToken() ?? undefined,
       }).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok ? { ok: true } : { ok: false, error: result.error },
-          ),
+        respondJson(
+          res,
+          result.ok ? 200 : result.status,
+          result.ok ? { ok: true } : { ok: false, error: result.error },
         );
       });
+    });
+  };
+}
+
+function unpairMiddleware(
+  lockfilePaths: string[],
+  configDir: string,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/unpair" &&
+      req.url !== "/__local/unpair"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
+      }
+
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
+        return;
+      }
+
+      const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+      respondJson(
+        res,
+        result.ok ? 200 : result.status,
+        result.ok
+          ? { ok: true, lockfile: result.lockfile }
+          : { ok: false, error: result.error },
+      );
     });
   };
 }
@@ -482,28 +554,15 @@ function sleepMiddleware(baseDir: string): Connect.NextHandleFunction {
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-          };
-          assistantId = body.assistantId;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
@@ -511,24 +570,18 @@ function sleepMiddleware(baseDir: string): Connect.NextHandleFunction {
       try {
         invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
 
-      runSleep(invocation, assistantId).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok ? { ok: true } : { ok: false, error: result.error },
-          ),
+      void runSleep(invocation, assistantId).then((result) => {
+        respondJson(
+          res,
+          result.ok ? 200 : result.status,
+          result.ok ? { ok: true } : { ok: false, error: result.error },
         );
       });
     });
@@ -551,31 +604,16 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
       return;
     }
 
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let assistantId: string | undefined;
-      let repairGuardian = false;
-      if (chunks.length > 0) {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-            assistantId?: string;
-            repairGuardian?: boolean;
-          };
-          assistantId = body.assistantId;
-          repairGuardian = body.repairGuardian === true;
-        } catch {
-          res.statusCode = 400;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
-          return;
-        }
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
       }
 
-      if (!assistantId) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+      const assistantId = body.assistantId;
+      const repairGuardian = body.repairGuardian === true;
+      if (typeof assistantId !== "string" || !assistantId) {
+        respondJson(res, 400, { ok: false, error: "Missing assistantId" });
         return;
       }
 
@@ -583,26 +621,22 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
       try {
         invocation = resolveDevCliInvocation(baseDir, import.meta.url);
       } catch (err) {
-        res.statusCode = 500;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
         return;
       }
 
-      runWake(invocation, assistantId, { repairGuardian }).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
+      void runWake(invocation, assistantId, { repairGuardian }).then(
+        (result) => {
+          respondJson(
+            res,
+            result.ok ? 200 : result.status,
             result.ok ? { ok: true } : { ok: false, error: result.error },
-          ),
-        );
-      });
+          );
+        },
+      );
     });
   };
 }
@@ -836,34 +870,109 @@ function gatewayProxyMiddleware(
     }
 
     const { target } = decision;
-    const proxyOptions: http.RequestOptions = {
-      hostname: "127.0.0.1",
-      port: target.port,
-      path: target.path,
-      method: req.method,
-      headers: { ...req.headers, host: `127.0.0.1:${target.port}` },
-    };
-
-    const proxyReq = http.request(proxyOptions, (proxyRes) => {
-      // Drop the upstream's `transfer-encoding` before re-emitting: Node's http
-      // server sets its own when we pipe the streamed body, so copying the
-      // gateway's `chunked` too yields a duplicate ("too many transfer
-      // encodings"). A strict downstream proxy (the `vel up` Caddy edge)
-      // rejects that with 502 — fatal for the SSE `/events` stream, whose
-      // failure drives a client reconnect + full-refetch loop.
-      const headers = { ...proxyRes.headers };
-      delete headers["transfer-encoding"];
-      res.writeHead(proxyRes.statusCode ?? 502, headers);
-      proxyRes.pipe(res);
-    });
-
-    proxyReq.on("error", () => {
-      if (!res.headersSent) {
-        res.statusCode = 502;
-        res.end("Gateway proxy error");
-      }
-    });
-
-    req.pipe(proxyReq);
+    pipeGatewayProxy(
+      req,
+      res,
+      http,
+      {
+        hostname: "127.0.0.1",
+        port: target.port,
+        path: target.path,
+        method: req.method,
+        headers: { ...req.headers, host: `127.0.0.1:${target.port}` },
+      },
+      "Gateway proxy error",
+    );
   };
+}
+
+// Paired-gateway data plane (`/__gateway-paired/{assistantId}/*`): same
+// posture as the loopback gateway proxy above, but the target is the remote
+// gateway an imported pairing recorded as its `runtimeUrl`. The lockfile's
+// paired entries are the allowlist. Browser-ambient headers (`Origin`,
+// `Referer`, `Cookie`, `Sec-Fetch-*`) are stripped on this server-to-server
+// hop via the shared sanitizer; the guardian `Authorization` bearer passes
+// through untouched for the remote gateway to validate.
+function pairedGatewayProxyMiddleware(
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const decision = resolvePairedGatewayProxyTarget(req.url ?? "", () =>
+      readPairedGatewayTargets(lockfilePaths),
+    );
+    if (decision.kind === "pass") {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (decision.kind === "reject") {
+      res.statusCode = decision.status;
+      res.end(decision.message);
+      return;
+    }
+
+    const target = new URL(decision.url);
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value === undefined) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          headers.append(name, item);
+        }
+      } else {
+        headers.set(name, value);
+      }
+    }
+    sanitizePairedForwardHeaders(headers);
+    headers.set("host", target.host);
+    pipeGatewayProxy(
+      req,
+      res,
+      target.protocol === "https:" ? https : http,
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || undefined,
+        path: target.pathname + target.search,
+        method: req.method,
+        headers: Object.fromEntries(headers.entries()),
+      },
+      "Paired gateway proxy error",
+    );
+  };
+}
+
+// One streamed hop for both gateway data-plane proxies. Drops the upstream's
+// `transfer-encoding` before re-emitting: Node's http server sets its own when
+// we pipe the streamed body, so copying the gateway's `chunked` too yields a
+// duplicate ("too many transfer encodings"). A strict downstream proxy (the
+// `vel up` Caddy edge) rejects that with 502, fatal for the SSE `/events`
+// stream, whose failure drives a client reconnect + full-refetch loop.
+function pipeGatewayProxy(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  transport: Pick<typeof http, "request">,
+  options: http.RequestOptions,
+  errorMessage: string,
+): void {
+  const proxyReq = transport.request(options, (proxyRes) => {
+    const headers = { ...proxyRes.headers };
+    delete headers["transfer-encoding"];
+    res.writeHead(proxyRes.statusCode ?? 502, headers);
+    proxyRes.pipe(res);
+  });
+
+  proxyReq.on("error", () => {
+    if (!res.headersSent) {
+      res.statusCode = 502;
+      res.end(errorMessage);
+    }
+  });
+
+  req.pipe(proxyReq);
 }

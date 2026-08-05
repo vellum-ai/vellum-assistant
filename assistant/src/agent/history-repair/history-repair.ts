@@ -15,6 +15,7 @@
  * recover — so detection and repair of ordering drift live together as one unit.
  */
 
+import { analyzeServerToolPairing } from "../../providers/server-tool-pairing.js";
 import type {
   ContentBlock,
   Message,
@@ -69,6 +70,10 @@ export function repairHistory(messages: Message[]): RepairResult {
   let pendingToolUseIds = new Set<string>();
   // tool_result blocks stripped from assistant messages, keyed by tool_use_id
   let recoveredResults = new Map<string, ToolResultContent>();
+  // Server-tool pairs can legitimately span messages (deferred execution) or
+  // sit unanswered at the tail (the provider runs the search on the next
+  // request), so orphanhood is judged against the whole list, not per message.
+  const serverToolPairing = analyzeServerToolPairing(messages);
 
   for (const [msgIndex, msg] of messages.entries()) {
     if (msg.role === "assistant") {
@@ -100,36 +105,32 @@ export function repairHistory(messages: Message[]): RepairResult {
         }
       }
 
-      // Pair server-side tool blocks within the same assistant message.
-      // Server tools (e.g. web_search) emit server_tool_use + matching
-      // web_search_tool_result. Either side can go missing — the synthetic
-      // result is inserted IMMEDIATELY AFTER the orphan server_tool_use (not
+      // Repair orphaned server-side tool blocks. Server tools (e.g.
+      // web_search) emit server_tool_use + matching web_search_tool_result;
+      // orphanhood comes from `serverToolPairing`, which resolves pairs
+      // across messages and exempts the deferred tail. The synthetic result
+      // is inserted IMMEDIATELY AFTER the orphan server_tool_use (not
       // appended to the end) so ensureToolPairing's split at tool_use
       // boundaries cannot separate the pair. An orphan
-      // web_search_tool_result (no preceding server_tool_use) is downgraded
-      // to text — Anthropic rejects the request otherwise.
-      const serverToolIds = new Set(
-        cleanedContent
-          .filter(
-            (b): b is ServerToolUseContent => b.type === "server_tool_use",
-          )
-          .map((b) => b.id),
-      );
-      const matchedServerIds = new Set(
-        cleanedContent
-          .filter((b) => b.type === "web_search_tool_result")
-          .map((b) => (b as { tool_use_id: string }).tool_use_id),
-      );
+      // web_search_tool_result with no use anywhere is downgraded to text.
+      // Anthropic rejects the request otherwise.
       const orphanedServerIds = new Set<string>();
-      for (const id of serverToolIds) {
-        if (!matchedServerIds.has(id)) {
-          orphanedServerIds.add(id);
-        }
-      }
       const orphanedWebSearchResultIds = new Set<string>();
-      for (const id of matchedServerIds) {
-        if (!serverToolIds.has(id)) {
-          orphanedWebSearchResultIds.add(id);
+      for (const b of cleanedContent) {
+        if (b.type === "server_tool_use") {
+          const id = (b as ServerToolUseContent).id;
+          if (
+            !serverToolPairing.resolvedPairIds.has(id) &&
+            !serverToolPairing.deferredUseIds.has(id)
+          ) {
+            orphanedServerIds.add(id);
+          }
+        }
+        if (b.type === "web_search_tool_result") {
+          const id = (b as { tool_use_id: string }).tool_use_id;
+          if (!serverToolPairing.resolvedPairIds.has(id)) {
+            orphanedWebSearchResultIds.add(id);
+          }
         }
       }
 
@@ -399,6 +400,14 @@ export const ORDERING_ERROR_PATTERNS: readonly RegExp[] = [
   /tool_use_id.*without.*tool_result/i,
   /tool_result.*tool_use_id.*not found/i,
   /messages.*invalid.*order/i,
+  // OpenAI Responses API: a function_call_output whose call_id has no
+  // matching function_call earlier in the request ("No tool call found for
+  // function call output with call_id ...").
+  /no tool call found for function call output/i,
+  // OpenAI Chat Completions API: a tool message whose tool_call_id is not in
+  // a preceding assistant message's tool_calls ("Invalid parameter:
+  // 'tool_call_id' of '...' not found in 'tool_calls' of previous message").
+  /tool_call_id.*not found/i,
 ];
 
 /**

@@ -25,10 +25,9 @@ export interface UnknownAllowlistTool {
 
 /**
  * Pure core: given the set of registered tool names, return every allowlist
- * entry that has no matching registered tool. Roles with no allowlist
- * (`allowedTools: undefined`, e.g. `general`) impose no filter and contribute
- * nothing. Exported for direct unit testing without standing up the real tool
- * registry.
+ * entry that has no matching registered tool. A role with no allowlist
+ * (`allowedTools: undefined`) imposes no filter and contributes nothing.
+ * Exported for direct unit testing without standing up the real tool registry.
  */
 export function findUnknownAllowlistTools(
   registeredToolNames: ReadonlySet<string>,

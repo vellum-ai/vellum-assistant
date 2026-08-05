@@ -25,15 +25,19 @@ let mockIsLocalClient = false;
 let mockIsRemoteGatewayMode = false;
 // The assistant `getSelectedAssistant()` resolves; `undefined` means none selected.
 let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
+// The entries `getLockfileAssistant(id)` resolves against.
+let mockLockfileAssistants: Array<{ assistantId: string; cloud: string }> = [];
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
-const primeLocalGatewayConnectionMock = mock(async () => {
-  if (mockPrimeError) {
-    throw mockPrimeError;
-  }
-});
+const primeLocalGatewayConnectionMock = mock(
+  async (_target?: { assistantId: string; cloud: string }) => {
+    if (mockPrimeError) {
+      throw mockPrimeError;
+    }
+  },
+);
 const primeLocalGatewayConnectionWithStartupRetryMock = mock(async () => {
   if (mockPrimeError) {
     throw mockPrimeError;
@@ -198,9 +202,12 @@ mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
   isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
+  isPairedAssistant: (a: { cloud?: string }) => a.cloud === "paired",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
   getSelectedAssistant: () => mockSelectedAssistant,
+  getLockfileAssistant: (id: string) =>
+    mockLockfileAssistants.find((a) => a.assistantId === id),
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
   primeLocalGatewayConnectionWithStartupRetry:
     primeLocalGatewayConnectionWithStartupRetryMock,
@@ -384,6 +391,7 @@ beforeEach(() => {
   mockIsLocalClient = false;
   mockIsRemoteGatewayMode = false;
   mockSelectedAssistant = undefined;
+  mockLockfileAssistants = [];
   mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
@@ -1826,6 +1834,184 @@ describe("connectLocalAssistant", () => {
     // A failed connect leaves the previous selection in place.
     expect(setSelectedAssistantMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+});
+
+describe("connectPairedAssistant", () => {
+  const pairedEntry = { assistantId: "paired-a", cloud: "paired" };
+
+  test("primes via the host lease BEFORE selecting, then logs in and checks the assistant", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+    const order: string[] = [];
+    primeLocalGatewayConnectionMock.mockImplementationOnce(async () => {
+      order.push("prime");
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async (id) => {
+      order.push(`select:${String(id)}`);
+    });
+
+    await useAuthStore.getState().connectPairedAssistant("paired-a");
+
+    expect(order).toEqual(["prime", "select:paired-a"]);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(lifecycleCheckAssistantMock).toHaveBeenCalledTimes(1);
+    // No platform assistants and no gateway auth in this arrangement, so the
+    // platform-session status settles directly to "absent".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("uses the plain prime for the paired target: no wake-repair variant", async () => {
+    // Wake only runs inside primeLocalGatewayConnectionWithRepair, and it
+    // cannot start or repair an assistant on a remote machine, so a paired
+    // connect must stay on the plain prime.
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+
+    await useAuthStore.getState().connectPairedAssistant("paired-a");
+
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "paired-a", cloud: "paired" }),
+    );
+    expect(primeLocalGatewayConnectionWithRepairMock).not.toHaveBeenCalled();
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).not.toHaveBeenCalled();
+  });
+
+  test("never bootstraps a platform identity, even with a live platform session", async () => {
+    // The bootstrap registers a LOCAL assistant with the platform; a paired
+    // entry is a client-side pairing record, not an assistant to register.
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+    useAuthStore.setState({
+      platformSession: "present",
+      platformSessionRestoredOffline: false,
+    });
+
+    await useAuthStore.getState().connectPairedAssistant("paired-a");
+
+    expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects a non-paired id without priming or selecting", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [{ assistantId: "local-a", cloud: "local" }];
+
+    await expect(
+      useAuthStore.getState().connectPairedAssistant("local-a"),
+    ).rejects.toThrow("Not a paired assistant");
+
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+
+  test("rejects an unknown id", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+
+    await expect(
+      useAuthStore.getState().connectPairedAssistant("missing"),
+    ).rejects.toThrow("Not a paired assistant");
+
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("rethrows the prime failure without selecting or marking the session logged in", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+    mockPrimeError = new Error("Guardian token not found");
+
+    await expect(
+      useAuthStore.getState().connectPairedAssistant("paired-a"),
+    ).rejects.toThrow("Guardian token not found");
+
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+});
+
+describe("paired selection in the gateway-auth session paths", () => {
+  const pairedSelection = { assistantId: "paired-a", cloud: "paired" };
+
+  test("refreshSession re-primes a paired selection and never fetches the SPA origin's /auth/token", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "seeded-guardian"; // isGatewayAuthMode() === true
+    mockSelectedAssistant = pairedSelection;
+    const fetchedUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      fetchedUrls.push(String(input));
+      throw new Error("unexpected fetch");
+    }) as unknown as typeof fetch;
+    try {
+      await expect(useAuthStore.getState().refreshSession()).resolves.toBe(
+        true,
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "paired-a", cloud: "paired" }),
+    );
+    // The undefined-token-URL fallback would mint at the SPA's own origin and
+    // clear the seeded paired token via the source-mismatch check.
+    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+    expect(fetchedUrls).toEqual([]);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("refreshSession ends the session when the paired re-lease fails", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "seeded-guardian";
+    mockSelectedAssistant = pairedSelection;
+    mockPrimeError = new Error("guardian lease failed");
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshSession still mints through the local token URL for a local selection", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    mockSelectedAssistant = { assistantId: "local-a", cloud: "local" };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(ensureGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("boot with a paired selection whose guardian lease fails settles unauthenticated after one prime", async () => {
+    // The startup ride-out only retries GatewayTokenErrors, which the paired
+    // prime never throws; the budget pin for that lives in local-mode.test.ts
+    // ("a failing paired guardian lease is not ridden out"). Here: the boot
+    // path routes the paired selection through the generalized prime once and
+    // falls through promptly to the chooser.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockSelectedAssistant = pairedSelection;
+    mockPrimeError = new Error("guardian lease failed");
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });
 
