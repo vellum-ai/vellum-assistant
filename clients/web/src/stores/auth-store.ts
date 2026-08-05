@@ -584,23 +584,33 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
  */
 async function reconcilePlatformAssistants(
   syncIsCurrent?: () => boolean,
-): Promise<{ sessionRejected: boolean }> {
-  const orgOutcome = await useOrganizationStore.getState().fetchOrganizations();
-  if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
-    return { sessionRejected: true };
+): Promise<boolean> {
+  try {
+    const orgOutcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations();
+    if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
+      return true;
+    }
+    const apiAssistants = await listAssistants();
+    if (isSettledSessionRejection(apiAssistants)) {
+      // The org fetch self-clears on its own rejection; an assistants-only
+      // rejection must clear the org state too, or the request interceptor
+      // keeps stamping the rejected account's Vellum-Organization-Id.
+      useOrganizationStore.getState().clearOrganization();
+      return true;
+    }
+    if ((syncIsCurrent?.() ?? true) && apiAssistants.ok) {
+      await syncPlatformAssistantsToLockfile(
+        apiAssistants.data,
+        useOrganizationStore.getState().currentOrganizationId ?? undefined,
+        syncIsCurrent,
+      );
+    }
+  } catch {
+    // A throw is non-settled evidence: continue with cached lockfile data.
   }
-  const apiAssistants = await listAssistants();
-  if (isSettledSessionRejection(apiAssistants)) {
-    return { sessionRejected: true };
-  }
-  if ((syncIsCurrent?.() ?? true) && apiAssistants.ok) {
-    await syncPlatformAssistantsToLockfile(
-      apiAssistants.data,
-      useOrganizationStore.getState().currentOrganizationId ?? undefined,
-      syncIsCurrent,
-    );
-  }
-  return { sessionRejected: false };
+  return false;
 }
 
 // Monotonic id stamped on each platform-session probe. Probes can overlap
@@ -677,8 +687,8 @@ function probePlatformSession(
           try {
             await Promise.race([
               (async () => {
-                ({ sessionRejected } =
-                  await reconcilePlatformAssistants(syncIsCurrent));
+                sessionRejected =
+                  await reconcilePlatformAssistants(syncIsCurrent);
               })(),
               new Promise<never>((_, reject) => {
                 timeoutHandle = setTimeout(() => {
@@ -873,12 +883,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
             const user = toAuthUser(result.data.user);
             await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
-            let sessionRejected = false;
-            try {
-              ({ sessionRejected } = await reconcilePlatformAssistants());
-            } catch {
-              // Sync failed; continue with cached data
-            }
+            const sessionRejected = await reconcilePlatformAssistants();
             if (!sessionRejected) {
               set(authenticatedPlatformUser(user));
               return;
@@ -1103,14 +1108,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // all route through here, and the macOS tray and CLI would otherwise
         // keep a stale managed-assistant list until the next full boot.
         // Local-mode only (platform mode has no lockfile host).
-        let sessionRejected = false;
-        if (isLocalClient()) {
-          try {
-            ({ sessionRejected } = await reconcilePlatformAssistants());
-          } catch {
-            // Sync failed; continue with cached lockfile data.
-          }
-        }
+        const sessionRejected = isLocalClient()
+          ? await reconcilePlatformAssistants()
+          : false;
         if (!sessionRejected) {
           set(authenticatedPlatformUser(user));
           return true;

@@ -334,6 +334,7 @@ mock.module("@/stores/organization-store", () => ({
   useOrganizationStore: {
     getState: () => ({
       fetchOrganizations: fetchOrganizationsMock,
+      clearOrganization: clearOrganizationMock,
       currentOrganizationId: "org-test",
     }),
   },
@@ -1799,6 +1800,9 @@ describe("platform probe conclusive rejection (half-dead session)", () => {
     expect(useAuthStore.getState().user?.kind).toBe("local");
     expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
     expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+    // The org fetch succeeded, so the rejected account's org state must be
+    // cleared here or its Vellum-Organization-Id keeps stamping requests.
+    expect(clearOrganizationMock).toHaveBeenCalled();
   });
 
   test("a transport-thrown org fetch keeps the present settle", async () => {
