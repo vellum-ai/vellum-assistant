@@ -30,6 +30,18 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
+// The version gate reads the identity store, which no test seeds. Mocked with
+// a mutable seed (hoisted, since CI's bun does not re-link a mid-file
+// mock.module) so both sides of the skew are reachable: the default-code and
+// read-collapse rules differ per branch.
+const versionGate = { defaultsToMulti: true };
+mock.module(
+  "@/lib/backwards-compat/use-supports-multilingual-stt-default",
+  () => ({
+    useSupportsMultilingualSttDefault: () => versionGate.defaultsToMulti,
+  }),
+);
+
 const ASSISTANT_ID = "asst-test";
 
 // Controllable daemon responses the mocked query factories resolve to.
@@ -98,6 +110,7 @@ describe("useSttLanguageSelection", () => {
     patchResolvers = [];
     daemonConfigData = { services: {} };
     providerCatalogData = { providers: [] };
+    versionGate.defaultsToMulti = true;
   });
 
   test("unavailable when the daemon omits languageSelection (old daemon)", () => {
@@ -313,5 +326,70 @@ describe("useSttLanguageSelection", () => {
 
     const { result } = renderSelection();
     expect(result.current.currentCode).toBe("");
+  });
+});
+
+describe("useSttLanguageSelection against a pre-0.12.0 assistant", () => {
+  beforeEach(() => {
+    configPatchCalls.length = 0;
+    deferPatches = false;
+    patchResolvers = [];
+    versionGate.defaultsToMulti = false;
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+  });
+
+  test("the default pick writes English, which is what that assistant applies", async () => {
+    // Writing "multi" here would be a lie in the other direction: the config
+    // would claim code-switching while the daemon still decodes English.
+    // Seeded on a real pin so the default row is a change rather than a
+    // same-value no-op.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "es" } },
+    };
+
+    const { result } = renderSelection();
+    act(() => result.current.selectLanguage(""));
+
+    await waitFor(() => expect(result.current.selecting).toBe(false));
+    expect(configPatchCalls).toHaveLength(1);
+    expect(configPatchCalls[0]!.body).toEqual({
+      services: { stt: { language: "en" } },
+    });
+  });
+
+  test("a persisted en still reads as the default row", async () => {
+    // The pre-0.12.0 equivalence: "en" and unset are the same state there,
+    // so collapsing them keeps the picker honest.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "en" } },
+    };
+
+    const { result } = renderSelection();
+    await waitFor(() => expect(result.current.currentCode).toBe(""));
+  });
+
+  test("a persisted multi reads as itself, not as the default", async () => {
+    // Someone who deliberately picked code-switching on an older assistant
+    // must keep seeing that, since unset there means English.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "multi" } },
+    };
+
+    const { result } = renderSelection();
+    await waitFor(() => expect(result.current.currentCode).toBe("multi"));
+  });
+
+  test("reports the gate so surfaces can frame the rows to match", () => {
+    const { result } = renderSelection();
+    expect(result.current.daemonDefaultsToMulti).toBe(false);
   });
 });

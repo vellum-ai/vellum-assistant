@@ -205,6 +205,30 @@ export const MULTI_DEFAULT_DAEMON_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Whether the connected daemon resolves an unset language to code-switching
+ * for `daemonProviderId`. Provider membership is necessary but not
+ * sufficient: the daemon also has to be new enough to do the filling in (see
+ * `use-supports-multilingual-stt-default.ts`), and nothing in the config
+ * payload distinguishes the two, since both report the same capability and
+ * the same unset language.
+ *
+ * `daemonDefaultsToMulti` is the version half, threaded in by the caller
+ * rather than read here so this module stays a pure catalog. It is optional
+ * and defaults to `false`: a surface that has not been taught about the gate
+ * describes what every assistant did before 0.12.0, which is the safe
+ * direction to be wrong in.
+ */
+function resolvesUnsetToMulti(
+  daemonProviderId: string,
+  daemonDefaultsToMulti: boolean,
+): boolean {
+  return (
+    daemonDefaultsToMulti &&
+    MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
+  );
+}
+
+/**
  * The default-sentinel row for providers in
  * `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`, replacing the English-framed
  * one. The description states the one-way door plainly: the picker only
@@ -265,6 +289,7 @@ const STT_PINNED_ENGLISH_OPTION: SttLanguageOption = {
 export function sttLanguageOptionsFor(
   currentCode: string,
   daemonProviderId: string,
+  daemonDefaultsToMulti = false,
 ): readonly SttLanguageOption[] {
   const scoped = NOVA3_ROSTER_DAEMON_PROVIDERS.has(daemonProviderId)
     ? STT_LANGUAGES
@@ -287,7 +312,7 @@ export function sttLanguageOptionsFor(
   // Providers whose unset state is code-switching get the same treatment,
   // and shed the standalone Multilingual entry the default row now stands
   // for: two rows doing the same thing invite a pick that changes nothing.
-  const catalog = MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
+  const catalog = resolvesUnsetToMulti(daemonProviderId, daemonDefaultsToMulti)
     ? autoDetectScoped.flatMap((option) => {
         if (option.code === STT_LANGUAGE_DEFAULT_CODE) {
           return [STT_MULTILINGUAL_DEFAULT_OPTION, STT_PINNED_ENGLISH_OPTION];
@@ -325,8 +350,13 @@ export function sttLanguageGroupsFor(
   currentCode: string,
   daemonProviderId: string,
   suggestedCode?: string | null,
+  daemonDefaultsToMulti = false,
 ): SttLanguageGroups {
-  const options = sttLanguageOptionsFor(currentCode, daemonProviderId);
+  const options = sttLanguageOptionsFor(
+    currentCode,
+    daemonProviderId,
+    daemonDefaultsToMulti,
+  );
   const featuredCodes: string[] = [];
   const feature = (code: string) => {
     if (
@@ -390,10 +420,13 @@ export function sttLanguageMatches(
 export function sttLanguageLabelForCode(
   code: string,
   daemonProviderId: string,
+  daemonDefaultsToMulti = false,
 ): string {
-  const option = sttLanguageOptionsFor(code, daemonProviderId).find(
-    (candidate) => candidate.code === code,
-  );
+  const option = sttLanguageOptionsFor(
+    code,
+    daemonProviderId,
+    daemonDefaultsToMulti,
+  ).find((candidate) => candidate.code === code);
   return option ? sttLanguageLabel(option) : code;
 }
 
@@ -441,6 +474,7 @@ export function sttCatalogEntryForLocale(
 export function suggestedLanguageForLocale(
   navigatorLanguage: string | undefined,
   daemonProviderId: string,
+  daemonDefaultsToMulti = false,
 ): string | null {
   const entry = sttCatalogEntryForLocale(navigatorLanguage);
   if (!entry) {
@@ -451,11 +485,20 @@ export function suggestedLanguageForLocale(
       ? entry.code
       : null;
   }
-  // The locale's language is on the code-switching roster. Where that is
-  // already the default there is nothing to suggest: the assistant will
-  // understand this speaker before anyone touches a setting, and a row
-  // proposing what is already in effect reads as an unfinished task.
-  return MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
-    ? null
+  // The locale's language is on the code-switching roster, so what to
+  // suggest depends on what this assistant already does with an unset value:
+  //
+  // - It resolves to code-switching: nothing to suggest. The speaker is
+  //   understood before anyone touches a setting, and a row proposing what is
+  //   already in effect reads as an unfinished task.
+  // - It decodes as English but can accept "multi": suggest that. This is the
+  //   pre-0.12.0 case, and it is the whole reason the row exists.
+  // - It detects natively (xai): the monolingual pin, which is the only thing
+  //   its option set offers.
+  if (resolvesUnsetToMulti(daemonProviderId, daemonDefaultsToMulti)) {
+    return null;
+  }
+  return MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
+    ? STT_MULTI_CODE
     : entry.code;
 }

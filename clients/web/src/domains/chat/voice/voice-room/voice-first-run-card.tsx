@@ -139,6 +139,7 @@ export function VoiceFirstRunCard({
     available: languageAvailable,
     currentCode: languageCode,
     configuredProviderId,
+    daemonDefaultsToMulti,
     selectLanguage,
     selecting: languageSelecting,
   } = useSttLanguageSelection(localeEntry !== null ? assistantId : null);
@@ -150,6 +151,7 @@ export function VoiceFirstRunCard({
   const suggestedCode = suggestedLanguageForLocale(
     navigatorLanguage,
     configuredProviderId,
+    daemonDefaultsToMulti,
   );
 
   return (
@@ -308,6 +310,7 @@ export function VoiceFirstRunCard({
                     value={sttLanguageLabelForCode(
                       languageCode,
                       configuredProviderId,
+                      daemonDefaultsToMulti,
                     )}
                   />
                 </div>
@@ -376,6 +379,7 @@ export function VoiceFirstRunCard({
                 currentCode={languageCode}
                 configuredProviderId={configuredProviderId}
                 suggestedCode={suggestedCode}
+                daemonDefaultsToMulti={daemonDefaultsToMulti}
                 selectLanguage={selectLanguage}
                 selecting={languageSelecting}
                 onDone={backToIntro}

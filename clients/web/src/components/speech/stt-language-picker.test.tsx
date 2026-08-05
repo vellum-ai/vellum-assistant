@@ -25,6 +25,7 @@ function renderPicker(
       title="Listening language"
       currentCode=""
       configuredProviderId="vellum"
+      daemonDefaultsToMulti
       selectLanguage={(code) => picks.push(code)}
       selecting={false}
       {...props}

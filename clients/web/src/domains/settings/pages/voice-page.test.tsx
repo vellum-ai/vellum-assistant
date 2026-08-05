@@ -41,6 +41,7 @@ const languageSelection = {
   available: false,
   currentCode: "",
   configuredProviderId: "deepgram",
+  daemonDefaultsToMulti: true,
   selectLanguage: () => {},
   selecting: false,
 };

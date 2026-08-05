@@ -56,6 +56,12 @@ export interface SttLanguagePickerProps {
   /** Daemon id of the configured STT provider, scoping the option catalog. */
   configuredProviderId: string;
   /**
+   * Whether the connected assistant resolves an unset language to
+   * code-switching. Decides how the default row is framed and whether the
+   * standalone Multilingual row is offered; see the language catalog.
+   */
+  daemonDefaultsToMulti?: boolean;
+  /**
    * Locale-suggested code (see `suggestedLanguageForLocale`); joins the
    * Featured group and carries a "Suggested" annotation. Omit where no
    * locale evidence applies.
@@ -78,6 +84,7 @@ export function SttLanguagePicker({
   currentCode,
   configuredProviderId,
   suggestedCode,
+  daemonDefaultsToMulti = false,
   selectLanguage,
   selecting,
   onDone,
@@ -93,8 +100,13 @@ export function SttLanguagePicker({
 
   const groups = useMemo(
     () =>
-      sttLanguageGroupsFor(currentCode, configuredProviderId, suggestedCode),
-    [currentCode, configuredProviderId, suggestedCode],
+      sttLanguageGroupsFor(
+        currentCode,
+        configuredProviderId,
+        suggestedCode,
+        daemonDefaultsToMulti,
+      ),
+    [currentCode, configuredProviderId, suggestedCode, daemonDefaultsToMulti],
   );
   const filtering = query.trim().length > 0;
   // The flat visible list the keyboard walks: featured first, then A-Z, the

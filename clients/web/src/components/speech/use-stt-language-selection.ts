@@ -35,6 +35,7 @@ import {
 } from "@/lib/stt/language-catalog";
 
 import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
+import { useSupportsMultilingualSttDefault } from "@/lib/backwards-compat/use-supports-multilingual-stt-default";
 
 /**
  * The code written when the user picks the default option, and the code a
@@ -55,8 +56,14 @@ import { useSerializedConfigSelection } from "@/components/speech/use-serialized
  *   pinned (`STT_AUTO_DETECT_OPTION` says so plainly).
  * - Anything else keeps the historical English equivalence.
  */
-function defaultCodeForProvider(daemonProviderId: string): string | null {
-  if (MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)) {
+function defaultCodeForProvider(
+  daemonProviderId: string,
+  daemonDefaultsToMulti: boolean,
+): string | null {
+  if (
+    daemonDefaultsToMulti &&
+    MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
+  ) {
     return STT_MULTI_CODE;
   }
   if (AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId)) {
@@ -72,12 +79,16 @@ function defaultCodeForProvider(daemonProviderId: string): string | null {
  * `config_patch` can express.
  */
 const buildPatchBodyForProvider =
-  (daemonProviderId: string) => (code: string) => ({
+  (daemonProviderId: string, daemonDefaultsToMulti: boolean) =>
+  (code: string) => ({
     services: {
       stt: {
         language:
           code === STT_LANGUAGE_DEFAULT_CODE
-            ? (defaultCodeForProvider(daemonProviderId) ?? "en")
+            ? (defaultCodeForProvider(
+                daemonProviderId,
+                daemonDefaultsToMulti,
+              ) ?? "en")
             : code,
       },
     },
@@ -107,6 +118,14 @@ export interface UseSttLanguageSelection {
    */
   configuredProviderId: string;
   /**
+   * Whether the connected assistant resolves an unset language to
+   * code-switching rather than English. Surfaces pass this alongside
+   * `configuredProviderId` to every catalog helper, so a bundle talking to a
+   * pre-0.12.0 assistant keeps describing the English default that assistant
+   * still applies. See `use-supports-multilingual-stt-default.ts`.
+   */
+  daemonDefaultsToMulti: boolean;
+  /**
    * Persist a language; hot-applies from the next spoken turn. Safe to call
    * again before the last one lands, writes are serialized in call order.
    */
@@ -120,6 +139,10 @@ export function useSttLanguageSelection(
 ): UseSttLanguageSelection {
   const isOrgReady = useIsOrgReady();
   const enabled = isOrgReady && !!assistantId;
+  // Scoped to the assistant whose config this hook reads, and conservative
+  // until its version hydrates: the pre-0.12.0 English framing is what every
+  // assistant did before, so showing it briefly is the safe direction.
+  const daemonDefaultsToMulti = useSupportsMultilingualSttDefault(assistantId);
 
   const { data: providerCatalog } = useQuery({
     ...sttProvidersGetOptions({ path: { assistant_id: assistantId ?? "" } }),
@@ -163,7 +186,10 @@ export function useSttLanguageSelection(
   // real English pin and reads as itself; under a natively detecting one
   // nothing collapses at all.
   const configured = daemonStt?.language;
-  const defaultCode = defaultCodeForProvider(configuredProvider);
+  const defaultCode = defaultCodeForProvider(
+    configuredProvider,
+    daemonDefaultsToMulti,
+  );
   const configuredCode =
     !configured || (defaultCode !== null && configured === defaultCode)
       ? STT_LANGUAGE_DEFAULT_CODE
@@ -173,8 +199,8 @@ export function useSttLanguageSelection(
   // so `select` identity still only tracks real state, per
   // `useSerializedConfigSelection`.
   const buildLanguagePatchBody = useMemo(
-    () => buildPatchBodyForProvider(configuredProvider),
-    [configuredProvider],
+    () => buildPatchBodyForProvider(configuredProvider, daemonDefaultsToMulti),
+    [configuredProvider, daemonDefaultsToMulti],
   );
 
   const {
@@ -192,6 +218,7 @@ export function useSttLanguageSelection(
     available,
     currentCode,
     configuredProviderId: configuredProvider,
+    daemonDefaultsToMulti,
     selectLanguage,
     selecting,
   };
