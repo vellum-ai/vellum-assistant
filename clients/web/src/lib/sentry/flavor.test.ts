@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("selectSentryFlavor", () => {
-  test("selects the capacitor flavor on native iOS", () => {
+  test("selects the capacitor flavor on native mobile", () => {
     nativePlatform = true;
     expect(selectSentryFlavor()).toBe(capacitorFlavor);
   });
