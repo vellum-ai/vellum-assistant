@@ -58,6 +58,18 @@ export interface LocalUpgradeOptions {
   force?: boolean;
 }
 
+/**
+ * Result of `localMode.connectImport`. On success `assistantId` is the unique
+ * local id the pairing was registered under, and `accessOnly` is true when the
+ * bundle carried no refresh credential (the token expires without renewal).
+ */
+export interface LocalConnectImportResult {
+  ok: boolean;
+  assistantId?: string;
+  accessOnly?: boolean;
+  error?: string;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -178,6 +190,16 @@ export interface VellumBridge {
      * the remote assistant is never touched.
      */
     unpair(assistantId: string): Promise<LockfileWriteResult>;
+    /**
+     * Register a pairing bundle printed by `vellum pair` on another machine:
+     * persist the guardian token and create a `cloud: "paired"` lockfile
+     * entry, the write counterpart of `unpair`. `name` picks the local id
+     * (its slug); omitted, the id derives from the bundle's device id.
+     */
+    connectImport(
+      bundle: string,
+      name?: string,
+    ): Promise<LocalConnectImportResult>;
     sleep(assistantId: string): Promise<{ ok: boolean; error?: string }>;
     wake(
       assistantId: string,

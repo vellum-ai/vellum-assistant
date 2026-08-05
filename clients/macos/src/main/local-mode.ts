@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  connectImport,
   getGuardianAccessToken,
   isActiveAssistant,
   getLockfileData,
@@ -25,6 +26,7 @@ import {
   type UpgradeOptions,
   type WakeOptions,
 } from "@vellumai/local-mode";
+import type { LocalConnectImportResult } from "@vellumai/ipc-contract";
 import { handle } from "./ipc";
 
 import {
@@ -221,6 +223,16 @@ const assistantRecord = z.record(z.string(), z.unknown());
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
 
+// `connectImport` takes a pairing bundle plus an optional local name. Both are
+// optional on the wire (missing values resolve with structured errors, keeping
+// the never-reject contract); the shared `connectImport` op validates the
+// bundle, including the length cap that bounds what a hostile renderer can
+// make the main process buffer and decode.
+const connectImportArgs = z.tuple([
+  z.string().optional(),
+  z.string().optional(),
+]);
+
 // `wake` additionally takes an options object so a user-confirmed repair can
 // pass `repairGuardian` through to the CLI's `--repair-guardian` flag. Both
 // members stay optional so older renderers' single-argument invokes parse.
@@ -331,6 +343,23 @@ export const installLocalMode = (): void => {
       // same tick instead of after the next poll.
       refreshLockfileNow();
       return { ok: true, lockfile: result.lockfile };
+    },
+  );
+
+  handle(
+    "vellum:localMode:connectImport",
+    connectImportArgs,
+    ([bundle, name]): LocalConnectImportResult => {
+      const result = connectImport(lockfilePaths, configDir, { bundle, name });
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      refreshLockfileNow();
+      return {
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      };
     },
   );
 

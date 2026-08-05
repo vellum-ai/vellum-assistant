@@ -101,6 +101,12 @@ process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
 process.env.XDG_CONFIG_HOME = configHomeDir;
 const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
 
+// Matches the module's `resolveConfigDir(process.env)` under the
+// production + XDG_CONFIG_HOME environment pinned above.
+const configDir = path.join(configHomeDir, "vellum");
+const guardianTokenPath = (assistantId: string): string =>
+  path.join(configDir, "assistants", assistantId, "guardian-token.json");
+
 let mockSessionToken: string | null = null;
 mock.module("./session-token-store", () => ({
   getSessionToken: () => mockSessionToken,
@@ -613,12 +619,6 @@ describe("vellum:localMode:retire handler", () => {
   });
 });
 
-// Matches the module's `resolveConfigDir(process.env)` under the
-// production + XDG_CONFIG_HOME environment pinned above.
-const configDir = path.join(configHomeDir, "vellum");
-const tokenPath = (assistantId: string): string =>
-  path.join(configDir, "assistants", assistantId, "guardian-token.json");
-
 describe("vellum:localMode:unpair handler", () => {
   beforeEach(() => {
     fs.rmSync(lockfilePath, { force: true });
@@ -633,8 +633,10 @@ describe("vellum:localMode:unpair handler", () => {
       { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
       "paired-1",
     );
-    fs.mkdirSync(path.dirname(tokenPath("paired-1")), { recursive: true });
-    fs.writeFileSync(tokenPath("paired-1"), "{}");
+    fs.mkdirSync(path.dirname(guardianTokenPath("paired-1")), {
+      recursive: true,
+    });
+    fs.writeFileSync(guardianTokenPath("paired-1"), "{}");
 
     const result = unpair("paired-1");
 
@@ -644,7 +646,7 @@ describe("vellum:localMode:unpair handler", () => {
     }
     expect(result.lockfile.activeAssistant).toBeNull();
     expect(result.lockfile.assistants).toEqual([]);
-    expect(fs.existsSync(tokenPath("paired-1"))).toBe(false);
+    expect(fs.existsSync(guardianTokenPath("paired-1"))).toBe(false);
     expect(spawnArgs).toHaveLength(0);
   });
 
@@ -694,6 +696,100 @@ describe("vellum:localMode:unpair handler", () => {
     expect(unpair(undefined)).toEqual({
       ok: false,
       error: "Missing assistantId",
+    });
+  });
+});
+
+describe("vellum:localMode:connectImport handler", () => {
+  type ConnectImportResult = {
+    ok: boolean;
+    assistantId?: string;
+    accessOnly?: boolean;
+    error?: string;
+  };
+  const connectImport = (
+    bundle?: unknown,
+    name?: unknown,
+  ): ConnectImportResult =>
+    handlers["vellum:localMode:connectImport"](
+      allowedEvent,
+      bundle,
+      name,
+    ) as ConnectImportResult;
+
+  const encodeBundle = (bundle: Record<string, unknown>): string =>
+    Buffer.from(JSON.stringify(bundle)).toString("base64");
+
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    fs.rmSync(path.join(configDir, "assistants"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  test("registers a paired entry and writes its guardian token without spawning", () => {
+    const result = connectImport(
+      encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok-access",
+        deviceId: "dev-1",
+      }),
+      "desk",
+    );
+
+    expect(result).toEqual({ ok: true, assistantId: "desk", accessOnly: true });
+    expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(guardianTokenPath("desk"))).toBe(true);
+    const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Array<Record<string, unknown>>;
+    };
+    expect(onDisk.assistants[0]).toMatchObject({
+      assistantId: "desk",
+      cloud: "paired",
+      paired: true,
+      runtimeUrl: "https://gw.example.com",
+    });
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("a malformed bundle resolves to a structured error", () => {
+    const result = connectImport("not-base64-json!!!");
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("base64");
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("refuses to overwrite an existing non-paired assistant", () => {
+    saveLockfileAssistant(
+      { assistantId: "local-1", cloud: "local" },
+      "local-1",
+    );
+
+    const result = connectImport(
+      encodeBundle({ gatewayUrl: "https://gw.example.com", token: "tok" }),
+      "local-1",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("already exists");
+    expect(fs.existsSync(guardianTokenPath("local-1"))).toBe(false);
+  });
+
+  test("rejects a missing or oversized bundle with a structured error", () => {
+    expect(connectImport(undefined)).toEqual({
+      ok: false,
+      error: "Missing pairing bundle",
+    });
+    expect(connectImport("")).toEqual({
+      ok: false,
+      error: "Missing pairing bundle",
+    });
+    expect(connectImport("a".repeat(64 * 1024 + 1))).toEqual({
+      ok: false,
+      error: "Pairing bundle is too large",
     });
   });
 });
@@ -803,9 +899,11 @@ describe("vellum:localMode:guardianToken handler", () => {
     assistantId: string,
     over: Record<string, unknown>,
   ): void => {
-    fs.mkdirSync(path.dirname(tokenPath(assistantId)), { recursive: true });
+    fs.mkdirSync(path.dirname(guardianTokenPath(assistantId)), {
+      recursive: true,
+    });
     fs.writeFileSync(
-      tokenPath(assistantId),
+      guardianTokenPath(assistantId),
       JSON.stringify({
         guardianPrincipalId: "principal",
         accessToken: "stored-token",

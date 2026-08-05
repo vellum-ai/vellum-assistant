@@ -104,6 +104,8 @@ const bridge: Pick<
     sleep: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
     unpair: () =>
       Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
+    connectImport: () =>
+      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
     guardianToken: () =>
       Promise.resolve({ ok: false as const, status: 501, error: NOT_AVAILABLE }),
   },

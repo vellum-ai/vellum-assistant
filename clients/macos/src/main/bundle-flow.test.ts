@@ -54,6 +54,7 @@ mock.module("@vellumai/local-mode", () => ({
   replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
   upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),
   unpairAssistant: mock(() => ({ ok: false, error: "unused" })),
+  connectImport: mock(() => ({ ok: false, status: 400, error: "unused" })),
   runHatch: mock(async () => ({ ok: false, error: "unused" })),
   runRetire: mock(async () => ({ ok: false, error: "unused" })),
   runSleep: mock(async () => ({ ok: false, error: "unused" })),

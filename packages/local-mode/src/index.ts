@@ -46,12 +46,19 @@ export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireOptions, RetireResult } from "./retire";
 export { unpairAssistant } from "./unpair";
-export { decodePairBundle, pairAssistant } from "./pair";
+export {
+  decodePairBundle,
+  pairAssistant,
+  connectImport,
+  MAX_PAIR_BUNDLE_LENGTH,
+} from "./pair";
 export type {
   PairBundle,
   DecodePairBundleResult,
   PairOptions,
   PairResult,
+  ConnectImportOptions,
+  ConnectImportResult,
 } from "./pair";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";

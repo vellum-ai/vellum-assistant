@@ -274,3 +274,61 @@ export function pairAssistant(
     accessOnly: !bundle.refreshToken,
   };
 }
+
+/**
+ * Bounds what an untrusted connect-import request can make a host buffer and
+ * decode. Enforced by {@link connectImport} for every host.
+ */
+export const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
+
+export interface ConnectImportOptions {
+  /** The encoded bundle exactly as received from the transport. */
+  bundle: unknown;
+  /** Optional local name; non-string or empty values are ignored. */
+  name?: unknown;
+}
+
+/**
+ * Wire-shaped result of a connect-import: the success members are the response
+ * body fields, and `status` on failure is the HTTP status the loopback hosts
+ * respond with (the IPC host ignores it).
+ */
+export type ConnectImportResult =
+  | { ok: true; assistantId: string; accessOnly: boolean }
+  | { ok: false; status: number; error: string };
+
+/**
+ * The complete connect-import host operation: validate the raw bundle value
+ * (present, non-empty, within {@link MAX_PAIR_BUNDLE_LENGTH}), decode it, and
+ * register the pairing via {@link pairAssistant}. Hosts keep only
+ * transport-specific parsing and pass the untrusted values straight through,
+ * so bundle limits, error strings, and the result shape are defined once.
+ */
+export function connectImport(
+  lockfilePaths: string[],
+  configDir: string,
+  { bundle, name }: ConnectImportOptions,
+): ConnectImportResult {
+  if (typeof bundle !== "string" || !bundle) {
+    return { ok: false, status: 400, error: "Missing pairing bundle" };
+  }
+  if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
+    return { ok: false, status: 400, error: "Pairing bundle is too large" };
+  }
+  const decoded = decodePairBundle(bundle.trim());
+  if (!decoded.ok) {
+    return { ok: false, status: 400, error: decoded.error };
+  }
+  const result = pairAssistant(lockfilePaths, configDir, {
+    bundle: decoded.bundle,
+    name: typeof name === "string" && name ? name : undefined,
+  });
+  if (!result.ok) {
+    return { ok: false, status: result.status, error: result.error };
+  }
+  return {
+    ok: true,
+    assistantId: result.assistantId,
+    accessOnly: result.accessOnly,
+  };
+}

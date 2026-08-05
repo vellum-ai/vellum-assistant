@@ -24,6 +24,7 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
+  LocalConnectImportResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
@@ -346,6 +347,12 @@ const bridge: VellumBridge = {
         "vellum:localMode:unpair",
         assistantId,
       ) as Promise<LockfileWriteResult>,
+    connectImport: (bundle: string, name?: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:connectImport",
+        bundle,
+        name,
+      ) as Promise<LocalConnectImportResult>,
     sleep: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
         ok: boolean;

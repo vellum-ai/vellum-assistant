@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { guardianTokenPath } from "../config";
-import { decodePairBundle, pairAssistant, type PairBundle } from "../pair";
+import {
+  connectImport,
+  decodePairBundle,
+  MAX_PAIR_BUNDLE_LENGTH,
+  pairAssistant,
+  type PairBundle,
+} from "../pair";
 
 let tmpDir: string;
 let lockfilePath: string;
@@ -422,5 +428,119 @@ describe("pairAssistant", () => {
       return;
     }
     expect(result.status).toBe(422);
+  });
+});
+
+describe("connectImport", () => {
+  test("registers a valid bundle and returns the wire-shaped success", () => {
+    const result = connectImport([lockfilePath], configDir, {
+      bundle: ` ${encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok",
+        deviceId: "dev-ci",
+      })} `,
+      name: "Desk Box",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "desk-box",
+      accessOnly: true,
+    });
+    expect(fs.existsSync(guardianTokenPath(configDir, "desk-box"))).toBe(true);
+    const entry = (
+      readLockfileFromDisk().assistants as Array<Record<string, unknown>>
+    )[0]!;
+    expect(entry).toMatchObject({
+      assistantId: "desk-box",
+      cloud: "paired",
+      paired: true,
+      runtimeUrl: "https://gw.example.com",
+    });
+  });
+
+  test("a missing, empty, or non-string bundle is a 400", () => {
+    for (const value of [undefined, "", 42]) {
+      expect(
+        connectImport([lockfilePath], configDir, { bundle: value }),
+      ).toEqual({
+        ok: false,
+        status: 400,
+        error: "Missing pairing bundle",
+      });
+    }
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("an oversized bundle is refused before decoding", () => {
+    expect(
+      connectImport([lockfilePath], configDir, {
+        bundle: "a".repeat(MAX_PAIR_BUNDLE_LENGTH + 1),
+      }),
+    ).toEqual({
+      ok: false,
+      status: 400,
+      error: "Pairing bundle is too large",
+    });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("a malformed bundle maps the decode error to a 400", () => {
+    const result = connectImport([lockfilePath], configDir, {
+      bundle: "not-base64-json!!!",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.status).toBe(400);
+    expect(result.error).toContain("base64");
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("an overwrite refusal keeps pairAssistant's 409 and error string", () => {
+    writeLockfile({
+      assistants: [
+        {
+          assistantId: "desk",
+          cloud: "local",
+          runtimeUrl: "http://127.0.0.1:7830",
+        },
+      ],
+      activeAssistant: "desk",
+    });
+
+    const result = connectImport([lockfilePath], configDir, {
+      bundle: encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok",
+      }),
+      name: "desk",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: 409,
+      error: "An assistant named 'desk' already exists",
+    });
+    expect(fs.existsSync(guardianTokenPath(configDir, "desk"))).toBe(false);
+  });
+
+  test("a non-string name is ignored rather than slugified", () => {
+    const result = connectImport([lockfilePath], configDir, {
+      bundle: encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok",
+        deviceId: "dev-nn",
+      }),
+      name: 7,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-dev-nn",
+      accessOnly: true,
+    });
   });
 });

@@ -12,6 +12,7 @@
 export * from "./types";
 export * from "./schemas";
 export {
+  type LocalConnectImportResult,
   type LocalUpgradeOptions,
   type LocalWakeOptions,
   type VellumBridge,

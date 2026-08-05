@@ -10,6 +10,7 @@ import {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  connectImport,
   getLockfileData,
   getLocalAssistantStatus,
   upsertLockfileAssistant,
@@ -91,6 +92,9 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
       server.middlewares.use(
         unpairMiddleware(config.lockfilePaths, config.configDir),
+      );
+      server.middlewares.use(
+        connectImportMiddleware(config.lockfilePaths, config.configDir),
       );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
@@ -529,6 +533,53 @@ function unpairMiddleware(
         result.ok ? 200 : result.status,
         result.ok
           ? { ok: true, lockfile: result.lockfile }
+          : { ok: false, error: result.error },
+      );
+    });
+  };
+}
+
+function connectImportMiddleware(
+  lockfilePaths: string[],
+  configDir: string,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/connect-import" &&
+      req.url !== "/__local/connect-import"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
+      }
+
+      const result = connectImport(lockfilePaths, configDir, {
+        bundle: body.bundle,
+        name: body.name,
+      });
+      respondJson(
+        res,
+        result.ok ? 200 : result.status,
+        result.ok
+          ? {
+              ok: true,
+              assistantId: result.assistantId,
+              accessOnly: result.accessOnly,
+            }
           : { ok: false, error: result.error },
       );
     });
