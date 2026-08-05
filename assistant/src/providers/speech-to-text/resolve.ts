@@ -632,6 +632,10 @@ async function createStreamingTranscriber(
           : {}),
       });
     }
+    case "deepgram-flux":
+      // Flux has no streaming adapter in this factory; `null` is the
+      // documented "no streaming adapter" signal callers fall back on.
+      return null;
     default: {
       const _exhaustive: never = providerId;
       return null;
