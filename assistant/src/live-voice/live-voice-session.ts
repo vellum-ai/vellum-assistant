@@ -389,6 +389,12 @@ interface UtteranceCycle {
   // to the silence-boundary path and stays there: a late event must not
   // commit a boundary the fallback already owns.
   fluxTurnEndTimedOut: boolean;
+  // `vadSpeechGeneration` as of the local silence boundary that handed this
+  // cycle to Flux, or null while no boundary has fired yet (Flux routinely
+  // beats the trailing-silence countdown, and that fast commit is the point).
+  // A provider end-of-turn arriving with a newer generation describes speech
+  // the caller has already spoken past (see isStaleFluxTurnEnd).
+  fluxBoundaryGeneration: number | null;
   // The transcript the most recent hold verdict judged (unified front-door).
   // A final segment arriving during the extension window that extends this
   // text replays the boundary immediately — the hold was judged on stale
@@ -850,6 +856,7 @@ function createUtteranceCycle(): UtteranceCycle {
     latestPartialText: null,
     endpointExtensionCount: 0,
     fluxTurnEndTimedOut: false,
+    fluxBoundaryGeneration: null,
     heldSpeculativeContent: null,
     turnId: null,
     userMessageId: null,
@@ -2795,6 +2802,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // whose deadline already elapsed falls through to the hold path
         // below, which is the whole point of the fallback.
         if (this.fluxTurnEndActive && !utterance.fluxTurnEndTimedOut) {
+          // Stamp the speech run this boundary closed. handleVadSpeechStart
+          // bumps the generation when the caller resumes, so a turn-end that
+          // was already in flight is recognisably stale (isStaleFluxTurnEnd).
+          utterance.fluxBoundaryGeneration = this.vadSpeechGeneration;
           this.armFluxTurnEndFallbackTimer(utterance);
           return;
         }
@@ -2859,6 +2870,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }, waitMs);
   }
 
+  /**
+   * A provider end-of-turn that lost its race with the caller's next breath.
+   * The local silence boundary stamps the cycle with the speech generation it
+   * closed; `handleVadSpeechStart` bumps that generation (and clears the
+   * fail-open deadline) the moment the caller resumes. A turn-end arriving
+   * afterwards therefore describes speech the caller has already spoken past:
+   * acting on it would send utterance_end and stop the transcriber while local
+   * VAD is still routing the resumed speech into this same cycle, cutting off
+   * the next words or folding them into the wrong turn. This is the same
+   * active-detector / generation staleness test the silence fallback and the
+   * speculative hold paths already apply. Before any boundary has fired the
+   * stamp is null and nothing is stale: Flux routinely closes a turn while the
+   * trailing-silence countdown is still running, and that fast commit is the
+   * whole feature.
+   */
+  private isStaleFluxTurnEnd(utterance: UtteranceCycle): boolean {
+    return (
+      utterance.fluxBoundaryGeneration !== null &&
+      utterance.fluxBoundaryGeneration !== this.vadSpeechGeneration
+    );
+  }
+
   private clearFluxTurnEndTimer(): void {
     if (this.fluxTurnEndTimer !== null) {
       clearTimeout(this.fluxTurnEndTimer);
@@ -2896,6 +2929,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // The fallback already took this utterance back to the silence path.
       utterance.fluxTurnEndTimedOut
     ) {
+      return;
+    }
+    if (this.isStaleFluxTurnEnd(utterance)) {
+      log.debug(
+        {
+          boundaryGeneration: utterance.fluxBoundaryGeneration,
+          speechGeneration: this.vadSpeechGeneration,
+        },
+        "Dropping a stale Flux end-of-turn: the caller resumed speaking past the boundary it closed",
+      );
+      // The cycle stays open and local VAD keeps routing the resumed speech
+      // into it. The detector's next silence boundary re-stamps the
+      // generation and re-arms the fail-open deadline, so the turn still
+      // commits: on the end-of-turn for the resumed speech, or on that
+      // deadline. Re-arm here only if the detector has somehow already gone
+      // idle, so the deadline handleVadSpeechStart cleared can never strand
+      // the cycle with nothing left to close it.
+      if (this.turnDetector?.isActive !== true) {
+        utterance.fluxBoundaryGeneration = this.vadSpeechGeneration;
+        this.armFluxTurnEndFallbackTimer(utterance);
+      }
       return;
     }
     this.clearFluxTurnEndTimer();

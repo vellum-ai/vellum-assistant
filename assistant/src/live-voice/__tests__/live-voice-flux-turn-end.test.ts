@@ -203,6 +203,21 @@ async function flushAsyncCallbacks(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function countFrames(
+  frames: LiveVoiceServerFrame[],
+  type: LiveVoiceServerFrame["type"],
+): number {
+  return frames.filter((frame) => frame.type === type).length;
+}
+
+// Long enough for the 40 ms local silence timer to fire and hand the boundary
+// to Flux (which arms the fail-open deadline and commits nothing).
+const PAST_SILENCE_BOUNDARY_MS = 150;
+
 const FLUX_ON = {
   turnEnd: { enabled: true },
   eotTimeoutMs: 500,
@@ -355,6 +370,153 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     );
     // Back on the existing path: a speculative dispatch that knows the hold
     // token, judging the partial the silence boundary saw.
+    expect(turnCalls[0]?.content).toBe("are you still there");
+    expect(turnCalls[0]?.unifiedVerdict).toBe(true);
+
+    await session.close("client_end");
+  }, 10_000);
+
+  test("commits a turn-end that arrives after the local silence boundary", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+
+    // The boundary passes and commits nothing: Flux owns it.
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+    expect(turnCalls).toHaveLength(0);
+
+    // No resumed speech, so this turn-end is the one the boundary was waiting
+    // for and it commits exactly as before.
+    transcribers[0]?.endOfTurn("what is the weather");
+    await waitFor(
+      () => turnCalls.length === 1,
+      "A non-stale turn-end after the silence boundary never committed",
+    );
+    expect(turnCalls[0]?.content).toBe("what is the weather");
+    expect(turnCalls[0]?.unifiedVerdict).toBeUndefined();
+    expect(frames.some((frame) => frame.type === "utterance_end")).toBe(true);
+
+    await session.close("client_end");
+  });
+
+  test("drops a turn-end that arrives after the caller resumed speaking", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    const transcriber = transcribers[0];
+    transcriber?.emit({ type: "partial", text: "what is the" });
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    // The caller draws breath and keeps going before the provider's turn-end
+    // for the speech that boundary closed reaches the session.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(
+      () => countFrames(frames, "speech_started") === 2,
+      "The resumed speech never re-opened a detector turn",
+    );
+    const receivedBeforeResume = transcriber?.received.length ?? 0;
+
+    transcriber?.emit({
+      type: "turn-end",
+      text: "what is the",
+      confidence: 0.9,
+    });
+    await flushAsyncCallbacks();
+
+    // Dropped: no boundary frame, the transcriber keeps running, no turn.
+    expect(frames.some((frame) => frame.type === "utterance_end")).toBe(false);
+    expect(transcriber?.stopped).toBe(false);
+    expect(turnCalls).toHaveLength(0);
+
+    // ...and the resumed speech still routes into the same open utterance.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(
+      () => (transcriber?.received.length ?? 0) > receivedBeforeResume,
+      "The resumed speech stopped reaching the transcriber",
+    );
+
+    await session.close("client_end");
+  });
+
+  test("commits the resumed turn on the next turn-end after dropping a stale one", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countFrames(frames, "speech_started") === 2);
+    transcribers[0]?.emit({
+      type: "turn-end",
+      text: "what is the",
+      confidence: 0.9,
+    });
+    await flushAsyncCallbacks();
+    expect(turnCalls).toHaveLength(0);
+
+    // The caller finishes for real: the next silence boundary re-stamps the
+    // cycle, so Flux's turn-end for the resumed speech commits it.
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+    transcribers[0]?.endOfTurn("what is the weather today");
+
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The resumed turn never committed after the stale turn-end was dropped",
+    );
+    expect(turnCalls[0]?.content).toBe("what is the weather today");
+    expect(turnCalls[0]?.unifiedVerdict).toBeUndefined();
+    expect(frames.some((frame) => frame.type === "utterance_end")).toBe(true);
+
+    await session.close("client_end");
+  });
+
+  test("falls back to the deadline when nothing follows the dropped turn-end", async () => {
+    const { session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.emit({ type: "partial", text: "are you still there" });
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    transcribers[0]?.emit({
+      type: "turn-end",
+      text: "are you still there",
+      confidence: 0.9,
+    });
+    await flushAsyncCallbacks();
+    expect(turnCalls).toHaveLength(0);
+
+    // Flux says nothing more. The next silence boundary re-arms the fail-open
+    // deadline, so the utterance still commits on the silence path instead of
+    // hanging open forever.
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The utterance hung after the stale turn-end was dropped",
+    );
     expect(turnCalls[0]?.content).toBe("are you still there");
     expect(turnCalls[0]?.unifiedVerdict).toBe(true);
 
