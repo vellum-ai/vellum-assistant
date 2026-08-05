@@ -66,8 +66,17 @@ mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({ llm: configuredLlm }),
 }));
 
+// The handler re-checks live owner authority, which reads the guardian binding
+// over IPC. Stub the answer so the profile and evidence cases exercise the
+// handler body, and so one case can present a caller who is not the owner.
+let callerIsOwner = true;
+mock.module("../../auth/owner-caller.js", () => ({
+  isOwnerCaller: async () => callerIsOwner,
+}));
+
 const { ROUTES } = await import("../inference-send-routes.js");
-const { BadRequestError, UpstreamProviderError } = await import("../errors.js");
+const { BadRequestError, ForbiddenError, UpstreamProviderError } =
+  await import("../errors.js");
 const { recordProviderRequestDiagnostics } =
   await import("../../../providers/request-diagnostics.js");
 
@@ -90,12 +99,33 @@ function baseResponse(overrides: Partial<ProviderResponse>): ProviderResponse {
 }
 
 beforeEach(() => {
+  callerIsOwner = true;
   configuredLlm = LLMSchema.parse({});
   nextResponse = baseResponse({});
   sendMessageImpl = undefined;
   getConfiguredProviderOptions = undefined;
   sendMessageOptions = undefined;
   resolutionConnectionName = undefined;
+});
+
+describe("inference_send owner authority", () => {
+  test("rejects a caller who no longer holds owner authority", async () => {
+    // GIVEN an actor token whose guardian binding no longer matches
+    callerIsOwner = false;
+
+    // WHEN the inference_send handler processes a request
+    const error = await Promise.resolve(
+      inferenceSendHandler()({ body: { message: "hi" } }),
+    ).then(
+      () => new Error("expected the request to be rejected"),
+      (err: unknown) => err,
+    );
+
+    // THEN the send is refused before any provider call is made
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect((error as Error).message).toContain("owner");
+    expect(getConfiguredProviderOptions).toBeUndefined();
+  });
 });
 
 describe("inference_send profile routing", () => {

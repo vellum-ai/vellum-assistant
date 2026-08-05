@@ -18,15 +18,31 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
 import { runWithProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
+import { isOwnerCaller } from "../auth/owner-caller.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, UpstreamProviderError } from "./errors.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  UpstreamProviderError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
+async function handleInferenceSend({ body = {}, headers }: RouteHandlerArgs) {
+  // The route policy admits actor principals, and an actor token is a bearer
+  // credential that stays signature-valid after the guardian binding it was
+  // minted against is revoked or rebound. Principal type alone therefore does
+  // not answer "is this still the owner", so the handler re-reads live owner
+  // authority before spending the owner's provider budget.
+  if (!(await isOwnerCaller(headers))) {
+    throw new ForbiddenError(
+      "Only the assistant's owner can send inference requests",
+    );
+  }
+
   const message = body.message;
   if (typeof message !== "string" || !message.trim()) {
     throw new BadRequestError("message must be a non-empty string");

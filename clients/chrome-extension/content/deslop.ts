@@ -126,15 +126,27 @@
 
     const response = await new Promise<DeslopRewriteResponse | undefined>(
       (resolve) => {
-        chrome.runtime.sendMessage(
-          { type: "deslop-rewrite", text: text.slice(0, MAX_TEXT_LENGTH) },
-          (raw: DeslopRewriteResponse | undefined) => {
-            // Read lastError so Chrome doesn't log an unchecked error
-            // when the worker died mid-request.
-            void chrome.runtime.lastError;
-            resolve(raw);
-          },
-        );
+        // sendMessage throws synchronously once the extension context is
+        // invalidated (the extension was reloaded while this script stayed
+        // on the page), so the throw is folded into the same failure path
+        // as an absent response rather than escaping as a rejection.
+        try {
+          chrome.runtime.sendMessage(
+            { type: "deslop-rewrite", text: text.slice(0, MAX_TEXT_LENGTH) },
+            (raw: DeslopRewriteResponse | undefined) => {
+              // Read lastError so Chrome doesn't log an unchecked error
+              // when the worker died mid-request.
+              void chrome.runtime.lastError;
+              resolve(raw);
+            },
+          );
+        } catch {
+          resolve({
+            ok: false,
+            error:
+              "The extension was reloaded. Reopen the popup and press Deslop again.",
+          });
+        }
       },
     );
 
