@@ -75,12 +75,12 @@ const SKILL_DEDUP_CHECK_NAME = "skill_dedup";
 
 /**
  * Count a dedup decision (admin analytics groups on the watchdog check_name).
- * The rate of these against total retrospective authoring is the first signal
- * we have for how much duplication the catalog was absorbing, split by
- * whether the covering skill was the assistant's own. Skill ids stay out of the detail bag: they derive from
+ * The rate of `updated` versus `covered` versus total retrospective authoring
+ * is the first signal we have for how much duplication the catalog was
+ * absorbing. Skill ids stay out of the detail bag: they derive from
  * user/model content, and watchdog events are metadata-only. Never throws.
  */
-function recordDedupOutcome(outcome: "covered_own" | "covered_foreign"): void {
+function recordDedupOutcome(outcome: "updated" | "covered"): void {
   try {
     recordWatchdogEvent({
       checkName: SKILL_DEDUP_CHECK_NAME,
@@ -101,12 +101,8 @@ function recordDedupOutcome(outcome: "covered_own" | "covered_foreign"): void {
  */
 type DedupOutcome =
   | { kind: "proceed" }
-  | {
-      kind: "covered";
-      skillId: string;
-      source: string;
-      ownedByAssistant: boolean;
-    };
+  | { kind: "update"; skillId: string }
+  | { kind: "covered"; skillId: string; source: string };
 
 /**
  * Ask the skill matcher whether an existing skill already covers this
@@ -119,31 +115,20 @@ type DedupOutcome =
  * producing two competing skills: an intermediate conclusion, then its own
  * correction captured as a sibling instead of a revision.
  *
- * This check is purely SUBTRACTIVE: it never writes, redirects, or retargets
- * anything. It only refuses a write that would add a duplicate, and every
- * refusal names what to do instead. Deliberately so, because the write it is
- * declining to make would otherwise become a second, competing skill, while
- * anything stronger (silently retargeting the write onto an existing skill)
- * would turn a background pass into an unattended overwrite of an artifact
- * the user may already rely on, with no undo. `createManagedSkill` writes
- * through an atomic rename and keeps no prior version.
+ * The rule follows ownership, which is the same rule the prompt states:
  *
- * A confident match means the procedure is already covered, and the guidance
- * differs by ownership:
- *
- *   - a skill the assistant AUTHORED: refused, and the message names that
- *     skill, so a genuine improvement can land as an explicit
- *     `skill_id` + `overwrite: true` call. That path already exists and the
- *     prompt already asks for it; what changes is that a near-duplicate under
- *     a fresh id is no longer the easy accident. This is the case that
- *     produced two competing skills from one conversation: an intermediate
- *     conclusion, then its own correction captured as a sibling;
- *   - a skill it does NOT own (bundled, plugin, workspace, extra,
- *     user-authored, or untagged managed): refused, and the message routes
- *     the knowledge rather than discarding it, telling the pass to `remember`
- *     anything the covering skill does not capture (a failure mode, a
- *     precondition, a path that held steady). Nothing is mutated, nothing is
- *     shadowed.
+ *   - a confident match on a skill the assistant authored is the SAME
+ *     procedure, so the write is redirected onto that skill as an update. No
+ *     sibling, and a later correction lands on the skill it corrects;
+ *   - a confident match on any skill the assistant does not own (bundled,
+ *     plugin, workspace, extra, user-authored, or untagged managed) means the
+ *     procedure is already covered, so the write is refused. Nothing is
+ *     mutated and nothing is shadowed. The refusal routes the knowledge
+ *     rather than discarding it: it tells the pass to `remember` anything the
+ *     covering skill does not already capture (a failure mode, a
+ *     precondition, a path that held steady), which is available to a future
+ *     run of that skill without touching a skill the assistant does not
+ *     own.
  *
  * Deliberately FAIL-OPEN. This is best-effort deduplication, not a
  * correctness gate: an embedding or Qdrant outage makes
@@ -198,20 +183,17 @@ async function resolveRetrospectiveDedup(
       kind: "covered",
       skillId: top.skillId,
       source: catalogEntry.source,
-      ownedByAssistant: false,
     };
   }
   if (!managedSkillExists(top.skillId)) {
-    // Ranked but not resolvable on disk (a stale corpus entry): nothing
-    // proven to collide with, so let the write proceed.
+    // Ranked but not resolvable on disk (a stale corpus entry). Nothing to
+    // update and nothing proven to collide with, so let the write proceed.
     return { kind: "proceed" };
   }
-  return {
-    kind: "covered",
-    skillId: top.skillId,
-    source: "managed",
-    ownedByAssistant: readManagedAuthor(top.skillId) === "assistant",
-  };
+  if (readManagedAuthor(top.skillId) !== "assistant") {
+    return { kind: "covered", skillId: top.skillId, source: "managed" };
+  }
+  return { kind: "update", skillId: top.skillId };
 }
 
 /**
@@ -384,28 +366,31 @@ export async function executeScaffoldManagedSkill(
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
-  // Retrospective dedup: refuse a write that an existing skill already
-  // covers, so a near-duplicate cannot land under a fresh id. Purely
-  // subtractive and fail-open; see `resolveRetrospectiveDedup`.
-  // User-directed scaffolds skip this entirely: when a person asks for a
-  // skill, similarity to an existing one is not a reason to refuse it.
-  const id = proposedId;
+  // Retrospective dedup: an existing skill that confidently covers this
+  // procedure either absorbs the write (one the assistant authored) or blocks
+  // it (one it does not own). Best-effort and fail-open; see
+  // `resolveRetrospectiveDedup`. User-directed scaffolds skip this entirely:
+  // when a person asks for a skill, similarity to an existing one is not a
+  // reason to refuse or to silently retarget the write.
+  let id = proposedId;
+  let redirectedByDedup = false;
   if (fromRetrospective) {
     const dedup = await resolveRetrospectiveDedup(description, deps);
     if (dedup.kind === "covered") {
-      recordDedupOutcome(
-        dedup.ownedByAssistant ? "covered_own" : "covered_foreign",
-      );
-      log.info(
-        { proposedId, coveredBy: dedup.skillId, source: dedup.source },
-        "skill dedup: refusing a retrospective write already covered by an existing skill",
-      );
+      recordDedupOutcome("covered");
       return {
-        content: dedup.ownedByAssistant
-          ? `Error: you already have the skill "${dedup.skillId}" for this procedure, so no second skill was created. If this conversation genuinely improves on it, call again with skill_id "${dedup.skillId}" and overwrite: true, rewriting it from what you observed here. If it does not, skip it.`
-          : `Error: the skill "${dedup.skillId}" (${dedup.source}) already covers this procedure, and you may not modify or shadow it, so no skill was created. If this conversation showed something that skill does not capture (a failure mode you hit, a precondition, a value or path that held steady), save that with \`remember\` so it is available the next time "${dedup.skillId}" runs. If there is nothing new, skip it.`,
+        content: `Error: the skill "${dedup.skillId}" (${dedup.source}) already covers this procedure, and you may not modify or shadow it, so no skill was created. If this conversation showed something that skill does not already capture (a failure mode you hit, a precondition, a value or path that held steady), save that with \`remember\` so it is available the next time "${dedup.skillId}" runs. If there is nothing new, skip it.`,
         isError: true,
       };
+    }
+    if (dedup.kind === "update") {
+      recordDedupOutcome("updated");
+      id = dedup.skillId;
+      redirectedByDedup = true;
+      log.info(
+        { proposedId, targetSkillId: id },
+        "skill dedup: redirecting retrospective write onto the assistant's existing skill",
+      );
     }
   }
 
@@ -413,7 +398,8 @@ export async function executeScaffoldManagedSkill(
   // ownership backstop below, the created-vs-refined discriminant for the
   // skill-card enqueue, and the `skill_authored` telemetry counter: only a
   // genuine CREATE (no pre-existing skill, regardless of the `overwrite`
-  // flag) gets a card or a counter event.
+  // flag) gets a card or a counter event. A dedup redirect always lands on an
+  // existing skill, so it is a refinement: no card, no counter.
   const managedSkillExistedBefore = existsSync(
     join(getManagedSkillDir(id), "SKILL.md"),
   );
@@ -491,7 +477,7 @@ export async function executeScaffoldManagedSkill(
     description: normalizedDescription,
     bodyMarkdown: bodyMarkdown,
     emoji: normalizedEmoji,
-    overwrite: input.overwrite === true,
+    overwrite: input.overwrite === true || redirectedByDedup,
     includes,
     activationHints,
     avoidWhen,
