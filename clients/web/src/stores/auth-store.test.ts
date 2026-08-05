@@ -1855,6 +1855,13 @@ describe("platform probe conclusive rejection (half-dead session)", () => {
 
     expect(useAuthStore.getState().platformSession).toBe("present");
     expect(useAuthStore.getState().user?.kind).toBe("platform");
+    // Wiring pin: past the timeout the strict sync gate is closed but the
+    // same-session gate stays open (no newer probe), so a late org success
+    // may still commit and un-strand readiness.
+    const [isCurrent, isSameSession] = fetchOrganizationsMock.mock
+      .calls[0] as unknown as [() => boolean, () => boolean];
+    expect(isCurrent()).toBe(false);
+    expect(isSameSession()).toBe(true);
   });
 
   test("a rejection landing after the race timeout does not clear org state", async () => {

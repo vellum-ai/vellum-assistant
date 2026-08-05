@@ -151,6 +151,55 @@ describe("fetch outcome classification", () => {
     expect(state.status).toBe("error");
   });
 
+  test("a timed-out fetch from the still-active session commits a late success", async () => {
+    listOrganizations = () => Promise.resolve({ data: { results: [ORG_A] } });
+
+    // The probe's race timeout lapsed (isCurrent false) but no newer
+    // probe/session superseded the fetch (isSameSession true): the resolved
+    // org belongs to the active session, so discarding it would strand
+    // org-header readiness until the next resume.
+    const outcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(
+        () => false,
+        () => true,
+      );
+
+    expect(outcome).toEqual({ ok: true });
+    const state = useOrganizationStore.getState();
+    expect(state.currentOrganizationId).toBe(ORG_A.id);
+    expect(state.status).toBe("ready");
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
+  });
+
+  test("a timed-out rejection stays non-destructive even for the active session", async () => {
+    sessionStorage.setItem(STORAGE_KEY, ORG_A.id);
+    useOrganizationStore.setState({ persistedOrganizationId: ORG_A.id });
+    listOrganizations = () =>
+      Promise.resolve({
+        data: undefined,
+        error: { detail: "Authentication credentials were not provided." },
+        response: new Response(null, { status: 403 }),
+      });
+
+    const outcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(
+        () => false,
+        () => true,
+      );
+
+    // Destructive writes ride only with a fully current sync: the probe
+    // already settled "present" past its timeout, so the late rejection must
+    // not strip the org header out from under that session.
+    expect(outcome).toEqual({ ok: false, kind: "rejected", status: 403 });
+    expect(useOrganizationStore.getState().persistedOrganizationId).toBe(
+      ORG_A.id,
+    );
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
+    expect(useOrganizationStore.getState().status).toBe("error");
+  });
+
   test("a superseded thrown fetch still settles status", async () => {
     useOrganizationStore.setState({ status: "ready" });
     listOrganizations = () => Promise.reject(new Error("network down"));

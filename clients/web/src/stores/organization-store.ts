@@ -62,12 +62,19 @@ interface OrganizationActions {
   /**
    * Load the org list and report how the fetch concluded. When `isCurrent`
    * is provided and answers false at commit time (a raced caller superseded
-   * mid-flight), the fetch settles status/error only: no org list, id, or
-   * storage writes, so a stale rejection cannot strip the org fallback out
-   * from under a newer session and a stale success cannot install an older
-   * account's org id, while readiness still reaches a terminal state.
+   * mid-flight), a failed fetch settles status/error only: no org list, id,
+   * or storage writes, so a stale rejection cannot strip the org fallback
+   * out from under a newer session, while readiness still reaches a
+   * terminal state. A successful fetch consults `isSameSession` (defaulting
+   * to `isCurrent`): when the probed session is still the active one — the
+   * fetch merely outlived the probe's race timeout — the resolved org
+   * commits fully; a fetch superseded by a newer session/probe discards its
+   * success so an older account's org id cannot install itself.
    */
-  fetchOrganizations: (isCurrent?: () => boolean) => Promise<OrgFetchOutcome>;
+  fetchOrganizations: (
+    isCurrent?: () => boolean,
+    isSameSession?: () => boolean,
+  ) => Promise<OrgFetchOutcome>;
   setCurrentOrganizationId: (organizationId: string) => void;
   clearOrganization: () => void;
 }
@@ -137,7 +144,10 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
   status: "idle",
   error: null,
 
-  fetchOrganizations: async (isCurrent?: () => boolean) => {
+  fetchOrganizations: async (
+    isCurrent?: () => boolean,
+    isSameSession?: () => boolean,
+  ) => {
     set({ status: "loading", error: null });
 
     try {
@@ -172,14 +182,21 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
             : "No organization available for this user.";
       }
 
-      // A superseded caller commits no data either way: a stale rejection
-      // must not strip the org fallback out from under a newer session, and
-      // a stale success must not overwrite the newer session's org id with
-      // an older account's (requests would carry the wrong
-      // Vellum-Organization-Id). But leaving the store at "loading" would
-      // wedge org-header readiness at "resolving" when no newer fetch is
-      // coming (the probe's race timeout), so it settles status/error only.
-      if (!(isCurrent?.() ?? true)) {
+      // A non-current caller commits no failure state beyond status/error: a
+      // stale rejection must not strip the org fallback out from under a
+      // newer session, but leaving the store at "loading" would wedge
+      // org-header readiness at "resolving" when no newer fetch is coming
+      // (the probe's race timeout). A SUCCESS is judged by `isSameSession`:
+      // when the fetch merely outlived the probe's race timeout but the
+      // probed session is still the active one, the resolved org belongs to
+      // that session and discarding it would strand readiness until the next
+      // resume — it commits fully. Only a fetch superseded by a newer
+      // session/probe discards its success, since an older account's org id
+      // must not overwrite the newer header source.
+      const current = isCurrent?.() ?? true;
+      const successCommits =
+        current || ((isSameSession ?? isCurrent)?.() ?? true);
+      if (currentOrganizationId ? !successCommits : !current) {
         set({
           status: "error",
           error: error ?? "Organization fetch superseded.",

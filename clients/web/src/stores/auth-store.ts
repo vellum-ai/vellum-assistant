@@ -584,11 +584,17 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
  */
 async function reconcilePlatformAssistants(
   syncIsCurrent?: () => boolean,
+  sessionIsCurrent?: () => boolean,
 ): Promise<boolean> {
   try {
+    // `sessionIsCurrent` is the looser gate: it stays true past the probe's
+    // race timeout as long as no newer probe superseded this one, letting a
+    // slow-but-successful org fetch for the still-active session commit
+    // instead of stranding readiness. Destructive writes stay on the strict
+    // `syncIsCurrent`.
     const orgOutcome = await useOrganizationStore
       .getState()
-      .fetchOrganizations(syncIsCurrent);
+      .fetchOrganizations(syncIsCurrent, sessionIsCurrent);
     if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
       return true;
     }
@@ -692,8 +698,10 @@ function probePlatformSession(
           try {
             await Promise.race([
               (async () => {
-                sessionRejected =
-                  await reconcilePlatformAssistants(syncIsCurrent);
+                sessionRejected = await reconcilePlatformAssistants(
+                  syncIsCurrent,
+                  () => !isStale(),
+                );
               })(),
               new Promise<never>((_, reject) => {
                 timeoutHandle = setTimeout(() => {
