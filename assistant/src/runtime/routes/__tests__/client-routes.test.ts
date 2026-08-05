@@ -67,6 +67,7 @@ function registerClient(args: {
   actorPrincipalId?: string;
 }): void {
   registerHubClient({
+    hub: assistantEventHub,
     clientId: args.clientId,
     capabilities: ["host_bash", "host_file", "host_cu"],
     actorPrincipalId: args.actorPrincipalId,
@@ -78,7 +79,7 @@ function registerClient(args: {
 describe("list_clients route — same-user filter", () => {
   beforeEach(() => {
     fakeHttpAuthDisabled = false;
-    clearHubClients();
+    clearHubClients(assistantEventHub);
   });
 
   test("returns only clients owned by the calling actor", () => {
@@ -167,7 +168,7 @@ describe("list_clients route — same-user filter", () => {
 describe("report_client_presence route", () => {
   beforeEach(() => {
     fakeHttpAuthDisabled = false;
-    clearHubClients();
+    clearHubClients(assistantEventHub);
   });
 
   test("records presence against the client named by the header", () => {

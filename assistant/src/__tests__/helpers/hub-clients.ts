@@ -1,19 +1,18 @@
 /**
  * Register and tear down client subscribers on an assistant event hub.
  *
- * Defaults to the process singleton, which is what route and policy tests
- * exercise. Pass `hub` to drive a standalone instance instead.
+ * The caller supplies the hub, so this helper holds no runtime import into
+ * `src/` and stays safe for the test preload's import graph.
  */
 import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
 import type {
   AssistantEventHub,
   DesktopPresenceState,
 } from "../../runtime/assistant-event-hub.js";
-import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 
 export interface RegisterHubClientArgs {
+  hub: AssistantEventHub;
   clientId: string;
-  hub?: AssistantEventHub;
   interfaceId?: InterfaceId;
   capabilities?: HostProxyCapability[];
   actorPrincipalId?: string;
@@ -22,7 +21,7 @@ export interface RegisterHubClientArgs {
 }
 
 export function registerHubClient(args: RegisterHubClientArgs): void {
-  const hub = args.hub ?? assistantEventHub;
+  const { hub } = args;
   hub.subscribe({
     type: "client",
     clientId: args.clientId,
@@ -36,9 +35,7 @@ export function registerHubClient(args: RegisterHubClientArgs): void {
   }
 }
 
-export function clearHubClients(
-  hub: AssistantEventHub = assistantEventHub,
-): void {
+export function clearHubClients(hub: AssistantEventHub): void {
   for (const client of hub.listClients()) {
     hub.disposeClient(client.clientId);
   }
