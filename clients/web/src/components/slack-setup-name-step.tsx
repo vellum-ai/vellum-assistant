@@ -1,12 +1,10 @@
 import { Check, ClipboardCopy } from "lucide-react";
 
 import { Button, Input, Typography } from "@vellumai/design-library";
-
-/** Slack's limit for `display_information.name`. */
-const APP_NAME_MAX_LENGTH = 35;
-
-/** Slack's limit for `display_information.description`. */
-const DESCRIPTION_MAX_LENGTH = 140;
+import {
+  SLACK_APP_DESCRIPTION_MAX_LENGTH,
+  SLACK_APP_NAME_MAX_LENGTH,
+} from "@/utils/slack-manifest";
 
 export interface SlackSetupNameStepProps {
   appName: string;
@@ -49,7 +47,7 @@ export function SlackSetupNameStep({
         label="App Name"
         value={appName}
         onChange={(e) =>
-          onAppNameChange(e.target.value.slice(0, APP_NAME_MAX_LENGTH))
+          onAppNameChange(e.target.value.slice(0, SLACK_APP_NAME_MAX_LENGTH))
         }
         placeholder="My Assistant"
         fullWidth
@@ -59,30 +57,31 @@ export function SlackSetupNameStep({
         label="Description (optional)"
         value={description}
         onChange={(e) =>
-          onDescriptionChange(e.target.value.slice(0, DESCRIPTION_MAX_LENGTH))
+          onDescriptionChange(
+            e.target.value.slice(0, SLACK_APP_DESCRIPTION_MAX_LENGTH),
+          )
         }
         placeholder="What this assistant helps with"
         helperText="Shown on the app's Slack profile."
         fullWidth
       />
 
-      <div className="flex">
-        <Button
-          type="button"
-          variant="primary"
-          disabled={!nameValid}
-          onClick={onCopyAndContinue}
-          leftIcon={
-            copied ? (
-              <Check aria-hidden className="size-4" />
-            ) : (
-              <ClipboardCopy aria-hidden className="size-4" />
-            )
-          }
-        >
-          Copy manifest and continue
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="primary"
+        className="self-start"
+        disabled={!nameValid}
+        onClick={onCopyAndContinue}
+        leftIcon={
+          copied ? (
+            <Check aria-hidden className="size-4" />
+          ) : (
+            <ClipboardCopy aria-hidden className="size-4" />
+          )
+        }
+      >
+        Copy manifest and continue
+      </Button>
     </div>
   );
 }

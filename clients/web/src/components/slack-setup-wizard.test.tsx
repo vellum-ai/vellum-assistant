@@ -75,8 +75,13 @@ describe("SlackSetupWizard step flow", () => {
     // Counted rather than probed by name: a bare "Next" or "Skip" added later
     // would reach step 2 with an empty clipboard, and Slack's modal has
     // nowhere to fetch the manifest from.
-    const panel = document.querySelector('[data-slot="slack-setup-step-panel"]');
-    const stepButtons = panel!.querySelectorAll("button");
+    const panel = document.querySelector(
+      '[data-slot="slack-setup-step-panel"]',
+    );
+    if (!panel) {
+      throw new Error("step panel did not render");
+    }
+    const stepButtons = panel.querySelectorAll("button");
     expect(stepButtons).toHaveLength(1);
     expect(stepButtons[0].textContent).toMatch(/Copy manifest and continue/i);
   });

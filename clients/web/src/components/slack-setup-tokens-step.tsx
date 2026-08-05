@@ -90,16 +90,15 @@ export function SlackSetupTokensStep({
         fullWidth
       />
 
-      <div className="flex">
-        <Button
-          type="button"
-          variant="primary"
-          onClick={onSave}
-          disabled={!canSave}
-        >
-          {saveStatus === "pending" ? "Connecting…" : "Connect Slack"}
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="primary"
+        className="self-start"
+        onClick={onSave}
+        disabled={!canSave}
+      >
+        {saveStatus === "pending" ? "Connecting…" : "Connect Slack"}
+      </Button>
 
       {saveStatus === "success" && (
         <Typography

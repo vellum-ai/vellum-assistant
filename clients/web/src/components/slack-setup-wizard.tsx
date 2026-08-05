@@ -88,9 +88,9 @@ export function SlackSetupWizard({
   }, [copy, manifestJson]);
 
   const handleCopyAndContinue = useCallback(() => {
-    copy(manifestJson);
+    handleCopyManifest();
     setStepId("create");
-  }, [copy, manifestJson]);
+  }, [handleCopyManifest]);
 
   const handleOpenSlack = useCallback(() => {
     window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
@@ -110,51 +110,49 @@ export function SlackSetupWizard({
   );
 
   return (
-    <div data-slot="slack-setup-wizard">
-      <div className="flex flex-col gap-4">
-        <Stepper
-          steps={WIZARD_STEPS}
-          current={stepIndex}
-          onStepSelect={handleStepSelect}
-          disabled={saveStatus === "pending"}
-        />
+    <div data-slot="slack-setup-wizard" className="flex flex-col gap-4">
+      <Stepper
+        steps={WIZARD_STEPS}
+        current={stepIndex}
+        onStepSelect={handleStepSelect}
+        disabled={saveStatus === "pending"}
+      />
 
-        <div
-          data-slot="slack-setup-step-panel"
-          className="rounded-lg bg-[var(--surface-sunken)] p-4"
-        >
-          {stepId === "name" && (
-            <SlackSetupNameStep
-              appName={slackAppName}
-              description={description}
-              copied={copied}
-              onAppNameChange={handleAppNameChange}
-              onDescriptionChange={setDescription}
-              onCopyAndContinue={handleCopyAndContinue}
-            />
-          )}
+      <div
+        data-slot="slack-setup-step-panel"
+        className="rounded-lg bg-[var(--surface-sunken)] p-4"
+      >
+        {stepId === "name" && (
+          <SlackSetupNameStep
+            appName={slackAppName}
+            description={description}
+            copied={copied}
+            onAppNameChange={handleAppNameChange}
+            onDescriptionChange={setDescription}
+            onCopyAndContinue={handleCopyAndContinue}
+          />
+        )}
 
-          {stepId === "create" && (
-            <SlackSetupCreateStep
-              copied={copied}
-              onOpenSlack={handleOpenSlack}
-              onCopyManifest={handleCopyManifest}
-              onContinue={() => setStepId("connect")}
-            />
-          )}
+        {stepId === "create" && (
+          <SlackSetupCreateStep
+            copied={copied}
+            onOpenSlack={handleOpenSlack}
+            onCopyManifest={handleCopyManifest}
+            onContinue={() => setStepId("connect")}
+          />
+        )}
 
-          {stepId === "connect" && (
-            <SlackSetupTokensStep
-              botToken={botToken}
-              appToken={appToken}
-              saveStatus={saveStatus}
-              saveError={saveError}
-              onBotTokenChange={setBotToken}
-              onAppTokenChange={setAppToken}
-              onSave={handleSave}
-            />
-          )}
-        </div>
+        {stepId === "connect" && (
+          <SlackSetupTokensStep
+            botToken={botToken}
+            appToken={appToken}
+            saveStatus={saveStatus}
+            saveError={saveError}
+            onBotTokenChange={setBotToken}
+            onAppTokenChange={setAppToken}
+            onSave={handleSave}
+          />
+        )}
       </div>
     </div>
   );

@@ -85,11 +85,14 @@ export function SlackSetupCreateStep({
         first.
       </Typography>
 
-      <div className="flex">
-        <Button type="button" variant="primary" onClick={onContinue}>
-          I created the app
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="primary"
+        className="self-start"
+        onClick={onContinue}
+      >
+        I created the app
+      </Button>
     </div>
   );
 }
