@@ -143,17 +143,16 @@ export function tryAcquireLock(
       "consolidation: taking over stale lock",
     );
   }
-  const reclaim = reclaimStaleLock(lockPath, first.holder);
-  if (reclaim === "lost") {
-    // The lock changed hands between our staleness read and the reclaim: it
-    // is live again. Report the holder we observed; the next acquire
-    // re-reads fresh state.
-    return first;
-  }
-  // "reclaimed" or "gone" (another reclaimer moved it first): the path may
-  // now be free. Retry the create exactly once; if a competing acquirer
-  // wx-created in the meantime, surface their holder rather than touching
-  // their lock.
+  reclaimStaleLock(lockPath, first.holder);
+  // Every reclaim outcome funnels into one final atomic create attempt,
+  // which is the ONLY way this function ever returns `acquired`:
+  // - "reclaimed": this caller cleared exactly the stale file it judged.
+  // - "gone": another reclaimer won the rename; nothing was deleted here.
+  // - "lost": the lock changed hands between the staleness read and the
+  //   reclaim and the live successor was restored untouched.
+  // In every case `tryCreate` either wins the `wx` race (at most one caller
+  // can, and only while the path is genuinely free) or reports the CURRENT
+  // holder read fresh from the file, never the stale observation.
   return tryCreate(lockPath, holderTag);
 }
 

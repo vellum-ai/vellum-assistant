@@ -285,3 +285,73 @@ describe("reclaimStaleLock", () => {
     expect(existsSync(debris)).toBe(false);
   });
 });
+
+describe("concurrent stale reclaimers (deterministic interleavings)", () => {
+  // The production shape: the jobs worker (consolidation) and the daemon
+  // (page ingest) are separate OS processes sharing this lock, so two
+  // contenders CAN observe the same stale lock and interleave arbitrarily.
+  // True simultaneity is nondeterministic, so these tests sequence each
+  // contender's steps explicitly through the same functions the real flow
+  // uses; every dangerous interleaving reduces to one of these orderings.
+
+  test("contender resuming on a stale observation cannot unseat the winner and reports the CURRENT holder", () => {
+    // Interleaving: A and B both read stale lock S. A completes its full
+    // takeover and installs a fresh lock. B then resumes with its stale
+    // observation of S.
+    const staleS = "999999 1700000000000 crashed-run";
+    writeFileSync(lockPath, `${staleS}\n`);
+
+    // A: full takeover.
+    const tokenA = acquireExpectingSuccess("contender-a");
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);
+
+    // B resumes: its reclaim captures A's live lock, detects the mismatch
+    // against its stale observation, and restores it untouched.
+    expect(reclaimStaleLock(lockPath, staleS)).toBe("lost");
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);
+
+    // B's create attempt then reports the winner, read fresh, never the
+    // stale observation.
+    const resultB = tryAcquireLock(lockPath, "contender-b");
+    expect(resultB).toEqual({ acquired: false, holder: tokenA });
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);
+  });
+
+  test("reclaim winner suspended before its create loses the wx race cleanly; exactly one contender acquires", () => {
+    // Interleaving: A wins the quarantine rename and clears the path, then
+    // is suspended before its `wx` create. B arrives, finds the path free,
+    // and acquires. A resumes: its create must lose with EEXIST and report
+    // B, and nothing A does may delete B's lock.
+    const staleS = "999999 1700000000000 crashed-run";
+    writeFileSync(lockPath, `${staleS}\n`);
+
+    expect(reclaimStaleLock(lockPath, staleS)).toBe("reclaimed");
+    expect(existsSync(lockPath)).toBe(false);
+
+    // B acquires while A is suspended.
+    const tokenB = acquireExpectingSuccess("contender-b");
+
+    // A resumes. Its continuation is an atomic create attempt: `wx` cannot
+    // replace an existing file, so A loses and reports B's live lock.
+    const resultA = tryAcquireLock(lockPath, "contender-a");
+    expect(resultA).toEqual({ acquired: false, holder: tokenB });
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenB);
+  });
+
+  test("second reclaimer arriving after the rename gets gone/EEXIST, never a deletion", () => {
+    // Interleaving: A and B both observe stale S. A's rename wins and A is
+    // mid-flight. B's rename finds the path already moved (ENOENT → gone),
+    // so B deleted nothing; whichever contender creates first wins the `wx`
+    // race and the other reports it.
+    const staleS = "999999 1700000000000 crashed-run";
+    writeFileSync(lockPath, `${staleS}\n`);
+
+    expect(reclaimStaleLock(lockPath, staleS)).toBe("reclaimed");
+    expect(reclaimStaleLock(lockPath, staleS)).toBe("gone");
+
+    const tokenA = acquireExpectingSuccess("contender-a");
+    const resultB = tryAcquireLock(lockPath, "contender-b");
+    expect(resultB).toEqual({ acquired: false, holder: tokenA });
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);
+  });
+});
