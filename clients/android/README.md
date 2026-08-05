@@ -51,8 +51,9 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-Launcher and splash colors also distinguish production, staging, and dev
-installs.
+Launcher colors distinguish production, staging, and dev installs. The launch
+screen follows the saved app appearance, falling back to the Android light or
+dark setting until the web app has stored a preference.
 
 ## HTTPS App Links
 
@@ -203,6 +204,7 @@ clients/
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
     │       │   ├── NativeBiometricPlugin.java
+    │       │   ├── NativeLaunchScreenPlugin.java
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
     │       │   ├── VoiceAudioSessionPlugin.java
