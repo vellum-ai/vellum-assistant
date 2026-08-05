@@ -104,9 +104,11 @@ export function ChatgptOAuthSection({
         throwOnError: true,
       });
       setOauthState("completed");
+      // Unfiltered: the subscription row is found by name, and its provider
+      // column differs across daemon versions ("chatgpt" on current daemons,
+      // "openai" on older ones), so a provider-filtered list can miss it.
       const { data } = await inferenceProviderconnectionsGet({
         path: { assistant_id: assistantId },
-        query: { provider: "openai" },
         throwOnError: true,
       });
       const conns = data.connections;
@@ -118,7 +120,7 @@ export function ChatgptOAuthSection({
       } else {
         onConnected({
           name: "chatgpt-subscription",
-          provider: "openai",
+          provider: "chatgpt",
           auth: {
             type: "oauth_subscription",
             credential: "credential/openai/chatgpt-subscription",
