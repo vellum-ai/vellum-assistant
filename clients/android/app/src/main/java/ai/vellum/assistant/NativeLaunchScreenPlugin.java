@@ -4,8 +4,8 @@ import android.content.Context;
 import android.content.res.Configuration;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import com.getcapacitor.annotation.PluginMethod;
 
 @CapacitorPlugin(name = "NativeLaunchScreen")
 public class NativeLaunchScreenPlugin extends Plugin {
