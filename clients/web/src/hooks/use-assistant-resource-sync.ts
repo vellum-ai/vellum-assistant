@@ -8,7 +8,8 @@
  *
  * Also handles `sse.opened` (non-fresh) to invalidate cached resources on
  * reconnect — the client may have missed `sync_changed` events during the
- * transport gap. That sweep is debounced; see `refreshAssistantResources`
+ * transport gap. That sweep is debounced, and a pending one is flushed rather
+ * than dropped when the assistant changes; see `refreshAssistantResources`
  * below.
  *
  * Focus-based refetching (tab visible, Capacitor foregrounding) is NOT
@@ -72,17 +73,27 @@ export function useAssistantResourceSync(
     null,
   );
 
-  // Drop a pending sweep on unmount and when the assistant changes or
-  // deactivates, so a queued callback never refreshes against an old
-  // assistantId.
+  // Invariant: a scheduled reconnect catch-up is never dropped. On unmount and
+  // when the assistant changes or deactivates, the pending sweep is flushed
+  // here rather than cancelled, so the transport gap is always reconciled for
+  // the assistant it was scheduled for. This closure captures the departing
+  // assistantId, and the flush marks stale without refetching, so at worst the
+  // catch-up degrades to stale-marking for an assistant nobody observes any
+  // more and the next visit reads through.
   useEffect(() => {
     return () => {
-      if (reconnectSweepTimerRef.current) {
-        clearTimeout(reconnectSweepTimerRef.current);
-        reconnectSweepTimerRef.current = null;
+      const pendingSweep = reconnectSweepTimerRef.current;
+      if (!pendingSweep) {
+        return;
       }
+      clearTimeout(pendingSweep);
+      reconnectSweepTimerRef.current = null;
+      if (!assistantId) {
+        return;
+      }
+      refreshAssistantResources(queryClient, assistantId, "none");
     };
-  }, [assistantId, isAssistantActive]);
+  }, [assistantId, isAssistantActive, queryClient]);
 
   useBusSubscription("sse.event", (envelope) => {
     if (!assistantId || !isAssistantActive) {
@@ -223,53 +234,69 @@ export function useAssistantResourceSync(
  * a view that is open refetches now, which is the only way it picks up the
  * `sync_changed` events it missed while the stream was down.
  *
+ * `refetchType: "none"` is the departure flush: the sweep still marks every
+ * family stale, but never issues a request. The caller uses it for an assistant
+ * the user has just left, whose views are unmounting in this same commit.
+ *
  * A flapping reconnect would run this fan-out once per `sse.opened`, so the
  * caller collapses a burst into a single trailing sweep.
  */
 function refreshAssistantResources(
   queryClient: QueryClient,
   assistantId: string,
+  refetchType: "active" | "none" = "active",
 ): void {
   const pathOpts = { path: { assistant_id: assistantId } };
 
   void queryClient.invalidateQueries({
     queryKey: identityGetQueryKey(pathOpts),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: configGetQueryKey(pathOpts),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: avatarQueryKey(assistantId),
+    refetchType,
   });
-  invalidateMemoryQueries(queryClient, assistantId);
+  invalidateMemoryQueries(queryClient, assistantId, refetchType);
   void queryClient.invalidateQueries({
     queryKey: soundsConfigGetQueryKey(pathOpts),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: soundsAvailableGetQueryKey(pathOpts),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: schedulesGetQueryKey(pathOpts),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: [
       { _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } },
     ],
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: [
       { _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } },
     ],
+    refetchType,
   });
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
+    refetchType,
   });
-  invalidatePluginQueries(queryClient, assistantId);
+  invalidatePluginQueries(queryClient, assistantId, undefined, refetchType);
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
+    refetchType,
   });
 }
 
