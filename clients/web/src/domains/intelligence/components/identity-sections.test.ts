@@ -1,10 +1,9 @@
 /**
- * The overview's drill-down section list: a stable order, and nothing gated on
- * backend capability. Memory used to be gated on memory-concept-graph
- * availability and would vanish from the mosaic; it is now always present on
- * the surfaces that show it, and the Memory tab itself explains an unavailable
- * graph. The one subtraction is the native mobile shell, which drops the
- * desktop-oriented sections.
+ * The overview's drill-down section list: a stable order, with nothing gated
+ * on backend capability. Whatever the backend reports, the list is the same,
+ * so an assistant that can't draw the memory concept graph still gets a
+ * Memory card leading into the tab that explains it. The one subtraction is
+ * the native mobile shell, which omits the desktop-oriented sections.
  */
 import { describe, expect, test } from "bun:test";
 
