@@ -1857,6 +1857,43 @@ describe("platform probe conclusive rejection (half-dead session)", () => {
     expect(useAuthStore.getState().user?.kind).toBe("platform");
   });
 
+  test("a rejection landing after the race timeout does not clear org state", async () => {
+    arrangeLocalProbe();
+    // Hold the org fetch past the (shrunken) timeout, then resolve it OK and
+    // let the assistants call report a settled rejection. The probe already
+    // settled "present" from cached data, so the dangling call must not
+    // strip the org header out from under that session.
+    let releaseOrgFetch: (value: unknown) => void = () => {};
+    mockOrgFetchOutcome = new Promise((resolve) => {
+      releaseOrgFetch = resolve;
+    });
+    mockListAssistantsResult = { ok: false, status: 403, error: {} };
+    const originalSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    setTimeoutSpy.mockImplementation(((
+      handler: () => void,
+      timeout?: number,
+    ) =>
+      originalSetTimeout(
+        handler,
+        timeout === 3_000 ? 0 : timeout,
+      )) as typeof setTimeout);
+
+    try {
+      await useAuthStore.getState().initSession();
+      await whenPlatformSessionSettled();
+      expect(useAuthStore.getState().platformSession).toBe("present");
+
+      releaseOrgFetch({ ok: true });
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+
+    expect(clearOrganizationMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
   test("the probe clears its sync race timer once it settles", async () => {
     arrangeLocalProbe();
     const setTimeoutSpy = spyOn(globalThis, "setTimeout");
