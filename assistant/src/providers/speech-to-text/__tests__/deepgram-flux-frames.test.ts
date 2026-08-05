@@ -77,8 +77,10 @@ describe("parseFluxFrame", () => {
     expect(parseFluxFrame(CONNECTED)).toEqual([]);
   });
 
-  test("StartOfTurn emits turn-start", () => {
-    expect(parseFluxFrame(START_OF_TURN)).toEqual([{ type: "turn-start" }]);
+  test("StartOfTurn emits turn-start carrying the turn index", () => {
+    expect(parseFluxFrame(START_OF_TURN)).toEqual([
+      { type: "turn-start", turnIndex: 0 },
+    ]);
   });
 
   test("Update emits a partial with the interim transcript", () => {
@@ -111,6 +113,7 @@ describe("parseFluxFrame", () => {
         type: "turn-end",
         text: "what is the weather today",
         confidence: 0.88,
+        turnIndex: 0,
       },
     ]);
     // Consumers that ignore turn events must still see the commit first.
@@ -144,7 +147,35 @@ describe("parseFluxFrame", () => {
         type: "turn-end",
         text: "what is the weather today",
         confidence: 0.88,
+        turnIndex: 0,
       },
+    ]);
+  });
+
+  test("a later turn keeps its own index on both turn events", () => {
+    expect(
+      parseFluxFrame({ ...START_OF_TURN, turn_index: 3, transcript: "" }),
+    ).toEqual([{ type: "turn-start", turnIndex: 3 }]);
+    expect(
+      parseFluxFrame({
+        type: "TurnInfo",
+        event: "EndOfTurn",
+        turn_index: 3,
+        transcript: "and then some",
+      }),
+    ).toEqual([
+      { type: "final", text: "and then some" },
+      { type: "turn-end", text: "and then some", turnIndex: 3 },
+    ]);
+  });
+
+  test("turn events omit the index when Deepgram sends none", () => {
+    expect(parseFluxFrame({ type: "StartOfTurn" })).toEqual([
+      { type: "turn-start" },
+    ]);
+    expect(parseFluxFrame({ type: "EndOfTurn", transcript: "done" })).toEqual([
+      { type: "final", text: "done" },
+      { type: "turn-end", text: "done" },
     ]);
   });
 

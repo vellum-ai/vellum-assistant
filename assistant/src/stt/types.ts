@@ -322,6 +322,11 @@ export interface SttStreamServerFinalizedEvent {
  */
 export interface SttStreamServerTurnStartEvent {
   readonly type: "turn-start";
+  /**
+   * Provider's index for the turn being opened, monotonically increasing
+   * within a stream. Undefined when the provider does not number its turns.
+   */
+  readonly turnIndex?: number;
 }
 
 /**
@@ -365,6 +370,15 @@ export interface SttStreamServerTurnEndEvent {
    * provider does not surface a score.
    */
   readonly confidence?: number;
+  /**
+   * Provider's index for the turn being closed, matching the
+   * {@link SttStreamServerTurnStartEvent} that opened it. A consumer can
+   * compare it against the newest turn it has seen opened to tell an
+   * end-of-turn for the turn still in progress from one the provider has
+   * already superseded. Undefined when the provider does not number its
+   * turns.
+   */
+  readonly turnIndex?: number;
 }
 
 /** An error occurred during streaming transcription. */

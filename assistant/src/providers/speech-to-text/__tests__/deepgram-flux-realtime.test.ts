@@ -327,12 +327,17 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       );
 
       expect(events).toEqual([
-        { type: "turn-start" },
+        { type: "turn-start", turnIndex: 0 },
         { type: "partial", text: "what is the" },
         // The final comes first so a consumer that ignores turn events still
         // commits the transcript exactly as it does for any other provider.
         { type: "final", text: "what is the weather" },
-        { type: "turn-end", text: "what is the weather", confidence: 0.91 },
+        {
+          type: "turn-end",
+          text: "what is the weather",
+          confidence: 0.91,
+          turnIndex: 0,
+        },
       ]);
     });
 

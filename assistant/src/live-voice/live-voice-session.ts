@@ -392,9 +392,14 @@ interface UtteranceCycle {
   // `vadSpeechGeneration` as of the local silence boundary that handed this
   // cycle to Flux, or null while no boundary has fired yet (Flux routinely
   // beats the trailing-silence countdown, and that fast commit is the point).
-  // A provider end-of-turn arriving with a newer generation describes speech
-  // the caller has already spoken past (see isStaleFluxTurnEnd).
+  // The staleness signal of last resort: it stands in for the provider's own
+  // turn numbering when the provider sends none (see isStaleFluxTurnEnd).
   fluxBoundaryGeneration: number | null;
+  // Index of the newest provider turn opened in this cycle, from the turn
+  // model's own numbering, or null when the provider does not number its
+  // turns. An end-of-turn closing an older index describes a turn the
+  // provider has already superseded (see isStaleFluxTurnEnd).
+  fluxOpenTurnIndex: number | null;
   // The transcript the most recent hold verdict judged (unified front-door).
   // A final segment arriving during the extension window that extends this
   // text replays the boundary immediately — the hold was judged on stale
@@ -857,6 +862,7 @@ function createUtteranceCycle(): UtteranceCycle {
     endpointExtensionCount: 0,
     fluxTurnEndTimedOut: false,
     fluxBoundaryGeneration: null,
+    fluxOpenTurnIndex: null,
     heldSpeculativeContent: null,
     turnId: null,
     userMessageId: null,
@@ -2828,9 +2834,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // whose deadline already elapsed falls through to the hold path
         // below, which is the whole point of the fallback.
         if (this.fluxTurnEndActive && !utterance.fluxTurnEndTimedOut) {
-          // Stamp the speech run this boundary closed. handleVadSpeechStart
-          // bumps the generation when the caller resumes, so a turn-end that
-          // was already in flight is recognisably stale (isStaleFluxTurnEnd).
+          // Stamp the speech run this boundary closed. This is the staleness
+          // signal of last resort, used only for a provider that does not
+          // number its turns: where Flux's own turn index is on the wire it
+          // answers the question directly (see isStaleFluxTurnEnd).
           utterance.fluxBoundaryGeneration = this.vadSpeechGeneration;
           this.armFluxTurnEndFallbackTimer(utterance);
           return;
@@ -2939,21 +2946,50 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * A provider end-of-turn that lost its race with the caller's next breath.
-   * The local silence boundary stamps the cycle with the speech generation it
-   * closed; `handleVadSpeechStart` bumps that generation (and clears the
-   * fail-open deadline) the moment the caller resumes. A turn-end arriving
-   * afterwards therefore describes speech the caller has already spoken past:
-   * acting on it would send utterance_end and stop the transcriber while local
-   * VAD is still routing the resumed speech into this same cycle, cutting off
-   * the next words or folding them into the wrong turn. This is the same
-   * active-detector / generation staleness test the silence fallback and the
-   * speculative hold paths already apply. Before any boundary has fired the
-   * stamp is null and nothing is stale: Flux routinely closes a turn while the
-   * trailing-silence countdown is still running, and that fast commit is the
-   * whole feature.
+   * Record the provider turn a cycle is currently inside. Providers without
+   * turn numbering send no index, which leaves the cycle on the local speech
+   * generation as its only staleness signal (see isStaleFluxTurnEnd).
    */
-  private isStaleFluxTurnEnd(utterance: UtteranceCycle): boolean {
+  private recordFluxTurnStart(
+    utterance: UtteranceCycle,
+    turnIndex: number | undefined,
+  ): void {
+    if (turnIndex === undefined) {
+      return;
+    }
+    utterance.fluxOpenTurnIndex = turnIndex;
+  }
+
+  /**
+   * A provider end-of-turn that lost its race with the caller's next breath:
+   * it describes speech the caller has already spoken past. Acting on one
+   * would send utterance_end and stop the transcriber while local VAD is
+   * still routing the resumed speech into this same cycle, cutting off the
+   * next words or folding them into the wrong turn.
+   *
+   * Flux's own turn numbering answers this directly and is preferred
+   * wherever it is available: the cycle records the newest turn Flux has
+   * opened, so an end-of-turn for an older index closes a turn Flux itself
+   * has already superseded. An end-of-turn for the turn still in progress is
+   * never stale, however many times the caller drew breath inside it: the
+   * mid-thought pause is exactly the case Flux's turn model exists to judge,
+   * and its verdict covers the resumed speech too.
+   *
+   * With no turn numbering the local speech generation is the only signal
+   * left. The silence boundary stamps the cycle with the generation it
+   * closed and `handleVadSpeechStart` bumps that generation when the caller
+   * resumes, so a turn-end arriving on a newer generation is treated as
+   * stale. That is conservative: it also drops the fast end-of-turn this
+   * feature exists for, which the turn index would have committed. Before
+   * any boundary has fired the stamp is null and nothing is stale.
+   */
+  private isStaleFluxTurnEnd(
+    utterance: UtteranceCycle,
+    turnIndex: number | undefined,
+  ): boolean {
+    if (turnIndex !== undefined && utterance.fluxOpenTurnIndex !== null) {
+      return turnIndex < utterance.fluxOpenTurnIndex;
+    }
     return (
       utterance.fluxBoundaryGeneration !== null &&
       utterance.fluxBoundaryGeneration !== this.vadSpeechGeneration
@@ -2987,7 +3023,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * the caller has finished. The escalate verdict and the spoken ack /
    * progress phrasing are untouched; only the hold verdict is bypassed.
    */
-  private async handleFluxTurnEnd(utterance: UtteranceCycle): Promise<void> {
+  private async handleFluxTurnEnd(
+    utterance: UtteranceCycle,
+    turnIndex: number | undefined,
+  ): Promise<void> {
     if (
       !this.fluxTurnEndActive ||
       this.currentUtterance !== utterance ||
@@ -2999,9 +3038,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
-    if (this.isStaleFluxTurnEnd(utterance)) {
+    if (this.isStaleFluxTurnEnd(utterance, turnIndex)) {
       log.debug(
         {
+          turnIndex,
+          openTurnIndex: utterance.fluxOpenTurnIndex,
           boundaryGeneration: utterance.fluxBoundaryGeneration,
           speechGeneration: this.vadSpeechGeneration,
         },
@@ -3448,9 +3489,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // completion signal has no cycle to advance here.
         return;
       case "turn-start":
-        // Deliberately a no-op: local VAD still owns barge-in, because a
-        // provider roundtrip cannot beat a local energy gate on an interrupt
-        // during playback (see DEFAULT_BARGE_IN_MIN_SPEECH_MS).
+        // Barge-in is deliberately untouched: local VAD still owns it,
+        // because a provider roundtrip cannot beat a local energy gate on an
+        // interrupt during playback (see DEFAULT_BARGE_IN_MIN_SPEECH_MS). The
+        // index is recorded so a later end-of-turn can be told apart from one
+        // this turn superseded (see isStaleFluxTurnEnd).
+        this.recordFluxTurnStart(utterance, event.turnIndex);
         return;
       case "eager-turn-end":
       case "turn-resumed":
@@ -3460,7 +3504,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // follow-up.
         return;
       case "turn-end":
-        await this.handleFluxTurnEnd(utterance);
+        await this.handleFluxTurnEnd(utterance, event.turnIndex);
         return;
       case "error":
         await this.sendTranscriberErrorFrame(event);
@@ -3585,11 +3629,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.startAssistantTurnIfReady();
         return;
       }
-      case "turn-start":
-        // Deliberately a no-op: local VAD still owns barge-in, because a
-        // provider roundtrip cannot beat a local energy gate on an interrupt
-        // during playback (see DEFAULT_BARGE_IN_MIN_SPEECH_MS).
+      case "turn-start": {
+        // Barge-in is deliberately untouched: local VAD still owns it,
+        // because a provider roundtrip cannot beat a local energy gate on an
+        // interrupt during playback (see DEFAULT_BARGE_IN_MIN_SPEECH_MS). The
+        // index is recorded so a later end-of-turn can be told apart from one
+        // this turn superseded (see isStaleFluxTurnEnd).
+        const target = this.pendingTranscriptCycle();
+        if (target) {
+          this.recordFluxTurnStart(target, event.turnIndex);
+        }
         return;
+      }
       case "eager-turn-end":
       case "turn-resumed":
         // Speculative end-of-turn stays off (the config leaves
@@ -3602,7 +3653,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // transcript owns the turn the provider just closed.
         const target = this.pendingTranscriptCycle();
         if (target) {
-          await this.handleFluxTurnEnd(target);
+          await this.handleFluxTurnEnd(target, event.turnIndex);
         }
         return;
       }
