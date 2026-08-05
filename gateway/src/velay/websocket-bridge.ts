@@ -1,5 +1,7 @@
 import type { OutgoingHttpHeaders } from "node:http";
 
+import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
+
 import { addVelayBridgeAuthHeader } from "./bridge-auth.js";
 import {
   binaryLikeToBytes,
@@ -188,7 +190,10 @@ export class VelayWebSocketBridge {
     );
   }
 
-  closeAll(code = 1001, reason = "Tunnel closed"): void {
+  closeAll(
+    code = GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE,
+    reason = "Tunnel closed",
+  ): void {
     for (const [connectionId, connection] of this.connections) {
       connection.suppressNextCloseFrame = true;
       this.closeConnection(connectionId, connection, code, reason);
