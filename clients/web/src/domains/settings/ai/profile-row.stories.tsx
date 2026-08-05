@@ -74,8 +74,10 @@ export const Disabled: Story = {
 
 /**
  * A connection problem: the profile is complete, but the credential behind
- * its provider is missing. The row shows the warning icon, with the server's
- * message as its tooltip and accessible label.
+ * its provider is missing. The warning is informational here rather than a
+ * button, because the fix is in the connection settings and not the profile
+ * editor this row opens. The server's message already names where to go, so
+ * the tooltip does not add a "Click to fix" the click could not honor.
  */
 export const ConnectionProblem: Story = {
   args: {
