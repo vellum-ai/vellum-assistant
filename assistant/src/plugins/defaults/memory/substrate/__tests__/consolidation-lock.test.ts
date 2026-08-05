@@ -21,10 +21,12 @@
  */
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -34,6 +36,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  _resetInProcessLockStateForTests,
   getConsolidationLockPath,
   reclaimStaleLock,
   releaseLock,
@@ -51,6 +54,9 @@ beforeEach(() => {
   // the `.v2-state` dir (normally created by `tryAcquireLock` itself) must
   // exist up front.
   mkdirSync(dirname(lockPath), { recursive: true });
+  // Each test starts as a fresh process for the one-contender-per-process
+  // guard; tests simulating a second process reset explicitly mid-test.
+  _resetInProcessLockStateForTests();
 });
 
 afterEach(() => {
@@ -311,7 +317,9 @@ describe("concurrent stale reclaimers (deterministic interleavings)", () => {
     expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);
 
     // B's create attempt then reports the winner, read fresh, never the
-    // stale observation.
+    // stale observation. B is a different process, so the in-process guard
+    // does not apply to it; exercise the file-level path.
+    _resetInProcessLockStateForTests();
     const resultB = tryAcquireLock(lockPath, "contender-b");
     expect(resultB).toEqual({ acquired: false, holder: tokenA });
     expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);
@@ -331,11 +339,61 @@ describe("concurrent stale reclaimers (deterministic interleavings)", () => {
     // B acquires while A is suspended.
     const tokenB = acquireExpectingSuccess("contender-b");
 
-    // A resumes. Its continuation is an atomic create attempt: `wx` cannot
-    // replace an existing file, so A loses and reports B's live lock.
+    // A resumes. A is a different process from B (guard does not apply):
+    // its continuation is an atomic create attempt, and `wx` cannot replace
+    // an existing file, so A loses and reports B's live lock.
+    _resetInProcessLockStateForTests();
     const resultA = tryAcquireLock(lockPath, "contender-a");
     expect(resultA).toEqual({ acquired: false, holder: tokenB });
     expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenB);
+  });
+
+  test("REGRESSION (three-contender interleaving): the held-process guard refuses a new contender while the path is quarantine-empty", () => {
+    // The reviewed interleaving: reclaimer A has renamed a LIVE successor B
+    // into quarantine and is suspended before its link restore, so the
+    // shared pathname is momentarily empty. A third contender C must not be
+    // able to wx-create there. C can only originate from B's process (the
+    // reclaimer's process is pinned inside its synchronous call), and B's
+    // process is pinned by the held registry, which refuses WITHOUT
+    // consulting the file, so the empty pathname changes nothing.
+    const staleS = "999999 1700000000000 crashed-run";
+    writeFileSync(lockPath, `${staleS}\n`);
+
+    // Successor B installed and HELD by this process (its takeover of S).
+    const tokenB = acquireExpectingSuccess("successor-b");
+
+    // Reclaimer A (another process; the registry does not apply to it):
+    // suspended after its rename, before its restore. Path is now empty.
+    const quarantine = `${lockPath}.reclaim-999-${Date.now()}-testq`;
+    renameSync(lockPath, quarantine);
+    expect(existsSync(lockPath)).toBe(false);
+
+    // Contender C from B's process: refused by the guard, nothing created.
+    const resultC = tryAcquireLock(lockPath, "contender-c");
+    expect(resultC).toEqual({
+      acquired: false,
+      holder: "held by this process",
+    });
+    expect(existsSync(lockPath)).toBe(false);
+
+    // A resumes and restores B atomically; B is intact and still exclusive.
+    linkSync(quarantine, lockPath);
+    unlinkSync(quarantine);
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenB);
+
+    // Only after B releases may this process contend again.
+    releaseLock(lockPath, tokenB);
+    acquireExpectingSuccess("contender-c-after-release");
+  });
+
+  test("held-process guard: a process holding the lock cannot field a second contender until release", () => {
+    const tokenB = acquireExpectingSuccess("first");
+
+    const second = tryAcquireLock(lockPath, "second");
+    expect(second).toEqual({ acquired: false, holder: tokenB });
+
+    releaseLock(lockPath, tokenB);
+    acquireExpectingSuccess("second-after-release");
   });
 
   test("second reclaimer arriving after the rename gets gone/EEXIST, never a deletion", () => {
@@ -350,6 +408,8 @@ describe("concurrent stale reclaimers (deterministic interleavings)", () => {
     expect(reclaimStaleLock(lockPath, staleS)).toBe("gone");
 
     const tokenA = acquireExpectingSuccess("contender-a");
+    // B is a different process; exercise the file-level EEXIST path.
+    _resetInProcessLockStateForTests();
     const resultB = tryAcquireLock(lockPath, "contender-b");
     expect(resultB).toEqual({ acquired: false, holder: tokenA });
     expect(readFileSync(lockPath, "utf-8").trim()).toBe(tokenA);

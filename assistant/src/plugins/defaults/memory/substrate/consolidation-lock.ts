@@ -109,9 +109,30 @@ export type LockAcquireResult =
  *
  * Concurrency: this lock is shared across processes (the jobs worker's
  * consolidation and the daemon's page ingest), so takeover must not assume a
- * single acquirer. Acquisition itself is atomic (`wx`), and reclaim uses
- * rename quarantine so two concurrent reclaimers can never delete each
- * other's freshly installed locks; see {@link reclaimStaleLock}.
+ * single acquirer. Acquisition itself is atomic (`wx`), reclaim uses rename
+ * quarantine so two concurrent reclaimers can never delete each other's
+ * freshly installed locks ({@link reclaimStaleLock}), and mutual exclusion
+ * through the quarantine-restore window rests on a hard bound of one
+ * contender per process:
+ *
+ * - Within a single call, this function is fully synchronous, so a process
+ *   suspended mid-reclaim suspends entirely; no second acquire can start in
+ *   that process while one is in flight.
+ * - Across the HELD period (which spans async work), the per-process
+ *   {@link heldInProcess} registry refuses a second contender from a process
+ *   that already holds this lock, and it does so WITHOUT consulting the
+ *   file, so it holds even at the instant a reclaimer's quarantine has the
+ *   shared pathname momentarily empty.
+ *
+ * With exactly two acquiring processes in the deployment (the jobs worker
+ * and the daemon; nothing else imports this lock), each pinned to at most
+ * one contender, the three-contender quarantine-restore interleaving cannot
+ * be constructed while a captured successor is still writing: the
+ * successor's own process is pinned by the held registry, and the
+ * reclaimer's process is pinned by its in-flight synchronous call. A
+ * successor that has already released is no longer writing, so no
+ * overlapping-writer state is reachable. A third acquiring PROCESS would
+ * reopen the window; adding one requires revisiting this contract.
  */
 export function tryAcquireLock(
   lockPath: string,
@@ -121,11 +142,27 @@ export function tryAcquireLock(
   // ad-hoc workspaces may not have it yet. `mkdirSync({ recursive: true })`
   // is idempotent, so the call is cheap when the dir already exists.
   mkdirSync(dirname(lockPath), { recursive: true });
+
+  // One contender per process, judged BEFORE any filesystem read: a process
+  // that already holds this lock must not field a second contender even when
+  // the shared pathname momentarily reads as free (a concurrent reclaimer's
+  // quarantine window). The holder string is best-effort from the file for
+  // operator context; the refusal itself does not depend on it.
+  if (heldInProcess.has(lockPath)) {
+    let holder = "held by this process";
+    try {
+      holder = readFileSync(lockPath, "utf-8").trim() || holder;
+    } catch {
+      // Path momentarily free (quarantined) or unreadable: refuse anyway.
+    }
+    return { acquired: false, holder };
+  }
+
   cleanupAbandonedQuarantines(lockPath);
 
   const first = tryCreate(lockPath, holderTag);
   if (first.acquired) {
-    return first;
+    return markAcquired(lockPath, first);
   }
   const staleReason = holderStaleReason(first.holder);
   if (staleReason === null) {
@@ -153,7 +190,35 @@ export function tryAcquireLock(
   // In every case `tryCreate` either wins the `wx` race (at most one caller
   // can, and only while the path is genuinely free) or reports the CURRENT
   // holder read fresh from the file, never the stale observation.
-  return tryCreate(lockPath, holderTag);
+  return markAcquired(lockPath, tryCreate(lockPath, holderTag));
+}
+
+/**
+ * Per-process registry of lock paths this process currently holds, spanning
+ * acquire through release. This is the in-process half of the one-contender-
+ * per-process bound documented on {@link tryAcquireLock}: cross-process
+ * exclusion rests on the lock FILE, but the file alone cannot refuse a
+ * second contender from the holder's own process during the instant a
+ * concurrent reclaimer's quarantine has the shared pathname empty. Entries
+ * are cleared by {@link releaseLock} (both variants) and die with the
+ * process (crash recovery stays the file-level stale classifier's job).
+ */
+const heldInProcess = new Set<string>();
+
+/** Record a successful acquisition in the per-process held registry. */
+function markAcquired(
+  lockPath: string,
+  result: LockAcquireResult,
+): LockAcquireResult {
+  if (result.acquired) {
+    heldInProcess.add(lockPath);
+  }
+  return result;
+}
+
+/** Test-only: forget per-process held state (simulates a fresh process). */
+export function _resetInProcessLockStateForTests(): void {
+  heldInProcess.clear();
 }
 
 /**
@@ -422,6 +487,11 @@ function holderStaleReason(holder: string): StaleReason | null {
  * that positively own the file (tests, operator tooling).
  */
 export function releaseLock(lockPath: string, expectedHolder?: string): void {
+  // The caller is done with the lock regardless of what the file operations
+  // below conclude, so the per-process contender slot frees here: exclusion
+  // against OTHER processes rests on the file, and this process may contend
+  // again immediately.
+  heldInProcess.delete(lockPath);
   if (expectedHolder !== undefined) {
     let fd: number;
     try {
