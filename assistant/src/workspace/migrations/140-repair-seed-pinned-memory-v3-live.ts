@@ -8,7 +8,7 @@ import type { MigrationRunContext, WorkspaceMigration } from "./types.js";
  * Repair assistants stuck on `memory.v3.live = false` by the first-launch
  * seed race fixed in #39847: the seed used to persist the schema default
  * (`false`) ~200ms before migration 105 ran, and 105's `"live" in v3Config`
- * guard then bailed — so a brand-new workspace that should have come up on
+ * guard then bailed: a brand-new workspace that should have come up on
  * memory-v3 ran v2 forever, with no signal to the user. 105 is checkpointed
  * as applied and never re-runs, so nothing self-heals the stamped value.
  *
@@ -20,7 +20,7 @@ import type { MigrationRunContext, WorkspaceMigration } from "./types.js";
  * the seed, never over a deliberate opt-out:
  *
  * - Quarantine carry-forward: the newest quarantined config next to
- *   config.json says `live: true` — the assistant WAS on v3 before the
+ *   config.json says `live: true`, meaning the assistant WAS on v3 before the
  *   reseed, so the current `false` is the seed's stamp.
  * - Seed-race repair: the workspace was created during the migration-105 era
  *   (105 completed in the first-boot sweep, i.e. at effectively the same
@@ -32,7 +32,7 @@ import type { MigrationRunContext, WorkspaceMigration } from "./types.js";
  *
  * Everything else is skipped: `live` absent means a pre-105 assistant on the
  * deliberate manual-upgrade path (tier movement stays user-initiated), and
- * new workspaces are migration 105's job — a post-#39847 hatch-time
+ * new workspaces are migration 105's job, and a post-#39847 hatch-time
  * `memory.v3.live=false` override merges after migrations and must win.
  */
 
@@ -96,7 +96,7 @@ function quarantinedConfigSaidLiveTrue(workspaceDir: string): boolean {
 }
 
 /**
- * Whether migration 105 completed in this workspace's first-boot sweep —
+ * Whether migration 105 completed in this workspace's first-boot sweep,
  * i.e. the workspace was CREATED in the era where 105 should have flipped it
  * to v3. On an older workspace 105 arrives in an upgrade sweep long after
  * the earliest checkpoint, so the gap exceeds the tolerance.

@@ -22,6 +22,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { repairSeedPinnedMemoryV3LiveMigration } from "../workspace/migrations/140-repair-seed-pinned-memory-v3-live.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import type { MigrationRunContext } from "../workspace/migrations/types.js";
 
 const NEW_WORKSPACE_CTX: MigrationRunContext = { isNewWorkspace: true };
@@ -100,12 +101,17 @@ function writeSelectionRows(file: string): void {
 }
 
 describe("140-repair-seed-pinned-memory-v3-live migration", () => {
-  test("has correct id and description", () => {
+  test("has correct id and is registered last", () => {
     expect(repairSeedPinnedMemoryV3LiveMigration.id).toBe(
       "140-repair-seed-pinned-memory-v3-live",
     );
     expect(repairSeedPinnedMemoryV3LiveMigration.description).toContain(
       "memory.v3.live",
+    );
+    // getLastWorkspaceMigrationId() reports the final entry as the registry
+    // ceiling, so the highest id must stay last.
+    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
+      "140-repair-seed-pinned-memory-v3-live",
     );
   });
 

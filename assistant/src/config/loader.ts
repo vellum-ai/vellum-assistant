@@ -328,7 +328,7 @@ function writeQuarantineNotice(
  *
  * The first-launch seed asks this so a quarantine-reseed carries the memory
  * tier forward: without it, reseeding an existing memory-v3 assistant
- * silently demotes it to v2 — the reseeded file records no `live` decision,
+ * silently demotes it to v2: the reseeded file records no `live` decision,
  * migration 105 is already checkpointed on an existing workspace and never
  * re-runs, and the schema default is `false`. Only `true` is ever salvaged:
  * carrying `false` forward would re-pin a workspace to the schema default,
@@ -1188,7 +1188,7 @@ export function loadConfig(): AssistantConfig {
         // Exception: a quarantine-reseed carries the memory tier forward.
         // When the missing config.json is explained by a quarantined
         // predecessor that had `live: true`, this is an EXISTING memory-v3
-        // assistant being reseeded, not a first launch — migration 105 is
+        // assistant being reseeded, not a first launch: migration 105 is
         // already checkpointed here and never re-runs, so leaving the leaf
         // absent would silently demote the assistant to v2. Persist the
         // carried value and apply it to this load's effective config so the
