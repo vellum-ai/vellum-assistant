@@ -562,6 +562,31 @@ describe("PlanCard", () => {
     }
     expect(html).not.toContain("plan-card-price");
   });
+
+  test("a clean pin on an older package version shows no chips or price", () => {
+    // The org is pinned to Mighty v1 while the live catalog carries v2. The
+    // pinned version's price and specs are grandfathered, so the catalog entry
+    // must not describe this sub: no chips, no price, and a delta-less CTA.
+    const plans = plansWithSuper();
+    const pro = plans.plans.find((p) => p.id === "pro");
+    if (pro && "packages" in pro && pro.packages) {
+      pro.packages = pro.packages.map((p) => ({ ...p, version: 2 }));
+    }
+    const host = renderCardDom(proMightySubscription(), plans);
+    // The current tile still names the pinned package.
+    const current = within(currentTile(host));
+    expect(current.getByTestId("plan-card-name").textContent).toBe("Mighty");
+    for (const label of MIGHTY_CHIPS) {
+      expect(current.queryByText(label)).toBeNull();
+    }
+    expect(current.queryByTestId("plan-card-price")).toBeNull();
+    // Super is still the next package up, but its CTA quotes no delta.
+    const next = within(nextTile(host));
+    expect(next.getByText("Super")).toBeTruthy();
+    expect(next.getByTestId("recommended-upgrade-button").textContent).toBe(
+      "Power Up",
+    );
+  });
 });
 
 describe("PlanCard action button", () => {

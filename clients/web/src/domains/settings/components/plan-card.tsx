@@ -81,8 +81,8 @@ interface RecommendedUpgradeProps {
   currentKey: string | null;
   /**
    * The current plan's monthly price, for the CTA's delta. Null when no honest
-   * total is known (a Custom sub, or a pin absent from the catalog), which
-   * drops the delta from the label.
+   * total is known (a Custom sub, or a pin the live catalog cannot price),
+   * which drops the delta from the label.
    */
   currentPriceCents: number | null;
   /**
@@ -383,13 +383,18 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       : "switch";
 
   const isFreePlan = currentPlan.id === "base";
+  const pin = subscription.package;
   // Paid chips render only when the sub's stock package specs are known. A
   // clean pin absent from the catalog and a customized/unpinned "Custom" sub
   // show no chips and no price (never fall back to the free baseline, which
-  // would mislabel a paid sub).
+  // would mislabel a paid sub). A pin on an older package version degrades the
+  // same way: its price and specs are grandfathered at the version the org
+  // subscribed under, so today's catalog entry does not describe what they
+  // actually pay for.
   const currentPackage =
-    !isFreePlan && isCleanPin(subscription.package)
-      ? (packages.find((p) => p.key === currentKey) ?? null)
+    !isFreePlan && isCleanPin(pin)
+      ? (packages.find((p) => p.key === pin.key && p.version === pin.version) ??
+        null)
       : null;
   const currentSpecs = isFreePlan
     ? freePlanSpecs()
