@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let nativePlatform: "ios" | "android" | null = "ios";
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => nativePlatform === "ios",
+  isNativeMobile: () => nativePlatform !== null,
 }));
 
 // ── @capacitor/haptics (lazy-imported plugin Proxy) ──────────────────────────
@@ -82,15 +83,17 @@ describe("haptic on iOS", () => {
 });
 
 describe("haptic on Android", () => {
-  test("never touches the plugin", async () => {
+  test("only fires the pull-to-refresh threshold impact", async () => {
     nativePlatform = "android";
 
     await haptic.light();
     await haptic.medium();
     await haptic.success();
     await haptic.error();
+    await haptic.refreshThreshold();
 
-    expect(impactMock).not.toHaveBeenCalled();
+    expect(impactMock).toHaveBeenCalledTimes(1);
+    expect(impactMock).toHaveBeenCalledWith({ style: "LIGHT" });
     expect(notificationMock).not.toHaveBeenCalled();
   });
 });
@@ -103,6 +106,7 @@ describe("haptic on web", () => {
     await haptic.medium();
     await haptic.success();
     await haptic.error();
+    await haptic.refreshThreshold();
 
     expect(impactMock).not.toHaveBeenCalled();
     expect(notificationMock).not.toHaveBeenCalled();
