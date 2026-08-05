@@ -11,13 +11,14 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
+import { removePairedAssistant } from "@/assistant/switch-service";
+import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
   clearGatewayToken,
   isRepairableGatewayTokenError,
 } from "@/lib/auth/gateway-session";
 import {
   isCliWakeableAssistant,
-  removePairedAssistantFromLockfile,
   removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
@@ -41,8 +42,8 @@ import {
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+import { pairedHostLabel } from "@vellumai/local-mode/contract";
 import { Button } from "@vellumai/design-library/components/button";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Menu } from "@vellumai/design-library/components/menu";
 
 function assistantLabel(a: ResolvedAssistant): string {
@@ -55,20 +56,9 @@ function assistantLabel(a: ResolvedAssistant): string {
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function pairedHostingLabel(runtimeUrl: string | undefined): string {
-  if (runtimeUrl) {
-    try {
-      return `Paired · ${new URL(runtimeUrl).hostname}`;
-    } catch {
-      // Unparseable runtimeUrl: fall through to the plain label.
-    }
-  }
-  return "Paired";
-}
-
 function assistantSubtitle(a: ResolvedAssistant): string {
   const hosting = a.isPaired
-    ? pairedHostingLabel(a.runtimeUrl)
+    ? pairedHostLabel(a.runtimeUrl)
     : a.isLocal
       ? "On this computer"
       : "Cloud-hosted";
@@ -100,17 +90,14 @@ export function SelectAssistantScreen() {
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
+  // Unpairing and importing a pairing bundle both rewrite the lockfile
+  // through the local-mode host, and a pairing is device-local regardless of
+  // platform session: one gate covers the paired-removal and connect
+  // affordances (never shown in remote-gateway mode or hostless browsers).
+  const localModeHostAvailable = isLocalModeHostAvailable();
   // A locked platform entry can be forgotten on this device (dropped from the
-  // lockfile) only where a local-mode host can rewrite the lockfile.
-  const canRemoveLockedAssistants =
-    !hasPlatformSession && isLocalModeHostAvailable();
-  // A pairing is device-local regardless of platform session, so unpairing
-  // needs only the host, not a logged-out state.
-  const canRemovePairedAssistants = isLocalModeHostAvailable();
-  // Importing a pairing bundle rewrites the lockfile through the same host,
-  // so the connect affordance shares the unpair gate: never shown in
-  // remote-gateway mode or browsers without a local-mode host.
-  const canConnectRemoteAssistant = isLocalModeHostAvailable();
+  // lockfile) only where that same host is present and the user is logged out.
+  const canRemoveLockedAssistants = !hasPlatformSession && localModeHostAvailable;
 
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -135,6 +122,10 @@ export function SelectAssistantScreen() {
   const connectDialogOpen = useConnectDialogStore.use.open();
   const connectInitialBundle = useConnectDialogStore.use.initialBundle();
   const connectGuidanceMessage = useConnectDialogStore.use.guidanceMessage();
+  // Electron buffers deep links that arrive before the renderer exists and
+  // drains them shortly after mount; the auto-skip below defers until that
+  // drain settles so a cold-start connect link opens the dialog first.
+  const deepLinkDrainSettled = useConnectDialogStore.use.deepLinkDrainSettled();
   // After a manual removal the user is mid-management on this screen: a
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
@@ -284,10 +275,22 @@ export function SelectAssistantScreen() {
     }
     setRemovePending(true);
     setRemoveError(null);
+    if (removeTarget.isPaired) {
+      // The shared service owns the paired sequence (lockfile removal plus
+      // lifecycle active-id cleanup); its chooser-route outcome is ignored
+      // because this screen is already the chooser.
+      const outcome = await removePairedAssistant(removeTarget.id);
+      if (outcome.ok) {
+        removedThisVisitRef.current = true;
+        setRemoveTarget(null);
+      } else {
+        setRemoveError(outcome.error);
+      }
+      setRemovePending(false);
+      return;
+    }
     try {
-      const result = removeTarget.isPaired
-        ? await removePairedAssistantFromLockfile(removeTarget.id)
-        : await removePlatformAssistantFromLockfile(removeTarget.id);
+      const result = await removePlatformAssistantFromLockfile(removeTarget.id);
       if (result.ok) {
         // The lockfile subscription reconciles the list and the selection,
         // but not the lifecycle's active id: without this, navigating back
@@ -334,6 +337,12 @@ export function SelectAssistantScreen() {
     if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
       return;
     }
+    // On a cold Electron start the buffered deep links publish after mount;
+    // hold the skip until the drain settles so a parked connect link wins
+    // (it opens the dialog, which stands the auto-skip down below).
+    if (electron && !deepLinkDrainSettled) {
+      return;
+    }
     if (connecting || autoSkipping || connectDialogOpen) {
       return;
     }
@@ -345,7 +354,7 @@ export function SelectAssistantScreen() {
       void handleConnect(accessibleAssistants[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assistants.length, accessibleAssistants.length]);
+  }, [assistants.length, accessibleAssistants.length, deepLinkDrainSettled]);
 
   const onContinue = () => {
     const assistant = assistants.find((a) => a.id === selected);
@@ -436,7 +445,7 @@ export function SelectAssistantScreen() {
                 }
                 onRemove={
                   (assistant.isPlatformHosted && canRemoveLockedAssistants) ||
-                  (assistant.isPaired && canRemovePairedAssistants)
+                  (assistant.isPaired && localModeHostAvailable)
                     ? () => setRemoveTarget(assistant)
                     : undefined
                 }
@@ -453,7 +462,7 @@ export function SelectAssistantScreen() {
               )
             }
           />
-          {canConnectRemoteAssistant && (
+          {localModeHostAvailable && (
             <DashedActionButton
               icon={<Link2 className="h-4 w-4" />}
               label="Connect a remote assistant"
@@ -516,34 +525,13 @@ export function SelectAssistantScreen() {
         onRepair={() => void handleRecoveryRepair()}
         onRetire={() => void handleRecoveryRetire()}
       />
-      <ConfirmDialog
+      <RemoveFromDeviceDialog
         open={removeTarget != null}
-        title="Remove from this device?"
-        message={
-          <>
-            {removeTarget?.isPaired ? (
-              <>
-                This won&rsquo;t affect {assistantLabel(removeTarget)} on its
-                host machine. It only forgets the pairing on this device. Pair
-                again anytime with vellum connect import.
-              </>
-            ) : (
-              <>
-                This won&rsquo;t delete{" "}
-                {removeTarget ? assistantLabel(removeTarget) : "the assistant"}.
-                It only removes it from this device. Logging in will make it
-                available again.
-              </>
-            )}
-            {removeError && (
-              <span className="mt-2 block text-[var(--system-negative-strong)]">
-                {removeError}
-              </span>
-            )}
-          </>
+        kind={removeTarget?.isPaired ? "paired" : "platform"}
+        assistantName={
+          removeTarget ? assistantLabel(removeTarget) : "the assistant"
         }
-        confirmLabel="Remove"
-        destructive
+        errorMessage={removeError ?? undefined}
         isPending={removePending}
         onConfirm={() => void handleRemoveConfirm()}
         onCancel={closeRemoveDialog}

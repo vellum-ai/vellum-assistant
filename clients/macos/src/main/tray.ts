@@ -1,6 +1,9 @@
 import { Menu, Tray, app, nativeTheme, shell } from "electron";
 
-import type { LockfileAssistant } from "@vellumai/local-mode/contract";
+import {
+  pairedHostLabel,
+  type LockfileAssistant,
+} from "@vellumai/local-mode/contract";
 
 import {
   MENU_ICON_CIRCLECHECK,
@@ -104,15 +107,7 @@ const assistantMenuLabel = (assistant: LockfileAssistant): string => {
   if (assistant.cloud !== "paired") {
     return title;
   }
-  let suffix = "Paired";
-  if (assistant.runtimeUrl) {
-    try {
-      suffix = `Paired \u00b7 ${new URL(assistant.runtimeUrl).hostname}`;
-    } catch {
-      // Unparseable runtimeUrl: plain "Paired".
-    }
-  }
-  return `${title} (${suffix})`;
+  return `${title} (${pairedHostLabel(assistant.runtimeUrl)})`;
 };
 
 /**

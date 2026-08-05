@@ -11,6 +11,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // --- mutable mock state (set per test) --- //
 
 let lockfileAssistants: Array<{ assistantId: string; cloud?: string }> = [];
+// Entries the next loadLockfile makes visible, standing in for a lockfile
+// change (e.g. `vellum connect import`) the renderer cache hasn't seen.
+let lockfileAssistantsAfterReload: Array<{
+  assistantId: string;
+  cloud?: string;
+}> | null = null;
 let selectedAssistant: { assistantId: string } | undefined = undefined;
 let removeFromLockfileResult: { ok: boolean; error?: string } = { ok: true };
 let connectPairedShouldThrow = false;
@@ -21,11 +27,19 @@ let activeAssistantId: string | null = null;
 const removePairedFromLockfileMock = mock(
   async (_id: string) => removeFromLockfileResult,
 );
+const loadLockfileMock = mock(async () => {
+  if (lockfileAssistantsAfterReload) {
+    lockfileAssistants = lockfileAssistantsAfterReload;
+    lockfileAssistantsAfterReload = null;
+  }
+  return { assistants: lockfileAssistants, activeAssistant: null };
+});
 mock.module("@/lib/local-mode", () => ({
   getLockfileAssistant: (id: string) =>
     lockfileAssistants.find((a) => a.assistantId === id),
   getSelectedAssistant: () => selectedAssistant,
   isPairedAssistant: (a: { cloud?: string }) => a.cloud === "paired",
+  loadLockfile: loadLockfileMock,
   removePairedAssistantFromLockfile: removePairedFromLockfileMock,
 }));
 
@@ -69,11 +83,13 @@ const { removePairedAssistant, switchToAssistant } = await import(
 
 beforeEach(() => {
   lockfileAssistants = [];
+  lockfileAssistantsAfterReload = null;
   selectedAssistant = undefined;
   removeFromLockfileResult = { ok: true };
   connectPairedShouldThrow = false;
   activeAssistantId = null;
   removePairedFromLockfileMock.mockClear();
+  loadLockfileMock.mockClear();
   connectPairedAssistantMock.mockClear();
   setSelectedAssistantMock.mockClear();
   setActiveAssistantIdMock.mockClear();
@@ -100,11 +116,33 @@ describe("switchToAssistant", () => {
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("an id with no lockfile entry falls back to the selection write", async () => {
+  test("an id with no lockfile entry reloads the lockfile, then falls back to the selection write", async () => {
     const outcome = await switchToAssistant("ghost");
 
     expect(outcome.ok).toBe(true);
+    expect(loadLockfileMock).toHaveBeenCalledTimes(1);
     expect(setSelectedAssistantMock).toHaveBeenCalledWith("ghost");
+  });
+
+  test("a paired entry the cache hasn't loaded yet connects with credentials after the reload", async () => {
+    // A `vellum connect import` while the app was open: the tray (fed by
+    // main's watched lockfile) knows the entry, the renderer cache doesn't.
+    lockfileAssistantsAfterReload = [{ assistantId: "pr2", cloud: "paired" }];
+
+    const outcome = await switchToAssistant("pr2");
+
+    expect(outcome.ok).toBe(true);
+    expect(loadLockfileMock).toHaveBeenCalledTimes(1);
+    expect(connectPairedAssistantMock).toHaveBeenCalledWith("pr2");
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("a cached entry never triggers a reload", async () => {
+    lockfileAssistants = [{ assistantId: "pr1", cloud: "paired" }];
+
+    await switchToAssistant("pr1");
+
+    expect(loadLockfileMock).not.toHaveBeenCalled();
   });
 
   test("a failed paired connect surfaces an error outcome", async () => {

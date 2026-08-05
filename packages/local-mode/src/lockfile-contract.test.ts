@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   KNOWN_CLOUDS,
+  pairedHostLabel,
   parseLockfile,
   resolveCloud,
   SENSITIVE_KEYS,
@@ -335,6 +336,23 @@ describe("resolveCloud", () => {
     expect(resolveCloud({ sshUser: "u" })).toBe("custom");
     expect(resolveCloud({})).toBe("local");
     expect(resolveCloud({ cloud: "" })).toBe("local");
+  });
+});
+
+describe("pairedHostLabel", () => {
+  test("names the remote host from a parseable runtimeUrl", () => {
+    expect(pairedHostLabel("https://tunnel.example.com")).toBe(
+      "Paired · tunnel.example.com",
+    );
+    expect(pairedHostLabel("https://remote-host.example:8443")).toBe(
+      "Paired · remote-host.example",
+    );
+  });
+
+  test("falls back to plain Paired for a missing or unparseable runtimeUrl", () => {
+    expect(pairedHostLabel(undefined)).toBe("Paired");
+    expect(pairedHostLabel("")).toBe("Paired");
+    expect(pairedHostLabel("not a url")).toBe("Paired");
   });
 });
 
