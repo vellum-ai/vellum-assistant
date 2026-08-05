@@ -301,9 +301,21 @@ distribution do not depend on push setup. When it is absent, the workflow emits
 a warning and the resulting AAB has no native push support. When it is present,
 malformed base64, invalid JSON, or a package mismatch fails the build.
 
-After completing the prerequisites and GitHub configuration, set the repository
-variable `ANDROID_RELEASE_ENABLED` to `true`. Until then, both orchestrators
-skip Android distribution so existing releases remain unaffected.
+After completing the prerequisites and GitHub configuration, enable Android
+distribution independently with these repository variables:
+
+| Variable | Release workflow |
+|----------|------------------|
+| `ANDROID_DEV_RELEASE_ENABLED` | Dev releases |
+| `ANDROID_STAGING_RELEASE_ENABLED` | Staging releases |
+| `ANDROID_PRODUCTION_RELEASE_ENABLED` | Production releases |
+
+Set only `ANDROID_DEV_RELEASE_ENABLED` to `true` to test the dev app on its Play
+internal track. Leave the staging and production variables unset or set to
+`false` until those apps are ready. A missing or non-`true` variable skips the
+matching Android distribution job. Manually dispatch the **Dev Release**
+workflow to run the dev release immediately instead of waiting for its hourly
+schedule.
 
 ### Manual Play Prerequisites
 

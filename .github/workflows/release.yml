@@ -2699,7 +2699,10 @@ jobs:
     needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
       ${{
-        vars.ANDROID_RELEASE_ENABLED == 'true'
+        (
+          (needs.extract-version.outputs.is_staging == 'true' && vars.ANDROID_STAGING_RELEASE_ENABLED == 'true')
+          || (needs.extract-version.outputs.is_staging != 'true' && vars.ANDROID_PRODUCTION_RELEASE_ENABLED == 'true')
+        )
         && always() && !cancelled()
         && needs.extract-version.result == 'success'
         && needs.push-assistant-manifest.result == 'success'

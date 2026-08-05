@@ -2244,7 +2244,7 @@ jobs:
 
   release-android:
     needs: [compute-version, register-release, build-chrome-extension]
-    if: vars.ANDROID_RELEASE_ENABLED == 'true'
+    if: vars.ANDROID_DEV_RELEASE_ENABLED == 'true'
     permissions:
       contents: read
       id-token: write
