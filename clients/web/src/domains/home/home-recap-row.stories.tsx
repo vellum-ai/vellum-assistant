@@ -81,7 +81,7 @@ export const SkillUpdated: Story = {
   args: {
     item: feedItem({
       id: "feed-skill-updated",
-      title: "Skill updated",
+      title: "Skill updated: Weekly Report Export",
       summary:
         'Updated the skill "Weekly Report Export" from something learned in an earlier conversation.',
       category: "background",
@@ -165,7 +165,7 @@ export const StaleConversationLink: Story = {
   args: {
     item: feedItem({
       id: "feed-stale-link",
-      title: "Skill updated",
+      title: "Skill updated: Weekly Report Export",
       summary: 'Updated the skill "Weekly Report Export".',
       category: "background",
       urgency: "low",
