@@ -40,7 +40,6 @@ import type {
   ProfileStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
 
 export type ProfileEditorMode = "create" | "edit" | "view";
@@ -593,27 +592,14 @@ export function useProfileEditor({
           ? availableConnectionsForProvider[0].name
           : providerConnection;
       const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
-      // The Vellum picker entry's wire shape is version-gated. Daemons at the
-      // gate's MIN_VERSION store the routing identity directly
-      // (`provider: "vellum"` + native model, no binding); older daemons get
-      // the legacy shape: the model's managed upstream as `provider`, bound
-      // to the provider-agnostic vellum connection.
-      const writesIdentityPayload =
-        provider === VELLUM_CONNECTION_PROVIDER &&
-        (await assistantSupportsVellumProviderProfiles(assistantId));
-      const wireProvider =
-        provider === VELLUM_CONNECTION_PROVIDER
-          ? writesIdentityPayload
-            ? VELLUM_CONNECTION_PROVIDER
-            : (routedModel?.provider ??
-              getManagedUpstreamForModel(model) ??
-              initialValues?.provider ??
-              "")
-          : provider;
+      // The Vellum picker entry writes the routing identity directly:
+      // `provider: "vellum"` + the native model, no connection binding.
+      const wireProvider = provider;
       const wireModel = nativeModel;
       // Identity payloads carry no binding; sending null on edit clears a
       // legacy-shape binding left on the stored profile.
-      const wireBinding = writesIdentityPayload ? "" : effectiveBinding;
+      const wireBinding =
+        provider === VELLUM_CONNECTION_PROVIDER ? "" : effectiveBinding;
       if (effectiveMode === "edit") {
         // In edit mode send null for cleared fields so the server deep-merges
         // them as cleared rather than silently preserving the old value.
