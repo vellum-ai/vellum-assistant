@@ -1,7 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { isNativeAndroid } from "@/runtime/platform-detection";
 import type { ThemePreference } from "@/utils/theme-preferences";
 
 type NativeLaunchTheme = "system" | "light" | "dark";
@@ -21,7 +20,8 @@ function nativeLaunchTheme(theme: ThemePreference): NativeLaunchTheme {
 
 function isAvailable(): boolean {
   return (
-    isNativeAndroid() &&
+    Capacitor.isNativePlatform() &&
+    Capacitor.getPlatform() === "android" &&
     Capacitor.isPluginAvailable(NATIVE_LAUNCH_SCREEN_PLUGIN)
   );
 }
