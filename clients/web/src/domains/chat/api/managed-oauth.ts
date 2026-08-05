@@ -35,9 +35,9 @@ export interface ManagedOAuthConnectOptions {
   providerKey: string;
   providerLabel: string;
   /**
-   * Full replacement set: when present, the platform uses exactly these
-   * scopes instead of its defaults (it does not merge). Omit to use the
-   * platform's default scopes.
+   * Full replacement set of OAuth scopes; see
+   * OAuthConnectSurfaceData.requestedScopes for semantics.
+   * Omit to use platform defaults.
    */
   requestedScopes?: string[];
 }
@@ -417,7 +417,7 @@ const inFlightManagedOAuthConnects = new Map<
  * flipped to "Connected" even though the account did connect (JARVIS-1286).
  *
  * Returning the already-running promise means repeat triggers latch onto the
- * one popup + one listener set that will actually resolve — even when the
+ * one popup + one listener set that will actually resolve, even when the
  * repeat trigger's `requestedScopes` differ, since two concurrent connects
  * for the same provider are inherently conflicting regardless of scopes.
  */
