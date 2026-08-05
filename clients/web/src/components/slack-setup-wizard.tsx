@@ -67,6 +67,11 @@ export function SlackSetupWizard({
     }
   }, [assistantName]);
 
+  // The exact manifest last written to the clipboard, so the handoff step can
+  // tell "never copied" and "copied, then the name changed" apart from a live
+  // clipboard. The transient `copied` flag resets on a timer and cannot.
+  const [copiedManifest, setCopiedManifest] = useState<string | null>(null);
+
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
@@ -89,7 +94,7 @@ export function SlackSetupWizard({
   }, []);
 
   const handleCopyManifest = useCallback(() => {
-    copy(manifestJson);
+    copy(manifestJson, () => setCopiedManifest(manifestJson));
   }, [copy, manifestJson]);
 
   const handleOpenSlack = useCallback(() => {
@@ -140,6 +145,9 @@ export function SlackSetupWizard({
 
         {stepId === "open" && (
           <SlackSetupOpenStep
+            manifestOnClipboard={copiedManifest === manifestJson}
+            copied={copied}
+            onCopyManifest={handleCopyManifest}
             onOpenSlack={handleOpenSlack}
             onContinue={handleContinueToCreate}
           />
