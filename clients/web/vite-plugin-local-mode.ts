@@ -10,6 +10,7 @@ import {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   connectImport,
   getLockfileData,
   getLocalAssistantStatus,
@@ -56,15 +57,15 @@ export function getDevPlatformToken(): string | null {
  * proxy as a confused deputy. Mirrors the Bun server's check.
  */
 export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
+  const host = Array.isArray(req.headers.host)
+    ? req.headers.host[0]
+    : req.headers.host;
   const origin = Array.isArray(req.headers.origin)
     ? req.headers.origin[0]
     : req.headers.origin;
-  if (!originIsAllowed(origin)) {
-    return false;
-  }
   const site = req.headers["sec-fetch-site"];
   const siteValue = Array.isArray(site) ? site[0] : site;
-  return !siteValue || siteValue === "same-origin" || siteValue === "none";
+  return hasSameOriginCredentialProof(host, origin, siteValue);
 }
 
 export function localModePlugin(env: Record<string, string>): Plugin {

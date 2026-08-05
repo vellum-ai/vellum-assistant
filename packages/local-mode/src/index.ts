@@ -12,6 +12,7 @@ export {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   resolveDevCliInvocation,
 } from "./util";
 export type { CliInvocation } from "./util";

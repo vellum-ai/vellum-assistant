@@ -50,6 +50,7 @@ import {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
@@ -473,15 +474,14 @@ function currentPlatformToken(): string | null {
   return platformSessionToken;
 }
 
-// Whether to attach a host-owned credential to a proxied request. Only
-// same-origin (SPA) traffic qualifies. A cross-origin page must not be able to
-// use the local proxy as a confused deputy for authenticated upstream calls.
-// Cross-origin fetches always send an Origin; `Sec-Fetch-Site` is a belt-and-
-// braces check for browsers that send it.
-function isSameOriginRequest(req: Request): boolean {
-  if (!originIsAllowed(req.headers.get("origin") ?? undefined)) return false;
-  const site = req.headers.get("sec-fetch-site");
-  return !site || site === "same-origin" || site === "none";
+// Whether to attach a host-owned credential to a proxied request. The browser
+// must positively identify the request as coming from this server's origin.
+export function isSameOriginRequest(req: Request): boolean {
+  return hasSameOriginCredentialProof(
+    req.headers.get("host") ?? undefined,
+    req.headers.get("origin") ?? undefined,
+    req.headers.get("sec-fetch-site") ?? undefined,
+  );
 }
 
 function getEnvRecord(): Record<string, string> {

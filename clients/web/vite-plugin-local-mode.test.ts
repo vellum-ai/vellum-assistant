@@ -180,6 +180,24 @@ describe("paired gateway proxy", () => {
     });
   });
 
+  test("rejects a browser request without positive same-origin proof", async () => {
+    writeLockfile([
+      {
+        assistantId: "paired-g",
+        cloud: "paired",
+        paired: true,
+        runtimeUrl: "https://gateway.example.com",
+      },
+    ]);
+    writeToken("paired-g", {
+      pairedGatewayUrl: "https://gateway.example.com",
+    });
+
+    const result = await dispatch("/__gateway-paired/paired-g/readyz");
+
+    expect(result).toEqual({ status: 403, body: "Forbidden" });
+  });
+
   test("rejects a browser request from another loopback origin", async () => {
     writeLockfile([
       {
