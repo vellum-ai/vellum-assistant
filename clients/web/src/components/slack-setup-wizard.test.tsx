@@ -1,17 +1,17 @@
 /**
  * Tests for `SlackSetupWizard`'s step flow:
  *
- *   1. Copy and advance are one action, and the manifest that reaches the
- *      clipboard carries what was typed on step 1.
- *   2. Step 1 offers no second way forward. Slack's create-app modal cannot
- *      fetch the manifest, so a path to step 2 that skips the copy would
- *      strand the user with nothing to paste.
- *   3. An empty app name blocks the only control that advances.
- *   4. Step 3 hands both tokens to `onSave`, trimmed.
+ *   1. Copying puts the live manifest on the clipboard, carrying what was
+ *      typed, and does not navigate.
+ *   2. A failed clipboard write neither claims success nor moves the flow on.
+ *   3. Navigation is never a side effect of another control: Next advances,
+ *      Copy and Open Slack do not.
+ *   4. An empty app name blocks both controls on step 1.
+ *   5. Step 4 hands both tokens to `onSave`, trimmed.
  *
  * All token values are synthetic fixtures.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   cleanup,
   fireEvent,
@@ -20,7 +20,26 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import * as toastModule from "@vellumai/design-library/components/toast";
+
+const toasts: string[] = [];
+// Spread the real module: the design library's barrel re-exports `Toaster` and
+// `ToastContent` from here, so a partial mock breaks unrelated imports.
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: {
+    ...toastModule.toast,
+    success: () => {},
+    error: (message: string) => {
+      toasts.push(message);
+    },
+  },
+}));
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: () => {},
+}));
+
+const { SlackSetupWizard } = await import("@/components/slack-setup-wizard");
 
 const ASSISTANT_NAME = "Example Assistant";
 const DIGITS = "0".repeat(10);
@@ -29,47 +48,77 @@ const APP_TOKEN = `xapp-1-A${DIGITS}-${DIGITS}-abcdefghij`;
 
 let clipboardWrites: string[] = [];
 
-beforeEach(() => {
-  clipboardWrites = [];
+function stubClipboard(result: () => Promise<void>) {
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {
       writeText: (text: string) => {
         clipboardWrites.push(text);
-        return Promise.resolve();
+        return result();
       },
     },
   });
+}
+
+beforeEach(() => {
+  clipboardWrites = [];
+  toasts.length = 0;
+  stubClipboard(() => Promise.resolve());
 });
 
 afterEach(cleanup);
 
-function continueButton() {
-  return screen.getByRole("button", { name: /Copy manifest and continue/i });
-}
+const copyButton = () =>
+  screen.getByRole("button", { name: /Copy manifest|Copied!/i });
+const nextButton = () => screen.getByRole("button", { name: /^Next$/i });
+const onOpenStep = () =>
+  screen.queryByRole("button", { name: /Open Slack/i }) !== null;
 
 describe("SlackSetupWizard step flow", () => {
-  test("copying the manifest is what advances to step 2", async () => {
+  test("copying puts the live manifest on the clipboard without navigating", async () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
 
     fireEvent.change(screen.getByLabelText(/App Name/i), {
       target: { value: "Support Bot" },
     });
-    fireEvent.click(continueButton());
+    fireEvent.click(copyButton());
 
-    // The clipboard carries the edited name, not the assistant's default, so
-    // this proves the live manifest was copied rather than a stale render.
+    // The edited name proves this is the live manifest, not a stale render.
     expect(clipboardWrites).toHaveLength(1);
     expect(JSON.parse(clipboardWrites[0]).display_information.name).toBe(
       "Support Bot",
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Open Slack/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Copied!/i })).toBeTruthy();
     });
+    expect(onOpenStep()).toBe(false);
   });
 
-  test("opening Slack is what advances past the handoff step", async () => {
+  test("a failed clipboard write neither claims success nor advances", async () => {
+    stubClipboard(() => Promise.reject(new Error("NotAllowedError")));
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    fireEvent.click(copyButton());
+
+    await waitFor(() => {
+      expect(toasts).toHaveLength(1);
+    });
+    // "Copied!" would tell the user to go paste something that isn't there.
+    expect(screen.queryByRole("button", { name: /Copied!/i })).toBeNull();
+    expect(onOpenStep()).toBe(false);
+  });
+
+  test("Next advances without requiring a copy", () => {
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    fireEvent.click(nextButton());
+
+    expect(clipboardWrites).toHaveLength(0);
+    expect(onOpenStep()).toBe(true);
+  });
+
+  test("opening Slack opens a tab but does not navigate the wizard", () => {
     const opened: string[] = [];
     const realOpen = window.open;
     window.open = ((url: string) => {
@@ -79,72 +128,38 @@ describe("SlackSetupWizard step flow", () => {
 
     try {
       render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
-      fireEvent.click(continueButton());
+      fireEvent.click(nextButton());
       fireEvent.click(screen.getByRole("button", { name: /Open Slack/i }));
 
       expect(opened).toHaveLength(1);
       expect(opened[0]).toContain("api.slack.com/apps");
 
-      // The in-Slack directions are the next screen, not a peer of the button
-      // that sent the user there.
-      await waitFor(() => {
-        expect(
-          screen.getByRole("button", { name: /I created the app/i }),
-        ).toBeTruthy();
-      });
+      // A blocked popup would otherwise move the flow past the tab it claims
+      // to have opened.
+      expect(onOpenStep()).toBe(true);
+      expect(
+        screen.queryByRole("button", { name: /I created the app/i }),
+      ).toBeNull();
     } finally {
       window.open = realOpen;
     }
   });
 
-  test("copying again does not advance past the handoff step", () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
-    fireEvent.click(continueButton());
-    // Arriving here right after the copy, the button still reads "Copied!";
-    // it settles to "Copy again" once the transient flag resets.
-    fireEvent.click(
-      screen.getByRole("button", { name: /Copied!|Copy again/i }),
-    );
-
-    expect(clipboardWrites).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /Open Slack/i })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /I created the app/i }),
-    ).toBeNull();
-  });
-
-  test("step 1 offers no way forward that skips the copy", () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
-
-    // Counted rather than probed by name: a bare "Next" or "Skip" added later
-    // would reach step 2 with an empty clipboard, and Slack's modal has
-    // nowhere to fetch the manifest from.
-    const panel = document.querySelector(
-      '[data-slot="slack-setup-step-panel"]',
-    );
-    if (!panel) {
-      throw new Error("step panel did not render");
-    }
-    const stepButtons = panel.querySelectorAll("button");
-    expect(stepButtons).toHaveLength(1);
-    expect(stepButtons[0].textContent).toMatch(/Copy manifest and continue/i);
-  });
-
-  test("an empty app name blocks the only control that advances", () => {
+  test("an empty app name blocks both controls on step 1", () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
 
     fireEvent.change(screen.getByLabelText(/App Name/i), {
       target: { value: "   " },
     });
 
-    expect(continueButton().hasAttribute("disabled")).toBe(true);
+    expect(copyButton().hasAttribute("disabled")).toBe(true);
+    expect(nextButton().hasAttribute("disabled")).toBe(true);
 
-    fireEvent.click(continueButton());
-    expect(clipboardWrites).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /Open Slack/i })).toBeNull();
+    fireEvent.click(nextButton());
+    expect(onOpenStep()).toBe(false);
   });
 
-  test("step 3 hands both tokens to onSave, trimmed", () => {
+  test("step 4 hands both tokens to onSave, trimmed", () => {
     const saved: Array<[string, string]> = [];
     render(
       <SlackSetupWizard

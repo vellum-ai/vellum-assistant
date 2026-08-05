@@ -41,10 +41,7 @@ const fillTokens: Story["play"] = async ({ canvasElement }) => {
 /** Step 1: name the app and take its manifest. */
 export const Name: Story = {};
 
-/**
- * Step 1 with the name cleared. "Copy manifest and continue" is the only way
- * forward, so an empty name has to block it.
- */
+/** Step 1 with the name cleared: both Copy manifest and Next are blocked. */
 export const NameEmpty: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -52,16 +49,21 @@ export const NameEmpty: Story = {
   },
 };
 
-/**
- * Step 2, reached by copying rather than by `initialStepId`, so this also
- * covers the copy-and-advance handoff the flow depends on.
- */
-export const OpenSlack: Story = {
+/** Step 1 after a successful copy, showing the transient confirmation. */
+export const Copied: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      canvas.getByRole("button", { name: /Copy manifest and continue/i }),
+      canvas.getByRole("button", { name: /Copy manifest/i }),
     );
+  },
+};
+
+/** Step 2, reached through Next rather than `initialStepId`. */
+export const OpenSlack: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
   },
 };
 

@@ -1,25 +1,23 @@
-import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
 export interface SlackSetupOpenStepProps {
-  copied: boolean;
   onOpenSlack: () => void;
-  onCopyManifest: () => void;
+  onContinue: () => void;
 }
 
 /**
  * Step 2 of `SlackSetupWizard`: hand off to Slack.
  *
- * "Open Slack" also advances, so this step carries one forward action and the
- * directions for what to do over there get a screen of their own. Copying
- * again is deliberately not a forward action: it exists for a clipboard
- * clobbered between steps, and advancing on it would skip the handoff.
+ * Opening Slack does not advance. A popup blocker or a stolen focus would
+ * otherwise move the flow on without the tab it claims to have opened, and
+ * navigating for the user is what made the previous shape confusing. To copy
+ * the manifest again, step back to Name, which the stepper keeps reachable.
  */
 export function SlackSetupOpenStep({
-  copied,
   onOpenSlack,
-  onCopyManifest,
+  onContinue,
 }: SlackSetupOpenStepProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -28,8 +26,8 @@ export function SlackSetupOpenStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        The manifest is on your clipboard. Open Slack to create the app, then
-        come back here.
+        Open Slack in a new tab to create the app, then come back here for the
+        steps to follow.
       </Typography>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -41,19 +39,8 @@ export function SlackSetupOpenStep({
         >
           Open Slack
         </Button>
-        <Button
-          type="button"
-          variant="outlined"
-          onClick={onCopyManifest}
-          leftIcon={
-            copied ? (
-              <Check aria-hidden className="size-4" />
-            ) : (
-              <ClipboardCopy aria-hidden className="size-4" />
-            )
-          }
-        >
-          {copied ? "Copied!" : "Copy again"}
+        <Button type="button" variant="outlined" onClick={onContinue}>
+          Next
         </Button>
       </div>
     </div>

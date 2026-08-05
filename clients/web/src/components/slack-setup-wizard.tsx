@@ -40,7 +40,7 @@ export interface SlackSetupWizardProps {
 }
 
 /**
- * Guided setup for connecting a Slack app, paced across three steps.
+ * Guided setup for connecting a Slack app, paced across four steps.
  *
  * Slack's create-app modal ignores manifest deep links and mints both the bot
  * and app-level tokens itself on Create and Install. That makes the flow one
@@ -70,7 +70,10 @@ export function SlackSetupWizard({
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
-  const { copy, copied } = useCopyToClipboard();
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage:
+      "Could not copy the manifest. Copy it again before continuing.",
+  });
 
   const manifestJson = useMemo(
     () =>
@@ -89,17 +92,13 @@ export function SlackSetupWizard({
     copy(manifestJson);
   }, [copy, manifestJson]);
 
-  const handleCopyAndContinue = useCallback(() => {
-    handleCopyManifest();
-    setStepId("open");
-  }, [handleCopyManifest]);
-
-  // Opening Slack is also what advances, so this step keeps a single forward
-  // action and the in-Slack directions get a screen of their own.
   const handleOpenSlack = useCallback(() => {
     window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
-    setStepId("create");
   }, []);
+
+  const handleContinueToOpen = useCallback(() => setStepId("open"), []);
+  const handleContinueToCreate = useCallback(() => setStepId("create"), []);
+  const handleContinueToConnect = useCallback(() => setStepId("connect"), []);
 
   const handleSave = useCallback(() => {
     onSave?.(botToken.trim(), appToken.trim());
@@ -134,20 +133,20 @@ export function SlackSetupWizard({
             copied={copied}
             onAppNameChange={handleAppNameChange}
             onDescriptionChange={setDescription}
-            onCopyAndContinue={handleCopyAndContinue}
+            onCopyManifest={handleCopyManifest}
+            onContinue={handleContinueToOpen}
           />
         )}
 
         {stepId === "open" && (
           <SlackSetupOpenStep
-            copied={copied}
             onOpenSlack={handleOpenSlack}
-            onCopyManifest={handleCopyManifest}
+            onContinue={handleContinueToCreate}
           />
         )}
 
         {stepId === "create" && (
-          <SlackSetupCreateStep onContinue={() => setStepId("connect")} />
+          <SlackSetupCreateStep onContinue={handleContinueToConnect} />
         )}
 
         {stepId === "connect" && (

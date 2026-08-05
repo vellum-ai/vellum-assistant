@@ -17,7 +17,7 @@ export interface SlackSetupTokensStepProps {
 }
 
 /**
- * Step 3 of `SlackSetupWizard`: bring both tokens back from Slack.
+ * Step 4 of `SlackSetupWizard`: bring both tokens back from Slack.
  *
  * Slack mints the `xapp-` app token alongside the `xoxb-` bot token on Create
  * and Install, so both are collected here rather than across separate steps.

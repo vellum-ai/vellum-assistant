@@ -12,15 +12,17 @@ export interface SlackSetupNameStepProps {
   copied: boolean;
   onAppNameChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
-  onCopyAndContinue: () => void;
+  onCopyManifest: () => void;
+  onContinue: () => void;
 }
 
 /**
  * Step 1 of `SlackSetupWizard`: name the app and take its manifest.
  *
- * Copying and advancing are one action rather than two controls, so the
- * manifest is on the clipboard before the next step sends anyone to Slack.
- * Slack's create-app modal has nowhere to fetch it from.
+ * Copying and continuing are separate controls. Folding them together meant a
+ * copy could not be repeated without navigating, and made moving forward
+ * depend on a clipboard write that can fail. The next step offers the manifest
+ * again, so nothing is lost by continuing without copying here.
  */
 export function SlackSetupNameStep({
   appName,
@@ -28,7 +30,8 @@ export function SlackSetupNameStep({
   copied,
   onAppNameChange,
   onDescriptionChange,
-  onCopyAndContinue,
+  onCopyManifest,
+  onContinue,
 }: SlackSetupNameStepProps) {
   const nameValid = appName.trim().length > 0;
 
@@ -66,22 +69,31 @@ export function SlackSetupNameStep({
         fullWidth
       />
 
-      <Button
-        type="button"
-        variant="primary"
-        className="self-start"
-        disabled={!nameValid}
-        onClick={onCopyAndContinue}
-        leftIcon={
-          copied ? (
-            <Check aria-hidden className="size-4" />
-          ) : (
-            <ClipboardCopy aria-hidden className="size-4" />
-          )
-        }
-      >
-        Copy manifest and continue
-      </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          variant="outlined"
+          disabled={!nameValid}
+          onClick={onCopyManifest}
+          leftIcon={
+            copied ? (
+              <Check aria-hidden className="size-4" />
+            ) : (
+              <ClipboardCopy aria-hidden className="size-4" />
+            )
+          }
+        >
+          {copied ? "Copied!" : "Copy manifest"}
+        </Button>
+        <Button
+          type="button"
+          variant="primary"
+          disabled={!nameValid}
+          onClick={onContinue}
+        >
+          Next
+        </Button>
+      </div>
     </div>
   );
 }
