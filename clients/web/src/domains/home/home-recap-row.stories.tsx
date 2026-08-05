@@ -20,36 +20,12 @@
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import type { FeedItem } from "@vellumai/assistant-api";
-
+import {
+  feedItem,
+  FIXTURE_CONVERSATION_ID,
+  FIXTURE_VALID_CONVERSATIONS,
+} from "@/domains/home/feed-test-fixtures";
 import { HomeRecapRow } from "@/domains/home/home-recap-row";
-
-/**
- * Build a `FeedItem` with the fields the daemon always writes, so a story
- * only states what makes its case distinct. Accepts the component's own data
- * shape: no transformation, no alternate input format.
- */
-function feedItem(
-  overrides: Partial<FeedItem> & Pick<FeedItem, "id">,
-): FeedItem {
-  return {
-    type: "notification",
-    priority: 50,
-    summary: "",
-    // `timestamp` is the event time; `createdAt` is when the feed writer
-    // recorded it. The daemon sets both and they are not the same value, so
-    // the fixtures keep them distinct.
-    timestamp: "2026-08-05T18:30:00.000Z",
-    createdAt: "2026-08-05T18:30:02.000Z",
-    status: "new",
-    ...overrides,
-  };
-}
-
-const CONVERSATION_ID = "conv-weekly-report";
-
-/** Conversations the feed is allowed to link to (the row hides a dead link). */
-const VALID_CONVERSATIONS = new Set([CONVERSATION_ID]);
 
 const meta = {
   title: "Home/HomeRecapRow",
@@ -60,7 +36,7 @@ const meta = {
     onDismiss: () => {},
     onToggleRead: () => {},
     onGoToThread: () => {},
-    validConversationIds: VALID_CONVERSATIONS,
+    validConversationIds: FIXTURE_VALID_CONVERSATIONS,
   },
   decorators: [
     (Story) => (
@@ -110,7 +86,7 @@ export const SkillUpdated: Story = {
         'Updated the skill "Weekly Report Export" from something learned in an earlier conversation.',
       category: "background",
       urgency: "low",
-      conversationId: CONVERSATION_ID,
+      conversationId: FIXTURE_CONVERSATION_ID,
     }),
   },
 };
@@ -125,7 +101,7 @@ export const ScheduledReminder: Story = {
         "Your Monday recap is ready to send. The draft covers last week's shipped work.",
       category: "scheduling",
       urgency: "medium",
-      conversationId: CONVERSATION_ID,
+      conversationId: FIXTURE_CONVERSATION_ID,
       sourceLabel: "Schedule",
     }),
   },
@@ -141,7 +117,7 @@ export const SecurityRequest: Story = {
         "A tool wants to send an email on your behalf to the finance team.",
       category: "security",
       urgency: "high",
-      conversationId: CONVERSATION_ID,
+      conversationId: FIXTURE_CONVERSATION_ID,
     }),
   },
 };
