@@ -9,9 +9,13 @@ const meta: Meta<typeof SlackSetupWizard> = {
   args: {
     assistantName: "Example Assistant",
   },
+  // 400px matches the drawer the wizard actually renders in: `chat-content-
+  // layout.tsx` mounts it in an `AnimatedRightDrawer` with `defaultWidth` and
+  // `minWidth` both 400. A wider frame hides the density these stories exist to
+  // show.
   decorators: [
     (Story) => (
-      <div style={{ maxWidth: 800, margin: "2rem auto" }}>
+      <div style={{ width: 400, margin: "2rem auto" }}>
         <Story />
       </div>
     ),
