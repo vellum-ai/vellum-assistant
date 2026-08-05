@@ -1189,7 +1189,7 @@ describe("session-agent-loop", () => {
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
     });
 
-    test("skips workspace Git initialization when tools are disabled", async () => {
+    test("defers workspace Git work when tools are disabled", async () => {
       const ensureInitialized = mock(async () => {});
       const commitTurnChanges = mock(async () => {});
       const ctx = makeCtx({
@@ -1202,6 +1202,25 @@ describe("session-agent-loop", () => {
 
       expect(ensureInitialized).not.toHaveBeenCalled();
       expect(commitTurnChanges).not.toHaveBeenCalled();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+    });
+
+    test("leaves a deferred commit to an immediate follow-up turn", async () => {
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      ctx.setProcessing(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+      ctx.setProcessing(false);
     });
 
     test("initializes workspace Git before hooks when tools can run", async () => {

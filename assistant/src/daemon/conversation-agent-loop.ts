@@ -1705,7 +1705,7 @@ export async function runAgentLoopImpl(
 
     if (turnStarted) {
       ctx.turnCount++;
-      if (!toolsDisabledForTurn) {
+      const runTurnCommit = async (): Promise<void> => {
         const config = getConfig();
         const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
         const deadlineMs = Date.now() + maxWait;
@@ -1729,6 +1729,21 @@ export async function runAgentLoopImpl(
             "Turn-boundary commit timed out; continuing without waiting (commit still runs in background)",
           );
         }
+      };
+
+      if (toolsDisabledForTurn) {
+        // Let the caller and queue drain claim an immediate follow-up turn
+        // before starting Git. That turn will commit the accumulated disk view.
+        setImmediate(() => {
+          if (ctx.isProcessing()) {
+            return;
+          }
+          void runTurnCommit().catch((err) => {
+            rlog.warn({ err }, "Deferred turn-boundary commit failed");
+          });
+        });
+      } else {
+        await runTurnCommit();
       }
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).
