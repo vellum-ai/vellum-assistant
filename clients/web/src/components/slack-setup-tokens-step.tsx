@@ -1,4 +1,4 @@
-import { Button, Input, Typography } from "@vellumai/design-library";
+import { Button, Input, Notice, Typography } from "@vellumai/design-library";
 import type { MutationStatus } from "@/components/slack-setup-wizard";
 import {
   APP_TOKEN_PREFIX,
@@ -60,15 +60,11 @@ export function SlackSetupTokensStep({
         <strong>Your app credentials</strong> and copy both tokens.
       </Typography>
 
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-secondary)]"
-      >
+      <Notice tone="warning">
         That screen also offers a command-line walkthrough and a{" "}
         <strong>Download app files</strong> button. Skip both. They set up a
         separate local app, and this assistant needs only the two tokens.
-      </Typography>
+      </Notice>
 
       <Input
         label="Bot Token"

@@ -1,6 +1,6 @@
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, Notice, Typography } from "@vellumai/design-library";
 
 export interface SlackSetupCreateStepProps {
   copied: boolean;
@@ -75,15 +75,11 @@ export function SlackSetupCreateStep({
         </li>
       </ol>
 
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-secondary)]"
-      >
+      <Notice tone="info">
         If Slack shows &ldquo;Request approval&rdquo; instead of{" "}
         <strong>Install</strong>, a workspace admin needs to approve the app
         first.
-      </Typography>
+      </Notice>
 
       <Button
         type="button"
