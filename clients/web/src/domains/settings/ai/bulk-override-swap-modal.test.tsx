@@ -2,9 +2,11 @@
  * Tests for `BulkOverrideSwapModal` eligibility, selection, and the shape
  * of the bulk `PATCH /v1/config` it issues.
  *
- * Eligibility is profile-only: an override carrying a provider/model pin
- * renders as "Custom" in the editor, so the swap must never list or touch
- * it even when it also names the source profile.
+ * An action "currently uses" a profile when its explicit override pins one
+ * OR when its default resolves to one. Provider/model ("Custom") pins
+ * reference no profile, so those actions never appear even when the entry
+ * also names the source profile; sites with no resolvable default and no
+ * pin carry no profile either.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -42,40 +44,61 @@ const DOMAINS = [
   { id: "background", displayName: "Background" },
 ];
 
+// Current profile per action, combining overrides and defaults:
+// - workflowLeaf:            override -> balanced
+// - subagentSpawn:           no override, default balanced -> balanced
+// - conversationTitle:       tuning-only override, default balanced -> balanced
+// - heartbeatAgent:          override -> speed (default quality is shadowed)
+// - conversationCompaction:  model pin -> Custom, no profile
+// - voiceFrontDoor:          no override, no default -> no profile
 const CALL_SITES = [
   {
     id: "workflowLeaf",
     displayName: "Workflow Leaf",
     description: "Runs an ephemeral leaf agent.",
     domain: "agentLoop",
-  },
-  {
-    id: "heartbeatAgent",
-    displayName: "Heartbeat Agent",
-    description: "Runs background tasks on a schedule.",
-    domain: "background",
+    defaultProfile: "balanced",
   },
   {
     id: "subagentSpawn",
     displayName: "Subagent Spawn",
     description: "Spawns a subagent.",
     domain: "agentLoop",
+    defaultProfile: "balanced",
+  },
+  {
+    id: "conversationTitle",
+    displayName: "Conversation Title",
+    description: "Creates a short title.",
+    domain: "background",
+    defaultProfile: "balanced",
+  },
+  {
+    id: "heartbeatAgent",
+    displayName: "Heartbeat Agent",
+    description: "Runs background tasks on a schedule.",
+    domain: "background",
+    defaultProfile: "quality",
   },
   {
     id: "conversationCompaction",
     displayName: "Conversation Compaction",
     description: "Summarizes long context.",
     domain: "background",
+    defaultProfile: "balanced",
+  },
+  {
+    id: "voiceFrontDoor",
+    displayName: "Voice Front Door",
+    description: "Fast front-door leg for live voice.",
+    domain: "agentLoop",
   },
 ];
 
-// workflowLeaf + heartbeatAgent use Balanced; subagentSpawn uses Speed;
-// conversationCompaction names Balanced but carries a model pin, so the
-// editor shows it as "Custom" and the swap must skip it.
 const PERSISTED_OVERRIDES = {
   workflowLeaf: { profile: "balanced" },
-  heartbeatAgent: { profile: "balanced" },
-  subagentSpawn: { profile: "speed" },
+  conversationTitle: { effort: "low" as const },
+  heartbeatAgent: { profile: "speed" },
   conversationCompaction: { profile: "balanced", model: "glm-5.2" },
 };
 
@@ -151,14 +174,18 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
   fireEvent.click(option);
 }
 
-function checkboxFor(label: string): HTMLElement {
-  const match = Array.from(
+function rowFor(label: string): HTMLElement {
+  const checkbox = Array.from(
     document.querySelectorAll<HTMLElement>('[role="checkbox"]'),
   ).find((cb) => cb.parentElement?.parentElement?.textContent?.includes(label));
-  if (!match) {
+  if (!checkbox) {
     throw new Error(`expected a checkbox row for "${label}"`);
   }
-  return match;
+  return checkbox;
+}
+
+function rowContainerText(label: string): string {
+  return rowFor(label).parentElement?.parentElement?.textContent ?? "";
 }
 
 beforeEach(() => {
@@ -176,20 +203,31 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("BulkOverrideSwapModal - eligibility", () => {
-  test("defaults to the first referenced profile and lists only its profile-only overrides", () => {
+  test("lists every action currently on the source profile, via override or default", () => {
     renderModal();
 
-    // Two profile-only Balanced overrides; the model-pinned Balanced row and
-    // the Speed row are excluded from the default source's list.
-    expect(renderedText()).toContain("2 overrides currently use Balanced");
+    // Balanced: override (workflowLeaf) + defaults (subagentSpawn,
+    // tuning-only conversationTitle). The Custom pin and the site with no
+    // default stay out; heartbeatAgent is on Speed.
+    expect(renderedText()).toContain("3 actions currently use Balanced");
     expect(renderedText()).toContain("Workflow Leaf");
-    expect(renderedText()).toContain("Heartbeat Agent");
+    expect(renderedText()).toContain("Subagent Spawn");
+    expect(renderedText()).toContain("Conversation Title");
     expect(renderedText()).not.toContain("Conversation Compaction");
-    expect(renderedText()).not.toContain("Subagent Spawn");
-    expect(renderedText()).toContain("2 overrides will change");
+    expect(renderedText()).not.toContain("Voice Front Door");
+    expect(renderedText()).not.toContain("Heartbeat Agent");
+    expect(renderedText()).toContain("3 actions will change");
   });
 
-  test("source options are the referenced profiles only", () => {
+  test("rows are marked with how they use the profile", () => {
+    renderModal();
+
+    expect(rowContainerText("Workflow Leaf")).toContain("Override");
+    expect(rowContainerText("Subagent Spawn")).toContain("Default");
+    expect(rowContainerText("Conversation Title")).toContain("Default");
+  });
+
+  test("source options cover profiles used via defaults, not just overrides", () => {
     renderModal();
 
     const [sourceTrigger] = comboboxes();
@@ -197,7 +235,9 @@ describe("BulkOverrideSwapModal - eligibility", () => {
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    // Quality and the disabled Legacy are referenced by nothing.
+    // Balanced (override + defaults), Speed (override), Quality
+    // (heartbeatAgent's default is shadowed by its Speed override, so
+    // Quality only appears if some action actually runs on it: none does).
     expect(optionLabels).toEqual(["Balanced", "Speed"]);
   });
 
@@ -215,17 +255,17 @@ describe("BulkOverrideSwapModal - eligibility", () => {
   test("switching the source recomputes the list and resets the selection", () => {
     renderModal();
 
-    fireEvent.click(checkboxFor("Workflow Leaf"));
-    expect(renderedText()).toContain("1 override will change");
+    fireEvent.click(rowFor("Workflow Leaf"));
+    expect(renderedText()).toContain("2 actions will change");
 
     const [sourceTrigger] = comboboxes();
     pickOption(sourceTrigger!, "Speed");
-    expect(renderedText()).toContain("1 override currently uses Speed");
-    expect(renderedText()).toContain("Subagent Spawn");
+    expect(renderedText()).toContain("1 action currently uses Speed");
+    expect(renderedText()).toContain("Heartbeat Agent");
 
     // Back to Balanced: the earlier deselection is gone.
     pickOption(comboboxes()[0]!, "Balanced");
-    expect(renderedText()).toContain("2 overrides will change");
+    expect(renderedText()).toContain("3 actions will change");
   });
 });
 
@@ -233,29 +273,32 @@ describe("BulkOverrideSwapModal - apply", () => {
   test("apply stays disabled until a target profile is chosen", () => {
     renderModal();
 
-    expect(findButton("Apply to 2 overrides").disabled).toBe(true);
+    expect(findButton("Apply to 3 actions").disabled).toBe(true);
     pickOption(comboboxes()[1]!, "Quality");
-    expect(findButton("Apply to 2 overrides").disabled).toBe(false);
+    expect(findButton("Apply to 3 actions").disabled).toBe(false);
   });
 
-  test("apply patches exactly the selected call sites and nothing else", async () => {
+  test("apply patches exactly the selected actions and nothing else", async () => {
     renderModal();
 
     pickOption(comboboxes()[1]!, "Quality");
-    fireEvent.click(checkboxFor("Heartbeat Agent"));
-    expect(renderedText()).toContain("1 override will change");
+    fireEvent.click(rowFor("Subagent Spawn"));
+    expect(renderedText()).toContain("2 actions will change");
 
-    fireEvent.click(findButton("Apply to 1 override"));
+    fireEvent.click(findButton("Apply to 2 actions"));
 
     await waitFor(() => {
       expect(configPatchBodies.length).toBe(1);
     });
     const body = configPatchBodies[0] as { llm: Record<string, unknown> };
-    // The patch names only the swapped sites: no activeProfile, no
-    // advisorProfile, and no entry for the deselected or ineligible rows.
+    // The patch names only the swapped actions: the default-using row gets
+    // a brand-new override entry, the override row is rewritten, and the
+    // deselected/ineligible rows are absent. Only `profile` is written, so
+    // the merge preserves tuning fields on entries that carry them.
     expect(Object.keys(body.llm)).toEqual(["callSites"]);
     expect(body.llm.callSites).toEqual({
       workflowLeaf: { profile: "quality" },
+      conversationTitle: { profile: "quality" },
     });
     expect(applied).toBe(true);
     expect(closed).toBe(true);
@@ -266,10 +309,10 @@ describe("BulkOverrideSwapModal - apply", () => {
 
     pickOption(comboboxes()[1]!, "Quality");
     fireEvent.click(findButton("Clear all"));
-    expect(renderedText()).toContain("0 overrides will change");
-    expect(findButton("Apply to 0 overrides").disabled).toBe(true);
+    expect(renderedText()).toContain("0 actions will change");
+    expect(findButton("Apply to 0 actions").disabled).toBe(true);
 
     fireEvent.click(findButton("Select all"));
-    expect(findButton("Apply to 2 overrides").disabled).toBe(false);
+    expect(findButton("Apply to 3 actions").disabled).toBe(false);
   });
 });

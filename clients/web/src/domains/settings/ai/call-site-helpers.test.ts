@@ -6,8 +6,8 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
+  effectiveCallSiteProfile,
   isDraftActive,
-  isProfileOnlyOverride,
   draftsEqual,
 } from "@/domains/settings/ai/call-site-helpers";
 
@@ -36,28 +36,54 @@ describe("isDraftActive", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isProfileOnlyOverride
+// effectiveCallSiteProfile
 // ---------------------------------------------------------------------------
 
-describe("isProfileOnlyOverride", () => {
-  test("returns true only for a bare profile pin", () => {
-    expect(isProfileOnlyOverride({ profile: "fast" })).toBe(true);
+describe("effectiveCallSiteProfile", () => {
+  test("a profile pin wins and is reported as an override", () => {
+    expect(effectiveCallSiteProfile("slow", { profile: "fast" })).toEqual({
+      profile: "fast",
+      via: "override",
+    });
     expect(
-      isProfileOnlyOverride({ profile: "fast", provider: null, model: null }),
-    ).toBe(true);
+      effectiveCallSiteProfile(null, {
+        profile: "fast",
+        provider: null,
+        model: null,
+      }),
+    ).toEqual({ profile: "fast", via: "override" });
   });
 
-  test("returns false for empty, custom, and mixed pins", () => {
-    expect(isProfileOnlyOverride(null)).toBe(false);
-    expect(isProfileOnlyOverride(undefined)).toBe(false);
-    expect(isProfileOnlyOverride({})).toBe(false);
-    expect(isProfileOnlyOverride({ provider: "openai" })).toBe(false);
-    expect(isProfileOnlyOverride({ model: "gpt-4o" })).toBe(false);
-    // A profile alongside a provider/model pin renders as "Custom": the
-    // swap must not claim it.
-    expect(isProfileOnlyOverride({ profile: "fast", model: "gpt-4o" })).toBe(
-      false,
-    );
+  test("without a pin the default profile applies", () => {
+    expect(effectiveCallSiteProfile("slow", null)).toEqual({
+      profile: "slow",
+      via: "default",
+    });
+    expect(effectiveCallSiteProfile("slow", undefined)).toEqual({
+      profile: "slow",
+      via: "default",
+    });
+    expect(effectiveCallSiteProfile("slow", {})).toEqual({
+      profile: "slow",
+      via: "default",
+    });
+    // Tuning-only entries pin no profile, so the default still applies.
+    expect(effectiveCallSiteProfile("slow", { effort: "low" })).toEqual({
+      profile: "slow",
+      via: "default",
+    });
+  });
+
+  test("custom pins and default-less sites carry no profile", () => {
+    // A provider/model pin renders as "Custom" and references no profile,
+    // even when the entry also names one.
+    expect(effectiveCallSiteProfile("slow", { model: "gpt-4o" })).toBe(null);
+    expect(effectiveCallSiteProfile("slow", { provider: "openai" })).toBe(null);
+    expect(
+      effectiveCallSiteProfile("slow", { profile: "fast", model: "gpt-4o" }),
+    ).toBe(null);
+    expect(effectiveCallSiteProfile(null, null)).toBe(null);
+    expect(effectiveCallSiteProfile(undefined, {})).toBe(null);
   });
 });
 

@@ -375,12 +375,13 @@ describe("OverridesDetailPanel - default caption", () => {
 });
 
 describe("OverridesDetailPanel - bulk change", () => {
-  function renderWith(config: unknown) {
+  function renderWith(config: unknown, catalog: unknown = CATALOG) {
     servedConfig = config;
+    servedCatalog = catalog;
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 0 } },
     });
-    client.setQueryData([{ _id: "configLlmCallsitesGet" }], CATALOG);
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], catalog);
     client.setQueryData([{ _id: "configGet" }], config);
     return render(
       createElement(
@@ -402,9 +403,10 @@ describe("OverridesDetailPanel - bulk change", () => {
     },
   };
 
-  test("disabled when no override uses a profile", async () => {
-    // A provider/model pin renders as "Custom" and references no profile,
-    // so it must not enable the bulk swap either.
+  test("disabled when no action carries a profile", async () => {
+    // The fixture catalog has no default profiles, and a provider/model
+    // pin renders as "Custom" and references no profile, so nothing is
+    // swappable.
     const CUSTOM_ONLY_CONFIG = {
       ...CONFIG,
       llm: {
@@ -421,7 +423,44 @@ describe("OverridesDetailPanel - bulk change", () => {
     expect(getButton("Bulk change").disabled).toBe(true);
   });
 
-  test("opens the swap modal seeded with the referenced profile", async () => {
+  test("enabled by default profiles alone, listing them in the modal", async () => {
+    // No overrides at all: actions still run on their default profiles,
+    // and those count as "currently using" for the bulk swap.
+    const DEFAULTED_CATALOG = {
+      domains: [{ id: "agentLoop", displayName: "Agent Loop" }],
+      callSites: [
+        {
+          id: "workflowLeaf",
+          displayName: "Workflow Leaf",
+          description: "Runs an ephemeral leaf agent.",
+          domain: "agentLoop",
+          defaultProfile: "quality",
+        },
+        {
+          id: "heartbeatAgent",
+          displayName: "Heartbeat Agent",
+          description: "Runs background tasks on a schedule.",
+          domain: "agentLoop",
+          defaultProfile: "quality",
+        },
+      ],
+    };
+    renderWith(CONFIG, DEFAULTED_CATALOG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    const button = getButton("Bulk change");
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(renderedText()).toContain("Change Action Overrides");
+    });
+    expect(renderedText()).toContain("2 actions currently use Quality");
+  });
+
+  test("opens the swap modal seeded with the overridden profile", async () => {
     renderWith(OVERRIDDEN_CONFIG);
     await waitFor(() => {
       expect(renderedText()).toContain("Workflow Leaf");
@@ -434,7 +473,7 @@ describe("OverridesDetailPanel - bulk change", () => {
     await waitFor(() => {
       expect(renderedText()).toContain("Change Action Overrides");
     });
-    expect(renderedText()).toContain("1 override currently uses Quality");
+    expect(renderedText()).toContain("1 action currently uses Quality");
   });
 
   test("disabled while the editor holds unsaved drafts", async () => {

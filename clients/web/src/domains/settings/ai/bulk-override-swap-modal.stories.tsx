@@ -16,6 +16,7 @@ const CALL_SITES = [
     displayName: "Subagent Spawn",
     description: "Spawns a subagent to handle a delegated subtask.",
     domain: "agentLoop",
+    defaultProfile: "balanced",
   },
   {
     id: "workflowLeaf",
@@ -28,17 +29,20 @@ const CALL_SITES = [
     displayName: "Heartbeat Agent",
     description: "Runs background tasks and proactive checks on a schedule.",
     domain: "background",
+    defaultProfile: "cost-optimized",
   },
   {
     id: "conversationTitle",
     displayName: "Conversation Title",
     description: "Creates a short title after the first useful turn.",
     domain: "background",
+    defaultProfile: "balanced",
   },
 ];
 
 const PROFILES = [
   { name: "balanced", label: "Balanced", status: "active" as const },
+  { name: "cost-optimized", label: "Cost", status: "active" as const },
   { name: "speed-tier", label: "Speed", status: "active" as const },
   { name: "quality-optimized", label: "Quality", status: "active" as const },
 ];
@@ -71,27 +75,25 @@ export default meta;
 type Story = StoryObj<typeof BulkOverrideSwapModal>;
 
 /**
- * Several overrides reference Balanced, so the modal opens with Balanced as
- * the source and every affected action selected. The Conversation Title row
- * carries a model pin ("Custom" in the editor) and stays out of the list
- * even though it also names Balanced.
+ * Balanced is used three ways at once: Subagent Spawn through its default,
+ * Conversation Title through an explicit override, and the source dropdown
+ * also offers Cost (Heartbeat Agent's default). Workflow Leaf carries a
+ * model pin ("Custom" in the editor) and stays out of the list even if it
+ * also named Balanced; a site with no default and no pin never appears.
  */
-export const SeveralAffected: Story = {
+export const OverridesAndDefaults: Story = {
   args: {
     persistedOverrides: {
-      subagentSpawn: { profile: "balanced" },
-      workflowLeaf: { profile: "balanced" },
-      heartbeatAgent: { profile: "speed-tier" },
-      conversationTitle: { profile: "balanced", model: "glm-5.2" },
+      conversationTitle: { profile: "balanced" },
+      workflowLeaf: { profile: "balanced", model: "glm-5.2" },
     },
   },
 };
 
-/** A single affected override: singular copy throughout. */
+/** A single affected action: singular copy throughout. */
 export const SingleAffected: Story = {
   args: {
-    persistedOverrides: {
-      heartbeatAgent: { profile: "speed-tier" },
-    },
+    callSites: CALL_SITES.filter((cs) => cs.id === "heartbeatAgent"),
+    persistedOverrides: {},
   },
 };

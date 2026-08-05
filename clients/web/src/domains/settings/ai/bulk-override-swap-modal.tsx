@@ -13,7 +13,10 @@ import {
   profilePickerLabel,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
-import { isProfileOnlyOverride } from "@/domains/settings/ai/call-site-helpers";
+import {
+  effectiveCallSiteProfile,
+  type CallSiteEffectiveProfile,
+} from "@/domains/settings/ai/call-site-helpers";
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import {
   profileDisplayLabel,
@@ -54,11 +57,12 @@ export interface BulkOverrideSwapModalProps {
 // ---------------------------------------------------------------------------
 
 /**
- * One-time bulk swap over the persisted action overrides: every selected
- * override that uses the source profile is rewritten to the target profile
- * in a single `PATCH /v1/config`. Operates on persisted overrides only, so
- * hosts gate the entry point while the editor holds unsaved drafts. Mount
- * per open; selection state does not survive a close.
+ * One-time bulk profile swap over the actions: every selected action that
+ * currently runs on the source profile, whether through an explicit
+ * override or through its default, is pinned to the target profile as an
+ * individual override in a single `PATCH /v1/config`. Acts on persisted
+ * state only, so hosts gate the entry point while the editor holds unsaved
+ * drafts. Mount per open; selection state does not survive a close.
  */
 export function BulkOverrideSwapModal({
   assistantId,
@@ -71,24 +75,32 @@ export function BulkOverrideSwapModal({
 }: BulkOverrideSwapModalProps) {
   const configMutation = useLlmConfigPatch(assistantId);
 
-  const referencedProfileNames = useMemo(() => {
-    const referenced = new Set<string>();
+  // What each action currently runs on. Sites with a provider/model
+  // ("Custom") pin or no resolvable default carry no profile and stay out.
+  const effectiveByCallSite = useMemo(() => {
+    const map = new Map<string, CallSiteEffectiveProfile>();
     for (const cs of callSites) {
-      const override = persistedOverrides[cs.id];
-      if (isProfileOnlyOverride(override) && override?.profile) {
-        referenced.add(override.profile);
+      const effective = effectiveCallSiteProfile(
+        cs.defaultProfile,
+        persistedOverrides[cs.id],
+      );
+      if (effective) {
+        map.set(cs.id, effective);
       }
     }
-    return referenced;
+    return map;
   }, [callSites, persistedOverrides]);
 
-  // Profiles referenced by at least one override, in profile order. A
-  // referenced name missing from the profile map cannot occur: the config
-  // schema rejects overrides that point at nonexistent profiles.
-  const sourceProfiles = useMemo(
-    () => orderedProfiles.filter((p) => referencedProfileNames.has(p.name)),
-    [orderedProfiles, referencedProfileNames],
-  );
+  // Profiles at least one action currently runs on, in profile order. A
+  // default may name a profile missing from the map (it never becomes a
+  // source option, so its actions are simply not swappable from here);
+  // override names always exist because the config schema validates them.
+  const sourceProfiles = useMemo(() => {
+    const used = new Set(
+      Array.from(effectiveByCallSite.values(), (e) => e.profile),
+    );
+    return orderedProfiles.filter((p) => used.has(p.name));
+  }, [orderedProfiles, effectiveByCallSite]);
 
   const [source, setSource] = useState<string>(
     () => sourceProfiles[0]?.name ?? "",
@@ -106,11 +118,10 @@ export function BulkOverrideSwapModal({
 
   const affected = useMemo(
     () =>
-      callSites.filter((cs) => {
-        const override = persistedOverrides[cs.id];
-        return isProfileOnlyOverride(override) && override?.profile === source;
-      }),
-    [callSites, persistedOverrides, source],
+      callSites.filter(
+        (cs) => effectiveByCallSite.get(cs.id)?.profile === source,
+      ),
+    [callSites, effectiveByCallSite, source],
   );
 
   const selectedIds = useMemo(
@@ -138,7 +149,7 @@ export function BulkOverrideSwapModal({
   const sourceLabel = profileDisplayLabel(orderedProfiles, source);
   const targetLabel = profileDisplayLabel(orderedProfiles, target);
 
-  const overrideNoun = selectedIds.length === 1 ? "override" : "overrides";
+  const actionNoun = selectedIds.length === 1 ? "action" : "actions";
   const allSelected = deselectedIds.size === 0;
 
   function handleSourceChange(next: string) {
@@ -176,7 +187,7 @@ export function BulkOverrideSwapModal({
         body: { llm: { callSites: callSitePatch } },
       });
       toast.success(
-        `Updated ${selectedIds.length} ${overrideNoun} to "${targetLabel}".`,
+        `Updated ${selectedIds.length} ${actionNoun} to "${targetLabel}".`,
       );
       onApplied();
       onClose();
@@ -247,7 +258,7 @@ export function BulkOverrideSwapModal({
           </div>
 
           <Notice tone="info" title="This happens once.">
-            It changes the selected overrides that use {sourceLabel} today. It
+            It changes the selected actions that use {sourceLabel} today. It
             does not create an ongoing rule between profiles.
           </Notice>
 
@@ -256,7 +267,7 @@ export function BulkOverrideSwapModal({
               <div>
                 <Typography variant="body-medium-default" as="p">
                   {affected.length}{" "}
-                  {affected.length === 1 ? "override" : "overrides"} currently{" "}
+                  {affected.length === 1 ? "action" : "actions"} currently{" "}
                   {affected.length === 1 ? "uses" : "use"} {sourceLabel}
                 </Typography>
                 <Typography
@@ -285,7 +296,7 @@ export function BulkOverrideSwapModal({
               {affected.map((cs) => (
                 <div
                   key={cs.id}
-                  className="rounded-md border border-[var(--border-base)] px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-md border border-[var(--border-base)] px-3 py-2"
                 >
                   <Checkbox
                     checked={!deselectedIds.has(cs.id)}
@@ -296,6 +307,11 @@ export function BulkOverrideSwapModal({
                     label={cs.displayName}
                     helperText={domainLabelFor(cs.domain)}
                   />
+                  <span className="shrink-0 text-body-small-default text-[color:var(--content-tertiary)]">
+                    {effectiveByCallSite.get(cs.id)?.via === "override"
+                      ? "Override"
+                      : "Default"}
+                  </span>
                 </div>
               ))}
             </div>
@@ -307,7 +323,7 @@ export function BulkOverrideSwapModal({
             as="p"
             className="mr-auto self-center text-[color:var(--content-secondary)]"
           >
-            {selectedIds.length} {overrideNoun} will change
+            {selectedIds.length} {actionNoun} will change
           </Typography>
           <Button
             variant="ghost"
@@ -328,7 +344,7 @@ export function BulkOverrideSwapModal({
             {applying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              `Apply to ${selectedIds.length} ${overrideNoun}`
+              `Apply to ${selectedIds.length} ${actionNoun}`
             )}
           </Button>
         </Modal.Footer>

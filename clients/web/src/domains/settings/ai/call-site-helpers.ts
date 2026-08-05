@@ -20,14 +20,30 @@ export function isDraftActive(
 }
 
 /**
- * True when an override pins a profile and nothing else. Rows carrying a
- * provider/model pin render as "Custom" in the editor, so a bulk profile
- * swap treats them as not using any profile.
+ * The profile a call site currently runs on, and how it got there: an
+ * explicit profile override, or the site's default profile when nothing
+ * pins it. Returns null for provider/model ("Custom") pins, which
+ * reference no profile, and for sites with no resolvable default.
  */
-export function isProfileOnlyOverride(
-  d: CallSiteOverrideDraft | null | undefined,
-): boolean {
-  return !!d?.profile && !d?.provider && !d?.model;
+export interface CallSiteEffectiveProfile {
+  profile: string;
+  via: "override" | "default";
+}
+
+export function effectiveCallSiteProfile(
+  defaultProfile: string | null | undefined,
+  override: CallSiteOverrideDraft | null | undefined,
+): CallSiteEffectiveProfile | null {
+  if (override?.provider || override?.model) {
+    return null;
+  }
+  if (override?.profile) {
+    return { profile: override.profile, via: "override" };
+  }
+  if (defaultProfile) {
+    return { profile: defaultProfile, via: "default" };
+  }
+  return null;
 }
 
 export function draftsEqual(

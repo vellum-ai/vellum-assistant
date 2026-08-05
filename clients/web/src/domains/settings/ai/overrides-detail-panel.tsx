@@ -14,8 +14,8 @@ import { BulkOverrideSwapModal } from "@/domains/settings/ai/bulk-override-swap-
 import {
   CUSTOM_SENTINEL,
   draftsEqual,
+  effectiveCallSiteProfile,
   isDraftActive,
-  isProfileOnlyOverride,
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
@@ -197,15 +197,19 @@ export function OverridesDetailPanel({
     return q === "" || "advisor".includes(q) || "second opinion".includes(q);
   }, [search]);
 
-  // The bulk swap rewrites persisted profile pins, so it needs at least one
-  // profile-only override to act on. Provider/model ("Custom") pins don't
-  // reference a profile and are out of its reach.
+  // The bulk swap needs at least one action currently running on a named
+  // profile, via an override or its default. Provider/model ("Custom") pins
+  // and sites with no resolvable default are out of its reach.
   const hasBulkSwapCandidates = useMemo(
     () =>
-      Object.entries(persistedOverrides).some(
-        ([id, s]) => gatedCallSiteIdSet.has(id) && isProfileOnlyOverride(s),
+      gatedCallSites.some(
+        (cs) =>
+          effectiveCallSiteProfile(
+            cs.defaultProfile,
+            persistedOverrides[cs.id],
+          ) !== null,
       ),
-    [persistedOverrides, gatedCallSiteIdSet],
+    [gatedCallSites, persistedOverrides],
   );
 
   const hasAnyPersistedOverride = useMemo(
@@ -487,7 +491,7 @@ export function OverridesDetailPanel({
               hasUnsavedDrafts
                 ? "Save or reset your changes first"
                 : !hasBulkSwapCandidates
-                  ? "No overrides currently use a profile"
+                  ? "No actions currently use a profile"
                   : undefined
             }
           >
