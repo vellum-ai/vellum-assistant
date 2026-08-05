@@ -35,7 +35,10 @@ import {
 } from "@/lib/stt/language-catalog";
 
 import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
-import { useSupportsMultilingualSttDefault } from "@/lib/backwards-compat/use-supports-multilingual-stt-default";
+import {
+  resolveSupportsMultilingualSttDefault,
+  useSupportsMultilingualSttDefault,
+} from "@/lib/backwards-compat/use-supports-multilingual-stt-default";
 
 /**
  * The code written when the user picks the default option, and the code a
@@ -77,22 +80,30 @@ function defaultCodeForProvider(
  * own, so it writes the provider's resolved default instead; a provider with
  * no such code (native detection) writes explicit English, the only thing
  * `config_patch` can express.
+ *
+ * Async because which code that is depends on the assistant version, and the
+ * render-time gate reads `false` until identity hydrates. A default pick
+ * during that window would otherwise persist explicit English on an assistant
+ * whose real default is code-switching, and `config_patch` cannot delete the
+ * key afterwards. So the write resolves the version instead of sampling it.
  */
 const buildPatchBodyForProvider =
-  (daemonProviderId: string, daemonDefaultsToMulti: boolean) =>
-  (code: string) => ({
-    services: {
-      stt: {
-        language:
-          code === STT_LANGUAGE_DEFAULT_CODE
-            ? (defaultCodeForProvider(
-                daemonProviderId,
-                daemonDefaultsToMulti,
-              ) ?? "en")
-            : code,
+  (daemonProviderId: string, assistantId: string | null) =>
+  async (code: string) => {
+    if (code !== STT_LANGUAGE_DEFAULT_CODE) {
+      return { services: { stt: { language: code } } };
+    }
+    const defaultsToMulti =
+      await resolveSupportsMultilingualSttDefault(assistantId);
+    return {
+      services: {
+        stt: {
+          language:
+            defaultCodeForProvider(daemonProviderId, defaultsToMulti) ?? "en",
+        },
       },
-    },
-  });
+    };
+  };
 
 export interface UseSttLanguageSelection {
   /**
@@ -198,9 +209,12 @@ export function useSttLanguageSelection(
   // Memoized rather than module-level (the body now depends on the provider)
   // so `select` identity still only tracks real state, per
   // `useSerializedConfigSelection`.
+  // Keyed on the provider and the owning assistant only: the gate value is
+  // resolved inside the write rather than captured here, so a version that
+  // hydrates mid-flight cannot leave a stale builder behind.
   const buildLanguagePatchBody = useMemo(
-    () => buildPatchBodyForProvider(configuredProvider, daemonDefaultsToMulti),
-    [configuredProvider, daemonDefaultsToMulti],
+    () => buildPatchBodyForProvider(configuredProvider, assistantId),
+    [configuredProvider, assistantId],
   );
 
   const {

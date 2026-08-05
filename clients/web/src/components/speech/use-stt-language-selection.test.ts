@@ -39,6 +39,10 @@ mock.module(
   "@/lib/backwards-compat/use-supports-multilingual-stt-default",
   () => ({
     useSupportsMultilingualSttDefault: () => versionGate.defaultsToMulti,
+    // The write path resolves the gate rather than sampling it, so the mock
+    // has to carry both entry points or the module fails to link.
+    resolveSupportsMultilingualSttDefault: async () =>
+      versionGate.defaultsToMulti,
   }),
 );
 
@@ -391,5 +395,60 @@ describe("useSttLanguageSelection against a pre-0.12.0 assistant", () => {
   test("reports the gate so surfaces can frame the rows to match", () => {
     const { result } = renderSelection();
     expect(result.current.daemonDefaultsToMulti).toBe(false);
+  });
+});
+
+describe("the default pick waits out an unresolved assistant version", () => {
+  beforeEach(() => {
+    configPatchCalls.length = 0;
+    deferPatches = false;
+    patchResolvers = [];
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "es" } },
+    };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+  });
+
+  test("writes multi once the version resolves, not the false-while-unknown fallback", async () => {
+    // The render-time gate reads false until identity hydrates. Sampling it
+    // in the write would persist explicit English on a 0.12.0 assistant, and
+    // config_patch cannot delete the key afterwards, so the user would be
+    // pinned to English until they noticed and picked again.
+    versionGate.defaultsToMulti = false;
+
+    const { result } = renderSelection();
+    act(() => result.current.selectLanguage(""));
+
+    // The version hydrates while the write is in flight.
+    versionGate.defaultsToMulti = true;
+
+    await waitFor(() => expect(result.current.selecting).toBe(false));
+    expect(configPatchCalls).toHaveLength(1);
+    expect(configPatchCalls[0]!.body).toEqual({
+      services: { stt: { language: "multi" } },
+    });
+  });
+
+  test("a named language never waits, since the version cannot change it", async () => {
+    // Only the default row's meaning depends on the version. Picking Tamil
+    // writes Tamil on every assistant, so it must not pay the resolution
+    // wait.
+    versionGate.defaultsToMulti = false;
+
+    const { result } = renderSelection();
+    act(() => result.current.selectLanguage("ta"));
+
+    await waitFor(() => expect(result.current.selecting).toBe(false));
+    expect(configPatchCalls[0]!.body).toEqual({
+      services: { stt: { language: "ta" } },
+    });
   });
 });

@@ -24,7 +24,11 @@
  * unknown renders the English-framed rows, which is what every assistant did
  * before 0.12.0.
  */
-import { useAssistantScopedSupports } from "@/lib/backwards-compat/utils";
+import {
+  assistantScopedSupports,
+  useAssistantScopedSupports,
+  whenAssistantVersionKnown,
+} from "@/lib/backwards-compat/utils";
 
 export const MIN_VERSION = "0.12.0";
 
@@ -38,4 +42,22 @@ export function useSupportsMultilingualSttDefault(
   ownerAssistantId: string | null | undefined,
 ): boolean {
   return useAssistantScopedSupports(MIN_VERSION, ownerAssistantId);
+}
+
+/**
+ * The same answer, read against a resolved version, for the write path.
+ *
+ * Reads tolerate the conservative `false`-on-unknown default: they re-run
+ * the moment the version hydrates, so the worst case is the English framing
+ * shown for an instant. The write cannot, because what it persists is a
+ * one-way door. `config_patch` cannot delete `services.stt.language`, so a
+ * default pick that lands during the unknown window would write explicit
+ * `"en"` and pin English on an assistant whose actual default is
+ * code-switching, until the user notices and picks again.
+ */
+export async function resolveSupportsMultilingualSttDefault(
+  ownerAssistantId: string | null | undefined,
+): Promise<boolean> {
+  await whenAssistantVersionKnown();
+  return assistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }
