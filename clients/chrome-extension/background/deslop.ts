@@ -31,6 +31,8 @@ export function buildDeslopPrompt(text: string): string {
     "State it much more simply and concisely, like one human talking to another. " +
     "Be aggressive about cutting length: drop filler, hedging, repetition, and " +
     "needless detail, and keep only what the reader actually needs. " +
+    "Remove fluff and pleasantries entirely: no greetings, compliments, " +
+    "apologies, or warm-up sentences. Start directly with the substance. " +
     "Aim for at most half the original length. " +
     `<selected_text>${text}</selected_text>`
   );

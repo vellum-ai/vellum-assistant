@@ -70,6 +70,8 @@ describe("buildDeslopPrompt", () => {
     expect(prompt).toContain("much more simply and concisely");
     expect(prompt).toContain("Be aggressive about cutting length");
     expect(prompt).toContain("at most half the original length");
+    expect(prompt).toContain("Remove fluff and pleasantries entirely");
+    expect(prompt).toContain("Start directly with the substance");
   });
 });
 
