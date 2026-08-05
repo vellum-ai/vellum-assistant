@@ -63,7 +63,7 @@ export function SlackSetupTokensStep({
       <Typography
         as="p"
         variant="body-small-default"
-        className="text-[color:var(--content-faint)]"
+        className="text-[color:var(--content-secondary)]"
       >
         That screen also offers a command-line walkthrough and a{" "}
         <strong>Download app files</strong> button. Skip both. They set up a

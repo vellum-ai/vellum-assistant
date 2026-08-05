@@ -78,7 +78,7 @@ export function SlackSetupCreateStep({
       <Typography
         as="p"
         variant="body-small-default"
-        className="text-[color:var(--content-faint)]"
+        className="text-[color:var(--content-secondary)]"
       >
         If Slack shows &ldquo;Request approval&rdquo; instead of{" "}
         <strong>Install</strong>, a workspace admin needs to approve the app
