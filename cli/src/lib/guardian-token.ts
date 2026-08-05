@@ -337,6 +337,7 @@ export async function refreshGuardianToken(
       isNew: false,
       deviceId: tokenData.deviceId,
       leasedAt: new Date().toISOString(),
+      pairedGatewayUrl: tokenData.pairedGatewayUrl,
     };
     saveGuardianToken(assistantId, refreshed);
     return refreshed;

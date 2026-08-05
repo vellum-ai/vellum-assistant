@@ -642,6 +642,7 @@ export async function runAgentLoopImpl(
   );
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
+  const toolsDisabledForTurn = ctx.toolsDisabledDepth > 0;
 
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
@@ -722,14 +723,20 @@ export async function runAgentLoopImpl(
       return;
     }
 
-    // Ensure workspace git repo is initialized before any tools run.
-    try {
-      const getWorkspaceGitServiceFn =
-        ctx.getWorkspaceGitService ?? getWorkspaceGitService;
-      const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
-      await gitService.ensureInitialized();
-    } catch (err) {
-      rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
+    // Workspace Git readiness is required only when tools can run. Tool-less
+    // callers use the same depth gate consumed by tool resolution.
+    if (!toolsDisabledForTurn) {
+      try {
+        const getWorkspaceGitServiceFn =
+          ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+        const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
+        await gitService.ensureInitialized();
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to initialize workspace git repo (non-fatal)",
+        );
+      }
     }
 
     // Auto-complete stale interactive surfaces from previous turns.
@@ -1698,28 +1705,45 @@ export async function runAgentLoopImpl(
 
     if (turnStarted) {
       ctx.turnCount++;
-      const config = getConfig();
-      const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
-      const deadlineMs = Date.now() + maxWait;
+      const runTurnCommit = async (): Promise<void> => {
+        const config = getConfig();
+        const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+        const deadlineMs = Date.now() + maxWait;
 
-      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
-      const commitPromise = commitTurnChangesFn(
-        ctx.workingDir,
-        ctx.conversationId,
-        ctx.turnCount,
-        undefined,
-        deadlineMs,
-      );
-      const outcome = await raceWithTimeout(commitPromise, maxWait);
-      if (outcome === "timed_out") {
-        rlog.warn(
-          {
-            turnNumber: ctx.turnCount,
-            maxWaitMs: maxWait,
-            conversationId: ctx.conversationId,
-          },
-          "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
+        const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+        const commitPromise = commitTurnChangesFn(
+          ctx.workingDir,
+          ctx.conversationId,
+          ctx.turnCount,
+          undefined,
+          deadlineMs,
         );
+        const outcome = await raceWithTimeout(commitPromise, maxWait);
+        if (outcome === "timed_out") {
+          rlog.warn(
+            {
+              turnNumber: ctx.turnCount,
+              maxWaitMs: maxWait,
+              conversationId: ctx.conversationId,
+            },
+            "Turn-boundary commit timed out; continuing without waiting (commit still runs in background)",
+          );
+        }
+      };
+
+      if (toolsDisabledForTurn) {
+        // Let the caller and queue drain claim an immediate follow-up turn
+        // before starting Git. That turn will commit the accumulated disk view.
+        setImmediate(() => {
+          if (ctx.isProcessing()) {
+            return;
+          }
+          void runTurnCommit().catch((err) => {
+            rlog.warn({ err }, "Deferred turn-boundary commit failed");
+          });
+        });
+      } else {
+        await runTurnCommit();
       }
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).

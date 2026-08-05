@@ -135,7 +135,11 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     label: "Speed",
     description: "Fastest responses, with reasoning turned off",
     maxTokens: 8192,
-    effort: "low",
+    // Explicit reasoning opt-out, matching `cost-optimized` above: this
+    // profile advertises reasoning as off, and OpenAI-compat APIs default
+    // reasoning to "medium" when the field is omitted, so the opt-out has to
+    // be stated rather than implied.
+    effort: "none",
     thinking: { enabled: false, streamThinking: false },
     contextWindow: {
       maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
@@ -194,7 +198,7 @@ const BYOK_PROFILE_IMPLS: Record<
     label: "Speed",
     description: "Fastest responses, with reasoning turned off",
     maxTokens: 8192,
-    effort: "low",
+    effort: "none",
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },

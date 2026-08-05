@@ -70,6 +70,12 @@ function Content({
         className={cn(
           "z-50 rounded-md bg-[var(--primary-base)] px-2 py-1 shadow-[var(--shadow-popover)]",
           "text-body-small-default text-[color:var(--content-inset)]",
+          // A sentence-length tooltip would otherwise render as one
+          // unbroken line the width of its text. Capped so it wraps, and
+          // never wider than the space Radix reports on the chosen side, so
+          // a trigger near a viewport edge does not force a reflow.
+          "max-w-[min(20rem,var(--radix-tooltip-content-available-width,20rem))]",
+          "text-pretty break-words",
           "data-[state=delayed-open]:animate-[popoverIn_120ms_ease-out]",
           "data-[state=instant-open]:animate-[popoverIn_60ms_ease-out]",
           className,
@@ -100,7 +106,13 @@ export interface TooltipProps {
  * `TooltipProvider` exists, the inner provider scopes its own subtree
  * with matching defaults so behaviour is consistent.
  */
-function Tooltip({ content, children, side, align, delayDuration }: TooltipProps) {
+function Tooltip({
+  content,
+  children,
+  side,
+  align,
+  delayDuration,
+}: TooltipProps) {
   return (
     <RadixTooltip.Provider delayDuration={200} skipDelayDuration={300}>
       <Root delayDuration={delayDuration}>

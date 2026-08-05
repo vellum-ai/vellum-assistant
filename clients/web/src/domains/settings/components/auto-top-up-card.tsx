@@ -10,6 +10,9 @@ import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpRetrieveSetQueryData,
   organizationsBillingAutoTopUpUpdateMutation,
+  organizationsBillingDailyCreditLimitRetrieveOptions,
+  organizationsBillingDailyCreditLimitRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -25,6 +28,7 @@ import {
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
+import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 
 type Mode = "view" | "form";
 
@@ -90,26 +94,6 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
 };
 
 /**
- * Flatten DRF field errors (`{ field: [msg, ...] }`) into a single message
- * per field. Exported so unit tests can exercise the parsing without
- * rendering the card.
- */
-export function extractAutoTopUpServerErrors(
-  err: unknown,
-): Record<string, string> {
-  if (!err || typeof err !== "object" || Array.isArray(err)) {
-    return {};
-  }
-  const out: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(err)) {
-    if (Array.isArray(messages) && typeof messages[0] === "string") {
-      out[key] = messages[0];
-    }
-  }
-  return out;
-}
-
-/**
  * Neutral pill shared by the enabled-state summary row — the "add $X under
  * $Y" chip and the monthly-cap progress chip use identical chrome so they
  * read as one control group.
@@ -150,6 +134,12 @@ function SummaryChip({
 export function AutoTopUpCard() {
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
+  // Drives the "we'll apply the default daily limit" note in the enable form:
+  // the backend applies its default limit when auto top-up is turned on and the
+  // org has none.
+  const dailyLimitQuery = useQuery(
+    organizationsBillingDailyCreditLimitRetrieveOptions(),
+  );
   const updateMutation = useMutation(
     organizationsBillingAutoTopUpUpdateMutation(),
   );
@@ -340,6 +330,17 @@ export function AutoTopUpCard() {
           void queryClient.invalidateQueries({
             queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
           });
+          if (!enabled) {
+            // Turning auto top-up on makes the backend apply its default daily
+            // credit limit when the org has none, so refresh the daily-limit
+            // card and the summary that carries the derived limit fields.
+            void queryClient.invalidateQueries({
+              queryKey: organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+            });
+            void queryClient.invalidateQueries({
+              queryKey: organizationsBillingSummaryRetrieveQueryKey(),
+            });
+          }
           exitFormMode();
         },
       },
@@ -515,7 +516,7 @@ export function AutoTopUpCard() {
   };
 
   const isFormMode = mode === "form";
-  const fieldErrors = extractAutoTopUpServerErrors(updateMutation.error);
+  const fieldErrors = extractDrfFieldErrors(updateMutation.error);
   // Surface a generic notice when the mutation failed but no field-level
   // DRF errors were parsed (network failure, 5xx, non-DRF body, etc.).
   // Without this, a failed Save can otherwise look like a silent no-op.
@@ -523,6 +524,11 @@ export function AutoTopUpCard() {
     updateMutation.isError && Object.keys(fieldErrors).length === 0;
 
   const toggleChecked = enabled || pendingEnable;
+  // Only claim the default will be applied once the daily-limit config has
+  // loaded and reports no limit; a loading or failed query stays quiet.
+  const dailyLimitMissing =
+    dailyLimitQuery.data != null &&
+    dailyLimitQuery.data.daily_credit_limit_usd == null;
 
   return (
     <div ref={cardRef} data-testid="auto-top-up-card">
@@ -700,6 +706,7 @@ export function AutoTopUpCard() {
           }
           submitting={updateMutation.isPending}
           serverErrors={fieldErrors}
+          showDefaultDailyLimitNote={!enabled && dailyLimitMissing}
           onCancel={exitFormMode}
           onSave={handleSave}
         />

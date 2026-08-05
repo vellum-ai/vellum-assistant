@@ -4,8 +4,8 @@ import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 
 // The wrapper under test orchestrates the real connect primitive, so we drive
-// its external seams rather than the primitive itself: the guardian-token read
-// (which decides success/failure) and the wake repair call. Everything else in
+// its external seams rather than the primitive itself: the local guardian-token
+// read, the paired gateway proxy, and the wake repair call. Everything else in
 // the primitive (gateway token exchange, self-hosted connection write) is
 // stubbed to no-op so a successful prime resolves cleanly.
 const host = await import("@/runtime/local-mode-host");
@@ -156,15 +156,18 @@ describe("primeLocalGatewayConnectionWithRepair", () => {
       lockfile: { assistants: [paired], activeAssistant: "paired-a" },
     });
     localStorage.setItem("vellum:local:selected-assistant", "paired-a");
-    fetchGuardianTokenHost = mock(async () => {
-      throw new GuardianTokenError(404, "token gone");
-    });
-
-    const err = await primeLocalGatewayConnectionWithRepair().catch(
-      (e: unknown) => e,
-    );
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = mock(
+      async () => new Response("token gone", { status: 404 }),
+    ) as unknown as typeof fetch;
+    const err = await primeLocalGatewayConnectionWithRepair()
+      .catch((e: unknown) => e)
+      .finally(() => {
+        globalThis.fetch = realFetch;
+      });
 
     expect(err).toBeInstanceOf(GuardianTokenError);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
   });
 

@@ -186,6 +186,7 @@ describe("pairAssistant", () => {
       refreshAfter: "",
       isNew: false,
       deviceId: "dev-aaa",
+      pairedGatewayUrl: "http://10.0.0.5:7830",
     });
     expect(new Date(leasedAt as string).toISOString()).toBe(
       leasedAt as string,
@@ -200,6 +201,7 @@ describe("pairAssistant", () => {
       "isNew",
       "deviceId",
       "leasedAt",
+      "pairedGatewayUrl",
     ]);
 
     expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);

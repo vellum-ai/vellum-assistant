@@ -27,6 +27,7 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
+import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
@@ -87,10 +88,6 @@ import { toast } from "@vellumai/design-library/components/toast";
 // Near-black takeover canvas. No surface token holds this value — the darkest
 // dark-theme surface is `--surface-base` (#17191C) — so the raw hex stands.
 const PAGE_BACKGROUND = "#0A0A0B";
-
-// External pricing docs — the closest existing docs link in the web client
-// (also used by the AI settings pricing banner).
-const DOCS_URL = "https://www.vellum.ai/docs/pricing";
 
 // How long the `?package=` deep link waits for its forced re-read of the
 // billing data before deciding on whatever the cache already holds.
@@ -858,7 +855,7 @@ function PlansPageContent() {
         <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)] sm:mt-10">
           You can cancel or change your plan anytime you want. To learn more{" "}
           <a
-            href={DOCS_URL}
+            href={PRICING_DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[var(--content-default)] underline"

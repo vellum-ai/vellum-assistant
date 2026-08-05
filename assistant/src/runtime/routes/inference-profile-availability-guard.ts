@@ -100,6 +100,12 @@ async function repairGuidance(
   repair: ProfileRepairHint,
   status: ConnectionAvailability["status"],
 ): Promise<string> {
+  // An incomplete profile has no connection to diagnose: the repair is
+  // finishing the profile itself. Its `provider` may also be absent, which
+  // the branches below would interpolate as the string "undefined".
+  if (status === "incomplete") {
+    return "Set both a provider and a model on the profile in Settings → Models & Services, then retry.";
+  }
   if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
     return `Sign in to the "${provider}" route in Settings → Models & Services, or pick a profile backed by a provider API key, then retry.`;
   }

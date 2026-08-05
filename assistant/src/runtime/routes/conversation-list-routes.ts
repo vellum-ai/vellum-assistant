@@ -27,6 +27,7 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
+  type ConversationListFilter,
   countConversations,
   countUnreadConversations,
   listConversations,
@@ -200,18 +201,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.originChannel
       : undefined;
 
-  let rows = listConversations(
-    limit,
-    conversationType,
-    offset,
-    archiveStatus,
-    originChannel,
-  );
-  const totalCount = countConversations(
+  const groupId =
+    queryParams.groupId !== undefined && queryParams.groupId !== ""
+      ? queryParams.groupId
+      : undefined;
+
+  const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
-  );
+    groupId,
+  };
+  let rows = listConversations({ ...filter, limit, offset });
+  const totalCount = countConversations(filter);
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
@@ -219,11 +221,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // rows in archive-time order, not pin order. Also skipped for
   // channel-scoped queries — those return only items matching the
   // requested origin channel; pinned items render in their own section.
+  //
+  // Skipped for group-scoped queries for the same reason: a caller asking
+  // for one group gets that group, and a client that fetches the Pinned
+  // section via `groupId=system:pinned` has no use for rows appended to
+  // some other group's page. This is the compatibility shim for clients
+  // that still read Pinned out of the unfiltered list; it goes away once
+  // every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
-    originChannel === undefined
+    originChannel === undefined &&
+    groupId === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -459,6 +469,13 @@ export const ROUTES: RouteDefinition[] = [
           type: "string",
           enum: [...CHANNEL_IDS],
         },
+      },
+      {
+        name: "groupId",
+        type: "string",
+        required: false,
+        description:
+          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is ordered by the user\'s arrangement (display order, then recency) and never has pinned rows appended to it. Omit to span every group.',
       },
     ],
     responseBody: listConversationsResponseSchema,

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getGuardianAccessToken,
+  PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   saveGuardianToken,
   type GuardianTokenData,
 } from "../guardian-token";
@@ -90,7 +92,10 @@ describe("getGuardianAccessToken", () => {
       invocation,
       true,
       undefined,
-      { paired: true },
+      {
+        paired: true,
+        pairedGatewayUrl: "https://gateway.example.com",
+      },
     );
 
     expect(result).toEqual({
@@ -122,5 +127,77 @@ describe("getGuardianAccessToken", () => {
       return;
     }
     expect(result.error).toContain("vellum hatch");
+  });
+
+  test("returns a paired token only for its stored gateway target", async () => {
+    saveGuardianToken(
+      configDir,
+      "paired-1",
+      makeTokenData({ pairedGatewayUrl: "https://gateway.example.com" }),
+    );
+
+    expect(
+      await getGuardianAccessToken("paired-1", configDir, invocation, true),
+    ).toEqual({
+      ok: false,
+      status: 403,
+      error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+    });
+    expect(
+      await getGuardianAccessToken(
+        "paired-1",
+        configDir,
+        invocation,
+        true,
+        undefined,
+        {
+          paired: true,
+          pairedGatewayUrl: "https://attacker.example.com",
+        },
+      ),
+    ).toEqual({
+      ok: false,
+      status: 403,
+      error: PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
+    });
+    expect(
+      await getGuardianAccessToken(
+        "paired-1",
+        configDir,
+        invocation,
+        true,
+        undefined,
+        {
+          paired: true,
+          pairedGatewayUrl: "https://gateway.example.com",
+        },
+      ),
+    ).toEqual({ ok: true, accessToken: "access" });
+  });
+
+  test("binds a legacy paired token before returning it", async () => {
+    saveGuardianToken(configDir, "paired-1", makeTokenData({}));
+
+    expect(
+      await getGuardianAccessToken(
+        "paired-1",
+        configDir,
+        invocation,
+        true,
+        undefined,
+        {
+          paired: true,
+          pairedGatewayUrl: "https://gateway.example.com",
+        },
+      ),
+    ).toEqual({ ok: true, accessToken: "access" });
+
+    const stored = JSON.parse(
+      fs.readFileSync(
+        path.join(configDir, "assistants", "paired-1", "guardian-token.json"),
+        "utf-8",
+      ),
+    ) as GuardianTokenData;
+    expect(stored.pairedGatewayUrl).toBe("https://gateway.example.com");
   });
 });

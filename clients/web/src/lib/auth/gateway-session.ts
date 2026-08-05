@@ -5,6 +5,7 @@ import {
   getSelectedAssistant,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
 /**
@@ -72,7 +73,20 @@ export function isGatewayAuthEnabled(): boolean {
 }
 
 export function isGatewayAuthMode(): boolean {
-  return isGatewayAuthEnabled() && getGatewayToken() !== null;
+  if (!isGatewayAuthEnabled()) {
+    return false;
+  }
+  if (!isRemoteGatewayMode()) {
+    const selectedAssistant = getSelectedAssistant();
+    const pairedGatewayUrl = getPairedGatewayUrl(selectedAssistant);
+    if (pairedGatewayUrl != null) {
+      return (
+        getSelfHostedIngressUrl() ===
+        `${window.location.origin}${pairedGatewayUrl}`
+      );
+    }
+  }
+  return getGatewayToken() !== null;
 }
 
 function isTokenExpired(expiresAt: number): boolean {
@@ -131,12 +145,9 @@ export function getGatewayToken(): string | null {
 }
 
 /**
- * Install an externally-acquired bearer as the gateway token without any
- * fetch, writing the same in-memory and localStorage slots the `/auth/token`
- * mint fills. `getGatewayToken()`, `isGatewayAuthMode()`, and the
- * source-mismatch clearing in `ensureGatewayToken` behave identically for a
- * seeded token, and the session survives a reload. Used for paired
- * assistants, whose guardian access token is the bearer itself.
+ * Install a gateway-minted actor bearer in the in-memory and localStorage
+ * slots used by `getGatewayToken()`. Paired guardian credentials never enter
+ * this module; their trusted host proxy owns acquisition and injection.
  */
 export function seedGatewayToken(params: {
   token: string;

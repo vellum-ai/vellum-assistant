@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { validateSlackToken } from "./slack-setup-wizard";
+import { validateSlackToken } from "./slack-token-validation";
 
 const BOT = "xoxb-";
 const APP = "xapp-";
@@ -48,7 +48,7 @@ describe("validateSlackToken", () => {
 
   it("rejects a correctly-prefixed but truncated token", () => {
     expect(validateSlackToken(`${BOT}123`, BOT, "Bot token")).toBe(
-      "Bot token looks truncated — copy the whole value from Slack.",
+      "Bot token looks truncated. Copy the whole value from Slack.",
     );
   });
 

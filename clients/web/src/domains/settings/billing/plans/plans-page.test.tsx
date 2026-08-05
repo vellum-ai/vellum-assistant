@@ -430,7 +430,6 @@ describe("PlansPage — full catalog render", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Custom Plan");
     expect(html).toContain("Configure");
-    expect(html).toContain("Billed monthly");
     expect(html).toContain("Read our Docs.");
   });
 });
@@ -643,9 +642,7 @@ afterEach(() => {
 describe("PlansPage on native Android", () => {
   test("redirects to billing without exposing plan actions", async () => {
     nativeAndroid = true;
-    const { getByTestId, queryByRole } = renderInteractive(
-      freeSubscription(),
-    );
+    const { getByTestId, queryByRole } = renderInteractive(freeSubscription());
 
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toBe(

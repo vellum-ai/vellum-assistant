@@ -38,7 +38,12 @@ export interface CurrentTiers {
 
 /** A three-dimension custom selection to apply (mirrors `CustomPlanSelection`). */
 export interface ChangeTiersSelection {
-  machineTier: MachineTierEnum;
+  /**
+   * `null` is the baseline machine. Only a sub already on the baseline can
+   * submit it (the configurator offers it to no one else), so it always equals
+   * `current.machineTier` and dispatches nothing.
+   */
+  machineTier: MachineTierEnum | null;
   storageTier: StorageTierEnum;
   /** `null` is the explicit "No extra credits" choice. */
   creditTier: CreditTierEnum | null;

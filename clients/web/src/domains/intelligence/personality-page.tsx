@@ -81,7 +81,7 @@ export function PersonalityPage() {
         void queryClient.invalidateQueries({
           queryKey: assistantIdentityDetailsQueryKey(assistantId),
         });
-        toast.success("Personality updated — come say hi!");
+        toast.success("Personality updated. Go say hi!");
         void navigate(routes.identity);
       } else {
         toast.error(

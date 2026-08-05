@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+import type { TokenResult } from "./guardian-token";
 import { isUsableRuntimeUrl, resolveCloud } from "./lockfile-contract";
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
@@ -151,12 +152,18 @@ export function parsePairedGatewayUrl(url: string): PairedGatewayParseResult {
  *     actually imported, never arbitrary URLs). Carries the status and
  *     message the host answers with, so hosts don't restate them.
  *   - `forward`: forward to `url` (the entry's recorded runtimeUrl with the
- *     request path and query appended).
+ *     request path and query appended). Carries the paired assistant id so
+ *     the trusted host can resolve its guardian bearer.
  */
 export type PairedGatewayProxyDecision =
   | { kind: "pass" }
   | { kind: "reject"; status: number; message: string }
-  | { kind: "forward"; url: string };
+  | {
+      kind: "forward";
+      url: string;
+      runtimeUrl: string;
+      assistantId: string;
+    };
 
 const PAIRED_GATEWAY_REJECTION: PairedGatewayProxyDecision = {
   kind: "reject",
@@ -192,15 +199,16 @@ export function resolvePairedGatewayProxyTarget(
   return {
     kind: "forward",
     url: `${runtimeUrl.replace(/\/+$/, "")}${parsed.target.path}${parsed.target.search}`,
+    runtimeUrl,
+    assistantId: parsed.target.assistantId,
   };
 }
 
 /**
- * Strip the browser-ambient headers from a paired forward before the remote
- * hop: `Origin`, `Referer`, `Cookie`, and every `Sec-Fetch-*` header. This is
- * the proxy family's only remote hop, so nothing about the renderer's browser
- * context may leak to the paired gateway; the guardian `Authorization` bearer
- * is the sole credential on the hop and passes through untouched.
+ * Strip renderer-controlled and browser-ambient headers from a paired forward
+ * before the remote hop. The trusted host installs its own guardian bearer
+ * after this function returns, so a renderer-provided `Authorization` header
+ * can never select or override the credential sent upstream.
  */
 export function sanitizePairedForwardHeaders(headers: Headers): void {
   const secFetchNames: string[] = [];
@@ -215,10 +223,36 @@ export function sanitizePairedForwardHeaders(headers: Headers): void {
   headers.delete("origin");
   headers.delete("referer");
   headers.delete("cookie");
+  headers.delete("authorization");
   // Paired runtimeUrls are commonly ngrok tunnels; free-tier ngrok answers
   // browser User-Agents with an interstitial page (ERR_NGROK_6024) unless
   // this header is present. Harmless for every other target.
   headers.set("ngrok-skip-browser-warning", "true");
+}
+
+export type PairedGuardianTokenProvider = (
+  assistantId: string,
+  runtimeUrl: string,
+) => Promise<TokenResult>;
+
+export type PairedForwardAuthorizationResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string };
+
+/** Replace renderer authorization with the paired credential owned by the host. */
+export async function authorizePairedForwardHeaders(
+  assistantId: string,
+  runtimeUrl: string,
+  headers: Headers,
+  getGuardianToken: PairedGuardianTokenProvider,
+): Promise<PairedForwardAuthorizationResult> {
+  sanitizePairedForwardHeaders(headers);
+  const result = await getGuardianToken(assistantId, runtimeUrl);
+  if (!result.ok) {
+    return result;
+  }
+  headers.set("authorization", `Bearer ${result.accessToken}`);
+  return { ok: true };
 }
 
 function addPortFromUrl(url: unknown, ports: Set<number>): void {

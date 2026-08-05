@@ -11,7 +11,12 @@ import { describe, expect, test } from "bun:test";
 
 import type { ProPlan } from "@/generated/api/types.gen";
 
-import { NO_EXTRA_CREDITS, computeCustomPlanDiff } from "./custom-plan-diff";
+import {
+  BASELINE_MACHINE,
+  BASELINE_MACHINE_LABEL,
+  NO_EXTRA_CREDITS,
+  computeCustomPlanDiff,
+} from "./custom-plan-diff";
 
 function proPlan(): ProPlan {
   return {
@@ -227,7 +232,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(creditRow?.label).toBe("$50 of bundled credits");
   });
 
-  test("a null baseline seed machine changes without a previous label", () => {
+  test("a baseline seed machine strikes through the baseline it left", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
       seed: { machineTier: null, storageTier: "xs", creditTier: null },
@@ -239,8 +244,36 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(diff.deltaCents).toBe(3500);
     const machineRow = diff.rows.find((r) => r.key === "machine");
     expect(machineRow?.changed).toBe(true);
-    expect(machineRow?.previousLabel).toBeUndefined();
+    // The baseline has no catalog entry, but it is still what the sub was on,
+    // so the row names it rather than appearing out of nowhere.
+    expect(machineRow?.previousLabel).toBe(BASELINE_MACHINE_LABEL);
     expect(machineRow?.label).toBe("Medium machine (2.5 vCPU, 5 GiB)");
+  });
+
+  test("an untouched baseline machine gets its own unchanged row", () => {
+    const diff = computeCustomPlanDiff({
+      proPlan: proPlan(),
+      seed: { machineTier: null, storageTier: "xs", creditTier: null },
+      machineTier: BASELINE_MACHINE,
+      storageTier: "xs",
+      creditChoice: NO_EXTRA_CREDITS,
+    });
+
+    // The baseline earns a row like any other machine, so the recap accounts
+    // for every spec the sub holds.
+    const machineRow = diff.rows.find((r) => r.key === "machine");
+    expect(machineRow?.label).toBe(BASELINE_MACHINE_LABEL);
+    expect(machineRow?.changed).toBe(false);
+    expect(machineRow?.previousLabel).toBeUndefined();
+    // It is the floor, so it adds nothing and the config is a no-op.
+    expect(diff.deltaCents).toBe(0);
+    expect(diff.previousTotalCents).toBe(diff.totalCents);
+  });
+
+  test("the baseline label matches the catalog's own description shape", () => {
+    // Guards the hand-built label against drifting from the server-provided
+    // ones it sits beside in the same dropdown.
+    expect(BASELINE_MACHINE_LABEL).toBe("Small machine (2 vCPU, 3 GiB)");
   });
 
   test("a legacy seed storage tier resolves and contributes its real price", () => {

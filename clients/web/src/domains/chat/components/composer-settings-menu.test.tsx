@@ -143,7 +143,13 @@ const configGetMock = mock(
     data: {
       llm: {
         profileOrder: ["smart"],
-        profiles: { smart: { label: "Smart" } },
+        profiles: {
+          smart: {
+            label: "Smart",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+        },
         activeProfile: "smart",
       },
     },
@@ -284,8 +290,16 @@ describe("Model Profile quick-add", () => {
         llm: {
           profileOrder: ["smart", NEW_PROFILE_NAME],
           profiles: {
-            smart: { label: "Smart" },
-            [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL },
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+            [NEW_PROFILE_NAME]: {
+              label: NEW_PROFILE_LABEL,
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
           },
           activeProfile: "smart",
         },
@@ -412,8 +426,16 @@ describe("Profile trigger updates", () => {
       llm: {
         profileOrder: ["balanced", "quality"],
         profiles: {
-          balanced: { label: "Balanced" },
-          quality: { label: "Quality" },
+          balanced: {
+            label: "Balanced",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
         },
         activeProfile: "balanced",
       },
@@ -483,7 +505,13 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" } },
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
           activeProfile: "smart",
         },
       },
@@ -541,7 +569,13 @@ describe("Profile activation rejected by the daemon", () => {
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" } },
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
           activeProfile: "smart",
         },
       },

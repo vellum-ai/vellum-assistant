@@ -75,6 +75,8 @@ import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
   isHiddenMessageMetadata,
+  PINNED_GROUP_ID,
+  UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -1040,7 +1042,7 @@ export function createConversation(
   // write-contended paths wrap the call in `withSqliteRetry`, and because the
   // insert+update are atomic here, such a retry re-runs the whole thing cleanly
   // (a failed attempt rolls back, so no half-written row is ever left behind).
-  const effectiveGroupId = groupId ?? "system:all";
+  const effectiveGroupId = groupId ?? UNGROUPED_GROUP_ID;
   const raw = getSqliteFrom(db);
   raw.exec("SAVEPOINT create_conv");
   try {
@@ -1049,7 +1051,7 @@ export function createConversation(
       "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
-      effectiveGroupId === "system:pinned" ? 1 : 0,
+      effectiveGroupId === PINNED_GROUP_ID ? 1 : 0,
       id,
     );
     raw.exec("RELEASE create_conv");
@@ -4031,7 +4033,7 @@ export function batchSetDisplayOrders(
         // the entire batch.
         let safeGroupId = update.groupId;
         if (safeGroupId === null) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
             "conversation:batchSetDisplayOrders:groupCheck",
@@ -4039,7 +4041,7 @@ export function batchSetDisplayOrders(
             safeGroupId,
           )
         ) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         }
         // Moving a conversation into the Scheduled/Background system groups
         // is an explicit demotion out of Recents, so clear any `surfaced_at`
@@ -4049,15 +4051,49 @@ export function batchSetDisplayOrders(
         const clearsSurfaced =
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
+        // Filing a conversation into a section the user reads (Pinned or one
+        // of their own groups) is the mirror image: an explicit promotion, so
+        // it stamps `surfaced_at` the way the surface API does.
+        //
+        // The stamp is what makes the promotion durable. Visibility must not
+        // depend on where the row currently sits, or removing it from a group
+        // would hide it instead of returning it to Recents, and pinning would
+        // not show it at all: `system:pinned` fails the custom-group arm of
+        // `standardListingVisibilitySql` on that arm's `system:` prefix check.
+        //
+        // Only background and scheduled rows need it: everything else is
+        // already visible, and stamping them would leave `surfaced_at`
+        // meaning nothing. `COALESCE` keeps the original promotion time when
+        // the row is re-filed later.
+        const promotes =
+          !clearsSurfaced &&
+          safeGroupId !== UNGROUPED_GROUP_ID &&
+          (safeGroupId === PINNED_GROUP_ID ||
+            !safeGroupId.startsWith("system:"));
+        const setClauses = [
+          "display_order = ?",
+          "is_pinned = ?",
+          "group_id = ?",
+        ];
+        const params: Array<string | number | null> = [
+          update.displayOrder,
+          safeGroupId === PINNED_GROUP_ID ? 1 : 0,
+          safeGroupId,
+        ];
+        if (clearsSurfaced) {
+          setClauses.push("surfaced_at = NULL");
+        } else if (promotes) {
+          setClauses.push(
+            "surfaced_at = CASE WHEN conversation_type IN ('background', 'scheduled')" +
+              " THEN COALESCE(surfaced_at, ?) ELSE surfaced_at END",
+          );
+          params.push(Date.now());
+        }
+        params.push(update.id);
         rawRun(
           "conversation:batchSetDisplayOrders:group",
-          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
-            clearsSurfaced ? ", surfaced_at = NULL" : ""
-          } WHERE id = ?`,
-          update.displayOrder,
-          safeGroupId === "system:pinned" ? 1 : 0,
-          safeGroupId,
-          update.id,
+          `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
+          ...params,
         );
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
