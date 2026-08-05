@@ -640,7 +640,9 @@ function clearPlatformAuthRedirectBudget(): void {
  * every request, each released latch would otherwise start the next cycle
  * immediately and without bound. The cooldown spaces cycles and the budget
  * stops them; a 2xx on the route whose rejection last consumed an attempt
- * restores both (proof the failing route healed), and quitting the app
+ * restores both (proof the failing route healed), a re-probe that confirms
+ * the session live refunds the count while keeping the cooldown (a
+ * permission 403 must not starve a later real expiry), and quitting the app
  * grants a fresh budget (sessionStorage).
  */
 const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
@@ -704,6 +706,21 @@ function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
   }
 }
 
+/**
+ * Refund the attempt count while keeping the cooldown timestamp. Used when
+ * the authoritative re-probe confirms the session is live: the rejection was
+ * a route-level permission denial, not session death, so it must not eat the
+ * budget a later real expiry needs. The retained cooldown still paces
+ * probing at one cycle per window while such a route keeps rejecting.
+ */
+function refundPlatformRecoveryAttempt(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim already fails closed.
+  }
+}
+
 /** The response URL's pathname, or null for an unparseable URL. */
 function responsePathname(response: Response): string | null {
   try {
@@ -727,6 +744,9 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // requests are still in flight. Hold the latch until the probe settles
     // so those requests' rejections cannot each start a new recovery cycle.
     await whenPlatformSessionSettled();
+    if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+      refundPlatformRecoveryAttempt();
+    }
     if (
       !isAuthenticated(useAuthStore.getState().sessionStatus) &&
       claimPlatformAuthRedirect()

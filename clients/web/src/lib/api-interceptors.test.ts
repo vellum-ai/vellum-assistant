@@ -1808,6 +1808,9 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   });
 
   test("stops recovering once the attempt budget is spent", async () => {
+    // An unsettled probe never confirms the session live, so nothing refunds
+    // the count and the budget is the binding limit.
+    mockAuthState.platformSession = "unknown";
     const refreshSession = mock(async () => true);
     mockAuthState.refreshSession = refreshSession;
 
@@ -1829,64 +1832,76 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     );
   });
 
-  test("a 2xx on the rejected route restores the recovery budget", async () => {
+  test("a live-confirmed recovery refunds the count but keeps the cooldown", async () => {
+    // platformSession stays "present" (beforeEach default): the probe keeps
+    // confirming the session is live, so a route-level permission 403 must
+    // not eat the budget a later real expiry needs.
     const refreshSession = mock(async () => true);
     mockAuthState.refreshSession = refreshSession;
 
-    // Spend the whole budget with rejections on one route.
-    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS; i++) {
+    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS + 2; i++) {
       expireRecoveryCooldown();
       platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
       await flush();
     }
-    expireRecoveryCooldown();
+
+    // Every cycle recovered: the count was refunded each time.
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS + 2,
+    );
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
+
+    // The cooldown survives the refund: an immediate rejection stays paced.
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
     expect(refreshSession).toHaveBeenCalledTimes(
-      PLATFORM_RECOVERY_MAX_ATTEMPTS,
+      PLATFORM_RECOVERY_MAX_ATTEMPTS + 2,
     );
+  });
 
-    // The same route succeeding is proof it healed.
+  test("a 2xx on the rejected route restores the recovery budget", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // Inside the cooldown a rejection cannot recover.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // The same route succeeding is proof it healed; the cooldown clears and
+    // the next rejection may recover immediately.
     platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
     expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
     expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).toBeNull();
 
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
-    expect(refreshSession).toHaveBeenCalledTimes(
-      PLATFORM_RECOVERY_MAX_ATTEMPTS + 1,
-    );
+    expect(refreshSession).toHaveBeenCalledTimes(2);
   });
 
   test("an unrelated platform 2xx does not restore the budget", async () => {
     const refreshSession = mock(async () => true);
     mockAuthState.refreshSession = refreshSession;
 
-    // Spend the whole budget with rejections on the session-sensitive route.
-    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS; i++) {
-      expireRecoveryCooldown();
-      platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
-      await flush();
-    }
-    expect(refreshSession).toHaveBeenCalledTimes(
-      PLATFORM_RECOVERY_MAX_ATTEMPTS,
-    );
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
 
     // A route the platform serves without the session (feature-flag polling)
-    // keeps succeeding; it must not re-arm the exhausted budget.
+    // keeps succeeding; it must not clear the cooldown or the count.
     platformAuthRecoveryInterceptor(
       makeResponse(200, "https://platform.test/v1/client-feature-flags/"),
     );
-    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBe(
-      String(PLATFORM_RECOVERY_MAX_ATTEMPTS),
-    );
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).not.toBeNull();
 
-    expireRecoveryCooldown();
+    // Still inside the cooldown, so no second recovery.
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
-    expect(refreshSession).toHaveBeenCalledTimes(
-      PLATFORM_RECOVERY_MAX_ATTEMPTS,
-    );
+    expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 
   test("a self-hosted gateway 2xx does not restore the recovery budget", async () => {
