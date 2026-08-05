@@ -935,10 +935,20 @@ describe("Conversation message queue", () => {
       position: 1,
     });
 
-    // Drain so the conversation finishes cleanly.
+    // Suppressing the ack changes only what clients are told: the row is
+    // still queued, still drains, and still wakes the parent on the notification
+    // text (delivery is asserted end-to-end in "drained subagent-notification
+    // message persists and wakes the agent but emits no user_message_echo").
     await resolveRun(0);
     await p1;
+    await waitForPendingRun(2);
     await waitForCondition(() => conversation.getQueueDepth() === 0);
+    expect(
+      capturedAddMessages.some((m) =>
+        m.content.includes("hermes-local-review"),
+      ),
+    ).toBe(true);
+
     for (let i = 1; i < pendingRuns.length; i++) {
       await resolveRun(i);
     }
