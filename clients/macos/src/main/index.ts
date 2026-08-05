@@ -1,10 +1,11 @@
 import "./env-seed";
-import { app, net, protocol, shell } from "electron";
+import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { trackAuthPopupSignInState } from "@vellumai/electron-utils/auth-popup-session";
 import {
   pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
@@ -623,6 +624,26 @@ app.on("web-contents-created", (_event, contents) => {
     // Plain target=_blank link clicks → system browser.
     void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // Every child window the renderer opens is a connect / OAuth surface, and an
+  // in-app one has no address bar, profile switcher, or provider sign-out page
+  // to fall back on. Left alone, the identity provider's SSO cookie sticks
+  // around in the app's session and every later authorization silently reuses
+  // the first account — Microsoft skips the account picker outright. Treat each
+  // popup as a throwaway sign-in surface: drop the third-party sign-in cookies
+  // it left behind once it closes, so the next connect starts signed out and
+  // the provider asks who you are. Vellum's own cookies are never touched.
+  contents.on("did-create-window", (window) => {
+    trackAuthPopupSignInState(window, {
+      cookies: () => session.defaultSession.cookies,
+      onCleared: (hosts, removed) =>
+        log.info(
+          `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,
+        ),
+      onError: (err) =>
+        log.warn("[auth-popup] failed to clear sign-in cookies:", err),
+    });
   });
 });
 
