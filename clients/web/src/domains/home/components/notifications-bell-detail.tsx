@@ -78,26 +78,41 @@ export function NotificationsBellDetail({
   onGoToConversation,
   onViewSchedule,
 }: NotificationsBellDetailProps) {
-  const conversationId = item.conversationId;
-  // Same rule as the Activity page's detail panel, plus a pending case the
-  // page doesn't have: the lists start loading when this view opens, so the
-  // link is offered until they come back without it rather than withheld until
-  // they come back with it. Withholding would drop a footer into a popover the
-  // user is already reading, and the notifications that reference background
-  // and scheduled jobs are exactly the ones whose lists arrive last.
-  const hasValidConversation =
-    !!conversationId &&
-    (areConversationListsPending || validConversationIds.has(conversationId));
-
-  // Same rule as the Activity page's detail panel, on the same pending terms
-  // as the conversation link above so the two footer buttons appear together
-  // rather than one at a time as their lists land.
+  const conversationId = item.conversationId ?? null;
   const scheduleId = getFeedItemScheduleId(item);
+
+  // Same rule as the Activity page's detail panel, plus a pending case the
+  // page doesn't have: the lists start loading when this view opens. Every
+  // list a candidate link depends on has to land before any link becomes
+  // reachable, so the two buttons settle together rather than one at a time
+  // and a deleted target is never linked to.
+  const isValidationPending =
+    (conversationId !== null && areConversationListsPending) ||
+    (scheduleId !== null && isScheduleListPending);
+
+  // A link the lists have yet to vouch for still renders, holding the row it
+  // will occupy so the panel keeps its height once validation resolves. One
+  // whose target turns out to be gone drops out, and a footer left with none
+  // of them collapses away rather than holding empty space.
+  const linkedConversationId =
+    conversationId !== null &&
+    (isValidationPending || validConversationIds.has(conversationId))
+      ? conversationId
+      : null;
   const linkedScheduleId =
     scheduleId !== null &&
-    (isScheduleListPending || validScheduleIds.has(scheduleId))
+    (isValidationPending || validScheduleIds.has(scheduleId))
       ? scheduleId
       : null;
+
+  // `visibility: hidden` keeps a pending link's box while taking it out of the
+  // accessibility tree, `inert` blocks pointer and keyboard interaction, and
+  // the click handlers below stay unwired until validation resolves.
+  const pendingLinkProps = {
+    className: isValidationPending ? "invisible" : undefined,
+    inert: isValidationPending,
+    "aria-hidden": isValidationPending || undefined,
+  };
 
   return (
     <>
@@ -132,24 +147,37 @@ export function NotificationsBellDetail({
         </div>
       </div>
 
-      {linkedScheduleId || (conversationId && hasValidConversation) ? (
+      {linkedScheduleId || linkedConversationId ? (
         // Both links can be offered at once. They sit on one right-aligned row
         // at the popover's width and wrap onto a second one below it in the
         // narrowest bottom sheets, so neither ever overflows the panel.
-        <div className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
+        <div
+          data-testid="notifications-bell-detail-footer"
+          className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]"
+        >
           {linkedScheduleId ? (
             <Button
               variant="outlined"
               leftIcon={<Calendar className="size-4" />}
-              onClick={() => onViewSchedule(linkedScheduleId)}
+              onClick={
+                isValidationPending
+                  ? undefined
+                  : () => onViewSchedule(linkedScheduleId)
+              }
+              {...pendingLinkProps}
             >
               View schedule
             </Button>
           ) : null}
-          {conversationId && hasValidConversation ? (
+          {linkedConversationId ? (
             <Button
               variant="primary"
-              onClick={() => onGoToConversation(conversationId)}
+              onClick={
+                isValidationPending
+                  ? undefined
+                  : () => onGoToConversation(linkedConversationId)
+              }
+              {...pendingLinkProps}
             >
               Go to Conversation
             </Button>

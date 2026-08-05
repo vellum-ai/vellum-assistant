@@ -202,6 +202,17 @@ async function openDetail(title: string): Promise<void> {
   await act(async () => {});
 }
 
+/**
+ * Labels of the boxes the detail's footer holds, in document order. Read off
+ * the elements rather than the accessibility tree so the row can be compared
+ * across the pending window, where the links are deliberately not exposed.
+ */
+function footerLinkLabels(footer: HTMLElement): (string | null)[] {
+  return Array.from(footer.querySelectorAll("button")).map(
+    (button) => button.textContent,
+  );
+}
+
 beforeEach(() => {
   isMobileRef.value = false;
   feedRef.items = [];
@@ -448,15 +459,18 @@ describe("NotificationsBell detail", () => {
     ).toBeNull();
   });
 
-  test("offers Go to Conversation while the lists are still loading", async () => {
+  test("withholds Go to Conversation while the lists are still loading", async () => {
     feedRef.items = [{ ...FIRST, conversationId: "background-1" }];
     conversationListsRef.isPending = true;
 
     await openDetail("Watcher job failed");
 
     expect(
-      screen.getByRole("button", { name: "Go to Conversation" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Go to Conversation" }),
+    ).toBeNull();
+    // The row the link will take is held, so the panel keeps its height when
+    // the lists land.
+    expect(screen.getByTestId("notifications-bell-detail-footer")).toBeTruthy();
   });
 
   test("offers View schedule when the item's schedule still exists", async () => {
@@ -486,13 +500,14 @@ describe("NotificationsBell detail", () => {
     expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
   });
 
-  test("offers View schedule while the schedules list is still loading", async () => {
+  test("withholds View schedule while the schedules list is still loading", async () => {
     feedRef.items = [{ ...FIRST, metadata: { scheduleId: "schedule-1" } }];
     schedulesRef.isPending = true;
 
     await openDetail("Watcher job failed");
 
-    expect(screen.getByRole("button", { name: "View schedule" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
+    expect(screen.getByTestId("notifications-bell-detail-footer")).toBeTruthy();
   });
 
   test("View schedule opens the schedule and closes the bell", async () => {
@@ -530,6 +545,107 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByRole("button", { name: "Go to Conversation" }),
     ).toBeTruthy();
+  });
+
+  test("neither footer link is reachable while the lists are still loading", async () => {
+    feedRef.items = [
+      {
+        ...FIRST,
+        conversationId: "conversation-1",
+        metadata: { scheduleId: "schedule-1" },
+      },
+    ];
+    conversationListsRef.isPending = true;
+    schedulesRef.isPending = true;
+
+    await openDetail("Watcher job failed");
+
+    // Out of the accessibility tree, so neither reads as an actionable
+    // control before its target is known to exist.
+    expect(
+      screen.queryByRole("button", { name: "Go to Conversation" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
+
+    const conversationLink = screen.getByText("Go to Conversation");
+    const scheduleLink = screen.getByText("View schedule");
+    expect(conversationLink.hasAttribute("inert")).toBe(true);
+    expect(scheduleLink.hasAttribute("inert")).toBe(true);
+
+    fireEvent.click(conversationLink);
+    fireEvent.click(scheduleLink);
+    await act(async () => {});
+
+    expect(navigateToConversationMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("the footer keeps its reserved row when the lists resolve", async () => {
+    feedRef.items = [
+      {
+        ...FIRST,
+        conversationId: "conversation-1",
+        metadata: { scheduleId: "schedule-1" },
+      },
+    ];
+    conversationListsRef.isPending = true;
+    schedulesRef.isPending = true;
+
+    const { rerender } = render(<NotificationsBell />);
+    await clickTrigger();
+    fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
+    await act(async () => {});
+
+    const pendingFooter = screen.getByTestId(
+      "notifications-bell-detail-footer",
+    );
+    expect(footerLinkLabels(pendingFooter)).toEqual([
+      "View schedule",
+      "Go to Conversation",
+    ]);
+
+    conversationListsRef.isPending = false;
+    conversationListsRef.foreground = [conversation("conversation-1")];
+    schedulesRef.isPending = false;
+    schedulesRef.list = [schedule("schedule-1")];
+    rerender(<NotificationsBell />);
+    await act(async () => {});
+
+    // The same footer element holding the same two boxes: the row the links
+    // reserved is the row they end up in, so nothing resizes around them.
+    const resolvedFooter = screen.getByTestId(
+      "notifications-bell-detail-footer",
+    );
+    expect(resolvedFooter).toBe(pendingFooter);
+    expect(footerLinkLabels(resolvedFooter)).toEqual([
+      "View schedule",
+      "Go to Conversation",
+    ]);
+    expect(screen.getByRole("button", { name: "View schedule" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Go to Conversation" }),
+    ).toBeTruthy();
+  });
+
+  test("drops the footer once the lists resolve without either target", async () => {
+    feedRef.items = [
+      {
+        ...FIRST,
+        conversationId: "deleted-1",
+        metadata: { scheduleId: "deleted-2" },
+      },
+    ];
+    conversationListsRef.foreground = [conversation("other-1")];
+    schedulesRef.list = [schedule("other-2")];
+
+    await openDetail("Watcher job failed");
+
+    // No links survived validation, so the reserved strip goes with them.
+    expect(screen.queryByTestId("notifications-bell-detail-footer")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Go to Conversation" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
   });
 
   test("loads the conversation and schedule lists only once a detail is open", async () => {
