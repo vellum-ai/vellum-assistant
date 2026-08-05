@@ -246,6 +246,150 @@ describe("GET /v1/conversations — conversationType", () => {
   });
 });
 
+describe("GET /v1/conversations with groupId", () => {
+  function seedInGroup(title: string, groupId: string): string {
+    const conv = createConversation(title);
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      groupId,
+      conv.id,
+    );
+    return conv.id;
+  }
+
+  function seedPinned(title: string, displayOrder?: number): string {
+    const conv = createConversation(title);
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned', display_order = ? WHERE id = ?",
+      displayOrder ?? null,
+      conv.id,
+    );
+    return conv.id;
+  }
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("system:all returns only conversations in no group", async () => {
+    createConversation("ungrouped-1");
+    const group = createGroup("Car Chat");
+    seedInGroup("in-custom-group", group.id);
+    seedPinned("pinned-1");
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["ungrouped-1"]);
+  });
+
+  test("system:all matches rows whose group_id is NULL, not just the literal sentinel", async () => {
+    // `group_id` is only written when a conversation is filed somewhere, so
+    // almost every ungrouped row carries NULL. An equality-only predicate
+    // would return nothing at all here.
+    const conv = createConversation("never-filed");
+    rawRun(
+      "test:clearGroup",
+      "UPDATE conversations SET group_id = NULL WHERE id = ?",
+      conv.id,
+    );
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["never-filed"]);
+  });
+
+  test("system:pinned returns the Pinned section", async () => {
+    createConversation("ungrouped-1");
+    seedPinned("pinned-1");
+    seedPinned("pinned-2");
+
+    const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "pinned-1",
+      "pinned-2",
+    ]);
+  });
+
+  test("a custom group id returns only that group's members", async () => {
+    const carChat = createGroup("Car Chat");
+    const recipes = createGroup("Recipes");
+    seedInGroup("car-1", carChat.id);
+    seedInGroup("car-2", carChat.id);
+    seedInGroup("recipe-1", recipes.id);
+    createConversation("ungrouped-1");
+
+    const result = (await invoke({ groupId: carChat.id })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "car-1",
+      "car-2",
+    ]);
+  });
+
+  test("a group-scoped page is ordered by the user's arrangement", async () => {
+    // Pinned and custom groups are drag-reorderable, so display order wins
+    // over recency inside a group.
+    seedPinned("third", 2);
+    seedPinned("first", 0);
+    seedPinned("second", 1);
+
+    const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+  });
+
+  test("a group-scoped page has no pinned rows appended to it", async () => {
+    // Injection exists so a client reading Pinned out of the unfiltered list
+    // still sees it. A caller that asked for one group gets that group.
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+    seedPinned("pinned-1");
+
+    const result = (await invoke({ groupId: group.id })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["car-1"]);
+  });
+
+  test("hasMore reflects the group's own total, not the whole table", async () => {
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+    seedInGroup("car-2", group.id);
+    for (let i = 0; i < 5; i++) {
+      createConversation(`ungrouped-${i}`);
+    }
+
+    const result = (await invoke({
+      groupId: group.id,
+      limit: "2",
+    })) as ListResponse;
+
+    expect(result.conversations).toHaveLength(2);
+    expect(result.hasMore).toBe(false);
+  });
+
+  test("omitting groupId is unchanged: every group is spanned and pinned still injects", async () => {
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+    createConversation("ungrouped-1");
+    seedPinned("pinned-1");
+
+    const result = (await invoke()) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "car-1",
+      "pinned-1",
+      "ungrouped-1",
+    ]);
+  });
+});
+
 describe("GET /v1/conversations/unread-count", () => {
   const unreadCountHandler = findHandler(
     CONVERSATION_LIST_ROUTES,

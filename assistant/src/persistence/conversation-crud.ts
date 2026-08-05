@@ -75,6 +75,8 @@ import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
   isHiddenMessageMetadata,
+  PINNED_GROUP_ID,
+  UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -1040,7 +1042,7 @@ export function createConversation(
   // write-contended paths wrap the call in `withSqliteRetry`, and because the
   // insert+update are atomic here, such a retry re-runs the whole thing cleanly
   // (a failed attempt rolls back, so no half-written row is ever left behind).
-  const effectiveGroupId = groupId ?? "system:all";
+  const effectiveGroupId = groupId ?? UNGROUPED_GROUP_ID;
   const raw = getSqliteFrom(db);
   raw.exec("SAVEPOINT create_conv");
   try {
@@ -1049,7 +1051,7 @@ export function createConversation(
       "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
-      effectiveGroupId === "system:pinned" ? 1 : 0,
+      effectiveGroupId === PINNED_GROUP_ID ? 1 : 0,
       id,
     );
     raw.exec("RELEASE create_conv");
@@ -4031,7 +4033,7 @@ export function batchSetDisplayOrders(
         // the entire batch.
         let safeGroupId = update.groupId;
         if (safeGroupId === null) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
             "conversation:batchSetDisplayOrders:groupCheck",
@@ -4039,7 +4041,7 @@ export function batchSetDisplayOrders(
             safeGroupId,
           )
         ) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         }
         // Moving a conversation into the Scheduled/Background system groups
         // is an explicit demotion out of Recents, so clear any `surfaced_at`
@@ -4055,7 +4057,7 @@ export function batchSetDisplayOrders(
             clearsSurfaced ? ", surfaced_at = NULL" : ""
           } WHERE id = ?`,
           update.displayOrder,
-          safeGroupId === "system:pinned" ? 1 : 0,
+          safeGroupId === PINNED_GROUP_ID ? 1 : 0,
           safeGroupId,
           update.id,
         );

@@ -14,7 +14,10 @@ import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
-import type { ConversationType } from "./conversation-types.js";
+import {
+  type ConversationType,
+  UNGROUPED_GROUP_ID,
+} from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { tokenize } from "./embeddings/sparse-tokenize.js";
 import {
@@ -236,34 +239,99 @@ function conversationTypeClause(type: ConversationType) {
   }
 }
 
+/**
+ * The predicates that select which conversations a listing covers, shared by
+ * {@link listConversations} and {@link countConversations} so a list and its
+ * count can never disagree about what they are describing.
+ *
+ * Named rather than positional on purpose: `originChannel` and `groupId` are
+ * both optional strings, and as adjacent positional arguments they were a
+ * transposition waiting to happen.
+ */
+export interface ConversationListFilter {
+  conversationType?: ConversationType;
+  archiveStatus?: ArchiveStatusFilter;
+  originChannel?: string;
+  /**
+   * Restrict to one group. {@link UNGROUPED_GROUP_ID} selects rows in no
+   * group (the sidebar's flat list), {@link PINNED_GROUP_ID} the Pinned
+   * section, and a UUID one custom group. Omit to span every group.
+   */
+  groupId?: string;
+}
+
+export interface ConversationListQuery extends ConversationListFilter {
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * SQL predicate for {@link ConversationListFilter.groupId}.
+ *
+ * The ungrouped case has to match NULL as well as the literal sentinel:
+ * `group_id` is only written when a conversation is filed somewhere, so the
+ * overwhelming majority of rows carry NULL rather than `'system:all'`.
+ *
+ * `group_id` is referenced as raw SQL because it is not a Drizzle column:
+ * it, `display_order`, and `is_pinned` are added by the lazy
+ * `ensureDisplayOrderMigration` / `ensureGroupMigration` steps rather than
+ * declared in `schema/conversations.ts`.
+ */
+function groupIdClause(groupId: string) {
+  if (groupId === UNGROUPED_GROUP_ID) {
+    return sql`(group_id IS NULL OR group_id = ${UNGROUPED_GROUP_ID})`;
+  }
+  return sql`group_id = ${groupId}`;
+}
+
+/**
+ * Order a group's rows the way the user arranged them: by explicit
+ * `display_order` first, then by recency. Only meaningful for a real group;
+ * the ungrouped bucket is pure recency, since a row that was dragged inside a
+ * group and later removed keeps a stale `display_order` that must not
+ * resurface as a sort key.
+ */
+function isUserOrderedGroup(groupId: string | undefined): boolean {
+  return groupId !== undefined && groupId !== UNGROUPED_GROUP_ID;
+}
+
+function conversationListWhere(filter: ConversationListFilter) {
+  const {
+    conversationType = "standard",
+    archiveStatus = "active",
+    originChannel,
+    groupId,
+  } = filter;
+  return and(
+    conversationTypeClause(conversationType),
+    archiveStatusClause(archiveStatus) ?? undefined,
+    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    groupId ? groupIdClause(groupId) : undefined,
+  );
+}
+
 export function listConversations(
-  limit?: number,
-  conversationType: ConversationType = "standard",
-  offset = 0,
-  archiveStatus: ArchiveStatusFilter = "active",
-  originChannel?: string,
+  query: ConversationListQuery = {},
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = conversationTypeClause(conversationType);
-  const archiveCond = archiveStatusClause(archiveStatus);
-  const channelCond = originChannel
-    ? eq(conversations.originChannel, originChannel)
-    : undefined;
-  const where = and(typeCond, archiveCond ?? undefined, channelCond);
-  const query = db
+  const { limit, offset = 0, ...filter } = query;
+  const recency = desc(
+    sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+  );
+  const orderBy = isUserOrderedGroup(filter.groupId)
+    ? [sql`COALESCE(display_order, 999999) ASC`, recency]
+    : [recency];
+  return db
     .select()
     .from(conversations)
-    .where(where)
-    .orderBy(
-      desc(
-        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
-      ),
-    )
+    .where(conversationListWhere(filter))
+    .orderBy(...orderBy)
     .limit(limit ?? 100)
-    .offset(offset);
-  return query.all().map(parseConversation);
+    .offset(offset)
+    .all()
+    .map(parseConversation);
 }
 
 /**
@@ -447,23 +515,21 @@ export function listConversationsByTitlePrefix(
   }));
 }
 
+/**
+ * How many conversations {@link listConversations} would return for the same
+ * filter, ignoring `limit` / `offset`. Both read through
+ * {@link conversationListWhere}, so a page and its total always describe the
+ * same set.
+ */
 export function countConversations(
-  conversationType: ConversationType = "standard",
-  archiveStatus: ArchiveStatusFilter = "active",
-  originChannel?: string,
+  filter: ConversationListFilter = {},
 ): number {
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = conversationTypeClause(conversationType);
-  const archiveCond = archiveStatusClause(archiveStatus);
-  const channelCond = originChannel
-    ? eq(conversations.originChannel, originChannel)
-    : undefined;
-  const where = and(typeCond, archiveCond ?? undefined, channelCond);
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
-    .where(where)
+    .where(conversationListWhere(filter))
     .all();
   return total;
 }

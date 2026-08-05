@@ -6585,6 +6585,16 @@ paths:
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
+            "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
+            group-scoped request is ordered by the user's arrangement (display order, then recency) and never has pinned
+            rows appended to it. Omit to span every group.
       responses:
         "200":
           description: Successful response
