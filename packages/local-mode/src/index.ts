@@ -71,6 +71,7 @@ export {
   readAllowedGatewayPorts,
   resolveGatewayProxyTarget,
   parsePairedGatewayUrl,
+  pairedGatewayTargetsFromLockfile,
   readPairedGatewayTargets,
   resolvePairedGatewayProxyTarget,
   sanitizePairedForwardHeaders,
