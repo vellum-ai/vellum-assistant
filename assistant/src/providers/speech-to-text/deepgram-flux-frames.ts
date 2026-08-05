@@ -15,7 +15,11 @@
  * from `partial` / `final` exactly as it does with any other provider.
  */
 
-import type { SttStreamServerEvent } from "../../stt/types.js";
+import type {
+  SttErrorCategory,
+  SttStreamServerErrorEvent,
+  SttStreamServerEvent,
+} from "../../stt/types.js";
 import { parseJsonSafe } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import { isPlainObject } from "../../util/object.js";
@@ -30,7 +34,8 @@ const log = getLogger("deepgram-flux-frames");
  * Frame discriminators Deepgram emits on `/v2/listen`.
  *
  * `EagerEndOfTurn` and `TurnResumed` appear only when
- * `eager_eot_threshold` is set on the dialed URL.
+ * `eager_eot_threshold` is set on the dialed URL. `Error` is a fatal frame:
+ * Deepgram terminates the session after sending it.
  */
 export type FluxFrameKind =
   | "Connected"
@@ -39,7 +44,8 @@ export type FluxFrameKind =
   | "Update"
   | "EagerEndOfTurn"
   | "TurnResumed"
-  | "EndOfTurn";
+  | "EndOfTurn"
+  | "Error";
 
 /** A single word within a Flux turn frame, with timings and confidence. */
 export interface FluxWord {
@@ -88,7 +94,28 @@ export interface FluxTurnFrame {
   end_of_turn_confidence?: number;
 }
 
-export type FluxFrame = FluxConnectedFrame | FluxTurnFrame;
+/**
+ * Fatal error frame. Deepgram closes the session immediately after sending
+ * one, so it is the only diagnostic a caller ever gets for a provider-side
+ * failure.
+ */
+export interface FluxErrorFrame {
+  type: "Error";
+  sequence_id?: number;
+  /** Machine-readable identifier, e.g. `"INTERNAL_SERVER_ERROR"`. */
+  code?: string;
+  /** Prose explanation of the failure. */
+  description?: string;
+}
+
+export type FluxFrame = FluxConnectedFrame | FluxTurnFrame | FluxErrorFrame;
+
+/**
+ * A payload that has been confirmed to be an object but whose frame kind is
+ * not yet known: the union of every field any documented frame can carry.
+ */
+type InboundFluxFrame = Partial<FluxTurnFrame> &
+  Partial<Omit<FluxErrorFrame, "type">>;
 
 // ---------------------------------------------------------------------------
 // Frame parsing
@@ -114,6 +141,8 @@ export type FluxFrame = FluxConnectedFrame | FluxTurnFrame;
  * - `EndOfTurn` emits `final` followed by `turn-end`. The `final` comes first
  *   so a consumer that ignores turn events commits the transcript exactly as
  *   it does for a provider without turn detection.
+ * - `Error` emits `error`. This frame is fatal and is the only place the
+ *   provider's own diagnostic appears, so it is surfaced rather than dropped.
  */
 export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
   const frame = coerceFrame(raw);
@@ -146,6 +175,8 @@ export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
         },
       ];
     }
+    case "Error":
+      return [readErrorEvent(frame)];
     default:
       log.debug({ kind }, "Ignoring unrecognized Deepgram Flux frame");
       return [];
@@ -157,17 +188,17 @@ export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
  * one. JSON strings are parsed; anything that is not a plain object (null,
  * arrays, primitives, unparseable text) is rejected.
  */
-function coerceFrame(raw: unknown): Partial<FluxTurnFrame> | null {
+function coerceFrame(raw: unknown): InboundFluxFrame | null {
   const value = typeof raw === "string" ? parseJsonSafe(raw) : raw;
   if (!isPlainObject(value)) {
     log.debug("Dropped a Deepgram Flux payload that is not a frame object");
     return null;
   }
-  return value as Partial<FluxTurnFrame>;
+  return value as InboundFluxFrame;
 }
 
 /** The turn state a frame describes: `event` when present, else `type`. */
-function readFrameKind(frame: Partial<FluxTurnFrame>): string | undefined {
+function readFrameKind(frame: InboundFluxFrame): string | undefined {
   if (typeof frame.event === "string") {
     return frame.event;
   }
@@ -175,8 +206,63 @@ function readFrameKind(frame: Partial<FluxTurnFrame>): string | undefined {
 }
 
 /** Trimmed transcript text, empty when the frame carries none. */
-function readTranscript(frame: Partial<FluxTurnFrame>): string {
+function readTranscript(frame: InboundFluxFrame): string {
   return typeof frame.transcript === "string" ? frame.transcript.trim() : "";
+}
+
+/**
+ * Patterns that map a Flux error onto a normalized {@link SttErrorCategory},
+ * tried in order. Anything unmatched stays `provider-error`.
+ *
+ * Deepgram documents only `INTERNAL_SERVER_ERROR` for Flux itself, so these
+ * match the account-wide error vocabulary
+ * (https://developers.deepgram.com/docs/errors) and mirror how
+ * `DeepgramRealtimeTranscriber` separates auth and rate-limit failures from
+ * everything else.
+ *
+ * The timeout pattern deliberately requires a `_TIMEOUT` suffix at a word
+ * boundary so a configuration complaint about `eot_timeout_ms` is not
+ * mistaken for a transport timeout.
+ */
+const FLUX_ERROR_CATEGORY_PATTERNS: ReadonlyArray<
+  readonly [SttErrorCategory, RegExp]
+> = [
+  [
+    "auth",
+    /INVALID_AUTH|INSUFFICIENT_PERMISSIONS|UNAUTHORIZED|FORBIDDEN|INVALID CREDENTIALS|API KEY/,
+  ],
+  ["rate-limit", /TOO_MANY_REQUESTS|RATE[_ ]LIMIT|QUOTA/],
+  ["timeout", /^TIMEOUT|_TIMEOUT\b|TIMED[_ ]OUT/],
+  [
+    "invalid-audio",
+    /UNPROCESSABLE|CORRUPT|UNSUPPORTED|INVALID[_ ]AUDIO|BAD[_ ]AUDIO/,
+  ],
+];
+
+/**
+ * Turn a fatal `Error` frame into a stream `error` event, preserving the
+ * provider's own `code` and `description` so the diagnostic survives all the
+ * way to the caller. Deepgram closes the socket right after this frame, so
+ * dropping it would leave a bare close as the only signal.
+ */
+function readErrorEvent(frame: InboundFluxFrame): SttStreamServerErrorEvent {
+  const code = typeof frame.code === "string" ? frame.code.trim() : "";
+  const description =
+    typeof frame.description === "string" ? frame.description.trim() : "";
+
+  const haystack = `${code} ${description}`.toUpperCase();
+  const category =
+    FLUX_ERROR_CATEGORY_PATTERNS.find(([, pattern]) =>
+      pattern.test(haystack),
+    )?.[0] ?? "provider-error";
+
+  const detail = description || "no description provided";
+  const message = code
+    ? `Deepgram Flux error (${code}): ${detail}`
+    : `Deepgram Flux error: ${detail}`;
+
+  log.warn({ code, category }, "Deepgram Flux sent a fatal error frame");
+  return { type: "error", category, message };
 }
 
 /** A finite number, or undefined for anything else. */
@@ -204,6 +290,14 @@ export type FluxEncoding =
 
 /** Inclusive bounds Deepgram enforces on `eot_threshold`. */
 const EOT_THRESHOLD_RANGE = { min: 0.5, max: 0.9 } as const;
+
+/**
+ * Deepgram's server-side default for `eot_threshold`, applied when the
+ * parameter is omitted. It is the ceiling `eager_eot_threshold` must respect
+ * in that case, since the validation runs against the threshold actually in
+ * force rather than the one we sent.
+ */
+const DEFAULT_EOT_THRESHOLD = 0.7;
 
 /** Inclusive bounds Deepgram enforces on `eager_eot_threshold`. */
 const EAGER_EOT_THRESHOLD_RANGE = { min: 0.3, max: 0.9 } as const;
@@ -249,6 +343,15 @@ export interface FluxQueryParamOptions {
  * omitting `eager_eot_threshold` is what disables eager turn-end speculation.
  * Thresholds are clamped to the ranges Deepgram accepts so an out-of-range
  * value degrades to the nearest legal one instead of failing the handshake.
+ *
+ * Deepgram additionally rejects a request whose `eager_eot_threshold` exceeds
+ * its `eot_threshold`
+ * (https://developers.deepgram.com/docs/flux/configuration#validation-rules),
+ * so after each threshold is clamped to its own range the eager value is
+ * clamped down again to the EOT threshold in force — the one being sent, or
+ * Deepgram's {@link DEFAULT_EOT_THRESHOLD} when none is. Clamping keeps a
+ * misconfigured pair from failing the whole session; the adjustment is logged
+ * at debug when it fires.
  */
 export function buildFluxQueryParams(opts: FluxQueryParamOptions): string {
   const params = new URLSearchParams();
@@ -267,10 +370,23 @@ export function buildFluxQueryParams(opts: FluxQueryParamOptions): string {
     params.set("eot_threshold", String(eotThreshold));
   }
 
-  const eagerEotThreshold = clamp(
+  let eagerEotThreshold = clamp(
     opts.eagerEotThreshold,
     EAGER_EOT_THRESHOLD_RANGE,
   );
+  const eagerCeiling = eotThreshold ?? DEFAULT_EOT_THRESHOLD;
+  if (eagerEotThreshold !== undefined && eagerEotThreshold > eagerCeiling) {
+    log.debug(
+      {
+        requested: opts.eagerEotThreshold,
+        clampedTo: eagerCeiling,
+        eotThreshold: eagerCeiling,
+        usingDefaultEotThreshold: eotThreshold === undefined,
+      },
+      "Clamped Deepgram Flux eager_eot_threshold down to eot_threshold",
+    );
+    eagerEotThreshold = eagerCeiling;
+  }
   if (eagerEotThreshold !== undefined) {
     params.set("eager_eot_threshold", String(eagerEotThreshold));
   }
