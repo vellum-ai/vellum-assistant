@@ -10,8 +10,10 @@ import {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  decodePairBundle,
   getLockfileData,
   getLocalAssistantStatus,
+  pairAssistant,
   upsertLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
@@ -91,6 +93,9 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
       server.middlewares.use(
         unpairMiddleware(config.lockfilePaths, config.configDir),
+      );
+      server.middlewares.use(
+        connectImportMiddleware(config.lockfilePaths, config.configDir),
       );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
@@ -529,6 +534,76 @@ function unpairMiddleware(
         result.ok ? 200 : result.status,
         result.ok
           ? { ok: true, lockfile: result.lockfile }
+          : { ok: false, error: result.error },
+      );
+    });
+  };
+}
+
+// Bounds what a request can make the dev server buffer and decode.
+const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
+
+function connectImportMiddleware(
+  lockfilePaths: string[],
+  configDir: string,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/connect-import" &&
+      req.url !== "/__local/connect-import"
+    ) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    void readJsonBody(req).then((body) => {
+      if (!body) {
+        respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
+        return;
+      }
+
+      const bundle = body.bundle;
+      const name = body.name;
+      if (typeof bundle !== "string" || !bundle) {
+        respondJson(res, 400, { ok: false, error: "Missing pairing bundle" });
+        return;
+      }
+      if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
+        respondJson(res, 400, {
+          ok: false,
+          error: "Pairing bundle is too large",
+        });
+        return;
+      }
+
+      const decoded = decodePairBundle(bundle.trim());
+      if (!decoded.ok) {
+        respondJson(res, 400, { ok: false, error: decoded.error });
+        return;
+      }
+
+      const result = pairAssistant(lockfilePaths, configDir, {
+        bundle: decoded.bundle,
+        name: typeof name === "string" && name ? name : undefined,
+      });
+      respondJson(
+        res,
+        result.ok ? 200 : result.status,
+        result.ok
+          ? {
+              ok: true,
+              assistantId: result.assistantId,
+              accessOnly: result.accessOnly,
+            }
           : { ok: false, error: result.error },
       );
     });

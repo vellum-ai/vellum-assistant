@@ -34,6 +34,8 @@ import {
   isActiveAssistant,
   runHatch,
   runRetire,
+  decodePairBundle,
+  pairAssistant,
   unpairAssistant,
   getGuardianAccessToken,
   parseGatewayUrl,
@@ -451,6 +453,9 @@ const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
 const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
+const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
+// Bounds what a request can make the local web server buffer and decode.
+const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -507,6 +512,7 @@ async function handleLocalEndpoints(
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
     UNPAIR_PATTERN.test(pathname) ||
+    CONNECT_IMPORT_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
     parseGatewayUrl(pathname).match ||
@@ -715,6 +721,64 @@ async function handleLocalEndpoints(
     const result = unpairAssistant(lockfilePaths, configDir, assistantId);
     if (result.ok) {
       return Response.json({ ok: true, lockfile: result.lockfile });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
+  // Connect-import: register a pairing bundle from another machine (guardian
+  // token + paired lockfile entry), the write counterpart of unpair.
+  if (CONNECT_IMPORT_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let bundle: unknown;
+    let name: unknown;
+    try {
+      const body = (await req.json()) as { bundle?: unknown; name?: unknown };
+      bundle = body.bundle;
+      name = body.name;
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    if (typeof bundle !== "string" || !bundle) {
+      return Response.json(
+        { ok: false, error: "Missing pairing bundle" },
+        { status: 400 },
+      );
+    }
+    if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
+      return Response.json(
+        { ok: false, error: "Pairing bundle is too large" },
+        { status: 400 },
+      );
+    }
+
+    const decoded = decodePairBundle(bundle.trim());
+    if (!decoded.ok) {
+      return Response.json(
+        { ok: false, error: decoded.error },
+        { status: 400 },
+      );
+    }
+
+    const result = pairAssistant(lockfilePaths, configDir, {
+      bundle: decoded.bundle,
+      name: typeof name === "string" && name ? name : undefined,
+    });
+    if (result.ok) {
+      return Response.json({
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      });
     }
     return Response.json(
       { ok: false, error: result.error },

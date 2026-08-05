@@ -4,10 +4,12 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  decodePairBundle,
   getGuardianAccessToken,
   isActiveAssistant,
   getLockfileData,
   getLocalAssistantStatus,
+  pairAssistant,
   replacePlatformAssistants,
   resolveConfigDir,
   resolveEnvironmentName,
@@ -25,6 +27,7 @@ import {
   type UpgradeOptions,
   type WakeOptions,
 } from "@vellumai/local-mode";
+import type { LocalConnectImportResult } from "@vellumai/ipc-contract";
 import { handle } from "./ipc";
 
 import {
@@ -220,6 +223,16 @@ const assistantRecord = z.record(z.string(), z.unknown());
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
 
+// `connectImport` takes a pairing bundle plus an optional local name. Both are
+// optional on the wire (missing values resolve with structured errors, keeping
+// the never-reject contract); the length cap bounds what a hostile renderer
+// can make the main process buffer and decode.
+const connectImportArgs = z.tuple([
+  z.string().optional(),
+  z.string().optional(),
+]);
+const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
+
 // `wake` additionally takes an options object so a user-confirmed repair can
 // pass `repairGuardian` through to the CLI's `--repair-guardian` flag. Both
 // members stay optional so older renderers' single-argument invokes parse.
@@ -324,6 +337,34 @@ export const installLocalMode = (): void => {
       const result = unpairAssistant(lockfilePaths, configDir, assistantId);
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
+        : { ok: false, error: result.error };
+    },
+  );
+
+  handle(
+    "vellum:localMode:connectImport",
+    connectImportArgs,
+    ([bundle, name]): LocalConnectImportResult => {
+      if (!bundle) {
+        return { ok: false, error: "Missing pairing bundle" };
+      }
+      if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
+        return { ok: false, error: "Pairing bundle is too large" };
+      }
+      const decoded = decodePairBundle(bundle.trim());
+      if (!decoded.ok) {
+        return { ok: false, error: decoded.error };
+      }
+      const result = pairAssistant(lockfilePaths, configDir, {
+        bundle: decoded.bundle,
+        name: name || undefined,
+      });
+      return result.ok
+        ? {
+            ok: true,
+            assistantId: result.assistantId,
+            accessOnly: result.accessOnly,
+          }
         : { ok: false, error: result.error };
     },
   );
