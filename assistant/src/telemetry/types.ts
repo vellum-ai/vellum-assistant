@@ -114,6 +114,26 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    * parent conversation.
    */
   parent_turn_index: number | null;
+  /**
+   * Role the subagent that owns this event's conversation was spawned with
+   * (`researcher`, `builder`, `advisor`; a spawn that named no role records
+   * the default, `builder`). An open string set: older rows carry role names
+   * nothing emits any more.
+   * The advisor is a ROLE, not an `LLMCallSiteEnum` value, so this is the only
+   * thing that tells an advisor consult apart from a regular subagent, since both
+   * emit under `llm_call_site = "subagentSpawn"`. Null when the LLM call did
+   * not run inside a subagent conversation.
+   */
+  subagent_role: string | null;
+  /**
+   * How that subagent was spawned, one of the modes described on
+   * `SubagentSpawnMode` in `subagent/types.ts`, carried here as an open string
+   * set. Orthogonal to `subagent_role`: the role selects the child's
+   * capabilities, the spawn mode selects its context inheritance and lifecycle
+   * (a fork's inherited transcript dominates its input tokens regardless of
+   * role). Null under the same condition as `subagent_role`.
+   */
+  subagent_spawn_mode: string | null;
   provider: string;
   model: string;
   input_tokens: number;
@@ -374,6 +394,30 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
    * classification.
    */
   failure_code?: string;
+  /**
+   * Whether this turn was auto-sent on the user's behalf rather than typed by
+   * them: onboarding research prompts, the personality rewrite message,
+   * research corrections, kickoff greetings, the legacy pre-chat bootstrap,
+   * and `[User action on ...]` surface synthetics.
+   *
+   * Tri-state and the states are NOT interchangeable:
+   *   `true`   - auto-sent
+   *   `false`  - a genuine typed user message
+   *   omitted  - UNKNOWN (a row persisted before the marker existed)
+   *
+   * This is the consent-independent replacement for classifying turns by
+   * text-matching their content in `pii_turn_raw` traces. That classifier can
+   * only see owners who cleared the diagnostics gate, while activation cohorts
+   * need only `share_analytics`, so it silently counted scripted turns as real
+   * messages for everyone else (ANT-10). Unlike `trace` below, this field
+   * carries nothing about the turn's CONTENT, only how it was originated,
+   * so it rides the ordinary analytics gate and reaches every owner.
+   *
+   * Downstream excludes `true` and lets omitted fall back to the legacy
+   * classifier; an explicit `false` is TRUSTED. Never synthesize a `false` for
+   * a turn whose origin is genuinely unknown.
+   */
+  scripted?: boolean;
   /**
    * Full per-turn transcript (user message + assistant responses + tool
    * calls/results). Present ONLY when trace collection is enabled — the daemon

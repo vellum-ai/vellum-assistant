@@ -46,8 +46,12 @@ import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   isLocalClient,
   isRemoteGatewayMode,
+  getLockfileAssistant,
   getPlatformAssistants,
   getLocalAssistants,
+  getSelectedAssistant,
+  isPairedAssistant,
+  primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
   syncPlatformAssistantsToLockfile,
@@ -80,6 +84,7 @@ import {
   useOrganizationStore,
 } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
 import { clearLocalPlatformSession } from "@/runtime/local-mode-host";
@@ -151,6 +156,7 @@ interface AuthState {
 interface AuthActions {
   initSession: () => Promise<void>;
   connectLocalAssistant: (assistantId: string) => Promise<void>;
+  connectPairedAssistant: (assistantId: string) => Promise<void>;
   connectPlatformAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
@@ -223,9 +229,9 @@ const sessionEnded = (): Partial<AuthState> => ({
  * non-auth reason (429 rate limiting, 5xx outages, the Electron proxy's
  * offline 502). Distinct from a settled "no session" answer (2xx without
  * user, or an explicit 401/403/410 rejection), which is the only thing
- * allowed to end the session. Callers check the 2xx-without-user case
- * themselves — by the time they consult this, `result.ok` means the user
- * field was missing, a settled negative.
+ * allowed to end the session. Callers handle the 2xx cases themselves;
+ * by the time they consult this, an ok result was already judged unusable
+ * (user missing, or platform-rejected evidence), a settled negative.
  */
 const isInconclusiveProbe = (
   result: Awaited<ReturnType<typeof getSession>> | null,
@@ -568,6 +574,57 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   store.setConsentHydrated(true);
 }
 
+/**
+ * Reconcile the lockfile's managed-assistant mirror and report whether the
+ * platform API conclusively rejected the session (a settled 401/403/410 from
+ * the org or assistants call). Only that settled evidence may end a platform
+ * session; transport failures and other errors prove nothing (LUM-2412) and
+ * leave cached lockfile data standing. Cloud mode loads assistants via
+ * `reloadPlatformAssistants` (platform-assistants-sync), which has no
+ * lockfile and stays outside this evidence rule.
+ */
+async function reconcilePlatformAssistants(
+  syncIsCurrent?: () => boolean,
+  sessionIsCurrent?: () => boolean,
+): Promise<boolean> {
+  try {
+    // `sessionIsCurrent` is the looser gate: it stays true past the probe's
+    // race timeout as long as no newer probe superseded this one, letting a
+    // slow-but-successful org fetch for the still-active session commit
+    // instead of stranding readiness. Destructive writes stay on the strict
+    // `syncIsCurrent`.
+    const orgOutcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(syncIsCurrent, sessionIsCurrent);
+    if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
+      return true;
+    }
+    const apiAssistants = await listAssistants();
+    if (isSettledSessionRejection(apiAssistants)) {
+      // The org fetch self-clears on its own rejection; an assistants-only
+      // rejection must clear the org state too, or the request interceptor
+      // keeps stamping the rejected account's Vellum-Organization-Id. The
+      // currency guard matches the sync below: a timed-out or superseded
+      // probe settled "present" from cached data, and its dangling call must
+      // not strip the org header out from under that session.
+      if (syncIsCurrent?.() ?? true) {
+        useOrganizationStore.getState().clearOrganization();
+      }
+      return true;
+    }
+    if ((syncIsCurrent?.() ?? true) && apiAssistants.ok) {
+      await syncPlatformAssistantsToLockfile(
+        apiAssistants.data,
+        useOrganizationStore.getState().currentOrganizationId ?? undefined,
+        syncIsCurrent,
+      );
+    }
+  } catch {
+    // A throw is non-settled evidence: continue with cached lockfile data.
+  }
+  return false;
+}
+
 // Monotonic id stamped on each platform-session probe. Probes can overlap
 // (an app-resume refresh firing while the initial probe is still in flight),
 // and a stale completion must not mutate session state — most importantly it
@@ -622,55 +679,71 @@ function probePlatformSession(
       }
       if (result.ok && result.data.user) {
         const probedUser = toAuthUser(result.data.user);
-        const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
-        // Adopting the probed user confirms a platform session outside the
-        // `authenticatedPlatformUser` transition — persist here too so the
-        // local-mode path feeds the offline restore (LUM-2412).
-        if (options.setUserOnSuccess) {
-          persistUserSnapshot(probedUser);
-        }
         // Sync platform assistants to the lockfile BEFORE setting
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
         // already reflect synced platform assistants at that point.
         // The whole sequence (org fetch, list, host replace) is bounded
-        // to 3s so a hanging call can't block the probe from settling —
+        // to 3s so a hanging call can't block the probe from settling;
         // the middleware's 5s timeout would loop indefinitely otherwise.
         // The race does not cancel the inner branch, so the guard also
         // checks `timedOut`: once the probe settles without the sync, a
         // late commit must not land after routing decisions were made on
         // the un-synced lockfile. `!isStale()` likewise keeps a
         // superseded probe from committing an out-of-date lockfile.
+        let sessionRejected = false;
         if (isLocalClient()) {
           let timedOut = false;
           const syncIsCurrent = (): boolean => !timedOut && !isStale();
+          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
           try {
             await Promise.race([
               (async () => {
-                await useOrganizationStore.getState().fetchOrganizations();
-                const apiAssistants = await listAssistants();
-                if (syncIsCurrent() && apiAssistants.ok) {
-                  await syncPlatformAssistantsToLockfile(
-                    apiAssistants.data,
-                    useOrganizationStore.getState().currentOrganizationId ??
-                      undefined,
-                    syncIsCurrent,
-                  );
-                }
+                sessionRejected = await reconcilePlatformAssistants(
+                  syncIsCurrent,
+                  () => !isStale(),
+                );
               })(),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => {
+              new Promise<never>((_, reject) => {
+                timeoutHandle = setTimeout(() => {
                   timedOut = true;
                   reject(new Error("sync timeout"));
-                }, 3_000),
-              ),
+                }, 3_000);
+              }),
             ]);
           } catch {
-            // Sync failed or timed out — continue with cached lockfile data
+            // Sync failed or timed out; continue with cached lockfile data
+          } finally {
+            clearTimeout(timeoutHandle);
           }
         }
         if (isStale()) {
           return;
+        }
+        if (sessionRejected) {
+          // The platform API conclusively rejected the allauth-confirmed
+          // credential: settle absent, install no user, and drop the snapshot
+          // so `restoreOfflineSession` cannot resurrect the account. Transport
+          // failures and the race timeout never reach here (LUM-2412).
+          clearUserSnapshot();
+          const demotion = isAuthenticated(
+            useAuthStore.getState().sessionStatus,
+          )
+            ? authenticatedLocalUser()
+            : {};
+          set({
+            ...demotion,
+            platformSession: "absent",
+            platformSessionRestoredOffline: false,
+          });
+          return;
+        }
+        const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
+        // Adopting the probed user confirms a platform session outside the
+        // `authenticatedPlatformUser` transition, so persist here too to feed
+        // the local-mode offline restore (LUM-2412).
+        if (options.setUserOnSuccess) {
+          persistUserSnapshot(probedUser);
         }
         set({
           platformSession: "present",
@@ -751,6 +824,21 @@ function probePlatformSessionIfReachable(
   }
 }
 
+/**
+ * Shared tail of the interactive connect actions, run after the target's
+ * gateway connection is primed: select the assistant, mark the session logged
+ * in, and drive `checkAssistant()` so the active id republishes even when the
+ * selection is unchanged (the selection subscription only fires on a change).
+ */
+async function establishLocalUserSession(
+  set: AuthSet,
+  assistantId: string,
+): Promise<void> {
+  await setSelectedAssistant(assistantId);
+  set(authenticatedLocalUser());
+  await lifecycleService.checkAssistant();
+}
+
 async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
   try {
     if (await refreshRemoteGatewaySession()) {
@@ -807,23 +895,17 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
           result = await getSession();
           if (result.ok && result.data.user) {
             const user = toAuthUser(result.data.user);
-            await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
-            try {
-              await useOrganizationStore.getState().fetchOrganizations();
-              const apiAssistants = await listAssistants();
-              if (apiAssistants.ok) {
-                await syncPlatformAssistantsToLockfile(
-                  apiAssistants.data,
-                  useOrganizationStore.getState().currentOrganizationId ??
-                    undefined,
-                );
-              }
-            } catch {
-              // Sync failed — continue with cached data
+            // The rejection evidence gates the user-scoped sync: a rejected
+            // account's consent and org state must not be (re)installed.
+            const sessionRejected = await reconcilePlatformAssistants();
+            if (!sessionRejected) {
+              await syncUserScopedState(user?.id ?? null);
+              set(authenticatedPlatformUser(user));
+              return;
             }
-            set(authenticatedPlatformUser(user));
-            return;
+            // A settled org/assistants rejection falls through to the
+            // settled-answer handling (login), never the offline restore.
           }
         } catch {
           // Thrown fetch — classified as a transport failure below.
@@ -943,9 +1025,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       (a) => a.assistantId === assistantId,
     );
     await primeLocalGatewayConnectionWithRepair(target);
-    await setSelectedAssistant(assistantId);
-    set(authenticatedLocalUser());
-    await lifecycleService.checkAssistant();
+    await establishLocalUserSession(set, assistantId);
     if (
       isConfirmedPlatformSession(
         get().platformSession,
@@ -957,16 +1037,47 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     probePlatformSessionIfReachable(set);
   },
 
+  /**
+   * Connect to a paired assistant: a remote machine's assistant imported via
+   * `vellum connect import`. Primes the host-authorized proxy connection,
+   * selects the assistant, and marks the session
+   * logged in, mirroring {@link AuthActions.connectLocalAssistant} with two
+   * deliberate differences: it primes through the plain
+   * `primeLocalGatewayConnection` because `wake` cannot start or repair an
+   * assistant on a remote machine, and it skips
+   * `bootstrapLocalAssistantPlatformIdentity` because that registers a LOCAL
+   * assistant with the platform while a paired entry is only a client-side
+   * pairing record.
+   */
+  connectPairedAssistant: async (assistantId: string) => {
+    const target = getLockfileAssistant(assistantId);
+    if (!target || !isPairedAssistant(target)) {
+      throw new Error("Not a paired assistant");
+    }
+    await primeLocalGatewayConnection(target);
+    await establishLocalUserSession(set, assistantId);
+    probePlatformSessionIfReachable(set);
+  },
+
   connectPlatformAssistant: async (assistantId: string) => {
-    await setSelectedAssistant(assistantId);
     const result = await getSession();
     if (!result.ok || !result.data.user) {
       throw new Error("Platform authentication required");
     }
     const user = toAuthUser(result.data.user);
+    // Hydrate the organizations to avoid race conditions from lazy fetch; a
+    // settled rejection fails the connect before the assistant selection and
+    // user-scoped sync below, so a caller that catches the error keeps its
+    // current selection and consent state rather than the rejected
+    // account's.
+    const orgOutcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations();
+    if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
+      throw new Error("Platform authentication required");
+    }
+    await setSelectedAssistant(assistantId);
     await syncUserScopedState(user?.id ?? null);
-    // Hydrate the organizations to avoid race conditions from lazy fetch.
-    await useOrganizationStore.getState().fetchOrganizations();
     set(authenticatedPlatformUser(user));
   },
 
@@ -982,7 +1093,16 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthMode()) {
       try {
-        await ensureGatewayToken(getLocalTokenUrl());
+        const selected = getSelectedAssistant();
+        if (selected && isPairedAssistant(selected)) {
+          // A paired selection uses its host-authorized proxy and has no
+          // renderer gateway token. `getLocalTokenUrl()` is undefined for it,
+          // so `ensureGatewayToken` would target the SPA origin's unrelated
+          // `/auth/token` route.
+          await primeLocalGatewayConnection(selected);
+        } else {
+          await ensureGatewayToken(getLocalTokenUrl());
+        }
         set({ sessionStatus: "authenticated" });
       } catch {
         set(sessionEnded());
@@ -997,30 +1117,24 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        await syncUserScopedState(user?.id ?? null);
-        // Reconcile the lockfile mirror on refresh too — not just cold
-        // `initSession`. App resume, profile save, and the provider callback
-        // all route through here; without this the macOS tray and CLI keep a
-        // stale managed-assistant list until the next full boot. Best-effort
-        // and local-mode only (platform mode has no lockfile host); the
-        // refresh has already succeeded regardless of the sync outcome.
-        if (isLocalClient()) {
-          try {
-            await useOrganizationStore.getState().fetchOrganizations();
-            const apiAssistants = await listAssistants();
-            if (apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(
-                apiAssistants.data,
-                useOrganizationStore.getState().currentOrganizationId ??
-                  undefined,
-              );
-            }
-          } catch {
-            // Sync failed — continue with cached lockfile data.
-          }
+        // Reconcile the lockfile mirror on refresh too, not just cold
+        // `initSession`: app resume, profile save, and the provider callback
+        // all route through here, and the macOS tray and CLI would otherwise
+        // keep a stale managed-assistant list until the next full boot.
+        // Local-mode only (platform mode has no lockfile host). The rejection
+        // evidence gates the user-scoped sync: a rejected account's consent
+        // and org state must not be (re)installed before the demotion below.
+        const sessionRejected = isLocalClient()
+          ? await reconcilePlatformAssistants()
+          : false;
+        if (!sessionRejected) {
+          await syncUserScopedState(user?.id ?? null);
+          set(authenticatedPlatformUser(user));
+          return true;
         }
-        set(authenticatedPlatformUser(user));
-        return true;
+        // A settled org/assistants rejection is a rejected session even
+        // though allauth answered 200: fall through to the settled-rejection
+        // handling below, same as a settled getSession 401.
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
@@ -1034,20 +1148,30 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return isAuthenticated(get().sessionStatus);
     }
     // A settled "no platform session" (401) ends the platform session, not the
-    // local gateway session. When the gateway is the auth source, demote an
-    // authenticated session to the local user and mark the platform session
-    // absent — dropping the now-stale platform user and offline snapshot so
-    // platform-gated surfaces stop treating it as signed in — while keeping
-    // `sessionStatus` "authenticated"; a 401 must not log a local-only user out.
-    // (The successful probe above still adopts the platform user, so provider
-    // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
-    // hatch — is left for the gateway to settle once its token mints.
+    // local one. Demote an authenticated session to the local user and mark the
+    // platform session absent, dropping the stale platform user and offline
+    // snapshot so platform-gated surfaces stop treating it as signed in, while
+    // keeping `sessionStatus` "authenticated": a 401 must not log a local-only
+    // user out. (The successful probe above still adopts the platform user, so
+    // provider sign-in keeps working.) An unauthenticated session, e.g. mid
+    // cold-start hatch, is left for the gateway to settle once its token mints.
     //
     // Holding `sessionStatus` "authenticated" is load-bearing: in-app consumers
     // read `useIsAuthenticated()` directly to scope the QueryClient cache and
     // gate signed-in UI, so ending the session would drop them into the
     // anonymous cache scope and hide that UI.
-    if (isGatewayAuthEnabled()) {
+    //
+    // The predicate asks whether the local session can stand on its own,
+    // mirroring how `initSession` branches: a local gateway answers for itself,
+    // and so does a client with no platform assistant to reach. A local client
+    // whose assistants are platform-hosted is excluded, since a managed
+    // assistant is unreachable without a platform session and routing to login
+    // beats stranding the user beside one that cannot answer. Remote-gateway
+    // mode returns at the top of this action.
+    const localSessionStandsAlone =
+      isLocalClient() &&
+      (isGatewayAuthEnabled() || getPlatformAssistants().length === 0);
+    if (localSessionStandsAlone) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {
         clearUserSnapshot();
@@ -1071,6 +1195,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // not-authenticated branch is the safety net for token-expiry-style
       // flips.
       lifecycleService.resetForLogout();
+      setSelfHostedConnection(null);
       await setSelectedAssistant(null);
       clearGatewayToken();
       clearOrganization();

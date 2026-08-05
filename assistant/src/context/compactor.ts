@@ -18,6 +18,7 @@
  * On any parse or resolution failure we abort the compaction and return
  * `compacted: false` — never silently lose messages.
  */
+import { repairHistory } from "../agent/history-repair/history-repair.js";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -864,10 +865,10 @@ function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
 // Retained-image hydration
 // ---------------------------------------------------------------------------
 
-function buildRetainedImageBlocks(
+async function buildRetainedImageBlocks(
   filenames: string[],
   manifest: ManifestEntry[],
-): { blocks: ImageContent[]; resolved: string[]; missing: string[] } {
+): Promise<{ blocks: ImageContent[]; resolved: string[]; missing: string[] }> {
   const blocks: ImageContent[] = [];
   const resolved: string[] = [];
   const missing: string[] = [];
@@ -886,7 +887,7 @@ function buildRetainedImageBlocks(
     // Run the same downscale pass the agent uses when first sending an
     // image. Without this, attachments that exceed the provider's per-image
     // byte limit (Anthropic: 5 MB) crash the next turn after compaction.
-    const optimized = optimizeImageForTransport(
+    const optimized = await optimizeImageForTransport(
       content.toString("base64"),
       sourceMime,
     );
@@ -1056,9 +1057,14 @@ function extractTextFromResponse(content: ContentBlock[]): string {
 
 // Build the outbound message list for a compaction provider call: apply the
 // same pre-send sanitization bundle as the agent loop's model calls
-// (`preModelCallSanitize` — old tool-result media stripped, AX trees
-// collapsed, historical web-search results converted to text), then append
-// the summarization instruction at the tail.
+// (`preModelCallSanitize`: old tool-result media stripped, AX trees
+// collapsed, historical web-search results converted to text), run the
+// deterministic history repair over the sanitized projection, then append
+// the summarization instruction at the tail. The repair pass downgrades any
+// orphaned `tool_result` (its `tool_use` outside the request, e.g. cut off
+// by front truncation) to plain text and merges consecutive same-role runs,
+// so the request always satisfies the provider's pairing validation. A
+// well-formed history passes through repair structurally unchanged.
 //
 // Matching the loop's projection matters for two reasons. First, the summary
 // call's prefix stays byte-aligned with the agent's warm prompt cache — an
@@ -1076,7 +1082,10 @@ function buildCompactionRequest(
   history: Message[],
   instruction: Message,
 ): Message[] {
-  return [...preModelCallSanitize(history), instruction];
+  return [
+    ...repairHistory(preModelCallSanitize(history)).messages,
+    instruction,
+  ];
 }
 
 // Token headroom a compaction summary call reserves on top of its history: room
@@ -1128,6 +1137,34 @@ function truncateHistoryToBudget(args: {
   }
   if (dropCount === 0) {
     return messages;
+  }
+  // Advance the cut to a pair-safe boundary. The budget loop stops wherever
+  // the estimate first fits, which can land between an assistant `tool_use`
+  // and its user `tool_result` and leave an orphaned `tool_result` opening
+  // the retained portion (rejected by providers that validate pairing).
+  // Walk forward to the next clean user boundary, never dropping the final
+  // message (mirroring the budget loop's own bound). When no boundary exists
+  // the requested cut stands; the request-build repair pass downgrades any
+  // orphaned results so the outbound call remains valid.
+  const requestedDropCount = dropCount;
+  if (!isForwardCutBoundary(messages, dropCount)) {
+    for (let i = dropCount + 1; i < messages.length; i++) {
+      if (isForwardCutBoundary(messages, i)) {
+        dropCount = i;
+        break;
+      }
+    }
+  }
+  if (dropCount !== requestedDropCount) {
+    log.info(
+      {
+        requestedDropCount,
+        pairSafeDropCount: dropCount,
+        budgetTokens,
+        totalMessages: messages.length,
+      },
+      "Advanced compaction summary-call front truncation to a pair-safe boundary",
+    );
   }
   log.info(
     { dropCount, budgetTokens, totalMessages: messages.length },
@@ -1356,7 +1393,7 @@ export async function runAssistantDrivenCompaction(
     blocks: retainedImageBlocks,
     resolved,
     missing,
-  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
+  } = await buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
   if (missing.length > 0) {
     log.warn(
       { missing },

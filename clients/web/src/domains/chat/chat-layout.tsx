@@ -40,9 +40,10 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
-  DRAWER_SLIDE_MS,
-  useEdgeSwipeDrawer,
-} from "@/hooks/use-edge-swipe-drawer";
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
+import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
@@ -94,6 +95,10 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import {
+  ArchiveAllConfirmDialog,
+  useArchiveAllConfirmation,
+} from "./components/archive-all-confirm-dialog";
 import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
 
@@ -194,10 +199,12 @@ export function ChatLayout({
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const { conversations } = useConversationListQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  // `isLoading` (first fetch actually in flight), not `isPending`: the query
+  // is gated on `isAssistantActive`, and a gated query is pending without
+  // fetching, which would leave the sidebar under placeholders for as long as
+  // the assistant took to come up (or forever, if it never did).
+  const { conversations, isLoading: isLoadingConversations } =
+    useConversationListQuery(assistantId, isAssistantActive);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     isAssistantActive,
@@ -223,11 +230,11 @@ export function ChatLayout({
       conversationGroups,
     });
 
-  // Mirror the unread count + signed-in flag into the Electron Dock
-  // (no-op off Electron). Uses the conversation list this layout
-  // already subscribes to, so there's no extra query — see
+  // Mirror the unread count into the Electron Dock (no-op off Electron).
+  // Prefers the server-side unread count, falling back to counting the
+  // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
-  useElectronDockSync(conversations);
+  useElectronDockSync(assistantId, conversations, isAssistantActive);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their
@@ -578,6 +585,19 @@ export function ChatLayout({
     prePinGroupIdsRef,
   });
 
+  // The sidebar's "Archive All…" routes through this confirmation gate; the
+  // ArchiveAllConfirmDialog mounted below (with the other sidebar dialogs)
+  // runs the archive on confirm (LUM-3036).
+  const {
+    pending: pendingArchiveAll,
+    requestArchiveAll,
+    confirmArchiveAll,
+    cancelArchiveAll,
+  } = useArchiveAllConfirmation({
+    assistantId,
+    archiveAllInGroup: handleArchiveAllInGroup,
+  });
+
   // The move-to-group menu's "New group…" item and the group actions menu's
   // "Rename" open the shared NameInputDialog through the request store; the
   // GroupNameDialogFromStore connector (mounted below) performs the
@@ -807,15 +827,9 @@ export function ChatLayout({
   // mutate the viewer store with no surface to display against. Navigate
   // to a chat route first when off-chat, then run the shared open flow.
   //
-  // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
-  // shared with the transcript / assets-pill open path.
-  const openAppFromChat = useOpenAppFromChat({
-    // When the user is off a chat route (home, library, identity, …), do
-    // not bind the stale `activeConversationId` as the editing target —
-    // the store value persists across route changes for SSE / attention
-    // consumers and doesn't reflect the user's current intent (LUM-2691).
-    bindConversation: isConversationChatPath(location.pathname),
-  });
+  // See `use-open-app-from-chat.ts` for the full-width loadApp flow shared
+  // with the transcript / assets-pill open path.
+  const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
@@ -869,6 +883,7 @@ export function ChatLayout({
       width={args.width}
       onWidthChange={args.onWidthChange}
       conversations={conversations}
+      isLoadingConversations={isLoadingConversations}
       conversationGroups={conversationGroups}
       activeConversationId={sidebarActiveConversationId}
       processingConversationIds={processingConversationIds}
@@ -890,7 +905,7 @@ export function ChatLayout({
       onRenameGroup={handleRequestRenameGroup}
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
-      onArchiveAllInGroup={handleArchiveAllInGroup}
+      onArchiveAllInGroup={requestArchiveAll}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       onMoveToGroup={handleMoveToGroup}
@@ -1036,7 +1051,7 @@ export function ChatLayout({
               style={{
                 zIndex: 40,
                 transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-                transition: `transform ${DRAWER_SLIDE_MS}ms ease-out`,
+                transition: `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
               }}
               role="dialog"
               aria-modal="true"
@@ -1147,6 +1162,11 @@ export function ChatLayout({
       <OnboardingAvatarApplier />
 
       <RenameDialogFromStore assistantId={assistantId} />
+      <ArchiveAllConfirmDialog
+        pending={pendingArchiveAll}
+        onConfirm={confirmArchiveAll}
+        onCancel={cancelArchiveAll}
+      />
       <GroupNameDialogFromStore
         createGroup={createGroup}
         renameGroup={renameGroup}

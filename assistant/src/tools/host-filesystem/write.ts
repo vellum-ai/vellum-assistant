@@ -24,7 +24,12 @@ import type {
  * non-string (or empty) value means "untargeted".
  */
 export const hostFileWriteInputSchema = z.looseObject({
-  path: z.string().min(1).describe("Absolute host path to the file to write"),
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "Absolute path on the guardian's device, which is a separate filesystem from your workspace, to write.",
+    ),
   content: z.string().describe("The content to write to the file"),
   target_client_id: z
     .string()
@@ -131,7 +136,10 @@ export const hostFileWriteTool = {
 
     const ops = new FileSystemOps(hostPolicy);
 
-    const result = ops.writeFileSafe({ path: rawPath, content: fileContent });
+    const result = await ops.writeFileSafe({
+      path: rawPath,
+      content: fileContent,
+    });
 
     if (!result.ok) {
       const { error } = result;

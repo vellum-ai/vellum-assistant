@@ -3,17 +3,18 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { availableParallelism, cpus, totalmem } from "node:os";
+import { totalmem } from "node:os";
 
 import { z } from "zod";
 
-import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getDbMigrationReadiness } from "../../daemon/daemon-readiness.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxRollbackVersion } from "../../persistence/migrations/run-migrations.js";
 import { migrationSteps } from "../../persistence/steps.js";
 import { getCesClient } from "../../security/secure-keys.js";
+import { getContainerCpuCores } from "../../util/cgroup-cpu.js";
 import {
   getContainerMemoryLimitBytes,
   getContainerMemoryUsageBytes,
@@ -90,97 +91,6 @@ function sampleTotalMemBytes(): number {
 interface CpuInfo {
   currentPercent: number;
   maxCores: number;
-}
-
-/**
- * Parse a Kubernetes-style CPU string (e.g. "2000m", "1", "500m") into
- * fractional cores. Returns null if the value is not a recognized format.
- */
-function parseK8sCpuCores(value: string): number | null {
-  const trimmed = value.trim();
-  const milliMatch = trimmed.match(/^(\d+)m$/);
-  if (milliMatch) {
-    const millis = parseInt(milliMatch[1], 10);
-    return millis > 0 ? millis / 1000 : null;
-  }
-  if (/^\d+(\.\d+)?$/.test(trimmed)) {
-    const num = parseFloat(trimmed);
-    return !isNaN(num) && num > 0 ? num : null;
-  }
-  return null;
-}
-
-/**
- * Read the container's CPU core limit.
- *
- * Resolution order:
- * 1. VELLUM_CPU_LIMIT env var (K8s resource format, e.g. "2000m" or "2").
- *    In platform mode the container runs under gVisor where cgroup files may
- *    report the node's CPU count rather than the sandbox limit.
- * 2. cgroups v2 cpu.max (quota / period → fractional cores).
- * 3. cgroups v1 cpu.cfs_quota_us / cpu.cfs_period_us.
- * 4. os.cpus().length as last resort.
- */
-function getContainerCpuCores(): number {
-  // 1. Prefer the explicit env var set by the platform StatefulSet template.
-  try {
-    const envLimit = getCpuLimit();
-    if (envLimit) {
-      const parsed = parseK8sCpuCores(envLimit);
-      if (parsed !== null) {
-        return parsed;
-      }
-    }
-  } catch {
-    /* env var parsing failed – fall through */
-  }
-
-  // 2. Try cgroups v2: /sys/fs/cgroup/cpu.max contains "$MAX $PERIOD".
-  try {
-    const raw = readFileSync("/sys/fs/cgroup/cpu.max", "utf-8").trim();
-    if (!raw.startsWith("max")) {
-      const parts = raw.split(/\s+/);
-      const quota = parseInt(parts[0], 10);
-      const period = parseInt(parts[1], 10);
-      if (!isNaN(quota) && !isNaN(period) && period > 0 && quota > 0) {
-        const cores = quota / period;
-        // Sanity check: if the value looks like the node's full CPU count
-        // and we're on a platform pod, it's likely gVisor leaking the host value.
-        if (cores < cpus().length * 0.9 || !getIsPlatform()) {
-          return cores;
-        }
-      }
-    }
-  } catch {
-    /* not available */
-  }
-
-  // 3. Try cgroups v1.
-  try {
-    const quota = parseInt(
-      readFileSync("/sys/fs/cgroup/cpu/cpu.cfs_quota_us", "utf-8").trim(),
-      10,
-    );
-    const period = parseInt(
-      readFileSync("/sys/fs/cgroup/cpu/cpu.cfs_period_us", "utf-8").trim(),
-      10,
-    );
-    if (!isNaN(quota) && !isNaN(period) && period > 0 && quota > 0) {
-      const cores = quota / period;
-      if (cores < cpus().length * 0.9 || !getIsPlatform()) {
-        return cores;
-      }
-    }
-  } catch {
-    /* not available */
-  }
-
-  // 4. Fall back to the visible CPU count; 0 when even that syscall fails.
-  try {
-    return cpus().length || availableParallelism();
-  } catch {
-    return 0;
-  }
 }
 
 /**
@@ -320,15 +230,15 @@ export function handleHealth(): Response {
 }
 
 /** Disk usage for the health payload; null when it can't be measured. */
-function sampleDiskUsageInfo(): ReturnType<typeof getDiskUsageInfo> {
+async function sampleDiskUsageInfo(): ReturnType<typeof getDiskUsageInfo> {
   try {
-    return getDiskUsageInfo();
+    return await getDiskUsageInfo();
   } catch {
     return null;
   }
 }
 
-function getDetailedHealth() {
+async function getDetailedHealth() {
   let profiler: ReturnType<typeof getProfilerRuntimeStatus> | undefined;
   try {
     profiler = getProfilerRuntimeStatus();
@@ -350,7 +260,7 @@ function getDetailedHealth() {
     status: "healthy",
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
-    disk: sampleDiskUsageInfo(),
+    disk: await sampleDiskUsageInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
     migrations: {
@@ -370,8 +280,8 @@ function getDetailedHealth() {
   };
 }
 
-export function handleDetailedHealth(): Response {
-  return Response.json(getDetailedHealth());
+export async function handleDetailedHealth(): Promise<Response> {
+  return Response.json(await getDetailedHealth());
 }
 
 type UnreadyDbMigrationReadiness = Extract<

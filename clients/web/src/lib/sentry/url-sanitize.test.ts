@@ -36,7 +36,7 @@ describe("sanitizeUrl", () => {
     );
   });
 
-  it("scrubs OAuth deep-link codes on custom schemes (iOS Capacitor)", () => {
+  it("scrubs OAuth deep-link codes on custom schemes (native mobile)", () => {
     expect(
       sanitizeUrl(
         "vellum-assistant://oauth-complete?oauth_code=xyz&oauth_provider=google",

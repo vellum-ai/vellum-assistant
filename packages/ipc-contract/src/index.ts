@@ -13,6 +13,7 @@ export * from "./types";
 export * from "./schemas";
 export {
   type ElectronHostOS,
+  type LocalConnectImportResult,
   type LocalUpgradeOptions,
   type LocalWakeOptions,
   type VellumBridge,

@@ -157,10 +157,15 @@ export function activationStepIndex(stepName: ActivationStepName): number {
  * `funnel_version` so the id stays stable across a version bump — otherwise
  * queued/offline v1 rows would be keyed with the new binary's version and
  * stop collapsing with already-ingested v1 rows from the same session.
+ *
+ * `stepName` is a plain string rather than an `ActivationStepName`: every
+ * funnel riding the onboarding substrate shares this keying (the live-voice
+ * session funnel is the other one today), and the dedup property depends only
+ * on the triple being stable per row, not on which funnel produced it.
  */
 export function buildActivationDaemonEventId(
   sessionId: string,
-  stepName: ActivationStepName,
+  stepName: string,
   funnelVersion: string = ACTIVATION_FUNNEL_VERSION,
 ): string {
   return `${funnelVersion}:${sessionId}:${stepName}`;

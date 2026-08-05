@@ -8,6 +8,7 @@ import {
   formatTimestamp,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
@@ -16,8 +17,8 @@ function inlineUsage(usage: ScheduleRowUsage) {
   if (usage.status === "loading") {
     return (
       <>
-        <span className="h-4 w-12 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <span className="h-4 w-10 animate-pulse rounded bg-[var(--surface-muted)]" />
+        <Skeleton as="span" className="h-4 w-12" />
+        <Skeleton as="span" className="h-4 w-10" />
       </>
     );
   }

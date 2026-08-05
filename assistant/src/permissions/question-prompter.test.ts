@@ -200,6 +200,8 @@ describe("QuestionPrompter", () => {
 
     const result = await promise;
     expect(result).toEqual({
+      requestId: req.requestId,
+      questions: req.questions,
       entries: [{ questionId: "q1", decision: "option", optionId: "a" }],
       overall: "completed",
     });
@@ -255,6 +257,8 @@ describe("QuestionPrompter", () => {
 
     const result = await promise;
     expect(result).toEqual({
+      requestId: req.requestId,
+      questions: req.questions,
       entries: [{ questionId: "q1", decision: "free_text", text: "Cherry" }],
       overall: "completed",
     });

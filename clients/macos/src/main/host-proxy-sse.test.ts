@@ -165,6 +165,83 @@ describe("HostProxySseClient", () => {
     expect(client.isConnected).toBe(false);
   });
 
+  // -- Connected notifications --------------------------------------------
+
+  test("onConnected fires when the stream goes live, not when connect is called", async () => {
+    const { stream } = controllableStream();
+    let connectedCount = 0;
+
+    client = new HostProxySseClient({
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
+      fetch: mockFetch(stream),
+      onConnected: () => {
+        connectedCount++;
+      },
+    });
+
+    client.connect();
+    // connect() only starts the fetch, so nothing is subscribed yet.
+    expect(connectedCount).toBe(0);
+    expect(client.isConnected).toBe(false);
+
+    await flush(50);
+
+    expect(connectedCount).toBe(1);
+    expect(client.isConnected).toBe(true);
+  });
+
+  test("onConnected fires again on every reconnect", async () => {
+    const connectedStates: boolean[] = [];
+    let fetchCount = 0;
+
+    const fakeFetch: typeof globalThis.fetch = (async () => {
+      fetchCount++;
+      return new Response(sseStream([`data: {"type":"n${fetchCount}"}\n\n`]), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    client = new HostProxySseClient({
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
+      fetch: fakeFetch,
+      onConnected: () => {
+        connectedStates.push(client.isConnected);
+      },
+    });
+    client.connect();
+
+    // Each stream closes as soon as it is drained, so the client redials.
+    await flush(1_500);
+
+    expect(connectedStates.length).toBeGreaterThanOrEqual(2);
+    // The stream is live whenever the callback runs, so a subscriber can act
+    // on it straight away.
+    expect(connectedStates.every((connected) => connected)).toBe(true);
+  });
+
+  test("a throwing onConnected does not take the stream down", async () => {
+    const messages: HostProxySseMessage[] = [];
+    const body = sseStream(['data: {"type":"ping"}\n\n']);
+
+    client = new HostProxySseClient({
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
+      fetch: mockFetch(body),
+      onConnected: () => {
+        throw new Error("subscriber blew up");
+      },
+    });
+    client.setMessageCallback((m) => messages.push(m));
+    client.connect();
+
+    await flush(50);
+
+    expect(messages.map((m) => m.type)).toEqual(["ping"]);
+  });
+
   // -- Reconnection on error ---------------------------------------------
 
   test("reconnects with backoff on fetch failure", async () => {
@@ -224,6 +301,46 @@ describe("HostProxySseClient", () => {
 
     expect(fetchCount).toBeGreaterThanOrEqual(2);
     expect(messages.some((m) => m.type === "ok")).toBe(true);
+  });
+
+  test("disconnect during a slow token refresh stops the pending reconnect", async () => {
+    let fetchCount = 0;
+    const fakeFetch: typeof globalThis.fetch = (async () => {
+      fetchCount++;
+      // Every attempt fails, driving the client into the reconnect path
+      throw new Error("network error");
+    }) as unknown as typeof globalThis.fetch;
+
+    let refreshStarted = false;
+    let resolveRefresh: (token: string | null) => void = () => {};
+    const onRefreshToken = (): Promise<string | null> => {
+      refreshStarted = true;
+      return new Promise((r) => {
+        resolveRefresh = r;
+      });
+    };
+
+    client = new HostProxySseClient({
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
+      authHeaders: () => ({ Authorization: "Bearer tok" }),
+      fetch: fakeFetch,
+      onRefreshToken,
+    });
+    client.connect();
+
+    // First attempt fails immediately; the reconnect timer fires after ~1s
+    // and blocks awaiting the slow token refresh.
+    await flush(1_200);
+    expect(fetchCount).toBe(1);
+    expect(refreshStarted).toBe(true);
+
+    // Disconnect while the refresh is still in flight, then let it complete.
+    client.disconnect();
+    resolveRefresh("fresh-token");
+    await flush(200);
+
+    // The stale client must not dial the old eventsUrl again.
+    expect(fetchCount).toBe(1);
   });
 
   // -- Idle watchdog ------------------------------------------------------

@@ -1,7 +1,9 @@
 /**
- * Tests for how the research runner opens its side conversation: the prompt is
- * posted hidden (see `lib/side-conversation-message.ts`), and a resumed run
- * re-posts only when the turn never started.
+ * Tests for how the research runner opens its side conversation: it is minted
+ * `background` so it never enters the foreground list, the prompt is posted
+ * hidden (see `lib/side-conversation-message.ts`), and a resumed run re-posts
+ * only when the turn never started. It also covers the archive that cleans the
+ * thread up on every exit path, including one that never reaches the poll loop.
  *
  * Hidden rows are filtered out of `/messages`, so "did the prompt land?" reads
  * the turn's own state (still processing, or rows already produced) instead of
@@ -25,27 +27,52 @@ interface PostCall {
   body: { conversationId: string; hidden?: boolean };
 }
 
+interface CreateCall {
+  path: { assistant_id: string };
+  body: { conversationType?: string; title?: string };
+}
+
+interface ArchiveCall {
+  path: { assistant_id: string; id: string };
+}
+
 let postCalls: PostCall[] = [];
+let createCalls: CreateCall[] = [];
+let archiveCalls: ArchiveCall[] = [];
 let getCalls = 0;
 let listed: { processing?: boolean; messages: unknown[] } = { messages: [] };
+/** When set, the prompt POST fails, so the run gives up before the poll loop. */
+let failMessagePost = false;
 
 const ok = <T>(data: T) =>
   Promise.resolve({ data, error: undefined, response: { ok: true } });
+const notOk = () =>
+  Promise.resolve({
+    data: undefined,
+    error: undefined,
+    response: { ok: false },
+  });
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
   pluginsSearchGet: () => ok({ matches: [] }),
   pluginsInstallPost: () => ok({}),
   telemetryIngestPost: () => ok({}),
-  conversationsPost: () => ok({ id: "conv-fresh" }),
-  conversationsByIdArchivePost: () => ok({}),
+  conversationsPost: (opts: CreateCall) => {
+    createCalls.push(opts);
+    return ok({ id: "conv-fresh" });
+  },
+  conversationsByIdArchivePost: (opts: ArchiveCall) => {
+    archiveCalls.push(opts);
+    return ok({});
+  },
   messagesGet: () => {
     getCalls += 1;
     return ok(listed);
   },
   messagesPost: (opts: PostCall) => {
     postCalls.push(opts);
-    return ok({});
+    return failMessagePost ? notOk() : ok({});
   },
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
@@ -71,8 +98,11 @@ function renderRunner() {
 
 afterEach(() => {
   postCalls = [];
+  createCalls = [];
+  archiveCalls = [];
   getCalls = 0;
   listed = { messages: [] };
+  failMessagePost = false;
 });
 
 /**
@@ -87,6 +117,31 @@ async function whenResumeDecided(): Promise<void> {
 }
 
 describe("research prompt send", () => {
+  test("mints the side conversation as background", async () => {
+    // The regression this guards: a `standard` row is visible until the
+    // end-of-run archive wins the race, so the user can land on a thread whose
+    // only rendered content is an assistant intro.
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+        conversationTitle: "Getting to know Alice",
+      });
+    });
+
+    await waitFor(() => {
+      expect(createCalls).toHaveLength(1);
+    });
+    expect(createCalls[0]?.body.conversationType).toBe("background");
+    expect(createCalls[0]?.body.title).toBe("Getting to know Alice");
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+
   test("posts the prompt as a hidden machine signal", async () => {
     const { result } = renderRunner();
 
@@ -169,6 +224,32 @@ describe("research prompt send", () => {
 
     await whenResumeDecided();
     expect(postCalls).toHaveLength(0);
+
+    act(() => {
+      result.current.reset();
+    });
+  });
+});
+
+describe("research conversation archive", () => {
+  test("archives the side conversation when the prompt fails to post", async () => {
+    // A failed prompt POST abandons the run before the poll loop, with the
+    // conversation already minted. The archive is unconditional, so the
+    // throwaway thread is cleaned up on this exit path like any other.
+    failMessagePost = true;
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.start({
+        awaitAssistantId: async () => "ast-1",
+        subject,
+      });
+    });
+
+    await waitFor(() => {
+      expect(archiveCalls).toHaveLength(1);
+    });
+    expect(archiveCalls[0]?.path.id).toBe("conv-fresh");
 
     act(() => {
       result.current.reset();

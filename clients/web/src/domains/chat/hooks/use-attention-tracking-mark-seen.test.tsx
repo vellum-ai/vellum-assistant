@@ -11,6 +11,8 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import * as conversationCache from "@/utils/conversation-cache";
+import * as cacheMutations from "@/utils/conversation-cache-mutations";
 import { useConversationStore } from "@/stores/conversation-store";
 import { __resetForTesting } from "@/lib/event-bus";
 
@@ -38,7 +40,11 @@ mock.module("@/hooks/conversation-queries", () => ({
   useArchivedConversationListQuery: () => ({ conversations: [] }),
 }));
 
+// Spread the real modules and override only what this suite drives:
+// `mock.module` is process-global, so an enumerated stand-in silently
+// breaks every other importer the moment the real module gains an export.
 mock.module("@/utils/conversation-cache-mutations", () => ({
+  ...cacheMutations,
   markConversationSeenLocal: () => {},
   refreshConversationRow: async () => {},
   prependConversation: () => {},
@@ -47,6 +53,7 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
 }));
 
 mock.module("@/utils/conversation-cache", () => ({
+  ...conversationCache,
   getConversations: () => conversationsImpl,
   findConversation: () => undefined,
 }));
@@ -73,8 +80,9 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
-const { useAttentionTracking } =
-  await import("@/domains/chat/hooks/use-attention-tracking");
+const { useAttentionTracking } = await import(
+  "@/domains/chat/hooks/use-attention-tracking"
+);
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({

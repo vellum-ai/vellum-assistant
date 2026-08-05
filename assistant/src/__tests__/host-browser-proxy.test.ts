@@ -867,7 +867,7 @@ describe("HostBrowserProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("Submitting actor does not match");
+      expect(result.content).toContain("signed in as a different user");
       expect(getPublishedMessages()).toHaveLength(0);
     });
 
@@ -1054,7 +1054,7 @@ describe("HostBrowserProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("Submitting actor does not match");
+      expect(result.content).toContain("signed in as a different user");
       expect(result.content).not.toContain("extension_required");
       expect(getPublishedMessages()).toHaveLength(0);
     });

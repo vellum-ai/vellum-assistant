@@ -51,7 +51,7 @@ async function addImageMessage(
       skipIndexing: true,
     },
   );
-  attachInlineAttachmentToMessage(
+  await attachInlineAttachmentToMessage(
     inserted.id,
     0,
     filename,

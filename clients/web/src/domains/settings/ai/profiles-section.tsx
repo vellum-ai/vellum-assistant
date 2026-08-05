@@ -31,6 +31,14 @@ interface ProfilesSectionProps {
 }
 
 /**
+ * `useProfileActions` toasts (and, where warranted, reports) every failure
+ * before rethrowing so the delete flow can react. The fire-and-forget kebab
+ * actions have nothing left to do with the rejection, so they settle it here
+ * instead of leaving an unhandled one on the microtask queue.
+ */
+function alreadyReported(): void {}
+
+/**
  * The inline Profiles list of the V2 Language Model card (Figma
  * 7412:133358). Rows open the profile sidepanel; the kebab menu carries
  * Make Default / Enable / Disable / Delete.
@@ -100,9 +108,13 @@ export function ProfilesSection({
               selected={profile.name === selectedProfileName}
               connections={connections}
               onOpen={() => onOpenProfile(profile.name)}
-              onMakeActive={() => void actions.makeActive(profile.name)}
+              onMakeActive={() =>
+                void actions.makeActive(profile.name).catch(alreadyReported)
+              }
               onSetStatus={(active) =>
-                void actions.setStatus(profile.name, active)
+                void actions
+                  .setStatus(profile.name, active)
+                  .catch(alreadyReported)
               }
               onDelete={() => deleteFlow.requestDelete(profile.name)}
             />

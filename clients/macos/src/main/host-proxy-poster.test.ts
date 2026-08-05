@@ -45,15 +45,18 @@ interface CapturedRequest {
   rawBody: Buffer | null;
 }
 
+/** Status may be a list: one entry per call, with the last entry repeating. */
 function createMockFetch(
-  status = 200,
+  status: number | number[] = 200,
   responseBody: unknown = { accepted: true },
 ) {
+  const statuses = Array.isArray(status) ? status : [status];
   const captured: CapturedRequest[] = [];
   const fetchFn = async (
     input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
+    const callStatus = statuses[Math.min(captured.length, statuses.length - 1)];
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
     const headers: Record<string, string> = {};
@@ -83,19 +86,22 @@ function createMockFetch(
         ? responseBody
         : JSON.stringify(responseBody);
     return new Response(resBody, {
-      status,
+      status: callStatus,
       headers: { "Content-Type": "application/json" },
     });
   };
   return { fetchFn: fetchFn as typeof globalThis.fetch, captured };
 }
 
-function createBinaryMockFetch(status: number, data: Buffer) {
+/** Status may be a list: one entry per call, with the last entry repeating. */
+function createBinaryMockFetch(status: number | number[], data: Buffer) {
+  const statuses = Array.isArray(status) ? status : [status];
   const captured: CapturedRequest[] = [];
   const fetchFn = async (
     input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
+    const callStatus = statuses[Math.min(captured.length, statuses.length - 1)];
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
     const headers: Record<string, string> = {};
@@ -107,7 +113,7 @@ function createBinaryMockFetch(status: number, data: Buffer) {
     }
     captured.push({ url, method, headers, body: null, rawBody: null });
     return new Response(data, {
-      status,
+      status: callStatus,
       headers: { "Content-Type": "application/octet-stream" },
     });
   };
@@ -297,6 +303,97 @@ describe("HostProxyPoster", () => {
     });
   });
 
+  describe("postPresence", () => {
+    test("sends correct URL, method, headers, and body", async () => {
+      const { fetchFn, captured } = createMockFetch(200, { recorded: true });
+      const poster = makeLocalPoster(fetchFn);
+
+      const result = await poster.postPresence({ state: "active" });
+
+      expect(result).toBe(true);
+      expect(captured).toHaveLength(1);
+
+      const req = captured[0];
+      expect(req.url).toBe("http://127.0.0.1:9000/v1/clients/presence");
+      expect(req.method).toBe("POST");
+      expect(req.headers["Content-Type"]).toBe("application/json");
+      expect(req.headers["X-Vellum-Client-Id"]).toBe(FAKE_DEVICE_ID);
+
+      const body = JSON.parse(req.body!);
+      expect(body.state).toBe("active");
+    });
+
+    test("returns false without throwing when the daemon lacks the route", async () => {
+      const { fetchFn } = createMockFetch(404);
+      const poster = makeLocalPoster(fetchFn);
+
+      const result = await poster.postPresence({ state: "idle" });
+
+      expect(result).toBe(false);
+    });
+
+    test("returns false when fetch throws", async () => {
+      const throwingFetch = (async () => {
+        throw new Error("network failure");
+      }) as unknown as typeof globalThis.fetch;
+      const poster = makeLocalPoster(throwingFetch);
+
+      const result = await poster.postPresence({ state: "away" });
+
+      expect(result).toBe(false);
+    });
+
+    test("treats an accepted but unrecorded report as a failure", async () => {
+      // The daemon answers 200 with recorded false when it discarded the
+      // report. Scoring that as success is the silent death of the feature:
+      // every post accepted, nothing recorded, nothing logged.
+      const { fetchFn } = createMockFetch(200, { recorded: false });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+
+    test("returns false when the response omits recorded", async () => {
+      const { fetchFn } = createMockFetch(200, { accepted: true });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+
+    test("returns false without throwing on a malformed body", async () => {
+      const { fetchFn } = createMockFetch(200, "<html>not json</html>");
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+
+    test("returns false when the body is a bare JSON null", async () => {
+      const { fetchFn } = createMockFetch(200, null);
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+    });
+  });
+
+  describe("result posts ignore the response body", () => {
+    // The presence body parse must not have leaked into the generic path:
+    // every other endpoint still scores purely on the status.
+    test("a 2xx with an unrelated body still counts as success", async () => {
+      const { fetchFn } = createMockFetch(200, { recorded: false });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postBashResult({ requestId: "r1" })).toBe(true);
+      expect(await poster.postFileResult({ requestId: "f1" })).toBe(true);
+    });
+
+    test("a 2xx with a malformed body still counts as success", async () => {
+      const { fetchFn } = createMockFetch(200, "<html>not json</html>");
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postBashResult({ requestId: "r1" })).toBe(true);
+    });
+  });
+
   describe("pullTransferContent", () => {
     test("returns buffer on success", async () => {
       const payload = Buffer.from("file-bytes-here");
@@ -430,6 +527,223 @@ describe("HostProxyPoster", () => {
       );
 
       expect(result).toBe(false);
+    });
+  });
+
+  // -- 401 refresh --------------------------------------------------------
+
+  describe("401 refresh", () => {
+    function makeRefreshingPoster(
+      fetchFn: typeof globalThis.fetch,
+      refresh: () => Promise<string | null>,
+    ) {
+      let token = "stale-token";
+      const poster = new HostProxyPoster({
+        endpointBase: "http://127.0.0.1:9000/v1",
+        authHeaders: () => ({ Authorization: `Bearer ${token}` }),
+        refreshAuth: async () => {
+          const fresh = await refresh();
+          if (fresh) {
+            token = fresh;
+          }
+          return fresh;
+        },
+        fetch: fetchFn,
+      });
+      return poster;
+    }
+
+    test("refreshes and retries once with the new bearer on 401", async () => {
+      const { fetchFn, captured } = createMockFetch([401, 200]);
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const result = await poster.postBashResult({ requestId: "r1", stdout: "" });
+
+      expect(result).toBe(true);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+      expect(captured[0].headers["Authorization"]).toBe("Bearer stale-token");
+      expect(captured[1].headers["Authorization"]).toBe("Bearer fresh-token");
+      expect(captured[1].body).toBe(captured[0].body);
+    });
+
+    test("returns false without retrying when refresh fails", async () => {
+      const { fetchFn, captured } = createMockFetch([401]);
+      const refresh = mock(async () => null);
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const result = await poster.postBashResult({ requestId: "r2", stdout: "" });
+
+      expect(result).toBe(false);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(1);
+    });
+
+    test("returns false without retrying when refresh throws", async () => {
+      const { fetchFn, captured } = createMockFetch([401]);
+      const poster = makeRefreshingPoster(fetchFn, async () => {
+        throw new Error("refresh failed");
+      });
+
+      const result = await poster.postBashResult({ requestId: "r3", stdout: "" });
+
+      expect(result).toBe(false);
+      expect(captured).toHaveLength(1);
+    });
+
+    test("returns false after a second 401 without looping", async () => {
+      const { fetchFn, captured } = createMockFetch([401, 401]);
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const result = await poster.postBashResult({ requestId: "r4", stdout: "" });
+
+      expect(result).toBe(false);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+    });
+
+    test("401 without a refresh callback fails with a single request", async () => {
+      const { fetchFn, captured } = createMockFetch([401]);
+      const poster = makeLocalPoster(fetchFn);
+
+      const result = await poster.postBashResult({ requestId: "r5", stdout: "" });
+
+      expect(result).toBe(false);
+      expect(captured).toHaveLength(1);
+    });
+
+    // Presence reads the response body, so it takes a different path through
+    // the poster than the result POSTs. It has to end up with the same refresh
+    // behaviour: a 401 the retry would have cleared must not read as "the
+    // daemon has no record of this desktop".
+    test("presence refreshes and retries once, scoring the retry's body", async () => {
+      const { fetchFn, captured } = createMockFetch([401, 200], {
+        recorded: true,
+      });
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const result = await poster.postPresence({ state: "active" });
+
+      expect(result).toBe(true);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+      expect(captured[0].headers["Authorization"]).toBe("Bearer stale-token");
+      expect(captured[1].headers["Authorization"]).toBe("Bearer fresh-token");
+      expect(JSON.parse(captured[1].body!).state).toBe("active");
+    });
+
+    test("presence stays false when the retry is accepted but unrecorded", async () => {
+      const { fetchFn, captured } = createMockFetch([401, 200], {
+        recorded: false,
+      });
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+      expect(captured).toHaveLength(2);
+    });
+
+    test("presence 401 without a refresh callback fails with a single request", async () => {
+      const { fetchFn, captured } = createMockFetch([401], { recorded: true });
+      const poster = makeLocalPoster(fetchFn);
+
+      expect(await poster.postPresence({ state: "active" })).toBe(false);
+      expect(captured).toHaveLength(1);
+    });
+
+    test("transfer GET refreshes and retries once with the new bearer on 401", async () => {
+      const { fetchFn, captured } = createBinaryMockFetch(
+        [401, 200],
+        Buffer.from("file-bytes"),
+      );
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const buf = await poster.pullTransferContent("xfer-refresh");
+
+      expect(buf).not.toBeNull();
+      expect(buf!.toString()).toBe("file-bytes");
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+      expect(captured[0].headers["Authorization"]).toBe("Bearer stale-token");
+      expect(captured[1].headers["Authorization"]).toBe("Bearer fresh-token");
+      expect(captured[1].url).toBe(captured[0].url);
+    });
+
+    test("transfer GET fails after a second 401 without looping", async () => {
+      const { fetchFn, captured } = createBinaryMockFetch(
+        [401, 401],
+        Buffer.alloc(0),
+      );
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const buf = await poster.pullTransferContent("xfer-401");
+
+      expect(buf).toBeNull();
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+    });
+
+    test("transfer GET 401 without a refresh callback fails with a single request", async () => {
+      const { fetchFn, captured } = createBinaryMockFetch(401, Buffer.alloc(0));
+      const poster = makeLocalPoster(fetchFn);
+
+      const buf = await poster.pullTransferContent("xfer-norefresh");
+
+      expect(buf).toBeNull();
+      expect(captured).toHaveLength(1);
+    });
+
+    test("transfer PUT refreshes and retries once with the new bearer on 401", async () => {
+      const { fetchFn, captured } = createMockFetch([401, 200]);
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+      const data = Buffer.from("binary-payload");
+
+      const result = await poster.pushTransferContent("xfer-put", data, "sha");
+
+      expect(result).toBe(true);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+      expect(captured[0].headers["Authorization"]).toBe("Bearer stale-token");
+      expect(captured[1].headers["Authorization"]).toBe("Bearer fresh-token");
+      // The Buffer body is replayed unchanged with its integrity header.
+      expect(captured[1].rawBody).toEqual(data);
+      expect(captured[1].headers["X-Transfer-SHA256"]).toBe("sha");
+    });
+
+    test("transfer PUT fails after a second 401 without looping", async () => {
+      const { fetchFn, captured } = createMockFetch([401, 401]);
+      const refresh = mock(async () => "fresh-token");
+      const poster = makeRefreshingPoster(fetchFn, refresh);
+
+      const result = await poster.pushTransferContent(
+        "xfer-put-401",
+        Buffer.from("x"),
+        "sha",
+      );
+
+      expect(result).toBe(false);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(2);
+    });
+
+    test("transfer PUT 401 without a refresh callback fails with a single request", async () => {
+      const { fetchFn, captured } = createMockFetch([401]);
+      const poster = makeLocalPoster(fetchFn);
+
+      const result = await poster.pushTransferContent(
+        "xfer-put-norefresh",
+        Buffer.from("x"),
+        "sha",
+      );
+
+      expect(result).toBe(false);
+      expect(captured).toHaveLength(1);
     });
   });
 

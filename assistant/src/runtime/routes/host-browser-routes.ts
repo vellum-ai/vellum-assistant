@@ -11,6 +11,7 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { clearPinnedTabByTabId } from "../../tools/browser/pinned-tabs.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -137,6 +138,7 @@ export async function resolveHostBrowserResultByRequestId(
         targetActorPrincipalId: peeked.targetActorPrincipalId,
         targetClientId: peeked.targetClientId,
         op: "host_browser",
+        hubForMissingTarget: assistantEventHub,
       });
     } catch (err) {
       // enforceSameActorOrThrow throws ForbiddenError on rejection.

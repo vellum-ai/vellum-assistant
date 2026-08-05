@@ -123,10 +123,11 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   // Endpoint decisions gate live-voice turn-end latency, and `cost-optimized`'s
   // upstream cannot fit any usable decision budget (~1s+ per forced tool call).
-  // `latency-optimized` is the internal latency-class profile (see
+  // `latency-optimized` is the latency-class profile (see
   // default-profile-catalog.ts): managed installs get the pinned latency model,
   // BYOK installs resolve their own provider's latency model through the intent
-  // table rather than a model id they may hold no credential for.
+  // table rather than a model id they may hold no credential for. The profile
+  // is user-facing ("Speed"), so a user edit to it moves this call site too.
   voiceFrontDecision: {
     profile: "latency-optimized",
     effort: "low",

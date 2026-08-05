@@ -4,6 +4,7 @@ import path from "node:path";
 import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 
+import { getInstallLocation } from "./install-location";
 import { onSettingChange, writeSetting } from "./settings";
 
 declare const __VELLUM_BUILD_SHA__: string;
@@ -55,6 +56,11 @@ function applyTags(): void {
   Sentry.setTag("arch", process.arch);
   Sentry.setTag("electron", process.versions.electron ?? "unknown");
   Sentry.setTag("packaged", String(app.isPackaged));
+  // Consent (and therefore init) arrives from the renderer well after the
+  // relocation runs at the head of `whenReady`, so the outcome is settled by
+  // the time this reads it. It names which branch left a packaged app outside
+  // /Applications, where the updater refuses to run.
+  Sentry.setTag("install_location", getInstallLocation());
 }
 
 let cachedOptions: Sentry.ElectronMainOptions | null = null;

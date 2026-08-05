@@ -277,6 +277,14 @@ export function renderGroupMenuItemsAsPanelItems({
 export interface GroupActionsMenuProps extends GroupMenuItemsProps {
   /** Group name, used for the trigger's accessible label. */
   label: string;
+  /**
+   * Extra content appended below the shared items, its own divider before it
+   * (only when the shared items are non-empty). Currently used only by the
+   * "Conversations" header, for the List/Groups view-mode toggle: a section
+   * property rather than a bulk action, so it doesn't belong in
+   * {@link GroupMenuItemsProps}.
+   */
+  footer?: ReactNode;
 }
 
 /**
@@ -286,20 +294,29 @@ export interface GroupActionsMenuProps extends GroupMenuItemsProps {
  */
 export function GroupActionsMenu({
   label,
+  footer,
   ...menuProps
 }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const closeMenu = () => setOpen(false);
+  const hasItems = hasAnyGroupMenuAction(menuProps);
 
-  if (!hasAnyGroupMenuAction(menuProps)) {
+  if (!hasItems && !footer) {
     return null;
   }
 
-  const items = renderGroupMenuItemsAsPanelItems({
-    ...menuProps,
-    onClose: closeMenu,
-  });
+  const items = (
+    <>
+      {renderGroupMenuItemsAsPanelItems({ ...menuProps, onClose: closeMenu })}
+      {footer ? (
+        <>
+          {hasItems ? <PanelMenuDivider /> : null}
+          {footer}
+        </>
+      ) : null}
+    </>
+  );
 
   const trigger = (
     <button
@@ -307,9 +324,9 @@ export function GroupActionsMenu({
       aria-label={`${label} actions`}
       aria-haspopup="menu"
       onClick={(event) => event.stopPropagation()}
-      className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
+      className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)] max-md:h-[30px] max-md:w-[30px]"
     >
-      <MoreHorizontal size={14} aria-hidden />
+      <MoreHorizontal size={14} aria-hidden className="max-md:h-[21px] max-md:w-[21px]" />
     </button>
   );
 
@@ -336,6 +353,20 @@ export function GroupActionsMenu({
         sideOffset={4}
         className="w-48 rounded-lg py-2 px-0"
         onClick={(event) => event.stopPropagation()}
+        // The footer's "Group by" Select portals its menu outside this
+        // popover and moves focus into it; a non-modal popover reads that
+        // as focus leaving and would dismiss, unmounting the select
+        // mid-interaction. Scoped to the select portal so tabbing to any
+        // other control still dismisses normally, as do outside clicks.
+        onFocusOutside={(event) => {
+          const target = event.detail.originalEvent.target;
+          if (
+            target instanceof Element &&
+            target.closest('[data-slot="select-menu"]')
+          ) {
+            event.preventDefault();
+          }
+        }}
       >
         <div className="px-2">{items}</div>
       </Popover.Content>

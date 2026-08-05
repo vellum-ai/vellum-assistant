@@ -6,7 +6,6 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { FeedItemSchema } from "../../api/responses/home.js";
-import { bufferIfDeferred } from "../../notifications/deferred-emit.js";
 import { editNotification } from "../../notifications/edit-notification.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { listEvents } from "../../notifications/events-store.js";
@@ -72,7 +71,6 @@ const EmitSignalParams = z.object({
   conversationAffinityHint: z.record(z.string(), z.string()).optional(),
   dedupeKey: z.string().optional(),
   throwOnError: z.boolean().optional(),
-  originatingConversationId: z.string().optional(),
 });
 
 const EmitSignalResponse = z.object({
@@ -90,18 +88,6 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
     );
   }
   const validated = parsed.data;
-  const buffered = bufferIfDeferred(
-    validated.originatingConversationId,
-    validated,
-  );
-  if (buffered) {
-    return {
-      signalId: buffered.signalId,
-      dispatched: buffered.dispatched,
-      deduplicated: buffered.deduplicated,
-      reason: buffered.reason,
-    };
-  }
   const result = await emitNotificationSignal(validated);
   return {
     signalId: result.signalId,
@@ -116,7 +102,10 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
 const EditNotificationParams = z
   .object({
     id: z.string().min(1).describe("Feed item id (notif:<uuid>) or bare uuid"),
-    title: z.string().optional(),
+    title: z
+      .string()
+      .optional()
+      .describe("New title. An empty value is ignored, never cleared."),
     body: z.string().optional(),
     urgency: UrgencySchema.optional(),
     status: z.enum(["new", "seen", "acted_on", "dismissed"]).optional(),

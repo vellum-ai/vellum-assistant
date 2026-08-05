@@ -1,10 +1,10 @@
 /**
  * Package boundary tests for @vellumai/environments.
  *
- * This package is the lowest layer of the shared-packages hierarchy: pure
- * environment types and constants with no runtime dependencies. It must
- * stay a leaf so any consumer (CLI, assistant, local-mode host) can depend
- * on it without dragging in a dependency tree.
+ * This package is the lowest layer of the shared-packages hierarchy:
+ * environment types, constants, and small helpers over node builtins, with no
+ * runtime dependencies. It must stay a leaf so any consumer (CLI, assistant,
+ * local-mode host) can depend on it without dragging in a dependency tree.
  *
  * Enforces that the package:
  * 1. Imports only node builtins and its own relative modules — no `@vellumai/*`
@@ -79,7 +79,7 @@ describe("package boundary", () => {
       throw new Error(
         `Found ${violations.length} forbidden import(s) in @vellumai/environments:\n` +
           violations.map((v) => `  - ${v}`).join("\n") +
-          "\n\n@vellumai/environments is a pure types/constants leaf and must\n" +
+          "\n\n@vellumai/environments is a dependency-free leaf and must\n" +
           "import only node builtins and its own relative modules.",
       );
     }

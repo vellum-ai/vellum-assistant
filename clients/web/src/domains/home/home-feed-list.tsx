@@ -153,7 +153,7 @@ export function HomeFeedList({
               {TIME_GROUP_LABELS[group]}
             </Typography>
 
-            <div className="flex flex-col gap-[var(--app-spacing-xs)]">
+            <div className="flex flex-col gap-[var(--app-spacing-sm)]">
               {groupItems.map((item) => (
                 <HomeRecapRow
                   key={item.id}
@@ -188,7 +188,7 @@ export function HomeFeedList({
               <span>Earlier ({archivedRead.length})</span>
             </Collapsible.Trigger>
             <Collapsible.Content>
-              <div className="flex flex-col gap-[var(--app-spacing-xs)] pt-[var(--app-spacing-sm)]">
+              <div className="flex flex-col gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]">
                 {archivedRead.map((item) => (
                   <HomeRecapRow
                     key={item.id}
@@ -224,7 +224,7 @@ export function HomeFeedList({
               <span>Dismissed ({dismissed.length})</span>
             </Collapsible.Trigger>
             <Collapsible.Content>
-              <div className="flex flex-col gap-[var(--app-spacing-xs)] pt-[var(--app-spacing-sm)]">
+              <div className="flex flex-col gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]">
                 {dismissed.map((item) => (
                   <HomeRecapRow
                     key={item.id}

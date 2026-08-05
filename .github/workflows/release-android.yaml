@@ -83,6 +83,30 @@ jobs:
           VELLUM_ENVIRONMENT: ${{ inputs.environment }}
         run: bun run android:sync
 
+      - name: Restore optional Firebase configuration
+        env:
+          ANDROID_FIREBASE_CONFIG_B64: ${{ secrets.ANDROID_FIREBASE_CONFIG_B64 }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_PACKAGE_ID: ${{ steps.config.outputs.package_id }}
+        run: |
+          if [ -z "$ANDROID_FIREBASE_CONFIG_B64" ]; then
+            echo "::warning::ANDROID_FIREBASE_CONFIG_B64 is not configured for $ENVIRONMENT; native Android push will be unavailable in this AAB"
+            exit 0
+          fi
+
+          umask 077
+          if ! printf '%s' "$ANDROID_FIREBASE_CONFIG_B64" \
+            | base64 --decode > clients/android/app/google-services.json; then
+            echo "::error::ANDROID_FIREBASE_CONFIG_B64 is not valid base64"
+            exit 1
+          fi
+          if ! jq -e --arg package_id "$EXPECTED_PACKAGE_ID" \
+            'any(.client[]?; .client_info.android_client_info.package_name == $package_id)' \
+            clients/android/app/google-services.json >/dev/null 2>&1; then
+            echo "::error::Firebase configuration does not contain $EXPECTED_PACKAGE_ID"
+            exit 1
+          fi
+
       - name: Restore upload key
         env:
           ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
@@ -113,13 +137,25 @@ jobs:
           path: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
           if-no-files-found: error
 
-      # Play publishing is manual: download the signed .aab artifact above and
-      # upload it to the internal track for steps.config.outputs.package_id.
-      # Automating it requires a Play publisher action permitted by the org
-      # Actions allowlist — a disallowed `uses:` makes this whole reusable
-      # workflow invalid, and every caller then fails at startup regardless of
-      # the `if:` gate on the call site.
+      - name: Publish to Google Play internal track
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab)
+          if [ "${#bundles[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one signed Android App Bundle, found ${#bundles[@]}"
+            exit 1
+          fi
 
-      - name: Remove signing material
+          bun clients/web/scripts/publish-android-play.ts \
+            --bundle "${bundles[0]}" \
+            --package-id "${{ steps.config.outputs.package_id }}" \
+            --release-name "${{ steps.config.outputs.version_name }}"
+
+      - name: Remove sensitive build material
         if: ${{ always() }}
-        run: rm -f /tmp/vellum-android-upload.jks
+        run: |
+          rm -f /tmp/vellum-android-upload.jks
+          rm -f clients/android/app/google-services.json

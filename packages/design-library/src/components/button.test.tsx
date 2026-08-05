@@ -42,35 +42,74 @@ describe("Button rendering", () => {
     expect(html).not.toContain("<button");
   });
 
-  test("asChild + leftIcon clones the slotted element with the icon as a sibling of its children", () => {
-    // Regression: previously the icon branch rendered children as a Fragment,
-    // which made Radix Slot try to forward `type` onto React.Fragment and
-    // hard-error on React 19. The fix wraps `children` in `<Slottable>` so
-    // Slot clones the caller's element and re-parents the icon as a sibling
-    // of the element's original children.
+  test("asChild + leftIcon styles the slotted anchor and nests the icon inside it", () => {
+    // Radix Slot locates its Slottable via `Children.toArray(...).find`,
+    // which does not descend into Fragments: a Fragment wrapped around the
+    // icon and `<Slottable>` makes Slot clone the Fragment instead, silently
+    // dropping every button prop (className, style, type) and emitting a
+    // bare icon <span> next to an unstyled <a>. Presence checks alone pass
+    // against that broken output, so these assertions pin the invariant
+    // (LUM-1680): the anchor is the root, it carries the button classes,
+    // and the icon lives inside it.
     const html = renderToStaticMarkup(
       <Button asChild leftIcon={<svg data-testid="left-icon" aria-hidden />}>
         <a href="/back">Back</a>
       </Button>,
     );
-    expect(html).toContain("<a");
+    expect(html.startsWith("<a")).toBe(true);
     expect(html).toContain('href="/back"');
     expect(html).not.toContain("<button");
-    expect(html).toContain('data-testid="left-icon"');
-    expect(html).toContain("Back");
+    // The anchor root carries the button chrome and typography classes.
+    expect(html).toMatch(/^<a[^>]*class="[^"]*inline-flex[^"]*"/);
+    expect(html).toMatch(/^<a[^>]*class="[^"]*text-body-medium-default[^"]*"/);
+    // The icon is re-parented inside the anchor, before its original children.
+    expect(html.indexOf('data-testid="left-icon"')).toBeGreaterThan(
+      html.indexOf("<a"),
+    );
+    expect(html.indexOf('data-testid="left-icon"')).toBeLessThan(
+      html.indexOf("</a>"),
+    );
+    expect(html.indexOf('data-testid="left-icon"')).toBeLessThan(
+      html.indexOf("Back"),
+    );
   });
 
-  test("asChild + rightIcon also clones and re-parents the icon", () => {
+  test("asChild + rightIcon also styles the anchor and nests the icon inside it", () => {
     const html = renderToStaticMarkup(
       <Button asChild rightIcon={<svg data-testid="right-icon" aria-hidden />}>
         <a href="/next">Next</a>
       </Button>,
     );
-    expect(html).toContain("<a");
+    expect(html.startsWith("<a")).toBe(true);
     expect(html).toContain('href="/next"');
     expect(html).not.toContain("<button");
-    expect(html).toContain('data-testid="right-icon"');
-    expect(html).toContain("Next");
+    expect(html).toMatch(/^<a[^>]*class="[^"]*inline-flex[^"]*"/);
+    // The icon is re-parented inside the anchor, after its original children.
+    expect(html.indexOf('data-testid="right-icon"')).toBeLessThan(
+      html.indexOf("</a>"),
+    );
+    expect(html.indexOf('data-testid="right-icon"')).toBeGreaterThan(
+      html.indexOf("Next"),
+    );
+  });
+
+  test("asChild + leftIcon + className merges the caller's class onto the anchor", () => {
+    // ChannelSourceLinkPill's exact shape: ghost + active + rounded-full on
+    // an external link. The caller's className must land on the anchor
+    // alongside the variant classes, not be dropped with the rest.
+    const html = renderToStaticMarkup(
+      <Button
+        asChild
+        variant="ghost"
+        active
+        leftIcon={<svg aria-hidden />}
+        className="rounded-full"
+      >
+        <a href="/slack">Open in Slack</a>
+      </Button>,
+    );
+    expect(html).toMatch(/^<a[^>]*class="[^"]*rounded-full[^"]*"/);
+    expect(html).toMatch(/^<a[^>]*class="[^"]*bg-\[var\(--surface-lift\)\]/);
   });
 
   test("iconOnly ignores children and leftIcon/rightIcon", () => {

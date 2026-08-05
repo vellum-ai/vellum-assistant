@@ -181,6 +181,46 @@ describe("Connection CRUD", () => {
     expect(fetched?.auth.type).toBe("api_key");
   });
 
+  test("updateConnection: provider correction rides an auth rewrite", () => {
+    // The ChatGPT sign-in flow stamps provider "openai" when it writes
+    // subscription auth, so a claiming row with another provider cannot
+    // strand the fresh token behind derived platform auth.
+    const { db } = setupDb();
+    createConnection(db, {
+      name: "chatgpt-subscription",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    const result = updateConnection(db, "chatgpt-subscription", {
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+      provider: "openai",
+    });
+    expect(result.ok).toBe(true);
+    const fetched = getConnection(db, "chatgpt-subscription");
+    expect(fetched?.provider).toBe("openai");
+    expect(fetched?.auth.type).toBe("oauth_subscription");
+  });
+
+  test("updateConnection: rejects an unknown provider", () => {
+    const { db } = setupDb();
+    createConnection(db, {
+      name: "updatable-provider",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    const result = updateConnection(db, "updatable-provider", {
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+      provider: "not-a-provider",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("invalid_provider");
+    }
+  });
+
   test("updateConnection — rejects unknown name", () => {
     const { db } = setupDb();
     const result = updateConnection(db, "ghost", { auth: { type: "none" } });

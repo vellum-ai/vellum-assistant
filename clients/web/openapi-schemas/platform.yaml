@@ -4152,6 +4152,27 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/managed-speech/tts/voices/:
+    get:
+      operationId: managed_speech_tts_voices_retrieve
+      description: List the voices offered by Vellum's managed text-to-speech, in
+        display order, with the platform's default voice. Only voices that are currently
+        priced (and therefore usable via the synthesize endpoint) are returned.
+      tags:
+      - managed-speech
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechTTSVoicesResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/:
     get:
       operationId: organizations_list
@@ -4599,6 +4620,7 @@ paths:
       - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
@@ -4652,6 +4674,7 @@ paths:
       security:
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
@@ -5903,6 +5926,28 @@ components:
       - id
       - is_read
       - read_at
+    AndroidDevicePushTokenUpsertPlatformEnum:
+      enum:
+      - android
+      type: string
+      description: '* `android` - android'
+    AndroidDevicePushTokenUpsertRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+        platform:
+          $ref: '#/components/schemas/AndroidDevicePushTokenUpsertPlatformEnum'
+        bundle_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+      required:
+      - bundle_id
+      - platform
+      - token
     ApnsEnvironmentEnum:
       enum:
       - production
@@ -6548,6 +6593,7 @@ components:
       enum:
       - macos
       - ios
+      - android
       - web
       - cli
       - electron
@@ -6555,6 +6601,7 @@ components:
       description: |-
         * `macos` - macOS
         * `ios` - iOS
+        * `android` - Android
         * `web` - Web
         * `cli` - CLI
         * `electron` - Electron
@@ -6834,37 +6881,37 @@ components:
           type: string
           maxLength: 512
         platform:
-          $ref: '#/components/schemas/PlatformEnum'
+          $ref: '#/components/schemas/DevicePushTokenUpsertPlatformEnum'
         bundle_id:
           type: string
           maxLength: 128
         apns_environment:
-          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ApnsEnvironmentEnum'
+          - $ref: '#/components/schemas/NullEnum'
       required:
       - apns_environment
       - bundle_id
       - platform
       - token
+    DevicePushTokenUpsertPlatformEnum:
+      enum:
+      - ios
+      - android
+      type: string
+      description: |-
+        * `ios` - ios
+        * `android` - android
     DevicePushTokenUpsertRequest:
-      type: object
-      properties:
-        token:
-          type: string
-          minLength: 1
-          maxLength: 512
-        platform:
-          $ref: '#/components/schemas/PlatformEnum'
-        bundle_id:
-          type: string
-          minLength: 1
-          maxLength: 128
-        apns_environment:
-          $ref: '#/components/schemas/ApnsEnvironmentEnum'
-      required:
-      - apns_environment
-      - bundle_id
-      - platform
-      - token
+      oneOf:
+      - $ref: '#/components/schemas/IosDevicePushTokenUpsertRequest'
+      - $ref: '#/components/schemas/AndroidDevicePushTokenUpsertRequest'
+      discriminator:
+        propertyName: platform
+        mapping:
+          ios: '#/components/schemas/IosDevicePushTokenUpsertRequest'
+          android: '#/components/schemas/AndroidDevicePushTokenUpsertRequest'
     DoctorMessage:
       type: object
       description: Serializer for a single persisted Doctor message ledger entry.
@@ -7519,6 +7566,31 @@ components:
       required:
       - has_more
       - invoices
+    IosDevicePushTokenUpsertPlatformEnum:
+      enum:
+      - ios
+      type: string
+      description: '* `ios` - ios'
+    IosDevicePushTokenUpsertRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+        platform:
+          $ref: '#/components/schemas/IosDevicePushTokenUpsertPlatformEnum'
+        bundle_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        apns_environment:
+          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+      required:
+      - apns_environment
+      - bundle_id
+      - platform
+      - token
     LiveActivityTokenUpsert:
       type: object
       description: |-
@@ -7529,6 +7601,11 @@ components:
         deliberately not allowed to invent wording of its own (see the model).
         Validating it here makes that a 400 at registration rather than a silently
         dropped push mid-session.
+
+        ``accent_hex`` and ``muted`` ride along for a related reason: they are
+        ``ContentState`` fields only the client can observe, and every push replaces
+        that state wholesale. The client re-registers when either changes, so the
+        newest registration is always what a dispatch composes from.
       properties:
         token:
           type: string
@@ -7542,6 +7619,11 @@ components:
           type: string
           maxLength: 64
         labels: {}
+        accent_hex:
+          type: string
+          maxLength: 9
+        muted:
+          type: boolean
       required:
       - apns_environment
       - bundle_id
@@ -7557,6 +7639,11 @@ components:
         deliberately not allowed to invent wording of its own (see the model).
         Validating it here makes that a 400 at registration rather than a silently
         dropped push mid-session.
+
+        ``accent_hex`` and ``muted`` ride along for a related reason: they are
+        ``ContentState`` fields only the client can observe, and every push replaces
+        that state wholesale. The client re-registers when either changes, so the
+        newest registration is always what a dispatch composes from.
       properties:
         token:
           type: string
@@ -7573,6 +7660,11 @@ components:
           minLength: 1
           maxLength: 64
         labels: {}
+        accent_hex:
+          type: string
+          maxLength: 9
+        muted:
+          type: boolean
       required:
       - apns_environment
       - bundle_id
@@ -8834,11 +8926,6 @@ components:
             ProPlan, discriminated by ``id``.
       required:
       - plans
-    PlatformEnum:
-      enum:
-      - ios
-      type: string
-      description: '* `ios` - ios'
     PreviewChannelOptInResult:
       type: object
       properties:

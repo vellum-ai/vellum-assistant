@@ -318,6 +318,8 @@ const deleteMessageByIdMock = mock(() => ({
   deletedSummaryIds: [],
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
+/** Persisted rows the loop reads back. Empty unless a test seeds one. */
+let mockStoredMessages: unknown[] = [];
 const updateMessageContentMock = mock(() => {});
 const finalizeMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
@@ -328,7 +330,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
   setConversationHistoryStrippedAt: setConversationHistoryStrippedAtMock,
-  getMessages: () => [],
+  getMessages: () => mockStoredMessages,
   getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -349,6 +351,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   finalizeMessageContent: finalizeMessageContentMock,
   recordConversationPersistedSeq: () => {},
   getConversationPersistedSeq: () => null,
+  PROVIDER_ERROR_MESSAGE_KIND: "provider_error",
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -930,7 +933,9 @@ beforeEach(() => {
   getSlackCompactionWatermarkForPrefixMock.mockClear();
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
+  mockStoredMessages = [];
   updateMessageContentMock.mockClear();
+  updateMessageContentMock.mockImplementation(() => {});
   finalizeMessageContentMock.mockClear();
   rmSync(inflightDir(), { recursive: true, force: true });
   addMessageMock.mockClear();
@@ -1970,6 +1975,76 @@ describe("session-agent-loop", () => {
       expect(ctx.pendingSurfaceActions.has("stale-form-1")).toBe(false);
     });
 
+    test("withholds the dismissal event and keeps the surface pending when its persisted write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-2", { surfaceType: "table" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surface",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [{ type: "ui_surface", surfaceId: "stale-table-2" }],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Announcing a dismissal the DB still holds as pending leaves the client
+      // showing a card the next history reseed reverts.
+      expect(
+        events.filter((e) => e.type === "ui_surface_complete"),
+      ).toHaveLength(0);
+      // The card stays live on the client, so the daemon must keep treating it
+      // as pending; the sweep retries on the next user message.
+      expect(ctx.pendingSurfaceActions.has("stale-table-2")).toBe(true);
+    });
+
+    test("dismisses the remaining surfaces when one write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-3", { surfaceType: "table" });
+      ctx.pendingSurfaceActions.set("stale-form-3", { surfaceType: "form" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surfaces",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [
+            { type: "ui_surface", surfaceId: "stale-table-3" },
+            { type: "ui_surface", surfaceId: "stale-form-3" },
+          ],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Retaining the failed entry must not stall the sweep: deleting the
+      // current key while iterating the map leaves later keys reachable.
+      const completed = events
+        .filter((e) => e.type === "ui_surface_complete")
+        .map((e) => (e as { surfaceId: string }).surfaceId);
+      expect(completed).toEqual(["stale-form-3"]);
+      expect(ctx.pendingSurfaceActions.has("stale-table-3")).toBe(true);
+      expect(ctx.pendingSurfaceActions.has("stale-form-3")).toBe(false);
+    });
+
     test("does not auto-complete surfaces when request is a surface action", async () => {
       const events: AssistantEvent[] = [];
 
@@ -2231,6 +2306,49 @@ describe("session-agent-loop", () => {
         .calls[0] as unknown as [string, string];
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
+    });
+
+    test("stamps provider-error metadata onto the persisted synthetic assistant row", async () => {
+      mockConversationErrorClassification = {
+        code: "PROVIDER_BILLING",
+        userMessage:
+          "You're out of credits. Add credits in Settings → Billing to continue.",
+        retryable: false,
+        errorCategory: "credits_exhausted",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // The persisted row swaps the context-neutral classification copy for
+      // assistant-voice wording, since this turn truly ends with no reply.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(
+        "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.",
+      );
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "credits_exhausted",
+      });
     });
 
     test("does not persist managed credential refresh failures as assistant text", async () => {
@@ -2978,12 +3096,20 @@ describe("session-agent-loop", () => {
       }));
 
       // GIVEN a real loop whose provider streams a delta — landing a debounced
-      // partial flush on the reserved row — then rejects, so the loop emits
-      // `provider_error` and `error` and exits with no `message_complete`.
+      // partial flush on the reserved row — then rejects. The loop resumes a
+      // call that died after it had started streaming, so the second attempt
+      // is scripted to fail before streaming anything: that keeps exactly one
+      // row carrying partial content, and the turn then exits via
+      // `provider_error` with no `message_complete`.
+      let attempt = 0;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
+            attempt++;
+            if (attempt > 1) {
+              throw new Error("upstream 500");
+            }
             options?.onEvent?.({ type: "text_delta", text: "hello world" });
             await new Promise((resolve) => setTimeout(resolve, 1100));
             throw new Error("upstream 500");
@@ -3007,11 +3133,12 @@ describe("session-agent-loop", () => {
         .split("\n");
       expect(orphanLines).toHaveLength(1);
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
-      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
-      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
-        string,
-      ];
-      expect(deleteCall[0]).toBe("msg-orphan-with-partial");
+      // Scoped to the row under test: the resumed attempt reserves a row of
+      // its own, which its own cleanup deletes.
+      const deletedIds = deleteMessageByIdMock.mock.calls.map(
+        (call) => (call as unknown as [string])[0],
+      );
+      expect(deletedIds).toContain("msg-orphan-with-partial");
     });
   });
 

@@ -200,10 +200,12 @@ const operationalStatusReadMock = mock(async () => {
   };
 });
 
-const hatchLocalAssistantMock = mock(async () => ({
-  ok: true as const,
-  assistantId: "local-1",
-}));
+const hatchLocalAssistantMock = mock(
+  async (_species?: string, _remote?: string) => ({
+    ok: true as const,
+    assistantId: "local-1",
+  }),
+);
 
 const saveLockfileAssistantMock = mock(
   async (_entry: {
@@ -292,8 +294,22 @@ mock.module("@/domains/onboarding/prefs", () => ({
   writeSelectedVersion: () => {},
 }));
 
+// Stands in for the real error class (the screen's `instanceof` check runs
+// against this mocked module's export).
+class MockProviderKeyRejectedError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly reason?: string,
+  ) {
+    super(reason ?? `${provider} rejected the API key`);
+  }
+}
+
+const applyPendingProviderKeyMock = mock(async () => {});
+
 mock.module("@/domains/onboarding/provider-key", () => ({
-  applyPendingProviderKey: async () => {},
+  applyPendingProviderKey: applyPendingProviderKeyMock,
+  ProviderKeyRejectedError: MockProviderKeyRejectedError,
 }));
 
 mock.module("@/domains/onboarding/plugin-attribution", () => ({
@@ -404,14 +420,19 @@ mock.module("@/utils/routes", () => ({
       research: "/onboarding/research",
       hosting: "/onboarding/hosting",
       privacy: "/onboarding/privacy",
+      apiKey: "/onboarding/api-key",
     },
   },
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
-  Button: ({ children }: { children: ReactNode }) => (
-    <button>{children}</button>
-  ),
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+  }) => <button onClick={onClick}>{children}</button>,
 }));
 
 mock.module("@vellumai/design-library/components/progress-bar", () => ({
@@ -435,6 +456,8 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     subscriptionRetrieveMock.mockClear();
     operationalStatusReadMock.mockClear();
     hatchLocalAssistantMock.mockClear();
+    applyPendingProviderKeyMock.mockClear();
+    applyPendingProviderKeyMock.mockImplementation(async () => {});
     saveLockfileAssistantMock.mockClear();
     clearGatewayTokenMock.mockClear();
     setSelfHostedConnectionMock.mockClear();
@@ -954,6 +977,102 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     expect(clearGatewayTokenMock).toHaveBeenCalled();
     expect(setSelfHostedConnectionMock).toHaveBeenCalledWith(null);
   });
+
+  test("a provider-rejected API key surfaces an Update API key path, and the corrected pass reuses the hatched assistant", async () => {
+    isLocalClientValue = true;
+    searchParams = new URLSearchParams("hosting=local");
+    applyPendingProviderKeyMock.mockImplementation(async () => {
+      throw new MockProviderKeyRejectedError(
+        "anthropic",
+        "API key is invalid or expired.",
+      );
+    });
+
+    render(<HatchingScreen />);
+
+    // The rejection surfaces as a correctable error, not a completed hatch.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText("Your API key didn't work"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(screen.getByText("API key is invalid or expired.", { exact: false }))
+      .toBeTruthy();
+    expect(navigateMock).not.toHaveBeenCalled();
+    // A blind retry would re-apply nothing (the pending key was cleared), so
+    // the primary action is the path back to the API-key screen instead.
+    expect(screen.queryByText("Try again")).toBeNull();
+    screen.getByText("Update API key").click();
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/onboarding/api-key?hosting=local",
+      { replace: true },
+    );
+
+    // Returning with a corrected key remounts the screen. The held module
+    // guard must hand back the SAME hatched assistant: one hatch total.
+    cleanup();
+    navigateMock.mockClear();
+    applyPendingProviderKeyMock.mockImplementation(async () => {});
+
+    render(<HatchingScreen />);
+
+    await waitFor(
+      () =>
+        expect(navigateMock).toHaveBeenCalledWith(
+          expect.stringContaining("/onboarding/research"),
+          { replace: true },
+        ),
+      { timeout: 5000 },
+    );
+    expect(hatchLocalAssistantMock).toHaveBeenCalledTimes(1);
+  }, 15000);
+
+  test("switching hosting modes after a rejected key hatches fresh for the new mode instead of reusing the old assistant", async () => {
+    // First pass: a Local hatch whose key is rejected parks on the error
+    // screen with the hatch guard held.
+    isLocalClientValue = true;
+    searchParams = new URLSearchParams("hosting=local");
+    applyPendingProviderKeyMock.mockImplementation(async () => {
+      throw new MockProviderKeyRejectedError(
+        "anthropic",
+        "API key is invalid or expired.",
+      );
+    });
+
+    render(<HatchingScreen />);
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText("Your API key didn't work"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(hatchLocalAssistantMock).toHaveBeenCalledTimes(1);
+    expect(hatchLocalAssistantMock.mock.calls[0]?.[1]).toBeUndefined();
+
+    // The user backs out to the hosting screen and picks Docker instead. The
+    // held Local promise must not answer for the Docker choice.
+    cleanup();
+    navigateMock.mockClear();
+    applyPendingProviderKeyMock.mockImplementation(async () => {});
+    searchParams = new URLSearchParams("hosting=docker");
+
+    render(<HatchingScreen />);
+
+    await waitFor(
+      () =>
+        expect(navigateMock).toHaveBeenCalledWith(
+          expect.stringContaining("/onboarding/research"),
+          { replace: true },
+        ),
+      { timeout: 5000 },
+    );
+    expect(hatchLocalAssistantMock).toHaveBeenCalledTimes(2);
+    expect(hatchLocalAssistantMock.mock.calls[1]?.[1]).toBe("docker");
+  }, 15000);
 
   test("a local hatch keeps its gateway session", async () => {
     isLocalClientValue = true;

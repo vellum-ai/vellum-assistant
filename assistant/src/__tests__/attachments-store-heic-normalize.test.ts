@@ -100,8 +100,8 @@ describe("HEIC upload normalization wiring", () => {
     await initializeDb();
   }, 30_000);
 
-  test("uploadAttachmentFromBytes stores a JPEG master for HEIC", () => {
-    const stored = uploadAttachmentFromBytes(
+  test("uploadAttachmentFromBytes stores a JPEG master for HEIC", async () => {
+    const stored = await uploadAttachmentFromBytes(
       "IMG_5487.HEIC",
       "image/heic",
       HEIC_BYTES,
@@ -115,8 +115,8 @@ describe("HEIC upload normalization wiring", () => {
     expect(readFileSync(stagedPath!).equals(FAKE_JPEG)).toBe(true);
   });
 
-  test("uploadAttachmentFromBytes leaves non-HEIC uploads verbatim", () => {
-    const stored = uploadAttachmentFromBytes(
+  test("uploadAttachmentFromBytes leaves non-HEIC uploads verbatim", async () => {
+    const stored = await uploadAttachmentFromBytes(
       "photo.png",
       "image/png",
       HEIC_BYTES,
@@ -127,8 +127,8 @@ describe("HEIC upload normalization wiring", () => {
     expect(stored.sizeBytes).toBe(HEIC_BYTES.length);
   });
 
-  test("uploadAttachment (base64) stores a JPEG master for HEIC", () => {
-    const stored = uploadAttachment("IMG_1.heic", "image/heic", HEIC_B64);
+  test("uploadAttachment (base64) stores a JPEG master for HEIC", async () => {
+    const stored = await uploadAttachment("IMG_1.heic", "image/heic", HEIC_B64);
 
     expect(stored.originalFilename).toBe("IMG_1.jpg");
     expect(stored.mimeType).toBe("image/jpeg");
@@ -137,16 +137,20 @@ describe("HEIC upload normalization wiring", () => {
     expect(row?.dataBase64).toBe(FAKE_JPEG_B64);
   });
 
-  test("uploadAttachment (base64) leaves non-HEIC uploads verbatim", () => {
-    const stored = uploadAttachment("photo.png", "image/png", HEIC_B64);
+  test("uploadAttachment (base64) leaves non-HEIC uploads verbatim", async () => {
+    const stored = await uploadAttachment("photo.png", "image/png", HEIC_B64);
 
     expect(stored.originalFilename).toBe("photo.png");
     expect(stored.mimeType).toBe("image/png");
     expect(stored.sizeBytes).toBe(HEIC_BYTES.length);
   });
 
-  test("uploadAttachment (base64) propagates a MIME-only sniff correction", () => {
-    const stored = uploadAttachment("photo.png", "image/mislabeled", HEIC_B64);
+  test("uploadAttachment (base64) propagates a MIME-only sniff correction", async () => {
+    const stored = await uploadAttachment(
+      "photo.png",
+      "image/mislabeled",
+      HEIC_B64,
+    );
 
     // Corrected MIME is stored; filename and payload stay verbatim.
     expect(stored.originalFilename).toBe("photo.png");
@@ -163,7 +167,7 @@ describe("HEIC upload normalization wiring", () => {
       JSON.stringify([{ type: "text", text: "photos" }]),
     );
 
-    const normalized = attachInlineAttachmentToMessage(
+    const normalized = await attachInlineAttachmentToMessage(
       msg.id,
       0,
       "IMG_2.HEIC",
@@ -176,7 +180,7 @@ describe("HEIC upload normalization wiring", () => {
 
     // Assistant-outbound attachments are stored verbatim: no normalizeImage
     // flag, no rewrite, even for HEIC content.
-    const verbatim = attachInlineAttachmentToMessage(
+    const verbatim = await attachInlineAttachmentToMessage(
       msg.id,
       1,
       "IMG_3.HEIC",

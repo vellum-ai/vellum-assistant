@@ -70,28 +70,40 @@ export function handleConfirmationRequest(
 }
 
 /**
- * Retire an active confirmation prompt when the daemon reports its pending
- * interaction has resolved (approved, rejected, cancelled, or superseded).
+ * Retire an active confirmation or question prompt when the daemon reports its
+ * pending interaction has resolved (approved, rejected, answered, cancelled, or
+ * superseded).
  *
  * `interaction_resolved` is conversation-scoped, so by the time it reaches a
  * chat stream handler it is guaranteed to be for the active conversation.
  * Attention tracking (`use-attention-tracking`) deliberately skips the active
- * conversation and defers its confirmation card to this handler — so without
- * it, a confirmation the daemon has already discarded (e.g. an `acp_spawn`
- * that timed out) would linger on screen with no way to act on it, and tapping
- * Allow/Deny would 404.
+ * conversation and defers its card to this handler. Without it, a prompt the
+ * daemon has already discarded (e.g. an `acp_spawn` that timed out) would
+ * linger on screen with no way to act on it, and acting on it would 404.
  *
- * Only confirmation kinds render a card here; other kinds (host-proxy steps,
- * secrets, questions) own their own lifecycle. The requestId guards make a
- * mismatched or already-cleared confirmation a no-op.
+ * Both card-rendering kinds are handled here. A question card is retired by
+ * `question-actions` on the two outcomes the user drives (a submitted answer,
+ * the X), but every other settlement is invisible to the client: the prompt
+ * timed out, the turn aborted, a newer message superseded it, or the daemon
+ * restarted. Those all funnel through the prompter's `finish()`, which
+ * deregisters the interaction and broadcasts this event, making it the only
+ * signal the card has become undecidable. Host-proxy steps and secrets render
+ * no card here. The requestId guards make a mismatched or already-cleared
+ * prompt a no-op.
  */
 export function handleInteractionResolved(
   event: InteractionResolvedEvent,
 ): void {
+  const { requestId } = event;
+
+  if (event.kind === "question") {
+    useInteractionStore.getState().dismissQuestionIfMatches(requestId);
+    return;
+  }
+
   if (event.kind !== "confirmation" && event.kind !== "acp_confirmation") {
     return;
   }
-  const { requestId } = event;
   const session = useChatSessionStore.getState();
   const interaction = useInteractionStore.getState();
 

@@ -34,6 +34,7 @@ import type {
   HotkeyEventState,
   HotkeyScope,
   LocalAssistantStatusResult,
+  LocalConnectImportResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
@@ -202,6 +203,11 @@ declare global {
           organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+        unpair?(assistantId: string): Promise<LockfileWriteResult>;
+        connectImport?(
+          bundle: string,
+          name?: string,
+        ): Promise<LocalConnectImportResult>;
         sleep?(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,

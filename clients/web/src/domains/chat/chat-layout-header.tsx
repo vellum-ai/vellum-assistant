@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
-import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { isElectron } from "@/runtime/is-electron";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
@@ -94,7 +94,7 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
-      className={NATIVE_IOS_BARE_ICON_BUTTON}
+      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -148,7 +148,7 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
-            className={NATIVE_IOS_BARE_ICON_BUTTON}
+            className={NATIVE_MOBILE_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (
@@ -195,7 +195,10 @@ export function ChatLayoutHeader({
 
       <div
         inert={controlsHidden || centerHidden || undefined}
-        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
+        // Left-aligned on mobile, pulled in 12px past the header's own
+        // `gap-4` (16px) to sit closer to the menu button, 4px total.
+        // Desktop keeps the title centered in the remaining space.
+        className={`flex min-w-0 flex-1 items-center max-md:-ml-3 max-md:justify-start justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
       >
         {topBarCenter}
       </div>

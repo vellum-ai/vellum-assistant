@@ -8,18 +8,23 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: AssistantEvent) => broadcastImpl(msg),
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   canShowInteractiveUi,
   cleanupStandaloneSurface,
+  createSurfaceMutex,
   handleSurfaceAction,
   showStandaloneSurface,
-  type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
+import {
+  asConversation,
+  mockChannelCapabilities,
+} from "./helpers/mock-conversation.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
- * Build a minimal SurfaceConversationContext stub for testing standalone
+ * Build a minimal Conversation stub for testing standalone
  * surface lifecycle. Only the fields accessed by the standalone surface
  * functions are populated.
  */
@@ -29,7 +34,7 @@ function createMockContext(
     supportsDynamicUi: boolean;
     channel: string;
   }>,
-): SurfaceConversationContext & {
+): Conversation & {
   sentMessages: AssistantEvent[];
   enqueuedMessages: Array<{ content: string; requestId: string }>;
 } {
@@ -37,15 +42,15 @@ function createMockContext(
   broadcastImpl = (msg: AssistantEvent) => sentMessages.push(msg);
   const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
 
-  return {
+  return asConversation({
     conversationId: "test-conv-1",
     assistantId: undefined,
     trustContext: undefined,
     channelCapabilities: overrides?.channel
-      ? {
+      ? mockChannelCapabilities({
           channel: overrides.channel,
           supportsDynamicUi: overrides.supportsDynamicUi ?? true,
-        }
+        })
       : undefined,
     sendToClient: (msg: AssistantEvent) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
@@ -70,11 +75,10 @@ function createMockContext(
     },
     getQueueDepth: () => 0,
     processMessage: async () => "msg-id",
-    withSurface: async <T>(_surfaceId: string, fn: () => T | Promise<T>) =>
-      fn(),
+    withSurface: createSurfaceMutex(),
     sentMessages,
     enqueuedMessages,
-  };
+  });
 }
 
 // ── canShowInteractiveUi ─────────────────────────────────────────────
@@ -102,7 +106,10 @@ describe("canShowInteractiveUi", () => {
     expect(
       canShowInteractiveUi({
         hasNoClient: false,
-        channelCapabilities: { channel: "sms", supportsDynamicUi: false },
+        channelCapabilities: mockChannelCapabilities({
+          channel: "sms",
+          supportsDynamicUi: false,
+        }),
       }),
     ).toBe(false);
   });
@@ -111,7 +118,10 @@ describe("canShowInteractiveUi", () => {
     expect(
       canShowInteractiveUi({
         hasNoClient: false,
-        channelCapabilities: { channel: "web", supportsDynamicUi: true },
+        channelCapabilities: mockChannelCapabilities({
+          channel: "web",
+          supportsDynamicUi: true,
+        }),
       }),
     ).toBe(true);
   });

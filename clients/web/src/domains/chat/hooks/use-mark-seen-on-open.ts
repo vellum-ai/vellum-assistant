@@ -1,16 +1,17 @@
-import { captureError } from "@/lib/sentry/capture-error";
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
-import { markConversationSeenLocal } from "@/utils/conversation-cache-mutations";
-import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
+import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-conversation-seen-mutation";
 import type { AssistantState } from "@/assistant/types";
 import type { Conversation } from "@/types/conversation-types";
 
 /**
- * Marks the active conversation as seen when the user opens it and it
- * has unseen assistant messages. Fires a single POST to the daemon and
- * patches the TanStack Query cache on success.
+ * Marks the active conversation as seen when the user opens it and it has
+ * unseen assistant messages.
+ *
+ * The write itself belongs to `useMarkConversationSeenMutation`, shared with
+ * the explicit "Mark as read" action, so opening a conversation and choosing
+ * the menu item produce identical cache effects. This hook owns only the
+ * decision to fire: which conversation, and not twice for the same one.
  *
  * This is a conversation lifecycle action (changing seen-state), not
  * attention tracking — it lives here because its concern is state
@@ -27,7 +28,7 @@ export function useMarkSeenOnOpen({
   activeConversationId: string | null;
   activeConversation: Conversation | undefined;
 }) {
-  const queryClient = useQueryClient();
+  const { mutate: markSeen } = useMarkConversationSeenMutation();
   const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -50,37 +51,24 @@ export function useMarkSeenOnOpen({
 
     lastSeenOnOpenConversationIdRef.current = activeConversationId;
 
-    let cancelled = false;
-
-    conversationsSeenPost({
-      path: { assistant_id: assistantId },
-      body: { conversationId: activeConversationId },
-      throwOnError: true,
-    })
-      .then(() => {
-        if (cancelled) {
-          return;
-        }
-        markConversationSeenLocal(
-          queryClient,
-          assistantId,
-          activeConversationId,
-        );
-        lastSeenOnOpenConversationIdRef.current = null;
-      })
-      .catch((err) => {
-        lastSeenOnOpenConversationIdRef.current = null;
-        captureError(err, { context: "mark_conversation_seen" });
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    markSeen(
+      { assistantId, conversationId: activeConversationId },
+      {
+        // Releasing the guard on settle (not only on success) lets a failed
+        // write be retried the next time the effect re-evaluates; the
+        // mutation has already rolled its optimistic patch back by then.
+        onSettled: () => {
+          lastSeenOnOpenConversationIdRef.current = null;
+        },
+      },
+    );
+    // `markSeen` is a stable reference from TanStack Query, so listing it
+    // does not re-run this effect.
   }, [
     activeConversation,
     activeConversationId,
     assistantId,
     assistantStateKind,
-    queryClient,
+    markSeen,
   ]);
 }

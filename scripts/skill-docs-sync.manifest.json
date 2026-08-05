@@ -1,5 +1,5 @@
 {
-  "note": "Maps each bundled skill with a public reference page (https://www.vellum.ai/docs/skills-reference/<docsSlug>, authored in the vellum-assistant-platform repo) to a fingerprint of its SKILL.md. Enforced by scripts/check-skill-docs-sync.ts and assistant/src/__tests__/skill-docs-sync-guard.test.ts. When a SKILL.md changes, review its docs page, then run `bun run scripts/check-skill-docs-sync.ts --write` to re-record the fingerprint. Add an entry here when a bundled skill gains a public docs page.",
+  "note": "Maps each bundled skill with a public reference page (https://www.vellum.ai/docs/skills-reference/<docsSlug>, authored in this repo at clients/docs/src/app/docs/_components/skills-reference-<docsSlug>-content.tsx) to a fingerprint of its SKILL.md. Enforced by scripts/check-skill-docs-sync.ts and assistant/src/__tests__/skill-docs-sync-guard.test.ts. When a SKILL.md changes, review its docs page, then run `bun run scripts/check-skill-docs-sync.ts --write` to re-record the fingerprint. Add an entry here when a bundled skill gains a public docs page.",
   "skills": {
     "acp": {
       "docsSlug": "acp",
@@ -31,7 +31,7 @@
     },
     "media-processing": {
       "docsSlug": "media-processing",
-      "sha256": "4c93682daa54a9f74ccb12306e82409ae5417fcae253b26f8364bdd28f90a3d4"
+      "sha256": "2355e860b9ae5c06036ca2ef206679647a9c73ff38af50a23268503959f189cd"
     },
     "messaging": {
       "docsSlug": "messaging",
@@ -55,7 +55,7 @@
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "1cd366034e38c879310468f603dc79725da7d6b8d02da9dc66cfefcbebffa293"
+      "sha256": "a2e96b06c557c31c40a0adc26a61e6ea74b9c8b7c1e826d29063fd5c262757ac"
     },
     "transcribe": {
       "docsSlug": "transcribe",

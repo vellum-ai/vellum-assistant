@@ -32,7 +32,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { schedulesByIdRunsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { Button, Typography, cn } from "@vellumai/design-library";
+import { Button, Skeleton, Typography, cn } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import type { Schedule, ScheduleRun } from "@/domains/settings/types/schedules";
@@ -93,10 +93,7 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
     return (
       <div className="grid grid-cols-2 gap-3 pt-2">
         {Array.from({ length: 2 }, (_, i) => (
-          <div
-            key={i}
-            className="h-[60px] animate-pulse rounded-lg bg-[var(--surface-muted)]"
-          />
+          <Skeleton key={i} className="h-[60px] rounded-lg" />
         ))}
       </div>
     );

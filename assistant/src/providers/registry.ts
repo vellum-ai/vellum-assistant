@@ -17,7 +17,10 @@ import {
 // Per-connection provider cache (mix-and-match support)
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "./inference/auth.js";
+import {
+  effectiveConnectionAuth,
+  ROUTING_IDENTITY_PROVIDERS,
+} from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
@@ -265,6 +268,14 @@ export async function initializeProviders(
       entry.id,
       new RetryProvider(adapter, {
         forwardUsageAttributionHeaders: source === "managed-proxy",
+        // A keyless provider booted without a key has no credential to blame,
+        // so don't let its rejections render as "update your personal key".
+        credentialSource:
+          source === "managed-proxy"
+            ? "vellum-managed"
+            : isKeyless && !apiKey
+              ? "no-auth"
+              : "byok",
       }),
     );
     routingSources.set(entry.id, source);
@@ -325,9 +336,11 @@ export async function resolveProviderFromConnection(
   // re-read from the store below, so a key rotated since the entry was cached
   // is picked up here rather than served stale forever.
 
-  const authResult = await resolveAuth(connection.auth, effectiveProvider, {
-    baseUrl: connection.baseUrl,
-  });
+  const authResult = await resolveAuth(
+    effectiveConnectionAuth(connection),
+    effectiveProvider,
+    { baseUrl: connection.baseUrl },
+  );
   if (!authResult.ok) {
     const err = authResult.error;
     if (err.code === "not_implemented") {

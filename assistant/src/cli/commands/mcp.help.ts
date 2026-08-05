@@ -128,8 +128,10 @@ Arguments:
   name   Name of a configured MCP server to authenticate with
 
 Only works with sse or streamable-http transports (stdio servers do not use
-OAuth). Opens a browser for OAuth authorization with the remote server. The
-running assistant handles the OAuth callback and token exchange.
+OAuth). On desktop, opens a browser for OAuth authorization with the remote
+server. On web, prints the OAuth URL to the terminal — copy and open it in a
+new browser tab manually. The running assistant handles the OAuth callback
+and token exchange in both cases.
 
 The command waits up to 2.5 minutes for the user to complete the browser-based
 OAuth flow. If the server already has valid cached tokens, the command succeeds

@@ -43,8 +43,12 @@ const VERTICAL_ESCAPE_RATIO = 0.7;
 /** Minimum travel (px) on either axis before the gesture direction is decided. */
 const DEADZONE_PX = 10;
 
-/** Damping applied to drag distance past the commit threshold. */
-const OVERDRAG_DAMPING = 0.3;
+/**
+ * Damping applied to drag distance past the commit threshold. Half speed, so
+ * the page keeps visibly following the finger past the commit point while
+ * still bounding how much empty background a long drag exposes behind it.
+ */
+const OVERDRAG_DAMPING = 0.5;
 
 // ---------------------------------------------------------------------------
 // Pure geometry helpers (framework-agnostic, unit-tested in isolation)

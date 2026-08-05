@@ -1,10 +1,11 @@
-import { Coins, Computer, HardDrive, type LucideIcon } from "lucide-react";
+import { Coins, Computer, HardDrive, Mail, type LucideIcon } from "lucide-react";
 
 import {
   FREE_CREDITS_USD,
   FREE_STORAGE_GIB,
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
@@ -44,18 +45,33 @@ export function machineLabel(pkg: ProPackage | null): string {
 }
 
 /**
- * The three absolute spec chips for a package, in mock order:
- * machine → credits → storage. A `null` package uses the free/base baseline.
+ * The spec chips for a package, in mock order: machine, storage, credits,
+ * then any static extras from the tier copy (today only the email/subdomain
+ * row on Super and Ultra; a new extra inherits the Mail icon until it needs
+ * its own mapping).
  */
-export function packageSpecs(pkg: ProPackage | null): PlanSpec[] {
-  const credits = pkg?.credits_usd ?? FREE_CREDITS_USD;
-  const storage = pkg?.storage_gib ?? FREE_STORAGE_GIB;
+export function packageSpecs(pkg: ProPackage): PlanSpec[] {
+  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
+  const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
+    { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
     // Cents-aware like every other price on these surfaces, so a sub-dollar
-    // bundle reads "$0.50 credits" rather than "$0.5 credits".
-    { icon: Coins, label: `${formatDollars(credits * 100)} credits` },
-    { icon: HardDrive, label: `${storage} GB` },
+    // bundle reads "$0.50 in credits included" rather than "$0.5".
+    { icon: Coins, label: `${formatDollars(credits * 100)} in credits included` },
+    ...extras.map((label) => ({ icon: Mail, label })),
+  ];
+}
+
+/**
+ * The Free plan's spec chips: the shared small baseline, the free storage
+ * allowance, and pay-as-you-go credits (no bundle to price).
+ */
+export function freePlanSpecs(): PlanSpec[] {
+  return [
+    { icon: Computer, label: `${STANDARD_MACHINE_LABEL} Machine` },
+    { icon: HardDrive, label: `${FREE_STORAGE_GIB} GB Storage` },
+    { icon: Coins, label: "Pay as you go credits" },
   ];
 }
 

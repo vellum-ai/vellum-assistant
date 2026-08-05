@@ -78,7 +78,7 @@ export function AssistantLifecyclePanel() {
         toast.success(
           result.status === 201
             ? "New assistant hatched successfully."
-            : "Returned your existing assistant — no new one was created.",
+            : "You already have an assistant. Nothing new was created.",
         );
         // Invalidate the panel's own queries by their real generated keys so
         // the info + list cards refresh (the previous `["assistants"]` key

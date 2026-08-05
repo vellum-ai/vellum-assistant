@@ -24,8 +24,7 @@ describe("BillingErrorBanner", () => {
         icon={<span data-testid="banner-icon">!</span>}
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={onAction}
+        action={{ label: "Upgrade", onClick: onAction }}
       />,
     );
 
@@ -46,13 +45,48 @@ describe("BillingErrorBanner", () => {
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={() => {}}
+        action={{ label: "Upgrade", onClick: () => {} }}
       />,
     );
 
     expect(getByText("Title")).toBeTruthy();
     expect(queryByTestId("banner-icon")).toBeNull();
+  });
+
+  test("renders a dismiss button only when onDismiss is provided", () => {
+    const onAction = mock(() => {});
+    const onDismiss = mock(() => {});
+
+    const { getByRole } = render(
+      <BillingErrorBanner
+        ariaLabel="Billing notice"
+        title="Title"
+        subtitle="Subtitle"
+        action={{ label: "Upgrade", onClick: onAction }}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  test("renders the dismiss button without an action", () => {
+    const onDismiss = mock(() => {});
+
+    const { getByRole, queryByRole } = render(
+      <BillingErrorBanner
+        ariaLabel="Billing notice"
+        title="Title"
+        subtitle="Subtitle"
+        onDismiss={onDismiss}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Upgrade" })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   test("exposes role=status with the provided aria-label", () => {
@@ -61,8 +95,7 @@ describe("BillingErrorBanner", () => {
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={() => {}}
+        action={{ label: "Upgrade", onClick: () => {} }}
       />,
     );
 
