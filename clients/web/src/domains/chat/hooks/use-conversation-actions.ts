@@ -32,6 +32,7 @@ import {
   findNextConversationId,
   resolveUnpinGroupId,
 } from "@/domains/chat/hooks/conversation-action-utils";
+import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-conversation-seen-mutation";
 
 // ---------------------------------------------------------------------------
 // Mutation variable types
@@ -39,7 +40,6 @@ import {
 
 type ArchiveVars = { assistantId: string; conversationId: string };
 type UnarchiveVars = { assistantId: string; conversationId: string };
-type MarkReadVars = { assistantId: string; conversationId: string };
 type MarkUnreadVars = { assistantId: string; conversationId: string };
 type MoveToGroupVars = {
   assistantId: string;
@@ -176,49 +176,9 @@ export function useConversationActions({
     },
   });
 
-  const markReadMutation = useMutation<
-    void,
-    Error,
-    MarkReadVars,
-    SeenMutationContext
-  >({
-    mutationFn: async ({ assistantId: aid, conversationId }) => {
-      await conversationsSeenPost({
-        path: { assistant_id: aid },
-        body: { conversationId },
-        throwOnError: true,
-      });
-    },
-    onMutate: async ({ assistantId: aid, conversationId }) => {
-      await cancelConversationQueries(queryClient, aid);
-      const snapshot = snapshotConversationCaches(queryClient, aid);
-      // Decrement the unread count only when this row contributed to it
-      // (unseen, foreground, unarchived), reading the row before the patch
-      // flips its seen state.
-      const row = findConversation(queryClient, aid, conversationId);
-      const unreadCountDelta =
-        row !== undefined && contributesToUnreadCount(row) ? -1 : 0;
-      if (unreadCountDelta !== 0) {
-        adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
-      }
-      patchConversation(queryClient, aid, conversationId, {
-        hasUnseenLatestAssistantMessage: false,
-      });
-      return { snapshot, unreadCountDelta };
-    },
-    onError: (err, { assistantId: aid }, context) => {
-      if (context?.snapshot) {
-        restoreConversationCaches(queryClient, context.snapshot);
-      }
-      if (context && context.unreadCountDelta !== 0) {
-        adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
-      }
-      captureError(err, { context: "markConversationRead" });
-    },
-    onSettled: (_data, _err, { assistantId: aid }) => {
-      void invalidateConversationQueries(queryClient, aid);
-    },
-  });
+  // Shared with the mark-seen-on-open effect so both entry points produce
+  // identical cache effects.
+  const markReadMutation = useMarkConversationSeenMutation();
 
   const markUnreadMutation = useMutation<
     void,

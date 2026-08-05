@@ -20,6 +20,7 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -30,6 +31,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import { countUnreadConversationsInList } from "@/utils/conversation-predicates";
 import {
   archivedConversationListOptions,
   backgroundConversationListOptions,
@@ -205,13 +207,16 @@ export function useOriginChannelConversationListQuery(
 }
 
 /**
- * Subscribe to the server-side unread conversation count
+ * Subscribe to the raw server-side unread conversation count
  * (`GET /v1/conversations/unread-count`).
  *
  * Returns the count, or `null` while unresolved and when the connected
  * assistant does not serve the endpoint (pre-unread-count daemons 404 the
- * read, which the fetcher maps to `null`). Consumers treat `null` as
- * "unavailable" and fall back to counting loaded conversations.
+ * read, which the fetcher maps to `null`).
+ *
+ * Most callers want {@link useUnreadConversationCount}, which resolves that
+ * `null` into a usable number. Use this one only when "the server does not
+ * provide a count" has to be distinguishable from "the count is zero".
  *
  * Freshness comes from three channels rather than focus refetches:
  * optimistic deltas applied by the seen/unseen mutations
@@ -229,6 +234,31 @@ export function useUnreadConversationCountQuery(
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
   return query.data ?? null;
+}
+
+/**
+ * The unread conversation count to display: the server's count when it is
+ * available, otherwise derived from `fallbackConversations`.
+ *
+ * Every unread-count surface should read this rather than compose the
+ * fallback itself, so the "which source won" rule lives in one place.
+ *
+ * The fallback covers assistants without the endpoint and the window before
+ * the query resolves. It counts only the conversations it is handed, so it is
+ * accurate only while the caller holds the complete list; see
+ * {@link countUnreadConversationsInList}.
+ */
+export function useUnreadConversationCount(
+  assistantId: string | null,
+  fallbackConversations: readonly Conversation[],
+  enabled: boolean = true,
+): number {
+  const serverCount = useUnreadConversationCountQuery(assistantId, enabled);
+  const derivedCount = useMemo(
+    () => countUnreadConversationsInList(fallbackConversations),
+    [fallbackConversations],
+  );
+  return serverCount ?? derivedCount;
 }
 
 /**

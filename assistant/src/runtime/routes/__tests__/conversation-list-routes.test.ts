@@ -339,6 +339,151 @@ describe("GET /v1/conversations/unread-count", () => {
     expect(invokeUnreadCount()).toEqual({ count: 1 });
   });
 
+  /**
+   * The daemon half of the unread-count contract.
+   *
+   * The web client answers the same question in TypeScript
+   * (`contributesToUnreadCount` in
+   * `clients/web/src/utils/conversation-predicates.ts`), and its
+   * `conversation-predicates.test.ts` asserts this same matrix against the
+   * predicate. The two definitions are maintained separately, so this matrix
+   * is the tripwire: a rule changed on one side without the other shows up as
+   * one of these scenarios disagreeing across the two suites.
+   *
+   * Keep the scenario names identical on both sides.
+   */
+  describe("unread-count contract (daemon half)", () => {
+    const scenarios: Array<{
+      name: string;
+      counts: boolean;
+      seed: (groupId: string) => string;
+    }> = [
+      {
+        name: "unseen foreground row",
+        counts: true,
+        seed: () => createConversation("unseen-foreground").id,
+      },
+      {
+        name: "seen foreground row",
+        counts: false,
+        seed: () => {
+          const conv = createConversation("seen-foreground");
+          seedUnseen(conv.id);
+          markSeen(conv.id);
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen archived row",
+        counts: false,
+        seed: () => {
+          const conv = createConversation("unseen-archived");
+          rawRun(
+            "test:archiveConversation",
+            "UPDATE conversations SET archived_at = ? WHERE id = ?",
+            Date.now(),
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen background row, not surfaced",
+        counts: false,
+        seed: () =>
+          createConversation({
+            title: "unseen-background",
+            conversationType: "background",
+          }).id,
+      },
+      {
+        name: "unseen scheduled row, not surfaced",
+        counts: false,
+        seed: () =>
+          createConversation({
+            title: "unseen-scheduled",
+            conversationType: "scheduled",
+          }).id,
+      },
+      {
+        name: "unseen background row, surfaced",
+        counts: true,
+        seed: () => {
+          const conv = createConversation({
+            title: "unseen-background-surfaced",
+            conversationType: "background",
+          });
+          rawRun(
+            "test:surfaceConversation",
+            "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+            Date.now(),
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen background row filed in a custom group, not surfaced",
+        counts: false,
+        seed: (groupId) => {
+          const conv = createConversation({
+            title: "unseen-background-in-group",
+            conversationType: "background",
+          });
+          rawRun(
+            "test:fileIntoGroup",
+            "UPDATE conversations SET group_id = ? WHERE id = ?",
+            groupId,
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen standard row filed in a custom group",
+        counts: true,
+        seed: (groupId) => {
+          const conv = createConversation("unseen-standard-in-group");
+          rawRun(
+            "test:fileIntoGroup",
+            "UPDATE conversations SET group_id = ? WHERE id = ?",
+            groupId,
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      test(`${scenario.name} ${scenario.counts ? "counts" : "does not count"}`, () => {
+        const group = createGroup("unread-contract-group");
+        const conversationId = scenario.seed(group.id);
+        // The "seen" scenario seeds and clears its own attention row.
+        if (scenario.name !== "seen foreground row") {
+          seedUnseen(conversationId);
+        }
+
+        expect(invokeUnreadCount()).toEqual({
+          count: scenario.counts ? 1 : 0,
+        });
+      });
+    }
+
+    test("the matrix totals across every scenario at once", () => {
+      const group = createGroup("unread-contract-group");
+      for (const scenario of scenarios) {
+        const conversationId = scenario.seed(group.id);
+        if (scenario.name !== "seen foreground row") {
+          seedUnseen(conversationId);
+        }
+      }
+      const expected = scenarios.filter((s) => s.counts).length;
+
+      expect(invokeUnreadCount()).toEqual({ count: expected });
+    });
+  });
+
   test("background rows filed in a custom group stay excluded until surfaced", () => {
     // Custom-group rows are visible in the standard listing regardless of
     // type, but a non-surfaced background row must not count as unread

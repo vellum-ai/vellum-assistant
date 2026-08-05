@@ -474,7 +474,16 @@ export function countConversations(
  * The server-side twin of the web client's `contributesToUnreadCount`
  * predicate (`clients/web/src/utils/conversation-predicates.ts`), so the
  * count returned by `GET /v1/conversations/unread-count` always matches what
- * the sidebar's unread indicators would sum to over the full list:
+ * the sidebar's unread indicators would sum to over the full list.
+ *
+ * **Two definitions of one rule.** Changing what counts here means changing
+ * the client predicate too. Both sides assert the same named scenario matrix
+ * ("unread-count contract") so a one-sided change is visible in review: see
+ * `__tests__/conversation-list-routes.test.ts` here and
+ * `conversation-predicates.test.ts` there. The duplication exists only to
+ * keep a fallback for assistants without this route, and goes away with it.
+ *
+ * The rules:
  *
  * - visible in the standard (Recents) listing ({@link conversationTypeClause}),
  * - not archived,
