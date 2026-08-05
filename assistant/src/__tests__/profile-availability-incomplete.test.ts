@@ -36,9 +36,11 @@ describe("incomplete profiles", () => {
     expect(availability?.message).toContain("a model");
   });
 
-  test("the message points at where to finish setup", async () => {
+  // The destination is deliberately unnamed: which profile a call site falls
+  // back to depends on the call site, so the message states the effect only.
+  test("the message names the effect without naming a destination", async () => {
     const availability = await computeProfileAvailability({});
-    expect(availability?.message).toContain("Models & Services");
+    expect(availability?.message).toContain("fall back to another profile");
   });
 });
 

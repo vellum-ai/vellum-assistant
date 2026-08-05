@@ -71,11 +71,11 @@ export function ProfileRow({
   }
 
   const availability = profile.availability;
-  // Every non-ok verdict names the broken thing; the fix is always the same
-  // place, so the copy ends by pointing at the editor this row opens.
+  // Every non-ok verdict names the broken thing; the icon is the way to the
+  // editor that fixes it, so the copy ends by saying so.
   const availabilityProblem =
     availability != null && availability.status !== "ok"
-      ? `${availability.message ?? "This profile's provider is not available."} Actions using it fall back to another profile. Click to edit.`
+      ? `${availability.message ?? "This profile's provider is not available."} Click to fix.`
       : null;
 
   return (

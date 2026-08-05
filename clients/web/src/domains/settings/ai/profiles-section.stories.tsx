@@ -58,7 +58,7 @@ const PROFILES: InferenceProfileSummary[] = [
     availability: {
       status: "incomplete",
       message:
-        "This profile is missing a model, so it cannot be used. Finish setting it up in Settings, Models & Services.",
+        "Missing a model, so actions using it fall back to another profile.",
     },
   }),
 ];

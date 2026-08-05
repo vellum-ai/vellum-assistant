@@ -288,9 +288,12 @@ export async function computeProfileAvailability(
           ? "a provider and a model"
           : "a provider"
         : "a model";
+    // Which profile a call site falls back to depends on the call site (its
+    // shipped intent, then the balanced anchor), so this names the effect
+    // without claiming a destination it cannot know.
     return {
       status: "incomplete",
-      message: `This profile is missing ${missing}, so it cannot be used. Finish setting it up ${SETTINGS_HINT}.`,
+      message: `Missing ${missing}, so actions using it fall back to another profile.`,
     };
   }
 
