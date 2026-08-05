@@ -340,6 +340,7 @@ export async function registerForRemotePush(
   if (!isRemotePushSupported()) {
     return;
   }
+  const isAndroid = Capacitor.getPlatform() === "android";
   currentAssistantId = assistantId;
 
   // If iOS already handed us a token for this device under a different
@@ -353,15 +354,18 @@ export async function registerForRemotePush(
     // `@capacitor/push-notifications` is a plugin Proxy — destructure inline.
     const { PushNotifications } = await import("@capacitor/push-notifications");
     await ensureListeners();
+    if (
+      isAndroid &&
+      !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
+    ) {
+      return;
+    }
     await ensureAndroidAlertsChannel();
     const permission = await PushNotifications.requestPermissions();
     if (permission.receive !== "granted") {
       return;
     }
-    if (
-      Capacitor.getPlatform() === "android" &&
-      Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
-    ) {
+    if (isAndroid) {
       await AndroidPushRegistration.register();
     } else {
       await PushNotifications.register();
@@ -420,10 +424,6 @@ export async function unregisterFromRemotePush(): Promise<void> {
     try {
       if (Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
         await AndroidPushRegistration.unregister();
-      } else {
-        const { PushNotifications } =
-          await import("@capacitor/push-notifications");
-        await PushNotifications.unregister();
       }
     } catch (err) {
       captureError(err, {

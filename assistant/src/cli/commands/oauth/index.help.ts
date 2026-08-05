@@ -691,7 +691,9 @@ Important for chat/UI turns: do not run this command just to let the user
 connect a managed provider. Render the first-class connect surface instead:
 call \`ui_show\` with surface_type "oauth_connect" and data.providerKey set to
 the provider (for example, "google"). That surface starts the managed OAuth UI
-and avoids pasting raw authorization links into the conversation.
+and avoids pasting raw authorization links into the conversation. If the user
+needs non-default scopes, also pass data.requestedScopes as a full replacement
+set (list every scope the connection should keep, not just the new ones).
 
 Examples:
   $ assistant oauth connect google

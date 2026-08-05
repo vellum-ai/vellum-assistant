@@ -9,13 +9,19 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
 import com.getcapacitor.Logger;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginLoadException;
+import com.getcapacitor.PluginManager;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import org.json.JSONException;
 
 public class MainActivity extends BridgeActivity {
@@ -46,12 +52,6 @@ public class MainActivity extends BridgeActivity {
         }
         configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
         pendingAppLink = consumeAppLinkIntent(getIntent());
-        registerPlugin(NativeAuthPlugin.class);
-        registerPlugin(NativeBiometricPlugin.class);
-        registerPlugin(AndroidNotificationSettingsPlugin.class);
-        registerPlugin(AndroidPushRegistrationPlugin.class);
-        registerPlugin(VoiceAudioSessionPlugin.class);
-        registerPlugin(VoiceLiveActivityPlugin.class);
         super.onCreate(savedInstanceState);
         deliverPendingVoiceLaunch();
         if (bridge != null) {
@@ -60,6 +60,27 @@ public class MainActivity extends BridgeActivity {
         deliverPendingAppLink();
         deliverPendingConnect();
         deliverPendingNewChat();
+    }
+
+    @Override
+    protected void load() {
+        List<Class<? extends Plugin>> plugins;
+        try {
+            plugins = new PluginManager(getAssets()).loadPluginClasses();
+            plugins.removeIf(PushNotificationsPlugin.class::equals);
+        } catch (PluginLoadException exception) {
+            Logger.error("Unable to load Capacitor plugins", exception);
+            plugins = new ArrayList<>();
+        }
+        bridgeBuilder.setPlugins(plugins);
+        registerPlugin(NativeAuthPlugin.class);
+        registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(AndroidNotificationSettingsPlugin.class);
+        registerPlugin(AndroidPushRegistrationPlugin.class);
+        registerPlugin(VoiceAudioSessionPlugin.class);
+        registerPlugin(VoiceLiveActivityPlugin.class);
+        registerPlugin(SafePushNotificationsPlugin.class);
+        super.load();
     }
 
     @Override

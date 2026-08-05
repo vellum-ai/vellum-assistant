@@ -22,6 +22,25 @@ import type { InterfaceId } from "../channels/types.js";
 export type SubagentToolGateMode = "wire" | "execution";
 
 /**
+ * Live tool-call counters for a subagent child, recorded by the tool executor
+ * and harvested by the SubagentManager when the run ends.
+ *
+ * This is the machine half of a subagent's result: the parent reads the child's
+ * own prose narrative, and these counts say what the child actually ran, so a
+ * claim of executed work that never touched a tool is visible rather than
+ * taken on trust. Ephemeral (in-memory only, never persisted) and only ever
+ * written for subagent conversations.
+ */
+export interface SubagentToolStats {
+  /** Tool calls dispatched, including ones that returned an error. */
+  calls: number;
+  /** Of those, the calls whose result was not an error. */
+  succeeded: number;
+  /** Distinct paths successfully passed to `file_write` / `file_edit`. */
+  filesWritten: Set<string>;
+}
+
+/**
  * Client-context inputs frozen for tool-DEFINITION resolution during a wake
  * that runs with `subagentToolGateMode: "execution"`.
  *

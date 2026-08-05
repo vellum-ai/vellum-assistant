@@ -115,9 +115,9 @@ describe("upscaleTargetDimensions", () => {
 });
 
 describe("upscaleImageToMinimum", () => {
-  it("returns null when dimensions are unparseable", () => {
+  it("returns null when dimensions are unparseable", async () => {
     expect(
-      upscaleImageToMinimum(
+      await upscaleImageToMinimum(
         Buffer.from("not an image").toString("base64"),
         "image/png",
       ),
@@ -126,12 +126,12 @@ describe("upscaleImageToMinimum", () => {
 });
 
 describe("optimizeImageForTransport", () => {
-  it("passes an undersized image through unchanged — the minimum floor is rejection-path only", () => {
+  it("passes an undersized image through unchanged: the minimum floor is rejection-path only", async () => {
     // The floor is undocumented provider behavior, so pre-send transport
     // never enforces it; only the image-recovery plugin reacts to an actual
     // "Could not process image" rejection.
     const tiny = makePngBase64(16, 14);
-    expect(optimizeImageForTransport(tiny, "image/png")).toEqual({
+    expect(await optimizeImageForTransport(tiny, "image/png")).toEqual({
       data: tiny,
       mediaType: "image/png",
     });

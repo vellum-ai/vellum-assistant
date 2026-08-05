@@ -82,6 +82,13 @@ describe("profiles list", () => {
     await run(["profiles", "list"]);
     expect(lastIpcCall?.method).toBe("inference_profiles_list");
   });
+
+  test("bare `profiles` runs list", async () => {
+    mockIpcResult = { ok: true, result: { profiles: [] } };
+    const { exitCode } = await run(["profiles"]);
+    expect(lastIpcCall?.method).toBe("inference_profiles_list");
+    expect(exitCode).toBe(0);
+  });
 });
 
 describe("profiles create", () => {
@@ -127,6 +134,7 @@ describe("profiles create", () => {
       "--thinking",
       "on",
       "--allow-unlisted",
+      "--allow-unavailable",
     ]);
     expect(lastIpcCall?.method).toBe("inference_profiles_create");
     expect(lastIpcCall?.params?.body).toEqual({
@@ -139,13 +147,20 @@ describe("profiles create", () => {
       temperature: 0.5,
       thinking: true,
       allowUnlisted: true,
+      allowUnavailable: true,
     });
   });
 
   test("prints the verification hint on success", async () => {
     mockIpcResult = {
       ok: true,
-      result: { ok: true, name: "p", entry: {}, warnings: [] },
+      result: {
+        ok: true,
+        name: "p",
+        entry: {},
+        warnings: [],
+        verify: 'assistant inference send --profile p "Reply with OK"',
+      },
     };
     const { stdout } = await run([
       "profiles",
@@ -158,6 +173,34 @@ describe("profiles create", () => {
     ]);
     expect(stdout).toContain("Verify it works:");
     expect(stdout).toContain("assistant inference send --profile p");
+  });
+
+  test("--json passes the daemon's verify hint through verbatim", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        ok: true,
+        name: "p",
+        entry: { provider: "anthropic" },
+        warnings: ["heads up"],
+        verify: 'assistant inference send --profile p "Reply with OK"',
+      },
+    };
+    const { stdout } = await run([
+      "profiles",
+      "create",
+      "p",
+      "--provider",
+      "anthropic",
+      "--model",
+      "claude-opus-4-8",
+      "--json",
+    ]);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.verify).toBe(
+      'assistant inference send --profile p "Reply with OK"',
+    );
+    expect(parsed.warnings).toEqual(["heads up"]);
   });
 
   test("rejects a non-numeric --max-tokens before calling the daemon", async () => {

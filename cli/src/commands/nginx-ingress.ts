@@ -90,12 +90,21 @@ function parsePortFromUrl(url: unknown): number | undefined {
   }
 }
 
-function resolveEntryGatewayPort(entry: AssistantEntry | undefined): number {
+/**
+ * Derive the gateway port from an entry's recorded URLs, preferring the
+ * loopback `localUrl` over `runtimeUrl`. Undefined when neither carries an
+ * explicit port (e.g. a platform-hosted https runtime URL).
+ */
+export function parseGatewayPortFromEntryUrls(
+  entry: AssistantEntry | undefined,
+): number | undefined {
   return (
-    parsePortFromUrl(entry?.localUrl) ??
-    parsePortFromUrl(entry?.runtimeUrl) ??
-    GATEWAY_PORT
+    parsePortFromUrl(entry?.localUrl) ?? parsePortFromUrl(entry?.runtimeUrl)
   );
+}
+
+function resolveEntryGatewayPort(entry: AssistantEntry | undefined): number {
+  return parseGatewayPortFromEntryUrls(entry) ?? GATEWAY_PORT;
 }
 
 /**

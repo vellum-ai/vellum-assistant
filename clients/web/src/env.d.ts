@@ -51,6 +51,11 @@ interface ImportMetaEnv {
   /** When truthy ("1", "true", "yes"), disables platform connectivity in local mode. */
   readonly VITE_VELLUM_DISABLE_PLATFORM?: string;
   /**
+   * Live Google Play listing for ai.vellum.assistant. Android install
+   * promotion remains hidden when this is unset or invalid.
+   */
+  readonly VITE_ANDROID_PLAY_STORE_URL?: string;
+  /**
    * Override for the live-voice velay host (no scheme), e.g. `localhost:8501`
    * for a local `vel up` velay. When unset the host is derived at runtime from
    * the platform host (`velay.vellum.ai`, `velay-{env}.vellum.ai`). See

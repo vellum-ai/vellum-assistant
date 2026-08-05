@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFile, stat as fsStat } from "node:fs/promises";
 import { basename, extname } from "node:path";
 
 import { GEMINI_MAX_INLINE_AUDIO_BYTES } from "../../../providers/gemini/inline-media.js";
@@ -67,7 +67,9 @@ function buildAudioToolResult(
  * The caller is responsible for path resolution and sandbox enforcement —
  * `resolvedPath` must be an already-validated absolute path.
  */
-export function readAudioFile(resolvedPath: string): ToolExecutionResult {
+export async function readAudioFile(
+  resolvedPath: string,
+): Promise<ToolExecutionResult> {
   const mimeType = EXTENSION_MIME[extname(resolvedPath).toLowerCase()];
   if (!mimeType) {
     // Defensive: callers gate on AUDIO_EXTENSIONS, so this is unreachable.
@@ -79,7 +81,7 @@ export function readAudioFile(resolvedPath: string): ToolExecutionResult {
 
   let stat;
   try {
-    stat = statSync(resolvedPath);
+    stat = await fsStat(resolvedPath);
   } catch {
     return { content: `Error: file not found: ${resolvedPath}`, isError: true };
   }
@@ -96,7 +98,7 @@ export function readAudioFile(resolvedPath: string): ToolExecutionResult {
 
   let buffer: Buffer;
   try {
-    buffer = readFileSync(resolvedPath) as Buffer;
+    buffer = (await readFile(resolvedPath)) as Buffer;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error reading file: ${msg}`, isError: true };

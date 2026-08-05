@@ -58,13 +58,15 @@ const DANIEL = {
   source: "elevenlabs",
 };
 let catalog: Array<typeof SARAH> = [];
+let voicesLoading = false;
 mock.module("@/lib/tts/use-managed-voices", () => ({
-  useManagedVoices: (assistantId: string | null) => ({
-    // The catalog is served through the hatched assistant's daemon, so an
-    // unhatched assistant has no voices, the same shape the real hook returns.
-    voices: assistantId ? catalog : [],
+  // The audition reads the platform directly, taking no assistant id, so it
+  // does not wait on a hatch.
+  useUnscopedManagedVoices: () => ({
+    voices: catalog,
     defaultModel: catalog[0]?.model ?? null,
-    fetched: !!assistantId,
+    fetched: catalog.length > 0,
+    loading: voicesLoading,
   }),
 }));
 
@@ -95,6 +97,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   catalog = [SARAH, DANIEL];
+  voicesLoading = false;
   played = [];
   paused = 0;
   // The avatar pool is a module-level store, so `cleanup` unmounts the screen
@@ -110,12 +113,7 @@ function renderScreen(
   props: Partial<Parameters<typeof GiveMeAFaceScreen>[0]> = {},
 ) {
   return render(
-    <GiveMeAFaceScreen
-      onContinue={() => {}}
-      onBack={() => {}}
-      assistantId="asst_1"
-      {...props}
-    />,
+    <GiveMeAFaceScreen onContinue={() => {}} onBack={() => {}} {...props} />,
   );
 }
 
@@ -187,8 +185,9 @@ describe("GiveMeAFaceScreen voice audition", () => {
 
   test("stays inert, and reports no voice, without a catalog", () => {
     const onContinue = mock(() => {});
-    // No hatched assistant yet, so no catalog to audition from.
-    renderScreen({ assistantId: null, onContinue });
+    // The catalog failed or served nothing, so there is no voice to audition.
+    catalog = [];
+    renderScreen({ onContinue });
 
     fireEvent.click(hearButton());
     expect(played).toEqual([]);
@@ -199,5 +198,37 @@ describe("GiveMeAFaceScreen voice audition", () => {
         onContinue.mock.calls[0] as unknown as [{ voiceModel: string | null }]
       )[0].voiceModel,
     ).toBeNull();
+  });
+
+  test("reads as pending, not dead, while the catalog is in flight", () => {
+    catalog = [];
+    voicesLoading = true;
+    renderScreen();
+
+    // Still unclickable (there is nothing to play yet) but marked busy, so it
+    // presents as loading rather than as a broken control.
+    const button = hearButton();
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    expect(played).toEqual([]);
+  });
+
+  test("drops the pending state once the catalog lands", () => {
+    renderScreen();
+
+    const button = hearButton();
+    expect(button.getAttribute("aria-busy")).toBe("false");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("offers no audition at all when the catalog is out of reach", () => {
+    // Onboarding that adopts a locally-hosted assistant may hold no platform
+    // session, so the control is absent rather than permanently inert.
+    renderScreen({ canAuditionVoice: false });
+
+    expect(screen.queryByRole("button", { name: "Hear my voice" })).toBeNull();
+    // The rest of the step is untouched.
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeTruthy();
   });
 });

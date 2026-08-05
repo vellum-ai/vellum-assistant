@@ -121,6 +121,94 @@ describe("connectivity-probe", () => {
     expect(backendReachableCalls).toEqual([true]);
   });
 
+  test("sets backend reachable=true when a cloud assistant carries leftover local resources", async () => {
+    // A stale gatewayPort merged onto a platform entry must not be probed.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            resources: { gatewayPort: 7830 },
+          },
+        ],
+        activeAssistant: "cloud-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("probes docker assistants over their loopback gateway", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            resources: { gatewayPort: 7840 },
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["http://127.0.0.1:7840/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("recovers the docker probe port from a loopback runtimeUrl", async () => {
+    // Docker hatch records the published gateway as a loopback runtimeUrl
+    // with no `resources` block.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            runtimeUrl: "http://localhost:7841",
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["http://127.0.0.1:7841/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("does not probe a non-loopback runtimeUrl", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            runtimeUrl: "http://192.0.2.10:7841",
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([]);
+  });
+
   test("does not change reachability when lockfile cannot be read", async () => {
     mockLockfileData = { ok: false };
 

@@ -299,6 +299,15 @@ export function useIsIOSWeb(): boolean {
   );
 }
 
+/** Android browser user who may be offered the native Android app. */
+export function useIsAndroidWeb(): boolean {
+  return useSyncExternalStore(
+    noop,
+    () => isAndroidBrowser() && !isNativePlatform(),
+    () => false,
+  );
+}
+
 /**
  * macOS web user who should see custom nudge surfaces.
  *

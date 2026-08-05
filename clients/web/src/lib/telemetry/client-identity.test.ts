@@ -65,6 +65,39 @@ function withNavigatorValues<T>(
   }
 }
 
+/**
+ * Swap `crypto.randomUUID` for the duration of `callback`, restoring the
+ * original descriptor afterwards. Pass `undefined` to model a non-secure
+ * context, where the property is absent entirely.
+ */
+async function withRandomUUID<T>(
+  implementation: (() => string) | undefined,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const cryptoObject = globalThis.crypto as unknown as {
+    randomUUID?: () => string;
+  };
+  const descriptor = Object.getOwnPropertyDescriptor(
+    cryptoObject,
+    "randomUUID",
+  );
+
+  Object.defineProperty(cryptoObject, "randomUUID", {
+    configurable: true,
+    value: implementation,
+    writable: true,
+  });
+  try {
+    return await callback();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(cryptoObject, "randomUUID", descriptor);
+    } else {
+      delete cryptoObject.randomUUID;
+    }
+  }
+}
+
 describe("client-identity", () => {
   test("getClientId returns a UUID", async () => {
     const mod = await freshImport();
@@ -91,6 +124,34 @@ describe("client-identity", () => {
     const b = await freshImport();
 
     expect(a.getClientId()).not.toBe(b.getClientId());
+  });
+
+  test("getClientId prefers the native UUID when crypto.randomUUID is available", async () => {
+    const NATIVE_UUID = "00000000-0000-4000-8000-000000000001";
+    await withRandomUUID(
+      () => NATIVE_UUID,
+      async () => {
+        const mod = await freshImport();
+        expect(mod.getClientId()).toBe(NATIVE_UUID);
+      },
+    );
+  });
+
+  test("getClientId returns a stable id when crypto.randomUUID is unavailable", async () => {
+    // Non-secure contexts (plain-http LAN dev, self-hosted over http) expose
+    // no `crypto.randomUUID`. Throwing here would break every telemetry
+    // family and the client-registration headers, so the id falls back.
+    await withRandomUUID(undefined, async () => {
+      const mod = await freshImport();
+      const first = mod.getClientId();
+
+      expect(typeof first).toBe("string");
+      expect(first).not.toBe("");
+      expect(mod.getClientId()).toBe(first);
+      expect(mod.getClientRegistrationHeaders()["X-Vellum-Client-Id"]).toBe(
+        first,
+      );
+    });
   });
 
   test("does not read from sessionStorage", async () => {

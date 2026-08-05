@@ -154,6 +154,7 @@ import {
 } from "./conversation-surfaces.js";
 import type {
   SubagentToolGateMode,
+  SubagentToolStats,
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
@@ -274,8 +275,8 @@ export interface ConversationConstructorOptions {
    * Give this conversation's LLM calls provider-native (server-side) web
    * search when the resolved provider supports it (see
    * {@link AgentLoopConfig.enableNativeWebSearch}). Set by the subagent manager
-   * for the tool-less advisor consult so it can ground guidance with live web
-   * access; non-native providers get nothing. Defaults to false.
+   * for the advisor consult so it can ground guidance with live web access;
+   * non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
   /**
@@ -359,6 +360,20 @@ export class Conversation {
    * @internal
    */
   subagentDeniedToolNames = new Set<string>();
+  /**
+   * Machine tool-call counters for this conversation when it runs as a
+   * subagent child. Recorded by the tool executor (gated on {@link isSubagent},
+   * so parent conversations never accumulate anything here) and harvested by
+   * the SubagentManager into the child's state when the run ends, where it
+   * becomes the stats footer on the parent's completion notification and on
+   * `subagent_read`. Ephemeral, never persisted.
+   * @internal
+   */
+  subagentToolStats: SubagentToolStats = {
+    calls: 0,
+    succeeded: 0,
+    filesWritten: new Set<string>(),
+  };
   /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
@@ -480,6 +495,14 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /**
+   * The firing's `cron_runs.id` when a schedule triggered the current turn.
+   * Exposed on the live conversation so the tool context can forward it to
+   * delegated LLM work (subagent spawns and messages), whose usage rows then
+   * attribute to the same firing.
+   * @internal
+   */
+  currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;

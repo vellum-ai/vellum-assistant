@@ -1,8 +1,13 @@
 import { join } from "path";
 
-import { resolveAssistant, type AssistantEntry } from "../lib/assistant-config";
+import {
+  formatAssistantReference,
+  loadAllAssistants,
+  resolveTargetAssistant,
+  type AssistantEntry,
+} from "../lib/assistant-config";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
-import { GATEWAY_PORT } from "../lib/constants.js";
 import {
   getDefaultWorkspaceDir,
   saveNgrokDomain,
@@ -15,6 +20,7 @@ import {
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
+import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -28,9 +34,10 @@ interface TunnelArgs {
   clearDomain: boolean;
 }
 
+const FLAGS_WITH_VALUES = ["--provider", "--domain"] as const;
+
 function parseArgs(): TunnelArgs {
   const args = process.argv.slice(3);
-  let assistantName: string | null = null;
   let provider: TunnelProvider = DEFAULT_PROVIDER;
   let domain: string | null = null;
   let clearDomain = false;
@@ -142,13 +149,13 @@ function parseArgs(): TunnelArgs {
     } else if (arg.startsWith("-")) {
       console.error(`Error: Unknown option '${arg}'.`);
       process.exit(1);
-    } else if (!assistantName) {
-      assistantName = arg;
-    } else {
-      console.error(`Error: Unexpected argument '${arg}'.`);
-      process.exit(1);
     }
   }
+
+  // Joins all positionals so unquoted multi-word display names resolve as one
+  // identifier (cli/AGENTS.md "Assistant targeting convention").
+  const assistantName =
+    parseAssistantTargetArg(args, FLAGS_WITH_VALUES) ?? null;
 
   if (domain && provider !== "ngrok") {
     console.error(
@@ -174,42 +181,96 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider, domain, clearDomain };
 }
 
-function parsePortFromUrl(url: unknown): number | undefined {
-  if (typeof url !== "string" || !url.trim()) return undefined;
-  try {
-    const port = Number(new URL(url).port);
-    return Number.isInteger(port) && port > 0 && port <= 65535
-      ? port
-      : undefined;
-  } catch {
-    return undefined;
-  }
+/** A tunnelable assistant plus the gateway port and workspace the edge fronts. */
+interface LocalTunnelTarget {
+  entry: AssistantEntry;
+  gatewayPort: number;
+  workspaceDir: string;
 }
 
-function resolveEntryGatewayPort(entry: AssistantEntry): number {
-  return (
-    entry.resources?.gatewayPort ??
-    parsePortFromUrl(entry.localUrl) ??
-    parsePortFromUrl(entry.runtimeUrl) ??
-    GATEWAY_PORT
-  );
+/** Container topologies whose gateway runs on this machine without host `resources`. */
+function isLocalContainerEntry(entry: AssistantEntry): boolean {
+  return entry.cloud === "docker" || entry.cloud === "apple-container";
+}
+
+/**
+ * Map an entry to its local tunnel target, or null when it has no locally
+ * reachable gateway (e.g. platform-hosted). Entries with `resources` carry
+ * their own gateway port and instance workspace. Local container entries
+ * (docker, apple-container) run locally without host resources: their gateway
+ * port comes from localUrl/runtimeUrl and their ingress state lives in the
+ * default workspace, matching the `vellum nginx-ingress` resolution for the
+ * same topology.
+ */
+function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
+  if (entry.resources) {
+    return {
+      entry,
+      gatewayPort: entry.resources.gatewayPort,
+      workspaceDir: join(entry.resources.instanceDir, ".vellum", "workspace"),
+    };
+  }
+  if (isLocalContainerEntry(entry)) {
+    const gatewayPort = parseGatewayPortFromEntryUrls(entry);
+    if (gatewayPort !== undefined) {
+      return { entry, gatewayPort, workspaceDir: getDefaultWorkspaceDir() };
+    }
+  }
+  return null;
+}
+
+function describeUntunnelableEntry(entry: AssistantEntry): string {
+  const reference = formatAssistantReference(entry);
+  return entry.cloud === "vellum"
+    ? `Assistant '${reference}' runs on Vellum Cloud and needs no tunnel.`
+    : `Assistant '${reference}' has no locally managed runtime to tunnel.`;
+}
+
+/**
+ * Resolve the assistant whose gateway and workspace the tunnel edge fronts.
+ * Tunnels only make sense for assistants with a local gateway; when the
+ * resolved entry has none (e.g. the active assistant is platform-hosted) and
+ * no name was given, fall back to the sole local target, otherwise exit with
+ * an error naming the local assistants to pass explicitly.
+ */
+function resolveLocalTunnelTarget(
+  assistantName: string | null,
+): LocalTunnelTarget {
+  const entry = resolveTargetAssistant(assistantName ?? undefined);
+
+  const target = toLocalTunnelTarget(entry);
+  if (target) {
+    return target;
+  }
+
+  const localTargets = loadAllAssistants()
+    .map(toLocalTunnelTarget)
+    .filter((local): local is LocalTunnelTarget => local !== null);
+
+  if (!assistantName && localTargets.length === 1) {
+    console.log(
+      `${describeUntunnelableEntry(entry)} Tunneling the local assistant '${formatAssistantReference(localTargets[0].entry)}' instead.`,
+    );
+    return localTargets[0];
+  }
+
+  console.error(describeUntunnelableEntry(entry));
+  if (localTargets.length === 0) {
+    console.error(
+      "No local assistant found to tunnel. Run `vellum hatch` first.",
+    );
+  } else {
+    console.error(
+      `Pass a local assistant as the name argument: ${localTargets
+        .map((local) => formatAssistantReference(local.entry))
+        .join(", ")}.`,
+    );
+  }
+  process.exit(1);
 }
 
 export async function tunnel(): Promise<void> {
   const { assistantName, provider, domain, clearDomain } = parseArgs();
-
-  const entry = resolveAssistant(assistantName ?? undefined);
-
-  if (!entry) {
-    if (assistantName) {
-      console.error(
-        `No assistant instance found with name '${assistantName}'.`,
-      );
-    } else {
-      console.error("No assistant instance found. Run `vellum hatch` first.");
-    }
-    process.exit(1);
-  }
 
   if (provider === "vellum") {
     throw new Error(
@@ -218,11 +279,8 @@ export async function tunnel(): Promise<void> {
     );
   }
 
-  const resources = entry.resources;
-  const gatewayPort = resolveEntryGatewayPort(entry);
-  const workspaceDir = resources
-    ? join(resources.instanceDir, ".vellum", "workspace")
-    : getDefaultWorkspaceDir();
+  const { entry, gatewayPort, workspaceDir } =
+    resolveLocalTunnelTarget(assistantName);
 
   if (clearDomain) {
     saveNgrokDomain(workspaceDir, null);
