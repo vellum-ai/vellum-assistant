@@ -269,16 +269,17 @@ export function createAdapterFromConnection(
   // would leak internal Vellum metadata, so gate on the managed connection
   // identity, the only route that flows through our proxy.
   const isManagedProxy = isVellumManagedConnection(connection);
+  const effectiveAuth = effectiveConnectionAuth(connection);
   return new UsageTrackingProvider(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isManagedProxy,
       credentialSource: isManagedProxy
         ? "vellum-managed"
-        : connection.auth.type === "api_key"
+        : effectiveAuth.type === "api_key"
           ? "byok"
-          : connection.auth.type === "oauth_subscription"
+          : effectiveAuth.type === "oauth_subscription"
             ? "oauth-subscription"
-            : connection.auth.type === "none"
+            : effectiveAuth.type === "none"
               ? "no-auth"
               : undefined,
       connectionName: connection.name,
@@ -324,7 +325,8 @@ function buildConnectionAdapter(
       : undefined;
 
   const codexSubscription =
-    connection.auth.type === "oauth_subscription" && provider === "openai";
+    effectiveConnectionAuth(connection).type === "oauth_subscription" &&
+    provider === "openai";
 
   const adapter = buildProviderAdapter(provider, {
     apiKey,
