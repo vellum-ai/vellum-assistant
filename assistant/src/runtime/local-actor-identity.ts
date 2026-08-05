@@ -104,7 +104,7 @@ export async function warmLocalGuardianPrincipalCache(): Promise<void> {
  * Reads the same gateway-owned binding as the async path via a sync, IO-free
  * snapshot of the guardian-delivery cache, so SSE registers the SAME
  * principal the send/result routes resolve. Returns `undefined` on a cold or
- * expired cache — there is no fallback fetch; the SSE route compensates by
+ * expired cache (there is no fallback fetch); the SSE route compensates by
  * resolving async after subscribe and filling the hub record
  * (`fillClientActorPrincipalId`).
  */
