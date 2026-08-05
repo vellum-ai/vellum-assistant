@@ -9,9 +9,10 @@
  *    epoch bump, watchdog rescue telemetry).
  * 3. `sse.closed` → end the in-flight turn, kick the reachability
  *    probe so the burst-limiter below can take over.
- * 4. `reachabilityPhase` → `reachabilityBurstLimiter` (3-burst /
- *    10s window retry budget; on success publishes
- *    `reachability.retry-requested` so the bus bounces its SSE).
+ * 4. `reachabilityPhase` → `reachabilityBurstLimiter` on recovery
+ *    into `"ready"` (3-burst / 10s window retry budget; on success
+ *    publishes `reachability.retry-requested` so the bus bounces its
+ *    SSE).
  *
  * Bus subscriptions use `useBusSubscription` per EVENT_BUS.md. The
  * stream-context lifecycle (setup / teardown of the stream-store
@@ -354,8 +355,25 @@ export function useEventStream({
   // phase. The limiter publishes `reachability.retry-requested` on
   // success so the bus bounces its SSE; `reconcileOnReopen` runs the
   // post-reconnect reconcile on the resulting `sse.opened`.
+  //
+  // Only a `"ready"` reached from `"connecting"` / `"checking"` is a
+  // recovery. A `"ready"` entered from any other phase is a boot or
+  // remount confirmation over an already-healthy stream, and bouncing
+  // it costs a duplicate daemon connect plus the full non-fresh
+  // reconcile fan-out. Every other phase still reaches the limiter so
+  // its budget bookkeeping is unchanged.
   // --------------------------------------------------------------------------
+  const previousReachabilityPhaseRef = useRef(reachabilityPhase);
   useEffect(() => {
+    const previousPhase = previousReachabilityPhaseRef.current;
+    previousReachabilityPhaseRef.current = reachabilityPhase;
+    if (
+      reachabilityPhase === "ready" &&
+      previousPhase !== "connecting" &&
+      previousPhase !== "checking"
+    ) {
+      return;
+    }
     burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);
   }, [reachabilityPhase]);
 
