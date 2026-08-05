@@ -1871,6 +1871,83 @@ describe("POST /schedules/reassign-profile", () => {
     ).toBe(untouchedBefore);
   });
 
+  test("omitting from leaves fired and cancelled one-shots alone", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    const fired = await createSchedule({
+      name: "Already fired",
+      description: "Already fired",
+      message: "hi",
+      nextRunAt: Date.now() - 60_000,
+      inferenceProfile: "cost-optimized",
+    });
+    const cancelled = await createSchedule({
+      name: "Cancelled",
+      description: "Cancelled",
+      message: "hi",
+      nextRunAt: Date.now() + 60_000,
+      inferenceProfile: "cost-optimized",
+    });
+    rawRun(
+      "test:setTerminalScheduleStatuses",
+      "UPDATE cron_jobs SET status = CASE id WHEN ? THEN 'fired' ELSE 'cancelled' END WHERE id IN (?, ?)",
+      fired.id,
+      fired.id,
+      cancelled.id,
+    );
+    const live = await createSchedule({
+      name: "Still running",
+      description: "Still running",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    const byId = new Map(listSchedules().map((job) => [job.id, job]));
+    const firedBefore = byId.get(fired.id)!.updatedAt;
+    const cancelledBefore = byId.get(cancelled.id)!.updatedAt;
+
+    const result = (await reassignRoute().handler({
+      body: { to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    // Their profile is history, so counting them would report a bigger move
+    // than the user was shown.
+    expect(result.reassigned).toBe(1);
+    const after = new Map(listSchedules().map((job) => [job.id, job]));
+    expect(after.get(live.id)!.inferenceProfile).toBe(resolvedDefault!);
+    expect(after.get(fired.id)!.inferenceProfile).toBe("cost-optimized");
+    expect(after.get(cancelled.id)!.inferenceProfile).toBe("cost-optimized");
+    expect(after.get(fired.id)!.updatedAt).toBe(firedBefore);
+    expect(after.get(cancelled.id)!.updatedAt).toBe(cancelledBefore);
+  });
+
+  test("an explicit from still sweeps a fired one-shot's dangling pin", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    const fired = await createSchedule({
+      name: "Already fired",
+      description: "Already fired",
+      message: "hi",
+      nextRunAt: Date.now() - 60_000,
+      inferenceProfile: "cost-optimized",
+    });
+    rawRun(
+      "test:setFiredScheduleStatus",
+      "UPDATE cron_jobs SET status = 'fired' WHERE id = ?",
+      fired.id,
+    );
+
+    // Deleting a profile has to clear every row naming it, including rows that
+    // will never fire again: the pin is what the delete is removing.
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(1);
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+
   test("omitting from still refuses a non-owner caller when a wake row would move", async () => {
     const resolvedDefault = resolveDefaultScheduleInferenceProfile();
     await createSchedule({

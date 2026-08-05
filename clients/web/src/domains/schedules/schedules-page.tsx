@@ -207,9 +207,7 @@ export function SchedulesPage() {
       pastOpen={pastSchedulesOpen}
       onPastOpenChange={setPastSchedulesOpen}
       onRebaseProfiles={
-        profileRebase.offDefaultCount > 0
-          ? profileRebase.requestRebase
-          : undefined
+        profileRebase.canRebase ? profileRebase.requestRebase : undefined
       }
       defaultProfileLabel={profileRebase.defaultProfileLabel ?? undefined}
       systemTasksSlot={

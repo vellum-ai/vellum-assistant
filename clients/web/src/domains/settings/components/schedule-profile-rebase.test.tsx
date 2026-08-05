@@ -78,11 +78,24 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 
 const { ScheduleProfileRebaseDialog, useScheduleProfileRebase } =
   await import("./schedule-profile-rebase");
+const { MIN_VERSION } =
+  await import("@/lib/backwards-compat/use-supports-schedule-profile-moves");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 type RebaseSchedule = Parameters<typeof useScheduleProfileRebase>[1][number];
 
-function schedule(id: string, inferenceProfile: string | null) {
-  return { id, name: id, inferenceProfile } as unknown as RebaseSchedule;
+function schedule(
+  id: string,
+  inferenceProfile: string | null,
+  status: string = "active",
+) {
+  return {
+    id,
+    name: id,
+    inferenceProfile,
+    status,
+  } as unknown as RebaseSchedule;
 }
 
 const SCHEDULES = [
@@ -103,6 +116,7 @@ function Harness({ schedules = SCHEDULES }: { schedules?: RebaseSchedule[] }) {
         request
       </button>
       <span data-testid="off-default">{rebase.offDefaultCount}</span>
+      <span data-testid="can-rebase">{String(rebase.canRebase)}</span>
       <span data-testid="label">{rebase.defaultProfileLabel ?? ""}</span>
       <ScheduleProfileRebaseDialog {...rebase.dialogProps} />
     </>
@@ -135,6 +149,8 @@ function renderedText(): string {
 }
 
 beforeEach(() => {
+  // The bulk move needs an assistant carrying the reassign route.
+  useAssistantIdentityStore.getState().setIdentity("asst-1", MIN_VERSION);
   reassignBodies = [];
   reassignedCount = 2;
   reassignFails = false;
@@ -145,6 +161,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 describe("useScheduleProfileRebase", () => {
@@ -163,6 +180,83 @@ describe("useScheduleProfileRebase", () => {
     expect(
       document.querySelector('[data-testid="off-default"]')?.textContent,
     ).toBe("2");
+    expect(
+      document.querySelector('[data-testid="can-rebase"]')?.textContent,
+    ).toBe("true");
+  });
+
+  test("schedules that already fired or were cancelled are not counted", async () => {
+    render(
+      <Wrapper>
+        <Harness
+          schedules={[
+            schedule("fired-one", "thrifty", "fired"),
+            schedule("cancelled-one", "thrifty", "cancelled"),
+            schedule("live-one", "thrifty"),
+          ]}
+        />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[data-testid="label"]')?.textContent).toBe(
+        "Quality",
+      );
+    });
+    // Their profile is history; the daemon leaves them alone, so offering them
+    // would promise a bigger move than the one that comes back.
+    expect(
+      document.querySelector('[data-testid="off-default"]')?.textContent,
+    ).toBe("1");
+  });
+
+  test("the action is withheld when every schedule is already dead", async () => {
+    render(
+      <Wrapper>
+        <Harness
+          schedules={[
+            schedule("fired-one", "thrifty", "fired"),
+            schedule("cancelled-one", "thrifty", "cancelled"),
+          ]}
+        />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[data-testid="label"]')?.textContent).toBe(
+        "Quality",
+      );
+    });
+    expect(
+      document.querySelector('[data-testid="can-rebase"]')?.textContent,
+    ).toBe("false");
+  });
+
+  // An assistant older than the reassign route requires `from` and answers a
+  // blanket move with a 400, so the action must not be offered at all.
+  test("the action is withheld on an assistant without the reassign route", async () => {
+    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.2");
+    render(
+      <Wrapper>
+        <Harness />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[data-testid="label"]')?.textContent).toBe(
+        "Quality",
+      );
+    });
+    expect(
+      document.querySelector('[data-testid="off-default"]')?.textContent,
+    ).toBe("2");
+    expect(
+      document.querySelector('[data-testid="can-rebase"]')?.textContent,
+    ).toBe("false");
+
+    // Even if the confirm is requested directly, the dialog stays shut.
+    clickByText("request");
+    await waitFor(() => {
+      expect(confirmButton()).toBeNull();
+    });
+    expect(reassignBodies).toHaveLength(0);
   });
 
   test("requesting the rebase confirms first and moves nothing", async () => {
