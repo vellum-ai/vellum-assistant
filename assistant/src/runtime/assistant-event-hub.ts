@@ -524,42 +524,6 @@ export class AssistantEventHub {
   }
 
   /**
-   * Fill in a client's `actorPrincipalId` when it registered without one.
-   * Returns the number of entries updated.
-   *
-   * SSE registration resolves the local guardian principal from an IO-free
-   * cache snapshot, because it must register before the response stream
-   * exists and cannot await. On a cold cache that read returns `undefined`,
-   * and the client stays registered with no principal for the life of the
-   * connection — invisible to every host proxy, which fails closed on a
-   * missing target principal, and indistinguishable from another user's
-   * client. This lets the SSE handler repair that once the async lookup
-   * lands, without forcing a reconnect.
-   *
-   * Deliberately fill-only: an entry that already carries a principal is
-   * never overwritten, so this can only complete an identity, never
-   * reassign one.
-   */
-  fillMissingClientActorPrincipalId(
-    clientId: string,
-    actorPrincipalId: string,
-  ): number {
-    let updated = 0;
-    for (const entry of this.subscribers) {
-      if (
-        entry.active &&
-        entry.type === "client" &&
-        entry.clientId === clientId &&
-        entry.actorPrincipalId === undefined
-      ) {
-        entry.actorPrincipalId = actorPrincipalId;
-        updated++;
-      }
-    }
-    return updated;
-  }
-
-  /**
    * Force-disconnect a client by disposing all subscribers for the given
    * `clientId`. Returns the number of disposed entries.
    *

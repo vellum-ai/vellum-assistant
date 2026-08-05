@@ -94,6 +94,13 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   assistantId?: string;
   currentRequestId?: string;
   workingDir: string;
+  /**
+   * The actor principal that owns the current turn (see
+   * {@link Conversation.getTurnActorPrincipalId}). Read per tool call to
+   * populate `ToolContext.sourceActorPrincipalId`, which host proxies compare
+   * against the principal a client registered with on its SSE stream.
+   */
+  getTurnActorPrincipalId(): string | undefined;
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;

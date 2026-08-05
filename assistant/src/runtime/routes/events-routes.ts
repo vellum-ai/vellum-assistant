@@ -42,10 +42,7 @@ import type { ReplaySubscriber } from "../assistant-stream-state.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
-import {
-  resolveActorPrincipalIdForLocalGuardian,
-  resolveActorPrincipalIdForLocalGuardianSync,
-} from "../local-actor-identity.js";
+import { resolveActorPrincipalIdForLocalGuardianSync } from "../local-actor-identity.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -448,41 +445,6 @@ export function handleSubscribeAssistantEvents(
     // Stamp the hub-assigned connection id so a later backpressure shed can be
     // tied back to this specific connection in logs.
     instrumentation.connectionId = sub.connectionId;
-
-    // The sync resolution above reads an IO-free cache snapshot because
-    // registration happens before the stream exists. When that cache is cold
-    // — a client connecting before the gateway's guardian binding has been
-    // read once — the client registers with no principal and stays that way
-    // for the whole connection: every host proxy fails closed on a missing
-    // target principal, so `assistant clients list` shows a healthy desktop
-    // that host_bash and computer use both refuse. Retry asynchronously and
-    // fill the gap in place rather than waiting for a reconnect.
-    if (clientId && interfaceId && actorPrincipalId == null) {
-      void resolveActorPrincipalIdForLocalGuardian(
-        rawActorPrincipalId?.trim() || undefined,
-      )
-        .then((resolved) => {
-          if (!resolved) {
-            return;
-          }
-          const filled = hub.fillMissingClientActorPrincipalId(
-            clientId,
-            resolved,
-          );
-          if (filled > 0) {
-            log.info(
-              { clientId, interfaceId, filled },
-              "backfilled client actor principal after cold guardian cache",
-            );
-          }
-        })
-        .catch((err) => {
-          log.warn(
-            { err, clientId },
-            "failed to backfill client actor principal",
-          );
-        });
-    }
   } catch (err) {
     if (err instanceof RangeError) {
       throw new ServiceUnavailableError("Too many concurrent connections");

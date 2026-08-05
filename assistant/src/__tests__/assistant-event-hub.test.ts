@@ -433,52 +433,6 @@ describe("AssistantEventHub — actorPrincipalId on ClientEntry", () => {
     const hub = new AssistantEventHub();
     expect(hub.getActorPrincipalIdForClient("does-not-exist")).toBeUndefined();
   });
-
-  test("fillMissingClientActorPrincipalId completes an absent principal", () => {
-    // A client that registered before the guardian binding was readable has
-    // no principal, so every host proxy fails closed against it for the life
-    // of the connection. The SSE handler repairs it once the async lookup
-    // lands rather than waiting for a reconnect.
-    const hub = new AssistantEventHub();
-    hub.subscribe({
-      type: "client" as const,
-      clientId: "client-cold-cache",
-      interfaceId: "macos",
-      capabilities: ["host_bash"],
-      callback: () => {},
-    });
-
-    expect(
-      hub.fillMissingClientActorPrincipalId("client-cold-cache", "user-A"),
-    ).toBe(1);
-    expect(hub.getActorPrincipalIdForClient("client-cold-cache")).toBe(
-      "user-A",
-    );
-  });
-
-  test("fillMissingClientActorPrincipalId never reassigns an existing principal", () => {
-    const hub = new AssistantEventHub();
-    hub.subscribe({
-      type: "client" as const,
-      clientId: "client-owned",
-      interfaceId: "macos",
-      capabilities: ["host_bash"],
-      actorPrincipalId: "user-A",
-      callback: () => {},
-    });
-
-    expect(
-      hub.fillMissingClientActorPrincipalId("client-owned", "user-B"),
-    ).toBe(0);
-    expect(hub.getActorPrincipalIdForClient("client-owned")).toBe("user-A");
-  });
-
-  test("fillMissingClientActorPrincipalId is a no-op for an unknown clientId", () => {
-    const hub = new AssistantEventHub();
-    expect(
-      hub.fillMissingClientActorPrincipalId("does-not-exist", "user-A"),
-    ).toBe(0);
-  });
 });
 
 // ── capabilityForMessageType — host-prefix routing ───────────────────────────
