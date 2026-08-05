@@ -35,6 +35,7 @@ import {
   getBundledBunPath,
   getCliBinPath,
 } from "./cli-installer";
+import { refreshLockfileNow } from "./lockfile-watcher";
 import { getSessionToken } from "./session-token-store";
 
 /**
@@ -335,9 +336,14 @@ export const installLocalMode = (): void => {
         return { ok: false, error: "Missing assistantId" };
       }
       const result = unpairAssistant(lockfilePaths, configDir, assistantId);
-      return result.ok
-        ? { ok: true, lockfile: result.lockfile }
-        : { ok: false, error: result.error };
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      // The paired-gateway forward resolves its allowlist from the watcher's
+      // snapshot; refresh it now so the unpaired entry is rejected in the
+      // same tick instead of after the next poll.
+      refreshLockfileNow();
+      return { ok: true, lockfile: result.lockfile };
     },
   );
 
@@ -407,12 +413,21 @@ export const installLocalMode = (): void => {
       } catch (err) {
         return { ok: false, status: 500, error: (err as Error).message };
       }
+      // Paired entries have no local daemon, so token-failure guidance must
+      // say re-pair rather than hatch/wake.
+      const lockfile = getLockfileData(lockfilePaths);
+      const paired =
+        lockfile.ok &&
+        lockfile.data.assistants.some(
+          (a) => a.assistantId === assistantId && a.cloud === "paired",
+        );
       return getGuardianAccessToken(
         assistantId,
         configDir,
         invocation,
         true,
         guardianTokenEnv,
+        { paired },
       );
     },
   );

@@ -57,12 +57,22 @@ export type TokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; status: number; error: string };
 
+export interface GuardianTokenOptions {
+  /**
+   * True when the entry was imported from another machine via `vellum pair`.
+   * A paired entry has no local daemon, so expired-refresh guidance points at
+   * re-pairing instead of `vellum hatch`/`vellum wake`.
+   */
+  paired?: boolean;
+}
+
 export function getGuardianAccessToken(
   assistantId: string,
   configDir: string,
   invocation: CliInvocation,
   isLoopback: boolean,
   env?: Record<string, string>,
+  options?: GuardianTokenOptions,
 ): Promise<TokenResult> {
   if (!isLoopback) {
     return Promise.resolve({ ok: false, status: 403, error: "Forbidden" });
@@ -92,7 +102,9 @@ export function getGuardianAccessToken(
     return Promise.resolve({
       ok: false,
       status: 401,
-      error: "Guardian token expired — re-run `vellum hatch` or `vellum wake`",
+      error: options?.paired
+        ? "Guardian token expired. Run `vellum pair` on the assistant's machine, then re-import it from the app's connect flow or with `vellum connect import`."
+        : "Guardian token expired. Re-run `vellum hatch` or `vellum wake`.",
     });
   }
 
