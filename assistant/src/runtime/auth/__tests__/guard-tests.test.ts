@@ -276,6 +276,7 @@ describe("scope profile contract", () => {
       "internal.write",
     ],
     local_v1: ["local.all"],
+    speech_relay_v1: ["speech.relay"],
     ui_page_v1: ["settings.read"],
   };
 
@@ -299,6 +300,7 @@ describe("scope profile contract", () => {
       "gateway_ingress_v1",
       "gateway_service_v1",
       "local_v1",
+      "speech_relay_v1",
       "ui_page_v1",
     ];
 

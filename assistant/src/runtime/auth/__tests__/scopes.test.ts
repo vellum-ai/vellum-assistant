@@ -64,6 +64,12 @@ describe("resolveScopeProfile", () => {
     expect(scopes.size).toBe(7);
   });
 
+  test("speech_relay_v1 includes only speech.relay (ATL-1033 least-privilege)", () => {
+    const scopes = resolveScopeProfile("speech_relay_v1");
+    expect(scopes.has("speech.relay")).toBe(true);
+    expect(scopes.size).toBe(1);
+  });
+
   test("local_v1 includes only local.all", () => {
     const scopes = resolveScopeProfile("local_v1");
     expect(scopes.has("local.all")).toBe(true);

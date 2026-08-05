@@ -39,8 +39,13 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
     "internal.write",
   ]),
   local_v1: new Set<Scope>(["local.all"]),
+  // Managed speech relay only (ATL-1033): the daemon's relay-dial token must
+  // not open any other edge-scoped route.
+  speech_relay_v1: new Set<Scope>(["speech.relay"]),
   ui_page_v1: new Set<Scope>(["settings.read"]),
 };
+
+const EMPTY_SCOPES: ReadonlySet<Scope> = new Set();
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -48,5 +53,9 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
 
 /** Resolve a scope profile name to its set of granted scopes. */
 export function resolveScopeProfile(profile: ScopeProfile): ReadonlySet<Scope> {
-  return PROFILE_SCOPES[profile];
+  // Claims come from JSON, so an unrecognized profile (e.g. minted by a newer
+  // peer) can reach this despite the type — resolve it to no scopes, not a
+  // TypeError in the caller.
+  const scopes: ReadonlySet<Scope> | undefined = PROFILE_SCOPES[profile];
+  return scopes ?? EMPTY_SCOPES;
 }
