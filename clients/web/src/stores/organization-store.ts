@@ -23,11 +23,25 @@ import { organizationsList } from "@/generated/api/sdk.gen";
 import type { OrganizationRead } from "@/generated/api/types.gen";
 import { subscribe } from "@/lib/event-bus";
 import { useAuthStore } from "@/stores/auth-store";
-import { hasLivePlatformSession } from "@/stores/session-status";
+import {
+  hasLivePlatformSession,
+  isSettledSessionRejection,
+} from "@/stores/session-status";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
 export type OrganizationStatus = "idle" | "loading" | "ready" | "error";
+
+/**
+ * How a fetch concluded. `"rejected"` is a settled session rejection from the
+ * platform (401/403/410): the request completed and the server refused the
+ * credentials. `"unavailable"` covers everything else that lands in the error
+ * path: transport failures, 5xx, and a user with no organizations.
+ */
+export type OrgFetchOutcome =
+  | { ok: true }
+  | { ok: false; kind: "rejected"; status: number }
+  | { ok: false; kind: "unavailable" };
 
 interface OrganizationState {
   organizations: OrganizationRead[];
@@ -42,10 +56,16 @@ interface OrganizationState {
   persistedOrganizationId: string | null;
   status: OrganizationStatus;
   error: string | null;
+  /**
+   * HTTP status of the last fetch that concluded with an error response;
+   * null while loading, after a success, and for failures with no
+   * completed response (transport errors).
+   */
+  lastErrorStatus: number | null;
 }
 
 interface OrganizationActions {
-  fetchOrganizations: () => Promise<void>;
+  fetchOrganizations: () => Promise<OrgFetchOutcome>;
   setCurrentOrganizationId: (organizationId: string) => void;
   clearOrganization: () => void;
 }
@@ -114,9 +134,10 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
   persistedOrganizationId: getStoredOrganizationId(),
   status: "idle",
   error: null,
+  lastErrorStatus: null,
 
   fetchOrganizations: async () => {
-    set({ status: "loading", error: null });
+    set({ status: "loading", error: null, lastErrorStatus: null });
 
     try {
       const result = await organizationsList();
@@ -132,22 +153,59 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
         setStoredOrganizationId(currentOrganizationId);
       }
 
+      // throwOnError is false, so an HTTP error surfaces as data-undefined
+      // with the completed Response alongside.
+      const failureStatus =
+        result.data === undefined ? (result.response?.status ?? null) : null;
+      const rejectionStatus =
+        failureStatus !== null &&
+        isSettledSessionRejection({ ok: false, status: failureStatus })
+          ? failureStatus
+          : null;
+
+      let error: string | null = null;
+      if (!currentOrganizationId) {
+        error =
+          rejectionStatus !== null
+            ? `Platform session was rejected (HTTP ${rejectionStatus}).`
+            : "No organization available for this user.";
+      }
+
+      // A settled rejection means the platform no longer honors the session
+      // this org id came from, so the persisted fallback must not keep
+      // stamping requests with a stale Vellum-Organization-Id. Transport and
+      // other failures keep the fallback (offline reloads still need it).
+      if (rejectionStatus !== null) {
+        clearStoredOrganizationId();
+      }
+      const persistedOrganizationId =
+        rejectionStatus !== null
+          ? null
+          : (currentOrganizationId ?? get().persistedOrganizationId);
+
       set({
         organizations,
         currentOrganizationId,
-        persistedOrganizationId:
-          currentOrganizationId ?? get().persistedOrganizationId,
+        persistedOrganizationId,
         status: currentOrganizationId ? "ready" : "error",
-        error: currentOrganizationId
-          ? null
-          : "No organization available for this user.",
+        error,
+        lastErrorStatus: failureStatus,
       });
+
+      if (currentOrganizationId) {
+        return { ok: true };
+      }
+      if (rejectionStatus !== null) {
+        return { ok: false, kind: "rejected", status: rejectionStatus };
+      }
+      return { ok: false, kind: "unavailable" };
     } catch (err) {
       const message =
         err instanceof Error && err.message
           ? err.message
           : "Failed to load organizations.";
       set({ status: "error", error: message });
+      return { ok: false, kind: "unavailable" };
     }
   },
 
@@ -173,6 +231,7 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
       persistedOrganizationId: null,
       status: "idle",
       error: null,
+      lastErrorStatus: null,
     });
   },
 }));

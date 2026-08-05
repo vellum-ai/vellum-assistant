@@ -214,6 +214,7 @@ beforeEach(() => {
   useOrganizationStore.setState({
     fetchOrganizations: async () => {
       fetchOrganizationsCalls += 1;
+      return { ok: true };
     },
   });
   upgradeRejects = false;

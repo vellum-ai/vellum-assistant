@@ -33,6 +33,7 @@ beforeEach(() => {
     persistedOrganizationId: null,
     status: "idle",
     error: null,
+    lastErrorStatus: null,
   });
 });
 
@@ -94,5 +95,96 @@ describe("the organization requests are scoped to", () => {
 
     expect(getActiveOrganizationIdForRequests()).toBeNull();
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("fetch outcome classification", () => {
+  test("a settled 403 concludes as a rejected session", async () => {
+    listOrganizations = () =>
+      Promise.resolve({
+        data: undefined,
+        error: { detail: "Authentication credentials were not provided." },
+        response: new Response(null, { status: 403 }),
+      });
+
+    const outcome = await useOrganizationStore.getState().fetchOrganizations();
+
+    expect(outcome).toEqual({ ok: false, kind: "rejected", status: 403 });
+    const state = useOrganizationStore.getState();
+    expect(state.status).toBe("error");
+    expect(state.lastErrorStatus).toBe(403);
+    expect(state.error).toBe("Platform session was rejected (HTTP 403).");
+  });
+
+  test("a rejection clears the persisted org id so stale headers stop", async () => {
+    sessionStorage.setItem(STORAGE_KEY, ORG_A.id);
+    useOrganizationStore.setState({ persistedOrganizationId: ORG_A.id });
+    listOrganizations = () =>
+      Promise.resolve({
+        data: undefined,
+        error: { detail: "Authentication credentials were not provided." },
+        response: new Response(null, { status: 403 }),
+      });
+
+    await useOrganizationStore.getState().fetchOrganizations();
+
+    expect(useOrganizationStore.getState().persistedOrganizationId).toBeNull();
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(getActiveOrganizationIdForRequests()).toBeNull();
+  });
+
+  test("a thrown fetch concludes as unavailable with no HTTP status", async () => {
+    listOrganizations = () => Promise.reject(new Error("network down"));
+
+    const outcome = await useOrganizationStore.getState().fetchOrganizations();
+
+    expect(outcome).toEqual({ ok: false, kind: "unavailable" });
+    const state = useOrganizationStore.getState();
+    expect(state.status).toBe("error");
+    expect(state.lastErrorStatus).toBeNull();
+    expect(state.error).toBe("network down");
+  });
+
+  test("a transport failure keeps the persisted org id for offline reloads", async () => {
+    sessionStorage.setItem(STORAGE_KEY, ORG_A.id);
+    useOrganizationStore.setState({ persistedOrganizationId: ORG_A.id });
+    listOrganizations = () => Promise.reject(new Error("network down"));
+
+    await useOrganizationStore.getState().fetchOrganizations();
+
+    expect(useOrganizationStore.getState().persistedOrganizationId).toBe(
+      ORG_A.id,
+    );
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
+  });
+
+  test("a 200 with no organizations concludes as unavailable", async () => {
+    listOrganizations = () =>
+      Promise.resolve({
+        data: { results: [] },
+        response: new Response(null, { status: 200 }),
+      });
+
+    const outcome = await useOrganizationStore.getState().fetchOrganizations();
+
+    expect(outcome).toEqual({ ok: false, kind: "unavailable" });
+    const state = useOrganizationStore.getState();
+    expect(state.status).toBe("error");
+    expect(state.lastErrorStatus).toBeNull();
+    expect(state.error).toBe("No organization available for this user.");
+  });
+
+  test("a successful fetch resets lastErrorStatus", async () => {
+    useOrganizationStore.setState({ lastErrorStatus: 403, status: "error" });
+    listOrganizations = () =>
+      Promise.resolve({ data: { results: [ORG_A] } });
+
+    const outcome = await useOrganizationStore.getState().fetchOrganizations();
+
+    expect(outcome).toEqual({ ok: true });
+    const state = useOrganizationStore.getState();
+    expect(state.status).toBe("ready");
+    expect(state.lastErrorStatus).toBeNull();
+    expect(state.error).toBeNull();
   });
 });
