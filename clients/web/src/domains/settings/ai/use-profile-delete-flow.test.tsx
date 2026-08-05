@@ -353,7 +353,7 @@ describe("profile delete flow - schedule scan", () => {
     await waitForDialog();
 
     expect(document.body.textContent).toContain(
-      "runs 1 schedule and 2 deferred reminders",
+      "runs 1 schedule and 2 reminders",
     );
     // Reminders share one generated name, so they are counted, never listed.
     expect(document.body.textContent).toContain("Morning digest");
@@ -368,7 +368,7 @@ describe("profile delete flow - schedule scan", () => {
     await clickDelete("My Custom");
     await waitForDialog();
 
-    expect(document.body.textContent).toContain("runs 1 deferred reminder");
+    expect(document.body.textContent).toContain("runs 1 reminder");
     expect(configPatchBodies.length).toBe(0);
 
     fireEvent.click(confirmButton());

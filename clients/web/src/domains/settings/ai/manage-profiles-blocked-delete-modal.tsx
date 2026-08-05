@@ -84,7 +84,7 @@ function buildSummary(blocked: BlockedDeleteState): string {
     runs.push(pluralize(blocked.scheduleNames.length, "schedule"));
   }
   if (blocked.deferredReminderCount > 0) {
-    runs.push(pluralize(blocked.deferredReminderCount, "deferred reminder"));
+    runs.push(pluralize(blocked.deferredReminderCount, "reminder"));
   }
   if (runs.length > 0) {
     uses.push(`runs ${joinClauses(runs)}`);
