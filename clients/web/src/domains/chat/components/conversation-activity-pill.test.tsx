@@ -7,7 +7,15 @@
  * the trigger claims, which rows it lists, and which of them may be stopped.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const isMobileRef = { value: false };
@@ -26,6 +34,9 @@ const {
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 
 const CONV = "conv-A";
 const OTHER = "conv-B";
@@ -260,6 +271,56 @@ describe("ConversationActivityPill: stop", () => {
     expect(
       row.querySelector('[data-testid="inline-process-card-stop"]'),
     ).toBeNull();
+  });
+});
+
+describe("ConversationActivityPill: detail demand", () => {
+  // The regression this pins: a finished row whose timeline was never
+  // streamed projects as "Loading" until fetched, and this panel has no fetch
+  // trigger of its own. The demand lives in `useSubagentCardData` (rendering
+  // a row IS the fetch trigger), so opening the panel must fetch, and the
+  // trigger chips alone must not.
+
+  test("opening the panel fetches timelines for finished rows that never streamed theirs", () => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+    spawnUnfetchedCompletedSubagent("sa-done");
+    const spy = spyOn(
+      useSubagentStore.getState(),
+      "fetchDetailIfNeeded",
+    ).mockImplementation(async () => {});
+
+    renderPill();
+    // The closed trigger renders avatar chips only: no card data, no fetch.
+    expect(spy).not.toHaveBeenCalled();
+
+    openPanel();
+    expect(spy).toHaveBeenCalledWith("assistant-1", "sa-done");
+
+    spy.mockRestore();
+    useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+  });
+
+  test("a finished row whose timeline is already loaded demands nothing", () => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+    spawnUnfetchedCompletedSubagent("sa-done");
+    useSubagentStore.getState().loadDetail({
+      subagentId: "sa-done",
+      events: [
+        { id: "sa-done-e1", type: "text", content: "did it", timestamp: T0 },
+      ],
+    });
+    const spy = spyOn(
+      useSubagentStore.getState(),
+      "fetchDetailIfNeeded",
+    ).mockImplementation(async () => {});
+
+    renderPill();
+    openPanel();
+
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
+    useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   });
 });
 

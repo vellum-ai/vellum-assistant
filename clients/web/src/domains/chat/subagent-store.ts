@@ -359,18 +359,6 @@ export interface SubagentActions {
   ) => Promise<void>;
 
   /**
-   * Fetch detail for every subagent in a spawn group, the handful the user
-   * just expanded, so their terminal cards can replace the loading state with
-   * their real timeline. Reads the active assistant from
-   * `useResolvedAssistantsStore` (same pattern as `abortSubagent` /
-   * `requestSubagentReconcile`). Fire-and-forget: `fetchDetailIfNeeded` dedups
-   * via `fetchedAt` and bails when events already exist, so calling it for
-   * already-loaded or still-active ids is a safe no-op. No-op when there's no
-   * active assistant.
-   */
-  fetchGroupDetail: (subagentIds: string[]) => void;
-
-  /**
    * Rebuild this conversation's subagent rows from the daemon's live
    * `subagents/reconcile` snapshot. Recovers subagents whose
    * `subagent_spawned` never reached this client, a mid-run reload, or an
@@ -1350,16 +1338,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentToolUseId: detail.parentToolUseId,
       conversationId: detail.conversationId,
     });
-  },
-
-  fetchGroupDetail: (subagentIds) => {
-    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!assistantId) {
-      return;
-    }
-    for (const id of subagentIds) {
-      void get().fetchDetailIfNeeded(assistantId, id);
-    }
   },
 
   reconcileFromDaemon: (
