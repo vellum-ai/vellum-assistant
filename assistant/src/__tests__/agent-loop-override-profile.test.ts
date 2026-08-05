@@ -1,16 +1,17 @@
 /**
  * Verifies that the per-turn `overrideProfile` plumbed into `AgentLoop.run()`
  * surfaces on every `SendMessageOptions.config` the loop emits, and that
- * `SubagentManager.spawn()` propagates an inherited `overrideProfile` from
- * its `SubagentConfig` into the subagent's `runAgentLoop()` call.
+ * `SubagentManager.spawn()` propagates an `overrideProfile` set on its
+ * `SubagentConfig` into the subagent's `runAgentLoop()` call.
  *
- * Together these two assertions establish the PR 6 contract: a parent
- * conversation that pins an inference profile sees that profile applied to
- * every LLM call within its agent-loop turn, and any subagent spawned during
- * that turn inherits the same profile automatically.
+ * Together these establish where a pinned profile does and does not travel: it
+ * applies to every LLM call within the pinning conversation's own turn, and it
+ * stops at the spawn boundary. `executeSubagentSpawn` sets `overrideProfile`
+ * on the `SubagentConfig` only for a profile named explicitly on the spawn, so
+ * the propagation above carries a caller's choice rather than a parent's pin.
  *
- * Default behavior (no `overrideProfile` set) must remain unchanged — the
- * field is omitted from `providerConfig` rather than carrying `undefined`.
+ * With no `overrideProfile` set, the field is omitted from `providerConfig`
+ * rather than carrying `undefined`.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -183,7 +184,7 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
   });
 });
 
-// ── Subagent inheritance ─────────────────────────────────────────────────
+// ── Subagent profile forwarding ──────────────────────────────────────────
 
 // Capture the SubagentManager → Conversation handshake so we can verify the
 // `overrideProfile` from `SubagentConfig` is forwarded into the spawned
@@ -329,7 +330,7 @@ seedLlmConfig();
 
 import { SubagentManager } from "../subagent/manager.js";
 
-describe("SubagentManager.spawn — overrideProfile inheritance", () => {
+describe("SubagentManager.spawn: forwards a configured overrideProfile", () => {
   test("forwards overrideProfile from SubagentConfig into runAgentLoop", async () => {
     capturedRunAgentLoopOptions.length = 0;
 
@@ -344,9 +345,9 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
       () => {},
     );
 
-    // The spawned subagent's runAgentLoop must receive both the
-    // `subagentSpawn` callSite (existing behavior) and the inherited
-    // `overrideProfile` (new behavior).
+    // The spawned subagent's runAgentLoop receives the `subagentSpawn`
+    // callSite and whatever `overrideProfile` the config carries, which
+    // `executeSubagentSpawn` sets only for an explicitly named profile.
     expect(capturedRunAgentLoopOptions).toHaveLength(1);
     const captured = capturedRunAgentLoopOptions[0];
     expect(captured.callSite).toBe("subagentSpawn");
@@ -399,21 +400,18 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
   });
 });
 
-// ── Nested subagent spawn — context.overrideProfile preferred ────────────
+// ── Nested subagent spawn: no profile crosses the boundary ───────────────
 
-// Verify the third-level inheritance contract: when a subagent's agent loop
-// is running with `currentTurnOverrideProfile`, the executor closure plumbs
-// that value into `ToolContext.overrideProfile`. `executeSubagentSpawn` must
-// then prefer `context.overrideProfile` over a row read against the in-flight
-// subagent's own conversationId — that row never has `inferenceProfile` set,
-// and `getConversationOverrideProfile` short-circuits for background
-// conversations regardless. Without preferring the in-memory context, the
-// inheritance chain breaks at the second nesting level.
+// When a subagent's agent loop is running under a turn profile, the executor
+// closure plumbs that value into `ToolContext.overrideProfile`. That value
+// describes the spawning turn, so `executeSubagentSpawn` leaves it behind: a
+// child resolves the `subagentSpawn` call site on its own, and a forwarded
+// override would both re-price the child and file its spend as a pin nobody
+// set. These tests cover the nesting levels where a profile could otherwise
+// compound down a chain of children.
 
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
-  // Always return undefined for the row read so the test fails fast unless
-  // executeSubagentSpawn reads from context.overrideProfile first.
   getConversationOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
