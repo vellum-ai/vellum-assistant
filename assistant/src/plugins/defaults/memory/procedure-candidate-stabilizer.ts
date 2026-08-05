@@ -243,9 +243,10 @@ function validateCitedEvidence(
         }
         continue;
       }
-      // guard:allow-tool-result-only: outcome evidence for a locally executed
-      // step; a server-side web_search_tool_result carries no is_error flag
-      // and never corresponds to an executed procedure step.
+      // Outcome evidence for a locally executed step. A server-side
+      // web_search_tool_result carries no is_error flag and never corresponds
+      // to a procedure step the conversation executed, so it is correctly
+      // excluded here. guard:allow-tool-result-only
       if (
         msg.role === "user" &&
         b.type === "tool_result" &&
