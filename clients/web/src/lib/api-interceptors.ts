@@ -58,10 +58,11 @@ import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, whenPlatformSessionSettled } from "@/stores/auth-store";
 import {
   hasLivePlatformSession,
   isAuthenticated,
+  isPlatformSessionSettled,
   isSettledSessionRejection,
 } from "@/stores/session-status";
 import { routes } from "@/utils/routes";
@@ -632,6 +633,67 @@ function clearPlatformAuthRedirectBudget(): void {
   }
 }
 
+/**
+ * Cooldown + attempt budget for the recovery re-probe itself, mirroring the
+ * local-gateway 401 pattern above. The in-memory latch only serializes
+ * concurrent rejections within one cycle; against a platform that rejects
+ * every request, each released latch would otherwise start the next cycle
+ * immediately and without bound. The cooldown spaces cycles and the budget
+ * stops them; a platform 2xx through this client restores both, and quitting
+ * the app grants a fresh budget (sessionStorage).
+ */
+const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
+const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
+const PLATFORM_RECOVERY_COOLDOWN_MS = 600_000;
+const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
+
+/**
+ * Spend one recovery attempt. False when the budget is exhausted, when the
+ * last attempt was inside the cooldown window, or when sessionStorage is
+ * unavailable so an uncountable environment fails closed (no recovery).
+ */
+function claimPlatformRecoveryAttempt(): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_RECOVERY_MAX_ATTEMPTS) {
+      return false;
+    }
+    const lastAttempt = sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY);
+    if (
+      lastAttempt &&
+      Date.now() - Number(lastAttempt) < PLATFORM_RECOVERY_COOLDOWN_MS
+    ) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_RECOVERY_AT_KEY, String(Date.now()));
+    sessionStorage.setItem(
+      PLATFORM_RECOVERY_ATTEMPTS_KEY,
+      String(attempts + 1),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore the recovery budget. Unlike the redirect budget this is not gated
+ * on a confirmed session: the budget paces re-probes, not navigations, so the
+ * worst an anonymous 2xx buys is one more cooldown-spaced probe cycle. The
+ * loop's own requests are all rejections, so it can never refill itself.
+ */
+function clearPlatformRecoveryBudget(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
+}
+
 async function recoverFromPlatformSessionRejection(): Promise<void> {
   try {
     // Authoritative re-probe. `refreshSession` calls `getSession()` and only
@@ -641,6 +703,11 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
+    // In gateway-auth mode `refreshSession` fire-and-forgets the
+    // platform-session probe and returns while the probe's own platform
+    // requests are still in flight. Hold the latch until the probe settles
+    // so those requests' rejections cannot each start a new recovery cycle.
+    await whenPlatformSessionSettled();
     if (
       !isAuthenticated(useAuthStore.getState().sessionStatus) &&
       claimPlatformAuthRedirect()
@@ -669,10 +736,12 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * authenticated (excludes boot probes and the already-logged-out login flow,
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
- * {@link localGatewayAuthRecoveryInterceptor}.
+ * {@link localGatewayAuthRecoveryInterceptor}. A settled-absent platform
+ * session also no-ops (nothing to recover), and each re-probe cycle spends
+ * from the cooldown-spaced attempt budget above.
  *
- * A platform request that succeeds against a confirmed session restores the
- * redirect budget.
+ * A platform request that succeeds restores the recovery budget; one that
+ * succeeds against a confirmed session also restores the redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
   const ingressUrl = getSelfHostedIngressUrl();
@@ -680,13 +749,15 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
     !!ingressUrl && response.url.startsWith(ingressUrl);
 
   if (response.ok) {
-    // A working self-hosted gateway says nothing about the platform session,
-    // and neither does a route the platform serves anonymously.
-    if (
-      !fromSelfHostedGateway &&
-      hasLivePlatformSession(useAuthStore.getState().platformSession)
-    ) {
-      clearPlatformAuthRedirectBudget();
+    // A working self-hosted gateway says nothing about the platform session.
+    if (!fromSelfHostedGateway) {
+      clearPlatformRecoveryBudget();
+      // The redirect budget stays gated on a confirmed session: the platform
+      // serves some routes anonymously, so a 2xx alone does not prove the
+      // session works.
+      if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+        clearPlatformAuthRedirectBudget();
+      }
     }
     return response;
   }
@@ -699,10 +770,23 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (platformAuthRecoveryFired) {
     return response;
   }
-  if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+  const { sessionStatus, platformSession } = useAuthStore.getState();
+  if (!isAuthenticated(sessionStatus)) {
     return response;
   }
   if (fromSelfHostedGateway) {
+    return response;
+  }
+  // A session already settled as not-live has nothing to recover; a re-probe
+  // would only repeat the answer. Keeps stray platform 403s after logout (or
+  // after the probe settled this rejection to "absent") inert.
+  if (
+    isPlatformSessionSettled(platformSession) &&
+    !hasLivePlatformSession(platformSession)
+  ) {
+    return response;
+  }
+  if (!claimPlatformRecoveryAttempt()) {
     return response;
   }
 
