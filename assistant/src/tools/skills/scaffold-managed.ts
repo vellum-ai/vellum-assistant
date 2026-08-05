@@ -7,6 +7,10 @@ import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refres
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
+import {
+  EXISTING_SKILL_THRESHOLD,
+  nearestExistingSkills,
+} from "../../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
@@ -66,13 +70,135 @@ function normalizeOptionalStringArray(
   return { value: normalized.length > 0 ? normalized : undefined };
 }
 
+/** Watchdog check_name for the retrospective dedup counter. */
+const SKILL_DEDUP_CHECK_NAME = "skill_dedup";
+
+/**
+ * Count a dedup decision (admin analytics groups on the watchdog check_name).
+ * The rate of `updated` versus `covered` versus total retrospective authoring
+ * is the first signal we have for how much duplication the catalog was
+ * absorbing. Skill ids stay out of the detail bag: they derive from
+ * user/model content, and watchdog events are metadata-only. Never throws.
+ */
+function recordDedupOutcome(outcome: "updated" | "covered"): void {
+  try {
+    recordWatchdogEvent({
+      checkName: SKILL_DEDUP_CHECK_NAME,
+      value: 1,
+      detail: { outcome },
+    });
+  } catch {
+    // recordWatchdogEvent already no-ops on opt-out and a missing telemetry
+    // DB; anything past that is not worth surfacing here.
+  }
+}
+
+/**
+ * What the similarity check says a retrospective write should do.
+ *
+ * `proceed` means no existing skill confidently covers the procedure (or the
+ * matcher had nothing usable to say), so the call creates the id it proposed.
+ */
+type DedupOutcome =
+  | { kind: "proceed" }
+  | { kind: "update"; skillId: string }
+  | { kind: "covered"; skillId: string; source: string };
+
+/**
+ * Ask the skill matcher whether an existing skill already covers this
+ * procedure, and enforce the answer.
+ *
+ * The retrospective's instructions already tell it to run this check and act
+ * on it; until now nothing verified that it did, so a pass could author a
+ * near-duplicate of a bundled skill (or a second copy of its own skill) just
+ * by choosing a different `skill_id`. That is how one conversation ended up
+ * producing two competing skills: an intermediate conclusion, then its own
+ * correction captured as a sibling instead of a revision.
+ *
+ * The rule follows ownership, which is the same rule the prompt states:
+ *
+ *   - a confident match on a skill the assistant authored is the SAME
+ *     procedure, so the write is redirected onto that skill as an update. No
+ *     sibling, and a later correction lands on the skill it corrects;
+ *   - a confident match on any skill the assistant does not own (bundled,
+ *     plugin, workspace, extra, user-authored, or untagged managed) means the
+ *     procedure is already covered, so the write is refused. Nothing is
+ *     mutated and nothing is shadowed.
+ *
+ * Deliberately FAIL-OPEN. This is best-effort deduplication, not a
+ * correctness gate: an embedding or Qdrant outage makes
+ * {@link nearestExistingSkills} return an empty shortlist, and the right
+ * trade there is to let the skill be written (a duplicate is recoverable and
+ * cheap to merge later) rather than to lose the capture entirely. An
+ * unclassifiable hit is treated the same way.
+ */
+async function resolveRetrospectiveDedup(
+  description: string,
+  deps: {
+    findNearest?: typeof nearestExistingSkills;
+    loadCatalog?: () => { id: string; source: SkillSource }[];
+    managedSkillExists?: (skillId: string) => boolean;
+    readManagedAuthor?: (skillId: string) => "assistant" | "user" | undefined;
+  },
+): Promise<DedupOutcome> {
+  const findNearest = deps.findNearest ?? nearestExistingSkills;
+  const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
+  const managedSkillExists =
+    deps.managedSkillExists ??
+    ((skillId: string) =>
+      existsSync(join(getManagedSkillDir(skillId), "SKILL.md")));
+  const readManagedAuthor =
+    deps.readManagedAuthor ??
+    ((skillId: string) => {
+      try {
+        return readInstallMeta(getManagedSkillDir(skillId))?.author;
+      } catch {
+        return undefined;
+      }
+    });
+
+  let hits: Array<{ skillId: string; score: number }>;
+  try {
+    hits = await findNearest(description);
+  } catch (err) {
+    log.warn({ err }, "skill dedup: matcher failed; proceeding without it");
+    return { kind: "proceed" };
+  }
+
+  const top = hits
+    .filter((hit) => hit.score >= EXISTING_SKILL_THRESHOLD)
+    .sort((a, b) => b.score - a.score)[0];
+  if (!top) {
+    return { kind: "proceed" };
+  }
+
+  const catalogEntry = loadCatalog().find((s) => s.id === top.skillId);
+  if (catalogEntry && catalogEntry.source !== "managed") {
+    return {
+      kind: "covered",
+      skillId: top.skillId,
+      source: catalogEntry.source,
+    };
+  }
+  if (!managedSkillExists(top.skillId)) {
+    // Ranked but not resolvable on disk (a stale corpus entry). Nothing to
+    // update and nothing proven to collide with, so let the write proceed.
+    return { kind: "proceed" };
+  }
+  if (readManagedAuthor(top.skillId) !== "assistant") {
+    return { kind: "covered", skillId: top.skillId, source: "managed" };
+  }
+  return { kind: "update", skillId: top.skillId };
+}
+
 /**
  * Core execution logic for scaffold_managed_skill.
  * Exported so bundled-skill executors and tests can call it directly.
  *
- * `deps` injects the catalog and conversation-lookup seams so the ownership
- * backstop's non-managed collision check and the lineage resolution can be
- * exercised without standing up a real bundled/plugin catalog or a live DB.
+ * `deps` injects the catalog, conversation-lookup, and skill-matcher seams so
+ * the ownership backstop's non-managed collision check, the lineage
+ * resolution, and the retrospective dedup can be exercised without standing
+ * up a real bundled/plugin catalog, a live DB, or Qdrant.
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
@@ -82,6 +208,9 @@ export async function executeScaffoldManagedSkill(
     getConversation?: (
       id: string,
     ) => { forkParentConversationId: string | null } | null;
+    findNearest?: typeof nearestExistingSkills;
+    managedSkillExists?: (skillId: string) => boolean;
+    readManagedAuthor?: (skillId: string) => "assistant" | "user" | undefined;
   } = {},
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
@@ -227,16 +356,45 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
-  const id = skillId.trim();
+  const proposedId = skillId.trim();
   const fromRetrospective =
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
+
+  // Retrospective dedup: an existing skill that confidently covers this
+  // procedure either absorbs the write (one the assistant authored) or blocks
+  // it (one it does not own). Best-effort and fail-open; see
+  // `resolveRetrospectiveDedup`. User-directed scaffolds skip this entirely:
+  // when a person asks for a skill, similarity to an existing one is not a
+  // reason to refuse or to silently retarget the write.
+  let id = proposedId;
+  let redirectedByDedup = false;
+  if (fromRetrospective) {
+    const dedup = await resolveRetrospectiveDedup(description, deps);
+    if (dedup.kind === "covered") {
+      recordDedupOutcome("covered");
+      return {
+        content: `Error: this procedure is already covered by the ${dedup.source} skill "${dedup.skillId}", which the retrospective may not modify or shadow. Skip it.`,
+        isError: true,
+      };
+    }
+    if (dedup.kind === "update") {
+      recordDedupOutcome("updated");
+      id = dedup.skillId;
+      redirectedByDedup = true;
+      log.info(
+        { proposedId, targetSkillId: id },
+        "skill dedup: redirecting retrospective write onto the assistant's existing skill",
+      );
+    }
+  }
 
   // Whether a managed SKILL.md already existed before this call. Drives the
   // ownership backstop below, the created-vs-refined discriminant for the
   // skill-card enqueue, and the `skill_authored` telemetry counter: only a
   // genuine CREATE (no pre-existing skill, regardless of the `overwrite`
-  // flag) gets a card or a counter event.
+  // flag) gets a card or a counter event. A dedup redirect always lands on an
+  // existing skill, so it is a refinement: no card, no counter.
   const managedSkillExistedBefore = existsSync(
     join(getManagedSkillDir(id), "SKILL.md"),
   );
@@ -314,7 +472,7 @@ export async function executeScaffoldManagedSkill(
     description: normalizedDescription,
     bodyMarkdown: bodyMarkdown,
     emoji: normalizedEmoji,
-    overwrite: input.overwrite === true,
+    overwrite: input.overwrite === true || redirectedByDedup,
     includes,
     activationHints,
     avoidWhen,
