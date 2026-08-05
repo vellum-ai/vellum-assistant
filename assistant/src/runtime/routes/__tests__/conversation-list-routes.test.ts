@@ -357,42 +357,113 @@ describe("GET /v1/conversations with groupId", () => {
     expect(result.conversations.map((c) => c.title)).toEqual(["car-1"]);
   });
 
-  test("system:pinned finds a row pinned only by the legacy column", async () => {
-    // Pinned state is stored twice and the two can disagree on rows written
-    // before the group migration. The filter accepts either, so no reconcile
-    // migration is needed to make the Pinned card correct.
-    const conv = createConversation("legacy-pinned");
+  test("system:all keeps surfaced background and scheduled rows", async () => {
+    // Surfacing writes only `surfaced_at`, so a promoted row keeps its
+    // `system:background` / `system:scheduled` group id while the standard
+    // listing renders it in Recents. A group filter that matched NULL and
+    // "system:all" alone would drop it from the section that is supposed to
+    // show it.
+    const background = createConversation({
+      title: "surfaced-background",
+      conversationType: "background",
+    });
+    const scheduled = createConversation({
+      title: "surfaced-scheduled",
+      conversationType: "scheduled",
+    });
+    // The routed group id is the part that matters: heartbeat, reminders and
+    // schedule-job runs are filed into these system buckets, and surfacing
+    // does not clear that. A row left with a NULL group id would pass a
+    // NULL-only predicate and prove nothing.
     rawRun(
-      "test:legacyPin",
-      "UPDATE conversations SET is_pinned = 1, group_id = NULL WHERE id = ?",
-      conv.id,
+      "test:routeToSystemBucket",
+      "UPDATE conversations SET group_id = 'system:background', surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      background.id,
     );
+    rawRun(
+      "test:routeToSystemBucket",
+      "UPDATE conversations SET group_id = 'system:scheduled', surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      scheduled.id,
+    );
+    createConversation("plain-ungrouped");
 
-    const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
 
-    expect(result.conversations.map((c) => c.title)).toEqual(["legacy-pinned"]);
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "plain-ungrouped",
+      "surfaced-background",
+      "surfaced-scheduled",
+    ]);
   });
 
-  test("a pinned row does not also surface in its custom group", async () => {
-    // A stale `is_pinned` alongside a custom group_id must not render the
-    // same conversation in two sections.
-    const group = createGroup("Car Chat");
-    const conv = createConversation("pinned-and-grouped");
+  test("system:all still excludes background rows that were never surfaced", async () => {
+    const quiet = createConversation({
+      title: "quiet-background",
+      conversationType: "background",
+    });
     rawRun(
-      "test:pinnedWithStaleGroup",
-      "UPDATE conversations SET is_pinned = 1, group_id = ? WHERE id = ?",
-      group.id,
-      conv.id,
+      "test:routeToSystemBucket",
+      "UPDATE conversations SET group_id = 'system:background' WHERE id = ?",
+      quiet.id,
+    );
+    createConversation("plain-ungrouped");
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "plain-ungrouped",
+    ]);
+  });
+
+  test("system:all and system:pinned partition the sections, never overlapping", async () => {
+    createConversation("ungrouped-1");
+    seedPinned("pinned-1");
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+
+    const ungrouped = (await invoke({ groupId: "system:all" })) as ListResponse;
+    const pinned = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+    const custom = (await invoke({ groupId: group.id })) as ListResponse;
+
+    expect(ungrouped.conversations.map((c) => c.title)).toEqual([
+      "ungrouped-1",
+    ]);
+    expect(pinned.conversations.map((c) => c.title)).toEqual(["pinned-1"]);
+    expect(custom.conversations.map((c) => c.title)).toEqual(["car-1"]);
+  });
+
+  test("system buckets other than Pinned sort by recency, not stale display order", async () => {
+    // `display_order` persists through moves, so honouring it for
+    // system:background would order that section differently depending on
+    // whether it was fetched by conversationType or by groupId.
+    const older = createConversation({
+      title: "older",
+      conversationType: "background",
+    });
+    const newer = createConversation({
+      title: "newer",
+      conversationType: "background",
+    });
+    rawRun(
+      "test:staleOrder",
+      "UPDATE conversations SET surfaced_at = ?, display_order = 0, last_message_at = 1000 WHERE id = ?",
+      Date.now(),
+      older.id,
+    );
+    rawRun(
+      "test:staleOrder",
+      "UPDATE conversations SET surfaced_at = ?, display_order = 99, last_message_at = 2000 WHERE id = ?",
+      Date.now(),
+      newer.id,
     );
 
-    const inGroup = (await invoke({ groupId: group.id })) as ListResponse;
-    const inPinned = (await invoke({
-      groupId: "system:pinned",
-    })) as ListResponse;
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
 
-    expect(inGroup.conversations.map((c) => c.title)).toEqual([]);
-    expect(inPinned.conversations.map((c) => c.title)).toEqual([
-      "pinned-and-grouped",
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "newer",
+      "older",
     ]);
   });
 

@@ -280,21 +280,22 @@ export interface ConversationListQuery extends ConversationListFilter {
  */
 function groupIdClause(groupId: string) {
   if (groupId === UNGROUPED_GROUP_ID) {
-    return sql`(group_id IS NULL OR group_id = ${UNGROUPED_GROUP_ID})`;
+    // "Ungrouped" means every row the sidebar's flat list shows: not pinned
+    // and not filed in a custom group. It deliberately admits the system
+    // buckets, because a surfaced background or scheduled conversation keeps
+    // its `system:background` / `system:scheduled` group id (surfacing writes
+    // only `surfaced_at`) while the standard listing renders it in Recents.
+    // Whether such a row is actually visible stays with
+    // `conversationTypeClause`, which admits the surfaced ones and excludes
+    // the rest; matching on group id alone here would drop them.
+    return sql`(group_id IS NULL OR (group_id LIKE 'system:%' AND group_id != ${PINNED_GROUP_ID}))`;
   }
-  if (groupId === PINNED_GROUP_ID) {
-    // Pinned state is stored twice, as `is_pinned` and as membership of the
-    // reserved group, and the two can disagree on rows written before the
-    // group migration. Accepting either is what keeps this filter and
-    // `listPinnedConversations` (which reads `is_pinned`) returning the same
-    // set, without a reconcile migration that would itself break under a
-    // daemon rollback.
-    return sql`(is_pinned = 1 OR group_id = ${PINNED_GROUP_ID})`;
-  }
-  // A pinned row is only ever in the Pinned section: pinning overwrites
-  // `group_id`, but a stale `is_pinned` must not let a row surface in both
-  // its custom group and Pinned.
-  return sql`group_id = ${groupId} AND COALESCE(is_pinned, 0) != 1`;
+  // `group_id` is single-valued and authoritative, so a row belongs to
+  // exactly one section by construction. `is_pinned` is a derived duplicate
+  // that reads do not consult: `ensureGroupMigration` backfills
+  // `group_id = 'system:pinned'` for every legacy `is_pinned` row before any
+  // query runs, and pinning writes both together thereafter.
+  return sql`group_id = ${groupId}`;
 }
 
 /**
@@ -305,7 +306,17 @@ function groupIdClause(groupId: string) {
  * resurface as a sort key.
  */
 function isUserOrderedGroup(groupId: string | undefined): boolean {
-  return groupId !== undefined && groupId !== UNGROUPED_GROUP_ID;
+  if (groupId === undefined) {
+    return false;
+  }
+  // Pinned and custom groups are the only drag-reorderable sections, so they
+  // are the only ones whose `display_order` means anything. Every other
+  // system bucket sorts by recency: `batchSetDisplayOrders` writes
+  // `display_order` alongside `group_id` when a row moves into
+  // `system:background` / `system:scheduled`, and that value persists through
+  // later moves, so honouring it would order the same section differently
+  // depending on whether it was fetched by `conversationType` or `groupId`.
+  return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
 }
 
 function conversationListWhere(filter: ConversationListFilter) {
