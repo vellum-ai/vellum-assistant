@@ -28,6 +28,22 @@ export const IDLE_THRESHOLD_MS = 10 * 60_000;
 
 export const POLL_INTERVAL_MS = 30_000;
 
+// Only shifts getSystemIdleState between "active" and "idle", a boundary this
+// module takes from IDLE_THRESHOLD_MS instead, so the value is immaterial: the
+// call is made for its "locked" answer.
+const SYSTEM_IDLE_STATE_THRESHOLD_SECONDS = 60;
+
+type SystemIdleState = ReturnType<typeof powerMonitor.getSystemIdleState>;
+
+const readSystemIdleState = (): SystemIdleState => {
+  try {
+    return powerMonitor.getSystemIdleState(SYSTEM_IDLE_STATE_THRESHOLD_SECONDS);
+  } catch {
+    // Fail open: an unproven lock state must never read as attended.
+    return "unknown";
+  }
+};
+
 type PresencePowerEvent =
   | "lock-screen"
   | "unlock-screen"
@@ -62,8 +78,18 @@ export const installPresenceMonitor = (
   let sessionActive = true;
 
   const evaluate = (): PresenceState => {
-    if (locked || suspended || !sessionActive) {
+    // The flags alone cannot see a lock that predates them: electron replays
+    // no lock-screen event to a listener attached while the Mac is already
+    // locked, so a monitor installed behind the lock screen reads as unlocked.
+    // Asking the OS covers that and heals a dropped event; the flags stay
+    // because they turn on the instant the screen locks rather than at the
+    // next tick. Any one of them saying unreachable wins.
+    const systemIdleState = readSystemIdleState();
+    if (locked || suspended || !sessionActive || systemIdleState === "locked") {
       return "away";
+    }
+    if (systemIdleState === "unknown") {
+      return "idle";
     }
     try {
       // getSystemIdleTime reports seconds.

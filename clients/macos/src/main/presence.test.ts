@@ -28,11 +28,24 @@ const getSystemIdleTimeMock = mock(() => {
   return idleSeconds;
 });
 
+// What the OS itself reports. Defaults to "active" so cases that say nothing
+// about it are judged purely on the events and the idle timer.
+type SystemIdleState = "active" | "idle" | "locked" | "unknown";
+let systemIdleState: SystemIdleState = "active";
+let systemIdleStateThrows = false;
+const getSystemIdleStateMock = mock((_threshold: number): SystemIdleState => {
+  if (systemIdleStateThrows) {
+    throw new Error("idle state read failed");
+  }
+  return systemIdleState;
+});
+
 mock.module("electron", () => ({
   powerMonitor: {
     on: powerOnMock,
     off: powerOffMock,
     getSystemIdleTime: getSystemIdleTimeMock,
+    getSystemIdleState: getSystemIdleStateMock,
   },
 }));
 
@@ -88,10 +101,13 @@ beforeEach(() => {
   powerOnMock.mockClear();
   powerOffMock.mockClear();
   getSystemIdleTimeMock.mockClear();
+  getSystemIdleStateMock.mockClear();
   mockLogWarn.mockClear();
   attachFailsOn = null;
   idleSeconds = 0;
   idleThrows = false;
+  systemIdleState = "active";
+  systemIdleStateThrows = false;
   intervalCallback = null;
   intervalDelay = null;
   clearIntervalMock.mockClear();
@@ -265,6 +281,75 @@ describe("installPresenceMonitor", () => {
     intervalCallback?.();
 
     expect(reports).toEqual(["idle"]);
+  });
+
+  test("reports away when installed while the OS is already locked", () => {
+    // A relaunch behind the lock screen gets no lock-screen event, so nothing
+    // but the OS itself can say the banner is unreachable.
+    systemIdleState = "locked";
+    idleSeconds = 0;
+    const reports: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
+
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away"]);
+  });
+
+  test("returns to active after unlocking a machine that was locked at install", () => {
+    systemIdleState = "locked";
+    idleSeconds = 0;
+    const reports: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
+
+    systemIdleState = "active";
+    fire("unlock-screen");
+
+    expect(reports).toEqual(["away", "active"]);
+  });
+
+  test("an unknown OS state never reports active", () => {
+    const { reports } = install();
+
+    systemIdleState = "unknown";
+    idleSeconds = 0;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["idle"]);
+  });
+
+  test("never reports active when the OS state read throws", () => {
+    const { reports } = install();
+
+    systemIdleStateThrows = true;
+    idleSeconds = 0;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["idle"]);
+  });
+
+  test("a locked OS state outranks a cleared lock flag", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    systemIdleState = "locked";
+    fire("unlock-screen");
+    intervalCallback?.();
+
+    expect(reports).toEqual(["away", "away", "away"]);
+  });
+
+  test("an idle OS state still reports active below the tuned threshold", () => {
+    const { reports } = install();
+
+    // The OS answers against its own threshold; IDLE_THRESHOLD_MS owns the
+    // active/idle line here.
+    systemIdleState = "idle";
+    idleSeconds = IDLE_THRESHOLD_MS / 1000 - 1;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["active"]);
   });
 
   test("a second install while one is live is a no-op", () => {
