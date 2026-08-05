@@ -140,8 +140,10 @@ describe("migratePrefix", () => {
 
 describe("removePersistedPairedGatewayCredential", () => {
   test("removes a paired guardian bearer and its metadata", () => {
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding a legacy paired credential to verify removal
     localStorage.setItem("vellum:gw:token", "guardian-token");
     localStorage.setItem("vellum:gw:expiresAt", "2000000000");
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding legacy paired credential metadata to verify removal
     localStorage.setItem(
       "vellum:gw:tokenSource",
       "/assistant/__gateway-paired/paired-a/auth/token",
@@ -155,8 +157,10 @@ describe("removePersistedPairedGatewayCredential", () => {
   });
 
   test("preserves a locally minted gateway actor token", () => {
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding a legacy local actor token to verify preservation
     localStorage.setItem("vellum:gw:token", "local-actor-token");
     localStorage.setItem("vellum:gw:expiresAt", "2000000000");
+    // eslint-disable-next-line no-restricted-syntax -- test: seeding legacy local actor metadata to verify preservation
     localStorage.setItem(
       "vellum:gw:tokenSource",
       "/assistant/__gateway/20100/auth/token",

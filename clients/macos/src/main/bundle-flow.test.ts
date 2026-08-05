@@ -51,6 +51,7 @@ mock.module("@vellumai/local-mode", () => ({
   resolveEnvironmentName: mock((_env: NodeJS.ProcessEnv) => "production"),
   isActiveAssistant: mock(() => true),
   isPairedLockfileEntry: mock(() => false),
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR: "Paired credentials are host-only",
   getGuardianAccessToken: getGuardianAccessTokenMock,
   replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
   upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),

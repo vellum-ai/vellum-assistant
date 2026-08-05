@@ -7,7 +7,6 @@ import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
   isRepairableGatewayTokenError,
-  seedGatewayToken,
   setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
