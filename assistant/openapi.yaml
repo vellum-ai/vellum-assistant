@@ -29182,6 +29182,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum revisions to return, newest first. Defaults to 20 and is clamped to 100.
       responses:
         "200":
           description: Successful response

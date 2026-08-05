@@ -1,0 +1,142 @@
+/**
+ * Parse the unified diff a skill revision carries into per-file rows the
+ * revision history can render.
+ *
+ * The daemon returns one combined `git show` diff per revision, scoped to the
+ * skill's directory, so a single string may describe several files. Rendering
+ * needs them split by file (each with its own header) and each line tagged with
+ * the old/new line numbers from its hunk header.
+ *
+ * The sibling diff utilities in the app compute a diff from two texts
+ * (`compute-line-diff.ts`, `inspector/cache-diff.ts`); this one reads a diff
+ * that already exists, which is why it parses rather than diffs.
+ */
+
+/** A single rendered line of a diff. */
+export interface DiffRow {
+  type: "add" | "del" | "ctx" | "meta";
+  text: string;
+  /** Line number in the pre-change file, when the row exists there. */
+  oldNo?: number;
+  /** Line number in the post-change file, when the row exists there. */
+  newNo?: number;
+}
+
+/** The rows belonging to one file within a revision's combined diff. */
+export interface DiffFile {
+  /** Path relative to the skill directory, e.g. `references/owners.md`. */
+  path: string;
+  rows: DiffRow[];
+  added: number;
+  removed: number;
+}
+
+export interface ParsedDiff {
+  files: DiffFile[];
+  added: number;
+  removed: number;
+}
+
+/** `@@ -12,7 +12,9 @@`, capturing the two starting line numbers. */
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+/**
+ * Strip the `a/`/`b/` diff prefix and the `skills/<id>/` directory so a file
+ * reads the way the revision's `files` list spells it. A path that doesn't sit
+ * under the expected directory is left alone rather than mangled.
+ */
+function toSkillRelativePath(rawPath: string, skillId: string): string {
+  const withoutDiffPrefix = rawPath.replace(/^[ab]\//, "");
+  const skillPrefix = `skills/${skillId}/`;
+  return withoutDiffPrefix.startsWith(skillPrefix)
+    ? withoutDiffPrefix.slice(skillPrefix.length)
+    : withoutDiffPrefix;
+}
+
+/**
+ * Split a revision's combined unified diff into per-file row lists.
+ *
+ * Returns no files for an empty or unrecognisable diff. Callers render that
+ * as "no preview" rather than treating it as an error, since the diff is
+ * presentational and a revision row still stands on its date and file list.
+ */
+export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
+  const files: DiffFile[] = [];
+  let current: DiffFile | null = null;
+  let oldNo = 0;
+  let newNo = 0;
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      // `diff --git a/x b/x`; take the b-side, which names the file after the
+      // change (and is the only side present for an addition).
+      const parts = line.split(" ");
+      const rawPath = parts[3] ?? parts[2] ?? "";
+      current = {
+        path: toSkillRelativePath(rawPath, skillId),
+        rows: [],
+        added: 0,
+        removed: 0,
+      };
+      files.push(current);
+      oldNo = 0;
+      newNo = 0;
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    const hunk = HUNK_HEADER.exec(line);
+    if (hunk) {
+      oldNo = Number(hunk[1]);
+      newNo = Number(hunk[2]);
+      // Hunk boundaries matter visually once a file has more than one; the
+      // gap between them is not contiguous text.
+      if (current.rows.length > 0) {
+        current.rows.push({ type: "meta", text: line });
+      }
+      continue;
+    }
+
+    // Everything between the `diff --git` line and the first hunk is file
+    // metadata (index, mode, ---/+++ headers) that the header already conveys.
+    if (
+      line.startsWith("index ") ||
+      line.startsWith("--- ") ||
+      line.startsWith("+++ ") ||
+      line.startsWith("new file mode ") ||
+      line.startsWith("deleted file mode ") ||
+      line.startsWith("similarity index ") ||
+      line.startsWith("rename ") ||
+      line.startsWith("old mode ") ||
+      line.startsWith("new mode ") ||
+      line.startsWith("Binary files ") ||
+      line.startsWith("\\ No newline")
+    ) {
+      continue;
+    }
+
+    if (line.startsWith("+")) {
+      current.rows.push({ type: "add", text: line.slice(1), newNo });
+      current.added += 1;
+      newNo += 1;
+    } else if (line.startsWith("-")) {
+      current.rows.push({ type: "del", text: line.slice(1), oldNo });
+      current.removed += 1;
+      oldNo += 1;
+    } else if (line.startsWith(" ")) {
+      current.rows.push({ type: "ctx", text: line.slice(1), oldNo, newNo });
+      oldNo += 1;
+      newNo += 1;
+    }
+    // A trailing empty string from the final newline falls through here.
+  }
+
+  return {
+    files,
+    added: files.reduce((sum, f) => sum + f.added, 0),
+    removed: files.reduce((sum, f) => sum + f.removed, 0),
+  };
+}

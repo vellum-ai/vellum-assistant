@@ -1,0 +1,131 @@
+import { describe, expect, test } from "bun:test";
+
+import { parseUnifiedDiff } from "./parse-unified-diff";
+
+/**
+ * The input here is shaped like real `git show` output, because the parser's
+ * whole job is to survive the parts of that format the renderer does not care
+ * about (index lines, mode changes, multiple files, multiple hunks).
+ */
+
+const TWO_FILES = `diff --git a/skills/triage/SKILL.md b/skills/triage/SKILL.md
+index 1a2b3c4..5d6e7f8 100644
+--- a/skills/triage/SKILL.md
++++ b/skills/triage/SKILL.md
+@@ -18,3 +18,4 @@
+ ## Grouping
+-Group the failures by file.
++Group the failures by owning team.
++See references/owners.md.
+diff --git a/skills/triage/references/owners.md b/skills/triage/references/owners.md
+new file mode 100644
+index 0000000..9999999
+--- /dev/null
++++ b/skills/triage/references/owners.md
+@@ -0,0 +1,2 @@
++Platform owns the gateway.
++Assistant owns the daemon.
+`;
+
+describe("parseUnifiedDiff", () => {
+  test("splits a combined diff into one entry per file", () => {
+    const parsed = parseUnifiedDiff(TWO_FILES, "triage");
+
+    expect(parsed.files.map((f) => f.path)).toEqual([
+      "SKILL.md",
+      "references/owners.md",
+    ]);
+  });
+
+  test("strips the skill directory prefix from file paths", () => {
+    const parsed = parseUnifiedDiff(TWO_FILES, "triage");
+
+    // The path a reader sees should match the revision's `files` list, which
+    // the daemon reports relative to the skill directory.
+    expect(parsed.files[0]!.path).toBe("SKILL.md");
+    expect(parsed.files[0]!.path).not.toContain("skills/");
+  });
+
+  test("tags each row and counts additions and removals", () => {
+    const parsed = parseUnifiedDiff(TWO_FILES, "triage");
+
+    expect(parsed.added).toBe(4);
+    expect(parsed.removed).toBe(1);
+
+    const skillMd = parsed.files[0]!;
+    expect(skillMd.rows.map((r) => r.type)).toEqual([
+      "ctx",
+      "del",
+      "add",
+      "add",
+    ]);
+    expect(skillMd.rows[1]!.text).toBe("Group the failures by file.");
+  });
+
+  test("numbers rows from the hunk header, advancing each side separately", () => {
+    const parsed = parseUnifiedDiff(TWO_FILES, "triage");
+    const rows = parsed.files[0]!.rows;
+
+    // Context occupies line 18 on both sides; the deletion consumes only an
+    // old-side number, the additions only new-side ones.
+    expect(rows[0]).toMatchObject({ type: "ctx", oldNo: 18, newNo: 18 });
+    expect(rows[1]).toMatchObject({ type: "del", oldNo: 19 });
+    expect(rows[1]!.newNo).toBeUndefined();
+    expect(rows[2]).toMatchObject({ type: "add", newNo: 19 });
+    expect(rows[3]).toMatchObject({ type: "add", newNo: 20 });
+    expect(rows[2]!.oldNo).toBeUndefined();
+  });
+
+  test("drops file metadata that the rendered header already conveys", () => {
+    const parsed = parseUnifiedDiff(TWO_FILES, "triage");
+    const text = parsed.files
+      .flatMap((f) => f.rows.map((r) => r.text))
+      .join("\n");
+
+    for (const noise of ["index 1a2b3c4", "new file mode", "--- ", "+++ "]) {
+      expect(text).not.toContain(noise);
+    }
+  });
+
+  test("keeps a separator between hunks so a gap does not read as contiguous", () => {
+    const twoHunks = `diff --git a/skills/triage/SKILL.md b/skills/triage/SKILL.md
+--- a/skills/triage/SKILL.md
++++ b/skills/triage/SKILL.md
+@@ -1,2 +1,2 @@
+-first
++FIRST
+@@ -40,2 +40,2 @@
+-fortieth
++FORTIETH
+`;
+
+    const rows = parseUnifiedDiff(twoHunks, "triage").files[0]!.rows;
+
+    expect(rows.filter((r) => r.type === "meta")).toHaveLength(1);
+    // The separator sits between the two hunks, never at the top.
+    expect(rows[0]!.type).not.toBe("meta");
+    expect(rows[2]!.type).toBe("meta");
+    // Numbering restarts from the second hunk header rather than running on.
+    expect(rows[4]).toMatchObject({ type: "add", newNo: 40 });
+  });
+
+  test("leaves a path alone when it is not under the expected skill directory", () => {
+    const odd = `diff --git a/elsewhere/notes.md b/elsewhere/notes.md
+@@ -1 +1 @@
+-a
++b
+`;
+
+    expect(parseUnifiedDiff(odd, "triage").files[0]!.path).toBe(
+      "elsewhere/notes.md",
+    );
+  });
+
+  test("returns no files for an empty diff instead of throwing", () => {
+    expect(parseUnifiedDiff("", "triage")).toEqual({
+      files: [],
+      added: 0,
+      removed: 0,
+    });
+  });
+});

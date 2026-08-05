@@ -364,6 +364,15 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return a skill's recent updates, newest first, each with a combined diff across the skill directory. Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads.",
     tags: ["skills"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        required: false,
+        description:
+          "Maximum revisions to return, newest first. Defaults to 20 and is clamped to 100.",
+      },
+    ],
     responseBody: z.object({
       skillId: z.string().describe("The skill these revisions belong to"),
       revisions: z
@@ -393,15 +402,22 @@ export const ROUTES: RouteDefinition[] = [
           ? Number.parseInt(rawLimit, 10)
           : undefined;
       try {
+        // An id with no recorded revisions resolves to an empty list rather
+        // than a 404. Revisions are a workspace-git concept, and a bundled or
+        // catalog skill legitimately has none, so "nothing recorded" is the
+        // honest answer for every id the workspace has never tracked.
         return await getSkillHistory(pathParams!.id, {
           ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
         });
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         // The id reaches a git pathspec, so a malformed one is the caller's
-        // error rather than a server fault.
-        throw new BadRequestError(
-          err instanceof Error ? err.message : "Invalid skill id",
-        );
+        // error. Anything else escaping the service is a server fault: the
+        // read is otherwise fail-soft and returns an empty history.
+        if (message.startsWith("Invalid skill id")) {
+          throw new BadRequestError(message);
+        }
+        throw new InternalError(message);
       }
     },
   },
