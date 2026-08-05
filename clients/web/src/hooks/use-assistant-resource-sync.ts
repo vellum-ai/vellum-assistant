@@ -8,14 +8,15 @@
  *
  * Also handles `sse.opened` (non-fresh) to invalidate cached resources on
  * reconnect — the client may have missed `sync_changed` events during the
- * transport gap.
+ * transport gap. That sweep is debounced; see `refreshAssistantResources`
+ * below.
  *
  * Focus-based refetching (tab visible, Capacitor foregrounding) is NOT
  * handled here — it's configured globally via TQ's `focusManager` in
  * `lib/query-focus-manager.ts`, which covers every query automatically.
  *
- * All operations are stateless one-liner invalidations with no
- * debouncing or per-row patching.
+ * Tag-driven operations are stateless one-liner invalidations with no
+ * per-row patching.
  *
  * More complex sync domains (conversations, feature flags) own their
  * own hooks:
@@ -27,7 +28,8 @@
  * - CONVENTIONS.md — domain-first decomposition
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
@@ -45,13 +47,20 @@ import { getClientId } from "@/lib/telemetry/client-identity";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 /**
+ * A reconnect can flap: error, reopen, error, reopen. Collapse a burst into
+ * one trailing sweep rather than one per `sse.opened`.
+ */
+const RECONNECT_SWEEP_DEBOUNCE_MS = 500;
+
+/**
  * Subscribes to assistant-resource sync events via the event bus.
  *
  * Two bus channels:
  * - `sse.event` — routes `sync_changed` tags (with self-echo
  *   suppression) and discrete event types into TQ cache invalidations
  * - `sse.opened` — on reconnect (non-fresh), invalidates all cached
- *   assistant resources to catch events missed during the transport gap
+ *   assistant resources to catch events missed during the transport gap,
+ *   as one debounced `refreshAssistantResources` sweep
  */
 export function useAssistantResourceSync(
   assistantId: string | null,
@@ -59,6 +68,21 @@ export function useAssistantResourceSync(
 ): void {
   const queryClient = useQueryClient();
   const pathOpts = { path: { assistant_id: assistantId ?? "" } };
+  const reconnectSweepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  // Drop a pending sweep on unmount and when the assistant changes or
+  // deactivates, so a queued callback never refreshes against an old
+  // assistantId.
+  useEffect(() => {
+    return () => {
+      if (reconnectSweepTimerRef.current) {
+        clearTimeout(reconnectSweepTimerRef.current);
+        reconnectSweepTimerRef.current = null;
+      }
+    };
+  }, [assistantId, isAssistantActive]);
 
   useBusSubscription("sse.event", (envelope) => {
     if (!assistantId || !isAssistantActive) {
@@ -179,50 +203,73 @@ export function useAssistantResourceSync(
     if (cause === "fresh") {
       return;
     }
-    // Reconnect — invalidate all assistant-level resource caches so
-    // stale data from missed `sync_changed` events gets refreshed.
-    void queryClient.invalidateQueries({
-      queryKey: avatarQueryKey(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: identityGetQueryKey(pathOpts),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: configGetQueryKey(pathOpts),
-    });
-    invalidateMemoryQueries(queryClient, assistantId);
-    void queryClient.invalidateQueries({
-      queryKey: soundsConfigGetQueryKey(pathOpts),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: soundsAvailableGetQueryKey(pathOpts),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: schedulesGetQueryKey(pathOpts),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: [
-        { _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } },
-      ],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: [
-        {
-          _id: "schedulesUsagesummaryGet",
-          path: { assistant_id: assistantId },
-        },
-      ],
-    });
-    void queryClient.invalidateQueries({
-      predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
-    });
-    invalidatePluginQueries(queryClient, assistantId);
-    void queryClient.invalidateQueries({
-      predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
-    });
-    void queryClient.invalidateQueries({
-      predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
-    });
+    if (reconnectSweepTimerRef.current) {
+      clearTimeout(reconnectSweepTimerRef.current);
+    }
+    reconnectSweepTimerRef.current = setTimeout(() => {
+      reconnectSweepTimerRef.current = null;
+      refreshAssistantResources(queryClient, assistantId);
+    }, RECONNECT_SWEEP_DEBOUNCE_MS);
+  });
+}
+
+/**
+ * Reconnect catch-up: `sync_changed` events emitted while the transport was
+ * down were never delivered, so every assistant-level cache may be stale.
+ *
+ * Every family invalidates at TanStack's default `refetchType: "active"`,
+ * which refetches only the queries that currently have an observer. A view
+ * nobody has open is marked stale and costs no request until it next mounts;
+ * a view that is open refetches now, which is the only way it picks up the
+ * `sync_changed` events it missed while the stream was down.
+ *
+ * A flapping reconnect would run this fan-out once per `sse.opened`, so the
+ * caller collapses a burst into a single trailing sweep.
+ */
+function refreshAssistantResources(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
+  const pathOpts = { path: { assistant_id: assistantId } };
+
+  void queryClient.invalidateQueries({
+    queryKey: identityGetQueryKey(pathOpts),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: configGetQueryKey(pathOpts),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: avatarQueryKey(assistantId),
+  });
+  invalidateMemoryQueries(queryClient, assistantId);
+  void queryClient.invalidateQueries({
+    queryKey: soundsConfigGetQueryKey(pathOpts),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: soundsAvailableGetQueryKey(pathOpts),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: schedulesGetQueryKey(pathOpts),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: [
+      { _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } },
+    ],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: [
+      { _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } },
+    ],
+  });
+  void queryClient.invalidateQueries({
+    predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
+  });
+  invalidatePluginQueries(queryClient, assistantId);
+  void queryClient.invalidateQueries({
+    predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+  });
+  void queryClient.invalidateQueries({
+    predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
   });
 }
 

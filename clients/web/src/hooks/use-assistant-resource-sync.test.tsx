@@ -1,6 +1,11 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  hashKey,
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
@@ -50,6 +55,23 @@ function emit(event: AssistantEvent): void {
     emittedAt: new Date().toISOString(),
     message: event,
   } as AssistantEventEnvelope);
+}
+
+/** Mirrors RECONNECT_SWEEP_DEBOUNCE_MS in use-assistant-resource-sync.ts. */
+const SWEEP_DEBOUNCE_MS = 500;
+
+/**
+ * The reconnect sweep runs on a trailing debounce, so assertions have to let
+ * the window elapse first. bun:test provides no fake timers, so this is a real
+ * sleep, matching the idiom in use-conversation-sync.test.tsx.
+ */
+async function flushReconnectSweep(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, SWEEP_DEBOUNCE_MS + 150));
+}
+
+/** Stable identity for a query key, so predicate-only calls compare as absent. */
+function keyId(queryKey: readonly unknown[] | undefined): string | undefined {
+  return queryKey === undefined ? undefined : hashKey(queryKey);
 }
 
 beforeEach(() => {
@@ -201,6 +223,7 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
     await waitFor(() => {
       const queryKeys = calls.map(
         (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
@@ -210,61 +233,6 @@ describe("useAssistantResourceSync", () => {
           memoryGraphOptions("asst-1").queryKey,
           memoryStatsOptions("asst-1").queryKey,
         ]) as never,
-      );
-    });
-  });
-
-  // Memory availability is derived from config, so the config tag has to reach
-  // the two memory reads as well. They use hand-rolled query keys, so the
-  // generated config invalidation never touches them on its own.
-  test("invalidates memory graph / stats queries on the config sync tag", async () => {
-    const queryClient = freshQueryClient();
-    const calls: unknown[][] = [];
-    queryClient.invalidateQueries = ((arg: unknown) => {
-      calls.push([arg]);
-      return Promise.resolve();
-    }) as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    emit((syncEvent([SYNC_TAGS.assistantConfig]) as unknown) as AssistantEvent);
-    await waitFor(() => {
-      const queryKeys = calls.map(
-        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
-      );
-      expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          memoryGraphOptions("asst-1").queryKey,
-          memoryStatsOptions("asst-1").queryKey,
-        ]) as never
-      );
-    });
-  });
-
-  // The reconnect catch-up exists because `sync_changed` events are missed
-  // while the transport is down. A resource covered by a tag but not by the
-  // reconnect sweep silently keeps serving pre-gap data for its whole
-  // staleTime, which for the memory reads is five minutes.
-  test("reconciles memory graph / stats queries on non-fresh sse.opened reconnect", async () => {
-    const queryClient = freshQueryClient();
-    const calls: unknown[] = [];
-    queryClient.invalidateQueries = ((arg: unknown) => {
-      calls.push(arg);
-      return Promise.resolve();
-    }) as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
-    await waitFor(() => {
-      const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
-      );
-      expect(queryKeys).toEqual(
-        expect.arrayContaining([
-          memoryGraphOptions("asst-1").queryKey,
-          memoryStatsOptions("asst-1").queryKey,
-        ]) as never
       );
     });
   });
@@ -343,6 +311,7 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
     await waitFor(() => {
       const queryKeys = calls.map(
         (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
@@ -365,7 +334,7 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
-  test("does not reconcile on fresh sse.opened", () => {
+  test("does not reconcile on fresh sse.opened", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -373,6 +342,166 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     publish("sse.opened", { assistantId: "asst-1", cause: "fresh" });
+    await flushReconnectSweep();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  // The sweep is the only thing that reconciles a view that was already open
+  // when the stream dropped: it missed every `sync_changed` in the gap, and
+  // nothing else will tell it to read again while it stays mounted and fresh.
+  test("reconnect sweep refetches mounted observers across every swept family", async () => {
+    const queryClient = freshQueryClient();
+    const pathOpts = { path: { assistant_id: "asst-1" } };
+    let configFetches = 0;
+    let soundsFetches = 0;
+    const configObserver = new QueryObserver(queryClient, {
+      queryKey: configGetQueryKey(pathOpts),
+      queryFn: () => {
+        configFetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const soundsObserver = new QueryObserver(queryClient, {
+      queryKey: soundsConfigGetQueryKey(pathOpts),
+      queryFn: () => {
+        soundsFetches += 1;
+        return Promise.resolve({ ok: true });
+      },
+      staleTime: Infinity,
+    });
+    const unsubConfig = configObserver.subscribe(() => {});
+    const unsubSounds = soundsObserver.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(configFetches).toBe(1);
+        expect(soundsFetches).toBe(1);
+      });
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      await flushReconnectSweep();
+
+      await waitFor(() => {
+        expect(configFetches).toBe(2);
+        expect(soundsFetches).toBe(2);
+      });
+    } finally {
+      unsubConfig();
+      unsubSounds();
+    }
+  });
+
+  // The other half of that bargain: a view nobody has open costs no request.
+  // TanStack's default `refetchType` only refetches observed queries, so an
+  // unobserved family is marked stale and reads through on its next mount.
+  test("reconnect sweep stales an unobserved query without fetching it", async () => {
+    const queryClient = freshQueryClient();
+    const soundsKey = soundsConfigGetQueryKey({
+      path: { assistant_id: "asst-1" },
+    });
+    let fetches = 0;
+    const queryFn = () => {
+      fetches += 1;
+      return Promise.resolve({ ok: true });
+    };
+    const observer = new QueryObserver(queryClient, {
+      queryKey: soundsKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await waitFor(() => {
+      expect(fetches).toBe(1);
+    });
+    unsubscribe();
+
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    expect(fetches).toBe(1);
+    expect(queryClient.getQueryState(soundsKey)?.isInvalidated).toBe(true);
+
+    // Stale, not forgotten: the next observer mount reads through.
+    const remounted = new QueryObserver(queryClient, {
+      queryKey: soundsKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubRemount = remounted.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(fetches).toBe(2);
+      });
+    } finally {
+      unsubRemount();
+    }
+  });
+
+  test("collapses a reconnect flap into a single sweep", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    const avatarSweeps = calls.filter(
+      (arg) =>
+        keyId((arg as { queryKey?: readonly unknown[] }).queryKey) ===
+        keyId(avatarQueryKey("asst-1")),
+    );
+    expect(avatarSweeps.length).toBe(1);
+  });
+
+  test("unmount cancels a pending reconnect sweep", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    const { unmount } = renderHook(
+      () => useAssistantResourceSync("asst-1", true),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    unmount();
+    await flushReconnectSweep();
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  // A queued sweep closes over the assistant that was active when it was
+  // scheduled, so switching assistants has to drop it rather than let it
+  // refresh caches for the assistant the user just left.
+  test("switching assistants cancels the pending reconnect sweep", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    const { rerender } = renderHook(
+      ({ id }: { id: string }) => useAssistantResourceSync(id, true),
+      {
+        wrapper: createWrapper(queryClient),
+        initialProps: { id: "asst-1" },
+      },
+    );
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    rerender({ id: "asst-2" });
+    await flushReconnectSweep();
+
     expect(spy).not.toHaveBeenCalled();
   });
 
