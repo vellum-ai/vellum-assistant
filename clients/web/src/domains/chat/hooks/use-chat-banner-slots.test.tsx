@@ -73,7 +73,6 @@ function makeParams(nudges: Nudges): UseChatBannerSlotsParams {
     onCancelAllQueued: noop,
     onSteerMessage: noop,
     onEditQueueTail: noop,
-    queueSteering: false,
   };
 }
 

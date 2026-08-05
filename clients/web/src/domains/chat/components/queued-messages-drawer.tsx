@@ -14,7 +14,6 @@ export interface QueuedMessagesDrawerProps {
   onCancelMessage: (messageId: string) => void;
   onCancelAll: () => void;
   onSteer: (messageId: string) => void;
-  showSteer: boolean;
   onEditTail: () => void;
 }
 
@@ -28,7 +27,6 @@ interface QueuedMessageRowProps {
   isTail: boolean;
   onCancel: () => void;
   onSteer: () => void;
-  showSteer: boolean;
   onEdit: () => void;
 }
 
@@ -38,7 +36,6 @@ function QueuedMessageRow({
   isTail,
   onCancel,
   onSteer,
-  showSteer,
   onEdit,
 }: QueuedMessageRowProps) {
   const preview = useMemo(() => messagePlainText(message), [message]);
@@ -59,16 +56,14 @@ function QueuedMessageRow({
 
       {/* Action icons */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {showSteer && (
-          <Button
-            variant="ghost"
-            size="compact"
-            className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
-            iconOnly={<ArrowUp className="h-3.5 w-3.5" />}
-            onClick={onSteer}
-            aria-label="Push to agent"
-          />
-        )}
+        <Button
+          variant="ghost"
+          size="compact"
+          className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
+          iconOnly={<ArrowUp className="h-3.5 w-3.5" />}
+          onClick={onSteer}
+          aria-label="Push to agent"
+        />
         {isTail && (
           <Button
             variant="ghost"
@@ -101,7 +96,6 @@ export function QueuedMessagesDrawer({
   onCancelMessage,
   onCancelAll,
   onSteer,
-  showSteer,
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
   const handleCancelMessage = useCallback(
@@ -143,7 +137,6 @@ export function QueuedMessagesDrawer({
               isTail={idx === queuedMessages.length - 1}
               onCancel={() => handleCancelMessage(msg.id)}
               onSteer={() => onSteer(msg.id)}
-              showSteer={showSteer}
               onEdit={onEditTail}
             />
           ))}
