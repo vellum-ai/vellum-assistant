@@ -4,6 +4,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { Tag } from "@vellumai/design-library/components/tag";
+import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
 import type {
@@ -70,9 +71,11 @@ export function ProfileRow({
   }
 
   const availability = profile.availability;
+  // Every non-ok verdict names the broken thing; the fix is always the same
+  // place, so the copy ends by pointing at the editor this row opens.
   const availabilityProblem =
     availability != null && availability.status !== "ok"
-      ? (availability.message ?? "This profile's provider is not available.")
+      ? `${availability.message ?? "This profile's provider is not available."} Actions using it fall back to another profile. Click to edit.`
       : null;
 
   return (
@@ -93,13 +96,19 @@ export function ProfileRow({
       trailing={
         <>
           {availabilityProblem != null ? (
-            <span title={availabilityProblem} className="inline-flex">
-              <AlertCircle
-                className="h-4 w-4 text-[var(--system-mid-strong)]"
+            <Tooltip content={availabilityProblem}>
+              <button
+                type="button"
+                onClick={onOpen}
                 aria-label={availabilityProblem}
-                role="img"
-              />
-            </span>
+                className="inline-flex cursor-pointer rounded-sm p-0.5 keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+              >
+                <AlertCircle
+                  className="h-4 w-4 text-[var(--system-mid-strong)]"
+                  aria-hidden="true"
+                />
+              </button>
+            </Tooltip>
           ) : null}
           {isDisabled ? <Tag tone="neutral">Disabled</Tag> : null}
           {isActiveProfile ? <Tag tone="positive">Default</Tag> : null}
