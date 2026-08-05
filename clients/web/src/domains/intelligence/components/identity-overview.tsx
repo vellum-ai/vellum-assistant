@@ -514,7 +514,7 @@ function SectionCard({
             flooded along with the rule and labels (currentColor). */}
         {gridArea && stat?.signature && (
           <span
-            className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
+            className={`absolute inset-x-5 top-14 bottom-7 flex items-end justify-center transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
                 : photoBackdrop

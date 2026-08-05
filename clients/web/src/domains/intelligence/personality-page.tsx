@@ -212,7 +212,7 @@ function PersonalityBody({
                 }}
               />
               <span className="min-w-0 text-center">
-                {assistantName} is rewriting itself…
+                {assistantName}&apos;s personality is updating…
               </span>
             </>
           ) : (
