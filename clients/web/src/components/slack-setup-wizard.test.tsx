@@ -6,8 +6,11 @@
  *   2. A failed clipboard write neither claims success nor moves the flow on.
  *   3. Navigation is never a side effect of another control: Next advances,
  *      Copy and Open Slack do not.
- *   4. An empty app name blocks both controls on step 1.
- *   5. Step 4 hands both tokens to `onSave`, trimmed.
+ *   4. The handoff step reports what this wizard copied, including the stale
+ *      case where the app was renamed afterwards, and never claims to know
+ *      what the clipboard now holds.
+ *   5. An empty app name blocks both controls on step 1.
+ *   6. Step 4 hands both tokens to `onSave`, trimmed.
  *
  * All token values are synthetic fixtures.
  */
@@ -109,12 +112,77 @@ describe("SlackSetupWizard step flow", () => {
     expect(onOpenStep()).toBe(false);
   });
 
-  test("Next advances without requiring a copy", () => {
+  test("advancing without a copy warns at the handoff instead of blocking", () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
 
     fireEvent.click(nextButton());
 
     expect(clipboardWrites).toHaveLength(0);
+    expect(onOpenStep()).toBe(true);
+    // Slack's modal cannot fetch the manifest, so the handoff step has to say
+    // so rather than let the user paste nothing.
+    expect(screen.getByRole("status").textContent).toMatch(
+      /have not copied this app's manifest yet/i,
+    );
+  });
+
+  test("editing after a copy retracts the Copied! label, not just the notice", async () => {
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    fireEvent.click(copyButton());
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Copied!/i })).toBeTruthy();
+    });
+
+    // Well inside the 1.5s window the flag survives, so nothing but the
+    // manifest comparison can retract the label here. Leaving it would let the
+    // notice say "not copied" while the button beside it still says "Copied!".
+    fireEvent.change(screen.getByLabelText(/App Name/i), {
+      target: { value: "Renamed Bot" },
+    });
+
+    expect(screen.queryByRole("button", { name: /Copied!/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Copy manifest/i })).toBeTruthy();
+  });
+
+  test("a stale clipboard is reported as not ready", async () => {
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    fireEvent.click(copyButton());
+    await waitFor(() => {
+      expect(clipboardWrites).toHaveLength(1);
+    });
+    // Renaming after copying leaves a manifest on the clipboard that no longer
+    // matches the app being created.
+    fireEvent.change(screen.getByLabelText(/App Name/i), {
+      target: { value: "Renamed Bot" },
+    });
+    fireEvent.click(nextButton());
+
+    expect(screen.getByRole("status").textContent).toMatch(
+      /have not copied this app's manifest yet/i,
+    );
+    // The notice and the control beside it must not disagree.
+    expect(screen.queryByRole("button", { name: /Copied!/i })).toBeNull();
+  });
+
+  test("copying at the handoff step marks the manifest copied", async () => {
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    fireEvent.click(nextButton());
+    fireEvent.click(copyButton());
+
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toMatch(
+        /you copied this app's manifest here/i,
+      );
+    });
+    // The wizard knows it wrote the manifest, not that the clipboard still
+    // holds it, so the notice must not assert the latter.
+    expect(screen.getByRole("status").textContent).toMatch(
+      /copied anything since, copy it again/i,
+    );
+    // Copying is still not navigation.
     expect(onOpenStep()).toBe(true);
   });
 

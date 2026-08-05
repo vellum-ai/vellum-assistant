@@ -1,11 +1,13 @@
-import { Loader2, Search } from "lucide-react";
+import { AlertCircle, Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  profilePickerIssue,
   profilePickerLabel,
   selectSeedProfileForOverride,
+  undispatchableProfileReason,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
@@ -25,6 +27,7 @@ import {
   configLlmCallsitesGetOptions,
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
@@ -72,6 +75,13 @@ export function OverridesDetailPanel({
     [profiles, profileOrder],
   );
   const selectableInferenceProviders = useSelectableInferenceProviders();
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile dispatches there and must not be judged incomplete.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
+  const dispatchOptions = useMemo(
+    () => ({ requireOwnProviderAndModel }),
+    [requireOwnProviderAndModel],
+  );
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
@@ -153,15 +163,34 @@ export function OverridesDetailPanel({
     [orderedProfiles],
   );
 
+  // An entry only reaches a picker while undispatchable when it is the
+  // current selection. It carries the same warning affordance the Profiles
+  // row uses, rather than a word appended to its name.
+  const toProfileOption = useCallback(
+    (p: (typeof orderedProfiles)[number]) => ({
+      value: p.name,
+      label: profilePickerLabel(p),
+      ...(profilePickerIssue(p, orderedProfiles, dispatchOptions) ===
+      "undispatchable"
+        ? {
+            icon: (
+              <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
+            ),
+            tooltip: undispatchableProfileReason(p),
+          }
+        : {}),
+    }),
+    [orderedProfiles, dispatchOptions],
+  );
+
   const advisorOptions = useMemo(
     () =>
-      visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map(
-        (p) => ({
-          value: p.name,
-          label: profilePickerLabel(p),
-        }),
-      ),
-    [orderedProfiles, persistedAdvisor],
+      visibleProfilesForPicker(
+        orderedProfiles,
+        [persistedAdvisor],
+        dispatchOptions,
+      ).map(toProfileOption),
+    [orderedProfiles, persistedAdvisor, toProfileOption, dispatchOptions],
   );
 
   // "advisor" isn't in the call-site catalog, so its row filters on its own
@@ -183,18 +212,17 @@ export function OverridesDetailPanel({
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = visibleProfilesForPicker(orderedProfiles, [
-        selectedProfile,
-      ]);
+      const visible = visibleProfilesForPicker(
+        orderedProfiles,
+        [selectedProfile],
+        dispatchOptions,
+      );
       return [
-        ...visible.map((p) => ({
-          value: p.name,
-          label: profilePickerLabel(p),
-        })),
+        ...visible.map(toProfileOption),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles],
+    [orderedProfiles, toProfileOption, dispatchOptions],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -250,6 +278,7 @@ export function OverridesDetailPanel({
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
+        dispatchOptions,
       );
       if (seedProfile) {
         setDraft(id, { profile: seedProfile });
@@ -260,7 +289,13 @@ export function OverridesDetailPanel({
         setDraft(id, { provider: defaultProvider, model: defaultModel });
       }
     },
-    [gatedCallSites, orderedProfiles, selectableInferenceProviders, setDraft],
+    [
+      gatedCallSites,
+      orderedProfiles,
+      selectableInferenceProviders,
+      setDraft,
+      dispatchOptions,
+    ],
   );
 
   // ---------------------------------------------------------------------------

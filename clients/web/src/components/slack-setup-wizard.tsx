@@ -67,6 +67,14 @@ export function SlackSetupWizard({
     }
   }, [assistantName]);
 
+  // The exact manifest this wizard last wrote to the clipboard, so the handoff
+  // step can tell "never copied" from "copied, then the name changed". The
+  // transient `copied` flag resets on a timer and cannot. This is what the
+  // wizard did, not what the clipboard now holds: a page cannot read the
+  // clipboard without a permission prompt, and a copy in any other app
+  // replaces it silently.
+  const [copiedManifest, setCopiedManifest] = useState<string | null>(null);
+
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
@@ -83,13 +91,20 @@ export function SlackSetupWizard({
 
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
+  // Whether the manifest for the app as currently named was copied from here.
+  // Editing the name or description after a copy invalidates it, so both the
+  // handoff notice and the transient "Copied!" label key off this rather than
+  // off `copied` alone: the flag survives 1.5s and would otherwise keep
+  // confirming a copy of a manifest that no longer exists.
+  const manifestCopiedHere = copiedManifest === manifestJson;
+
   const handleAppNameChange = useCallback((value: string) => {
     userEditedName.current = true;
     setSlackAppName(value);
   }, []);
 
   const handleCopyManifest = useCallback(() => {
-    copy(manifestJson);
+    copy(manifestJson, () => setCopiedManifest(manifestJson));
   }, [copy, manifestJson]);
 
   const handleOpenSlack = useCallback(() => {
@@ -130,7 +145,7 @@ export function SlackSetupWizard({
           <SlackSetupNameStep
             appName={slackAppName}
             description={description}
-            copied={copied}
+            copied={copied && manifestCopiedHere}
             onAppNameChange={handleAppNameChange}
             onDescriptionChange={setDescription}
             onCopyManifest={handleCopyManifest}
@@ -140,6 +155,9 @@ export function SlackSetupWizard({
 
         {stepId === "open" && (
           <SlackSetupOpenStep
+            manifestCopiedHere={manifestCopiedHere}
+            copied={copied && manifestCopiedHere}
+            onCopyManifest={handleCopyManifest}
             onOpenSlack={handleOpenSlack}
             onContinue={handleContinueToCreate}
           />

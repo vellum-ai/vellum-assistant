@@ -49,7 +49,14 @@ export const NameEmpty: Story = {
   },
 };
 
-/** Step 1 after a successful copy, showing the transient confirmation. */
+/**
+ * Step 1 after a successful copy, showing the transient confirmation.
+ *
+ * This and `OpenSlackAfterCopy` depend on the clipboard write resolving, which
+ * needs a focused document. In a headless or unfocused context the write
+ * rejects and the story renders the un-copied state instead of failing, so
+ * read them in a real browser window.
+ */
 export const Copied: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -59,10 +66,24 @@ export const Copied: Story = {
   },
 };
 
-/** Step 2, reached through Next rather than `initialStepId`. */
+/**
+ * Step 2 reached without copying: the handoff warns that Slack's modal has no
+ * other way to get the manifest.
+ */
 export const OpenSlack: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+  },
+};
+
+/** Step 2 reached after copying: the handoff reports the manifest was taken. */
+export const OpenSlackAfterCopy: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /Copy manifest/i }),
+    );
     await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
   },
 };
