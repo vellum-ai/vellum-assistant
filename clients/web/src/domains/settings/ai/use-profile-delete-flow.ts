@@ -208,8 +208,12 @@ export function useProfileDeleteFlow(
     // An assistant that predates the schedule-move routes answers the filtered
     // list with every schedule it has and 404s the reassign, so scanning there
     // would both misreport the references and strand the delete. Skip straight
-    // to the pre-schedule behavior instead.
-    const supportsScheduleMoves = await resolveSupportsScheduleProfileMoves();
+    // to the pre-schedule behavior instead. Scoped to `assistantId`: the
+    // identity store still carries the outgoing assistant's version for a beat
+    // after a switch, and this page's delete is aimed at `assistantId`, not at
+    // whichever identity happens to be hydrated.
+    const supportsScheduleMoves =
+      await resolveSupportsScheduleProfileMoves(assistantId);
     if (supportsScheduleMoves) {
       try {
         const data = await queryClient.fetchQuery({

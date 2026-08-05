@@ -231,13 +231,18 @@ beforeEach(() => {
   advisorProfileState = null;
   schedulesByProfile = {};
   seedProfiles();
-  // A version below every gate this section consults: the effective-profile
-  // catalog (0.11.0) stays off so the rows come from config, and schedule
-  // moves (0.12.0) stay off so a delete takes the pre-schedule path. It has
-  // to be a known version rather than no identity at all, because the delete
-  // write path waits for the version to hydrate before deciding whether to
-  // move schedules, and an identity that never arrives makes it wait.
-  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
+  // A version below every gate this section consults: the validated
+  // active-profile route (0.10.8), the effective-profile catalog (0.11.0) so
+  // the rows come from config, and schedule moves (0.12.0) so a delete takes
+  // the pre-schedule path. It has to be a known version recorded for the
+  // assistant these tests render (`asst-1`) rather than no identity at all,
+  // because the delete write path waits for *that* assistant's version to
+  // hydrate before deciding whether to move schedules, and an identity that
+  // never arrives makes it wait. Suites that want one of these gates on
+  // override this in their own `beforeEach`.
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", "0.10.7", "asst-1");
 });
 
 afterEach(() => {
@@ -350,8 +355,8 @@ describe("ProfilesSection - kebab menus", () => {
   });
 
   test("Make Default falls back to PATCHing llm.activeProfile on older assistants", async () => {
-    // Version unknown → the gate is conservative, so the save takes the raw
-    // config PATCH every assistant has always served.
+    // 0.10.7 predates the validated active-profile route, so the save takes
+    // the raw config PATCH every assistant has always served.
     renderSection();
     const menu = await openKebab("My Custom");
     clickMenuItem(menu, "Make Default");

@@ -7,10 +7,21 @@ import {
 } from "@/lib/backwards-compat/use-supports-schedule-profile-moves";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
+const OWNER = "asst-owner";
+const OTHER = "asst-other";
+
+/** Record an identity fetched for `assistantId` (defaults to the owner). */
+function setIdentity(version: string | null, assistantId: string = OWNER) {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", version, assistantId);
+}
+
 /** Read the gate synchronously through the exported hook. */
 function readGate(version: string | null): boolean {
-  useAssistantIdentityStore.getState().setIdentity("test-asst", version);
-  return renderHook(() => useSupportsScheduleProfileMoves()).result.current;
+  setIdentity(version);
+  return renderHook(() => useSupportsScheduleProfileMoves(OWNER)).result
+    .current;
 }
 
 beforeEach(() => {
@@ -52,20 +63,55 @@ describe("useSupportsScheduleProfileMoves", () => {
     expect(readGate("garbage")).toBe(false);
     expect(readGate("0.12")).toBe(false);
   });
+
+  // A new-enough version belonging to a different assistant must not light up
+  // this assistant's surface: mid-switch the store still holds the outgoing
+  // assistant's identity.
+  test("reads false when the hydrated version belongs to another assistant", () => {
+    setIdentity("0.12.0", OTHER);
+    expect(
+      renderHook(() => useSupportsScheduleProfileMoves(OWNER)).result.current,
+    ).toBe(false);
+  });
+
+  test("reads false without an owner to scope to", () => {
+    setIdentity("0.12.0");
+    expect(
+      renderHook(() => useSupportsScheduleProfileMoves(null)).result.current,
+    ).toBe(false);
+  });
 });
 
-// The write-path variant waits for the version to hydrate rather than reading
-// the conservative `false` a still-null version would give, so a delete
-// confirmed right after load still moves the schedules.
+// The write-path variant waits for the owning assistant's version to hydrate
+// rather than reading the conservative `false` a still-null version would
+// give, so a delete confirmed right after load still moves the schedules.
 describe("resolveSupportsScheduleProfileMoves", () => {
   test("waits for a late-arriving version instead of answering false", async () => {
-    const pending = resolveSupportsScheduleProfileMoves();
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.12.0");
+    const pending = resolveSupportsScheduleProfileMoves(OWNER);
+    setIdentity("0.12.0");
     expect(await pending).toBe(true);
   });
 
   test("reads false once a below-minimum version resolves", async () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.11.2");
-    expect(await resolveSupportsScheduleProfileMoves()).toBe(false);
+    setIdentity("0.11.2");
+    expect(await resolveSupportsScheduleProfileMoves(OWNER)).toBe(false);
+  });
+
+  // The switch case the scoping exists for: the settings page is already
+  // showing the newly selected assistant while the identity store still holds
+  // the one it switched away from. Answering from that stale pair would call
+  // the reassign route against an assistant that may not have it.
+  test("keeps waiting while the store holds another assistant's version", async () => {
+    setIdentity("0.12.0", OTHER);
+    let settled = false;
+    const pending = resolveSupportsScheduleProfileMoves(OWNER).then((v) => {
+      settled = true;
+      return v;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    setIdentity("0.11.2", OWNER);
+    expect(await pending).toBe(false);
   });
 });

@@ -26,31 +26,48 @@
  * hotfix release branches from the latest release tag instead, so a hotfix
  * claiming this number would NOT carry them; if that happens, retarget to
  * the next scheduled cut.
+ *
+ * Both entry points are scoped to the assistant that owns the surface. The
+ * identity store is not safe to pair across an assistant switch: it holds the
+ * outgoing assistant's version until the clear and refetch in
+ * `useAssistantIdentityInit` settle, so an unscoped read could authorize
+ * these routes for an assistant the settings page has just switched to and
+ * re-enter exactly the failure mode above. Scoping compares against the
+ * identity store's own `assistantId`, written in the same `set()` as the
+ * version, so version and owner are one atomic snapshot.
  */
 import {
-  assistantSupports,
-  useAssistantSupports,
-  whenAssistantVersionKnown,
+  assistantScopedSupports,
+  useAssistantScopedSupports,
+  whenAssistantVersionKnownFor,
 } from "./utils";
 
 export const MIN_VERSION = "0.12.0";
 
 /**
  * Render-path gate. Subscribes to the identity store, so a surface that
- * depends on the reassign route appears once the active assistant's version
- * crosses `MIN_VERSION`. Conservative on an unknown or unparseable version.
+ * depends on the reassign route appears once `ownerAssistantId`'s version
+ * crosses `MIN_VERSION`. Conservative on an unknown or unparseable version,
+ * and on an identity fetched for a different assistant.
  */
-export function useSupportsScheduleProfileMoves(): boolean {
-  return useAssistantSupports(MIN_VERSION);
+export function useSupportsScheduleProfileMoves(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  return useAssistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }
 
 /**
- * Write-path gate. Waits for the version to hydrate before reading the
- * snapshot, so a profile delete confirmed moments after load is answered by
- * the assistant's real version rather than by the conservative
- * `false`-on-unknown default, which would silently skip the schedule move.
+ * Write-path gate. Waits for `ownerAssistantId`'s own version to hydrate
+ * before reading the snapshot, so a profile delete confirmed moments after
+ * load — or moments after an assistant switch — is answered by that
+ * assistant's real version rather than by the conservative
+ * `false`-on-unknown default (which silently skips the schedule move) or by
+ * the outgoing assistant's version (which would call routes the incoming one
+ * may not have).
  */
-export async function resolveSupportsScheduleProfileMoves(): Promise<boolean> {
-  await whenAssistantVersionKnown();
-  return assistantSupports(MIN_VERSION);
+export async function resolveSupportsScheduleProfileMoves(
+  ownerAssistantId: string | null | undefined,
+): Promise<boolean> {
+  await whenAssistantVersionKnownFor(ownerAssistantId);
+  return assistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }

@@ -234,7 +234,11 @@ function confirmButton(): HTMLButtonElement {
 beforeEach(() => {
   // The schedule scan and the reassign are version-gated; every test below
   // except the old-assistant ones runs against an assistant that has them.
-  useAssistantIdentityStore.getState().setIdentity("asst-1", MIN_VERSION);
+  // The gate is scoped to the assistant the identity was fetched for, so the
+  // third argument has to be the id the section renders for.
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", MIN_VERSION, "asst-1");
   configPatchBodies = [];
   reassignBodies = [];
   reassignFails = false;
@@ -580,7 +584,9 @@ describe("profile delete flow - reassign then delete", () => {
 // carried a profile pin.
 describe("profile delete flow - assistant without the schedule routes", () => {
   beforeEach(() => {
-    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.2");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Test", "0.11.2", "asst-1");
   });
 
   test("an unreferenced profile deletes without scanning schedules", async () => {
@@ -616,5 +622,39 @@ describe("profile delete flow - assistant without the schedule routes", () => {
     // No reassign call: the route does not exist on this assistant.
     expect(reassignBodies).toEqual([]);
     expect(scheduleQueries).toEqual([]);
+  });
+});
+
+// Mid-switch the identity store still holds the assistant the user just left.
+// The version gate is scoped to the assistant this section renders for, so a
+// new-enough *other* assistant must not answer for it: the flow waits for
+// asst-1's own identity and then obeys that version.
+describe("profile delete flow - identity fetched for another assistant", () => {
+  test("waits for this assistant's version instead of the outgoing one's", async () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Other", MIN_VERSION, "asst-2");
+    schedulesByProfile["my-custom"] = [
+      { name: "Morning digest", isDeferred: false },
+    ];
+    renderSection();
+    await clickDelete("My Custom");
+
+    // asst-2's 0.12.0 is on the store and would have authorized the scan.
+    expect(scheduleQueries).toEqual([]);
+    expect(configPatchBodies).toEqual([]);
+
+    // asst-1's own identity lands, and it predates the routes.
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Test", "0.11.2", "asst-1");
+    });
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    expect(scheduleQueries).toEqual([]);
+    expect(reassignBodies).toEqual([]);
   });
 });
