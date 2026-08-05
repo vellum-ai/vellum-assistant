@@ -70,11 +70,20 @@ const mockAuthState: {
   refreshSession: async () => true,
 };
 
+// Controls the probe-settle wait the recovery path awaits after
+// `refreshSession`. Defaults to already-settled; a test swaps in a pending
+// promise to model the fire-and-forget probe still being in flight.
+let whenPlatformSessionSettledImpl: () => Promise<void> = async () => {};
+const whenPlatformSessionSettledMock = mock(() =>
+  whenPlatformSessionSettledImpl(),
+);
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     getState: () => mockAuthState,
     subscribe: () => () => {},
   },
+  whenPlatformSessionSettled: whenPlatformSessionSettledMock,
 }));
 
 const hardNavigateMock = mock((_url: string) => {});
@@ -1507,14 +1516,34 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
 
   const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
   const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+  const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
+  const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
+  const PLATFORM_RECOVERY_PATH_KEY = "vellum:platform:recovery-path";
+  const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
+
+  /**
+   * Backdate the recovery cooldown so the next rejection is outside the
+   * window. Tests that exercise the latch or the redirect budget across
+   * multiple cycles use this to keep the cooldown out of the picture.
+   */
+  function expireRecoveryCooldown(): void {
+    sessionStorage.setItem(
+      PLATFORM_RECOVERY_AT_KEY,
+      String(Date.now() - 700_000),
+    );
+  }
 
   beforeEach(() => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
     sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
     mockAuthState.sessionStatus = "authenticated";
     mockAuthState.platformSession = "present";
     mockAuthState.refreshSession = mock(async () => true);
+    whenPlatformSessionSettledImpl = async () => {};
     hardNavigateMock.mockClear();
   });
 
@@ -1522,6 +1551,10 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
     sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
+    whenPlatformSessionSettledImpl = async () => {};
   });
 
   /** Drive one full rejection→recovery round trip against a dead session. */
@@ -1531,6 +1564,11 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
       mockAuthState.sessionStatus = "unauthenticated";
       return false;
     });
+    // Keep the recovery cooldown and budget out of redirect-budget tests:
+    // each round models a fresh, allowed recovery cycle.
+    expireRecoveryCooldown();
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
     platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
     await flush();
   };
@@ -1563,7 +1601,9 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(refreshSession).toHaveBeenCalledTimes(1);
     expect(hardNavigateMock).not.toHaveBeenCalled();
 
-    // Latch reopened → a later genuine rejection triggers another re-probe.
+    // Latch reopened → a later genuine rejection (outside the cooldown
+    // window) triggers another re-probe.
+    expireRecoveryCooldown();
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
     expect(refreshSession).toHaveBeenCalledTimes(2);
@@ -1693,6 +1733,217 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
       String(PLATFORM_AUTH_MAX_REDIRECTS),
     );
+  });
+
+  test("holds the latch until the platform probe settles", async () => {
+    // `refreshSession` in gateway-auth mode fire-and-forgets the platform
+    // probe, whose own requests 403 against a half-dead cookie. Those
+    // rejections arrive after `refreshSession` resolved; if the latch were
+    // already released, each would start the next recovery cycle.
+    let settleProbe: () => void = () => {};
+    whenPlatformSessionSettledImpl = () =>
+      new Promise((resolve) => {
+        settleProbe = resolve;
+      });
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // A probe-spawned 403 during the settle window must not recover again.
+    expireRecoveryCooldown();
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // Once the probe settles the latch reopens for a later genuine cycle.
+    whenPlatformSessionSettledImpl = async () => {};
+    settleProbe();
+    await flush();
+    expireRecoveryCooldown();
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("a settled-absent platform session never triggers recovery", async () => {
+    mockAuthState.platformSession = "absent";
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("an unsettled (unknown) platform session still recovers", async () => {
+    // "unknown" means the probe has not answered yet, so the rejection is
+    // still worth re-verifying; only a settled negative is conclusive.
+    mockAuthState.platformSession = "unknown";
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("a second rejection inside the cooldown window does not recover", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // Latch is reopened, but the attempt timestamp is fresh.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("stops recovering once the attempt budget is spent", async () => {
+    // An unsettled probe never confirms the session live, so nothing refunds
+    // the count and the budget is the binding limit.
+    mockAuthState.platformSession = "unknown";
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    // Each round expires the cooldown so only the budget can stop it.
+    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS; i++) {
+      expireRecoveryCooldown();
+      platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+      await flush();
+    }
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS,
+    );
+
+    expireRecoveryCooldown();
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS,
+    );
+  });
+
+  test("a live-confirmed recovery refunds the count but keeps the cooldown", async () => {
+    // platformSession stays "present" (beforeEach default): the probe keeps
+    // confirming the session is live, so a route-level permission 403 must
+    // not eat the budget a later real expiry needs.
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS + 2; i++) {
+      expireRecoveryCooldown();
+      platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+      await flush();
+    }
+
+    // Every cycle recovered: the count was refunded each time.
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS + 2,
+    );
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
+
+    // The cooldown survives the refund: an immediate rejection stays paced.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS + 2,
+    );
+  });
+
+  test("a 2xx on the rejected route restores the recovery budget", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // Inside the cooldown a rejection cannot recover.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // The same route succeeding is proof it healed; the cooldown clears and
+    // the next rejection may recover immediately.
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).toBeNull();
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("an unrelated platform 2xx does not restore the budget", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    // A route the platform serves without the session (feature-flag polling)
+    // keeps succeeding; it must not clear the cooldown or the count.
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, "https://platform.test/v1/client-feature-flags/"),
+    );
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).not.toBeNull();
+
+    // Still inside the cooldown, so no second recovery.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("a self-hosted gateway 2xx does not restore the recovery budget", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    sessionStorage.setItem(
+      PLATFORM_RECOVERY_ATTEMPTS_KEY,
+      String(PLATFORM_RECOVERY_MAX_ATTEMPTS),
+    );
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, `${INGRESS}/v1/assistants/123/messages`),
+    );
+
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBe(
+      String(PLATFORM_RECOVERY_MAX_ATTEMPTS),
+    );
+  });
+
+  test("skips recovery when sessionStorage is unavailable", async () => {
+    // Without storage neither the cooldown nor the budget can be enforced,
+    // so recovery fails closed rather than looping uncountably.
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+    const originalGetItem = sessionStorage.getItem;
+    Object.defineProperty(sessionStorage, "getItem", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("unavailable");
+      },
+    });
+
+    try {
+      platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+      await flush();
+    } finally {
+      Object.defineProperty(sessionStorage, "getItem", {
+        configurable: true,
+        value: originalGetItem,
+      });
+    }
+
+    expect(refreshSession).not.toHaveBeenCalled();
   });
 });
 
