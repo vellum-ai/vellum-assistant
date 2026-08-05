@@ -109,9 +109,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   }),
 }));
 
-// The effective-catalog gate reads the identity store; leave the version
-// unknown so the section exercises the config-derived fallback path
-// (deterministic without mocking the inference/profiles route).
+// The effective-catalog gate reads the identity store; the suite pins a
+// version below it so the section exercises the config-derived fallback path
+// (deterministic without mocking the inference/profiles route). See the
+// beforeEach for why the version is pinned rather than left unset.
 const { configGetQueryKey } = await import(
   "@/generated/daemon/@tanstack/react-query.gen"
 );
@@ -230,7 +231,13 @@ beforeEach(() => {
   advisorProfileState = null;
   schedulesByProfile = {};
   seedProfiles();
-  useAssistantIdentityStore.getState().clearIdentity();
+  // A version below every gate this section consults: the effective-profile
+  // catalog (0.11.0) stays off so the rows come from config, and schedule
+  // moves (0.12.0) stay off so a delete takes the pre-schedule path. It has
+  // to be a known version rather than no identity at all, because the delete
+  // write path waits for the version to hydrate before deciding whether to
+  // move schedules, and an identity that never arrives makes it wait.
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
 });
 
 afterEach(() => {
