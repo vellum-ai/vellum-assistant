@@ -639,20 +639,24 @@ function clearPlatformAuthRedirectBudget(): void {
  * concurrent rejections within one cycle; against a platform that rejects
  * every request, each released latch would otherwise start the next cycle
  * immediately and without bound. The cooldown spaces cycles and the budget
- * stops them; a platform 2xx through this client restores both, and quitting
- * the app grants a fresh budget (sessionStorage).
+ * stops them; a 2xx on the route whose rejection last consumed an attempt
+ * restores both (proof the failing route healed), and quitting the app
+ * grants a fresh budget (sessionStorage).
  */
 const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
 const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
+const PLATFORM_RECOVERY_PATH_KEY = "vellum:platform:recovery-path";
 const PLATFORM_RECOVERY_COOLDOWN_MS = 600_000;
 const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
 
 /**
- * Spend one recovery attempt. False when the budget is exhausted, when the
- * last attempt was inside the cooldown window, or when sessionStorage is
- * unavailable so an uncountable environment fails closed (no recovery).
+ * Spend one recovery attempt for a rejection on `pathname`. False when the
+ * budget is exhausted, when the last attempt was inside the cooldown window,
+ * or when sessionStorage is unavailable so an uncountable environment fails
+ * closed (no recovery). The pathname is remembered so only that route's
+ * later success restores the budget.
  */
-function claimPlatformRecoveryAttempt(): boolean {
+function claimPlatformRecoveryAttempt(pathname: string): boolean {
   try {
     const stored = Number(
       sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY) ?? "0",
@@ -673,6 +677,7 @@ function claimPlatformRecoveryAttempt(): boolean {
       PLATFORM_RECOVERY_ATTEMPTS_KEY,
       String(attempts + 1),
     );
+    sessionStorage.setItem(PLATFORM_RECOVERY_PATH_KEY, pathname);
     return true;
   } catch {
     return false;
@@ -680,17 +685,31 @@ function claimPlatformRecoveryAttempt(): boolean {
 }
 
 /**
- * Restore the recovery budget. Unlike the redirect budget this is not gated
- * on a confirmed session: the budget paces re-probes, not navigations, so the
- * worst an anonymous 2xx buys is one more cooldown-spaced probe cycle. The
- * loop's own requests are all rejections, so it can never refill itself.
+ * Restore the recovery budget when a success proves the previously rejected
+ * route is healthy again. Restoring on any platform 2xx would let routes the
+ * platform serves anonymously (client feature flags, for example) re-arm the
+ * budget every poll while the session-sensitive route keeps rejecting, which
+ * defeats the bound entirely.
  */
-function clearPlatformRecoveryBudget(): void {
+function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
   try {
+    if (sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY) !== pathname) {
+      return;
+    }
     sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
   } catch {
     // sessionStorage unavailable; the claim above already fails closed.
+  }
+}
+
+/** The response URL's pathname, or null for an unparseable URL. */
+function responsePathname(response: Response): string | null {
+  try {
+    return new URL(response.url).pathname;
+  } catch {
+    return null;
   }
 }
 
@@ -740,8 +759,9 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * session also no-ops (nothing to recover), and each re-probe cycle spends
  * from the cooldown-spaced attempt budget above.
  *
- * A platform request that succeeds restores the recovery budget; one that
- * succeeds against a confirmed session also restores the redirect budget.
+ * A success on the route whose rejection last consumed a recovery attempt
+ * restores the recovery budget; a success against a confirmed session also
+ * restores the redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
   const ingressUrl = getSelfHostedIngressUrl();
@@ -751,7 +771,10 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (response.ok) {
     // A working self-hosted gateway says nothing about the platform session.
     if (!fromSelfHostedGateway) {
-      clearPlatformRecoveryBudget();
+      const pathname = responsePathname(response);
+      if (pathname !== null) {
+        clearPlatformRecoveryBudgetIfHealed(pathname);
+      }
       // The redirect budget stays gated on a confirmed session: the platform
       // serves some routes anonymously, so a 2xx alone does not prove the
       // session works.
@@ -786,7 +809,11 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   ) {
     return response;
   }
-  if (!claimPlatformRecoveryAttempt()) {
+  const rejectedPathname = responsePathname(response);
+  if (
+    rejectedPathname === null ||
+    !claimPlatformRecoveryAttempt(rejectedPathname)
+  ) {
     return response;
   }
 

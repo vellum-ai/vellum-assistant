@@ -1518,6 +1518,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   const PLATFORM_AUTH_MAX_REDIRECTS = 3;
   const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
   const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
+  const PLATFORM_RECOVERY_PATH_KEY = "vellum:platform:recovery-path";
   const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
 
   /**
@@ -1538,6 +1539,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
     mockAuthState.sessionStatus = "authenticated";
     mockAuthState.platformSession = "present";
     mockAuthState.refreshSession = mock(async () => true);
@@ -1551,6 +1553,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
     whenPlatformSessionSettledImpl = async () => {};
   });
 
@@ -1565,6 +1568,7 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     // each round models a fresh, allowed recovery cycle.
     expireRecoveryCooldown();
     sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
     platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
     await flush();
   };
@@ -1825,26 +1829,64 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     );
   });
 
-  test("a platform 2xx restores the recovery budget", async () => {
-    sessionStorage.setItem(
-      PLATFORM_RECOVERY_ATTEMPTS_KEY,
-      String(PLATFORM_RECOVERY_MAX_ATTEMPTS),
-    );
-    expireRecoveryCooldown();
+  test("a 2xx on the rejected route restores the recovery budget", async () => {
     const refreshSession = mock(async () => true);
     mockAuthState.refreshSession = refreshSession;
 
+    // Spend the whole budget with rejections on one route.
+    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS; i++) {
+      expireRecoveryCooldown();
+      platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+      await flush();
+    }
+    expireRecoveryCooldown();
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
-    expect(refreshSession).not.toHaveBeenCalled();
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS,
+    );
 
+    // The same route succeeding is proof it healed.
     platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
     expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
     expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).toBeNull();
 
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
-    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS + 1,
+    );
+  });
+
+  test("an unrelated platform 2xx does not restore the budget", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    // Spend the whole budget with rejections on the session-sensitive route.
+    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS; i++) {
+      expireRecoveryCooldown();
+      platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+      await flush();
+    }
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS,
+    );
+
+    // A route the platform serves without the session (feature-flag polling)
+    // keeps succeeding; it must not re-arm the exhausted budget.
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, "https://platform.test/v1/client-feature-flags/"),
+    );
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBe(
+      String(PLATFORM_RECOVERY_MAX_ATTEMPTS),
+    );
+
+    expireRecoveryCooldown();
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(
+      PLATFORM_RECOVERY_MAX_ATTEMPTS,
+    );
   });
 
   test("a self-hosted gateway 2xx does not restore the recovery budget", async () => {
