@@ -980,7 +980,7 @@ describe("AssistantConfigSchema", () => {
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
-    // A config predating the flux block still parses, with Flux turn-end off.
+    // A partial liveVoice override leaves Flux turn-end disabled by default.
     expect(result.liveVoice.flux.turnEnd.enabled).toBe(false);
   });
 
