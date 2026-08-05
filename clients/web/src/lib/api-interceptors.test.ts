@@ -1533,6 +1533,19 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     );
   }
 
+  /**
+   * refreshSession that never confirms the session live (the probe lands on
+   * "unknown"), so the claim it answers is not refunded.
+   */
+  function armUnrefundedRefresh() {
+    const refreshSession = mock(async () => {
+      mockAuthState.platformSession = "unknown";
+      return true;
+    });
+    mockAuthState.refreshSession = refreshSession;
+    return refreshSession;
+  }
+
   beforeEach(() => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
@@ -1780,9 +1793,10 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(hardNavigateMock).not.toHaveBeenCalled();
   });
 
-  test("an unsettled (unknown) platform session still recovers", async () => {
-    // "unknown" means the probe has not answered yet, so the rejection is
-    // still worth re-verifying; only a settled negative is conclusive.
+  test("an unsettled (unknown) platform session does not recover", async () => {
+    // While platformSession is "unknown" the boot probe is already evaluating
+    // this same rejection evidence, so spending a claim here would only nest
+    // a redundant refreshSession cycle on every dead-cookie boot.
     mockAuthState.platformSession = "unknown";
     const refreshSession = mock(async () => true);
     mockAuthState.refreshSession = refreshSession;
@@ -1790,7 +1804,8 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
 
-    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
   });
 
   test("a second rejection inside the cooldown window does not recover", async () => {
@@ -1808,25 +1823,18 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   });
 
   test("stops recovering once the attempt budget is spent", async () => {
-    // An unsettled probe never confirms the session live, so nothing refunds
-    // the count and the budget is the binding limit.
-    mockAuthState.platformSession = "unknown";
-    const refreshSession = mock(async () => true);
-    mockAuthState.refreshSession = refreshSession;
+    // The cap's defended scenario: re-probes that repeatedly fail to confirm
+    // the session live never refund the count, so the budget binds. Each
+    // cycle claims while the session still reads "present".
+    const refreshSession = armUnrefundedRefresh();
 
     // Each round expires the cooldown so only the budget can stop it.
-    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS; i++) {
+    for (let i = 0; i < PLATFORM_RECOVERY_MAX_ATTEMPTS + 1; i++) {
+      mockAuthState.platformSession = "present";
       expireRecoveryCooldown();
       platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
       await flush();
     }
-    expect(refreshSession).toHaveBeenCalledTimes(
-      PLATFORM_RECOVERY_MAX_ATTEMPTS,
-    );
-
-    expireRecoveryCooldown();
-    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
-    await flush();
     expect(refreshSession).toHaveBeenCalledTimes(
       PLATFORM_RECOVERY_MAX_ATTEMPTS,
     );
@@ -1860,14 +1868,15 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   });
 
   test("a 2xx on the rejected route restores the recovery budget", async () => {
-    const refreshSession = mock(async () => true);
-    mockAuthState.refreshSession = refreshSession;
+    // Unrefunded claims keep the budget spent, so only the heal can clear it.
+    const refreshSession = armUnrefundedRefresh();
 
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
     expect(refreshSession).toHaveBeenCalledTimes(1);
 
     // Inside the cooldown a rejection cannot recover.
+    mockAuthState.platformSession = "present";
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
     expect(refreshSession).toHaveBeenCalledTimes(1);
@@ -1883,9 +1892,8 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(refreshSession).toHaveBeenCalledTimes(2);
   });
 
-  test("an unrelated platform 2xx does not restore the budget", async () => {
-    const refreshSession = mock(async () => true);
-    mockAuthState.refreshSession = refreshSession;
+  test("an unrelated platform 2xx leaves an outstanding claim; the rejected route's clears it", async () => {
+    const refreshSession = armUnrefundedRefresh();
 
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
@@ -1897,11 +1905,26 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
       makeResponse(200, "https://platform.test/v1/client-feature-flags/"),
     );
     expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).not.toBeNull();
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBe("1");
 
-    // Still inside the cooldown, so no second recovery.
+    // The rejected route healing clears the whole bound.
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).toBeNull();
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY)).toBeNull();
+  });
+
+  test("a refund resets the outstanding claim, so a later matching 2xx keeps the cooldown", async () => {
+    // Default refreshSession confirms the session live, so the claim is
+    // refunded and no heal is outstanding.
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
     await flush();
-    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
+
+    // The matching 2xx must not clear the retained cooldown that paces
+    // re-probing while the permission 403 persists.
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).not.toBeNull();
   });
 
   test("a self-hosted gateway 2xx does not restore the recovery budget", async () => {
