@@ -24,6 +24,12 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
+import { BASELINE_MACHINE_LABEL } from "@/domains/settings/billing/plans/custom-plan-diff";
+import {
+  CREDIT_DOCS_URL,
+  MACHINE_DOCS_URL,
+  STORAGE_DOCS_URL,
+} from "@/domains/settings/billing/plans/docs-links";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as platformGate from "@/hooks/use-platform-gate";
@@ -697,10 +703,11 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(queryByTestId("resize-takeover")).toBeNull();
   });
 
-  test("a baseline (null machine) Pro sub can still open and reconfigure", () => {
+  test("a baseline (null machine) Pro sub opens seeded to the baseline machine", () => {
     // A package with no paid machine tier reports max_machine_tier: null. That
-    // sub must still reach the modal (not route to manage); storage/credit seed
-    // and the machine picker starts empty, so Continue waits for a machine pick.
+    // sub must still reach the modal (not route to manage), and every dimension
+    // seeds, the baseline included, so the picker states what they run on
+    // instead of reading as unset.
     const { getByRole, getByText } = renderPage(
       proMightySubscription(),
       onboarding({ max_machine_tier: null }),
@@ -708,12 +715,58 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
     getByText("Create a custom plan");
+    // The seeded config is a no-op, so Continue waits for a real change.
     expect(continueButton().disabled).toBe(true);
 
-    // Storage and credit are seeded even though the machine is unset.
     const rows = recapRows();
+    expect(rows).toContain(BASELINE_MACHINE_LABEL);
     expect(rows).toContain("10 GB storage");
     expect(rows).toContain("No extra credits");
+  });
+
+  test("the baseline machine is offered to nobody else", () => {
+    // A sub on a paid tier must not be able to drop to the baseline from here:
+    // the change-tier scoring would read a to-null move as an upgrade and open
+    // the resize takeover for what is really a downgrade.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Machine size");
+
+    expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
+  });
+
+  test("the baseline machine is withheld from a base checkout", () => {
+    // No seed at all, so there is no held baseline to preserve.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Machine size");
+
+    expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
+  });
+
+  test("the recap states the billing cadence", () => {
+    // Moved here off the Custom Plan row, where it sat apart from any price.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Billed monthly");
+  });
+
+  test("each picker links to its own pricing docs section", () => {
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    const hrefs = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('[role="dialog"] a'),
+    ).map((a) => a.getAttribute("href"));
+    expect(hrefs).toContain(MACHINE_DOCS_URL);
+    expect(hrefs).toContain(STORAGE_DOCS_URL);
+    expect(hrefs).toContain(CREDIT_DOCS_URL);
   });
 
   test("a baseline Pro sub picking a machine dispatches the upgrade", async () => {
@@ -724,6 +777,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
     selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    // The baseline it is leaving is struck through, like any other seed value.
+    expect(strikethroughs()).toContain(BASELINE_MACHINE_LABEL);
     fireEvent.click(continueButton());
 
     await waitFor(() => expect(machineTierCall).not.toBeNull());
