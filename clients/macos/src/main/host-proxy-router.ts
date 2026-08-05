@@ -226,6 +226,45 @@ interface PresenceQueue {
 const presencePostQueues = new Map<string, PresenceQueue>();
 
 /**
+ * The state each daemon has confirmed it wrote down, keyed by assistantId.
+ *
+ * Whether a report is news is a question about one daemon, not about the
+ * desktop: the same report can be recorded by one assistant and lost by
+ * another. Set only when a post comes back recorded, so a timeout, a non-2xx,
+ * a throw, or a reply saying the report was accepted but not recorded all
+ * leave the previous entry standing and the next report tries again.
+ */
+const lastRecordedState = new Map<string, PresenceState>();
+
+/**
+ * Whether this report is worth a request to this assistant.
+ *
+ * `active` always is. It is the only state that suppresses a push, the daemon
+ * expires the record after a staleness bound, and a keep-alive that skipped a
+ * tick would let pushes resume while the user is sitting at the desk.
+ *
+ * A repeat of a non-active state the daemon has confirmed is not: an expired
+ * record and a repeated `idle`/`away` mean the same thing downstream (not
+ * attended, push sent). Skipping only on a confirmed state is also what keeps
+ * this fail-open, since an entry here can only be non-active when the last
+ * recorded post was that state, so the daemon cannot be holding an `active`
+ * this silence would preserve.
+ *
+ * A post in flight bars the skip outright: the record is about to become
+ * whatever that post carries, so what was confirmed before it says nothing
+ * about what the daemon will hold once it lands.
+ */
+function shouldPostPresence(assistantId: string, state: PresenceState): boolean {
+  if (state === "active") {
+    return true;
+  }
+  if (presencePostQueues.has(assistantId)) {
+    return true;
+  }
+  return lastRecordedState.get(assistantId) !== state;
+}
+
+/**
  * Post one report, logging only the first failure of a run.
  *
  * postPresence folds every non-2xx, every throw, and every reply that says the
@@ -255,6 +294,7 @@ async function postPresenceTo(
   }
   if (posted) {
     conn.presencePostFailing = false;
+    lastRecordedState.set(assistantId, state);
     return;
   }
   if (!conn.presencePostFailing) {
@@ -318,6 +358,11 @@ async function drainPresencePosts(
  * Send a report to one assistant, holding it back if that assistant already
  * has a post in flight. State is per assistant, so a slow daemon delays only
  * its own reports.
+ *
+ * Unconditional, so callers that must reach a daemon whatever it last
+ * confirmed (the connect-time seed) go straight here. `shouldPostPresence`
+ * runs ahead of it rather than inside it, so a report that will not be sent
+ * neither opens a queue nor overwrites a state genuinely waiting in one.
  */
 function queuePresencePost(assistantId: string, state: PresenceState): void {
   const inFlight = presencePostQueues.get(assistantId);
@@ -343,7 +388,9 @@ function queuePresencePost(assistantId: string, state: PresenceState): void {
 function reportPresence(state: PresenceState): void {
   lastPresenceState = state;
   for (const assistantId of connections.keys()) {
-    queuePresencePost(assistantId, state);
+    if (shouldPostPresence(assistantId, state)) {
+      queuePresencePost(assistantId, state);
+    }
   }
 }
 
@@ -358,7 +405,10 @@ function reportPresence(state: PresenceState): void {
  * and its presence record with it.
  *
  * Goes through the same queue as a poll tick, so a seed landing next to one
- * cannot reinstate the state the other has already superseded.
+ * cannot reinstate the state the other has already superseded, but not through
+ * the confirmed-state skip: the stream this rides went down and took the
+ * daemon's record with it, so what that daemon last confirmed says nothing
+ * about what it holds now.
  */
 function seedPresence(assistantId: string): void {
   if (lastPresenceState === null) {
@@ -538,10 +588,12 @@ function connectCloudAssistant(
 
 // -- Disconnect -------------------------------------------------------------
 
-// Deliberately leaves the assistant's presence queue in place: a reconnect
-// runs through here, nothing aborts the post the old connection has out, and a
-// fresh latch is what lets that stale post land last. Callers that know the
-// assistant is gone for good clear the queue themselves.
+// Deliberately leaves the assistant's presence queue and recorded state in
+// place: a reconnect runs through here, nothing aborts the post the old
+// connection has out, and a fresh latch is what lets that stale post land
+// last. The recorded state can only name a non-active state and the fresh
+// stream seeds itself, so it costs nothing to keep. Callers that know the
+// assistant is gone for good clear both.
 function disconnectAssistant(assistantId: string): void {
   const conn = connections.get(assistantId);
   if (!conn) return;
@@ -593,8 +645,10 @@ function handleLockfileChange(lockfile: Lockfile): void {
   for (const assistantId of connections.keys()) {
     if (!activeIds.has(assistantId)) {
       disconnectAssistant(assistantId);
-      // Gone rather than reconnecting, so nothing is left to serve the queue.
+      // Gone rather than reconnecting, so nothing is left to serve the queue
+      // and nothing survives that could still be holding the recorded state.
       presencePostQueues.delete(assistantId);
+      lastRecordedState.delete(assistantId);
     }
   }
 }
@@ -661,6 +715,7 @@ export function installHostProxyBridge(
       disconnectAssistant(assistantId);
     }
     presencePostQueues.clear();
+    lastRecordedState.clear();
     browserExecutor.destroy();
     removeExecutor("host_browser");
     removeExecutor("host_cu");
@@ -684,6 +739,9 @@ export const __testing = {
   get presencePostQueues() {
     return presencePostQueues;
   },
+  get lastRecordedState() {
+    return lastRecordedState;
+  },
   dispatchMessage,
   connectLocalAssistant,
   connectCloudAssistant,
@@ -698,6 +756,7 @@ export const __testing = {
       disconnectAssistant(assistantId);
     }
     presencePostQueues.clear();
+    lastRecordedState.clear();
     executors.clear();
     resolveCliInvocation = null;
     unsubscribe?.();

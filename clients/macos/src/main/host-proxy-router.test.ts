@@ -205,6 +205,41 @@ function addPresenceConnection(
   return received;
 }
 
+/** What the daemon does with a presence post: record it, refuse it, or hang up. */
+type PresencePostOutcome = true | false | "throw";
+
+/**
+ * Register a connection that records every presence post it is handed, whether
+ * or not the daemon takes it. `outcome` is read on each post, so a test can
+ * flip a daemon between recording and refusing mid-run: `"throw"` stands in for
+ * a timeout, `false` for the `recorded: false` reply postPresence folds every
+ * accepted-but-unrecorded outcome into.
+ *
+ * The returned list is the attempt log, so silence in it is the router
+ * deciding a report was not worth a request.
+ */
+function addAttemptingPresenceConnection(
+  assistantId: string,
+  outcome: { value: PresencePostOutcome },
+): PresenceState[] {
+  const attempts: PresenceState[] = [];
+  const poster = {
+    postPresence: async ({ state }: { state: PresenceState }) => {
+      attempts.push(state);
+      if (outcome.value === "throw") {
+        throw new Error("daemon unreachable");
+      }
+      return outcome.value;
+    },
+  };
+  __testing.connections.set(assistantId, {
+    sse: fakeSse(),
+    poster,
+    fingerprint: `test:${assistantId}`,
+  } as unknown as Connection);
+  return attempts;
+}
+
 /**
  * Register a connection whose presence posts park until released, so a test
  * can inspect what the router does while one is in flight. `started` records a
@@ -949,12 +984,13 @@ describe("host-proxy-router", () => {
       expect(second).toEqual(["active"]);
     });
 
-    test("posts every report, including repeats of the same state", async () => {
+    test("posts active on every report, even once the daemon recorded it", async () => {
       installHostProxyBridge(fakeCliResolver);
       const received = addPresenceConnection("a1");
 
-      // The daemon expires presence after a staleness bound, so an unchanged
-      // state still has to be said again on every tick.
+      // The daemon expires presence after a staleness bound and `active` is
+      // the only state that suppresses anything, so a recorded `active` still
+      // has to be said again on every tick.
       presenceReporter?.("active");
       await flush();
       presenceReporter?.("active");
@@ -963,6 +999,221 @@ describe("host-proxy-router", () => {
       await flush();
 
       expect(received).toEqual(["active", "active", "active"]);
+    });
+
+    test("posts a repeated non-active state once, then stays silent", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const attempts = addAttemptingPresenceConnection("a1", daemon);
+
+      // An expired record and a repeated `idle` read the same downstream, so
+      // once the daemon has confirmed it the repeats buy nothing.
+      presenceReporter?.("idle");
+      await flush();
+      presenceReporter?.("idle");
+      await flush();
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(attempts).toEqual(["idle"]);
+    });
+
+    test("retries a non-active post that failed on the next report", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: "throw" };
+      const attempts = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("away");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+
+      // Nothing landed, so the daemon may still be holding the `active` this
+      // `away` is meant to displace. Going quiet would leave it there for the
+      // length of the staleness window.
+      expect(attempts).toEqual(["away", "away", "away"]);
+
+      daemon.value = true;
+      presenceReporter?.("away");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+
+      // The one that lands is the one that earns the silence.
+      expect(attempts).toEqual(["away", "away", "away", "away"]);
+    });
+
+    test("retries a non-active post the daemon answered unrecorded", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: false };
+      const attempts = addAttemptingPresenceConnection("a1", daemon);
+
+      // A 200 saying the report was not recorded (unknown client, ownership
+      // mismatch, subscriber not back yet) leaves the daemon exactly as it was.
+      presenceReporter?.("idle");
+      await flush();
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(attempts).toEqual(["idle", "idle"]);
+    });
+
+    test("one assistant recording a state does not silence another", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const recording: { value: PresencePostOutcome } = { value: true };
+      const refusing: { value: PresencePostOutcome } = { value: false };
+      const first = addAttemptingPresenceConnection("a1", recording);
+      const second = addAttemptingPresenceConnection("a2", refusing);
+
+      presenceReporter?.("away");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+
+      // "Does this daemon already know" is a question per daemon, so the one
+      // that never took the report keeps hearing it.
+      expect(first).toEqual(["away"]);
+      expect(second).toEqual(["away", "away"]);
+    });
+
+    test("posts a transition even to a state recorded earlier", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const attempts = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("idle");
+      await flush();
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("idle");
+      await flush();
+
+      // The `active` in between is what the daemon holds now, so the return to
+      // `idle` is news whatever was recorded before it.
+      expect(attempts).toEqual(["idle", "active", "idle"]);
+    });
+
+    test("seeds an assistant with a state it has already recorded", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const attempts = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("idle");
+      await flush();
+      expect(attempts).toEqual(["idle"]);
+
+      // The stream a seed rides went down and took the daemon's record with
+      // it, so what that daemon last confirmed cannot gate the seed.
+      __testing.seedPresence("a1");
+      await flush();
+
+      expect(attempts).toEqual(["idle", "idle"]);
+    });
+
+    test("seeds a joining assistant with a state a sibling already recorded", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const first = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("away");
+      await flush();
+      expect(first).toEqual(["away"]);
+
+      const joining = addAttemptingPresenceConnection("a2", daemon);
+      __testing.seedPresence("a2");
+      await flush();
+
+      // A newly connected daemon knows nothing, whatever its siblings hold.
+      expect(joining).toEqual(["away"]);
+    });
+
+    test("keeps the recorded state across a reconnect", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("idle");
+      await flush();
+
+      // A reconnect runs through disconnectAssistant, and a recorded entry can
+      // only name a non-active state, which suppresses nothing. The seed on
+      // the fresh stream covers the record the drop took with it.
+      __testing.disconnectAssistant("a1");
+      const fresh = addAttemptingPresenceConnection("a1", daemon);
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(fresh).toEqual([]);
+    });
+
+    test("forgets a recorded state once the assistant leaves the lockfile", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const first = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("idle");
+      await flush();
+      expect(first).toEqual(["idle"]);
+
+      lockfileListener?.({ assistants: [], activeAssistant: null });
+      await flush();
+      expect(__testing.lastRecordedState.has("a1")).toBe(false);
+
+      // An assistant that comes back is a daemon that started over.
+      const second = addAttemptingPresenceConnection("a1", daemon);
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(second).toEqual(["idle"]);
+    });
+
+    test("forgets recorded states on bridge teardown", async () => {
+      const teardown = installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const first = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("idle");
+      await flush();
+      expect(first).toEqual(["idle"]);
+
+      teardown();
+      expect(__testing.lastRecordedState.size).toBe(0);
+
+      installHostProxyBridge(fakeCliResolver);
+      const second = addAttemptingPresenceConnection("a1", daemon);
+      presenceReporter?.("idle");
+      await flush();
+
+      expect(second).toEqual(["idle"]);
+    });
+
+    test("does not skip a repeat while a post is in flight", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon: { value: PresencePostOutcome } = { value: true };
+      const recorded = addAttemptingPresenceConnection("a1", daemon);
+
+      presenceReporter?.("away");
+      await flush();
+      expect(recorded).toEqual(["away"]);
+
+      const parked = addParkedPresenceConnection("a1");
+      presenceReporter?.("active");
+      await flush();
+      expect(parked.started).toEqual(["active"]);
+
+      presenceReporter?.("away");
+      await flush();
+      expect(parked.started).toEqual(["active"]);
+
+      // The in-flight `active` is about to become the record, so the `away`
+      // behind it cannot be judged against what was confirmed before it.
+      // Dropping it would leave the daemon holding `active` for a locked Mac.
+      await parked.release();
+      expect(parked.started).toEqual(["active", "away"]);
+
+      await parked.release();
     });
 
     test("holds a report that arrives while a post is in flight", async () => {
