@@ -9,6 +9,7 @@ import {
   isRepairableGatewayTokenError,
   setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
@@ -24,6 +25,7 @@ afterEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
   globalThis.fetch = realFetch;
   clearGatewayToken();
+  setSelfHostedConnection(null);
   useLockfileStore.setState({ lockfile: null, committed: false });
   process.env.VITE_PLATFORM_MODE = "true";
 });
@@ -76,7 +78,7 @@ describe("paired selection", () => {
     expect(isGatewayAuthEnabled()).toBe(false);
   });
 
-  test("paired auth mode is active without any renderer token", () => {
+  test("paired auth mode requires a host-primed proxy connection", () => {
     process.env.VITE_PLATFORM_MODE = "";
     selectPaired("https://gw.example.com");
     const fetchSpy = mock(async () => {
@@ -84,8 +86,26 @@ describe("paired selection", () => {
     });
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
+    expect(isGatewayAuthMode()).toBe(false);
+
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+      token: null,
+    });
+
     expect(isGatewayAuthMode()).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("paired auth mode rejects a primed connection for another assistant", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired("https://gw.example.com");
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-b`,
+      token: null,
+    });
+
+    expect(isGatewayAuthMode()).toBe(false);
   });
 });
 

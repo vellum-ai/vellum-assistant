@@ -87,6 +87,7 @@ import {
 import {
   clearGatewayToken,
   getGatewayToken,
+  isGatewayAuthMode,
   seedGatewayToken,
 } from "@/lib/auth/gateway-session";
 import {
@@ -923,6 +924,7 @@ describe("primeLocalGatewayConnection", () => {
 
   test("paired prime reaches the host proxy without exposing a bearer", async () => {
     enableLocalMode();
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
     seedGatewayToken({
       token: "legacy-paired-guardian",
       expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
@@ -943,12 +945,20 @@ describe("primeLocalGatewayConnection", () => {
       `${window.location.origin}/assistant/__gateway-paired/paired-a`,
     );
     expect(getSelfHostedActorToken()).toBeNull();
+    expect(isGatewayAuthMode()).toBe(true);
     expect(localStorage.getItem("vellum:gw:token")).toBeNull();
     expect(localStorage.getItem("vellum:gw:tokenSource")).toBeNull();
   });
 
   test("paired prime surfaces a host credential failure without reading it directly", async () => {
     enableLocalMode();
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    globalThis.fetch = mock(
+      async () => new Response("ok"),
+    ) as unknown as typeof fetch;
+    await primeLocalGatewayConnection(pairedEntry);
+    expect(isGatewayAuthMode()).toBe(true);
+
     globalThis.fetch = mock(
       async () => new Response("Guardian token not found", { status: 404 }),
     ) as unknown as typeof fetch;
@@ -960,6 +970,7 @@ describe("primeLocalGatewayConnection", () => {
     expect(error).toBeInstanceOf(localModeHost.GuardianTokenError);
     expect((error as localModeHost.GuardianTokenError).status).toBe(404);
     expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+    expect(isGatewayAuthMode()).toBe(false);
   });
 });
 

@@ -17,7 +17,10 @@ import {
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
   connectImportHost,
@@ -796,10 +799,14 @@ export async function primeLocalGatewayConnection(
     if (!pairedUrl) {
       throw new UnresolvedPairedGatewayError(assistant.assistantId);
     }
+    const ingressUrl = getAuthGatewayIngressUrl(assistant)!;
     // A request through the paired proxy forces the trusted host to resolve
     // the credential and proves the remote gateway is reachable. The renderer
     // sends no bearer. It also clears credentials persisted by older clients
     // that placed paired guardian tokens in the gateway-session cache.
+    if (getSelfHostedIngressUrl() === ingressUrl) {
+      setSelfHostedConnection(null);
+    }
     clearGatewayToken();
     const response = await fetch(`${pairedUrl}/readyz`);
     if (!response.ok) {
@@ -810,7 +817,7 @@ export async function primeLocalGatewayConnection(
       );
     }
     setSelfHostedConnection({
-      url: getAuthGatewayIngressUrl(assistant)!,
+      url: ingressUrl,
       token: null,
     });
     return;

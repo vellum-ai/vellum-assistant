@@ -1,10 +1,12 @@
 import {
   isLocalClient,
   getLocalGatewayUrl,
+  getAuthGatewayIngressUrl,
   getPairedGatewayUrl,
   getSelectedAssistant,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
 /**
@@ -75,11 +77,14 @@ export function isGatewayAuthMode(): boolean {
   if (!isGatewayAuthEnabled()) {
     return false;
   }
-  if (
-    !isRemoteGatewayMode() &&
-    getPairedGatewayUrl(getSelectedAssistant()) != null
-  ) {
-    return true;
+  if (!isRemoteGatewayMode()) {
+    const selectedAssistant = getSelectedAssistant();
+    if (getPairedGatewayUrl(selectedAssistant) != null) {
+      return (
+        getSelfHostedIngressUrl() ===
+        getAuthGatewayIngressUrl(selectedAssistant)
+      );
+    }
   }
   return getGatewayToken() !== null;
 }
