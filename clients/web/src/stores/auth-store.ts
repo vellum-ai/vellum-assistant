@@ -691,7 +691,19 @@ function probePlatformSession(
           // settle it as absent, install no user, and skip the platform
           // identity bootstrap. Transport failures and the race timeout
           // deliberately never reach this branch (LUM-2412 offline restore).
+          // The persisted snapshot must go too, or `restoreOfflineSession`
+          // could resurrect the rejected account as "present" on a later
+          // offline boot; an already-authenticated local/gateway session
+          // demotes its user to the local shape, mirroring refreshSession's
+          // stands-alone demotion.
+          clearUserSnapshot();
+          const demotion = isAuthenticated(
+            useAuthStore.getState().sessionStatus,
+          )
+            ? authenticatedLocalUser()
+            : {};
           set({
+            ...demotion,
             platformSession: "absent",
             platformSessionRestoredOffline: false,
           });

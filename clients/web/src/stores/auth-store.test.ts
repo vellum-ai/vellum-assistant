@@ -1771,6 +1771,24 @@ describe("platform probe conclusive rejection (half-dead session)", () => {
     expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
   });
 
+  test("a session rejection clears a previously persisted snapshot", async () => {
+    arrangeLocalProbe();
+    // A snapshot persisted by an earlier confirmed session must not survive
+    // the rejection: restoreOfflineSession would otherwise resurrect the
+    // rejected account as "present" on a later offline boot.
+    localStorage.setItem(
+      "vellum:auth:userSnapshot",
+      JSON.stringify({ id: "user-1", email: "user@example.com" }),
+    );
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
   test("an assistants-list session rejection settles the session absent", async () => {
     arrangeLocalProbe();
     mockListAssistantsResult = { ok: false, status: 403, error: {} };
