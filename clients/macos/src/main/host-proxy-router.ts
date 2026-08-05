@@ -4,9 +4,8 @@
  * Listens for lockfile changes and maintains an SSE + poster pair for each
  * assistant. Local assistants (with a gatewayPort) connect to the loopback
  * gateway; cloud/managed assistants connect to the platform via
- * assistant-scoped URLs with session-token auth; paired assistants connect to
- * the remote gateway at their runtimeUrl with the guardian access token as
- * the bearer.
+ * assistant-scoped URLs with session-token auth. Paired assistants use the
+ * desktop data plane without receiving access to this Mac's host tools.
  *
  * Incoming SSE messages are dispatched to pluggable executors; unimplemented
  * executors post error results so daemon requests don't hang.
@@ -17,11 +16,9 @@ import {
   resolveConfigDir,
   resolveEnvironmentName,
   type CliInvocation,
-  type GuardianTokenOptions,
 } from "@vellumai/local-mode";
 import {
   isLoopbackGatewayCloud,
-  isUsableRuntimeUrl,
   type Lockfile,
 } from "@vellumai/local-mode/contract";
 
@@ -237,7 +234,6 @@ async function exchangeForGatewayToken(
 
 async function acquireGuardianToken(
   assistantId: string,
-  options?: GuardianTokenOptions,
 ): Promise<string | null> {
   if (!resolveCliInvocation) return null;
 
@@ -260,7 +256,6 @@ async function acquireGuardianToken(
     invocation,
     true,
     { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
-    options,
   );
 
   if (!tokenResult.ok) {
@@ -294,8 +289,6 @@ async function acquireGatewayToken(
 const localFingerprint = (gatewayPort: number): string => `local:${gatewayPort}`;
 const cloudFingerprint = (runtimeUrl: string, organizationId?: string): string =>
   `cloud:${runtimeUrl}:${organizationId ?? ""}`;
-const pairedFingerprint = (runtimeUrl: string, assistantId: string): string =>
-  `paired:${runtimeUrl}:${assistantId}`;
 
 // -- Pending-connect guard ---------------------------------------------------
 
@@ -376,57 +369,6 @@ function openLocalConnection(
   log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
 }
 
-// -- Paired assistant connection --------------------------------------------
-
-async function connectPairedAssistant(
-  assistantId: string,
-  runtimeUrl: string,
-): Promise<void> {
-  const fingerprint = pairedFingerprint(runtimeUrl, assistantId);
-  await connectWithPendingGuard(
-    assistantId,
-    fingerprint,
-    () => acquireGuardianToken(assistantId, { paired: true }),
-    (token) => openPairedConnection(assistantId, runtimeUrl, token, fingerprint),
-  );
-}
-
-function openPairedConnection(
-  assistantId: string,
-  runtimeUrl: string,
-  guardianToken: string,
-  fingerprint: string,
-): void {
-  let currentToken = guardianToken;
-  // The guardian access token is the bearer on the remote hop; the
-  // /auth/token exchange is loopback-only and never runs for paired entries.
-  // Paired runtimeUrls are commonly ngrok tunnels; free-tier edges intercept
-  // requests lacking the skip header with an interstitial page.
-  const authHeaders = () => ({
-    Authorization: `Bearer ${currentToken}`,
-    "ngrok-skip-browser-warning": "true",
-  });
-
-  const onRefreshToken = async (): Promise<string | null> => {
-    const fresh = await acquireGuardianToken(assistantId, { paired: true });
-    if (fresh) currentToken = fresh;
-    return fresh;
-  };
-
-  const base = runtimeUrl.replace(/\/+$/, "");
-  const eventsUrl = `${base}/v1/events`;
-  const endpointBase = `${base}/v1`;
-
-  const sse = new HostProxySseClient({ eventsUrl, authHeaders, onRefreshToken });
-  const poster = new HostProxyPoster({ endpointBase, authHeaders, refreshAuth: onRefreshToken });
-
-  sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
-  sse.connect();
-
-  connections.set(assistantId, { sse, poster, fingerprint });
-  log.info("[host-proxy-router] connected to paired assistant", { assistantId, runtimeUrl });
-}
-
 // -- Cloud assistant connection ---------------------------------------------
 
 function connectCloudAssistant(
@@ -491,22 +433,18 @@ function handleLockfileChange(lockfile: Lockfile): void {
 
   for (const assistant of lockfile.assistants) {
     // Cloud wins over resources: a merge can leave a stale gatewayPort on a
-    // non-loopback entry (paired, vellum), and such an entry must never be
-    // classified as a loopback connection.
+    // non-loopback entry, and such an entry must never be classified as a
+    // loopback connection. Paired entries intentionally match neither branch.
     const port = isLoopbackGatewayCloud(assistant.cloud)
       ? assistant.resources?.gatewayPort
       : undefined;
     const isCloud = assistant.cloud === "vellum" && assistant.runtimeUrl;
-    const isPaired =
-      assistant.cloud === "paired" && isUsableRuntimeUrl(assistant.runtimeUrl);
-    if (!port && !isCloud && !isPaired) continue;
+    if (!port && !isCloud) continue;
 
     activeIds.add(assistant.assistantId);
     const fp = port
       ? localFingerprint(port)
-      : isPaired
-        ? pairedFingerprint(assistant.runtimeUrl!, assistant.assistantId)
-        : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
+      : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
 
     const existing = connections.get(assistant.assistantId);
     const pending = pendingConnects.get(assistant.assistantId);
@@ -521,8 +459,6 @@ function handleLockfileChange(lockfile: Lockfile): void {
     if (!connections.has(assistant.assistantId)) {
       if (port) {
         void connectLocalAssistant(assistant.assistantId, port);
-      } else if (isPaired) {
-        void connectPairedAssistant(assistant.assistantId, assistant.runtimeUrl!);
       } else {
         connectCloudAssistant(
           assistant.assistantId,
@@ -606,7 +542,6 @@ export const __testing = {
   dispatchMessage,
   connectLocalAssistant,
   connectCloudAssistant,
-  connectPairedAssistant,
   disconnectAssistant,
   handleLockfileChange,
   reset() {

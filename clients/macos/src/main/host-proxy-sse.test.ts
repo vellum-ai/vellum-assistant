@@ -244,7 +244,7 @@ describe("HostProxySseClient", () => {
     };
 
     client = new HostProxySseClient({
-      eventsUrl: "https://stale.example.ngrok.app/v1/events",
+      eventsUrl: "http://127.0.0.1:9999/v1/events",
       authHeaders: () => ({ Authorization: "Bearer tok" }),
       fetch: fakeFetch,
       onRefreshToken,
@@ -257,7 +257,7 @@ describe("HostProxySseClient", () => {
     expect(fetchCount).toBe(1);
     expect(refreshStarted).toBe(true);
 
-    // Unpair while the refresh is still in flight, then let it complete.
+    // Disconnect while the refresh is still in flight, then let it complete.
     client.disconnect();
     resolveRefresh("fresh-token");
     await flush(200);
