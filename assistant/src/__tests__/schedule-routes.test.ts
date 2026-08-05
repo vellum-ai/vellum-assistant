@@ -1763,13 +1763,13 @@ describe("POST /schedules/reassign-profile", () => {
     expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 
-  test("requires both from and to", async () => {
-    await expect(
-      reassignRoute().handler({ body: { to: "balanced" } }),
-    ).rejects.toThrow("from is required");
+  test("requires to, and rejects an empty from", async () => {
     await expect(
       reassignRoute().handler({ body: { from: "cost-optimized" } }),
     ).rejects.toThrow("to is required");
+    await expect(
+      reassignRoute().handler({ body: { from: "  ", to: "balanced" } }),
+    ).rejects.toThrow("from must name an inference profile when provided");
   });
 
   test("is a no-op when nothing is pinned to the source profile", async () => {
@@ -1816,5 +1816,82 @@ describe("POST /schedules/reassign-profile", () => {
 
     expect(result.reassigned).toBe(1);
     expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+
+  test("omitting from moves every schedule and skips the ones already there", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    const dangling = await createSchedule({
+      name: "Dangling pin",
+      description: "Dangling pin",
+      cronExpression: "15 * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    rawRun(
+      "test:setDanglingInferenceProfile",
+      "UPDATE cron_jobs SET inference_profile = ? WHERE id = ?",
+      "deleted-profile",
+      dangling.id,
+    );
+    // Already on the target: counted as untouched, and its updatedAt proves it.
+    await createSchedule({
+      name: "Already default",
+      description: "Already default",
+      cronExpression: "30 * * * *",
+      message: "hi",
+      syntax: "cron",
+      inferenceProfile: resolvedDefault!,
+    });
+    const untouchedBefore = listSchedules().find(
+      (job) => job.name === "Already default",
+    )!.updatedAt;
+
+    const result = (await reassignRoute().handler({
+      body: { to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    // Two moved (the cheap one and the dangling one); the third was already
+    // on the target, so it is neither counted nor rewritten.
+    expect(result.reassigned).toBe(2);
+    expect(
+      listSchedules().every((job) => job.inferenceProfile === resolvedDefault),
+    ).toBe(true);
+    expect(
+      listSchedules().find((job) => job.name === "Already default")!.updatedAt,
+    ).toBe(untouchedBefore);
+  });
+
+  test("omitting from still refuses a non-owner caller when a wake row would move", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    await expect(
+      reassignRoute().handler({
+        body: { to: resolvedDefault! },
+        headers: { "x-vellum-principal-type": "actor" },
+      }),
+    ).rejects.toThrow(
+      "Deferred wake schedules can only be changed by the assistant's owner",
+    );
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 });

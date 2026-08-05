@@ -224,6 +224,15 @@ function getCadenceDescription(
 }
 
 /**
+ * Whether a schedule still has a firing ahead of it. `fired` and `cancelled`
+ * are the two terminal states a one-shot lands in; everything else (including
+ * a disabled row, which fires again once re-enabled) can still run.
+ */
+function canScheduleStillRun(job: Pick<ScheduleJob, "status">): boolean {
+  return job.status !== "fired" && job.status !== "cancelled";
+}
+
+/**
  * Presentation-layer one-shot flag. A COUNT=1 rrule fires exactly once and
  * should read as one-time in clients, even though the scheduler internally
  * treats expression-backed jobs as recurring (retry policy, conversation
@@ -310,13 +319,25 @@ function handleGetSchedule(id: string) {
 }
 
 /**
- * Move every schedule pinned to `from` onto `to`.
+ * Move schedules onto the `to` inference profile.
  *
- * This is the companion to deleting an inference profile: without it the
- * profile's schedules keep a pin that no longer names anything. The dangling
- * pin is not fatal (the resolver drops a missing override and falls through to
- * the call site's own selection), so this exists to keep the user's stated
- * model choice rather than to prevent a failure.
+ * `from` narrows the move to the schedules pinned to that profile. It is the
+ * companion to deleting an inference profile: without it the profile's
+ * schedules keep a pin that no longer names anything. The dangling pin is not
+ * fatal (the resolver drops a missing override and falls through to the call
+ * site's own selection), so this exists to keep the user's stated model choice
+ * rather than to prevent a failure.
+ *
+ * Omitting `from` selects every schedule that can still run, which is what
+ * re-pinning the whole set onto the current default needs: schedules pinned by
+ * earlier defaults name several different profiles, so there is no single
+ * source to move from. A one-shot that already fired and a cancelled row are
+ * left out: their profile is history, and rewriting them would report a move
+ * larger than the set the user was looking at. An explicit `from` still
+ * selects exactly the rows pinned to it, dead or not, since a deleted profile
+ * has to be swept out of every row that names it. Rows already pinned to `to`
+ * are skipped either way, so the returned count is the number of schedules
+ * whose model actually changed.
  *
  * Each row goes through `updateSchedule`, so the store's profile validation
  * and re-snapshot semantics apply exactly as they do to a single-row PATCH.
@@ -326,16 +347,19 @@ function handleGetSchedule(id: string) {
  * those rows as well, which is what `include_all` plus the serialized
  * `isDeferred` flag on the list route are for. Moving one is a guardian-owned
  * state change, so the whole call requires owner authority as soon as a wake
- * row is in scope.
+ * row is in the selected set.
  */
 async function handleReassignScheduleInferenceProfile(
   body: Record<string, unknown>,
   headers?: Record<string, string>,
 ) {
+  const hasFrom = body.from !== undefined && body.from !== null;
   const from = typeof body.from === "string" ? body.from.trim() : "";
   const to = typeof body.to === "string" ? body.to.trim() : "";
-  if (!from) {
-    throw new BadRequestError("from is required");
+  if (hasFrom && !from) {
+    throw new BadRequestError(
+      "from must name an inference profile when provided",
+    );
   }
   if (!to) {
     throw new BadRequestError("to is required");
@@ -347,11 +371,14 @@ async function handleReassignScheduleInferenceProfile(
     throw new BadRequestError(profileError);
   }
 
-  const matches = listSchedules({ inferenceProfile: from });
+  const selected = hasFrom
+    ? listSchedules({ inferenceProfile: from })
+    : listSchedules().filter(canScheduleStillRun);
+  const matches = selected.filter((job) => job.inferenceProfile !== to);
   // The guard depends only on the caller, so its answer is the same for every
   // row: settle it once for the whole set. Checking per row would spend a
   // cache-bypassing gateway round trip per matching reminder, and a profile
-  // that many reminders point at would take seconds to delete or time out.
+  // that many reminders point at would take seconds to move or time out.
   // All-or-nothing either way: one wake row in scope refuses the whole call
   // before anything moves.
   const wakeMatch = matches.find((job) => job.mode === "wake") ?? null;
@@ -365,7 +392,10 @@ async function handleReassignScheduleInferenceProfile(
     }
   }
   if (reassigned > 0) {
-    log.info({ from, to, reassigned }, "Schedules reassigned to new profile");
+    log.info(
+      { from: hasFrom ? from : null, to, reassigned },
+      "Schedules reassigned to new profile",
+    );
   }
   return { reassigned };
 }
@@ -890,12 +920,15 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reassign schedules to another inference profile",
     description:
-      "Move every schedule pinned to one inference profile onto another, so deleting a profile does not leave its schedules pointing at a name that no longer exists.",
+      "Move schedules onto one inference profile. Pass 'from' to move only the schedules pinned to that profile, so deleting a profile does not leave its schedules pointing at a name that no longer exists. Omit 'from' to move every schedule, which re-pins the whole set onto one profile. Schedules already pinned to the target are skipped.",
     tags: ["schedules"],
     requestBody: z.object({
       from: z
         .string()
-        .describe("Inference profile key the schedules are pinned to now"),
+        .optional()
+        .describe(
+          "Inference profile key the schedules are pinned to now; omit to select every schedule",
+        ),
       to: z
         .string()
         .describe("Inference profile key to move them to; must be configured"),

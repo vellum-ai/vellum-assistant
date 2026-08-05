@@ -27062,8 +27062,10 @@ paths:
       operationId: schedules_reassignprofile_post
       summary: Reassign schedules to another inference profile
       description:
-        Move every schedule pinned to one inference profile onto another, so deleting a profile does not leave its
-        schedules pointing at a name that no longer exists.
+        Move schedules onto one inference profile. Pass 'from' to move only the schedules pinned to that profile,
+        so deleting a profile does not leave its schedules pointing at a name that no longer exists. Omit 'from' to move
+        every schedule, which re-pins the whole set onto one profile. Schedules already pinned to the target are
+        skipped.
       tags:
         - schedules
       requestBody:
@@ -27074,13 +27076,12 @@ paths:
               type: object
               properties:
                 from:
+                  description: Inference profile key the schedules are pinned to now; omit to select every schedule
                   type: string
-                  description: Inference profile key the schedules are pinned to now
                 to:
                   type: string
                   description: Inference profile key to move them to; must be configured
               required:
-                - from
                 - to
       responses:
         "200":

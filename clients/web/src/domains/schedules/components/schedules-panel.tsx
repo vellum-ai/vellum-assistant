@@ -30,6 +30,14 @@ export interface SchedulesPanelProps {
   pastOpen: boolean;
   onPastOpenChange: (open: boolean) => void;
   /**
+   * Opens the "move every schedule onto the current default model" flow.
+   * Omitted when there is nothing to move, so the action only appears once
+   * some schedule is running on a model other than the current default.
+   */
+  onRebaseProfiles?: () => void;
+  /** Display name of the profile the rebase would move schedules onto. */
+  defaultProfileLabel?: string;
+  /**
    * Built-in system schedules (heartbeat, consolidation, memory retrospective),
    * rendered below the user list so both share one scroll region. Self-hides
    * when there are no system tasks to show.
@@ -52,6 +60,8 @@ export function SchedulesPanel({
   onCreateSchedule,
   pastOpen,
   onPastOpenChange,
+  onRebaseProfiles,
+  defaultProfileLabel,
   systemTasksSlot,
 }: SchedulesPanelProps) {
   const renderScheduleRow = (schedule: Schedule) => (
@@ -165,6 +175,18 @@ export function SchedulesPanel({
 
     return (
       <div>
+        {onRebaseProfiles && defaultProfileLabel ? (
+          <div className="mb-1 flex min-w-0 justify-end">
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={onRebaseProfiles}
+              className="max-w-full truncate"
+            >
+              {`Use ${defaultProfileLabel} for all schedules`}
+            </Button>
+          </div>
+        ) : null}
         {recurring.map(renderScheduleRow)}
         {oneTime.length > 0 ? (
           <>
