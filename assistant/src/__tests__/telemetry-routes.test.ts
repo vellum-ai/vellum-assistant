@@ -103,6 +103,56 @@ describe("telemetry-routes: ingest", () => {
     );
   });
 
+  test("accepts the duration-metric start event", () => {
+    // The onboarding research duration metric is a PAIR of events — the start
+    // and the terminal report — with duration read as the gap between their
+    // daemon-stamped `recorded_at`s. The start half carries `status: "started"`
+    // and empty result fields, a shape nothing else exercises.
+    //
+    // This guards a silent failure mode: `status` is a free-form string on the
+    // wire today, and the client depends on that. Were the platform to tighten
+    // it to an enum of the terminal values, every start event would 400 and the
+    // metric would go quiet with no other signal. Then this test goes red on
+    // the wire-sync PR instead.
+    const result = call({
+      type: "onboarding_research",
+      daemon_event_id: "onboarding_research:started:conv-xyz",
+      fields: {
+        conversation_id: "conv-xyz",
+        status: "started",
+        self_reported_occupation: "engineer",
+        claims: [],
+        claim_count: 0,
+        claims_confident: 0,
+        claims_maybe: 0,
+        claims_guessing: 0,
+        suggestions: [],
+        suggestion_count: 0,
+        plugins: [],
+        installed_plugins: [],
+      },
+    });
+    expect(result).toEqual({ id: expect.any(String) });
+
+    const payloads = pendingPayloads();
+    expect(payloads.length).toBe(1);
+    expect(payloads[0]).toMatchObject({
+      status: "started",
+      conversation_id: "conv-xyz",
+      claim_count: 0,
+    });
+    // The start's collapse key must differ from the terminal report's, or the
+    // pair dedups down to one event and the duration is unrecoverable.
+    expect(payloads[0]?.daemon_event_id).toBe(
+      "onboarding_research:started:conv-xyz",
+    );
+    expect(payloads[0]?.daemon_event_id).not.toBe(
+      "onboarding_research:conv-xyz",
+    );
+    // Daemon-stamped, so the subtraction never depends on the browser clock.
+    expect(payloads[0]?.recorded_at).toEqual(expect.any(Number));
+  });
+
   test("returns skipped and persists nothing under the analytics opt-out", () => {
     setShareAnalytics(false);
     expect(call(VALID_BODY)).toEqual({ skipped: true });

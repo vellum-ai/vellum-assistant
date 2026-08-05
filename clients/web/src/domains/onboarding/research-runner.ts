@@ -298,6 +298,80 @@ async function sendOnboardingResearchTelemetry({
   }
 }
 
+/**
+ * Report that a research turn has just been kicked off, so how long it runs is
+ * measurable downstream.
+ *
+ * There is no duration field to write: the `onboarding_research` wire shape is
+ * generated from the platform's ingest serializers, and adding a field starts
+ * there rather than here (see `assistant/src/telemetry/AGENTS.md`). Timing
+ * therefore rides on a PAIR of events — duration is
+ * `recorded_at(terminal) − recorded_at(started)` grouped on `conversation_id`,
+ * the same two-event shape voice-mode session duration uses. `recorded_at` is
+ * stamped daemon-side on receipt, so neither end trusts the browser's clock.
+ *
+ * Consumers, two things. This doubles the raw `onboarding_research` count, so
+ * anything counting research runs must filter on `status`. And the terminal
+ * `status: "error"` is the runner's 120s poll ceiling firing — those are
+ * censored at the ceiling, not real durations, and inflate p95 if pooled with
+ * completions.
+ *
+ * The result fields are required by the wire schema but mean nothing before the
+ * turn has produced anything, so they go out empty (including
+ * `installed_plugins`, even though the deterministic floor is already
+ * installing by this point): read claims, suggestions and plugins off the
+ * terminal event, never by summing the pair.
+ *
+ * Fire-and-forget, like the terminal report — telemetry must never block the
+ * flow or surface to the user.
+ */
+async function sendOnboardingResearchStartedTelemetry({
+  assistantId,
+  conversationId,
+  subject,
+}: {
+  assistantId: string;
+  conversationId: string;
+  subject: ResearchSubject;
+}): Promise<void> {
+  try {
+    await telemetryIngestPost({
+      path: { assistant_id: assistantId },
+      body: {
+        type: "onboarding_research",
+        // Conversation-scoped like the terminal report's key, so a refresh that
+        // re-posts the prompt collapses onto the original start rather than
+        // stamping a second, later one and under-reporting the duration.
+        daemon_event_id: `onboarding_research:started:${conversationId}`,
+        fields: {
+          conversation_id: conversationId,
+          status: "started",
+          // Carried on both ends so duration can be segmented by who the turn
+          // ran for without joining back to the terminal event.
+          self_reported_occupation: subject.occupation,
+          self_reported_hobbies: (subject.hobbies ?? []).slice(
+            0,
+            MAX_REPORTED_HOBBIES,
+          ),
+          self_reported_timezone: subject.timezone,
+          claims: [],
+          claim_count: 0,
+          claims_confident: 0,
+          claims_maybe: 0,
+          claims_guessing: 0,
+          suggestions: [],
+          suggestion_count: 0,
+          plugins: [],
+          installed_plugins: [],
+        },
+      },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_started_telemetry" });
+  }
+}
+
 export type ResearchStatus = "idle" | "running" | "done" | "error";
 
 export interface ResearchRunnerState {
@@ -605,7 +679,20 @@ export function useResearchRunner(): UseResearchRunner {
               body,
               throwOnError: false,
             });
-            return Boolean(posted.response?.ok);
+            const ok = Boolean(posted.response?.ok);
+            if (ok) {
+              // Start the duration clock only once the prompt actually landed,
+              // so a failed POST never opens an interval nothing will close.
+              // Both call sites below route through here, and the resume path
+              // that finds the turn already running never calls it — its start
+              // was recorded before the refresh.
+              void sendOnboardingResearchStartedTelemetry({
+                assistantId,
+                conversationId: cid,
+                subject,
+              });
+            }
+            return ok;
           };
 
           // Mint a fresh research conversation + fire the prompt. Used for the
