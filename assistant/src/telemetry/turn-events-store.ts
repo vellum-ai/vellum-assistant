@@ -87,6 +87,20 @@ export interface TurnEvent {
    * failure had no classification.
    */
   failureCode: string | null;
+  /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * by the user (onboarding research prompt, personality `<system-message>`,
+   * research corrections, kickoff greetings, legacy pre-chat bootstrap,
+   * `[User action on ...]` surface synthetics). Sourced from
+   * `messages.metadata.scripted`, stamped by `persistQueuedMessageBody`.
+   *
+   * Null ONLY for rows persisted before the field existed: scriptedness is
+   * unknown for those, which downstream must not conflate with `false`.
+   * Activation metrics exclude `true` and let `null` fall back to the legacy
+   * trace-text classifier; treating `null` as `false` is the bug this field
+   * exists to fix (ANT-10).
+   */
+  scripted: boolean | null;
 }
 
 /**
@@ -162,6 +176,13 @@ export function queryUnreportedTurnEvents(
       >`json_extract(${messages.metadata}, '$.turnFailureCode')`.as(
         "failure_code",
       ),
+      // sqlite's `json_extract` yields 1/0 for JSON booleans, not true/false,
+      // and SQL NULL when the path is absent (rows predating the field). Kept
+      // numeric here and converted below. A raw pass-through would put `1`
+      // on the wire, which the platform's BooleanField would reject.
+      scripted: sql<
+        number | null
+      >`json_extract(${messages.metadata}, '$.scripted')`.as("scripted"),
     })
     .from(messages)
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))
@@ -183,5 +204,13 @@ export function queryUnreportedTurnEvents(
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(limit)
     .all();
-  return rows;
+  // Narrow sqlite's 1/0/NULL to boolean/null. Only a literal 1 or 0 is a real
+  // stamp; anything else (SQL NULL from a missing key, or a junk value on a
+  // row written by some other path) reports UNKNOWN rather than being coerced.
+  // Coercing to `false` would assert "the user typed this" on no evidence,
+  // which downstream trusts and cannot fall back from.
+  return rows.map((row) => ({
+    ...row,
+    scripted: row.scripted === 1 ? true : row.scripted === 0 ? false : null,
+  }));
 }

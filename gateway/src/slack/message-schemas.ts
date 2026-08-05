@@ -57,10 +57,17 @@ const slackEditedSchema = z
 const slackMessageChannelType = () =>
   z.enum(["im", "channel", "group", "mpim"]).optional().catch(undefined);
 
-/** The edited message body carried in a `message_changed` event's `message`. */
+/**
+ * The edited message body carried in a `message_changed` event's `message`.
+ *
+ * `bot_id` is modeled because it is the only author field an app-attributed
+ * post carries: a `bot_message`-shaped message has no `user`, so without this
+ * the self-filter cannot tell our own edited post from an inbound one.
+ */
 const slackChangedMessageSchema = z
   .object({
     user: optionalString(),
+    bot_id: optionalString(),
     text: optionalString(),
     ts: optionalString(),
     client_msg_id: optionalString(),
@@ -74,6 +81,7 @@ const slackChangedMessageSchema = z
 const slackChangedPreviousMessageSchema = z
   .object({
     user: optionalString(),
+    bot_id: optionalString(),
     text: optionalString(),
     ts: optionalString(),
     edited: slackEditedSchema,
@@ -104,6 +112,7 @@ export type SlackMessageChangedEvent = z.infer<
 const slackDeletedPreviousMessageSchema = z
   .object({
     user: optionalString(),
+    bot_id: optionalString(),
     text: optionalString(),
     ts: optionalString(),
     thread_ts: optionalString(),

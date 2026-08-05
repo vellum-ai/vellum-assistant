@@ -58,12 +58,15 @@ mock.module("@/lib/local-mode", () => ({
 // store's heavy dependency graph. `subscribe` is a no-op the (unrelated)
 // organization-store binds but never calls in these tests.
 type MockSessionStatus = "initializing" | "authenticated" | "unauthenticated";
+type MockPlatformSession = "unknown" | "present" | "absent";
 
 const mockAuthState: {
   sessionStatus: MockSessionStatus;
+  platformSession: MockPlatformSession;
   refreshSession: () => Promise<boolean>;
 } = {
   sessionStatus: "authenticated",
+  platformSession: "present",
   refreshSession: async () => true,
 };
 
@@ -79,6 +82,29 @@ mock.module("@/lib/auth/hard-navigate", () => ({
   hardNavigate: hardNavigateMock,
 }));
 
+// Post-resume request counter, stubbed so a test can make it throw and prove
+// the interceptor still returns its request. `isResumeWindowOpen` defaults to
+// true so counting is exercised; a test flips it to pin the idle fast path.
+let noteDaemonApiRequestImpl: (url: string) => void = () => {};
+let resumeWindowOpen = true;
+const noteDaemonApiRequestMock = mock((url: string) => {
+  noteDaemonApiRequestImpl(url);
+});
+const isResumeWindowOpenMock = mock(() => resumeWindowOpen);
+// `installResumeRequestCounter` is stubbed for surface parity only. The module
+// under test calls it at module scope, and ESM imports are hoisted above these
+// `mock.module` calls, so that one call already ran against the real
+// implementation before the stub took over. It subscribes to the bus and
+// nothing here publishes to it.
+mock.module("@/lib/telemetry/resume-request-counter", () => ({
+  __resetResumeRequestCounterForTests: () => {},
+  installResumeRequestCounter: () => {},
+  isResumeWindowOpen: isResumeWindowOpenMock,
+  noteDaemonApiRequest: noteDaemonApiRequestMock,
+}));
+
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import {
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
@@ -846,6 +872,9 @@ describe("api-interceptors / platform features gate", () => {
     const input = new Request("https://platform.test/v1/organizations/");
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(true);
+    expect((output.signal.reason as DOMException).message).toBe(
+      "Platform features disabled in local mode",
+    );
   });
 
   test("passes through gateway-rewritten requests when platform is disabled", () => {
@@ -872,6 +901,9 @@ describe("api-interceptors / platform features gate", () => {
     );
     const output = platformFeaturesGate(input);
     expect(output.signal.aborted).toBe(true);
+    expect((output.signal.reason as DOMException).message).toBe(
+      "Platform routes disabled in remote-gateway mode",
+    );
   });
 
   test("passes bearer-authenticated gateway requests in remote-gateway mode", () => {
@@ -1017,9 +1049,39 @@ function clearGatewayTokenStorage(): void {
   }
 }
 
+describe("api-interceptors / recovery interceptor registration", () => {
+  // Direct calls to the interceptor prove what it does, not where it runs.
+  // These pin which generated clients actually carry it, so adding or
+  // dropping a registration has to be deliberate.
+  function responseFns(c: {
+    interceptors: { response: unknown };
+  }): readonly unknown[] {
+    const chain = c.interceptors.response as unknown as { fns?: unknown[] };
+    return chain.fns ?? [];
+  }
+
+  test("daemonClient carries the local-gateway 401 recovery", () => {
+    expect(responseFns(daemonClient)).toContain(
+      localGatewayAuthRecoveryInterceptor,
+    );
+  });
+
+  test("gatewayClient deliberately does not carry it", () => {
+    // A 401 raised through the generated gateway SDK surfaces to the caller
+    // rather than reloading the app. Widening the set of responses that can
+    // restart the app is the opposite of what the budget is for, so this
+    // exclusion is intentional and tracked separately.
+    expect(responseFns(gatewayClient)).not.toContain(
+      localGatewayAuthRecoveryInterceptor,
+    );
+  });
+});
+
 describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   const GATEWAY_URL = "http://localhost:9090";
   const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+  const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
+  const GW_401_MAX_RELOADS = 3;
 
   function makeResponse(status: number, url: string): Response {
     const response = new Response(null, { status });
@@ -1049,6 +1111,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     isLocalClientMock.mockImplementation(() => true);
     setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
     resetGw401RecoveryFlag();
   });
@@ -1061,6 +1124,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     isLocalClientMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
     setSelfHostedConnection(null);
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
     resetGw401RecoveryFlag();
   });
@@ -1240,6 +1304,102 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     // THEN only one reload fires
     expect(reloadCalls).toBe(1);
   });
+
+  test("stops reloading once the attempt budget is spent", () => {
+    // Each round models a fresh page lifecycle: the in-memory latch resets
+    // on reload and the cooldown has elapsed, so only the budget can stop it.
+    for (let i = 0; i < GW_401_MAX_RELOADS; i++) {
+      resetGw401RecoveryFlag();
+      sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    }
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS);
+
+    resetGw401RecoveryFlag();
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS);
+  });
+
+  test("hands the 401 back unchanged once the budget is spent", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    const response = gatewayResponse(401);
+
+    expect(localGatewayAuthRecoveryInterceptor(response)).toBe(response);
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("a quiet gap alone does not restore the budget", () => {
+    // A gateway that is still rejecting every token must not earn a fresh
+    // budget out of a lull in traffic, or it reloads forever in bursts.
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 86_400_000));
+
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("a successful gateway response restores the budget", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
+
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+    expect(sessionStorage.getItem(GW_401_RELOAD_KEY)).toBeNull();
+  });
+
+  test("recovery, then a later failure episode, gets a full budget", () => {
+    // Episode one exhausts the budget.
+    for (let i = 0; i < GW_401_MAX_RELOADS; i++) {
+      resetGw401RecoveryFlag();
+      sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    }
+    resetGw401RecoveryFlag();
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS);
+
+    // The gateway starts working again.
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
+
+    // A genuinely new episode later gets its own budget.
+    resetGw401RecoveryFlag();
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS + 1);
+  });
+
+  test("a non-gateway 2xx does not restore the budget", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+
+    localGatewayAuthRecoveryInterceptor(
+      makeResponse(200, "https://api.vellum.ai/v1/whatever"),
+    );
+
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBe(
+      String(GW_401_MAX_RELOADS),
+    );
+  });
+
+  test("a fresh renderer session grants a new budget", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    expect(reloadCalls).toBe(0);
+
+    // Quitting and reopening the app ends the renderer session, which is
+    // what clearing sessionStorage models here.
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+    sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+    resetGw401RecoveryFlag();
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1345,10 +1505,15 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   const flush = (): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, 0));
 
+  const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
+  const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+
   beforeEach(() => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
     mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.platformSession = "present";
     mockAuthState.refreshSession = mock(async () => true);
     hardNavigateMock.mockClear();
   });
@@ -1356,7 +1521,19 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
   afterEach(() => {
     resetPlatformAuthRecoveryFlag();
     setSelfHostedConnection(null);
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
   });
+
+  /** Drive one full rejection→recovery round trip against a dead session. */
+  const rejectOnce = async (): Promise<void> => {
+    mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.refreshSession = mock(async () => {
+      mockAuthState.sessionStatus = "unauthenticated";
+      return false;
+    });
+    platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+    await flush();
+  };
 
   test("401 while authenticated re-verifies; a dead session redirects to login", async () => {
     const refreshSession = mock(async () => {
@@ -1451,5 +1628,200 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     resolveRefresh(true);
     await flush();
     expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("stops redirecting to login once the budget is spent", async () => {
+    // The redirect is a full page load, so the in-memory latch cannot count
+    // round trips and a bouncing destination would drive them without bound.
+    for (let i = 0; i < PLATFORM_AUTH_MAX_REDIRECTS; i++) {
+      await rejectOnce();
+    }
+    expect(hardNavigateMock).toHaveBeenCalledTimes(PLATFORM_AUTH_MAX_REDIRECTS);
+
+    await rejectOnce();
+    expect(hardNavigateMock).toHaveBeenCalledTimes(PLATFORM_AUTH_MAX_REDIRECTS);
+  });
+
+  test("a platform 2xx on a confirmed session restores the redirect budget", async () => {
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    await rejectOnce();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+
+    mockAuthState.platformSession = "present";
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBeNull();
+
+    await rejectOnce();
+    expect(hardNavigateMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 2xx without a platform session does not restore the budget", async () => {
+    // The platform serves some routes to anonymous visitors, and the login
+    // screen loads one: `AccountLayout` syncs client feature flags. Treating
+    // that as proof of a live session would refill the budget on every bounce.
+    mockAuthState.platformSession = "absent";
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, "https://platform.test/v1/feature-flags/"),
+    );
+
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+  });
+
+  test("a self-hosted gateway 2xx does not restore the platform budget", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    mockAuthState.platformSession = "present";
+    sessionStorage.setItem(
+      PLATFORM_AUTH_REDIRECT_KEY,
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(200, `${INGRESS}/v1/assistants/123/messages`),
+    );
+
+    expect(sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY)).toBe(
+      String(PLATFORM_AUTH_MAX_REDIRECTS),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-resume request counting
+// ---------------------------------------------------------------------------
+
+describe("api-interceptors / post-resume request counting", () => {
+  beforeEach(() => {
+    noteDaemonApiRequestMock.mockClear();
+    isResumeWindowOpenMock.mockClear();
+    noteDaemonApiRequestImpl = () => {};
+    resumeWindowOpen = true;
+  });
+
+  afterEach(() => {
+    noteDaemonApiRequestImpl = () => {};
+    resumeWindowOpen = true;
+    setSelfHostedConnection(null);
+    window.__VELLUM_CONFIG__ = undefined;
+    isLocalClientMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
+    isPlatformDisabledMock.mockImplementation(() => false);
+  });
+
+  test("notes daemon requests", async () => {
+    const url = "https://platform.test/v1/assistants/a1/conversations";
+    await daemonRequestInterceptor(new Request(url));
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+    expect(noteDaemonApiRequestMock.mock.calls.at(-1)?.[0]).toBe(url);
+  });
+
+  test("does not note platform requests", async () => {
+    await requestInterceptor(new Request("https://platform.test/v1/probe"));
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("notes daemon routes issued through the platform client", async () => {
+    // `subscribeEvents` opens the SSE stream through the platform client, so
+    // the reopen in a resume burst is only counted if the platform chain
+    // counts its daemon-bound paths.
+    const url = `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/events/`;
+    await requestInterceptor(new Request(url));
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+    expect(noteDaemonApiRequestMock.mock.calls.at(-1)?.[0]).toBe(url);
+  });
+
+  test("notes a rewritten platform request exactly once", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const output = await requestInterceptor(
+      new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`),
+    );
+    expect(new URL(output.url).origin).toBe(INGRESS);
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not note platform-owned assistant routes", async () => {
+    await requestInterceptor(
+      new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/maintenance-mode/`,
+      ),
+    );
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("does not count when no resume window is open", async () => {
+    resumeWindowOpen = false;
+    await daemonRequestInterceptor(
+      new Request("https://platform.test/v1/assistants/a1/conversations"),
+    );
+    await requestInterceptor(
+      new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/events/`,
+      ),
+    );
+
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("does not count a platform request the features gate aborts", async () => {
+    isLocalClientMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    // No ingress registered, so the daemon-bound path is not rewritten and the
+    // gate downstream aborts it. An aborted request never reaches the network.
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/conversations/`,
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(platformFeaturesGate(output).signal.aborted).toBe(true);
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("does not count a platform request aborted in remote-gateway mode", async () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    const input = new Request(
+      `${window.location.origin}/v1/assistants/${SELF_HOSTED_ID}/conversations/`,
+    );
+
+    const output = await requestInterceptor(input);
+
+    expect(platformFeaturesGate(output).signal.aborted).toBe(true);
+    expect(noteDaemonApiRequestMock).not.toHaveBeenCalled();
+  });
+
+  test("counts a gate-passing platform request exactly once", async () => {
+    isLocalClientMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const url = `https://platform.test${RUNTIME_PROXIED_PATH}`;
+
+    const output = await requestInterceptor(new Request(url));
+
+    expect(platformFeaturesGate(output).signal.aborted).toBe(false);
+    expect(noteDaemonApiRequestMock).toHaveBeenCalledTimes(1);
+    expect(noteDaemonApiRequestMock.mock.calls.at(-1)?.[0]).toBe(url);
+  });
+
+  test("a throwing counter leaves the request path intact", async () => {
+    noteDaemonApiRequestImpl = () => {
+      throw new Error("counter down");
+    };
+    const input = new Request(
+      "https://platform.test/v1/assistants/a1/messages",
+    );
+
+    const output = await daemonRequestInterceptor(input);
+
+    expect(output.url).toBe(input.url);
+    expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
   });
 });

@@ -18,6 +18,7 @@ import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
+import { tokenize } from "../../persistence/embeddings/sparse-tokenize.js";
 import { rawMemoryAll } from "../../persistence/raw-query.js";
 import { semanticSearch } from "../../plugins/defaults/memory/v1/semantic-search.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
@@ -68,6 +69,11 @@ const globalSearchContactSchema = z.object({
 
 const globalSearchResponseSchema = z.object({
   query: z.string(),
+  /**
+   * Lexical tokens of `query`, from the same tokenizer the sparse index
+   * uses. Clients highlight these instead of re-tokenizing client-side.
+   */
+  queryTokens: z.array(z.string()),
   results: z.object({
     conversations: z.array(globalSearchConversationSchema),
     memories: z.array(globalSearchMemorySchema),
@@ -350,7 +356,7 @@ async function handleGlobalSearch({
     }));
   }
 
-  return { query: term, results };
+  return { query: term, queryTokens: tokenize(term), results };
 }
 
 // ---------------------------------------------------------------------------

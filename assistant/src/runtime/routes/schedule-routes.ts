@@ -44,6 +44,7 @@ import {
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
 import { buildWakeScheduleOptions } from "../../schedule/wake-schedule-options.js";
 import { initializeTools } from "../../tools/registry.js";
+import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
@@ -649,6 +650,11 @@ async function handleUpdateSchedule(
   } catch (err) {
     if (err instanceof NotFoundError || err instanceof BadRequestError) {
       throw err;
+    }
+    // Store-layer refusals (e.g. the trusted-defer immutable-field refusal)
+    // are caller mistakes with an actionable message, not daemon faults.
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
     }
     if (
       err instanceof Error &&

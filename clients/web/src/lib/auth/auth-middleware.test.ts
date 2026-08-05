@@ -424,6 +424,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
           id: localAssistant.assistantId,
           isLocal: true,
           isPlatformHosted: false,
+          isPaired: false,
         },
       ],
       assistantsHydrated: true,
@@ -452,6 +453,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
           id: localAssistant.assistantId,
           isLocal: true,
           isPlatformHosted: false,
+          isPaired: false,
         },
       ],
       assistantsHydrated: true,
@@ -464,7 +466,9 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
   test("admits the return once a platform-hosted assistant exists", async () => {
     makePaidPlatformReturn();
     useResolvedAssistantsStore.setState({
-      assistants: [{ id: "a-1", isLocal: false, isPlatformHosted: true }],
+      assistants: [
+        { id: "a-1", isLocal: false, isPlatformHosted: true, isPaired: false },
+      ],
     });
     useAssistantLifecycleStore.setState({
       assistantState: { kind: "active", isLocal: false },

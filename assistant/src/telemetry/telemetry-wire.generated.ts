@@ -95,6 +95,8 @@ export const llmUsageTelemetryEventSchema = z.object({
     .nullable()
     .optional(),
   parent_turn_index: z.number().int().min(0).nullable().optional(),
+  subagent_role: z.string().trim().min(1).max(64).nullable().optional(),
+  subagent_spawn_mode: z.string().trim().min(1).max(64).nullable().optional(),
 });
 export type LlmUsageTelemetryEvent = z.infer<
   typeof llmUsageTelemetryEventSchema
@@ -115,6 +117,7 @@ export const turnTelemetryEventSchema = z
     outcome: z.string().trim().min(1).max(32).nullable().optional(),
     batched_into: z.string().trim().min(1).max(64).nullable().optional(),
     failure_code: z.string().trim().min(1).max(64).nullable().optional(),
+    scripted: z.boolean().nullable().optional(),
     trace: jsonValueSchema.nullable().optional(),
   })
   .superRefine((val, ctx) => {

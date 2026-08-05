@@ -18,7 +18,6 @@ import {
   clearQueueStatus,
   markMessageQueued,
 } from "@/domains/chat/utils/stream-updaters/shared";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { steerToMessage } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
@@ -94,7 +93,6 @@ export function useMessageQueue({
           setOptimisticSends,
           onDeleted: () => {
             useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
-            useTurnStore.getState().deleteQueuedMessage();
           },
         });
       } else {

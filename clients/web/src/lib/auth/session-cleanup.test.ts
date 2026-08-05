@@ -188,8 +188,8 @@ describe("clearUserScopedStorage", () => {
 
     clearUserScopedStorage();
 
-    // Active iOS/macOS nudge keys must survive logout — they are
-    // still read by use-ios-app-nudge.ts and use-macos-app-nudge.ts.
+    // Active native/macOS nudge keys must survive logout because the nudge
+    // modules still read them.
     // Dead github/discord keys are removed at startup by removeKey()
     // in storage-migration.ts, not by the logout sweep.
     expect(localStorage.getItem("app.iosNudge.downloaded")).toBe("true");

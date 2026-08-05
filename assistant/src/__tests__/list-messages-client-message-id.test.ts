@@ -48,7 +48,7 @@ describe("handleListMessages clientMessageId", () => {
     );
 
     // WHEN the messages snapshot is built
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -70,7 +70,7 @@ describe("handleListMessages clientMessageId", () => {
     );
 
     // WHEN the messages snapshot is built
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };

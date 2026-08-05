@@ -15,8 +15,6 @@ interface ProfileRowProps {
   profile: InferenceProfileSummary;
   /** This profile is `llm.activeProfile` - the main-chat default. */
   isActiveProfile: boolean;
-  /** This profile is `llm.advisorProfile` - the second-opinion consult. */
-  isAdvisorProfile: boolean;
   /** The row's panel is currently open in the sidepanel. */
   selected: boolean;
   /** Connection rows, for resolving openai-compatible model display names. */
@@ -24,33 +22,32 @@ interface ProfileRowProps {
   /** Open the profile in the sidepanel (view for managed, edit for user). */
   onOpen: () => void;
   onMakeActive: () => void;
-  onMakeAdvisor: () => void;
-  onClearAdvisor: () => void;
   onSetStatus: (active: boolean) => void;
   onDelete: () => void;
 }
 
 /**
  * One row of the Profiles section (Figma 7412:133380): label, a
- * "{model} • Managed by Vellum" subtitle, Default/Advisor chips, and a
- * kebab menu showing only the actions valid for this row (Rok's annotation
- * on Light 738). Clicking the row opens the profile in the sidepanel.
+ * "{model} • Managed by Vellum" subtitle, the Default chip, and a kebab
+ * menu showing only the actions valid for this row (per the design
+ * annotation on Light 738). Clicking the row opens the profile in the
+ * sidepanel.
  *
  * Wording note: the chip for `llm.activeProfile` reads "Default" - the
  * default profile for chats that haven't picked one. "Active"/"Disabled"
  * is the orthogonal `status` dimension (picker visibility), rendered as
  * the dimmed title + "Disabled" chip + Enable/Disable menu items.
+ *
+ * The advisor (`llm.advisorProfile`) is a per-action model choice, not a
+ * per-profile property, so it lives in the Action Overrides panel.
  */
 export function ProfileRow({
   profile,
   isActiveProfile,
-  isAdvisorProfile,
   selected,
   connections,
   onOpen,
   onMakeActive,
-  onMakeAdvisor,
-  onClearAdvisor,
   onSetStatus,
   onDelete,
 }: ProfileRowProps) {
@@ -106,7 +103,6 @@ export function ProfileRow({
           ) : null}
           {isDisabled ? <Tag tone="neutral">Disabled</Tag> : null}
           {isActiveProfile ? <Tag tone="positive">Default</Tag> : null}
-          {isAdvisorProfile ? <Tag tone="warning">Advisor</Tag> : null}
           <Menu.Root>
             <Menu.Trigger asChild>
               <Button
@@ -122,14 +118,6 @@ export function ProfileRow({
               </Menu.Item>
               {!isActiveProfile && !isDisabled ? (
                 <Menu.Item onSelect={onMakeActive}>Make Default</Menu.Item>
-              ) : null}
-              {!isAdvisorProfile && !isDisabled ? (
-                <Menu.Item onSelect={onMakeAdvisor}>Make Advisor</Menu.Item>
-              ) : null}
-              {isAdvisorProfile ? (
-                <Menu.Item onSelect={onClearAdvisor}>
-                  Remove as Advisor
-                </Menu.Item>
               ) : null}
               {/* Managed profiles are enable-only: the daemon rejects the
                   disable direction. */}

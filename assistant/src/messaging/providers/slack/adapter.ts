@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  buildSlackChannelLabelMap,
   buildSlackUserLabelMap,
   renderSlackTextForModel,
 } from "@vellumai/slack-text";
@@ -32,7 +33,6 @@ import type {
 } from "../../provider-types.js";
 import { resolveSlackAuth } from "./auth.js";
 import * as slack from "./client.js";
-import { SlackApiError } from "./client.js";
 import {
   classifyConversationType,
   isPrivateConversation,
@@ -44,6 +44,7 @@ import type {
   SlackSearchMatch,
   SlackUser,
 } from "./types.js";
+import { SlackApiError } from "./web-api-transport.js";
 
 interface NormalizedSlackUserInfo {
   displayName: string;
@@ -68,6 +69,15 @@ const PERMANENT_USER_INFO_SLACK_ERRORS = new Set([
 
 // Cache normalized Slack user facts to avoid repeated API calls within a session.
 const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
+
+/**
+ * Cache resolved channel names for inline `<#C…>` mention rendering, same
+ * lifetime and keying discipline as {@link userInfoCache}. Holds `undefined`
+ * for channels this auth provably cannot resolve (not found / no permission)
+ * so a wall of history mentioning an inaccessible channel doesn't re-fire a
+ * doomed lookup per message batch.
+ */
+const channelNameCache = new Map<string, Promise<string | undefined>>();
 
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
@@ -307,15 +317,54 @@ function isPermanentSlackUserInfoFailure(err: unknown): boolean {
   );
 }
 
+function slackAuthCacheScope(auth: OAuthConnection | string): string {
+  return typeof auth === "string"
+    ? `token:${createHash("sha256").update(auth).digest("hex")}`
+    : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
+}
+
 function slackUserInfoCacheKey(
   auth: OAuthConnection | string,
   userId: string,
 ): string {
-  const authScope =
-    typeof auth === "string"
-      ? `token:${createHash("sha256").update(auth).digest("hex")}`
-      : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
-  return `${authScope}:user:${userId}`;
+  return `${slackAuthCacheScope(auth)}:user:${userId}`;
+}
+
+/**
+ * Resolve a channel's display name for inline mention rendering, cached per
+ * auth scope. Returns undefined when the channel has no name (DMs) or this
+ * auth cannot see it; transient failures are not cached so a later batch
+ * retries.
+ */
+async function resolveChannelName(
+  auth: OAuthConnection | string,
+  channelId: string,
+): Promise<string | undefined> {
+  if (!channelId) {
+    return undefined;
+  }
+  const cacheKey = `${slackAuthCacheScope(auth)}:channel:${channelId}`;
+  const cached = channelNameCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const resolved = slack.conversationInfo(auth, channelId).then(
+    (resp) => trimNonEmpty(resp.channel.name),
+    (err: unknown) => {
+      // Cache the definitive "this auth cannot resolve it" answers; drop
+      // everything else so transient failures retry on the next batch.
+      const permanent =
+        err instanceof SlackApiError &&
+        (err.category === "channel_not_found" || err.category === "permission");
+      if (!permanent) {
+        channelNameCache.delete(cacheKey);
+      }
+      return undefined;
+    },
+  );
+  channelNameCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 function normalizeSlackUserInfo(
@@ -346,8 +395,9 @@ function trimNonEmpty(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function __resetSlackUserInfoCacheForTests(): void {
+export function __resetSlackMentionCachesForTests(): void {
   userInfoCache.clear();
+  channelNameCache.clear();
 }
 
 function slackUserInfoMetadata(
@@ -460,13 +510,13 @@ function mapMessage(
 
 function mapSearchMatch(
   match: SlackSearchMatch,
-  userLabels: Record<string, string>,
+  labels: SlackMentionLabels,
 ): Message {
   return {
     id: match.ts,
     conversationId: match.channel.id,
     sender: { id: match.user ?? "unknown", name: match.username ?? "unknown" },
-    text: renderSlackTextForModel(match.text, { userLabels }),
+    text: renderSlackTextForModel(match.text, labels),
     timestamp: parseFloat(match.ts) * 1000,
     threadId: match.thread_ts,
     platform: "slack",
@@ -479,7 +529,7 @@ async function mapSlackMessages(
   channelId: string,
   slackMessages: SlackMessage[],
 ): Promise<Message[]> {
-  const userLabels = await buildMentionUserLabels(
+  const labels = await buildMentionLabels(
     auth,
     slackMessages.map((msg) => msg.text),
   );
@@ -491,31 +541,48 @@ async function mapSlackMessages(
         msg,
         channelId,
         senderInfo,
-        renderSlackTextForModel(msg.text, { userLabels }),
+        renderSlackTextForModel(msg.text, labels),
       ),
     );
   }
   return messages;
 }
 
-async function buildMentionUserLabels(
+interface SlackMentionLabels {
+  userLabels: Record<string, string>;
+  channelLabels: Record<string, string>;
+}
+
+/**
+ * Resolve display labels for every user and channel mentioned inline in the
+ * given texts, so bare `<@U…>` / `<#C…>` tokens render as names instead of
+ * falling back to `@unknown-user` / `#unknown-channel`. Pipe-form tokens
+ * carry their own label and are skipped by the map builders.
+ */
+async function buildMentionLabels(
   auth: OAuthConnection | string,
-  textValues: Iterable<string | undefined>,
-): Promise<Record<string, string>> {
-  return buildSlackUserLabelMap(textValues, (userId) =>
-    resolveUserName(auth, userId),
-  );
+  textValues: readonly (string | undefined)[],
+): Promise<SlackMentionLabels> {
+  const [userLabels, channelLabels] = await Promise.all([
+    buildSlackUserLabelMap(textValues, (userId) =>
+      resolveUserName(auth, userId),
+    ),
+    buildSlackChannelLabelMap(textValues, (channelId) =>
+      resolveChannelName(auth, channelId),
+    ),
+  ]);
+  return { userLabels, channelLabels };
 }
 
 async function mapSearchMatches(
   auth: OAuthConnection | string,
   matches: SlackSearchMatch[],
 ): Promise<Message[]> {
-  const userLabels = await buildMentionUserLabels(
+  const labels = await buildMentionLabels(
     auth,
     matches.map((match) => match.text),
   );
-  return matches.map((match) => mapSearchMatch(match, userLabels));
+  return matches.map((match) => mapSearchMatch(match, labels));
 }
 
 export const slackProvider: MessagingProvider = {

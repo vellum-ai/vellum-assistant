@@ -1,10 +1,12 @@
 /**
  * Shared leaf utilities for the notification pipeline.
  *
- * This module has no intra-pipeline imports — it depends only on Node
- * stdlib — so any notification module can import it without creating
+ * This module has no intra-pipeline imports (only Node stdlib and leaf
+ * utilities), so any notification module can import it without creating
  * circular dependencies.
  */
+
+import { isPlainObject } from "../util/object.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
 
@@ -26,11 +28,27 @@ export function readPayloadString(
   payload: unknown,
   key: string,
 ): string | undefined {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+  if (!isPlainObject(payload)) {
     return undefined;
   }
-  const value = (payload as Record<string, unknown>)[key];
+  const value = payload[key];
   return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Safely read a plain-object property from an unknown-typed payload object.
+ * Returns `undefined` when the payload is not an object or the key does not
+ * hold a plain object (arrays and `null` are rejected).
+ */
+export function readPayloadObject(
+  payload: unknown,
+  key: string,
+): Record<string, unknown> | undefined {
+  if (!isPlainObject(payload)) {
+    return undefined;
+  }
+  const value = payload[key];
+  return isPlainObject(value) ? value : undefined;
 }
 
 /** Truncate `text` to `maxLength`, appending "…" when exceeded. */
@@ -67,4 +85,21 @@ export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
  */
 export function sanitizeMessagePreview(value: string): string {
   return sanitize(value, MESSAGE_PREVIEW_MAX_LENGTH);
+}
+
+/** Character budget every notification title shares. */
+export const NOTIFICATION_TITLE_MAX_LENGTH = 60;
+
+/**
+ * Flatten an untrusted notification title onto a single line, stripping control
+ * characters and newlines and bounding it at `NOTIFICATION_TITLE_MAX_LENGTH`.
+ *
+ * The newline flattening is the load-bearing part: downstream consumers re-run
+ * the value through `normalizeTitle`, whose prose guard discards any string
+ * containing a newline outright, so a multi-line conversation title would be
+ * thrown away wholesale instead of salvaged. The length bound is a backstop;
+ * `normalizeTitle`'s tighter 40-character budget is what callers observe.
+ */
+export function sanitizeNotificationTitle(value: string): string {
+  return sanitize(value, NOTIFICATION_TITLE_MAX_LENGTH);
 }

@@ -9,15 +9,19 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="AppThemeNoActionBarBase" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:statusBarColor">@color/system_bar_scrim</item>
+        <item name="android:navigationBarColor">@color/system_bar_scrim</item>
     </style>
+
+    <style name="AppTheme.NoActionBar" parent="@style/AppThemeNoActionBarBase" />
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/vellum_green</item>
+        <item name="windowSplashScreenBackground">@color/launcher_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/vellum_mark</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:background">@drawable/splash_screen</item>

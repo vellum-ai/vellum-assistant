@@ -6,7 +6,6 @@ import {
   getDefaultWorkspaceDir,
   saveIngressUrl,
 } from "./ingress-config.js";
-import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 
 // ── Tailscale CLI discovery + invocation ────────────────────────────────────
 
@@ -161,12 +160,10 @@ export function shouldClearIngressUrl(
 // ── Tailscale serve lifecycle ───────────────────────────────────────────────
 
 export interface RunTailscaleTunnelOptions {
-  /** Gateway port to serve. Defaults to the global GATEWAY_PORT. */
+  /** Local edge port to serve. Defaults to the global GATEWAY_PORT. */
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
-  /** Prefer nginx ingress over the gateway port when it is running. */
-  preferNginxIngress?: boolean;
   /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
   assistantId?: string;
 }
@@ -174,7 +171,6 @@ export interface RunTailscaleTunnelOptions {
 export interface TailscaleServeInfo {
   publicUrl: string;
   port: number;
-  viaIngress: boolean;
   binary: string;
   workspaceDir: string;
 }
@@ -210,12 +206,7 @@ export async function startTailscaleServe(
   const publicUrl = `https://${hostname}`;
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  const gatewayPort = opts.port ?? GATEWAY_PORT;
-  const { port, viaIngress } = resolveTunnelTargetPort(
-    workspaceDir,
-    gatewayPort,
-    { preferNginxIngress: opts.preferNginxIngress === true },
-  );
+  const port = opts.port ?? GATEWAY_PORT;
 
   const serveResult = deps.run(binary, ["serve", "--bg", String(port)]);
   if (serveResult.status !== 0) {
@@ -224,7 +215,7 @@ export async function startTailscaleServe(
 
   saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
 
-  return { publicUrl, port, viaIngress, binary, workspaceDir };
+  return { publicUrl, port, binary, workspaceDir };
 }
 
 /**
@@ -252,12 +243,10 @@ export async function runTailscaleTunnel(
   const deps = realTailscaleDeps();
 
   console.log("Setting up tailscale serve...");
-  const { publicUrl, port, viaIngress, binary, workspaceDir } =
-    await startTailscaleServe(opts, deps);
-
-  if (viaIngress) {
-    console.log(`nginx ingress detected — serving it on 127.0.0.1:${port}.`);
-  }
+  const { publicUrl, port, binary, workspaceDir } = await startTailscaleServe(
+    opts,
+    deps,
+  );
 
   console.log("");
   console.log(`Tunnel established: ${publicUrl}`);

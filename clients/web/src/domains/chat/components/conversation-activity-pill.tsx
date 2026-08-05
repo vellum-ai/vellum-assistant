@@ -324,14 +324,17 @@ export function ConversationActivityPill({
         </Button>
       </Popover.Trigger>
       {/* `align="end"`, unlike the Assets pill's centred panel: Activity sits
-          further right in the cluster, so a centred 320px panel resolves flush
+          further right in the cluster, so a centred panel resolves flush
           against the window edge. Anchoring the panel's trailing edge to the
-          trigger matches the notification bell, its neighbour on that side. */}
+          trigger matches the notification bell, its neighbour on that side,
+          whose 384px width the rows here borrow too: a generated process name
+          plus its status metadata needs the room, and `max-w` still yields to
+          a narrow viewport. */}
       <Popover.Content
         side="bottom"
         align="end"
         sideOffset={8}
-        className="w-80 max-w-[calc(100vw-2rem)] p-0"
+        className="w-96 max-w-[calc(100vw-2rem)] p-0"
       >
         <div className="max-h-[280px] overflow-y-auto">{panel}</div>
       </Popover.Content>

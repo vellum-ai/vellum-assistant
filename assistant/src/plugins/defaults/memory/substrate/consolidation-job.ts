@@ -83,6 +83,7 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../../persistence/conversation-types.js";
 import {
   enqueueMemoryJob,
   hasPendingJobOfType,
@@ -99,7 +100,6 @@ import {
   releaseLock,
   tryAcquireLock,
 } from "./consolidation-lock.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { getPageIndex, type PageParseFailure } from "./page-index.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 import { resolveSubstrateTuning } from "./tuning.js";

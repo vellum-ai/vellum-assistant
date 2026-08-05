@@ -18,6 +18,7 @@
 
 import {
   coerceSurfaceDataRecord,
+  describeSurfaceDataStringParseFailure,
   FileUploadSurfaceDataSchema,
   normalizeCopyBlockShowData,
 } from "../../api/surfaces.js";
@@ -66,7 +67,8 @@ interface SurfaceShapeDoc {
    * Returns a description of what keeps the payload from rendering as intended
    * — missing load-bearing content, or keys that would be silently dropped —
    * or null when the payload is fine. Absent for types the daemon normalizes
-   * leniently (card) or that have bespoke handling (dynamic_page). Guards for
+   * leniently (card) or that have bespoke handling (dynamic_page, visual).
+   * Guards for
    * types whose daemon normalizer recovers top-level input fields also receive
    * the full tool `input`, so the guard accepts exactly what the normalizer
    * accepts.
@@ -130,7 +132,7 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   oauth_connect: {
     purpose: "managed OAuth connection button for an integration account",
     shape:
-      "{ providerKey, displayName?, description?, logoUrl? } — managed OAuth connection CTA; use when the task needs a managed integration account (Google, Linear, GitHub, ...) instead of settings or shell OAuth. Do not include OAuth scopes; managed providers use the platform's configured scopes",
+      "{ providerKey, requestedScopes?, displayName?, description?, logoUrl? }: managed OAuth connection CTA; use when the task needs a managed integration account (Google, Linear, GitHub, ...) instead of settings or shell OAuth. requestedScopes is an optional FULL replacement set of OAuth scopes: when set, the connection is granted exactly these scopes instead of the platform defaults, so include every scope the connection should keep; omit it to use the platform's default scopes",
     missingContent: (data) =>
       isNonEmptyString(data.providerKey)
         ? null
@@ -193,6 +195,12 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
     shape:
       "{ html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } } — custom visual HTML for transient surfaces only, never app-like builds",
   },
+  visual: {
+    purpose:
+      "polished inline diagram/chart/explainer — PREFER this when explaining how something works or compares; load the `visualize` skill first",
+    shape:
+      "{ html, height? } — one self-contained HTML/SVG fragment (no DOCTYPE/html/head/body, no external resources); every colour comes from the injected design-token CSS variables, so hex/rgb literals and invented `var()` names are rejected. Load the `visualize` skill with `skill_load` for the full contract and the token vocabulary",
+  },
   channel_setup: {
     purpose: "open the Slack/Telegram/Phone setup panel",
     shape: '{ channel: "slack" | "telegram" | "phone" }',
@@ -244,11 +252,33 @@ export const UI_SHOW_TYPE_DOCS = [
 ].join("\n");
 
 /**
+ * Rejection envelope for a `data` argument the model double-encoded as a JSON
+ * string that does not parse — most often HTML whose inner double quotes were
+ * escaped wrong. The decode failure strands every field, so without this the
+ * surface's own shape check fires and blames the first field it misses, sending
+ * the model off to fix a fragment that was never the problem.
+ */
+function surfaceDataEncodingError(
+  surfaceType: string,
+  detail: string,
+  shape: string,
+): string {
+  return (
+    `Error: ui_show ${surfaceType} was not displayed — \`data\` arrived as a JSON-encoded string that could not be parsed: ${detail}. ` +
+    "None of its fields could be read, so the surface looked empty. This is an argument-encoding problem, not a problem with the content itself. " +
+    `Pass \`data\` as a JSON object rather than a string: ${shape}. ` +
+    "If the content is HTML with double quotes inside, use single quotes for the HTML attributes (<rect class='box'>) so there is nothing to escape. " +
+    "Resend the same ui_show with `data` as an object."
+  );
+}
+
+/**
  * Teaching error for a ui_show payload that would render nothing, or null
  * when the payload is displayable. Unknown/missing surface_type gets the
- * full type index; a known type missing its load-bearing content gets that
- * type's exact shape. dynamic_page emptiness is handled by the bespoke
- * model-aware envelopes in `definitions.ts`, not here.
+ * full type index; an undecodable JSON-string `data` gets the encoding
+ * envelope; a known type missing its load-bearing content gets that type's
+ * exact shape. dynamic_page emptiness and the `visual` fragment checks are
+ * handled by the bespoke envelopes in `definitions.ts`, not here.
  */
 export function uiShowTeachingError(
   input: Record<string, unknown>,
@@ -265,6 +295,10 @@ export function uiShowTeachingError(
     return `Error: ui_show was not displayed — ${got}. Valid types: ${SURFACE_TYPE_INDEX}. Resend ui_show with one of these surface_type values; if a type's data is missing required content, the error will include its exact shape.`;
   }
   const doc = SURFACE_SHAPE_DOCS[surfaceType]!;
+  const parseFailure = describeSurfaceDataStringParseFailure(input.data);
+  if (parseFailure !== null) {
+    return surfaceDataEncodingError(surfaceType, parseFailure, doc.shape);
+  }
   if (!doc.missingContent) {
     return null;
   }

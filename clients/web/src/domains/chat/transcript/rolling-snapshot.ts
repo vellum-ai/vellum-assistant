@@ -30,14 +30,17 @@ import {
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import {
   attachSurface,
+  clearPendingVisualSurfaces,
   completeSurface,
   dismissSurface,
+  markPendingVisualSurface,
   updateSurfaceData,
 } from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import {
   applyQueuedMessageDequeue,
+  markMessageQueued,
   removeQueuedMessage,
 } from "@/domains/chat/utils/stream-updaters/shared";
 
@@ -81,7 +84,11 @@ export function appendEventToMessages(
         at,
       );
     case "message_complete":
-      return finalizeMessageComplete(messages, event, at);
+      // The turn produced its final row, so no announced visual can still be
+      // coming. Retire every placeholder along with the row finalization.
+      return clearPendingVisualSurfaces(
+        finalizeMessageComplete(messages, event, at),
+      );
     case "user_message_echo":
       return applyUserMessageEcho(
         messages,
@@ -94,14 +101,20 @@ export function appendEventToMessages(
       );
     case "message_dequeued":
       return applyQueuedMessageDequeue(messages, event.requestId);
+    case "message_requeued":
+      // The dequeue this corrects cleared the row's queue status; put it back
+      // so the transcript keeps showing the message as pending.
+      return markMessageQueued(messages, event.requestId, event.position);
     case "message_queued_deleted":
       return removeQueuedMessage(messages, event.requestId);
     case "assistant_activity_state":
       // Only the terminal `idle` phase changes message content (it finalizes
       // running tool calls); other phases drive turn state, not history.
-      return event.phase === "idle" ? finalizeOnIdle(messages, at) : messages;
+      return event.phase === "idle"
+        ? clearPendingVisualSurfaces(finalizeOnIdle(messages, at))
+        : messages;
     case "conversation_error":
-      return handleConversationError(messages, at);
+      return clearPendingVisualSurfaces(handleConversationError(messages, at));
     case "tool_use_preview_start": {
       // Optimistic pre-input affordance: the daemon recognized a tool call
       // before its input finished streaming. Seed a running tool card anchored
@@ -135,28 +148,34 @@ export function appendEventToMessages(
       return upsertToolCall(messages, toolCall, event.messageId, at);
     }
     case "tool_result":
-      return applyToolResult(messages, {
-        toolUseId: event.toolUseId,
-        result: event.result,
-        isError: event.isError,
-        riskLevel: event.riskLevel,
-        riskReason: event.riskReason,
-        matchedTrustRuleId: event.matchedTrustRuleId,
-        approvalMode: event.approvalMode,
-        approvalReason: event.approvalReason,
-        riskThreshold: event.riskThreshold,
-        riskAllowlistOptions: event.riskAllowlistOptions,
-        riskScopeOptions: event.riskScopeOptions,
-        riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
-        imageData: event.imageData,
-        imageDataList: event.imageDataList,
-        activityMetadata: event.activityMetadata,
-        errorCode: event.errorCode,
-        completedAt:
-          "completedAt" in event && typeof event.completedAt === "number"
-            ? event.completedAt
-            : at,
-      });
+      // A resolved ui_show retires its placeholder whether it produced a
+      // surface or failed: either way nothing more is coming from that call.
+      return applyToolResult(
+        clearPendingVisualSurfaces(messages, { toolUseId: event.toolUseId }),
+        {
+          toolUseId: event.toolUseId,
+          result: event.result,
+          isError: event.isError,
+          riskLevel: event.riskLevel,
+          riskReason: event.riskReason,
+          matchedTrustRuleId: event.matchedTrustRuleId,
+          approvalMode: event.approvalMode,
+          approvalReason: event.approvalReason,
+          riskThreshold: event.riskThreshold,
+          riskAllowlistOptions: event.riskAllowlistOptions,
+          riskScopeOptions: event.riskScopeOptions,
+          riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
+          imageData: event.imageData,
+          imageDataList: event.imageDataList,
+          activityMetadata: event.activityMetadata,
+          answeredQuestion: event.answeredQuestion,
+          errorCode: event.errorCode,
+          completedAt:
+            "completedAt" in event && typeof event.completedAt === "number"
+              ? event.completedAt
+              : at,
+        },
+      );
     case "tool_output_chunk":
       if (!event.chunk) {
         return messages;
@@ -166,6 +185,12 @@ export function appendEventToMessages(
         toolUseId: event.toolUseId,
         messageId: event.messageId,
       });
+    case "ui_surface_pending":
+      return markPendingVisualSurface(
+        messages,
+        event.toolUseId,
+        event.messageId,
+      );
     case "ui_surface_show": {
       const surface: Surface = {
         surfaceId: event.surfaceId,
@@ -176,7 +201,19 @@ export function appendEventToMessages(
         display: event.display,
       };
       surface.display = classifySurfaceDisplay(surface);
-      return attachSurface(messages, surface, event.messageId, at);
+      // The real widget supersedes its placeholder. The producing call's id
+      // retires exactly one; without it, the row's placeholders all go, since
+      // a visual arriving is proof the row is no longer waiting on one.
+      const pendingCleared =
+        surface.surfaceType === "visual"
+          ? clearPendingVisualSurfaces(
+              messages,
+              event.toolCallId
+                ? { toolUseId: event.toolCallId }
+                : { messageId: event.messageId },
+            )
+          : messages;
+      return attachSurface(pendingCleared, surface, event.messageId, at);
     }
     case "ui_surface_update":
       return updateSurfaceData(messages, event.surfaceId, event.data);

@@ -9,8 +9,10 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 let mockIsNativeIOS = false;
+let mockIsNativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => mockIsNativeIOS,
+  isNativeAndroid: () => mockIsNativeAndroid,
 }));
 
 const { initNativePlatformAttributes } =
@@ -18,6 +20,7 @@ const { initNativePlatformAttributes } =
 
 afterEach(() => {
   mockIsNativeIOS = false;
+  mockIsNativeAndroid = false;
   delete document.documentElement.dataset.nativePlatform;
 });
 
@@ -31,6 +34,12 @@ describe("initNativePlatformAttributes", () => {
     mockIsNativeIOS = true;
     initNativePlatformAttributes();
     expect(document.documentElement.dataset.nativePlatform).toBe("ios");
+  });
+
+  test("stamps the marker inside the native Android shell", () => {
+    mockIsNativeAndroid = true;
+    initNativePlatformAttributes();
+    expect(document.documentElement.dataset.nativePlatform).toBe("android");
   });
 
   test("is idempotent across repeated calls", () => {

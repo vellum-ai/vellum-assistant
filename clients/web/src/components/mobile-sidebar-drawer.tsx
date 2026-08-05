@@ -74,7 +74,8 @@ export function MobileSidebarDrawer({
     mql.addEventListener("change", handleMediaChange);
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
         onCloseRef.current();
         return;
       }

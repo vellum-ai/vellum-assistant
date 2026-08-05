@@ -360,6 +360,13 @@ describe("providers list output", () => {
     expect(stdout).not.toContain("api_key");
   });
 
+  test("bare `providers` runs list", async () => {
+    mockIpcResult = { ok: true, result: { connections: [] } };
+    const { exitCode } = await run(["providers"]);
+    expect(lastIpcCall()?.method).toBe("inference_provider_connections_list");
+    expect(exitCode).toBe(0);
+  });
+
   test("--json output keeps the full wire shape including auth", async () => {
     mockIpcResult = {
       ok: true,

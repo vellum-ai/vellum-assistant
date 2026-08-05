@@ -5,7 +5,10 @@
  * `resolveVoiceRoomLook` maps the assistant's avatar data to the look; the
  * {@link VoiceRoomColorLook} component plays the onboarding Introduction
  * step's entrance on mount, so opening the room reads as the avatar growing
- * from "on the screen" to BEING the screen:
+ * from "on the screen" to BEING the screen, unless the surface already has an
+ * entrance of its own, in which case the look is simply painted and rides it.
+ * Which one a surface gets is `voice-room-entrance.ts`'s call, arriving here as
+ * the `entrance` prop; the steps below describe the grow:
  *
  * 1. the room starts on a dark surface,
  * 2. the avatar's body shape springs from its small on-screen size up to
@@ -38,8 +41,9 @@
  * ambient-void look — what that look should become is an open design
  * question.
  *
- * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe (no
- * entrance, no parallax; the blink is a discrete squish, kept).
+ * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe. It
+ * resolves to the presented entrance (no grow), and drops the parallax; the
+ * blink is a discrete squish, kept.
  *
  * Everything here is sized against the box it is given, not the window. The
  * room is an inset panel on desktop (see `voice-room.tsx`), so "the screen" the
@@ -66,6 +70,13 @@ import {
   type VoiceWaveStyle,
 } from "./voice-listening-waves";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
+import {
+  bodyGrowMotion,
+  colorFillMotion,
+  eyesEntranceMotion,
+  withReducedMotion,
+  type VoiceRoomEntrance,
+} from "./voice-room-entrance";
 import { createAmplitudeSmoother } from "./voice-motion";
 import { useReactiveEyes, type VoiceEyeReaction } from "./use-reactive-eyes";
 import { VoiceReactiveWaves } from "./voice-reactive-waves";
@@ -191,9 +202,18 @@ const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
  *  eyes from this vertical center — onboarding's picker geometry. */
 const ENTER_FROM_SIZE = 200;
 const ENTER_FROM_CENTER_VH = 40;
-/** The room's own dark base, under the color fade (matches the ambient look's
- *  deep surface so the first frames read the same for both looks). */
-const DARK_SURFACE = "#17191C";
+/**
+ * The room's own dark base, under the color fade (matches the ambient look's
+ * deep surface so the first frames read the same for both looks).
+ *
+ * Exported as the surface any voice surface paints when the assistant has no
+ * character color to borrow, which is what `resolveVoiceRoomLook` returning
+ * null means: custom-image and "none" avatars. The minimized composer bar
+ * shares it so a colorless assistant minimizes into the same deep surface the
+ * room shows it on.
+ */
+export const VOICE_SURFACE_DARK = "#17191C";
+const DARK_SURFACE = VOICE_SURFACE_DARK;
 
 export interface VoiceRoomEyeArt {
   paths: { svgPath: string; color: string }[];
@@ -318,6 +338,7 @@ export function VoiceRoomColorLook({
   showStateCaption = true,
   captionEmphasis = "hidden",
   entryOrigin = null,
+  entrance: requestedEntrance = "grow",
   waveEngine = "mesh",
   viewport,
 }: {
@@ -342,8 +363,11 @@ export function VoiceRoomColorLook({
   captionEmphasis?: VoiceCaptionEmphasis;
   /** Point the entrance grows from (the tapped control), in ROOM-LOCAL space.
    *  the caller converts from the viewport point it captured. Null → the fixed
-   *  room-center origin. */
+   *  room-center origin. Unread when {@link entrance} is `"presented"`. */
   entryOrigin?: { x: number; y: number } | null;
+  /** How the look introduces itself. See `voice-room-entrance.ts`. Defaults to
+   *  the grow; a surface with an entrance of its own passes `"presented"`. */
+  entrance?: VoiceRoomEntrance;
   /** Which wave band to draw. See {@link VoiceWaveEngine}. */
   waveEngine?: VoiceWaveEngine;
   /** The room box to lay out against. The room measures its own panel and
@@ -353,6 +377,7 @@ export function VoiceRoomColorLook({
   const reduce = useReducedMotion();
   const measured = useViewportSize();
   const { w, h } = viewport ?? measured;
+  const entrance = withReducedMotion(requestedEntrance, reduce === true);
 
   // Where the entrance grows from: the tapped control's point in room-local
   // space, or the fixed picker-height room center when none was captured (or in
@@ -422,14 +447,7 @@ export function VoiceRoomColorLook({
       <motion.div
         className="absolute inset-0"
         style={{ backgroundColor: look.bgHex }}
-        initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={
-          reduce
-            ? { opacity: 0 }
-            : { opacity: 0, transition: { duration: 0.2, ease: "easeIn" } }
-        }
-        transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
+        {...colorFillMotion(entrance)}
       />
 
       {/* Body — springs from "avatar on the screen" to covering it. */}
@@ -445,33 +463,7 @@ export function VoiceRoomColorLook({
             top: bodyGeometry.top,
             transformOrigin: "center",
           }}
-          initial={
-            reduce
-              ? false
-              : {
-                  scale: bodyGeometry.startScale,
-                  x: bodyGeometry.startX,
-                  y: bodyGeometry.startY,
-                }
-          }
-          animate={{ scale: 1, x: 0, y: 0 }}
-          // Close reverses the grow: the body shrinks back to its "avatar on the
-          // screen" size at the entry origin.
-          exit={
-            reduce
-              ? { opacity: 0 }
-              : {
-                  scale: bodyGeometry.startScale,
-                  x: bodyGeometry.startX,
-                  y: bodyGeometry.startY,
-                  transition: { duration: 0.4, ease: "easeIn" },
-                }
-          }
-          transition={
-            reduce
-              ? { duration: 0 }
-              : { type: "spring", stiffness: 78, damping: 18, mass: 1 }
-          }
+          {...bodyGrowMotion(entrance, bodyGeometry)}
         >
           <path d={look.body.svgPath} fill={look.bgHex} />
         </motion.svg>
@@ -555,6 +547,7 @@ export function VoiceRoomColorLook({
         placement={eyePlacement}
         viewport={{ w, h }}
         entranceOrigin={origin}
+        entrance={entrance}
         // The centered eyes never move — they express the state by size.
         sizeScale={sizeScale}
         // Reconnecting: fade the eyes back — presence dimmed while away.
@@ -651,8 +644,13 @@ const CAPTION_EMPHASIS: Record<
  *   stopped responding to amplitude at all. It stays closer to linear.
  *
  * Both still reach zero in silence, so the floor is empty between turns.
+ *
+ * Exported because every painted voice surface inks its band this way, not just
+ * the room: the fill is the avatar color, so a band tinted with the avatar
+ * accent is the fill's own hue and paints nothing visible on it. The minimized
+ * composer block borrows both entries for the same reason the room has them.
  */
-const BAND_VOICE = {
+export const BAND_VOICE = {
   listening: { color: "#FFFFFF", peakOpacity: 0.4, opacityKnee: 3 },
   responding: { color: "#000000", peakOpacity: 0.45, opacityKnee: 1.3 },
 } as const;
@@ -779,11 +777,7 @@ function VoiceThinkingIndicator({
  * listening band at whatever placement the room is already using.
  */
 export type VoiceRespondingStyle =
-  | "waves"
-  | "rings"
-  | "halo"
-  | "waveform"
-  | "pulse";
+  "waves" | "rings" | "halo" | "waveform" | "pulse";
 
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding
@@ -1035,6 +1029,7 @@ export function VoiceRoomEyes({
   viewport,
   placement = "center",
   entranceOrigin,
+  entrance: requestedEntrance = "grow",
   sizeScale = 1,
   dimmed = false,
   eyeReaction = null,
@@ -1044,8 +1039,11 @@ export function VoiceRoomEyes({
   /** The room box the eyes are framed in (the caller's live viewport size). */
   viewport: { w: number; h: number };
   placement?: VoiceEyePlacement;
-  /** Room-local point the eyes grow from on entrance. Defaults to room center. */
+  /** Room-local point the eyes grow from on entrance. Defaults to room center.
+   *  Unread when {@link entrance} is `"presented"`. */
   entranceOrigin?: { x: number; y: number };
+  /** How the eyes arrive. See `voice-room-entrance.ts`. */
+  entrance?: VoiceRoomEntrance;
   /**
    * Audio gesture the eyes express — `listening` widens them with the mic,
    * `responding` pulses them with the assistant's own voice, `null` holds them
@@ -1062,7 +1060,8 @@ export function VoiceRoomEyes({
 }) {
   const reduce = useReducedMotion();
   const { w, h } = viewport;
-  const playEntrance = !reduce;
+  const entrance = withReducedMotion(requestedEntrance, reduce === true);
+  const playEntrance = entrance === "grow";
   const reactiveRef = useReactiveEyes(eyeReaction, getAmplitude);
 
   // The parallax offset and the blink are decorative, so both drive the DOM
@@ -1204,43 +1203,7 @@ export function VoiceRoomEyes({
         height: geometry.eyesH,
         transformOrigin: "center",
       }}
-      initial={
-        playEntrance
-          ? { x: geometry.startX, y: geometry.startY, scale: 0.35 }
-          : false
-      }
-      // Play the grow-in keyframes only until the entrance lands, then hold a
-      // stable static target. Otherwise every re-render (a `visual`/`sizeScale`
-      // change) hands Motion a fresh keyframe array and it replays part of the
-      // entrance — the eyes lurch toward the origin and snap back, fighting the
-      // smooth per-state resize.
-      animate={
-        playEntrance && !entranceDone
-          ? {
-              x: [geometry.startX, 0, 0],
-              y: [geometry.startY, geometry.dipY, 0],
-              scale: [0.35, 1, 1],
-            }
-          : { x: 0, y: 0, scale: 1 }
-      }
-      // Close reverses the grow: the eyes shrink back to the entry origin
-      // alongside the body, so the whole avatar shape collapses to the point.
-      exit={
-        reduce
-          ? { opacity: 0 }
-          : {
-              x: geometry.startX,
-              y: geometry.startY,
-              scale: 0.35,
-              opacity: 0,
-              transition: { duration: 0.4, ease: "easeIn" },
-            }
-      }
-      transition={
-        playEntrance && !entranceDone
-          ? { duration: 1, times: [0, 0.7, 1], ease: "easeInOut" }
-          : { duration: 0 }
-      }
+      {...eyesEntranceMotion(entrance, geometry, entranceDone)}
       onAnimationComplete={() => setEntranceDone(true)}
     >
       {/* Per-state size: the eyes stay put and resize, on the same motion tween

@@ -434,7 +434,7 @@ export class GeminiProvider implements Provider {
 
     try {
       recordProviderRequestDiagnostics({ model_id: activeModel });
-      const geminiContents = this.toGeminiContents(messages, activeModel);
+      const geminiContents = await this.toGeminiContents(messages, activeModel);
 
       const geminiConfig: genai.GenerateContentConfig = {};
 
@@ -658,7 +658,7 @@ export class GeminiProvider implements Provider {
     systemPrompt: string,
     tools?: ToolDefinition[],
   ): Promise<number> {
-    const contents = this.toGeminiContents(messages, this.model);
+    const contents = await this.toGeminiContents(messages, this.model);
     const config: genai.CountTokensConfig = {};
     if (systemPrompt) {
       config.systemInstruction = systemPrompt.replaceAll(
@@ -689,13 +689,13 @@ export class GeminiProvider implements Provider {
   }
 
   /** Convert neutral messages to Gemini Content[] format. */
-  private toGeminiContents(
+  private async toGeminiContents(
     messages: Message[],
     model: string,
-  ): genai.Content[] {
+  ): Promise<genai.Content[]> {
     // Swap any persisted attachment references back to inline base64 before
     // building parts, so the transforms below can read `source.data`.
-    messages = resolveMediaReferences(messages);
+    messages = await resolveMediaReferences(messages);
     const result: genai.Content[] = [];
 
     // Build a map from tool_use id → function name so tool_result blocks

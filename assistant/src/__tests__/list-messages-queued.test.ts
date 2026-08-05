@@ -91,7 +91,7 @@ describe("handleListMessages in-memory queue", () => {
     ]);
 
     // WHEN the messages snapshot is built for the newest page
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -128,7 +128,7 @@ describe("handleListMessages in-memory queue", () => {
       }),
     ]);
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -156,7 +156,7 @@ describe("handleListMessages in-memory queue", () => {
       }),
     ]);
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -182,7 +182,7 @@ describe("handleListMessages in-memory queue", () => {
       makeQueued({ requestId: "req-visible", content: "a real message" }),
     ]);
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -204,7 +204,7 @@ describe("handleListMessages in-memory queue", () => {
     registerLiveConversation(conv.id, [makeQueued({ requestId: "req-old" })]);
 
     // WHEN paging older history
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: {
         conversationId: conv.id,
         beforeTimestamp: String(Date.now() + 1_000),
@@ -226,7 +226,7 @@ describe("handleListMessages in-memory queue", () => {
       { skipIndexing: true },
     );
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };

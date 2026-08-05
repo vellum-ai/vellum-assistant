@@ -6,6 +6,7 @@ import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.
 import {
   type ResolutionFallbackReason,
   resolveCallSiteConfig,
+  resolveCallSiteConfigWithProfile,
   resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
 } from "../config/llm-resolver.js";
@@ -697,9 +698,7 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
     expect(resolved.provider).toBe("openai");
     expect(resolved.provider_connection).toBe("openai-personal");
-    expect(resolved.model).toBe(
-      resolveModelIntent("openai", "latency-optimized"),
-    );
+    expect(resolved.model).toBe(resolveModelIntent("openai", "cost-optimized"));
   });
 
   test("BYOK full-workspace: every call site resolves through the default provider, never the managed connection", () => {
@@ -751,9 +750,7 @@ describe("resolveCallSiteConfig", () => {
 
     // Cost-optimized call sites resolve the intent through the BYOK provider.
     const costSite = resolveCallSiteConfig("heartbeatAgent", byokConfig);
-    expect(costSite.model).toBe(
-      resolveModelIntent("openai", "latency-optimized"),
-    );
+    expect(costSite.model).toBe(resolveModelIntent("openai", "cost-optimized"));
 
     // mainAgent uses the user's active profile.
     const balancedSite = resolveCallSiteConfig("mainAgent", byokConfig);
@@ -770,9 +767,7 @@ describe("resolveCallSiteConfig", () => {
 
     const resolved = resolveCallSiteConfig("commitMessage", byokConfig);
     expect(resolved.provider).toBe("openai");
-    expect(resolved.model).toBe(
-      resolveModelIntent("openai", "latency-optimized"),
-    );
+    expect(resolved.model).toBe(resolveModelIntent("openai", "cost-optimized"));
     expect(resolved.maxTokens).toBe(120);
     expect(resolved.effort).toBe("low");
     expect(resolved.thinking.enabled).toBe(false);
@@ -857,6 +852,21 @@ describe("mix profiles", () => {
     } else {
       expect(first.effort).toBe("high");
     }
+  });
+
+  test("config and profile attribution share one mix selection", () => {
+    const selectedArms: string[] = [];
+    const resolved = resolveCallSiteConfigWithProfile("mainAgent", mixLlm, {
+      onMixSelected: ({ chosenProfile }) => {
+        selectedArms.push(chosenProfile);
+      },
+    });
+
+    expect(resolved.profileName).toBe("ab");
+    expect(selectedArms).toHaveLength(1);
+    expect(resolved.config.model).toBe(
+      selectedArms[0] === "a" ? "model-a" : "model-b",
+    );
   });
 
   test("all dereference spots in a turn agree for the same seed", () => {

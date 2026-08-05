@@ -204,7 +204,7 @@ export function isLoopbackPublicUrl(url: string): boolean {
  * removed so a pasted pair-page URL collapses to its base, and trailing
  * slashes trimmed. Throws if the value is not a parseable URL.
  */
-export function normalizePublicBaseUrl(value: string): string {
+export function normalizePairingBaseUrl(value: string): string {
   const url = new URL(value);
   url.search = "";
   url.hash = "";
@@ -225,7 +225,7 @@ export function normalizePublicBaseUrl(value: string): string {
 export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
   let normalized: string;
   try {
-    normalized = normalizePublicBaseUrl(raw);
+    normalized = normalizePairingBaseUrl(raw);
   } catch {
     return { ok: false, reason: "unparseable" };
   }

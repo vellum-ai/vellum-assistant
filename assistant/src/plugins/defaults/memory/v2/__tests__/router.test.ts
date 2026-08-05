@@ -73,6 +73,7 @@ mock.module("../../../../../util/logger.js", () => ({
 mock.module("../../substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => skillState.entries,
+  listAlwaysCandidateSkillSlugs: () => [],
 }));
 
 // Stub `computeInjectionScores` so tier-2 tests can dictate scores

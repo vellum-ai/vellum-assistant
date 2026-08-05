@@ -19,12 +19,17 @@ import {
 interface FakeEvent {
   type: string;
   message?: string;
+  conversationId?: string;
+  requestId?: string;
+  position?: number;
+  clientMessageId?: string;
 }
 
 function makeQueued(
   content: string,
   requestId: string,
   events: FakeEvent[],
+  extra?: Partial<QueuedMessage>,
 ): QueuedMessage {
   return {
     content,
@@ -34,6 +39,7 @@ function makeQueued(
       events.push(event);
     },
     sentAt: Date.now(),
+    ...extra,
   } as unknown as QueuedMessage;
 }
 
@@ -198,5 +204,123 @@ describe("drainQueue under processing-lock contention", () => {
         (event) => event.type === "error" && event.message === "disk exploded",
       ).length,
     ).toBe(1);
+  });
+});
+
+/**
+ * The corrective `message_requeued` event.
+ *
+ * A drain announces `message_dequeued` before the steps that can send the
+ * message back, so a client that cleared its pending indicator on that
+ * announcement needs to be told the message is queued again. The rule is
+ * announcement-scoped: a requeue that happens before the announcement owes
+ * clients nothing, because they never stopped showing the row as queued.
+ */
+describe("message_requeued corrective event", () => {
+  test("a busy persist tells the sender its announced message is queued again", async () => {
+    const events: FakeEvent[] = [];
+    const { conversation, queue } = makeFakeConversation({
+      persistError: new Error(CONVERSATION_BUSY_MESSAGE),
+    });
+    queue.push(
+      makeQueued("hello there", "r1", events, {
+        clientMessageId: "nonce-1",
+      }),
+    );
+    queue.push(makeQueued("and another", "r2", events));
+
+    await drainQueue(conversation as never);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "message_dequeued",
+      "message_requeued",
+    ]);
+    expect(events[1]).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-drain-requeue",
+      requestId: "r1",
+      // Back at the head, so 1 of the 2 visible queued items.
+      position: 1,
+      clientMessageId: "nonce-1",
+    });
+  });
+
+  test("a requeue before the dequeue announcement stays silent", async () => {
+    const events: FakeEvent[] = [];
+    const { conversation, queue } = makeFakeConversation({ processing: true });
+    queue.push(makeQueued("hello there", "r1", events));
+
+    await drainQueue(conversation as never);
+
+    // The early lock check requeues before announcing anything, so a
+    // corrective event here would contradict what the client is showing.
+    expect(events).toEqual([]);
+    expect(queue.length).toBe(1);
+  });
+
+  test("only the batch member whose dequeue was announced is corrected", async () => {
+    const headEvents: FakeEvent[] = [];
+    const tailEvents: FakeEvent[] = [];
+    const { conversation, queue } = makeFakeConversation({
+      persistError: new Error(CONVERSATION_BUSY_MESSAGE),
+    });
+    queue.push(makeQueued("hello there", "r1", headEvents));
+    queue.push(makeQueued("and another", "r2", tailEvents));
+
+    await drainQueue(conversation as never);
+
+    // The batch drain announces per member as it walks the batch, and the
+    // head's busy persist ends the walk before the tail is announced.
+    expect(headEvents.map((event) => event.type)).toEqual([
+      "message_dequeued",
+      "message_requeued",
+    ]);
+    expect(tailEvents).toEqual([]);
+    expect(queue.peek(0)?.requestId).toBe("r1");
+    expect(queue.peek(1)?.requestId).toBe("r2");
+  });
+
+  test("a hidden send is announced but never corrected", async () => {
+    const events: FakeEvent[] = [];
+    const { conversation, queue } = makeFakeConversation({
+      persistError: new Error(CONVERSATION_BUSY_MESSAGE),
+    });
+    queue.push(
+      makeQueued("wizard closed", "r1", events, {
+        metadata: { hidden: true },
+      }),
+    );
+
+    await drainQueue(conversation as never);
+
+    // Hidden sends get no queued ack and render no client row, so there is
+    // nothing for a corrective event to restore.
+    expect(events.some((event) => event.type === "message_requeued")).toBe(
+      false,
+    );
+    expect(queue.peek(0)?.requestId).toBe("r1");
+  });
+
+  test("a second contention round corrects the message again", async () => {
+    const events: FakeEvent[] = [];
+    const { conversation, queue } = makeFakeConversation({
+      persistErrors: [
+        new Error(CONVERSATION_BUSY_MESSAGE),
+        new Error(CONVERSATION_BUSY_MESSAGE),
+      ],
+    });
+    queue.push(makeQueued("hello there", "r1", events));
+
+    await drainQueue(conversation as never);
+    await drainQueue(conversation as never);
+
+    // Each round re-announces the dequeue, so each round owes its own
+    // correction: the flag settles per announcement, not once per message.
+    expect(events.map((event) => event.type)).toEqual([
+      "message_dequeued",
+      "message_requeued",
+      "message_dequeued",
+      "message_requeued",
+    ]);
   });
 });

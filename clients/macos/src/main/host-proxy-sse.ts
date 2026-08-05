@@ -215,8 +215,12 @@ export class HostProxySseClient {
         try {
           await this.onRefreshToken();
         } catch {
-          // Token refresh failed — reconnect with existing headers
+          // Token refresh failed, reconnect with existing headers
         }
+        // disconnect() may have been called while the refresh was in
+        // flight; without this recheck the stale client would resume
+        // streaming against an endpoint the router no longer tracks.
+        if (!this.shouldReconnect) return;
       }
       this.startStream();
     }, delay);

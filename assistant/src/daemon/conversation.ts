@@ -154,7 +154,7 @@ import {
 } from "./conversation-surfaces.js";
 import type {
   SubagentToolGateMode,
-  ToolSetupContext,
+  SubagentToolStats,
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
@@ -275,8 +275,8 @@ export interface ConversationConstructorOptions {
    * Give this conversation's LLM calls provider-native (server-side) web
    * search when the resolved provider supports it (see
    * {@link AgentLoopConfig.enableNativeWebSearch}). Set by the subagent manager
-   * for the tool-less advisor consult so it can ground guidance with live web
-   * access; non-native providers get nothing. Defaults to false.
+   * for the advisor consult so it can ground guidance with live web access;
+   * non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
   /**
@@ -360,6 +360,20 @@ export class Conversation {
    * @internal
    */
   subagentDeniedToolNames = new Set<string>();
+  /**
+   * Machine tool-call counters for this conversation when it runs as a
+   * subagent child. Recorded by the tool executor (gated on {@link isSubagent},
+   * so parent conversations never accumulate anything here) and harvested by
+   * the SubagentManager into the child's state when the run ends, where it
+   * becomes the stats footer on the parent's completion notification and on
+   * `subagent_read`. Ephemeral, never persisted.
+   * @internal
+   */
+  subagentToolStats: SubagentToolStats = {
+    calls: 0,
+    succeeded: 0,
+    filesWritten: new Set<string>(),
+  };
   /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
@@ -481,6 +495,14 @@ export class Conversation {
    */
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
+  /**
+   * The firing's `cron_runs.id` when a schedule triggered the current turn.
+   * Exposed on the live conversation so the tool context can forward it to
+   * delegated LLM work (subagent spawns and messages), whose usage rows then
+   * attribute to the same firing.
+   * @internal
+   */
+  currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
@@ -539,10 +561,22 @@ export class Conversation {
    */
   pendingSteerRepair = false;
   /**
+   * Set by `abortConversation` when a user interrupt (Stop / Esc / the CLI
+   * cancel signal) ends a turn that still has messages queued behind it. Those
+   * messages survive the abort and drain into the next turn, so the drain path
+   * owes them the same synthetic tool_result repair a steer gets: the killed
+   * turn may have left `tool_use` blocks with no results. Unlike
+   * `pendingSteerRepair` this does not promote a single head message. An
+   * interrupt has nothing to promote, so the drain batches the queue the way it
+   * would after any other turn. Cleared after repair.
+   * @internal
+   */
+  pendingInterruptRepair = false;
+  /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
    * phone voice) so their auto-deny handler reliably sees a
-   * `confirmation_request` event. See ToolSetupContext.forcePromptSideEffects.
+   * `confirmation_request` event. See `forcePromptSideEffects` below.
    * @internal
    */
   forcePromptSideEffects = false;
@@ -622,6 +656,23 @@ export class Conversation {
    * @internal
    */
   currentTurnClientOs?: string;
+  /**
+   * @internal
+   * Id of the app the client currently has open on screen, reported by the
+   * client on each message. Drives the per-turn `visible_app:` context line so
+   * the assistant can resolve "the app" to what the user is looking at. This
+   * is the LIVE value; the assembly reads the frozen
+   * {@link currentTurnVisibleAppId}.
+   */
+  visibleAppId?: string;
+  /**
+   * Per-turn frozen copy of {@link visibleAppId}, captured by the agent loop at
+   * turn start for the same reason as {@link currentTurnClientOs}: a queued
+   * message sent from a different view re-applies transport metadata before it
+   * is enqueued, and must not swap the app under the in-flight turn.
+   * @internal
+   */
+  currentTurnVisibleAppId?: string;
   /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
    * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch
@@ -748,7 +799,7 @@ export class Conversation {
       this.executor,
       this.prompter,
       this.secretPrompter,
-      this as ToolSetupContext,
+      this,
     );
 
     const config = getConfig();
@@ -1957,31 +2008,83 @@ export class Conversation {
     }
   }
 
-  async forceCompact(): Promise<ContextWindowResult> {
-    // Report the user-facing before/after using the provider's real tokenizer
-    // (count_tokens) so the `/compact` line matches the context-window
-    // indicator, which reflects the provider's actual reported usage — rather
-    // than the local chars/4 estimate the compaction pipeline runs internally
-    // (it under-counts by ~25% on typical histories). `calculateTokens`
-    // falls back to that estimate when the provider has no count endpoint or
-    // the count call fails, so behavior degrades gracefully.
-    //
-    // Only the *displayed* numbers are overridden — the compaction log and
-    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
-    // figures, leaving calibration and historical logs untouched.
+  /**
+   * Push the conversation's current context-window usage to clients so the
+   * context-window indicator matches the numbers a user-initiated compaction
+   * card reports. Turn-driven compaction needs no push: the turn's own
+   * `usage_update` carries the post-compaction count.
+   *
+   * Defaults to the conversation's own sender, the channel `emitActivityState`
+   * and `context_compacted` already use, so a queued `/compact` reaches the
+   * same client its result card does. Routes that resolve a conversation
+   * outside the send path never wire that sender and pass their own `onEvent`.
+   */
+  private emitContextWindowUsage(
+    tokens: number,
+    maxTokens: number,
+    onEvent?: (msg: AssistantEvent) => void,
+  ): void {
+    try {
+      (onEvent ?? this.sendToClient)({
+        type: "context_window_usage",
+        conversationId: this.conversationId,
+        tokens,
+        maxTokens,
+      });
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "sendToClient threw in emitContextWindowUsage",
+      );
+    }
+  }
+
+  /**
+   * Run a user-initiated compaction (`run`), reporting its before/after with
+   * the provider's real tokenizer (count_tokens) rather than the local chars/4
+   * estimate the compaction pipeline runs internally (it under-counts by ~25%
+   * on typical histories), and pushing the resulting count to clients.
+   * `calculateTokens` falls back to that estimate when the provider has no
+   * count endpoint or the count call fails, so behavior degrades gracefully.
+   *
+   * Only the *displayed* numbers are overridden: the compaction log and
+   * circuit-breaker accounting inside `runCompaction` keep the estimate-based
+   * figures, leaving calibration and historical logs untouched.
+   *
+   * `run` must leave the compacted history applied to `this.messages`, which
+   * every `runCompaction` path does. `onEvent` overrides the sink the usage
+   * push goes to.
+   */
+  private async runUserCompaction(
+    run: () => Promise<ContextWindowResult>,
+    onEvent?: (msg: AssistantEvent) => void,
+  ): Promise<ContextWindowResult> {
     const before = await this.calculateTokens(this.messages);
-    const result = await this.runCompaction(true);
-    // `runCompaction` applies the compacted history to `this.messages` in
-    // place, so after a successful compaction this re-counts the new history;
-    // a no-op leaves the context unchanged, so before === after.
+    const result = await run();
+    // A no-op leaves the context unchanged, so before === after.
     const after = result.compacted
       ? await this.calculateTokens(this.messages)
       : before;
+    this.emitContextWindowUsage(after, result.maxInputTokens, onEvent);
     return {
       ...result,
       previousEstimatedInputTokens: before,
       estimatedInputTokens: after,
     };
+  }
+
+  /**
+   * `/compact`. `onEvent` is the sink for the context-window usage push, and
+   * callers pass whatever sink they render the result card through: the queue
+   * drain carries the queued item's own `onEvent`, and `sendToClient` is reset
+   * to a no-op once an interactive turn finishes (`process-message.ts`), so a
+   * `/compact` draining behind that turn would otherwise push into nothing
+   * while its card still reaches the client.
+   */
+  async forceCompact(
+    onEvent?: (msg: AssistantEvent) => void,
+  ): Promise<ContextWindowResult> {
+    return this.runUserCompaction(() => this.runCompaction(true), onEvent);
   }
 
   /**
@@ -1996,9 +2099,15 @@ export class Conversation {
    * `resolveMetaSlashCommand`. Throws {@link UserError} (messages are
    * user-facing) when the boundary cannot be resolved or the row→history
    * index mapping cannot be verified.
+   *
+   * `onEvent` is the sink for the context-window usage push. The management
+   * route that owns this action resolves its conversation outside the send
+   * path, so the instance can still hold the store's no-op sender; it passes
+   * the same broadcast path its result card goes out on.
    */
   async summarizeUpToMessage(
     beforeMessageId: string,
+    onEvent?: (msg: AssistantEvent) => void,
   ): Promise<ContextWindowResult> {
     const priorTrustContext = this.trustContext;
     if (!resolveCapabilities(priorTrustContext?.trustClass).canAccessMemory) {
@@ -2078,17 +2187,22 @@ export class Conversation {
           firstRowByHistoryIndex[historyIndex] = rowIndex;
         }
       }
-      return await this.runCompaction(true, undefined, {
-        fixedTailStartIndex: tailIndex,
-        // When repair merged preceding continuation rows into the boundary's
-        // message, the row boundary retreats to the message's first
-        // contributing row: the summary call reads messages[0..tailIndex),
-        // which excludes the merged rows' content, so the image manifest and
-        // watermarks must not treat them as summarized.
-        fixedBoundaryRowIndex:
-          firstRowByHistoryIndex[tailIndex] ?? boundaryRowIndex,
-        fixedBoundaryRowView: { rows, firstRowByHistoryIndex },
-      });
+      return await this.runUserCompaction(
+        () =>
+          this.runCompaction(true, undefined, {
+            fixedTailStartIndex: tailIndex,
+            // When repair merged preceding continuation rows into the
+            // boundary's message, the row boundary retreats to the message's
+            // first contributing row: the summary call reads
+            // messages[0..tailIndex), which excludes the merged rows' content,
+            // so the image manifest and watermarks must not treat them as
+            // summarized.
+            fixedBoundaryRowIndex:
+              firstRowByHistoryIndex[tailIndex] ?? boundaryRowIndex,
+            fixedBoundaryRowView: { rows, firstRowByHistoryIndex },
+          }),
+        onEvent,
+      );
     } finally {
       // Only undo the temporary guardian context this method installed. If
       // trustContext was legitimately updated at an `await` boundary, the
@@ -2398,6 +2512,10 @@ export class Conversation {
     this.clientOs = transport.clientOs ?? undefined;
   }
 
+  applyVisibleAppFromTransport(transport: ConversationTransportMetadata): void {
+    this.visibleAppId = transport.visibleAppId ?? undefined;
+  }
+
   setAssistantId(assistantId: string | null): void {
     this.assistantId = assistantId ?? undefined;
   }
@@ -2471,6 +2589,17 @@ export class Conversation {
       titleText?: string;
       /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
       isHiddenPrompt?: boolean;
+      /**
+       * See {@link runAgentLoopImpl}: the row the end-of-turn reply
+       * notification treats as the prompt this turn answers.
+       */
+      notifyUserMessageId?: string;
+      /**
+       * See {@link runAgentLoopImpl}: this run's reply streams to the app
+       * alone, so the reply notification ignores the initiating row's
+       * channel/voice delivery markers.
+       */
+      replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

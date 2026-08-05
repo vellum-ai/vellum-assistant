@@ -214,14 +214,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "platform-notifications",
-      "scope": "client",
-      "key": "platform-notifications",
-      "label": "Platform Notifications",
-      "description": "Enable the Notifications tab in settings.",
-      "defaultEnabled": false
-    },
-    {
       "id": "centralized-assistant-status",
       "scope": "client",
       "key": "centralized-assistant-status",
@@ -342,11 +334,43 @@
       "defaultEnabled": false
     },
     {
+      "id": "assistant-switcher",
+      "scope": "client",
+      "key": "assistant-switcher",
+      "label": "Assistant Switcher",
+      "description": "Show the Switch Assistant section in General settings (local mode only), linking to the assistant chooser.",
+      "defaultEnabled": false
+    },
+    {
       "id": "marketing-pricing-takeover",
       "scope": "client",
       "key": "marketing-pricing-takeover",
       "label": "Marketing Pricing Takeover",
       "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "assistant-reply-push",
+      "scope": "assistant",
+      "key": "assistant-reply-push",
+      "label": "Assistant Reply Push",
+      "description": "Gates the `chat.assistant_reply` push notification the assistant sends at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "subagent-profile-isolation",
+      "scope": "assistant",
+      "key": "subagent-profile-isolation",
+      "label": "Subagent Profile Isolation",
+      "description": "Subagents resolve the subagentSpawn call site's own default model profile instead of inheriting the conversation's active profile, and an explicitly requested profile the model catalog does not report as tool-capable falls back to that same default. Both halves cover background spawns only: an advisor consult carries read-only tools with or without this flag, so it applies the tool-capability fallback either way. Applies to forks too: a fork otherwise stays on the parent's model and reuses its cached context, so under isolation a fork can run on a different model and re-prefill the transcript it inherits.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "subagent-loop-guard",
+      "scope": "assistant",
+      "key": "subagent-loop-guard",
+      "label": "Subagent Loop Guard",
+      "description": "Rate-limit near-identical repeat subagent spawns and require explicit confirmation to continue.",
       "defaultEnabled": false
     }
   ]

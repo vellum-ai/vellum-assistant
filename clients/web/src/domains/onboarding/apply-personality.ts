@@ -10,12 +10,17 @@
  * and settle logic, shared with the About Assistant personality page). The
  * user's profile (users/guardian.md) is left untouched.
  *
- * Like the research turn (`research-runner.ts`) and the check-in
- * (`checkin-scheduler.ts`), this runs on a dedicated throwaway side
- * conversation: we await hatch readiness, mint a conversation, post the prompt,
- * let the rewrite turn settle, then archive it so it never shows in the user's
- * sidebar. Talks to the daemon through the generated SDK directly
- * (`@/domains/chat/api/*` is import-banned from onboarding).
+ * Like the research turn (`research-runner.ts`), this runs on a dedicated
+ * throwaway side conversation: we await hatch readiness, mint a conversation,
+ * post the prompt, and let the rewrite turn settle. Talks to the daemon through
+ * the generated SDK directly (`@/domains/chat/api/*` is import-banned from
+ * onboarding).
+ *
+ * The thread is minted `conversationType: "background"`, which keeps it out of
+ * the daemon's default `standard` conversation list: it never enters Recents
+ * and is never selectable as the landing conversation. The prompt posts hidden,
+ * so the thread's only renderable content is the assistant's reply. The archive
+ * below is best-effort cleanup.
  *
  * Best-effort and fire-and-forget: a failure here must never block or surface
  * in the onboarding flow. Every error is swallowed (reported to Sentry).
@@ -35,8 +40,8 @@ import {
   messagesGet,
   messagesPost,
 } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { latestAssistantText } from "@/utils/latest-assistant-text";
 
 export {
@@ -83,7 +88,7 @@ export async function applyPersonality({
 
     const conversation = await conversationsPost({
       path: { assistant_id: assistantId },
-      body: { conversationType: "standard", title: "Updating personality" },
+      body: { conversationType: "background", title: "Updating personality" },
       throwOnError: false,
     });
     conversationId = conversation.data?.id;
@@ -91,13 +96,11 @@ export async function applyPersonality({
       return;
     }
 
-    const body: MessagesPostData["body"] = {
+    const body = buildSideConversationMessageBody({
       conversationId,
       content: buildPersonalityMessage(values, userName, assistantName),
-      sourceChannel: "vellum",
-      interface: "vellum",
-      clientMessageId: crypto.randomUUID(),
-    };
+      transport: "vellum",
+    });
     const posted = await messagesPost({
       path: { assistant_id: assistantId },
       body,
@@ -108,12 +111,12 @@ export async function applyPersonality({
     }
 
     // Persist the raw dial positions as the workspace sidecar the About
-    // Assistant personality page and the overview's radar read — the prose
+    // Assistant personality page and the overview's signature read: the prose
     // rewrite alone would lose them. Best-effort, like the rest of the flow.
     await savePersonalitySliders(assistantId, completeSliderValues(values));
 
-    // Let the rewrite turn run before hiding the thread — archiving mid-turn
-    // could drop the identity edits, and the chat handoff awaits this promise
+    // Let the rewrite turn run before the archive: archiving mid-turn could
+    // drop the identity edits, and the chat handoff awaits this promise
     // so the first greeting must not start until the identity files are
     // written. Settle on the daemon's turn-completion flag (see
     // `shouldSettlePersonalityPoll`).
@@ -150,7 +153,8 @@ export async function applyPersonality({
   } catch (err) {
     captureError(err, { context: "research_onboarding_personality" });
   } finally {
-    // Archive the throwaway thread so it never appears in the sidebar.
+    // Best-effort cleanup of the throwaway thread. The `background` mint (see
+    // the module header) is what keeps it hidden, not this call.
     if (assistantId && conversationId) {
       try {
         await conversationsByIdArchivePost({

@@ -6,11 +6,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import {
-  useVisibleViewport,
-  KEYBOARD_OPEN_THRESHOLD_PX,
-} from "@/hooks/use-visible-viewport";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
@@ -20,7 +17,11 @@ import {
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { getSelectedAssistant, isLocalClient } from "@/lib/local-mode";
+import {
+  getLockfileAssistant,
+  getSelectedAssistant,
+  isLocalClient,
+} from "@/lib/local-mode";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -54,6 +55,7 @@ import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
+import { subscribeAndroidBackButtonSource } from "@/runtime/event-sources/android-back-button";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
@@ -61,8 +63,12 @@ import { TimezoneSync } from "@/components/timezone-sync";
 import { StatusBanner } from "@/components/status-banner";
 import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
-import { setSelectedAssistant } from "@/assistant/selection";
+import {
+  removePairedAssistant,
+  switchToAssistant,
+} from "@/assistant/switch-service";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
+import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -73,7 +79,7 @@ const ShareFeedbackModal = lazy(() =>
 );
 
 /**
- * App-level layout route. Owns three cross-route concerns:
+ * App-level layout route. Owns four cross-route concerns:
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
  * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
@@ -88,6 +94,8 @@ const ShareFeedbackModal = lazy(() =>
  *    app-state) need to be alive on every authenticated route — not
  *    just chat — so cross-tab sync invalidations keep firing while the
  *    user is on settings, logs, etc.
+ * 4. Android system Back routing. The active UI layer gets first refusal,
+ *    followed by WebView history and app minimization at the root.
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
@@ -96,7 +104,7 @@ const ShareFeedbackModal = lazy(() =>
  */
 export function RootLayout() {
   useAppTheme();
-  const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
 
   const location = useLocation();
@@ -156,7 +164,11 @@ export function RootLayout() {
   useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
   // Publish the same avatar for the iOS Live Activity, which cannot fetch an
   // image at render time and needs the bytes to travel with the activity.
-  useIslandAvatarSource(avatar.customImageUrl, avatar.components, avatar.traits);
+  useIslandAvatarSource(
+    avatar.customImageUrl,
+    avatar.components,
+    avatar.traits,
+  );
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
@@ -172,6 +184,7 @@ export function RootLayout() {
   useOnboardingWindowSize();
 
   useEventBusInit({ assistantId, isAssistantActive });
+  useEffect(() => subscribeAndroidBackButtonSource(), []);
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
   // the user is on `/assistant/settings`, `/logs`, etc. still
@@ -190,6 +203,9 @@ export function RootLayout() {
   // the retire can run without first routing the user to settings.
   const [retireId, setRetireId] = useState<string | null>(null);
   const [retirePending, setRetirePending] = useState(false);
+  // Id of the paired assistant a tray "Remove from this Mac…" command targets.
+  const [removePairedId, setRemovePairedId] = useState<string | null>(null);
+  const [removePairedPending, setRemovePairedPending] = useState(false);
   // Whether the tray "New Assistant…" name-prompt dialog is open.
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -224,10 +240,15 @@ export function RootLayout() {
     shareFeedback: () => setFeedbackOpen(true),
     selectAssistant: (command) => {
       if (command.kind === "selectAssistant") {
-        // The tray lists managed (platform-hosted) assistants, so switching
-        // goes through the platform selection path — not connectLocalAssistant,
-        // which primes a local gateway and no-ops for managed assistants.
-        void setSelectedAssistant(command.assistantId);
+        // Paired-aware switch: paired entries connect through
+        // connectPairedAssistant, managed ones through the platform
+        // selection path (see switch-service).
+        void switchToAssistant(command.assistantId).then((outcome) => {
+          if (!outcome.ok) {
+            toast.error(outcome.error);
+            void navigate(routes.selectAssistant);
+          }
+        });
       }
     },
     chooseAssistant: () => {
@@ -246,6 +267,11 @@ export function RootLayout() {
     retireAssistant: (command) => {
       if (command.kind === "retireAssistant") {
         setRetireId(command.assistantId);
+      }
+    },
+    removePairedAssistant: (command) => {
+      if (command.kind === "removePairedAssistant") {
+        setRemovePairedId(command.assistantId);
       }
     },
     quickInputSubmit: (command) => {
@@ -267,6 +293,23 @@ export function RootLayout() {
     },
   });
 
+  const handleConfirmRemovePaired = async () => {
+    if (!removePairedId) {
+      return;
+    }
+    setRemovePairedPending(true);
+    const outcome = await removePairedAssistant(removePairedId);
+    setRemovePairedPending(false);
+    setRemovePairedId(null);
+    if (!outcome.ok) {
+      toast.error(outcome.error);
+      return;
+    }
+    if (outcome.nextRoute) {
+      void navigate(outcome.nextRoute, { replace: true });
+    }
+  };
+
   const handleConfirmRetire = async () => {
     if (!retireId) {
       return;
@@ -283,11 +326,6 @@ export function RootLayout() {
     setRetirePending(false);
     setRetireId(null);
   };
-
-  const keyboardOpen =
-    isMobile &&
-    visibleViewport !== null &&
-    visibleViewport.keyboardHeight > KEYBOARD_OPEN_THRESHOLD_PX;
 
   // When the iOS keyboard opens, the system scrolls the layout viewport
   // down by `offsetTop` to keep the focused input visible. Size the outer
@@ -388,6 +426,21 @@ export function RootLayout() {
         isPending={retirePending}
         onConfirm={handleConfirmRetire}
         onCancel={() => setRetireId(null)}
+      />
+
+      {/* Confirmation for the tray "Remove from this Mac…" command. Shares
+          the chooser's remove dialog: forgetting the pairing on this device
+          never touches the assistant on its host machine. */}
+      <RemoveFromDeviceDialog
+        open={removePairedId !== null}
+        kind="paired"
+        assistantName={
+          (removePairedId && getLockfileAssistant(removePairedId)?.name) ||
+          "the assistant"
+        }
+        isPending={removePairedPending}
+        onConfirm={() => void handleConfirmRemovePaired()}
+        onCancel={() => setRemovePairedId(null)}
       />
 
       {/* Name-prompt for the tray "New Assistant…" command — hatches an

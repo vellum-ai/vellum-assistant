@@ -42,6 +42,15 @@ export interface QueuedMessage {
   /** Client-generated correlation nonce. Echoed back on `user_message_echo`
    *  so the originating client can dedupe its optimistic row. */
   clientMessageId?: string;
+  /**
+   * True once a drain has told clients this message was dequeued and before
+   * the turn it was dequeued for actually took over. A drain that sends the
+   * message back to the queue after that point owes clients the corrective
+   * `message_requeued`; one that gives up before announcing owes nothing.
+   * Set by the drain's dequeue announcement, cleared by the requeue that
+   * settles it.
+   */
+  dequeueAnnounced?: boolean;
 }
 
 /**
@@ -197,6 +206,16 @@ export class MessageQueue {
     const [promoted] = this.items.splice(idx, 1);
     this.items.unshift(promoted);
     return promoted;
+  }
+
+  /**
+   * Read-only lookup of a queued message by its requestId. Returns the live
+   * reference (callers must treat it as read-only), or undefined when this
+   * queue holds no such message. Lets a caller inspect an item (to
+   * authorize a delete, say) before deciding whether to remove it.
+   */
+  findByRequestId(requestId: string): QueuedMessage | undefined {
+    return this.items.find((m) => m.requestId === requestId);
   }
 
   /**

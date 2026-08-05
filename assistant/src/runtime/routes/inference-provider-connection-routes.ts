@@ -39,6 +39,10 @@ import {
   updateConnection,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import {
+  isVellumManagedConnection,
+  VELLUM_MANAGED_PROVIDER,
+} from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -191,6 +195,39 @@ function deriveConnectionAuth(provider: string, credential: unknown): Auth {
   return derived;
 }
 
+/**
+ * Platform auth and `provider: "vellum"` record the same fact (the managed
+ * route) in two columns, and derivation always sets them together. Only an
+ * explicit `auth` object can split them, producing a row dispatch bills to
+ * the platform while every provider-keyed check reads it as BYOK, or the
+ * reverse.
+ */
+function assertAuthMatchesProvider(provider: string, auth: Auth): void {
+  const managedAuth = auth.type === "platform";
+  const managedProvider = provider === VELLUM_MANAGED_PROVIDER;
+  if (managedAuth === managedProvider) {
+    return;
+  }
+  throw new BadRequestError(
+    managedAuth
+      ? `Auth type "platform" is only valid for provider "${VELLUM_MANAGED_PROVIDER}", not "${provider}". Vellum-managed routing is selected by the provider, so omit "auth" to derive it.`
+      : `Provider "${VELLUM_MANAGED_PROVIDER}" is always platform-authenticated; "${auth.type}" auth is not valid for it. Omit "auth" to derive it, or name a real provider for key-based auth.`,
+  );
+}
+
+/**
+ * Stable form of an auth object for equality checks. Auth values are flat, so
+ * sorting the entries is enough to make two encodings of the same auth
+ * compare equal regardless of key order.
+ */
+function authFingerprint(auth: Auth): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(auth).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -278,6 +315,15 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError("name must be a non-empty string");
   }
 
+  // Canonical names belong to boot seeding, which skips a name already taken
+  // by a user-owned row, leaving the install with no managed connection and a
+  // BYOK row that managed routing then ignores. Refuse the name up front.
+  if (MANAGED_CONNECTION_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Connection name "${name}" is reserved for the Vellum-managed connection. Pick another name.`,
+    );
+  }
+
   const providerResult = ConnectionProviderSchema.safeParse(provider);
   if (!providerResult.success) {
     throw new BadRequestError(
@@ -289,6 +335,9 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   );
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
+  }
+  if (auth !== undefined) {
+    assertAuthMatchesProvider(providerResult.data, authResult.data);
   }
 
   const labelRaw = body.label;
@@ -385,6 +434,16 @@ async function handleUpdateConnection({
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
+  // The pairing is enforced on an actual auth change, not on the field being
+  // present: the web editor and the CLI both resend the stored auth on every
+  // edit, so a row whose columns already disagree stays relabelable and
+  // re-pointable.
+  if (
+    body.auth !== undefined &&
+    authFingerprint(authResult.data) !== authFingerprint(existing.auth)
+  ) {
+    assertAuthMatchesProvider(existing.provider, authResult.data);
+  }
 
   const labelRaw = body.label;
   if (
@@ -396,19 +455,6 @@ async function handleUpdateConnection({
       `Invalid label: must be a non-blank string or null`,
     );
   }
-  // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
-  // `seedCanonicalConnections` would revert any other value on next restart;
-  // reject the write here so the surprise loop never happens. Label remains
-  // user-editable (the boot upsert leaves it alone).
-  if (
-    MANAGED_CONNECTION_NAMES.has(name) &&
-    authResult.data.type !== "platform"
-  ) {
-    throw new BadRequestError(
-      `Cannot change auth on managed connection "${name}". Auth is locked to platform.`,
-    );
-  }
-
   const customFields = await parseCustomProviderFields(body, existing.provider);
 
   // Only a CHANGED label is validated: keeping a stored label — whatever it
@@ -469,7 +515,14 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // produces a confusing delete → reappear loop. Reject outright. Mirrors
   // `rejectManagedProfileDeletion` for managed profiles (which are similarly
   // re-overlaid by `seed-inference-profiles.ts` on boot).
-  if (MANAGED_CONNECTION_NAMES.has(name)) {
+  //
+  // Gated on the row, not the name: an install predating the reserved name can
+  // hold a user-owned row here, which boot seeding refuses to overwrite and
+  // managed routing ignores. That row must stay deletable, since deleting it
+  // is what lets boot seeding restore the real managed connection.
+  const claimsManagedName =
+    MANAGED_CONNECTION_NAMES.has(name) && !isVellumManagedConnection(existing);
+  if (MANAGED_CONNECTION_NAMES.has(name) && !claimsManagedName) {
     throw new BadRequestError(
       `Cannot delete managed connection "${name}". This is a Vellum-managed connection that is re-seeded on every startup.`,
     );
@@ -488,7 +541,11 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // managed rows are excluded from the count for the same reason the list
   // route hides them — they aren't user-manageable connections.
   const dp = getDefaultProviderFromConfig(config);
-  if (dp) {
+  // A `vellum` default resolves to the canonical name, so this guard would
+  // otherwise block deleting a row that merely claims that name. Deleting it
+  // does not orphan the default: boot seeding writes the real managed
+  // connection under the same name on the next restart.
+  if (dp && !claimsManagedName) {
     if (name === resolveDefaultConnectionName(dp)) {
       throw new ConflictError(
         `Connection "${name}" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.`,
@@ -619,7 +676,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a provider connection",
     description:
-      "Create a new named provider connection. When auth is omitted it is derived from the provider (keyless providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if a connection with this name already exists.",
+      "Create a new named provider connection. When auth is omitted it is derived from the provider (keyless providers get none, vellum gets platform, everything else needs credential for api_key auth). An explicit auth object must agree with the provider; platform auth belongs to vellum and only to vellum. Fails with 409 if a connection with this name already exists.",
     tags: ["inference"],
     requestBody: z.object({
       name: z.string().min(1),
@@ -648,7 +705,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth; passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
+      "Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth; passing credential alone rotates the key via provider-derived api_key auth. An explicit auth object must agree with the connection's provider; platform auth belongs to vellum and only to vellum. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({

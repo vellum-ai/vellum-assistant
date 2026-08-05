@@ -7,7 +7,7 @@ let diskSample: DiskUsageInfo | null = null;
 let diskSampleError: unknown = null;
 
 mock.module("../util/disk-usage.js", () => ({
-  getDiskUsageInfo: () => {
+  getDiskUsageInfo: async () => {
     if (diskSampleError) {
       throw diskSampleError;
     }
@@ -84,10 +84,10 @@ afterEach(() => {
 });
 
 describe("disk pressure guard", () => {
-  test("locks when sampled usage reaches the threshold", () => {
+  test("locks when sampled usage reaches the threshold", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT);
 
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.enabled).toBe(true);
     expect(status.state).toBe("critical");
@@ -103,9 +103,9 @@ describe("disk pressure guard", () => {
     expect(status.blockedCapabilities.length).toBeGreaterThan(0);
   });
 
-  test("acknowledges an active lock without overriding it", () => {
+  test("acknowledges an active lock without overriding it", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const result = acknowledgeDiskPressureLock();
 
@@ -115,14 +115,14 @@ describe("disk pressure guard", () => {
     expect(result.status.effectivelyLocked).toBe(true);
   });
 
-  test("unlocks and clears acknowledgement and override when usage falls below threshold", () => {
+  test("unlocks and clears acknowledgement and override when usage falls below threshold", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
     acknowledgeDiskPressureLock();
     overrideDiskPressureLock(DISK_PRESSURE_OVERRIDE_CONFIRMATION);
 
     setDiskUsage(20);
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("ok");
     expect(status.locked).toBe(false);
@@ -133,25 +133,25 @@ describe("disk pressure guard", () => {
     expect(status.blockedCapabilities).toEqual([]);
   });
 
-  test("does not lock within the deadband until usage reaches the critical threshold", () => {
+  test("does not lock within the deadband until usage reaches the critical threshold", async () => {
     setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
 
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("warning");
     expect(status.locked).toBe(false);
     expect(status.effectivelyLocked).toBe(false);
   });
 
-  test("stays locked while usage stays within the hysteresis deadband", () => {
+  test("stays locked while usage stays within the hysteresis deadband", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
-    const locked = evaluateDiskPressureNow();
+    const locked = await evaluateDiskPressureNow();
     expect(locked.locked).toBe(true);
     const { lockId } = locked;
 
     // Below critical (95) but above clear (90): must hold, not flap.
     setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("critical");
     expect(status.locked).toBe(true);
@@ -160,29 +160,29 @@ describe("disk pressure guard", () => {
     expect(status.lockId).toBe(lockId);
   });
 
-  test("preserves acknowledgement across a dip within the deadband", () => {
+  test("preserves acknowledgement across a dip within the deadband", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
     acknowledgeDiskPressureLock();
 
     setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.locked).toBe(true);
     expect(status.acknowledged).toBe(true);
   });
 
-  test("clears the lock only once usage falls below the clear threshold", () => {
+  test("clears the lock only once usage falls below the clear threshold", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     // Still within the deadband: locked.
     setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
-    expect(evaluateDiskPressureNow().locked).toBe(true);
+    expect((await evaluateDiskPressureNow()).locked).toBe(true);
 
     // Below the clear threshold: released.
     setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT - 2);
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.locked).toBe(false);
     expect(status.effectivelyLocked).toBe(false);
@@ -190,9 +190,9 @@ describe("disk pressure guard", () => {
     expect(status.blockedCapabilities).toEqual([]);
   });
 
-  test("overrides an active lock only with the exact confirmation after trimming whitespace", () => {
+  test("overrides an active lock only with the exact confirmation after trimming whitespace", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const invalid = overrideDiskPressureLock("I accept the risks");
     expectRejected(invalid, "invalid_confirmation");
@@ -208,9 +208,9 @@ describe("disk pressure guard", () => {
     expect(valid.status.effectivelyLocked).toBe(false);
   });
 
-  test("rejects acknowledgement when no lock is active", () => {
+  test("rejects acknowledgement when no lock is active", async () => {
     setDiskUsage(10);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const result = acknowledgeDiskPressureLock();
 
@@ -218,9 +218,9 @@ describe("disk pressure guard", () => {
     expect(result.status.locked).toBe(false);
   });
 
-  test("rejects override when no lock is active", () => {
+  test("rejects override when no lock is active", async () => {
     setDiskUsage(10);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const result = overrideDiskPressureLock(
       DISK_PRESSURE_OVERRIDE_CONFIRMATION,
@@ -230,9 +230,9 @@ describe("disk pressure guard", () => {
     expect(result.status.locked).toBe(false);
   });
 
-  test("rejects repeated override while preserving the existing override", () => {
+  test("rejects repeated override while preserving the existing override", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
     const first = overrideDiskPressureLock(DISK_PRESSURE_OVERRIDE_CONFIRMATION);
     expect(first.ok).toBe(true);
 
@@ -245,13 +245,13 @@ describe("disk pressure guard", () => {
     expect(second.status.effectivelyLocked).toBe(false);
   });
 
-  test("sample failures degrade open and do not preserve a prior lock", () => {
+  test("sample failures degrade open and do not preserve a prior lock", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
     expect(getDiskPressureStatus().locked).toBe(true);
 
     diskSampleError = new Error("sample failed");
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.enabled).toBe(true);
     expect(status.state).toBe("unknown");
@@ -278,71 +278,71 @@ describe("disk pressure guard", () => {
     expect(__getDiskPressureGuardTimerForTests()).toBeNull();
   });
 
-  test("does not enter warning until usage reaches the warning threshold", () => {
+  test("does not enter warning until usage reaches the warning threshold", async () => {
     // Below 80% and never previously in a pressure state.
     setDiskUsage(DISK_PRESSURE_WARNING_THRESHOLD_PERCENT - 2);
 
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("ok");
   });
 
-  test("holds the warning state across a dip within the warning clear deadband", () => {
+  test("holds the warning state across a dip within the warning clear deadband", async () => {
     setDiskUsage(DISK_PRESSURE_WARNING_THRESHOLD_PERCENT + 2);
-    expect(evaluateDiskPressureNow().state).toBe("warning");
+    expect((await evaluateDiskPressureNow()).state).toBe("warning");
 
     // Below the 80% warning threshold but at/above the 77% clear threshold.
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
-    expect(evaluateDiskPressureNow().state).toBe("warning");
+    expect((await evaluateDiskPressureNow()).state).toBe("warning");
   });
 
-  test("clears the warning state once usage falls below the warning clear threshold", () => {
+  test("clears the warning state once usage falls below the warning clear threshold", async () => {
     setDiskUsage(DISK_PRESSURE_WARNING_THRESHOLD_PERCENT + 2);
-    expect(evaluateDiskPressureNow().state).toBe("warning");
+    expect((await evaluateDiskPressureNow()).state).toBe("warning");
 
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT - 1);
-    expect(evaluateDiskPressureNow().state).toBe("ok");
+    expect((await evaluateDiskPressureNow()).state).toBe("ok");
   });
 
-  test("steps a critical lock down into a held warning state", () => {
+  test("steps a critical lock down into a held warning state", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
-    expect(evaluateDiskPressureNow().state).toBe("critical");
+    expect((await evaluateDiskPressureNow()).state).toBe("critical");
 
     // Below the 90% critical clear but above the 80% warning threshold.
     setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT - 2);
-    const stepped = evaluateDiskPressureNow();
+    const stepped = await evaluateDiskPressureNow();
     expect(stepped.state).toBe("warning");
     expect(stepped.locked).toBe(false);
 
     // Now within the warning clear deadband — warning must hold, not flap to ok.
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
-    expect(evaluateDiskPressureNow().state).toBe("warning");
+    expect((await evaluateDiskPressureNow()).state).toBe("warning");
   });
 
-  test("holds warning when a critical lock drops straight into the warning deadband", () => {
+  test("holds warning when a critical lock drops straight into the warning deadband", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
-    expect(evaluateDiskPressureNow().state).toBe("critical");
+    expect((await evaluateDiskPressureNow()).state).toBe("critical");
 
     // A single large cleanup drops usage directly from critical to below the
     // 80% warning threshold but still at/above the 77% clear threshold. The
     // deadband must apply when stepping down out of critical too, so this holds
     // as warning rather than flapping to ok (which would reopen the flap window).
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
-    const stepped = evaluateDiskPressureNow();
+    const stepped = await evaluateDiskPressureNow();
     expect(stepped.state).toBe("warning");
     expect(stepped.locked).toBe(false);
   });
 
-  test("clears straight to ok when a critical lock drops below the warning clear threshold", () => {
+  test("clears straight to ok when a critical lock drops below the warning clear threshold", async () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
-    expect(evaluateDiskPressureNow().state).toBe("critical");
+    expect((await evaluateDiskPressureNow()).state).toBe("critical");
 
     // A drop below even the warning-clear threshold is a genuine recovery.
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT - 1);
-    expect(evaluateDiskPressureNow().state).toBe("ok");
+    expect((await evaluateDiskPressureNow()).state).toBe("ok");
   });
 
-  test("stays ok at a critical usage percentage while ample free space remains", () => {
+  test("stays ok at a critical usage percentage while ample free space remains", async () => {
     // 99% used of a large volume still leaves gigabytes free — above the floor.
     const totalMb = 1_000_000;
     const usedMb = Math.round(totalMb * 0.99); // freeMb ~= 10_000 MiB
@@ -351,31 +351,31 @@ describe("disk pressure guard", () => {
       DISK_PRESSURE_MIN_FREE_FLOOR_MB,
     );
 
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("ok");
     expect(status.locked).toBe(false);
     expect(status.effectivelyLocked).toBe(false);
   });
 
-  test("stays ok at a warning usage percentage while ample free space remains", () => {
+  test("stays ok at a warning usage percentage while ample free space remains", async () => {
     const totalMb = 1_000_000;
     const usedMb = Math.round(totalMb * 0.85); // 85% used, freeMb ~= 150_000 MiB
     setDiskUsage(usedMb, totalMb);
 
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("ok");
   });
 
-  test("locks at a critical usage percentage once free space drops below the floor", () => {
+  test("locks at a critical usage percentage once free space drops below the floor", async () => {
     // High percentage AND little absolute headroom: floor does not apply.
     const totalMb = 100_000;
     const freeMb = DISK_PRESSURE_MIN_FREE_FLOOR_MB - 1;
     setDiskUsage(totalMb - freeMb, totalMb);
     expect(diskSample!.freeMb).toBeLessThan(DISK_PRESSURE_MIN_FREE_FLOOR_MB);
 
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.state).toBe("critical");
     expect(status.locked).toBe(true);

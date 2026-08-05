@@ -1,5 +1,4 @@
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
-import { getConfig } from "../../../config/loader.js";
 import { RouteError } from "../errors.js";
 
 /**
@@ -16,7 +15,7 @@ import { RouteError } from "../errors.js";
 const PLAYGROUND_DISABLED_CODE = "playground_disabled";
 
 function isPlaygroundEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled("compaction-playground", getConfig());
+  return isAssistantFeatureFlagEnabled("compaction-playground");
 }
 
 /**

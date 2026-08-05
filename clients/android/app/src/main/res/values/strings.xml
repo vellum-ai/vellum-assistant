@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="new_chat_shortcut_label">New chat</string>
+    <string name="new_chat_shortcut_long_label">Start a new chat</string>
+    <string name="voice_notification_channel">Voice session</string>
+    <string name="voice_notification_channel_description">Status for the voice session running in Vellum</string>
+    <string name="voice_notification_title">Vellum Voice</string>
+    <string name="voice_shortcut_label">Voice</string>
+    <string name="voice_shortcut_long_label">Start voice</string>
+    <string name="voice_status_idle">Starting voice...</string>
+    <string name="voice_status_listening">Listening...</string>
+    <string name="voice_status_speaking">Speaking...</string>
+    <string name="voice_status_thinking">Thinking...</string>
+    <string name="voice_tile_label">Start voice</string>
+</resources>

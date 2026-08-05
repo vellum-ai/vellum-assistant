@@ -11,7 +11,7 @@ import {
 } from "../providers/vellum-model-routing.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
-  isMatrixProfileKey,
+  isDefaultProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
 import {
@@ -40,7 +40,7 @@ import {
  *   3. `llm.callSites[callSite].profile` (the call site's named profile)
  *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent resolved through
  *      `llm.defaultProvider`
- *   5. balanced intent through `llm.defaultProvider` — the code-owned anchor
+ *   5. balanced intent through `llm.defaultProvider`: the code-owned anchor
  *      for profileless call sites, or when nothing above is usable
  *
  * A winner must carry its own `provider` AND `model`: the base layer's schema
@@ -114,12 +114,29 @@ export interface ResolveCallSiteOpts {
 
 export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
 
+export interface ResolvedCallSiteConfig {
+  config: z.infer<typeof LLMConfigBase>;
+  profileName?: string;
+}
+
+export function resolveCallSiteConfigWithProfile(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): ResolvedCallSiteConfig {
+  const selection = selectWinningProfile(callSite, llm, opts);
+  return {
+    config: resolveOverrideOrDefault(callSite, llm, selection),
+    ...(selection.profileName ? { profileName: selection.profileName } : {}),
+  };
+}
+
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts = {},
 ): z.infer<typeof LLMConfigBase> {
-  return resolveOverrideOrDefault(callSite, llm, opts);
+  return resolveCallSiteConfigWithProfile(callSite, llm, opts).config;
 }
 
 // ─── Single-winner profile resolution ───────────────────────────────────────
@@ -204,8 +221,9 @@ export function selectWinningProfile(
   }
   // Anchor: profileless call sites (`vision`, `workflowLeaf`) and any
   // resolution whose every named rung was unusable land on balanced intent
-  // through the default provider. `profileName` stays null — the anchor is
-  // not a selection.
+  // through the default provider, bottoming out on the code-owned catalog,
+  // so it always resolves. `profileName` stays null on the catalog path:
+  // the anchor itself is not a selection.
   return {
     profileName: null,
     source: "default",
@@ -234,7 +252,7 @@ function providerAwareEntry(
     name,
     defaultProvider,
   );
-  if (!isMatrixProfileKey(name) || entry?.mix != null) {
+  if (!isDefaultProfileKey(name) || entry?.mix != null) {
     return entry;
   }
   if (
@@ -358,9 +376,8 @@ const CODE_DEFAULT_BASE: z.infer<typeof LLMConfigBase> = LLMConfigBase.parse(
 function resolveOverrideOrDefault(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
-  opts: ResolveCallSiteOpts,
+  selection: ProfileWinnerSelection,
 ): z.infer<typeof LLMConfigBase> {
-  const selection = selectWinningProfile(callSite, llm, opts);
   const winnerFragment: Mergeable =
     selection.entry == null ? {} : winnerConfigFragment(selection.entry);
 

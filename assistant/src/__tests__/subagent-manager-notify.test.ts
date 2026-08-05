@@ -52,9 +52,16 @@ interface FakeManagedSubagent {
       estimatedCost: number;
     };
     subagentDeniedToolNames: Set<string>;
+    subagentToolStats: {
+      calls: number;
+      succeeded: number;
+      filesWritten: Set<string>;
+    };
   } | null;
   state: SubagentState;
   parentSendToClient: (msg: AssistantEvent) => void;
+  /** Sticky marker that a follow-up turn was queued during the run. */
+  hadEnqueuedMessages?: boolean;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -62,6 +69,7 @@ interface ManagerInternals {
   subagents: Map<string, FakeManagedSubagent>;
   parentToChildren: Map<string, Set<string>>;
   runSubagent: (subagentId: string, objective: string) => Promise<void>;
+  releaseConversation: (managed: FakeManagedSubagent) => void;
   stopSweep: () => void;
 }
 
@@ -86,6 +94,11 @@ function injectFakeSubagent(
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
     subagentDeniedToolNames: new Set<string>(),
+    subagentToolStats: {
+      calls: 0,
+      succeeded: 0,
+      filesWritten: new Set<string>(),
+    },
   };
 
   const internals = asInternals(manager);
@@ -357,6 +370,141 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     expect(capturedNotifications[0].message).toContain("Do NOT re-spawn");
 
     asInternals(manager).stopSweep();
+  });
+
+  test("a settled run's notification carries what it actually ran", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-stats";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {
+      const counters = managed.conversation!.subagentToolStats;
+      counters.calls += 2;
+      counters.succeeded += 2;
+      counters.filesWritten.add("/report.md");
+    };
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    expect(capturedNotifications[0].message).toContain(
+      "[stats: 2 tool calls, 2 succeeded, files written via file_write/file_edit: 1]",
+    );
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("a queued follow-up turn's tool calls reach the reported stats", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-queued-stats";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {
+      const counters = managed.conversation!.subagentToolStats;
+      counters.calls += 2;
+      counters.succeeded += 2;
+    };
+    // Guidance arrived while the run was processing: the conversation is
+    // retained past the run so it can drain that turn afterwards.
+    managed.hadEnqueuedMessages = true;
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    // The run's own harvest only ever sees its own calls.
+    expect(state.stats).toEqual({ calls: 2, succeeded: 2, filesWritten: 0 });
+    // Quoting it in a message that is never rewritten would under-report the
+    // queued turn permanently, so the deferred notification quotes nothing and
+    // sends the parent to subagent_read instead.
+    expect(capturedNotifications[0].message).toContain(
+      "Queued follow-up guidance is still being processed",
+    );
+    expect(capturedNotifications[0].message).not.toContain("[stats:");
+
+    // The queued turn now drains, into the same retained conversation.
+    const counters = managed.conversation!.subagentToolStats;
+    counters.calls += 3;
+    counters.succeeded += 2;
+    counters.filesWritten.add("/queued-turn.md");
+
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "counted",
+      stats: { calls: 5, succeeded: 4, filesWritten: 1 },
+    });
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("releasing the conversation freezes the settled counters", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-release-stats";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {
+      managed.conversation!.subagentToolStats.calls += 1;
+      managed.conversation!.subagentToolStats.succeeded += 1;
+    };
+    managed.hadEnqueuedMessages = true;
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    const counters = managed.conversation!.subagentToolStats;
+    counters.calls += 4;
+    counters.succeeded += 3;
+
+    // The sweep releases the retained conversation once the drain has had its
+    // window; the last reading is taken on the way out and stands afterwards.
+    asInternals(manager).releaseConversation(managed);
+
+    expect(managed.conversation).toBeNull();
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "counted",
+      stats: { calls: 5, succeeded: 4, filesWritten: 0 },
+    });
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("a run that never harvested reports nothing rather than a zero", () => {
+    const manager = new SubagentManager();
+    const subagentId = "sub-unharvested";
+    injectFakeSubagent(manager, subagentId, makeState(subagentId));
+
+    // Still running: its counters are mid-flight, and a zero read off them now
+    // would read as "this subagent used no tools".
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "unmeasured",
+    });
+  });
+
+  test("an id the manager never held reports its counters unrecoverable", () => {
+    const manager = new SubagentManager();
+
+    // The counters exist nowhere but memory, so a caller holding a
+    // record-derived state for this id can never get them, and reporting zero
+    // calls would read as "this subagent did nothing".
+    expect(manager.currentToolStats("sub-not-in-manager")).toEqual({
+      kind: "unrecoverable",
+    });
   });
 
   test("failed subagent does not notify if already aborted", async () => {

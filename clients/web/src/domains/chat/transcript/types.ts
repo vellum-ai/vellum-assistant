@@ -19,7 +19,8 @@ export type TranscriptItemKind =
   | "pendingContactRequest"
   | "surface"
   | "ephemeralMeta"
-  | "onboardingChoice";
+  | "onboardingChoice"
+  | "creditsUpsell";
 
 export interface TranscriptItemBase {
   key: string;
@@ -77,6 +78,22 @@ export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
 }
 
+/** Friendly credits upsell card. Emitted in place of a persisted
+ *  credits-exhausted provider-error row (`providerError.category` matching
+ *  `credits_exhausted`) while the org's balance is currently exhausted, where
+ *  the row's text stays in message state (the LLM transcript keeps it) and
+ *  only the rendering is substituted. Also appended proactively at the
+ *  transcript tail while the balance is exhausted, so the credit wall shows
+ *  before the next send fails. */
+export interface CreditsUpsellItem extends TranscriptItemBase {
+  kind: "creditsUpsell";
+  /** The provider-error message row this card renders in place of. Carries
+   *  the full row so the render layer can keep its `msg-<id>` DOM anchor and
+   *  expose the standard message affordances (hover actions, inspect) for it.
+   *  Absent on the proactive tail card, which has no backing message row. */
+  message?: DisplayMessage;
+}
+
 export interface EphemeralMetaItem extends TranscriptItemBase {
   kind: "ephemeralMeta";
   result: EphemeralMetaResult;
@@ -90,7 +107,8 @@ export type TranscriptItem =
   | PendingContactRequestItem
   | SurfaceItem
   | EphemeralMetaItem
-  | OnboardingChoiceItem;
+  | OnboardingChoiceItem
+  | CreditsUpsellItem;
 
 /** Result of splitting the transcript into stable history and the
  *  currently-in-progress turn. `anchorMessage` is the most recent user

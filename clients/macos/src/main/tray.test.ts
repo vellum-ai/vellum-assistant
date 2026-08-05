@@ -100,15 +100,27 @@ mock.module("./menu-icon", () => ({
   menuIcon: () => ({ __kind: "template-icon" }),
 }));
 
+// Controllable lockfile snapshot standing in for the watcher's cache, so
+// switcher tests can stage managed/paired/local entries per test.
+let watchedLockfile: {
+  assistants: Array<Record<string, unknown>>;
+  activeAssistant: string | null;
+} = { assistants: [], activeAssistant: null };
 mock.module("./lockfile-watcher", () => ({
-  getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
+  getWatchedLockfile: () => watchedLockfile,
+}));
+
+mock.module("./logger", () => ({
+  default: { info: () => {}, warn: () => {}, error: () => {} },
 }));
 
 // Full `./settings` surface so this mock — which leaks into co-run test files
 // via the global module registry — doesn't break sibling modules that import
-// `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`).
+// `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`). Feature flags are
+// controllable so the assistant-switcher gate can be exercised.
+let featureFlags: Record<string, boolean> | null = null;
 mock.module("./settings", () => ({
-  readSetting: () => null,
+  readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
   readHotkeyOverride: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
@@ -198,6 +210,9 @@ beforeEach(() => {
   appListeners.clear();
   themeListeners.clear();
   avatarListeners.clear();
+  watchedLockfile = { assistants: [], activeAssistant: null };
+  featureFlags = null;
+  dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
   invalidateIconCacheMock.mockClear();
@@ -377,6 +392,140 @@ describe("installTray", () => {
     expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
       kind: "newConversation",
     });
+  });
+});
+
+describe("assistant switcher", () => {
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    enabled?: boolean;
+    click?: () => void | Promise<void>;
+  };
+
+  const popMenu = (): MenuItem[] => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    return calls[calls.length - 1]?.[0] as MenuItem[];
+  };
+
+  const managedEntry = {
+    assistantId: "managed-1",
+    name: "Managed One",
+    cloud: "vellum",
+  };
+  const pairedEntry = {
+    assistantId: "paired-1",
+    name: "Remote One",
+    cloud: "paired",
+    runtimeUrl: "https://tunnel.example.com",
+  };
+
+  beforeEach(() => {
+    featureFlags = { "multi-platform-assistant": true };
+  });
+
+  test("lists paired entries alongside managed ones, labeled with the remote host; local entries stay excluded", () => {
+    watchedLockfile = {
+      assistants: [
+        managedEntry,
+        pairedEntry,
+        { assistantId: "local-1", name: "Local One", cloud: "local" },
+      ],
+      activeAssistant: null,
+    };
+
+    const labels = popMenu().map((item) => item.label);
+    expect(labels).toContain("Managed One");
+    expect(labels).toContain("Remote One (Paired · tunnel.example.com)");
+    expect(labels).not.toContain("Local One");
+  });
+
+  test("a paired entry with an unparseable runtimeUrl falls back to a plain Paired suffix", () => {
+    watchedLockfile = {
+      assistants: [{ ...pairedEntry, runtimeUrl: "not a url" }],
+      activeAssistant: null,
+    };
+
+    expect(popMenu().map((item) => item.label)).toContain(
+      "Remote One (Paired)",
+    );
+  });
+
+  test("selecting a paired entry surfaces the window and dispatches selectAssistant", async () => {
+    watchedLockfile = { assistants: [pairedEntry], activeAssistant: null };
+    const template = popMenu();
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await template
+      .find((i) => i.label === "Remote One (Paired · tunnel.example.com)")
+      ?.click?.();
+
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "selectAssistant",
+      assistantId: "paired-1",
+    });
+  });
+
+  test("a paired active entry offers Remove from this Mac, never Retire", () => {
+    watchedLockfile = {
+      assistants: [managedEntry, pairedEntry],
+      activeAssistant: "paired-1",
+    };
+
+    const labels = popMenu().map((item) => item.label ?? "");
+    expect(labels).toContain("Remove from this Mac…");
+    expect(labels.some((label) => label.startsWith("Retire"))).toBe(false);
+  });
+
+  test("Remove from this Mac surfaces the window and dispatches removePairedAssistant", async () => {
+    watchedLockfile = { assistants: [pairedEntry], activeAssistant: "paired-1" };
+    const template = popMenu();
+    const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await template.find((i) => i.label === "Remove from this Mac…")?.click?.();
+
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 1);
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "removePairedAssistant",
+      assistantId: "paired-1",
+    });
+  });
+
+  test("a managed active entry keeps the Retire item and offers no Remove", async () => {
+    watchedLockfile = {
+      assistants: [managedEntry],
+      activeAssistant: "managed-1",
+    };
+    const template = popMenu();
+
+    const labels = template.map((item) => item.label);
+    expect(labels).toContain("Retire Managed One…");
+    expect(labels).not.toContain("Remove from this Mac…");
+
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+    await template.find((i) => i.label === "Retire Managed One…")?.click?.();
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "retireAssistant",
+      assistantId: "managed-1",
+    });
+    expect(
+      dispatchToMainMock.mock.calls.some(
+        (call) =>
+          (call[0] as { kind?: string })?.kind === "removePairedAssistant",
+      ),
+    ).toBe(false);
+  });
+
+  test("an empty switcher shows the managed-or-paired empty state", () => {
+    const empty = popMenu().find(
+      (i) => i.label === "No managed or paired assistants",
+    );
+    expect(empty).toBeDefined();
+    expect(empty?.enabled).toBe(false);
   });
 });
 

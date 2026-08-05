@@ -76,6 +76,15 @@ export type CurrentTurnSurface = {
      * to the client.
      */
     activationMoment?: ActivationMomentParam;
+    /**
+     * Completion stamped when the user answers the surface before this turn's
+     * message lands. The snapshot is the only record of the surface at that
+     * point, so both persisted-content appenders carry these onto the
+     * `ui_surface` block they build; without them a reseed reactivates an
+     * already-answered card.
+     */
+    completed?: boolean;
+    completionSummary?: string;
   };
 }[SurfaceType];
 

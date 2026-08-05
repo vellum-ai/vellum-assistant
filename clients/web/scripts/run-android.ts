@@ -535,7 +535,7 @@ async function main(): Promise<void> {
       "am",
       "start",
       "-n",
-      "ai.vocify.vellumassistant.dev/ai.vocify.vellumassistant.MainActivity",
+      "ai.vellum.assistant.dev/ai.vellum.assistant.MainActivity",
     ],
     env,
   );

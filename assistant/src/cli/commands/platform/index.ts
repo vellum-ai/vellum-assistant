@@ -14,6 +14,7 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 import { registerPlatformConnectCommand } from "./connect.js";
 import { registerPlatformDisconnectCommand } from "./disconnect.js";
 import { platformHelp } from "./index.help.js";
+import { registerPlatformInvoicesCommands } from "./invoices.js";
 
 interface PlatformStatusResult {
   isPlatform: boolean;
@@ -235,6 +236,12 @@ export function registerPlatformCommand(program: Command): void {
           }
         },
       );
+
+      // -----------------------------------------------------------------------
+      // invoices
+      // -----------------------------------------------------------------------
+
+      registerPlatformInvoicesCommands(platform);
 
       // -----------------------------------------------------------------------
       // disconnect

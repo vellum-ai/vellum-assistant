@@ -4,6 +4,7 @@ import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 
 import {
   handleUsageUpdate,
+  handleContextWindowUsage,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
@@ -65,6 +66,43 @@ describe("handleUsageUpdate", () => {
     expect(ctx.setContextWindowUsageForConversation).toHaveBeenCalledWith(
       "conv-1",
       expect.objectContaining({ fillRatio: 1 }),
+    );
+  });
+});
+
+describe("handleContextWindowUsage", () => {
+  it("applies the pushed count the same way a usage_update would", () => {
+    const ctx = makeCtx();
+    handleContextWindowUsage(
+      {
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      },
+      ctx,
+    );
+    expect(ctx.setContextWindowUsage).toHaveBeenCalled();
+    expect(ctx.setContextWindowUsageForConversation).toHaveBeenCalledWith(
+      "conv-1",
+      { tokens: 18000, maxTokens: 200000, fillRatio: 0.09 },
+    );
+  });
+
+  it("sets fillRatio to null when the window is unknown", () => {
+    const ctx = makeCtx();
+    handleContextWindowUsage(
+      {
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 0,
+      },
+      ctx,
+    );
+    expect(ctx.setContextWindowUsageForConversation).toHaveBeenCalledWith(
+      "conv-1",
+      { tokens: 18000, maxTokens: null, fillRatio: null },
     );
   });
 });

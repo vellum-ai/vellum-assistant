@@ -4,8 +4,9 @@
  *
  * The behavioral source of truth for a bundled skill is its SKILL.md
  * (assistant/src/config/bundled-skills/<skill>/SKILL.md). The public reference
- * page for that skill lives in a *separate* repo (vellum-assistant-platform,
- * served at https://www.vellum.ai/docs/skills-reference/<slug>). The two are
+ * page for that skill lives in this repo at
+ * clients/docs/src/app/docs/_components/skills-reference-<slug>-content.tsx
+ * (served at https://www.vellum.ai/docs/skills-reference/<slug>). The two are
  * authored by hand and drift silently.
  *
  * This check records a content fingerprint of each documented skill's SKILL.md
@@ -13,9 +14,9 @@
  * recorded fingerprint no longer matches and the check fails, naming the public
  * page that may now be stale.
  *
- * It cannot prove the cross-repo docs page was updated — it forces a human to
- * confront the question. The workflow is: change a SKILL.md → review the public
- * page → re-record the fingerprint with `--write`. The fingerprint bump is the
+ * It cannot prove the docs page was updated. It forces a human to confront the
+ * question. The workflow is: change a SKILL.md → review the public page →
+ * re-record the fingerprint with `--write`. The fingerprint bump is the
  * acknowledgement, and it leaves a reviewable trail in the diff. A trivial
  * wording edit still requires a bump; that friction is the point.
  *
@@ -163,8 +164,8 @@ function main(): void {
         "",
         "  These skills' behavior may have changed without their public reference page.",
         "  For each one:",
-        "    1. Review the docs page above (it lives in vellum-assistant-platform:",
-        "       web/src/app/(marketing)/docs/_components/skills-reference-<slug>-content.tsx)",
+        "    1. Review the docs page above (it lives at",
+        "       clients/docs/src/app/docs/_components/skills-reference-<slug>-content.tsx)",
         "       and update it if the behavior changed.",
         "    2. Re-record the fingerprint to acknowledge it is reconciled:",
         "         bun run scripts/check-skill-docs-sync.ts --write",

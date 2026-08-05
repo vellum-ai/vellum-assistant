@@ -697,6 +697,56 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
+  // message_requeued (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_requeued with all required fields", () => {
+    const event = parseEvent({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 1,
+    });
+    expect(event).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 1,
+    });
+  });
+
+  test("returns unknown message_requeued event when position is missing", () => {
+    const data = {
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_requeued",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("carries the optional clientMessageId on message_requeued", () => {
+    const event = parseEvent({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+      clientMessageId: "nonce-1",
+    });
+    expect(event).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+      clientMessageId: "nonce-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // message_queued_deleted (schema-validated)
   // ---------------------------------------------------------------------
 
@@ -2308,6 +2358,54 @@ describe("parseAssistantEvent", () => {
         totalOutputTokens: 50,
         estimatedCost: 0.0021,
         model: "claude-sonnet-4",
+      });
+    });
+  });
+
+  describe("context_window_usage", () => {
+    test("parses context_window_usage with all required fields", () => {
+      const event = parseEvent({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+      expect(event).toEqual({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+    });
+
+    test("returns unknown when a required field is missing", () => {
+      const data = {
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+      };
+      const event = parseEvent(data);
+      expect(event).toEqual({
+        type: "unknown",
+        rawType: "context_window_usage",
+        data,
+        conversationId: "conv-1",
+      });
+    });
+
+    test("strips unknown top-level fields", () => {
+      const event = parseEvent({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+        fillRatio: 0.09,
+      });
+      expect(event).toEqual({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
       });
     });
   });

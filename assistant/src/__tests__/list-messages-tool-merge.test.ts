@@ -86,7 +86,7 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     // Should be 2 messages: user prompt + assistant (tool_result user msg suppressed)
@@ -150,7 +150,7 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
@@ -180,7 +180,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "how are you?" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(3);
@@ -206,7 +206,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "Done." }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
@@ -241,7 +241,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "response" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     // User row dropped entirely; only the assistant survives.
@@ -273,7 +273,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "answering" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
@@ -307,7 +307,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "ok" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -364,7 +364,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "thanks" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     // Consecutive assistant messages are merged at query time so the client
@@ -414,7 +414,7 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);

@@ -15,6 +15,7 @@ import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
 import {
   isBiometricEnabled,
+  setBiometricEnabled,
   storeBiometricToken,
 } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
@@ -198,7 +199,10 @@ async function completeNativeLogin(
   // Respects the user's opt-out preference; storeBiometricToken is also
   // a no-op if biometrics are unavailable on the device.
   if (isBiometricEnabled()) {
-    await storeBiometricToken(sessionToken);
+    const stored = await storeBiometricToken(sessionToken);
+    if (!stored && Capacitor.getPlatform() === "android") {
+      setBiometricEnabled(false);
+    }
   }
 
   window.location.href = destination;

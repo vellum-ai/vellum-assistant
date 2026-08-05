@@ -1,4 +1,11 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  test,
+  beforeEach,
+  setSystemTime,
+} from "bun:test";
 
 import {
   endSseClient,
@@ -18,6 +25,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 beforeEach(() => {
   resetSseDebugStateForTests();
+});
+
+afterEach(() => {
+  setSystemTime();
 });
 
 function makeTextDeltaEvent(text: string): AssistantEvent {
@@ -62,6 +73,8 @@ describe("registerSseClient", () => {
     expect(found!.lastDataAt).toBeNull();
     expect(found!.dataFrames).toBe(0);
     expect(found!.keepalives).toBe(0);
+    expect(found!.firstFrameAt).toBeNull();
+    expect(found!.interKeepaliveMs).toBeNull();
     // AND it starts out live (no end metadata yet)
     expect(found!.endedAt).toBeNull();
     expect(found!.endReason).toBeNull();
@@ -405,6 +418,126 @@ describe("recordSseTraffic", () => {
     // WHEN traffic is recorded against it
     // THEN it does not throw and records nothing
     expect(() => recordSseTraffic("sse-nonexistent", true)).not.toThrow();
+  });
+});
+
+describe("recordSseTraffic connect-latency and keepalive cadence", () => {
+  const START = 1_700_000_000_000;
+
+  /** Deliver keepalives at the given gaps, starting at START. */
+  function replayKeepalives(clientId: string, gaps: number[]): void {
+    let at = START;
+    setSystemTime(new Date(at));
+    recordSseTraffic(clientId, false);
+    for (const gap of gaps) {
+      at += gap;
+      setSystemTime(new Date(at));
+      recordSseTraffic(clientId, false);
+    }
+  }
+
+  function clientById(id: string) {
+    return getSseClients().find((c) => c.id === id)!;
+  }
+
+  test("stamps firstFrameAt on the first keepalive and never moves it", () => {
+    // GIVEN a live client whose first frame is a heartbeat comment
+    const id = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START));
+    recordSseTraffic(id, false);
+
+    // WHEN later frames of either kind arrive
+    setSystemTime(new Date(START + 5_000));
+    recordSseTraffic(id, true);
+    setSystemTime(new Date(START + 9_000));
+    recordSseTraffic(id, false);
+
+    // THEN firstFrameAt still marks the connect moment, not the first data
+    const client = clientById(id);
+    expect(client.firstFrameAt).toBe(START);
+    expect(client.establishedAt).toBeNull();
+    expect(client.lastTrafficAt).toBe(START + 9_000);
+  });
+
+  test("stamps firstFrameAt on a first data frame too", () => {
+    const id = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START));
+    recordSseTraffic(id, true);
+    expect(clientById(id).firstFrameAt).toBe(START);
+  });
+
+  test("reports the daemon heartbeat cadence for evenly spaced keepalives", () => {
+    // GIVEN ten keepalives 7s apart (a healthy end-to-end daemon heartbeat)
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, Array.from({ length: 9 }, () => 7_000));
+
+    // THEN the median gap reads back as the heartbeat interval
+    expect(clientById(id).interKeepaliveMs).toBe(7_000);
+    expect(clientById(id).keepalives).toBe(10);
+  });
+
+  test("reports the proxy injector cadence when the daemon heartbeat is lost", () => {
+    // GIVEN keepalives arriving only at the platform proxy's 10s injection
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, [10_000, 10_000, 10_000]);
+
+    expect(clientById(id).interKeepaliveMs).toBe(10_000);
+  });
+
+  test("takes the median, not the latest gap, of jittered arrivals", () => {
+    // GIVEN gaps alternating around 7s
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, [6_000, 8_000, 6_000, 8_000, 6_000, 8_000]);
+
+    // THEN a single jittered arrival cannot swing the reported cadence
+    expect(clientById(id).interKeepaliveMs).toBe(7_000);
+  });
+
+  test("stays null until two gaps are known", () => {
+    // GIVEN a single keepalive (no gap at all)
+    const id = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START));
+    recordSseTraffic(id, false);
+    expect(clientById(id).interKeepaliveMs).toBeNull();
+
+    // AND a second keepalive (one gap is not yet a cadence)
+    setSystemTime(new Date(START + 7_000));
+    recordSseTraffic(id, false);
+    expect(clientById(id).interKeepaliveMs).toBeNull();
+
+    // THEN the third arrival is what establishes a median
+    setSystemTime(new Date(START + 14_000));
+    recordSseTraffic(id, false);
+    expect(clientById(id).interKeepaliveMs).toBe(7_000);
+  });
+
+  test("keeps only the most recent gaps so a cadence change is visible", () => {
+    // GIVEN a long run at 7s followed by more than the 20-gap window at 10s
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, [
+      ...Array.from({ length: 10 }, () => 7_000),
+      ...Array.from({ length: 21 }, () => 10_000),
+    ]);
+
+    // THEN the stale 7s run has aged out of the window
+    expect(clientById(id).interKeepaliveMs).toBe(10_000);
+  });
+
+  test("does not leak gap state from an ended client to its replacement", () => {
+    // GIVEN a client that ended with a settled 10s cadence
+    const first = registerSseClient(new AbortController().signal);
+    replayKeepalives(first, [10_000, 10_000, 10_000]);
+    endSseClient(first, "watchdog");
+
+    // WHEN a replacement connection starts and sees one keepalive
+    const second = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START + 100_000));
+    recordSseTraffic(second, false);
+
+    // THEN the replacement reports no cadence yet, and the ended client
+    // keeps its final reading for post-hoc diagnosis
+    expect(clientById(second).interKeepaliveMs).toBeNull();
+    expect(clientById(first).interKeepaliveMs).toBe(10_000);
   });
 });
 

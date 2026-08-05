@@ -105,7 +105,7 @@ export function DictationOverlayPage() {
       onMouseMove={updateInteractionFromPointer}
       onMouseLeave={() => setInteractive(false)}
     >
-      <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
+      <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-element)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
         <div className="flex min-w-0 items-center gap-2">
           <StateIcon state={state} />
           <span className="truncate text-[11px] font-medium text-[var(--content-secondary)]">

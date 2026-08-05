@@ -99,8 +99,8 @@ describe("CLI vs HTTP route parity", () => {
 
   test("platform connection: CLI createConnection and HTTP POST produce identical DB rows", async () => {
     const payload = {
-      name: "parity-openai-managed",
-      provider: "openai" as const,
+      name: "parity-vellum-managed",
+      provider: "vellum" as const,
       auth: { type: "platform" as const },
     };
 

@@ -7,6 +7,7 @@ import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
 import {
+  isVellumManagedConnection,
   VELLUM_MANAGED_CONNECTION_NAME,
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
@@ -25,6 +26,23 @@ import {
 } from "./auth.js";
 
 const log = getLogger("providers/inference/connections");
+
+/**
+ * Whether a row is one of the managed connections, judged by the row and not
+ * by its name alone. Boot seeding leaves a user-owned row claiming a canonical
+ * name in place, and that row is an ordinary connection: routing ignores it,
+ * the route layer lets it be edited and deleted, and clients must render it
+ * that way or the collision becomes unrecoverable from the UI.
+ */
+function isManagedRow(row: {
+  name: string;
+  provider: string;
+  auth: { type: string };
+}): boolean {
+  return (
+    MANAGED_CONNECTION_NAMES.has(row.name) && isVellumManagedConnection(row)
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,7 +110,7 @@ export function listConnections(
         label: row.label ?? null,
         baseUrl: row.baseUrl ?? null,
         models: parseModelsColumn(row.models),
-        isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+        isManaged: isManagedRow({ ...row, provider: provider.data, auth }),
       },
     ];
   });
@@ -126,7 +144,7 @@ export function getConnection(
     label: row.label ?? null,
     baseUrl: row.baseUrl ?? null,
     models: parseModelsColumn(row.models),
-    isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+    isManaged: isManagedRow({ ...row, provider: provider.data, auth }),
   };
 }
 
@@ -145,6 +163,14 @@ export type CreateConnectionInput = {
 
 export type UpdateConnectionInput = {
   auth: Auth;
+  /**
+   * Optional provider correction. The HTTP PATCH route never passes this
+   * (provider is immutable there); it exists for owners of well-known rows
+   * to keep the provider truthful when they rewrite the auth, e.g. the
+   * ChatGPT sign-in flow stamping "openai" on the subscription row so a
+   * claiming row with a different provider cannot strand the fresh token.
+   */
+  provider?: string;
   label?: string | null;
   baseUrl?: string | null;
   models?: ConnectionModel[] | null;
@@ -160,6 +186,7 @@ export type ConnectionCreateError =
 export type ConnectionUpdateError =
   | { code: "not_found" }
   | { code: "invalid_auth" }
+  | { code: "invalid_provider"; provider: string }
   | { code: "base_url_required" }
   | { code: "models_required" };
 
@@ -238,7 +265,7 @@ export function createConnection(
       models,
       createdAt: now,
       updatedAt: now,
-      isManaged: MANAGED_CONNECTION_NAMES.has(input.name),
+      isManaged: isManagedRow({ name: input.name, provider, auth }),
     },
   };
 }
@@ -260,12 +287,23 @@ export function updateConnection(
     return { ok: false, error: { code: "invalid_auth" } };
   }
 
+  if (
+    input.provider !== undefined &&
+    !VALID_CONNECTION_PROVIDERS.includes(input.provider as never)
+  ) {
+    return {
+      ok: false,
+      error: { code: "invalid_provider", provider: input.provider },
+    };
+  }
+  const nextProvider = input.provider ?? existing.provider;
+
   const nextBaseUrl =
     input.baseUrl !== undefined ? input.baseUrl : existing.baseUrl;
   const nextModels =
     input.models !== undefined ? input.models : existing.models;
 
-  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(existing.provider)) {
+  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(nextProvider)) {
     if (!nextBaseUrl) {
       return { ok: false, error: { code: "base_url_required" } };
     }
@@ -278,10 +316,14 @@ export function updateConnection(
   const setClause: {
     auth: string;
     updatedAt: number;
+    provider?: string;
     label?: string | null;
     baseUrl?: string | null;
     models?: string | null;
   } = { auth: JSON.stringify(auth), updatedAt: now };
+  if (input.provider !== undefined) {
+    setClause.provider = input.provider;
+  }
   if (input.label !== undefined) {
     setClause.label = input.label;
   }
@@ -389,6 +431,29 @@ const CANONICAL_CONNECTIONS: Array<{
     label: "Vellum",
   },
 ];
+
+/**
+ * The Vellum-managed connection as boot seeding defines it, built without a DB
+ * read. Dispatch uses this when the `vellum` name is occupied by a user-owned
+ * row: seeding refuses to overwrite such a row, so the canonical row can be
+ * absent from the DB while managed routing still has to work. Platform auth
+ * needs no row of its own, only this shape.
+ */
+export function canonicalVellumConnection(): ProviderConnection {
+  const now = Date.now();
+  const canonical = CANONICAL_CONNECTIONS[0];
+  return {
+    name: canonical.name,
+    provider: canonical.provider,
+    auth: canonical.auth,
+    label: canonical.label,
+    baseUrl: null,
+    models: null,
+    createdAt: now,
+    updatedAt: now,
+    isManaged: true,
+  };
+}
 
 /**
  * Names of the canonical Vellum-managed connections. Seeded on every daemon

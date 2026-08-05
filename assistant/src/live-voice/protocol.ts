@@ -18,6 +18,7 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "stt_partial",
   "stt_final",
   "thinking",
+  "activity",
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
@@ -217,6 +218,38 @@ export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
   readonly turnId: string;
 }
 
+/**
+ * What the assistant is doing inside a turn, as one short user-facing line.
+ *
+ * Exists because a live-voice turn can go silent for a long time while it
+ * works, and the surfaces that show the session (the iOS Live Activity, and
+ * the room) can otherwise only say "Thinking...". The label is composed here
+ * rather than by each surface for the same reason phase wording is composed
+ * once: the Live Activity has two independent drivers (this socket and an APNs
+ * push the daemon dispatches), they must carry identical content, and the only
+ * way to guarantee that is for both to be handed the same string.
+ *
+ * An empty `label` means "no current activity", which is what a turn's end
+ * sends. Emitted only on change, never per tool result.
+ */
+export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "activity";
+  readonly turnId: string;
+  readonly label: string;
+  /**
+   * The confirmation this turn is blocked on, when the label describes a wait
+   * rather than work in flight. Absent otherwise.
+   *
+   * It travels so that a surface outside the app — the Live Activity's
+   * Approve/Deny buttons — can answer the request it was drawn against rather
+   * than whatever is pending by the time the press lands. Content on a Lock
+   * Screen can be seconds old, and a decision is the one thing that must not
+   * be re-pointed when it is: the id lets a client drop a press aimed at a
+   * request already answered, timed out, or superseded.
+   */
+  readonly approvalRequestId?: string;
+}
+
 export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "assistant_text_delta";
   readonly text: string;
@@ -321,6 +354,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
   | LiveVoiceThinkingServerFrame
+  | LiveVoiceActivityServerFrame
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame
@@ -341,6 +375,7 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceSttPartialServerFrame>
   | WithoutSeq<LiveVoiceSttFinalServerFrame>
   | WithoutSeq<LiveVoiceThinkingServerFrame>
+  | WithoutSeq<LiveVoiceActivityServerFrame>
   | WithoutSeq<LiveVoiceAssistantTextDeltaServerFrame>
   | WithoutSeq<LiveVoiceTtsAudioServerFrame>
   | WithoutSeq<LiveVoiceTtsDoneServerFrame>

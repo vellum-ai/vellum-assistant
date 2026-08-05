@@ -46,8 +46,12 @@ import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   isLocalClient,
   isRemoteGatewayMode,
+  getLockfileAssistant,
   getPlatformAssistants,
   getLocalAssistants,
+  getSelectedAssistant,
+  isPairedAssistant,
+  primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   primeLocalGatewayConnectionWithStartupRetry,
   syncPlatformAssistantsToLockfile,
@@ -55,6 +59,7 @@ import {
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { unregisterLiveActivityPushToken } from "@/domains/chat/voice/live-voice/live-activity-push-registration";
 import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import {
   fetchConsent,
@@ -150,6 +155,7 @@ interface AuthState {
 interface AuthActions {
   initSession: () => Promise<void>;
   connectLocalAssistant: (assistantId: string) => Promise<void>;
+  connectPairedAssistant: (assistantId: string) => Promise<void>;
   connectPlatformAssistant: (assistantId: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logout: () => Promise<void>;
@@ -750,6 +756,21 @@ function probePlatformSessionIfReachable(
   }
 }
 
+/**
+ * Shared tail of the interactive connect actions, run after the target's
+ * gateway connection is primed: select the assistant, mark the session logged
+ * in, and drive `checkAssistant()` so the active id republishes even when the
+ * selection is unchanged (the selection subscription only fires on a change).
+ */
+async function establishLocalUserSession(
+  set: AuthSet,
+  assistantId: string,
+): Promise<void> {
+  await setSelectedAssistant(assistantId);
+  set(authenticatedLocalUser());
+  await lifecycleService.checkAssistant();
+}
+
 async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
   try {
     if (await refreshRemoteGatewaySession()) {
@@ -942,9 +963,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       (a) => a.assistantId === assistantId,
     );
     await primeLocalGatewayConnectionWithRepair(target);
-    await setSelectedAssistant(assistantId);
-    set(authenticatedLocalUser());
-    await lifecycleService.checkAssistant();
+    await establishLocalUserSession(set, assistantId);
     if (
       isConfirmedPlatformSession(
         get().platformSession,
@@ -953,6 +972,28 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     ) {
       bootstrapLocalAssistantPlatformIdentity(assistantId);
     }
+    probePlatformSessionIfReachable(set);
+  },
+
+  /**
+   * Connect to a paired assistant: a remote machine's assistant imported via
+   * `vellum connect import`. Primes the connection (leasing the guardian
+   * bearer from the host), selects the assistant, and marks the session
+   * logged in, mirroring {@link AuthActions.connectLocalAssistant} with two
+   * deliberate differences: it primes through the plain
+   * `primeLocalGatewayConnection` because `wake` cannot start or repair an
+   * assistant on a remote machine, and it skips
+   * `bootstrapLocalAssistantPlatformIdentity` because that registers a LOCAL
+   * assistant with the platform while a paired entry is only a client-side
+   * pairing record.
+   */
+  connectPairedAssistant: async (assistantId: string) => {
+    const target = getLockfileAssistant(assistantId);
+    if (!target || !isPairedAssistant(target)) {
+      throw new Error("Not a paired assistant");
+    }
+    await primeLocalGatewayConnection(target);
+    await establishLocalUserSession(set, assistantId);
     probePlatformSessionIfReachable(set);
   },
 
@@ -981,7 +1022,19 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthMode()) {
       try {
-        await ensureGatewayToken(getLocalTokenUrl());
+        const selected = getSelectedAssistant();
+        if (selected && isPairedAssistant(selected)) {
+          // A paired selection has no local `/auth/token` mint: the guardian
+          // access token leased from the host is the bearer itself, and
+          // `getLocalTokenUrl()` is undefined for it, so `ensureGatewayToken`
+          // would fall back to the SPA origin's own `/auth/token` (wrong
+          // host) and clear the seeded token via the source-mismatch check.
+          // Re-leasing is cheap: the host returns its cached access token
+          // unless a refresh is due.
+          await primeLocalGatewayConnection(selected);
+        } else {
+          await ensureGatewayToken(getLocalTokenUrl());
+        }
         set({ sessionStatus: "authenticated" });
       } catch {
         set(sessionEnded());
@@ -1033,20 +1086,30 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return isAuthenticated(get().sessionStatus);
     }
     // A settled "no platform session" (401) ends the platform session, not the
-    // local gateway session. When the gateway is the auth source, demote an
-    // authenticated session to the local user and mark the platform session
-    // absent — dropping the now-stale platform user and offline snapshot so
-    // platform-gated surfaces stop treating it as signed in — while keeping
-    // `sessionStatus` "authenticated"; a 401 must not log a local-only user out.
-    // (The successful probe above still adopts the platform user, so provider
-    // sign-in keeps working.) An unauthenticated session — e.g. mid cold-start
-    // hatch — is left for the gateway to settle once its token mints.
+    // local one. Demote an authenticated session to the local user and mark the
+    // platform session absent, dropping the stale platform user and offline
+    // snapshot so platform-gated surfaces stop treating it as signed in, while
+    // keeping `sessionStatus` "authenticated": a 401 must not log a local-only
+    // user out. (The successful probe above still adopts the platform user, so
+    // provider sign-in keeps working.) An unauthenticated session, e.g. mid
+    // cold-start hatch, is left for the gateway to settle once its token mints.
     //
     // Holding `sessionStatus` "authenticated" is load-bearing: in-app consumers
     // read `useIsAuthenticated()` directly to scope the QueryClient cache and
     // gate signed-in UI, so ending the session would drop them into the
     // anonymous cache scope and hide that UI.
-    if (isGatewayAuthEnabled()) {
+    //
+    // The predicate asks whether the local session can stand on its own,
+    // mirroring how `initSession` branches: a local gateway answers for itself,
+    // and so does a client with no platform assistant to reach. A local client
+    // whose assistants are platform-hosted is excluded, since a managed
+    // assistant is unreachable without a platform session and routing to login
+    // beats stranding the user beside one that cannot answer. Remote-gateway
+    // mode returns at the top of this action.
+    const localSessionStandsAlone =
+      isLocalClient() &&
+      (isGatewayAuthEnabled() || getPlatformAssistants().length === 0);
+    if (localSessionStandsAlone) {
       const wasAuthenticated = isAuthenticated(get().sessionStatus);
       if (wasAuthenticated) {
         clearUserSnapshot();
@@ -1084,6 +1147,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // session — the platform delete is authenticated by the still-valid
     // session cookie. No-ops off native iOS. Best-effort: never blocks logout.
     await unregisterFromRemotePush();
+    // Same window, same reason: a Live Activity registered for a voice session
+    // outlives the session that owns it unless something retires it, and after
+    // logout there is no authenticated request left that could.
+    await unregisterLiveActivityPushToken();
     try {
       await allauthLogout();
     } finally {

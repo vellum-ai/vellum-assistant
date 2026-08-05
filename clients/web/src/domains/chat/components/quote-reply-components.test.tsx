@@ -20,11 +20,15 @@ function resetQuoteReplyState() {
   });
 }
 
-function installFinePointer() {
+function installPointerMediaQuery(matches: boolean) {
   const originalMatchMedia = window.matchMedia;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
-    value: () => ({ matches: false }),
+    value: () => ({
+      matches,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }),
   });
   return () => {
     Object.defineProperty(window, "matchMedia", {
@@ -34,18 +38,12 @@ function installFinePointer() {
   };
 }
 
+function installFinePointer() {
+  return installPointerMediaQuery(false);
+}
+
 function installCoarsePointer() {
-  const originalMatchMedia = window.matchMedia;
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: () => ({ matches: true }),
-  });
-  return () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: originalMatchMedia,
-    });
-  };
+  return installPointerMediaQuery(true);
 }
 
 function installImmediateAnimationFrame() {
@@ -300,6 +298,28 @@ describe("QuoteReplyBubble", () => {
 
     expect(useQuoteReplyStore.getState().replyBubble).toBeNull();
     expect(useQuoteReplyStore.getState().stagedQuotes).toHaveLength(0);
+  });
+
+  test("Escape dismisses the touch-mobile reply dialog", () => {
+    const restorePointer = installCoarsePointer();
+    try {
+      useQuoteReplyStore.setState({
+        replyBubble: {
+          quotedText: "quoted context",
+          sourceMessageId: "msg-1",
+          anchorRect: { top: 120, left: 180, width: 0, height: 0 },
+        },
+      });
+
+      render(<QuoteReplyBubble />);
+
+      const dialog = screen.getByRole("dialog", { name: "Quote and reply" });
+      expect(fireEvent.keyDown(dialog, { key: "Escape" })).toBe(false);
+      expect(useQuoteReplyStore.getState().replyBubble).toBeNull();
+      expect(useQuoteReplyStore.getState().stagedQuotes).toHaveLength(0);
+    } finally {
+      restorePointer();
+    }
   });
 
   test("Enter stages the reply, closes the bubble, and focuses the composer", async () => {

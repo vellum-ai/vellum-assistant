@@ -37,4 +37,11 @@ describe("CreditsCard", () => {
 
     expect(container.firstChild).toBeNull();
   });
+
+  test("renders the balance without a purchase action when no handler is provided", () => {
+    const { getByText, queryByRole } = render(<CreditsCard balance="60" />);
+
+    expect(getByText("60 c")).toBeTruthy();
+    expect(queryByRole("button", { name: /credits/i })).toBeNull();
+  });
 });

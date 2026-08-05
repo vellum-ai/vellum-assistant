@@ -47,6 +47,7 @@ import {
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
+import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -871,9 +872,9 @@ const API_NS = "api";
 
 /**
  * Dev-only toggle surface. Each function is a single-purpose imperative
- * flip — call from the console to flip a localStorage-persisted flag.
- * Toggles that change React hook ordering or module-load constants
- * reload the page so the new value takes effect cleanly.
+ * flip, called from the console. Toggles that change React hook ordering
+ * or module-load constants reload the page so the new value takes effect
+ * cleanly; the rest apply in place.
  */
 export interface VellumDebugFlagsApi {
   /** Override the assistant's reported version for every version-gated
@@ -888,6 +889,19 @@ export interface VellumDebugFlagsApi {
    *
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
+  /** Render app iframes without their `sandbox` attribute, giving the
+   *  app document the host's origin so origin-gated APIs
+   *  (`getDisplayMedia()`, …) work. Costs the isolation the sandbox
+   *  buys, so it is off by default and lives only in memory: a reload
+   *  restores the sandbox.
+   *
+   *  - `toggleAppsSandboxDisabled()`      : flip the current value.
+   *  - `toggleAppsSandboxDisabled(true)`  : drop the sandbox.
+   *  - `toggleAppsSandboxDisabled(false)` : restore it.
+   *
+   *  Open apps reload in place, so no page reload is needed. Returns the
+   *  value in effect after the call. */
+  toggleAppsSandboxDisabled(value?: boolean): boolean;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -914,8 +928,9 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags (`impersonateVersion`).
- *     Stable singleton; pure module exports backed by localStorage.
+ *   - `flags`: dev-toggleable feature flags (`impersonateVersion`,
+ *     `toggleAppsSandboxDisabled`). Stable singleton; pure module
+ *     exports over localStorage and in-memory flag state.
  *
  * Consolidating these into one installer guarantees they're set at the
  * same time and torn down together, so DevTools never sees one namespace
@@ -1007,6 +1022,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
+      toggleAppsSandboxDisabled: toggleAppIframeSandboxDisabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;
