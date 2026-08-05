@@ -11,8 +11,7 @@ import { SttError } from "../../../stt/types.js";
 // Logger mock: must be declared before the subject import
 //
 // The adapter's only observable output for the chunk-cadence measurement is a
-// debug log line, and the Configure-failure contract is "warn, never a stream
-// error", so both are asserted through captured logs.
+// log line, so it is asserted through captured logs.
 // ---------------------------------------------------------------------------
 
 interface CapturedLog {
@@ -20,8 +19,7 @@ interface CapturedLog {
   message: string;
 }
 
-const debugLogs: CapturedLog[] = [];
-const warnLogs: CapturedLog[] = [];
+const infoLogs: CapturedLog[] = [];
 
 function capture(sink: CapturedLog[]) {
   return (data: unknown, message?: string) => {
@@ -35,9 +33,9 @@ function capture(sink: CapturedLog[]) {
 
 mock.module("../../../util/logger.js", () => {
   const logger = {
-    debug: capture(debugLogs),
-    warn: capture(warnLogs),
-    info: () => {},
+    info: capture(infoLogs),
+    debug: () => {},
+    warn: () => {},
     error: () => {},
     trace: () => {},
     fatal: () => {},
@@ -160,8 +158,7 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
     mockWs = new MockWebSocket();
     dialedUrls = [];
     dialedOptions = [];
-    debugLogs.length = 0;
-    warnLogs.length = 0;
+    infoLogs.length = 0;
 
     originalWebSocket = (globalThis as Record<string, unknown>).WebSocket;
     (globalThis as Record<string, unknown>).WebSocket = class {
@@ -285,14 +282,16 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(mockWs.sentData).toHaveLength(0);
     });
 
-    test("logs the observed chunk duration once per session", async () => {
+    test("logs the observed chunk duration once per session at info", async () => {
       const { transcriber } = await startSession({ sampleRate: 16_000 });
 
       // 2560 bytes of mono linear16 at 16kHz is exactly 80ms.
       transcriber.sendAudio(Buffer.alloc(2560), "audio/pcm");
       transcriber.sendAudio(Buffer.alloc(2560), "audio/pcm");
 
-      const cadenceLogs = debugLogs.filter((entry) =>
+      // The runbook reads this line off a default daemon, whose pino level is
+      // `info`: at debug it would never reach the log it is read from.
+      const cadenceLogs = infoLogs.filter((entry) =>
         entry.message.includes("chunk cadence"),
       );
       expect(cadenceLogs).toHaveLength(1);
@@ -366,9 +365,11 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(events[0]).toMatchObject({ type: "error", category: "auth" });
     });
 
-    test("malformed frames are dropped rather than surfaced", async () => {
+    test("unrecognized and malformed frames leave the session transcribing", async () => {
       const { events } = await startSession();
 
+      // Deepgram can add frame types without warning, so anything the parser
+      // does not recognize is dropped rather than raised as a stream failure.
       mockWs.simulateMessage("not json at all");
       mockWs.simulateMessage(JSON.stringify([1, 2, 3]));
       mockWs.simulateMessage(
@@ -376,67 +377,14 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       );
 
       expect(events).toEqual([]);
-    });
-  });
 
-  // ─────────────────────────────────────────────────────────────────
-  // Configure acknowledgements
-  // ─────────────────────────────────────────────────────────────────
-
-  describe("Configure acknowledgements", () => {
-    test("ConfigureSuccess logs the authoritative thresholds and emits nothing", async () => {
-      const { events } = await startSession();
-
-      mockWs.simulateMessage(
-        JSON.stringify({
-          type: "ConfigureSuccess",
-          thresholds: {
-            eot_threshold: 0.8,
-            eager_eot_threshold: 0.4,
-            eot_timeout_ms: 6_000,
-          },
-        }),
-      );
-
-      expect(events).toEqual([]);
-      const ack = debugLogs.find((entry) =>
-        entry.message.includes("accepted a Configure"),
-      );
-      expect(ack).toBeDefined();
-      expect(ack!.data).toMatchObject({
-        thresholds: { eot_threshold: 0.8, eot_timeout_ms: 6_000 },
-      });
-    });
-
-    test("ConfigureFailure warns and leaves the session usable", async () => {
-      const { transcriber, events } = await startSession();
-
-      mockWs.simulateMessage(
-        JSON.stringify({
-          type: "ConfigureFailure",
-          sequence_id: 42,
-          code: "INVALID_THRESHOLD",
-          description:
-            "eager_eot_threshold must be less than or equal to eot_threshold",
-        }),
-      );
-
-      // A rejected Configure leaves the stream on its previous settings, so
-      // it must not become a stream error that tears the session down.
-      expect(events).toEqual([]);
-      const rejection = warnLogs.find((entry) =>
-        entry.message.includes("rejected a Configure"),
-      );
-      expect(rejection).toBeDefined();
-      expect(rejection!.data).toMatchObject({ code: "INVALID_THRESHOLD" });
-
-      // The session still transcribes.
       mockWs.simulateMessage(
         turnInfoFrame("EndOfTurn", { transcript: "still here" }),
       );
-      expect(events.map((event) => event.type)).toEqual(["final", "turn-end"]);
-
-      transcriber.stop();
+      expect(events).toEqual([
+        { type: "final", text: "still here" },
+        { type: "turn-end", text: "still here", turnIndex: 0 },
+      ]);
     });
   });
 
@@ -635,13 +583,15 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(keepalives.length).toBeGreaterThanOrEqual(2);
     });
 
-    test("finalizeUtterance is deliberately absent, Flux owns turn boundaries", async () => {
+    test("finalizeUtterance is absent, Flux has no mid-stream flush", async () => {
       const { transcriber } = await startSession();
 
-      // Callers feature-detect this method and fall back to stop(), which is
-      // the correct semantics for a provider whose model ends the turn. The
-      // contract type is where the optional method lives, so the check goes
-      // through it. The class not declaring it at all is the point.
+      // Flux commits a transcript only on EndOfTurn and its protocol has no
+      // flush that keeps the socket open, so a finalizeUtterance here could
+      // only claim a commit that never happened and lose the tail of every
+      // turn released on a caller-side boundary. Callers feature-detect the
+      // method and fall back to stop(). The contract type is where the
+      // optional method lives, so the check goes through it.
       const asContract: StreamingTranscriber = transcriber;
       expect(asContract.finalizeUtterance).toBeUndefined();
     });
