@@ -97,7 +97,6 @@ import { reduceQualityProfileEffortMigration } from "./096-reduce-quality-profil
 import { enableAdaptiveThinkingManagedProfilesMigration } from "./097-enable-adaptive-thinking-managed-profiles.js";
 import { removeStaleUpdatesBulletinFileMigration } from "./098-remove-stale-updates-bulletin-file.js";
 import { disableCacheOneShotCallsitesMigration } from "./099-disable-cache-one-shot-callsites.js";
-import { sttEnglishDefaultToMultilingualMigration } from "./100-stt-english-default-to-multilingual.js";
 import { upgradeQualityProfileToFable5Migration } from "./100-upgrade-quality-profile-to-fable-5.js";
 import { upgradeBalancedEconomyToMinimaxM3Migration } from "./101-upgrade-balanced-economy-to-minimax-m3.js";
 import { preserveHeartbeatEnabledForExistingWorkspacesMigration } from "./102-preserve-heartbeat-enabled-for-existing-workspaces.js";
@@ -140,6 +139,7 @@ import { backfillHomeFeedTitlesMigration } from "./138-backfill-home-feed-titles
 import { clearRenamedCostProfileLabelMigration } from "./139-clear-renamed-cost-profile-label.js";
 import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-memory-v3-live.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
+import { sttEnglishDefaultToMultilingualMigration } from "./141-stt-english-default-to-multilingual.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -247,7 +247,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   enableAdaptiveThinkingManagedProfilesMigration,
   removeStaleUpdatesBulletinFileMigration,
   disableCacheOneShotCallsitesMigration,
-  sttEnglishDefaultToMultilingualMigration,
   upgradeQualityProfileToFable5Migration,
   upgradeBalancedEconomyToMinimaxM3Migration,
   preserveHeartbeatEnabledForExistingWorkspacesMigration,
@@ -293,4 +292,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillHomeFeedTitlesMigration,
   clearRenamedCostProfileLabelMigration,
   repairSeedPinnedMemoryV3LiveMigration,
+  sttEnglishDefaultToMultilingualMigration,
 ];

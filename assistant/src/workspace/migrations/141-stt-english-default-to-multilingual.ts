@@ -4,8 +4,10 @@ import { join } from "node:path";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Move `services.stt.language: "en"` to `"multi"` on Deepgram and the managed
- * relay, so existing assistants land on code-switching alongside new ones.
+ * Put existing assistants on code-switching by writing
+ * `services.stt.language: "multi"` on Deepgram and the managed relay,
+ * covering both an accepted English default and a language that was never
+ * set at all.
  *
  * Normally rewriting a value the user set would be off limits. It is safe
  * here because of when the field appeared: `services.stt.language` did not
@@ -18,14 +20,13 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * Scoped deliberately:
  *
- *   - Only `"en"`. Any other language is a real choice from a list where it
- *     was the only way to get that language.
+ *   - Only `"en"` and absent. Any other language is a real choice from a list
+ *     where it was the only way to get that language.
  *   - Only Deepgram and the managed relay (`mode: "managed"` routes there
  *     while `provider` holds the bring-your-own restore value). xAI has
  *     offered an explicit English row since the picker shipped, so an `"en"`
  *     there is deliberate, and code-switching is a Deepgram mode its adapter
  *     drops anyway.
- *   - Unset needs nothing: the schema now defaults the field to `"multi"`.
  *
  * Idempotent: an assistant already on `"multi"` (or anything else) is left
  * alone, so re-running changes nothing.
@@ -35,7 +36,7 @@ const ENGLISH = "en";
 const MULTI_DEFAULT_PROVIDERS = new Set(["deepgram", "vellum"]);
 
 export const sttEnglishDefaultToMultilingualMigration: WorkspaceMigration = {
-  id: "100-stt-english-default-to-multilingual",
+  id: "141-stt-english-default-to-multilingual",
   description:
     "Move services.stt.language from the accepted English default to multilingual on Deepgram and managed speech",
   run(workspaceDir: string): void {
@@ -67,7 +68,16 @@ export const sttEnglishDefaultToMultilingualMigration: WorkspaceMigration = {
     if (stt === null) {
       return;
     }
-    if (stt.language !== ENGLISH) {
+    // Two states move, and only these two. An accepted English default, and
+    // an absent language.
+    //
+    // Absent has to be handled here rather than left to the schema default,
+    // because the config route serves the RAW config: the parsed default
+    // never reaches the web, so the settings UI would keep reading an absent
+    // language as English while live transcription used multilingual. Writing
+    // it makes the two agree.
+    const language = stt.language;
+    if (language !== ENGLISH && language !== undefined) {
       return;
     }
 

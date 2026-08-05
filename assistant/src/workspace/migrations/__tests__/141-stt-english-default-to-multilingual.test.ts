@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { sttEnglishDefaultToMultilingualMigration as MIG } from "../100-stt-english-default-to-multilingual.js";
+import { sttEnglishDefaultToMultilingualMigration as MIG } from "../141-stt-english-default-to-multilingual.js";
 
 let workspaceDir: string;
 let configPath: string;
@@ -35,7 +35,7 @@ afterEach(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
-describe("100-stt-english-default-to-multilingual", () => {
+describe("141-stt-english-default-to-multilingual", () => {
   test("moves an accepted English default to multilingual on deepgram", () => {
     write({ provider: "deepgram", language: "en" });
     MIG.run(workspaceDir);
@@ -85,10 +85,19 @@ describe("100-stt-english-default-to-multilingual", () => {
     expect(language()).toBe("multi");
   });
 
-  test("does nothing when no language is set", () => {
-    // The schema default covers unset, so the migration has nothing to say
-    // about it and must not invent a key.
+  test("fills a language that was never set", () => {
+    // The config route serves the RAW config, so a schema default never
+    // reaches the web. Without writing it here the settings UI would read an
+    // absent language as English while live transcription used multilingual.
     write({ provider: "deepgram" });
+    MIG.run(workspaceDir);
+    expect(language()).toBe("multi");
+  });
+
+  test("does not fill an absent language under xai", () => {
+    // Unset means native detection there, which is broader than the ten
+    // languages code-switching follows.
+    write({ provider: "xai" });
     MIG.run(workspaceDir);
     expect(language()).toBeUndefined();
   });

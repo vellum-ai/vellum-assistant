@@ -153,7 +153,15 @@ export function VoiceFirstRunCard({
     configuredProviderId,
     selectLanguage,
     selecting: languageSelecting,
-  } = useSttLanguageSelection(localeEntry !== null ? assistantId : null);
+  } = useSttLanguageSelection(
+    // Enabled on locale evidence (the intro's suggestion row needs it before
+    // anyone clicks anything) or once a sub-view is open, since the settings
+    // view carries the control for everyone rather than only for speakers the
+    // locale matched. An English-locale user has no suggestion but must still
+    // find the setting. The intro itself stays query-free without locale
+    // evidence, which is what this gating was for.
+    localeEntry !== null || view !== "intro" ? assistantId : null,
+  );
   // The actual suggestion is provider-scoped: null when the configured
   // provider's option set does not offer the locale's language (a Tamil
   // locale under xai), so the row never renders a suggestion the picker

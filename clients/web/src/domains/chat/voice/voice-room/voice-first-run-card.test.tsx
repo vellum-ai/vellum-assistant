@@ -273,6 +273,27 @@ describe("VoiceFirstRunCard", () => {
     // The setting is reachable for everyone entering voice mode, not only
     // for the locale-matched users the intro row serves.
 
+    test("it appears for an English locale, which has no suggestion", () => {
+      // The hook is gated on locale evidence so the intro stays query-free,
+      // but the settings view serves everyone: an English speaker gets no
+      // suggestion row and must still be able to find the setting.
+      stubLocale("en-US");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        currentCode: "multi",
+      };
+      const { getByText, getByLabelText, queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      // No suggestion row on the intro.
+      expect(queryByLabelText("Listening language")).toBeNull();
+
+      fireEvent.click(getByText(SETTINGS_LINK));
+      expect(getByLabelText("Listening language")).toBeTruthy();
+    });
+
     test("the settings view carries the language alongside the voice", () => {
       sttLanguageSelection = {
         ...sttLanguageSelection,
