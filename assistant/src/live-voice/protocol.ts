@@ -326,6 +326,12 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly endpointHoldCount?: number;
   /** Worst endpoint-decision latency observed during the turn. */
   readonly endpointDecisionMaxLatencyMs?: number;
+  /**
+   * Which path decided the turn's endpoint: the front-door hold verdict or
+   * the STT provider's model-integrated end-of-turn. Present under the same
+   * condition as the two fields above.
+   */
+  readonly endpointDecisionSource?: "front-door" | "flux";
   /** Which floor-holding ack actually spoke during the turn, if any. */
   readonly ackSpoken?: "first_delta" | "tool_use";
   /**
