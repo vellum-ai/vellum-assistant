@@ -26,9 +26,13 @@ export interface SttLanguageOption {
 }
 
 /**
- * Sentinel meaning "unset / provider default": recognition defaults to
- * English, except under providers in `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`,
- * where unset means native language auto-detection.
+ * Sentinel meaning "unset / provider default". What that default resolves to
+ * is the provider's business: code-switching under
+ * `MULTI_DEFAULT_DAEMON_PROVIDERS`, native detection under
+ * `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`, and English otherwise. The row
+ * rendered for this code is reframed to say which (see
+ * `sttLanguageOptionsFor`), so the picker never labels a default it is not
+ * actually getting.
  */
 export const STT_LANGUAGE_DEFAULT_CODE = "";
 
@@ -246,9 +250,9 @@ const STT_PINNED_ENGLISH_OPTION: SttLanguageOption = {
  * `NOVA3_ROSTER_DAEMON_PROVIDERS`), minus the Multilingual entry for
  * providers whose adapter drops `"multi"` (see
  * `MULTI_CAPABLE_DAEMON_PROVIDERS`), with the default row reframed for
- * providers whose unset state is not English — Auto-detect for native
+ * providers whose unset state is not English (Auto-detect for native
  * detection (see `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`), Multilingual
- * for code-switching (see `MULTI_DEFAULT_DAEMON_PROVIDERS`) — each with an
+ * for code-switching, see `MULTI_DEFAULT_DAEMON_PROVIDERS`), each with an
  * explicit English entry alongside it, plus
  * a synthetic "(custom)" entry when the code sits outside the offered set.
  * `services.stt.language` accepts any non-empty string (the CLI and chat
@@ -336,7 +340,7 @@ export function sttLanguageGroupsFor(
   feature(STT_LANGUAGE_DEFAULT_CODE);
   feature(STT_MULTI_CODE);
   // Only present where the default row is not itself English, and `feature`
-  // skips codes the provider does not offer — so this pins the deliberate
+  // skips codes the provider does not offer, so this pins the deliberate
   // English row for those providers and is inert everywhere else.
   feature(STT_PINNED_ENGLISH_CODE);
   if (suggestedCode != null) {

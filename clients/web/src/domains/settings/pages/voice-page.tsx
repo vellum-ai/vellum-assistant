@@ -85,7 +85,7 @@ const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
  * output settings and input settings don't sit in one undifferentiated stack:
  *
  *  - **Output** — how the assistant sounds (its voice).
- *  - **Input** — how you talk to it (mic, spoken language, push to talk, turn
+ *  - **Input**: how you talk to it (mic, spoken language, push to talk, turn
  *    taking).
  *  - **Captions** — reading along, which belongs to neither half, so it trails
  *    on its own.

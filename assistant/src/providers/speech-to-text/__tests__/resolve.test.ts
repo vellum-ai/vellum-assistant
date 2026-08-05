@@ -172,6 +172,7 @@ mock.module("../xai-realtime.js", () => ({
 // ---------------------------------------------------------------------------
 
 const {
+  effectiveSttLanguage,
   resolveBatchTranscriber,
   sttCredentialGapReason,
   resolveConversationStreamingSttCapability,
@@ -1310,7 +1311,7 @@ describe("resolveStreamingTranscriber language plumbing", () => {
 
   test("batch resolution falls to multilingual when no language is configured", async () => {
     // Dictation and voice notes ride the batch path, and they read the same
-    // config the live session does — a user whose spoken language works in
+    // config the live session does. A user whose spoken language works in
     // voice mode must not find it broken in a voice note.
     deepgramBatchCtorCalls.length = 0;
     mockProviderKeys = { deepgram: "dg-key" };
@@ -1335,5 +1336,27 @@ describe("sttCredentialGapReason", () => {
     expect(sttCredentialGapReason("vellum")).toContain("platform connect");
     expect(sttCredentialGapReason("vellum")).not.toContain("API key");
     expect(sttCredentialGapReason("deepgram")).toContain("API key");
+  });
+});
+
+describe("effectiveSttLanguage", () => {
+  test("fills the unset case only where unset would mean English", () => {
+    // Deepgram and the managed relay decode language-less audio as English,
+    // so leaving them unset is a silent pin rather than a neutral state.
+    expect(effectiveSttLanguage("deepgram", undefined)).toBe("multi");
+    expect(effectiveSttLanguage("vellum", undefined)).toBe("multi");
+    // Everyone else detects natively from the audio; filling in a ten-language
+    // roster would narrow what they can already do.
+    expect(effectiveSttLanguage("xai", undefined)).toBeUndefined();
+    expect(effectiveSttLanguage("google-gemini", undefined)).toBeUndefined();
+    expect(effectiveSttLanguage("openai-whisper", undefined)).toBeUndefined();
+  });
+
+  test("a configured language always wins, including English", () => {
+    // The default decides what happens when nobody has chosen, nothing more.
+    expect(effectiveSttLanguage("deepgram", "ta")).toBe("ta");
+    expect(effectiveSttLanguage("deepgram", "en")).toBe("en");
+    expect(effectiveSttLanguage("vellum", "multi")).toBe("multi");
+    expect(effectiveSttLanguage("xai", "hi")).toBe("hi");
   });
 });

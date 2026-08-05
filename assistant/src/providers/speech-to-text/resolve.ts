@@ -24,7 +24,7 @@ const log = getLogger("stt-resolver");
  * Providers that decode language-less audio as English rather than detecting
  * the spoken language: Deepgram directly, and the managed relay, which dials
  * Deepgram server-side. For these, an unset `services.stt.language` is not a
- * neutral state — it is a silent English pin that returns non-English speech
+ * neutral state: it is a silent English pin that returns non-English speech
  * as English-sounding nonsense.
  *
  * Providers absent from this set need no default: xAI, Gemini and Whisper all
@@ -47,7 +47,7 @@ const MULTILINGUAL_DEFAULT_PROVIDERS: ReadonlySet<SttProviderId> = new Set([
  *
  * It is a default, not a ceiling. Speakers of the other 39 languages on the
  * monolingual roster still pick theirs explicitly, and that pick continues to
- * win here — this only decides what happens when nobody has chosen.
+ * win here. This only decides what happens when nobody has chosen.
  */
 const DEFAULT_MULTILINGUAL_CODE = "multi";
 
@@ -57,7 +57,7 @@ const DEFAULT_MULTILINGUAL_CODE = "multi";
  * fills the unset case, and only where unset would otherwise mean English.
  *
  * Applied inside the resolvers rather than at the config layer so config keeps
- * recording what the user chose (or that they chose nothing) — the settings
+ * recording what the user chose (or that they chose nothing). The settings
  * surfaces read that distinction to show which rows are defaults, and the live
  * session compares raw config values to decide whether a language change needs
  * a re-dial.
@@ -115,9 +115,14 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   if (provider === "vellum") {
-    // Managed batch transcription rides the platform's speech proxy, which
-    // accepts no language parameter, so `services.stt.language` does not
-    // apply here; streaming is the path that honors it for managed speech.
+    // Managed batch transcription rides the platform's speech proxy, whose
+    // transcribe endpoint accepts no language parameter at all (see
+    // `managedSpeechTranscribe`). Neither a configured language nor the
+    // default above can reach it, so managed voice notes and the managed
+    // dictation fallback transcribe as English while managed streaming
+    // honors both. Closing that gap needs the platform endpoint to take a
+    // language first; until then this path is deliberately language-less
+    // rather than silently passing one that would be dropped downstream.
     return (await sttProviderKeyResolves("vellum"))
       ? createDaemonBatchTranscriber(null, "vellum")
       : null;

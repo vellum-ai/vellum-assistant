@@ -3,7 +3,7 @@
  * listens for.
  *
  * Sits with Microphone and Push to Talk because it belongs to the same half
- * of the conversation — those cards say which device carries your voice and
+ * of the conversation: those cards say which device carries your voice and
  * how you open the mic; this one says what the far end expects to hear. It is
  * the durable home for a selection that is otherwise only offered before a
  * first session (the voice first-run card, on locale evidence) or beside the

@@ -79,7 +79,7 @@ export const SttServiceSchema = z
      * sending nothing would mean English rather than detection, and nothing
      * at all on providers that detect natively. See `effectiveSttLanguage` in
      * `providers/speech-to-text/resolve.ts`. Unset is kept meaningful here on
-     * purpose — it records that the user has not chosen, which is what lets
+     * purpose: it records that the user has not chosen, which is what lets
      * the settings surfaces label a row "default".
      */
     language: z
