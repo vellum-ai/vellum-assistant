@@ -45,6 +45,12 @@ export function sttLanguageLabel(option: SttLanguageOption): string {
 
 export const STT_MULTI_CODE = "multi";
 
+/**
+ * Explicit English, offered as its own row wherever the default row means
+ * something other than English (native detection, or code-switching).
+ */
+export const STT_PINNED_ENGLISH_CODE = "en";
+
 export const STT_LANGUAGES: readonly SttLanguageOption[] = [
   {
     code: STT_LANGUAGE_DEFAULT_CODE,
@@ -167,16 +173,32 @@ const NOVA3_ROSTER_DAEMON_PROVIDERS: ReadonlySet<string> = new Set([
 /**
  * Daemon provider ids that detect the spoken language natively when
  * `services.stt.language` is unset: the resolver sends no language, so the
- * unset state means auto-detection, not English. Deepgram and the managed
- * relay decode unset audio as English, so their default row stays
- * English-framed. For these providers the picker's default-sentinel row
- * reads "Auto-detect (default)", an explicit English entry lets the user
- * pin English deliberately, and a persisted `"en"` renders as that pin
- * rather than collapsing to the default row (see
+ * unset state means auto-detection. For these providers the picker's
+ * default-sentinel row reads "Auto-detect (default)", an explicit English
+ * entry lets the user pin English deliberately, and a persisted `"en"`
+ * renders as that pin rather than collapsing to the default row (see
  * `use-stt-language-selection.ts`).
  */
 export const AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS: ReadonlySet<string> =
   new Set(["xai"]);
+
+/**
+ * Daemon provider ids whose unset state resolves to code-switching. Deepgram
+ * and the managed relay decode language-less audio as English rather than
+ * detecting it, so the daemon fills an unset `services.stt.language` with
+ * `"multi"` before it reaches them (`effectiveSttLanguage` in
+ * `assistant/src/providers/speech-to-text/resolve.ts`).
+ *
+ * The picker mirrors that: the default-sentinel row reads "Multilingual
+ * (default)", the standalone Multilingual entry drops out (it would be a
+ * same-value dead pick), an explicit English entry appears so English can
+ * still be pinned deliberately, and a persisted `"multi"` collapses into the
+ * default row rather than reading as a separate choice.
+ */
+export const MULTI_DEFAULT_DAEMON_PROVIDERS: ReadonlySet<string> = new Set([
+  "deepgram",
+  "vellum",
+]);
 
 /**
  * The default-sentinel row for providers in
@@ -193,13 +215,27 @@ const STT_AUTO_DETECT_OPTION: SttLanguageOption = {
 };
 
 /**
- * Explicit English for auto-detecting providers, where the default row no
- * longer means English and pinning it must be a deliberate pick. Absent from
- * `STT_LANGUAGES` because for every other provider the default row already
- * is English, and a second English entry would be a same-value dead pick.
+ * The default-sentinel row for providers in
+ * `MULTI_DEFAULT_DAEMON_PROVIDERS`, replacing the English-framed one. Carries
+ * the same roster sentence as the standalone Multilingual entry it stands in
+ * for, so the row explains what "default" actually does rather than leaving
+ * the reader to infer it.
+ */
+const STT_MULTILINGUAL_DEFAULT_OPTION: SttLanguageOption = {
+  code: STT_LANGUAGE_DEFAULT_CODE,
+  label: "Multilingual (default)",
+  description:
+    "Follows you between languages mid-sentence: English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian, and Dutch. Pick a specific language below if you speak one this list does not cover.",
+};
+
+/**
+ * Explicit English for providers whose default row does not mean English:
+ * the auto-detecting ones and the code-switching ones alike. Pinning English
+ * has to stay a deliberate pick on both. Absent from `STT_LANGUAGES` because
+ * a provider whose default row already is English would render it twice.
  */
 const STT_PINNED_ENGLISH_OPTION: SttLanguageOption = {
-  code: "en",
+  code: STT_PINNED_ENGLISH_CODE,
   label: "English",
 };
 
@@ -209,9 +245,11 @@ const STT_PINNED_ENGLISH_OPTION: SttLanguageOption = {
  * entries for providers outside the verified nova-3 roster (see
  * `NOVA3_ROSTER_DAEMON_PROVIDERS`), minus the Multilingual entry for
  * providers whose adapter drops `"multi"` (see
- * `MULTI_CAPABLE_DAEMON_PROVIDERS`), with the default row swapped to
- * Auto-detect plus an explicit English entry for providers whose unset state
- * is native detection (see `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`), plus
+ * `MULTI_CAPABLE_DAEMON_PROVIDERS`), with the default row reframed for
+ * providers whose unset state is not English — Auto-detect for native
+ * detection (see `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`), Multilingual
+ * for code-switching (see `MULTI_DEFAULT_DAEMON_PROVIDERS`) — each with an
+ * explicit English entry alongside it, plus
  * a synthetic "(custom)" entry when the code sits outside the offered set.
  * `services.stt.language` accepts any non-empty string (the CLI and chat
  * config edits write codes like "en-US", and can persist `"multi"` for a
@@ -233,13 +271,26 @@ export function sttLanguageOptionsFor(
   // Providers whose unset state is native auto-detection get the reframed
   // default row and the explicit English entry in its place, ahead of the
   // monolinguals; everyone else gets the base list byte-identical.
-  const catalog = AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId)
+  const autoDetectScoped = AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(
+    daemonProviderId,
+  )
     ? base.flatMap((option) =>
         option.code === STT_LANGUAGE_DEFAULT_CODE
           ? [STT_AUTO_DETECT_OPTION, STT_PINNED_ENGLISH_OPTION]
           : [option],
       )
     : base;
+  // Providers whose unset state is code-switching get the same treatment,
+  // and shed the standalone Multilingual entry the default row now stands
+  // for: two rows doing the same thing invite a pick that changes nothing.
+  const catalog = MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
+    ? autoDetectScoped.flatMap((option) => {
+        if (option.code === STT_LANGUAGE_DEFAULT_CODE) {
+          return [STT_MULTILINGUAL_DEFAULT_OPTION, STT_PINNED_ENGLISH_OPTION];
+        }
+        return option.code === STT_MULTI_CODE ? [] : [option];
+      })
+    : autoDetectScoped;
   const inCatalog = catalog.some((option) => option.code === currentCode);
   if (inCatalog) {
     return catalog;
@@ -284,6 +335,10 @@ export function sttLanguageGroupsFor(
   feature(currentCode);
   feature(STT_LANGUAGE_DEFAULT_CODE);
   feature(STT_MULTI_CODE);
+  // Only present where the default row is not itself English, and `feature`
+  // skips codes the provider does not offer — so this pins the deliberate
+  // English row for those providers and is inert everywhere else.
+  feature(STT_PINNED_ENGLISH_CODE);
   if (suggestedCode != null) {
     feature(suggestedCode);
   }
@@ -367,14 +422,17 @@ export function sttCatalogEntryForLocale(
  * inherits the same scoping the option lists use: a code
  * `sttLanguageOptionsFor` withholds is never suggested.
  *
- * A speaker of a code-switching-roster language talking to an
- * English-speaking assistant is exactly the code-switching case, so those
- * locales suggest `multi` where the provider supports it; where it does not
- * (xai), the suggestion falls back to the monolingual pin, which every
- * language-selectable provider offers. Languages on the extended roster only
+ * A speaker of a code-switching-roster language is already served by the
+ * default wherever code-switching is the default, so those locales suggest
+ * nothing at all; under a provider that detects natively (xai) the
+ * suggestion is the monolingual pin. Languages on the extended roster only
  * (e.g. Tamil) are outside what `multi` can follow, so the suggestion is the
  * monolingual pin itself, and only where nova-3 runs; elsewhere there is
  * nothing valid to suggest.
+ *
+ * The narrowing is the point: a suggestion should mark the cases the default
+ * leaves broken, which after the multilingual default is exactly the
+ * languages code-switching cannot follow.
  */
 export function suggestedLanguageForLocale(
   navigatorLanguage: string | undefined,
@@ -389,7 +447,11 @@ export function suggestedLanguageForLocale(
       ? entry.code
       : null;
   }
-  return MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
-    ? STT_MULTI_CODE
+  // The locale's language is on the code-switching roster. Where that is
+  // already the default there is nothing to suggest: the assistant will
+  // understand this speaker before anyone touches a setting, and a row
+  // proposing what is already in effect reads as an unfinished task.
+  return MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
+    ? null
     : entry.code;
 }

@@ -5,12 +5,13 @@
  *      `languageSelection` (old daemon) or reports the configured provider
  *      as `"auto"`; available for a `"manual"` provider.
  *   2. Writes: a pick issues exactly one `services.stt.language` PATCH;
- *      rapid picks serialize in call order; the default pick writes the
- *      explicit `"en"` fallback (config_patch cannot delete the key) and
- *      `"en"` reads back as the default code.
- *   3. Provider scoping of that read equivalence: under xai, whose unset
- *      state means native auto-detection, a persisted `"en"` is a real pin
- *      and reads back as itself.
+ *      rapid picks serialize in call order; the default pick writes the code
+ *      the daemon resolves an unset language to (config_patch cannot delete
+ *      the key), and that code reads back as the default row.
+ *   3. Provider scoping of that read equivalence: the default code is
+ *      `"multi"` on code-switching providers, so a persisted `"en"` is a
+ *      deliberate pin there and under xai, whose unset state means native
+ *      auto-detection.
  *
  * Generated daemon bindings are mocked with controllable data, mirroring
  * `speech-to-text-card.test.tsx`; the QueryClientProvider is real.
@@ -229,9 +230,12 @@ describe("useSttLanguageSelection", () => {
     await waitFor(() => expect(result.current.selecting).toBe(false));
   });
 
-  test("the default pick writes explicit en, and en reads as the default code", async () => {
+  test("the default pick writes multi, and multi reads as the default code", async () => {
+    // The daemon resolves an unset language to "multi" on the managed relay,
+    // so that code and the default row are the same state seen from two
+    // sides: config records "multi", the picker shows the default row.
     daemonConfigData = {
-      services: { stt: { provider: "vellum", language: "multi" } },
+      services: { stt: { provider: "vellum", language: "es" } },
     };
     providerCatalogData = {
       providers: [
@@ -240,22 +244,44 @@ describe("useSttLanguageSelection", () => {
     };
 
     const { result } = renderSelection();
-    expect(result.current.currentCode).toBe("multi");
+    expect(result.current.currentCode).toBe("es");
 
     // config_patch cannot delete the key (a null leaf breaks schema
-    // validation on the next load), so the default pick writes "en".
+    // validation on the next load), so the default pick writes the code the
+    // daemon would have filled in anyway.
     daemonConfigData = {
-      services: { stt: { provider: "vellum", language: "en" } },
+      services: { stt: { provider: "vellum", language: "multi" } },
     };
     act(() => result.current.selectLanguage(""));
 
     await waitFor(() => expect(result.current.selecting).toBe(false));
     expect(configPatchCalls).toHaveLength(1);
     expect(configPatchCalls[0]!.body).toEqual({
-      services: { stt: { language: "en" } },
+      services: { stt: { language: "multi" } },
     });
-    // The refetched config holds "en"; the hook reads it as the default code.
+    // The refetched config holds "multi"; the hook reads it as the default.
     await waitFor(() => expect(result.current.currentCode).toBe(""));
+  });
+
+  test("en reads as a deliberate pin under a code-switching provider", async () => {
+    // The default row means multilingual now, so collapsing a persisted "en"
+    // into it would report a user who deliberately pinned English as being
+    // on code-switching.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "en" } },
+    };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+
+    const { result } = renderSelection();
+    await waitFor(() => expect(result.current.currentCode).toBe("en"));
   });
 
   test("en reads as itself under xai, whose unset state means auto-detect", () => {
