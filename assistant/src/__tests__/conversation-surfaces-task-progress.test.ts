@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
@@ -13,14 +13,19 @@ import type {
   UiSurfaceShow,
   UISurfaceUpdateEvent,
 } from "../daemon/message-protocol.js";
+import {
+  asConversation,
+  mockChannelCapabilities,
+} from "./helpers/mock-conversation.js";
 
 function makeContext(
   sent: AssistantEvent[] = [],
-  channelCapabilities?: SurfaceConversationContext["channelCapabilities"],
-): SurfaceConversationContext {
-  return {
+  channelCapabilities?: { channel: string; supportsDynamicUi: boolean },
+): Conversation {
+  return asConversation({
     conversationId: "session-1",
-    channelCapabilities,
+    channelCapabilities:
+      channelCapabilities && mockChannelCapabilities(channelCapabilities),
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
@@ -37,7 +42,7 @@ function makeContext(
     getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
-  };
+  });
 }
 
 describe("task_progress surface compatibility", () => {

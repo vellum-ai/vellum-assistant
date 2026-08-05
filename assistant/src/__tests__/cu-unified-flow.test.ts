@@ -7,11 +7,13 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { asConversation } from "./helpers/mock-conversation.js";
+
 const sentMessages: unknown[] = [];
 let mockHasClient = true; // Default to true for CU unified flow tests
 // Default principal id used for both ctx.trustContext and clients in the
 // existing single-user tests. Tests that exercise cross-user behaviour
-// override this on individual clients and on the SurfaceConversationContext.
+// override this on individual clients and on the Conversation.
 const DEFAULT_PRINCIPAL = "user-1";
 let mockCuClients: Array<{
   clientId: string;
@@ -48,18 +50,17 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-const { surfaceProxyResolver } =
+const { createSurfaceMutex, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
-type SurfaceConversationContext =
-  import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
+type Conversation = import("../daemon/conversation.js").Conversation;
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal SurfaceConversationContext with optional hostCuProxy.
+ * Build a minimal Conversation with optional hostCuProxy.
  * Only the fields required by the CU routing path are populated.
  *
  * `trustContext` defaults to a guardian context owned by `DEFAULT_PRINCIPAL`.
@@ -74,8 +75,8 @@ function buildMockContext(
   // the gate passes. Left undefined to model a conversation that cannot
   // attach one (the gate denies, or the context predates the hook).
   ensureHostProxiesForTurn?: () => void,
-): SurfaceConversationContext {
-  const ctx: SurfaceConversationContext = {
+): Conversation {
+  const ctx: Conversation = asConversation({
     conversationId: "test-session",
     trustContext:
       trustGuardianPrincipalId != null
@@ -87,13 +88,13 @@ function buildMockContext(
         : undefined,
     authContext:
       actorPrincipalId != null
-        ? ({ actorPrincipalId } as SurfaceConversationContext["authContext"])
+        ? ({ actorPrincipalId } as Conversation["authContext"])
         : undefined,
     currentTurnAuthContext:
       actorPrincipalId != null
         ? ({
             actorPrincipalId,
-          } as SurfaceConversationContext["currentTurnAuthContext"])
+          } as Conversation["currentTurnAuthContext"])
         : undefined,
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
@@ -110,8 +111,8 @@ function buildMockContext(
     enqueueMessage: () => ({ queued: false, requestId: "r1" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async (_id, fn) => fn(),
-  };
+    withSurface: createSurfaceMutex(),
+  });
   return ctx;
 }
 
@@ -122,7 +123,7 @@ function buildMockContext(
 describe("surfaceProxyResolver — CU tool routing", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
 
-  function setupProxy(maxSteps?: number): SurfaceConversationContext {
+  function setupProxy(maxSteps?: number): Conversation {
     sentMessages.length = 0;
     mockHasClient = true;
     mockCuClients = [
@@ -161,7 +162,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       ];
 
       let attachCalls = 0;
-      const ctx: SurfaceConversationContext = buildMockContext(
+      const ctx: Conversation = buildMockContext(
         /* no proxy */ undefined,
         DEFAULT_PRINCIPAL,
         DEFAULT_PRINCIPAL,

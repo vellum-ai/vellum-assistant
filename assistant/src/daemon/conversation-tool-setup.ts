@@ -83,14 +83,10 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import type {
-  SubagentToolStats,
-  ToolSetupContext,
-} from "./tool-setup-types.js";
+import type { SubagentToolStats } from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
   SubagentToolStats,
-  ToolSetupContext,
   WakeToolContextPin,
 } from "./tool-setup-types.js";
 
@@ -116,7 +112,7 @@ export type {
  */
 export function resolveConversationAttribution(
   ctx: Pick<
-    ToolSetupContext,
+    Conversation,
     "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
   >,
 ): UsageAttributionSnapshot | null {
@@ -241,7 +237,7 @@ export function createToolExecutor(
   executor: ToolExecutor,
   prompter: PermissionPrompter,
   secretPrompter: SecretPrompter,
-  ctx: ToolSetupContext,
+  ctx: Conversation,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -600,7 +596,7 @@ export function createToolExecutor(
  */
 export function createProxyApprovalCallback(
   _prompter: PermissionPrompter,
-  _ctx: ToolSetupContext,
+  _ctx: Conversation,
 ): ProxyApprovalCallback {
   return async (_request: ProxyApprovalRequest): Promise<boolean> => {
     // Proxied asks follow the same non-host auto-allow contract as regular

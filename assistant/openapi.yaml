@@ -6798,9 +6798,15 @@ paths:
                     `id`.
                   type: string
                 conversationType:
-                  description: Only standard conversations are created by this endpoint
+                  description:
+                    Conversation type for the new row. "background" keeps it out of the foreground list and the sidebar's
+                    Recents grouping, used by internal side-channel flows (onboarding research, persona/identity
+                    rewrites) that mint a throwaway thread the user should never see. "scheduled" is not accepted here;
+                    scheduled rows are owned by the schedule pipeline.
                   type: string
-                  const: standard
+                  enum:
+                    - standard
+                    - background
                 title:
                   description:
                     Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never

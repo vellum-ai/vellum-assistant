@@ -31,6 +31,7 @@ import {
   useState,
 } from "react";
 
+import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
@@ -676,6 +677,18 @@ export function ChatMainPanel({
     status: diskPressure.status,
   });
   const diskPressureInputDisabled = diskPressureChatBlockReason !== null;
+
+  // First meaningful transcript paint: the exact condition under which
+  // `ChatScrollArea` stops rendering `<ChatSkeleton />`. On the new-conversation
+  // draft there is no history to wait for, so this lands immediately; on an
+  // existing conversation it is the history fetch. `markBoot` is first-write-wins,
+  // so later conversation switches within the page load do not overwrite it.
+  const transcriptPainted = !(isLoadingHistory && messages.length === 0);
+  useEffect(() => {
+    if (transcriptPainted) {
+      markBoot("transcript_painted");
+    }
+  }, [transcriptPainted]);
 
   const typingDisabled =
     isLoadingHistory ||

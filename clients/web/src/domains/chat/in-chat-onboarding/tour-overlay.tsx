@@ -3,9 +3,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
+import { type VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 
 import { TourNarration } from "./tour-narration";
-import { TOUR_COMPOSER, type TourStep } from "./tour-steps";
+import { TOUR_COMPOSER, TOUR_VOICE, type TourStep } from "./tour-steps";
 
 interface TourOverlayProps {
   assistantId: string | null;
@@ -24,10 +25,11 @@ interface TourOverlayProps {
  * the transcript area (the sidebar stays fully visible beside it) and
  * rebuild the chat's anatomy over it: the narration typewrites where the
  * conversation's messages live, and the REAL composer component sits in its
- * usual spot at the bottom — inert, purely scenery, and the target the
- * finale beat floods. The intro beat renders none of that: the full-page
- * flood (portaled underneath at z-61) provides the color, and the flooded
- * nav targets portal in above at z-64.
+ * usual spot at the bottom, inert and purely scenery. The chat beat floods it
+ * whole; the finale lands the avatar on the voice button within it. The intro
+ * beat renders none of that: the full-page flood (portaled underneath at
+ * z-61) provides the color, and the flooded nav targets portal in above at
+ * z-64.
  */
 export function TourOverlay({
   assistantId,
@@ -43,7 +45,18 @@ export function TourOverlay({
   /** The narration column's top — the side menu's top edge, so the step
    *  title aligns with the top of the menu panel. */
   const [columnTop, setColumnTop] = useState(0);
+  // The chat beat floods the whole composer and the finale lands the avatar on
+  // the voice button inside it, so the composer holds the stage across both.
+  const composerHoldsStage =
+    step?.id === TOUR_COMPOSER.id || step?.id === TOUR_VOICE.id;
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Supplying both voice props is what makes the scenery composer render its
+  // voice controls at all (`showVoiceInput` tests for exactly this pair), and
+  // the finale beat lands the avatar on the live-voice button among them.
+  // Inert like the rest of the scenery: the wrapper below is
+  // `pointer-events-none`, so the handle is never driven and the transcript
+  // callback never fires.
+  const sceneryVoiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
 
   // The sidebar bounces in mid-tour, so these edges are re-measured on
   // every beat (and window resizes), not once.
@@ -103,7 +116,7 @@ export function TourOverlay({
         }}
         initial={{ opacity: 0 }}
         animate={{
-          opacity: !onIntroBeat && step?.id === TOUR_COMPOSER.id ? 0.6 : 0,
+          opacity: !onIntroBeat && composerHoldsStage ? 0.6 : 0,
         }}
         transition={{ duration: 0.3 }}
       />
@@ -129,10 +142,10 @@ export function TourOverlay({
           <div
             data-tour-composer="true"
             className="pointer-events-none shrink-0 px-4 pb-4 sm:px-6"
-            // Dimmed until its own beat — each step pulls everything else
-            // out of the attention field.
+            // Dimmed until its own beats, since each step pulls everything
+            // else out of the attention field.
             style={{
-              opacity: step?.id === TOUR_COMPOSER.id ? 1 : 0.4,
+              opacity: composerHoldsStage ? 1 : 0.4,
               transition: "opacity 300ms ease",
             }}
           >
@@ -146,6 +159,8 @@ export function TourOverlay({
                 onStopGenerating={() => {}}
                 isAssistantBusy={false}
                 assistantId={assistantId}
+                voiceInputRef={sceneryVoiceInputRef}
+                onVoiceTranscript={() => {}}
               />
             </div>
           </div>
