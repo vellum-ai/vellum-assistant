@@ -103,6 +103,38 @@ const checkForChanges = (): void => {
 export const getWatchedLockfile = (): Lockfile => cachedLockfile;
 
 /**
+ * Return the cached lockfile, or null before {@link installLockfileWatcher}
+ * has produced a snapshot. Callers with a disk-reading fallback (the
+ * app-protocol paired-gateway forward) use the null to cover the startup
+ * window where the watcher is not installed yet.
+ */
+export const getWatchedLockfileSnapshot = (): Lockfile | null =>
+  lockfilePath ? cachedLockfile : null;
+
+/**
+ * Re-read the watched lockfile immediately, bypassing the poll interval and
+ * any pending debounce. For lockfile writes performed by this process (e.g.
+ * unpair) whose consumers must observe the change in the same tick rather
+ * than after the next poll. No-op before the watcher is installed.
+ */
+export const refreshLockfileNow = (): void => {
+  if (!lockfilePath) {
+    return;
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  try {
+    lastMtimeMs = fs.statSync(lockfilePath).mtimeMs;
+  } catch {
+    lastMtimeMs = 0;
+  }
+  cachedLockfile = readAndParse();
+  notifyListeners();
+};
+
+/**
  * Subscribe to lockfile changes. The listener fires whenever the lockfile's
  * mtime changes (debounced). Returns an unsubscribe function.
  */

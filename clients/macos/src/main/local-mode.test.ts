@@ -106,6 +106,14 @@ mock.module("./session-token-store", () => ({
   getSessionToken: () => mockSessionToken,
 }));
 
+// The unpair handler refreshes the lockfile watcher so the paired-gateway
+// allowlist reflects the removal immediately. Stub the watcher module so
+// the test asserts the hook fires without installing a real poller.
+const refreshLockfileNowMock = mock(() => {});
+mock.module("./lockfile-watcher", () => ({
+  refreshLockfileNow: refreshLockfileNowMock,
+}));
+
 const { installLocalMode } = await import("./local-mode");
 const { resolveAllowedOrigin } = await import("./app-origin");
 
@@ -167,6 +175,7 @@ afterEach(() => {
   cliInstallerState.isInstalled = false;
   cliInstallerState.installError = null;
   mockSessionToken = null;
+  refreshLockfileNowMock.mockClear();
   delete process.env.VELLUM_CLI_PATH;
   for (const key of Object.keys(existsSyncOverrides)) {
     delete existsSyncOverrides[key];
@@ -637,6 +646,32 @@ describe("vellum:localMode:unpair handler", () => {
     expect(result.lockfile.assistants).toEqual([]);
     expect(fs.existsSync(tokenPath("paired-1"))).toBe(false);
     expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("a successful unpair refreshes the lockfile watcher in the same tick", () => {
+    saveLockfileAssistant(
+      { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
+      "paired-1",
+    );
+    refreshLockfileNowMock.mockClear();
+
+    const result = unpair("paired-1");
+
+    expect(result.ok).toBe(true);
+    expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed unpair does not refresh the lockfile watcher", () => {
+    saveLockfileAssistant(
+      { assistantId: "local-1", cloud: "local" },
+      "local-1",
+    );
+    refreshLockfileNowMock.mockClear();
+
+    const result = unpair("local-1");
+
+    expect(result.ok).toBe(false);
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
   });
 
   test("refuses a non-paired entry", () => {

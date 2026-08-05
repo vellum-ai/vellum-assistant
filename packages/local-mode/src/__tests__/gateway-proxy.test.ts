@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  pairedGatewayTargetsFromLockfile,
   parsePairedGatewayUrl,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
@@ -325,6 +326,72 @@ describe("resolvePairedGatewayProxyTarget", () => {
     expect(reads).toBe(0);
     resolvePairedGatewayProxyTarget("/__gateway-paired/abc/v1", counting);
     expect(reads).toBe(1);
+  });
+});
+
+describe("pairedGatewayTargetsFromLockfile", () => {
+  test("maps paired entries with usable runtimeUrls, excluding everything else", () => {
+    expect(
+      pairedGatewayTargetsFromLockfile({
+        assistants: [
+          {
+            assistantId: "paired-a",
+            cloud: "paired",
+            runtimeUrl: "https://gw.example.com",
+          },
+          {
+            assistantId: "paired-b",
+            cloud: "paired",
+            runtimeUrl: "http://192.0.2.10:8443/edge",
+          },
+          // Non-paired entries never become forwardable.
+          { assistantId: "local-a", cloud: "local" },
+          {
+            assistantId: "docker-a",
+            cloud: "docker",
+            runtimeUrl: "http://localhost:7930",
+          },
+          {
+            assistantId: "remote-a",
+            cloud: "gcp",
+            runtimeUrl: "https://assistant.example.com:8443",
+          },
+          // Paired entries without a usable absolute http(s) runtimeUrl are
+          // excluded rather than forwarded blind.
+          { assistantId: "paired-no-url", cloud: "paired" },
+          {
+            assistantId: "paired-bad-scheme",
+            cloud: "paired",
+            runtimeUrl: "ssh://gw.example.com",
+          },
+          {
+            assistantId: "paired-relative",
+            cloud: "paired",
+            runtimeUrl: "/not-absolute",
+          },
+          // Malformed entries are tolerated, not fatal.
+          null,
+          "not-an-object",
+          { cloud: "paired", runtimeUrl: "https://gw.example.com" },
+          {
+            assistantId: "",
+            cloud: "paired",
+            runtimeUrl: "https://gw.example.com",
+          },
+        ],
+      }),
+    ).toEqual(
+      new Map([
+        ["paired-a", "https://gw.example.com"],
+        ["paired-b", "http://192.0.2.10:8443/edge"],
+      ]),
+    );
+  });
+
+  test("returns an empty map for a lockfile with no assistants", () => {
+    expect(pairedGatewayTargetsFromLockfile({ assistants: [] })).toEqual(
+      new Map(),
+    );
   });
 });
 

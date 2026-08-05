@@ -32,6 +32,7 @@ import {
   getBundledBunPath,
   getCliBinPath,
 } from "./cli-installer";
+import { refreshLockfileNow } from "./lockfile-watcher";
 import { getSessionToken } from "./session-token-store";
 
 /**
@@ -322,9 +323,14 @@ export const installLocalMode = (): void => {
         return { ok: false, error: "Missing assistantId" };
       }
       const result = unpairAssistant(lockfilePaths, configDir, assistantId);
-      return result.ok
-        ? { ok: true, lockfile: result.lockfile }
-        : { ok: false, error: result.error };
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      // The paired-gateway forward resolves its allowlist from the watcher's
+      // snapshot; refresh it now so the unpaired entry is rejected in the
+      // same tick instead of after the next poll.
+      refreshLockfileNow();
+      return { ok: true, lockfile: result.lockfile };
     },
   );
 

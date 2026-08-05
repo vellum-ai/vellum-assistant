@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import {
+  pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
   resolveLocalConfigFromEnv,
@@ -62,7 +63,10 @@ import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
 import { installLoginItem, installLoginItemIpc } from "./login-item";
-import { installLockfileWatcher } from "./lockfile-watcher";
+import {
+  getWatchedLockfileSnapshot,
+  installLockfileWatcher,
+} from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
@@ -234,8 +238,14 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
-  const getPairedGatewayTargets = (): Map<string, string> =>
-    readPairedGatewayTargets(lockfilePaths);
+  // Prefer the watcher's in-memory snapshot so paired requests never read
+  // disk; the direct read covers only the window before the watcher installs.
+  const getPairedGatewayTargets = (): Map<string, string> => {
+    const watched = getWatchedLockfileSnapshot();
+    return watched
+      ? pairedGatewayTargetsFromLockfile(watched)
+      : readPairedGatewayTargets(lockfilePaths);
+  };
   const { platformUrl } = resolveLocalConfigFromEnv(process.env);
 
   protocol.handle(APP_PROTOCOL, async (request) => {
