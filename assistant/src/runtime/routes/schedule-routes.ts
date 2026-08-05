@@ -884,7 +884,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .describe(
-          "Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the currently resolved default profile, so its model does not move when that default changes.",
+          "Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the currently resolved default profile, so its model does not move when that default changes. Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not govern their runs.",
         )
         .optional(),
     }),
@@ -1004,7 +1004,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .describe(
-          "Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently resolved default profile",
+          "Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently resolved default profile. Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not govern their runs.",
         )
         .optional(),
     }),

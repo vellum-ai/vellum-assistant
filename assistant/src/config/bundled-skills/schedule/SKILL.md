@@ -123,6 +123,8 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 Every schedule carries a pinned `inference_profile` (a key from `llm.profiles`), so a recurring task keeps running on the model (and the price) it was created under even when the user later changes their default profile. Creating a schedule without `inference_profile` pins it to the user's current default; pass one explicitly when a task should run on a specific model, e.g. a cost-optimized profile for a high-frequency digest. Passing `inference_profile: null` on update re-pins the schedule to the user's current default rather than unpinning it. The pinned profile is shown on the schedule's details page in settings.
 
+Workflow-mode schedules are the exception: each step of a workflow resolves its own model, so a workflow schedule's pin does not govern its runs.
+
 ## Conversation Group
 
 Conversations created by a schedule's runs land in the sidebar's Scheduled section by default. Pass `group` (a group name or id) on create or update to file them into a custom sidebar group instead, e.g. a "Briefs" group for a morning digest. The group must already exist (create it with the conversation-groups skill); pass `group: null` on update to revert to the default. If the group is later deleted, runs fall back to the Scheduled section. Changing the group affects future runs only; move an existing conversation with `conversation_move_to_group`.
