@@ -75,14 +75,17 @@ const UNREAD_DOT = 'data-testid="notifications-bell-unread-dot"';
 const UNREAD_LABEL = 'aria-label="Notifications (unread)"';
 const READ_LABEL = 'aria-label="Notifications"';
 
+const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+
 function feedItem(overrides: Partial<FeedItem>): FeedItem {
+  const timestamp = new Date(Date.now() - THREE_HOURS_MS).toISOString();
   return {
     id: "item-1",
     type: "notification",
     priority: 50,
     summary: "Something happened",
-    timestamp: "2026-07-16T10:00:00Z",
-    createdAt: "2026-07-16T10:00:00Z",
+    timestamp,
+    createdAt: timestamp,
     status: "new",
     ...overrides,
   };
@@ -155,7 +158,7 @@ describe("NotificationsBell unread dot", () => {
 });
 
 describe("NotificationsBell panel", () => {
-  test("renders each row as a card with category, title, and preview", async () => {
+  test("renders each row with title, timestamp, and preview", async () => {
     feedRef.items = [
       feedItem({
         category: "background",
@@ -166,11 +169,26 @@ describe("NotificationsBell panel", () => {
 
     await openBell();
 
-    expect(screen.getByText("Background")).toBeTruthy();
     expect(screen.getByText("Watcher job failed")).toBeTruthy();
+    expect(screen.getByText("3h ago")).toBeTruthy();
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
+  });
+
+  test("rows drop the category chip and the source label", async () => {
+    feedRef.items = [
+      feedItem({
+        category: "background",
+        sourceLabel: "Heartbeat",
+        title: "Watcher job failed",
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.queryByText("Background")).toBeNull();
+    expect(screen.queryByText("Heartbeat")).toBeNull();
   });
 
   test("keeps its own unread dot distinct from the rows'", async () => {

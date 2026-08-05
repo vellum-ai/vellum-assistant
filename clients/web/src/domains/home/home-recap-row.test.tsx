@@ -236,24 +236,85 @@ describe("HomeRecapRow card content", () => {
     },
   );
 
-  test("marks an unread item with a dot", () => {
+  test("marks an unread item with a dot inside the gutter", () => {
     renderRow();
 
-    expect(screen.getByTestId("home-recap-row-unread-dot")).toBeTruthy();
+    const dot = screen.getByTestId("home-recap-row-unread-dot");
+
+    expect(dot.parentElement).toBe(
+      screen.getByTestId("home-recap-row-dot-gutter"),
+    );
   });
 
-  test("omits the dot for an already-read item", () => {
-    renderRow({ item: makeItem({ status: "seen" }) });
+  test.each(["comfortable", "compact"] as const)(
+    "%s density keeps the dot's gutter for an already-read item",
+    (density) => {
+      renderRow({ density, item: makeItem({ status: "seen" }) });
 
-    expect(screen.queryByTestId("home-recap-row-unread-dot")).toBeNull();
+      expect(screen.getByTestId("home-recap-row-dot-gutter")).toBeTruthy();
+      expect(screen.queryByTestId("home-recap-row-unread-dot")).toBeNull();
+    },
+  );
+
+  test("the gutter leads the card, with the content stack beside it", () => {
+    renderRow();
+    const gutter = screen.getByTestId("home-recap-row-dot-gutter");
+    const title = screen.getByTestId("home-recap-row-title");
+
+    expect(gutter.nextElementSibling?.contains(title)).toBe(true);
+  });
+});
+
+describe("HomeRecapRow density", () => {
+  test("comfortable keeps the category chip and the source label", () => {
+    renderRow({ item: makeItem({ sourceLabel: "Heartbeat" }) });
+
+    expect(screen.getByText("Background")).toBeTruthy();
+    expect(screen.getByText("Heartbeat")).toBeTruthy();
   });
 
-  test("compact density renders and differs from the comfortable default", () => {
-    const comfortable = renderRow().container.innerHTML;
-    cleanup();
-    const { container } = renderRow({ density: "compact" });
+  test("compact drops the category chip and the source label", () => {
+    renderRow({
+      density: "compact",
+      item: makeItem({ sourceLabel: "Heartbeat" }),
+    });
+
+    expect(screen.queryByText("Background")).toBeNull();
+    expect(screen.queryByText("Heartbeat")).toBeNull();
+  });
+
+  test("compact keeps the title, the timestamp, and the preview", () => {
+    renderRow({ density: "compact" });
 
     expect(screen.getByText("Watcher job failed")).toBeTruthy();
-    expect(container.innerHTML).not.toBe(comfortable);
+    expect(screen.getByText("3d ago")).toBeTruthy();
+    expect(
+      screen.getByText("The watcher job could not reach the upstream service."),
+    ).toBeTruthy();
+  });
+
+  // happy-dom does no layout, so this asserts the structure the card's
+  // no-overlap behaviour rests on: one line carrying both the title and the
+  // timestamp, with the title in its own element so it can shrink.
+  test("a long compact title shares its line with the timestamp", () => {
+    const longTitle = "Averylongunbreakablenotificationtitle".repeat(4);
+    renderRow({ density: "compact", item: makeItem({ title: longTitle }) });
+
+    const title = screen.getByTestId("home-recap-row-title");
+    const timestampLine =
+      screen.getByText("3d ago").parentElement?.parentElement;
+
+    expect(title.textContent).toBe(longTitle);
+    expect(timestampLine?.contains(title)).toBe(true);
+  });
+
+  test("comfortable puts the title under the meta row, not on it", () => {
+    renderRow();
+
+    const title = screen.getByTestId("home-recap-row-title");
+    const timestampLine =
+      screen.getByText("3d ago").parentElement?.parentElement;
+
+    expect(timestampLine?.contains(title)).toBe(false);
   });
 });

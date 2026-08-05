@@ -33,11 +33,11 @@ export interface ActivityLocationState {
 }
 
 // Caps the visible list at five compact cards plus the four 8px gaps between
-// them. A compact card is 94.25px tall: 2px borders, 16px padding, a 32px meta
-// row (sized by the h-8 hover actions), two 2px gaps, a 19.25px title line, and
-// a 21px preview line. 5 * 94.25 + 4 * 8 = 503.25, rounded up here. Older
-// notifications stay reachable by scrolling.
-const LIST_MAX_HEIGHT_CLASS = "max-h-[504px]";
+// them. A compact card is 73px tall: 2px borders, 16px padding, a 32px title
+// line (sized by the h-8 hover actions that share it with the timestamp), a 2px
+// gap, and a 21px preview line. 5 * 73 + 4 * 8 = 397. Older notifications stay
+// reachable by scrolling.
+const LIST_MAX_HEIGHT_CLASS = "max-h-[397px]";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
