@@ -73,6 +73,7 @@ export function SlackSetupTokensStep({
         onChange={(e) => onBotTokenChange(e.target.value)}
         placeholder={`${BOT_TOKEN_PREFIX}...`}
         errorText={botTokenError ?? undefined}
+        disabled={saveStatus === "pending"}
         fullWidth
       />
 
@@ -83,6 +84,7 @@ export function SlackSetupTokensStep({
         onChange={(e) => onAppTokenChange(e.target.value)}
         placeholder={`${APP_TOKEN_PREFIX}...`}
         errorText={appTokenError ?? undefined}
+        disabled={saveStatus === "pending"}
         fullWidth
       />
 

@@ -70,7 +70,10 @@ export function ChannelSetupWizard({
         ref={panelRef}
         data-slot="channel-setup-step-panel"
         // `-1` keeps the panel out of the tab order while letting the step
-        // change move focus here; the group label is what gets announced.
+        // change move focus here; the group label is what gets announced. No
+        // focus ring: this is only ever focused programmatically, and the
+        // panel's entire contents changing in the same frame is the visible
+        // signal a ring would otherwise duplicate around the whole box.
         tabIndex={-1}
         role="group"
         aria-label={panelLabel}
