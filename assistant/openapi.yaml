@@ -20880,6 +20880,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/migrations/export:
     post:
       operationId: migrations_export_post
