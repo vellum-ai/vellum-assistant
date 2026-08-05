@@ -361,6 +361,29 @@ describe("resume", () => {
       (lastBatch()[0]?.detail as Record<string, unknown>).away_ms,
     ).toBeNull();
   });
+
+  test("a second hide during a pending resume cannot corrupt away_ms", async () => {
+    // A pending measurement can outlive a second hide: the user foregrounds,
+    // the socket has not reopened, and they background again before it does.
+    // Reading `hiddenAt` at emit time would subtract the LATER hide from the
+    // EARLIER resume and report a negative interval.
+    startBootTelemetry();
+    publish("app.hidden", { signal: "app_state" });
+    await Bun.sleep(20);
+    publish("app.resume", { signal: "app_state" }); // interval opens here
+    await Bun.sleep(20);
+    publish("app.hidden", { signal: "app_state" }); // second hide, still pending
+    await Bun.sleep(20);
+    publish("sse.opened", { assistantId: "a", cause: "resume" });
+
+    const away = (lastBatch()[0]?.detail as Record<string, unknown>)
+      .away_ms as number;
+    expect(checkNames()).toEqual(["client_resume.to_sse_open"]);
+    expect(away).toBeGreaterThanOrEqual(0);
+    // Measured against the hide that actually preceded this resume, so it is
+    // bounded by the gap between them, not by the whole elapsed window.
+    expect(away).toBeLessThan(200);
+  });
 });
 
 describe("registration lifetime", () => {
@@ -439,10 +462,11 @@ describe("consent", () => {
     expect(postTelemetryEvents).not.toHaveBeenCalled();
   });
 
-  test("marks recorded before consent hydrates still ship once it says yes", () => {
-    // The race this module exists inside: consent hydrates during the very
-    // window being measured, so gating at record time would drop every cold
-    // boot that outran its own consent sync.
+  test("consent is read at send time, not at record time", () => {
+    // Recording a mark is not an upload, so the only check that matters is the
+    // one immediately before the request. Here it flips the permissive way;
+    // the test above covers the direction that actually protects the user, an
+    // opt-out landing mid-window and suppressing the whole batch.
     consent = false;
     startBootTelemetry();
     markBoot("safe_area_ready", { value: 100 });

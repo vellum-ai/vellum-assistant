@@ -430,12 +430,22 @@ export function buildBootEvents(
 /**
  * Sends whatever marks have landed and latches the family closed.
  *
- * Consent is checked **here**, not at `markBoot()` time, and that ordering is
- * deliberate: consent hydrates asynchronously during the very window this
- * module measures, so a record-time gate would drop the whole waterfall on
- * every cold boot that outruns its own consent sync. This mirrors the daemon's
- * documented rule for the same race (`assistant/src/telemetry/AGENTS.md`:
- * record on an unknown state, enforce at flush).
+ * Consent is checked **here**, immediately before the request, rather than at
+ * `markBoot()` time. The reason is privacy, not loss: an opt-out that lands
+ * during the boot window must still suppress the upload, and only a check at
+ * send time sees it. Recording a mark is not an upload, so buffering first
+ * costs nothing.
+ *
+ * To be precise about the race, since it is easy to overstate: an unhydrated
+ * consent state does NOT read as opted out. `readAnalyticsConsent()` resolves
+ * an unknown `serverAnalyticsEffective` to `true` (analytics is opt-out, so
+ * never-asked authorizes), and a persisted opt-out is read synchronously from
+ * localStorage at store creation. So a record-time gate would not have dropped
+ * boots that outran their consent sync. It would only have missed the opt-out
+ * arriving mid-window, which is the case that actually matters.
+ *
+ * Same contract as the resume family, which posts each event as its interval
+ * closes and so reads consent there: both check immediately before the request.
  */
 export function flushBootTelemetry(
   trigger: BootFlushTrigger = "terminal",
@@ -564,14 +574,21 @@ function collectNavigationTiming(): () => void {
  *
  * The boundary is `app.resume` → the next `sse.opened`: the app is "back" when
  * its live channel is, and both edges already exist on the bus, so this needs no
- * new plumbing in `sse-service.ts`. A resume that never reopens within
- * `RESUME_STALL_DEADLINE_MS` emits `client_resume.stalled` instead, the failure
- * denominator, without which a p95 over the successful resumes only describes
- * the resumes that worked.
+ * new plumbing in `sse-service.ts`. A resume that never sees a reopen is
+ * abandoned rather than reported, because silence is not evidence of a stall;
+ * see `RESUME_PENDING_TTL_MS`. That leaves the family without a failure
+ * denominator, so its p50/p95 describes observed reopens only and is not a
+ * success rate. Tracked in LUM-3050.
+ *
+ * Consent is read at send time, which for this family is emit time, because
+ * each event is posted the moment its interval closes. The boot family buffers
+ * marks and so reads consent at flush; both check immediately before the
+ * request, which is the contract that matters.
  */
 function subscribeResumeTelemetry(): () => void {
   let pendingAt: number | null = null;
   let pendingSignal: string | null = null;
+  let pendingAwayMs: number | null = null;
   let hiddenAt: number | null = null;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -599,6 +616,7 @@ function subscribeResumeTelemetry(): () => void {
   const clearPending = (): void => {
     pendingAt = null;
     pendingSignal = null;
+    pendingAwayMs = null;
     // `hiddenAt` is cleared with the rest, so `away_ms` is null on a resume that
     // no background preceded. `app.resume` is published with signal `"online"`
     // whenever the network comes back, with no `app.hidden` before it; leaving
@@ -630,9 +648,18 @@ function subscribeResumeTelemetry(): () => void {
     }
     pendingAt = performance.now();
     pendingSignal = signal;
+    // Away-time is computed and consumed HERE, at the moment the interval
+    // opens, not when it closes. A pending measurement can outlive a second
+    // hide: the user foregrounds, the socket has not reopened yet, and they
+    // background again before it does. Reading `hiddenAt` at emit time would
+    // then subtract the LATER hide from the EARLIER resume and report a
+    // negative `away_ms`. Snapshotting makes the in-flight measurement immune
+    // to anything that happens to `hiddenAt` afterwards.
+    pendingAwayMs = hiddenAt === null ? null : Math.round(pendingAt - hiddenAt);
+    hiddenAt = null;
     // Abandon the measurement rather than reporting a failure. See
     // `RESUME_PENDING_TTL_MS`: silence here means "no reopen was needed", not
-    // "the resume stalled", and the bus cannot tell the two apart.
+    // that the resume failed, and the bus cannot tell the two apart.
     pendingTimer = setTimeout(clearPending, RESUME_PENDING_TTL_MS);
   });
 
@@ -645,7 +672,7 @@ function subscribeResumeTelemetry(): () => void {
     }
     emit("to_sse_open", performance.now() - pendingAt, {
       signal: pendingSignal,
-      away_ms: hiddenAt === null ? null : Math.round(pendingAt - hiddenAt),
+      away_ms: pendingAwayMs,
     });
     clearPending();
   });
