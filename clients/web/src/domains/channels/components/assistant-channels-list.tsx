@@ -7,7 +7,7 @@ import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
-import type { MutationStatus } from "@/components/slack-setup-wizard";
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";

@@ -1,5 +1,5 @@
 import { Button, Input, Notice, Typography } from "@vellumai/design-library";
-import type { MutationStatus } from "@/components/slack-setup-wizard";
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import {
   APP_TOKEN_PREFIX,
   BOT_TOKEN_PREFIX,

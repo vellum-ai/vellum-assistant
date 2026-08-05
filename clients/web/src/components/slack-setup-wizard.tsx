@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Stepper, type StepperStep } from "@vellumai/design-library";
+import { type StepperStep } from "@vellumai/design-library";
+import {
+  ChannelSetupWizard,
+  type MutationStatus,
+} from "@/components/channel-setup-wizard";
 import { SlackSetupCreateStep } from "@/components/slack-setup-create-step";
 import { SlackSetupNameStep } from "@/components/slack-setup-name-step";
 import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
 import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
+import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { buildSlackManifest } from "@/utils/slack-manifest";
 
-export type MutationStatus = "idle" | "pending" | "success" | "error";
+export type { MutationStatus };
 
 /**
  * Slack's create-app entry point. Deliberately carries no `manifest_json`
@@ -50,7 +55,8 @@ export function SlackSetupWizard({
   saveStatus = "idle",
   saveError = null,
 }: SlackSetupWizardProps) {
-  const [stepId, setStepId] = useState<SlackSetupStepId>("name");
+  const { stepId, stepIndex, goTo, onStepSelect } =
+    useChannelSetupSteps(WIZARD_STEP_IDS);
   const [slackAppName, setSlackAppName] = useState(assistantName);
   const [description, setDescription] = useState("");
   const userEditedName = useRef(false);
@@ -83,8 +89,6 @@ export function SlackSetupWizard({
     [slackAppName, description],
   );
 
-  const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
-
   // Whether the manifest for the app as currently named was copied from here.
   // Editing the name or description after a copy invalidates it, so both the
   // handoff notice and the transient "Copied!" label key off this rather than
@@ -105,74 +109,59 @@ export function SlackSetupWizard({
     window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
   }, []);
 
-  const handleContinueToOpen = useCallback(() => setStepId("open"), []);
-  const handleContinueToCreate = useCallback(() => setStepId("create"), []);
-  const handleContinueToConnect = useCallback(() => setStepId("connect"), []);
+  const handleContinueToOpen = useCallback(() => goTo("open"), [goTo]);
+  const handleContinueToCreate = useCallback(() => goTo("create"), [goTo]);
+  const handleContinueToConnect = useCallback(() => goTo("connect"), [goTo]);
 
   const handleSave = useCallback(() => {
     onSave?.(botToken.trim(), appToken.trim());
   }, [onSave, botToken, appToken]);
 
-  const handleStepSelect = useCallback(
-    (index: number) => {
-      if (index < stepIndex) {
-        setStepId(WIZARD_STEP_IDS[index]);
-      }
-    },
-    [stepIndex],
-  );
-
   return (
-    <div data-slot="slack-setup-wizard" className="flex flex-col gap-4">
-      <Stepper
-        steps={WIZARD_STEPS}
-        current={stepIndex}
-        onStepSelect={handleStepSelect}
-        disabled={saveStatus === "pending"}
-      />
+    <ChannelSetupWizard
+      channelLabel="Slack"
+      steps={WIZARD_STEPS}
+      stepIndex={stepIndex}
+      onStepSelect={onStepSelect}
+      locked={saveStatus === "pending"}
+    >
+      {stepId === "name" && (
+        <SlackSetupNameStep
+          appName={slackAppName}
+          description={description}
+          copied={copied && manifestCopiedHere}
+          onAppNameChange={handleAppNameChange}
+          onDescriptionChange={setDescription}
+          onCopyManifest={handleCopyManifest}
+          onContinue={handleContinueToOpen}
+        />
+      )}
 
-      <div
-        data-slot="slack-setup-step-panel"
-        className="rounded-lg bg-[var(--surface-sunken)] p-4"
-      >
-        {stepId === "name" && (
-          <SlackSetupNameStep
-            appName={slackAppName}
-            description={description}
-            copied={copied && manifestCopiedHere}
-            onAppNameChange={handleAppNameChange}
-            onDescriptionChange={setDescription}
-            onCopyManifest={handleCopyManifest}
-            onContinue={handleContinueToOpen}
-          />
-        )}
+      {stepId === "open" && (
+        <SlackSetupOpenStep
+          manifestCopiedHere={manifestCopiedHere}
+          copied={copied && manifestCopiedHere}
+          onCopyManifest={handleCopyManifest}
+          onOpenSlack={handleOpenSlack}
+          onContinue={handleContinueToCreate}
+        />
+      )}
 
-        {stepId === "open" && (
-          <SlackSetupOpenStep
-            manifestCopiedHere={manifestCopiedHere}
-            copied={copied && manifestCopiedHere}
-            onCopyManifest={handleCopyManifest}
-            onOpenSlack={handleOpenSlack}
-            onContinue={handleContinueToCreate}
-          />
-        )}
+      {stepId === "create" && (
+        <SlackSetupCreateStep onContinue={handleContinueToConnect} />
+      )}
 
-        {stepId === "create" && (
-          <SlackSetupCreateStep onContinue={handleContinueToConnect} />
-        )}
-
-        {stepId === "connect" && (
-          <SlackSetupTokensStep
-            botToken={botToken}
-            appToken={appToken}
-            saveStatus={saveStatus}
-            saveError={saveError}
-            onBotTokenChange={setBotToken}
-            onAppTokenChange={setAppToken}
-            onSave={handleSave}
-          />
-        )}
-      </div>
-    </div>
+      {stepId === "connect" && (
+        <SlackSetupTokensStep
+          botToken={botToken}
+          appToken={appToken}
+          saveStatus={saveStatus}
+          saveError={saveError}
+          onBotTokenChange={setBotToken}
+          onAppTokenChange={setAppToken}
+          onSave={handleSave}
+        />
+      )}
+    </ChannelSetupWizard>
   );
 }

@@ -1,5 +1,5 @@
 import { Button, Input, Notice, Typography } from "@vellumai/design-library";
-import type { MutationStatus } from "@/components/telegram-setup-wizard";
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { validateTelegramToken } from "@/utils/telegram-token-validation";
 
 export interface TelegramSetupConnectStepProps {

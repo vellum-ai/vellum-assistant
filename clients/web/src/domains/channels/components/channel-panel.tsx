@@ -2,11 +2,9 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
-import {
-  SlackSetupWizard,
-  type MutationStatus,
-} from "@/components/slack-setup-wizard";
+import { SlackSetupWizard } from "@/components/slack-setup-wizard";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
 import { ConnectedChannelHeader } from "@/domains/channels/components/connected-channel-header";

@@ -1,14 +1,16 @@
 import { useCallback, useState } from "react";
 
-import { Stepper, type StepperStep } from "@vellumai/design-library";
+import { type StepperStep } from "@vellumai/design-library";
+import {
+  ChannelSetupWizard,
+  type MutationStatus,
+} from "@/components/channel-setup-wizard";
 import { TelegramSetupConnectStep } from "@/components/telegram-setup-connect-step";
 import { TelegramSetupCreateStep } from "@/components/telegram-setup-create-step";
+import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
-// Duplicated from `slack-setup-wizard.tsx` rather than imported: a Telegram
-// component reaching into the Slack wizard for a shared type is the wrong
-// dependency. Both move to the shared shell when it is extracted.
-export type MutationStatus = "idle" | "pending" | "success" | "error";
+export type { MutationStatus };
 
 const BOTFATHER_URL = "https://t.me/BotFather";
 
@@ -41,14 +43,13 @@ export function TelegramSetupWizard({
   saveStatus = "idle",
   saveError = null,
 }: TelegramSetupWizardProps) {
-  const [stepId, setStepId] = useState<TelegramSetupStepId>("create");
+  const { stepId, stepIndex, goTo, onStepSelect } =
+    useChannelSetupSteps(WIZARD_STEP_IDS);
   const [botToken, setBotToken] = useState("");
 
   const { copy, copied } = useCopyToClipboard({
     errorMessage: "Could not copy the name. Type it into BotFather instead.",
   });
-
-  const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
   const handleCopyName = useCallback(() => {
     copy(assistantName);
@@ -58,54 +59,39 @@ export function TelegramSetupWizard({
     window.open(BOTFATHER_URL, "_blank", "noopener,noreferrer");
   }, []);
 
-  const handleContinueToConnect = useCallback(() => setStepId("connect"), []);
+  const handleContinueToConnect = useCallback(() => goTo("connect"), [goTo]);
 
   const handleSave = useCallback(() => {
     onSave?.(botToken.trim());
   }, [onSave, botToken]);
 
-  const handleStepSelect = useCallback(
-    (index: number) => {
-      if (index < stepIndex) {
-        setStepId(WIZARD_STEP_IDS[index]);
-      }
-    },
-    [stepIndex],
-  );
-
   return (
-    <div data-slot="telegram-setup-wizard" className="flex flex-col gap-4">
-      <Stepper
-        steps={WIZARD_STEPS}
-        current={stepIndex}
-        onStepSelect={handleStepSelect}
-        disabled={saveStatus === "pending"}
-      />
+    <ChannelSetupWizard
+      channelLabel="Telegram"
+      steps={WIZARD_STEPS}
+      stepIndex={stepIndex}
+      onStepSelect={onStepSelect}
+      locked={saveStatus === "pending"}
+    >
+      {stepId === "create" && (
+        <TelegramSetupCreateStep
+          suggestedName={assistantName}
+          copied={copied}
+          onCopyName={handleCopyName}
+          onOpenBotFather={handleOpenBotFather}
+          onContinue={handleContinueToConnect}
+        />
+      )}
 
-      <div
-        data-slot="telegram-setup-step-panel"
-        className="rounded-lg bg-[var(--surface-sunken)] p-4"
-      >
-        {stepId === "create" && (
-          <TelegramSetupCreateStep
-            suggestedName={assistantName}
-            copied={copied}
-            onCopyName={handleCopyName}
-            onOpenBotFather={handleOpenBotFather}
-            onContinue={handleContinueToConnect}
-          />
-        )}
-
-        {stepId === "connect" && (
-          <TelegramSetupConnectStep
-            botToken={botToken}
-            saveStatus={saveStatus}
-            saveError={saveError}
-            onBotTokenChange={setBotToken}
-            onSave={handleSave}
-          />
-        )}
-      </div>
-    </div>
+      {stepId === "connect" && (
+        <TelegramSetupConnectStep
+          botToken={botToken}
+          saveStatus={saveStatus}
+          saveError={saveError}
+          onBotTokenChange={setBotToken}
+          onSave={handleSave}
+        />
+      )}
+    </ChannelSetupWizard>
   );
 }
