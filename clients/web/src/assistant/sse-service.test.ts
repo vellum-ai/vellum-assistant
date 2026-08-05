@@ -674,6 +674,68 @@ describe("sseService.attach: background grace policy", () => {
   });
 });
 
+describe("sseService.attach: online resumes vs the hidden mark", () => {
+  test("an online resume mid-background leaves the later foreground resume its teardown-and-reopen", () => {
+    // GIVEN a backgrounded native app whose wifi flaps while it is still in
+    // the background, publishing app.resume(signal:"online") with no
+    // foreground behind it
+    nativeMobile = true;
+    const start = Date.now();
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN that online resume lands while the app is still hidden
+    setSystemTime(new Date(start + SHORT_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "online" });
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // THEN the real foreground resume, long past the suspect threshold,
+    // still finds the hidden mark and replaces the frozen socket. Had the
+    // online event consumed it, the dead connection would have survived
+    // until the 45s stream watchdog noticed
+    setSystemTime(new Date(start + LONG_BACKGROUND_MS));
+    eventBus.publish("app.resume", { signal: "app_state" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("an online resume mid-background does not cancel the pending grace teardown", async () => {
+    // GIVEN a backgrounded app with its grace teardown armed
+    nativeMobile = true;
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    eventBus.publish("app.hidden", { signal: "visibility" });
+
+    // WHEN an online event arrives before the grace elapses
+    eventBus.publish("app.resume", { signal: "online" });
+
+    // THEN the teardown still fires: the app never came to the foreground,
+    // so nothing has happened that should keep the socket
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an online resume still reopens a downed connection while visible", () => {
+    // GIVEN a visible app whose socket died on a network fault, with no
+    // background involved
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    activeOnError!(new Error("network down"));
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    // WHEN the network comes back
+    eventBus.publish("app.resume", { signal: "online" });
+
+    // THEN the reconnect-on-recovery path is unchanged: a down connection
+    // reopens, and nothing had to be torn down to get there
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("sseService.attach — power-driven bounce", () => {
   test("power.suspend tears down a live SSE so the daemon sees us go away cleanly", () => {
     sseService.attach("asst-1");

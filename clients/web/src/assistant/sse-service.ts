@@ -27,7 +27,7 @@
 import * as Sentry from "@sentry/react";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { publish, subscribe } from "@/lib/event-bus";
+import { publish, subscribe, type AppResumeSignal } from "@/lib/event-bus";
 import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import {
   clearSseReconnectHandler,
@@ -261,24 +261,36 @@ export const sseService: SseService = {
 
     // App lifecycle (renderer-visibility): a hidden tab does NOT tear the
     // connection down immediately — see `handleAppHidden`, which debounces
-    // it behind the platform's grace window. On resume we cancel any
-    // pending grace teardown (so a brief tab-out keeps its live socket) and
-    // reopen only if the connection was torn down, or if the background ran
-    // long enough that the socket we still hold is suspect. The self-dedup
-    // window collapses double-fires from visibilitychange + Capacitor
-    // appStateChange (both arrive in close succession on foregrounding the
-    // iOS native shell).
-    const handleAppResume = () => {
-      // Resumed within the grace window → the socket was never torn down;
-      // cancel the pending teardown and keep it. Resumed after it fired →
-      // no-op here, and the reopen below handles the down connection.
-      clearHiddenTeardownTimer();
-      // Consume the hidden mark on this first resume edge, ahead of the
-      // dedup window below, so the suspect check runs once per background
-      // and cannot be skipped: the iOS double-fire's second resume finds
-      // it null and so can neither bypass nor re-run the bounce.
-      const hiddenSince = hiddenAt;
-      hiddenAt = null;
+    // it behind the platform's grace window. On a foreground resume we
+    // cancel any pending grace teardown (so a brief tab-out keeps its live
+    // socket) and reopen only if the connection was torn down, or if the
+    // background ran long enough that the socket we still hold is suspect.
+    // The self-dedup window collapses double-fires from visibilitychange +
+    // Capacitor appStateChange (both arrive in close succession on
+    // foregrounding the iOS native shell).
+    const handleAppResume = ({ signal }: { signal: AppResumeSignal }) => {
+      // Only a real foreground consumes the hidden state. `online` is a
+      // network transition that can arrive while the app is still
+      // backgrounded, so letting it clear the hidden mark and the pending
+      // grace teardown would defeat the suspect-socket reconnect: the
+      // visibility/app_state resume that eventually lands would find no
+      // background to measure and would keep a socket the OS killed during
+      // the freeze. `online` still reopens a connection that is already
+      // down, which is all it ever did here.
+      const isForegroundResume = signal !== "online";
+      let hiddenSince: number | null = null;
+      if (isForegroundResume) {
+        // Resumed within the grace window → the socket was never torn down;
+        // cancel the pending teardown and keep it. Resumed after it fired →
+        // no-op here, and the reopen below handles the down connection.
+        clearHiddenTeardownTimer();
+        // Consume the hidden mark on this first resume edge, ahead of the
+        // dedup window below, so the suspect check runs once per background
+        // and cannot be skipped: the iOS double-fire's second resume finds
+        // it null and so can neither bypass nor re-run the bounce.
+        hiddenSince = hiddenAt;
+        hiddenAt = null;
+      }
       const now = Date.now();
       if (
         current !== null &&
