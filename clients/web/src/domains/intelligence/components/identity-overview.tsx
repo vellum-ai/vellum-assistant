@@ -36,6 +36,7 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
@@ -203,15 +204,23 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   } = useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
+  // The native mobile shells drop the Memory, Workspace, Contacts and
+  // Channels cards, so their measurements are dead reads there.
+  const isNativeMobile = useIsNativeMobile();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
+    isNativeMobile,
   });
   // The Memory card's measurement is the cheap page-index concept count
-  // (get-memory-stats) — NOT the concept-graph build, which is kept off
-  // identity-page load. The card itself is unconditional; only its count is
-  // conditional, so an assistant whose backend can't draw the graph still has
-  // a way into the Memory tab (which explains why, and offers the fix).
-  const memoryStats = useQuery(memoryStatsOptions(assistantId));
+  // (get-memory-stats), NOT the concept-graph build, which is kept off
+  // identity-page load. Wherever the card shows it is never gated on backend
+  // capability; only its count is, so an assistant whose backend can't draw
+  // the graph still has a way into the Memory tab (which explains why, and
+  // offers the fix).
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: !isNativeMobile,
+  });
   // Only measured where concept pages are actually the substrate (memory tier
   // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
   // assistant (memory lives in the legacy graph) and a memory-off one all read
@@ -259,7 +268,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections();
+  const sections = buildIdentitySections({ isNativeMobile });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
   // Custom image (no character color): the page background becomes the
