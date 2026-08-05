@@ -136,19 +136,17 @@ const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
  *
  * Typed as the API's own `ClientEnum` rather than a restated union, so a value
  * the platform stops accepting is a compile error here instead of a rejected
- * submission at runtime — which is exactly how `android` got here: it was
- * removed from the enum server-side, and nothing on this side noticed.
- *
- * Android reports as `web` deliberately. No native Capacitor Android shell
- * ships (see `runtime/push-registration.ts`), so an Android device reaching
- * this is in a browser and *is* a web client. This field is triage metadata,
- * and failing the whole submission over it would cost the report itself.
+ * submission at runtime.
  */
 function getFeedbackClient(): ClientEnum {
   if (isElectron()) {
     return "electron";
   }
-  return Capacitor.getPlatform() === "ios" ? "ios" : "web";
+  const platform = Capacitor.getPlatform();
+  if (platform === "ios" || platform === "android") {
+    return platform;
+  }
+  return "web";
 }
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;

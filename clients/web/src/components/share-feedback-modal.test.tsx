@@ -5,6 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const feedbackRequests: unknown[] = [];
+let capacitorPlatform: "web" | "ios" | "android" = "web";
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   feedbackCreateMutation: () => ({
@@ -13,6 +14,13 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
       return { id: "feedback-1" };
     },
   }),
+}));
+
+mock.module("@capacitor/core", () => ({
+  Capacitor: {
+    getPlatform: () => capacitorPlatform,
+    isNativePlatform: () => capacitorPlatform !== "web",
+  },
 }));
 
 mock.module("@/stores/auth-store", () => ({
@@ -29,6 +37,7 @@ const { ShareFeedbackModal, stripBulkBase64, dedupeAgainstClientMessages } =
 afterEach(() => {
   cleanup();
   feedbackRequests.length = 0;
+  capacitorPlatform = "web";
   delete (window as unknown as { _vellumDebug?: unknown })._vellumDebug;
 });
 
@@ -83,6 +92,32 @@ describe("ShareFeedbackModal", () => {
       (screen.getByLabelText("What's on your mind?") as HTMLTextAreaElement)
         .value,
     ).toBe("The app colors are ugly.");
+  });
+
+  test("reports Android shell feedback as android", async () => {
+    capacitorPlatform = "android";
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="other"
+          initialMessage="The app colors are ugly."
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(feedbackRequests).toHaveLength(1));
+    const request = feedbackRequests[0] as { body: { client?: string } };
+    expect(request.body.client).toBe("android");
   });
 
   test("submits Doctor session id and transcript diagnostics", async () => {
