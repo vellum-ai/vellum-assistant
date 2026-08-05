@@ -262,12 +262,16 @@ function SessionControls({
           <Volume2 className="size-3.5" aria-hidden />
         )}
       </ControlButton>
+      {/* The room's own end control, at panel scale: the same ✕ at the same
+          weight, in the same destructive tone, under the same label. Ending a
+          call is the one irreversible thing on this surface, so it should look
+          identical wherever the user meets it. */}
       <ControlButton
         action="endSession"
-        label="End session"
+        label="End voice session"
         className="ml-auto text-[var(--system-negative-strong)]"
       >
-        <PhoneOff className="size-3.5" aria-hidden />
+        <X className="size-3.5" strokeWidth={2.5} aria-hidden />
       </ControlButton>
     </div>
   );
