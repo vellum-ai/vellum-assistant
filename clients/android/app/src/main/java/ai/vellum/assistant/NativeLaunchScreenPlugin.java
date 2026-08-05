@@ -2,8 +2,6 @@ package ai.vellum.assistant;
 
 import android.app.UiModeManager;
 import android.content.Context;
-import android.content.res.Configuration;
-import android.content.res.Resources;
 import android.os.Build;
 import androidx.appcompat.app.AppCompatDelegate;
 import com.getcapacitor.Plugin;
@@ -83,11 +81,7 @@ public class NativeLaunchScreenPlugin extends Plugin {
         if ("light".equals(theme)) {
             return UiModeManager.MODE_NIGHT_NO;
         }
-        int nightMode = Resources.getSystem().getConfiguration().uiMode
-            & Configuration.UI_MODE_NIGHT_MASK;
-        return nightMode == Configuration.UI_MODE_NIGHT_YES
-            ? UiModeManager.MODE_NIGHT_YES
-            : UiModeManager.MODE_NIGHT_NO;
+        return UiModeManager.MODE_NIGHT_AUTO;
     }
 
     private static int appCompatNightMode(String theme) {
