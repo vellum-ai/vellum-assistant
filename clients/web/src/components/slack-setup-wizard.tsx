@@ -91,6 +91,13 @@ export function SlackSetupWizard({
 
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
+  // Whether the manifest for the app as currently named was copied from here.
+  // Editing the name or description after a copy invalidates it, so both the
+  // handoff notice and the transient "Copied!" label key off this rather than
+  // off `copied` alone: the flag survives 1.5s and would otherwise keep
+  // confirming a copy of a manifest that no longer exists.
+  const manifestCopiedHere = copiedManifest === manifestJson;
+
   const handleAppNameChange = useCallback((value: string) => {
     userEditedName.current = true;
     setSlackAppName(value);
@@ -138,7 +145,7 @@ export function SlackSetupWizard({
           <SlackSetupNameStep
             appName={slackAppName}
             description={description}
-            copied={copied}
+            copied={copied && manifestCopiedHere}
             onAppNameChange={handleAppNameChange}
             onDescriptionChange={setDescription}
             onCopyManifest={handleCopyManifest}
@@ -148,8 +155,8 @@ export function SlackSetupWizard({
 
         {stepId === "open" && (
           <SlackSetupOpenStep
-            manifestCopiedHere={copiedManifest === manifestJson}
-            copied={copied}
+            manifestCopiedHere={manifestCopiedHere}
+            copied={copied && manifestCopiedHere}
             onCopyManifest={handleCopyManifest}
             onOpenSlack={handleOpenSlack}
             onContinue={handleContinueToCreate}

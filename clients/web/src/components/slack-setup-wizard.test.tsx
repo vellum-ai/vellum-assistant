@@ -126,6 +126,25 @@ describe("SlackSetupWizard step flow", () => {
     );
   });
 
+  test("editing after a copy retracts the Copied! label, not just the notice", async () => {
+    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+
+    fireEvent.click(copyButton());
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Copied!/i })).toBeTruthy();
+    });
+
+    // Well inside the 1.5s window the flag survives, so nothing but the
+    // manifest comparison can retract the label here. Leaving it would let the
+    // notice say "not copied" while the button beside it still says "Copied!".
+    fireEvent.change(screen.getByLabelText(/App Name/i), {
+      target: { value: "Renamed Bot" },
+    });
+
+    expect(screen.queryByRole("button", { name: /Copied!/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Copy manifest/i })).toBeTruthy();
+  });
+
   test("a stale clipboard is reported as not ready", async () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
 
@@ -143,6 +162,8 @@ describe("SlackSetupWizard step flow", () => {
     expect(screen.getByRole("status").textContent).toMatch(
       /have not copied this app's manifest yet/i,
     );
+    // The notice and the control beside it must not disagree.
+    expect(screen.queryByRole("button", { name: /Copied!/i })).toBeNull();
   });
 
   test("copying at the handoff step marks the manifest copied", async () => {
