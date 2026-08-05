@@ -27,6 +27,7 @@ import {
   updateSkill,
 } from "../../daemon/handlers/skills.js";
 import { getCategories } from "../../skills/categories-cache.js";
+import { getSkillHistory } from "../../skills/skill-history.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -349,6 +350,59 @@ export const ROUTES: RouteDefinition[] = [
         throw new InternalError(result.error);
       }
       return result;
+    },
+  },
+  {
+    operationId: "getSkillHistory",
+    endpoint: "skills/:id/history",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get skill revision history",
+    description:
+      "Return a skill's recent updates, newest first, each with a combined diff across the skill directory. Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads.",
+    tags: ["skills"],
+    responseBody: z.object({
+      skillId: z.string().describe("The skill these revisions belong to"),
+      revisions: z
+        .array(
+          z.object({
+            id: z.string().describe("Opaque revision identifier"),
+            changedAt: z.string().describe("ISO-8601 time of the update"),
+            files: z
+              .array(z.string())
+              .describe("Paths changed, relative to the skill directory"),
+            diff: z
+              .string()
+              .describe("Unified diff of this update, scoped to the skill"),
+          }),
+        )
+        .describe("Recent updates, newest first"),
+      truncatedByCompaction: z
+        .boolean()
+        .describe(
+          "Older history was squashed away, so the oldest entry is a floor rather than the skill's creation",
+        ),
+    }),
+    handler: async ({ pathParams, queryParams }: RouteHandlerArgs) => {
+      const rawLimit = queryParams?.limit;
+      const limit =
+        typeof rawLimit === "string" && rawLimit.trim().length > 0
+          ? Number.parseInt(rawLimit, 10)
+          : undefined;
+      try {
+        return await getSkillHistory(pathParams!.id, {
+          ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
+        });
+      } catch (err) {
+        // The id reaches a git pathspec, so a malformed one is the caller's
+        // error rather than a server fault.
+        throw new BadRequestError(
+          err instanceof Error ? err.message : "Invalid skill id",
+        );
+      }
     },
   },
   {

@@ -29166,6 +29166,67 @@ paths:
                   - isBinary
                   - content
                 additionalProperties: false
+  /v1/skills/{id}/history:
+    get:
+      operationId: skills_by_id_history_get
+      summary: Get skill revision history
+      description:
+        "Return a skill's recent updates, newest first, each with a combined diff across the skill directory.
+        Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose
+        only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads."
+      tags:
+        - skills
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skillId:
+                    type: string
+                    description: The skill these revisions belong to
+                  revisions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Opaque revision identifier
+                        changedAt:
+                          type: string
+                          description: ISO-8601 time of the update
+                        files:
+                          type: array
+                          items:
+                            type: string
+                          description: Paths changed, relative to the skill directory
+                        diff:
+                          type: string
+                          description: Unified diff of this update, scoped to the skill
+                      required:
+                        - id
+                        - changedAt
+                        - files
+                        - diff
+                      additionalProperties: false
+                    description: Recent updates, newest first
+                  truncatedByCompaction:
+                    type: boolean
+                    description: Older history was squashed away, so the oldest entry is a floor rather than the skill's creation
+                required:
+                  - skillId
+                  - revisions
+                  - truncatedByCompaction
+                additionalProperties: false
   /v1/skills/{id}/inspect:
     get:
       operationId: skills_by_id_inspect_get
