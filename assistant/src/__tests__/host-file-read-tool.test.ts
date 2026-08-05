@@ -26,8 +26,8 @@ mock.module("../daemon/host-file-proxy.js", () => ({
   },
 }));
 
-import { DEFAULT_READ_LINE_LIMIT } from "../tools/shared/filesystem/file-ops-service.js";
 import { hostFileReadTool } from "../tools/host-filesystem/read.js";
+import { DEFAULT_READ_LINE_LIMIT } from "../tools/shared/filesystem/file-ops-service.js";
 import type { ToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
