@@ -344,11 +344,15 @@ export function listConversations(
   const recency = desc(
     sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
   );
-  // `id` closes the ordering. Without a unique final term the sort is not a
-  // total order, so rows tied on every preceding key may come back in a
-  // different arrangement between identical queries, which shows up as rows
-  // swapping places on refetch and, once this list pages, as duplicated and
-  // skipped rows across page boundaries.
+  // `id` closes the ordering so the sort is a total order. Rows tied on every
+  // preceding key would otherwise have no defined relative order, which
+  // becomes duplicated and skipped rows once a cursor pages across a tie
+  // boundary.
+  //
+  // Deliberately untested here: SQLite returns a stable arrangement for
+  // identical queries over identical data, so no assertion at this layer can
+  // distinguish a total order from a lucky one. The guarantee becomes
+  // observable, and gets its test, with the keyset pagination work.
   const tiebreak = desc(conversations.id);
   const orderBy = isUserOrderedGroup(filter.groupId)
     ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
