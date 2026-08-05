@@ -303,7 +303,7 @@ describe("parseVellumUrl", () => {
     ).toEqual({ kind: "unknown", url: "vellum-assistant://auth/callback" });
   });
 
-  test("vellum-assistant://connect?url=…&code=… → connect with the validated base and code", () => {
+  test("vellum-assistant://connect?url=…&code=… → connect with the validated base; the code is never carried", () => {
     expect(
       parseVellumUrl(
         "vellum-assistant://connect?url=https%3A%2F%2Fassistant.example.com%2Fassistant-1&code=ABCD-1234",
@@ -311,7 +311,6 @@ describe("parseVellumUrl", () => {
     ).toEqual({
       kind: "connect",
       url: "https://assistant.example.com/assistant-1",
-      code: "ABCD-1234",
     });
   });
 
@@ -331,15 +330,15 @@ describe("parseVellumUrl", () => {
   test("connect drops a non-https url param but keeps the rest of the link", () => {
     expect(
       parseVellumUrl(
-        "vellum://connect?url=http%3A%2F%2Fevil.example&code=ABCD-1234",
+        "vellum://connect?url=http%3A%2F%2Fevil.example&bundle=eyJnYXRld2F5",
       ),
-    ).toEqual({ kind: "connect", code: "ABCD-1234" });
+    ).toEqual({ kind: "connect", bundle: "eyJnYXRld2F5" });
   });
 
   test("connect drops an unparseable url param", () => {
     expect(
-      parseVellumUrl("vellum://connect?url=not%20a%20url&code=ABCD-1234"),
-    ).toEqual({ kind: "connect", code: "ABCD-1234" });
+      parseVellumUrl("vellum://connect?url=not%20a%20url&bundle=eyJnYXRld2F5"),
+    ).toEqual({ kind: "connect", bundle: "eyJnYXRld2F5" });
   });
 
   test("connect drops a bundle that is not base64/base64url", () => {
@@ -359,9 +358,10 @@ describe("parseVellumUrl", () => {
   });
 
   test("connect secrets never surface in console output from the module", () => {
-    // The parser carries `code` and `bundle` on the typed link only. This
-    // guards the auth/callback precedent: nothing the module does with a
-    // connect URL may write the secret material to a log stream.
+    // The parser carries `bundle` on the typed link only and drops the
+    // device code entirely. This guards the auth/callback precedent:
+    // nothing the module does with a connect URL may write the raw URL's
+    // secret material to a log stream.
     const consoleSpies = (["log", "warn", "error", "info", "debug"] as const)
       .map((method) => spyOn(console, method));
     try {

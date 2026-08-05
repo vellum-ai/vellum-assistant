@@ -51,9 +51,6 @@ export function publishElectronDeepLinksSource(): () => void {
         );
         break;
       case "connect":
-        // `code` stays behind: the renderer cannot complete a device-code
-        // exchange as a durable pairing, and the code is secret material
-        // with no consumer.
         publish("deeplink.connect", {
           url: link.url ?? null,
           bundle: link.bundle ?? null,

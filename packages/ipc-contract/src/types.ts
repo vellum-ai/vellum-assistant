@@ -203,11 +203,12 @@ export type DeepLink =
   /**
    * `<scheme>://connect`: the pair-page "Open in the Vellum app" hand-off
    * and `vellum pair --qr --app` QR codes. `url` is a validated https server
-   * base; `code` (device code) and `bundle` (pairing bundle) are secret
-   * material and must never be logged or breadcrumbed. Fields absent when
-   * their query params were missing or malformed.
+   * base; `bundle` (pairing bundle) is secret material and must never be
+   * logged or breadcrumbed. Fields absent when their query params were
+   * missing or malformed. The link never carries the `code` query param
+   * (device code): the renderer has no consumer for it.
    */
-  | { kind: "connect"; url?: string; code?: string; bundle?: string }
+  | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
 // ---------------------------------------------------------------------------

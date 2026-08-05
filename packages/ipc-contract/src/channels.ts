@@ -67,7 +67,6 @@ export const LOCAL_MODE_SAVE_ASSISTANT = "vellum:localMode:saveLockfileAssistant
 export const LOCAL_MODE_REPLACE_PLATFORM = "vellum:localMode:replacePlatformAssistants";
 export const LOCAL_MODE_RETIRE = "vellum:localMode:retire";
 export const LOCAL_MODE_UNPAIR = "vellum:localMode:unpair";
-export const LOCAL_MODE_CONNECT_IMPORT = "vellum:localMode:connectImport";
 export const LOCAL_MODE_SLEEP = "vellum:localMode:sleep";
 export const LOCAL_MODE_WAKE = "vellum:localMode:wake";
 export const LOCAL_MODE_UPGRADE = "vellum:localMode:upgrade";

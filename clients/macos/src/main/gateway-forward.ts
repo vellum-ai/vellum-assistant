@@ -163,10 +163,6 @@ export type GatewayForwardFetcher = (
   init: RequestInit & { duplex?: "half" },
 ) => Promise<Response>;
 
-export interface GatewayForwardBodySource {
-  body: ReadableStream | null;
-}
-
 /**
  * Turn a gateway forward plan into its effect: `null` on `pass` so the caller
  * serves the request as a static asset, otherwise the plan's rejection or a
@@ -182,7 +178,7 @@ export interface GatewayForwardBodySource {
  */
 export function executeGatewayForwardPlan(
   plan: GatewayForwardPlan,
-  request: GatewayForwardBodySource,
+  request: Pick<Request, "body">,
   fetcher: GatewayForwardFetcher,
   retryOptions: ForwardFetchRetryOptions = {},
 ): Promise<Response> | Response | null {
