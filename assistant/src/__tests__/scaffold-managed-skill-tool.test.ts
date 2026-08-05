@@ -1590,8 +1590,11 @@ describe("retrospective dedup", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("already covered");
+    expect(result.content).toContain("already covers this procedure");
     expect(result.content).toContain("deep-research");
+    // The refusal routes what the pass learned somewhere useful instead of
+    // discarding it: a delta the covering skill lacks belongs in memory.
+    expect(result.content).toContain("remember");
     expect(skillExists("export-weekly-report")).toBe(false);
     expect(skillExists("deep-research")).toBe(false);
     expect(dedupEvents()).toEqual([
@@ -1623,7 +1626,7 @@ describe("retrospective dedup", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("already covered");
+    expect(result.content).toContain("already covers this procedure");
     expect(readBody("user-owned")).toContain("Human body.");
     expect(installMetaFor("user-owned")?.author).toBe("user");
     expect(skillExists("export-weekly-report")).toBe(false);

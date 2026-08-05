@@ -123,7 +123,12 @@ type DedupOutcome =
  *   - a confident match on any skill the assistant does not own (bundled,
  *     plugin, workspace, extra, user-authored, or untagged managed) means the
  *     procedure is already covered, so the write is refused. Nothing is
- *     mutated and nothing is shadowed.
+ *     mutated and nothing is shadowed. The refusal routes the knowledge
+ *     rather than discarding it: it tells the pass to `remember` anything the
+ *     covering skill does not already capture (a failure mode, a
+ *     precondition, a path that held steady), which is available to a future
+ *     run of that skill without touching a skill the assistant does not
+ *     own.
  *
  * Deliberately FAIL-OPEN. This is best-effort deduplication, not a
  * correctness gate: an embedding or Qdrant outage makes
@@ -374,7 +379,7 @@ export async function executeScaffoldManagedSkill(
     if (dedup.kind === "covered") {
       recordDedupOutcome("covered");
       return {
-        content: `Error: this procedure is already covered by the ${dedup.source} skill "${dedup.skillId}", which the retrospective may not modify or shadow. Skip it.`,
+        content: `Error: the skill "${dedup.skillId}" (${dedup.source}) already covers this procedure, and you may not modify or shadow it, so no skill was created. If this conversation showed something that skill does not already capture (a failure mode you hit, a precondition, a value or path that held steady), save that with \`remember\` so it is available the next time "${dedup.skillId}" runs. If there is nothing new, skip it.`,
         isError: true,
       };
     }
