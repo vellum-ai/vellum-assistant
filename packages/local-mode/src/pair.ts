@@ -4,7 +4,10 @@ import path from "node:path";
 import { nanoid } from "nanoid";
 
 import { guardianTokenPath } from "./config";
-import { saveGuardianToken } from "./guardian-token";
+import {
+  isConfidentialRefreshUrl,
+  saveGuardianToken,
+} from "./guardian-token";
 import { readRawLockfile, upsertLockfileAssistant } from "./lockfile";
 
 /**
@@ -268,7 +271,11 @@ export function pairAssistant(
     ok: true,
     assistantId: localId,
     updated: existing !== undefined,
-    accessOnly: !bundle.refreshToken,
+    // A refresh token is only usable over a confidential channel (https or
+    // loopback); a bundle whose gateway is non-loopback plaintext http can
+    // never renew, so it is reported access-only and gets the expiry warning.
+    accessOnly:
+      !bundle.refreshToken || !isConfidentialRefreshUrl(bundle.gatewayUrl),
   };
 }
 

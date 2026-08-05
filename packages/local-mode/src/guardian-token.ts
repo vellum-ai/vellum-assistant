@@ -41,6 +41,38 @@ export function saveGuardianToken(
   fs.chmodSync(tokenPath, 0o600);
 }
 
+/**
+ * The guardian refresh token is long-lived and replayable, so it is only
+ * transmitted over a confidential channel: HTTPS, or a loopback host (local
+ * dev, or a same-host reverse proxy / tunnel agent). Refreshing against a
+ * non-loopback plaintext `http://` URL is refused; an on-path attacker could
+ * otherwise capture the refresh token and rotate it into fresh credentials.
+ *
+ * A user-chosen malicious `https://` destination is intentionally out of
+ * scope: HTTPS protects the channel, and the access token already goes
+ * wherever the configured URL points. This guard targets the
+ * plaintext-interception vector.
+ */
+function isLoopbackHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return (
+    h === "localhost" ||
+    h === "::1" ||
+    h === "[::1]" ||
+    h === "0:0:0:0:0:0:0:1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(h)
+  );
+}
+
+export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
+  try {
+    const url = new URL(gatewayUrl);
+    return url.protocol === "https:" || isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function isAccessTokenExpired(data: GuardianTokenData): boolean {
   const expiresAt = new Date(data.accessTokenExpiresAt).getTime();
   if (!Number.isFinite(expiresAt)) return true;

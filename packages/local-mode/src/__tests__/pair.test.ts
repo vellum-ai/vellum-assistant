@@ -228,6 +228,7 @@ describe("pairAssistant", () => {
   test("persists the refresh credential and reports accessOnly: false", () => {
     const result = pairAssistant([lockfilePath], configDir, {
       bundle: bundle({
+        gatewayUrl: "https://gw.example.com",
         deviceId: "dev-refresh",
         refreshToken: "refresh-tok",
         refreshTokenExpiresAt: "2027-01-01T00:00:00.000Z",
@@ -249,6 +250,43 @@ describe("pairAssistant", () => {
     expect(token.refreshToken).toBe("refresh-tok");
     expect(token.refreshTokenExpiresAt).toBe("2027-01-01T00:00:00.000Z");
     expect(token.refreshAfter).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  test("a loopback http gateway with a refresh token stays renewable", () => {
+    const result = pairAssistant([lockfilePath], configDir, {
+      bundle: bundle({
+        gatewayUrl: "http://127.0.0.1:7830",
+        deviceId: "dev-loopback",
+        refreshToken: "refresh-tok",
+        refreshTokenExpiresAt: "2027-01-01T00:00:00.000Z",
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.accessOnly).toBe(false);
+  });
+
+  test("a non-loopback plaintext http gateway is access-only even with a refresh token", () => {
+    // refreshGuardianToken refuses to send the refresh token over plaintext
+    // LAN URLs, so the pairing can never renew; report it access-only so the
+    // expiry warning shows.
+    const result = pairAssistant([lockfilePath], configDir, {
+      bundle: bundle({
+        gatewayUrl: "http://10.0.0.5:7830",
+        deviceId: "dev-lan",
+        refreshToken: "refresh-tok",
+        refreshTokenExpiresAt: "2027-01-01T00:00:00.000Z",
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.accessOnly).toBe(true);
   });
 
   test("a name is slugified into the id while the entry keeps the raw name", () => {

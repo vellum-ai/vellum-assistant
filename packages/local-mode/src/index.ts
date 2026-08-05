@@ -59,7 +59,11 @@ export type {
   LocalAssistantRuntimeState,
   LocalAssistantStatusResult,
 } from "./status";
-export { getGuardianAccessToken, saveGuardianToken } from "./guardian-token";
+export {
+  getGuardianAccessToken,
+  isConfidentialRefreshUrl,
+  saveGuardianToken,
+} from "./guardian-token";
 export type {
   TokenResult,
   GuardianTokenData,
