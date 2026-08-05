@@ -7,6 +7,7 @@ import type {
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   isDraftActive,
+  isProfileOnlyOverride,
   draftsEqual,
 } from "@/domains/settings/ai/call-site-helpers";
 
@@ -29,6 +30,32 @@ describe("isDraftActive", () => {
 
   test("returns false when all fields are null", () => {
     expect(isDraftActive({ profile: null, provider: null, model: null })).toBe(
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isProfileOnlyOverride
+// ---------------------------------------------------------------------------
+
+describe("isProfileOnlyOverride", () => {
+  test("returns true only for a bare profile pin", () => {
+    expect(isProfileOnlyOverride({ profile: "fast" })).toBe(true);
+    expect(
+      isProfileOnlyOverride({ profile: "fast", provider: null, model: null }),
+    ).toBe(true);
+  });
+
+  test("returns false for empty, custom, and mixed pins", () => {
+    expect(isProfileOnlyOverride(null)).toBe(false);
+    expect(isProfileOnlyOverride(undefined)).toBe(false);
+    expect(isProfileOnlyOverride({})).toBe(false);
+    expect(isProfileOnlyOverride({ provider: "openai" })).toBe(false);
+    expect(isProfileOnlyOverride({ model: "gpt-4o" })).toBe(false);
+    // A profile alongside a provider/model pin renders as "Custom": the
+    // swap must not claim it.
+    expect(isProfileOnlyOverride({ profile: "fast", model: "gpt-4o" })).toBe(
       false,
     );
   });

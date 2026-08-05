@@ -86,8 +86,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { OverridesDetailPanel } =
-  await import("@/domains/settings/ai/overrides-detail-panel");
+const { OverridesDetailPanel } = await import(
+  "@/domains/settings/ai/overrides-detail-panel"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -370,5 +371,86 @@ describe("OverridesDetailPanel - default caption", () => {
     fireEvent.click(toggle);
     expect(renderedText()).toContain("Default: Quality");
     expect(renderedText()).not.toContain("Default: My BYOK");
+  });
+});
+
+describe("OverridesDetailPanel - bulk change", () => {
+  function renderWith(config: unknown) {
+    servedConfig = config;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], CATALOG);
+    client.setQueryData([{ _id: "configGet" }], config);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  const OVERRIDDEN_CONFIG = {
+    ...CONFIG,
+    llm: {
+      ...CONFIG.llm,
+      callSites: { workflowLeaf: { profile: "quality" } },
+    },
+  };
+
+  test("disabled when no override uses a profile", async () => {
+    // A provider/model pin renders as "Custom" and references no profile,
+    // so it must not enable the bulk swap either.
+    const CUSTOM_ONLY_CONFIG = {
+      ...CONFIG,
+      llm: {
+        ...CONFIG.llm,
+        callSites: {
+          workflowLeaf: { provider: "anthropic", model: "claude-fable-5" },
+        },
+      },
+    };
+    renderWith(CUSTOM_ONLY_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+    expect(getButton("Bulk change").disabled).toBe(true);
+  });
+
+  test("opens the swap modal seeded with the referenced profile", async () => {
+    renderWith(OVERRIDDEN_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    const button = getButton("Bulk change");
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(renderedText()).toContain("Change Action Overrides");
+    });
+    expect(renderedText()).toContain("1 override currently uses Quality");
+  });
+
+  test("disabled while the editor holds unsaved drafts", async () => {
+    renderWith(OVERRIDDEN_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    pickOption(advisorTrigger, "My BYOK");
+
+    expect(getButton("Bulk change").disabled).toBe(true);
   });
 });

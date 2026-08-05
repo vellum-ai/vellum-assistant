@@ -19,6 +19,17 @@ export function isDraftActive(
   return !!(d.profile || d.provider || d.model);
 }
 
+/**
+ * True when an override pins a profile and nothing else. Rows carrying a
+ * provider/model pin render as "Custom" in the editor, so a bulk profile
+ * swap treats them as not using any profile.
+ */
+export function isProfileOnlyOverride(
+  d: CallSiteOverrideDraft | null | undefined,
+): boolean {
+  return !!d?.profile && !d?.provider && !d?.model;
+}
+
 export function draftsEqual(
   a: CallSiteOverrideDraft | null | undefined,
   b: CallSiteOverrideDraft | null | undefined,

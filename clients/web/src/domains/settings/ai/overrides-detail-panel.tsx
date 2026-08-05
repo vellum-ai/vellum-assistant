@@ -10,10 +10,12 @@ import {
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
 import { AdvisorProfileRow } from "@/domains/settings/ai/advisor-profile-row";
+import { BulkOverrideSwapModal } from "@/domains/settings/ai/bulk-override-swap-modal";
 import {
   CUSTOM_SENTINEL,
   draftsEqual,
   isDraftActive,
+  isProfileOnlyOverride,
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
@@ -104,6 +106,7 @@ export function OverridesDetailPanel({
   const [advisorEdit, setAdvisorEdit] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
+  const [showBulkSwap, setShowBulkSwap] = useState(false);
 
   const {
     data: catalog,
@@ -191,6 +194,17 @@ export function OverridesDetailPanel({
     const q = search.trim().toLowerCase();
     return q === "" || "advisor".includes(q) || "second opinion".includes(q);
   }, [search]);
+
+  // The bulk swap rewrites persisted profile pins, so it needs at least one
+  // profile-only override to act on. Provider/model ("Custom") pins don't
+  // reference a profile and are out of its reach.
+  const hasBulkSwapCandidates = useMemo(
+    () =>
+      Object.entries(persistedOverrides).some(
+        ([id, s]) => gatedCallSiteIdSet.has(id) && isProfileOnlyOverride(s),
+      ),
+    [persistedOverrides, gatedCallSiteIdSet],
+  );
 
   const hasAnyPersistedOverride = useMemo(
     () =>
@@ -445,16 +459,38 @@ export function OverridesDetailPanel({
       </p>
 
       <div>
-        {/* Search */}
-        <div className="mb-4">
-          <Input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search actions…"
-            leftIcon={<Search className="h-4 w-4" />}
-            fullWidth
-          />
+        {/* Search + bulk change. The swap acts on persisted overrides, so it
+            stays disabled while the editor holds unsaved drafts: applying it
+            under a dirty draft would show stale rows and let a later Save
+            silently undo the swap. */}
+        <div className="mb-4 flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search actions…"
+              leftIcon={<Search className="h-4 w-4" />}
+              fullWidth
+            />
+          </div>
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() => setShowBulkSwap(true)}
+            disabled={
+              !isSeeded || saving || hasUnsavedDrafts || !hasBulkSwapCandidates
+            }
+            title={
+              hasUnsavedDrafts
+                ? "Save or reset your changes first"
+                : !hasBulkSwapCandidates
+                  ? "No overrides currently use a profile"
+                  : undefined
+            }
+          >
+            Bulk change
+          </Button>
         </div>
 
         {/* Advisor: a top-level selection, not a catalog call site, so it
@@ -566,6 +602,21 @@ export function OverridesDetailPanel({
           </div>
         )}
       </div>
+
+      {/* Mounted per open so source/target/selection state resets. Clears
+          draft edits on apply: a stale touched-then-reverted edit would pin
+          the pre-swap value over the freshly persisted one. */}
+      {showBulkSwap && catalog && (
+        <BulkOverrideSwapModal
+          assistantId={assistantId}
+          callSites={gatedCallSites}
+          domains={catalog.domains}
+          persistedOverrides={persistedOverrides}
+          orderedProfiles={orderedProfiles}
+          onClose={() => setShowBulkSwap(false)}
+          onApplied={() => setDraftEdits({})}
+        />
+      )}
 
       <ConfirmDialog
         open={showResetConfirmation}
