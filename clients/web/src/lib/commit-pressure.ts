@@ -161,8 +161,15 @@ export function recordUpdate(source: UpdateSource): void {
 }
 
 /**
- * Record a React commit. Called from a dependency-less effect in the chat
- * route, so it counts commits of that subtree — not every root commit.
+ * Record a React commit. Called from a dependency-less layout effect in the
+ * chat route, so it counts commits of that subtree, not every root commit.
+ * Layout-effect timing keeps attribution honest: the commit is recorded
+ * before ResizeObserver, rAF, and timer callbacks run, so an instrumented
+ * update firing in those callbacks attributes the commit it schedules, not
+ * the one that just finished. Updates scheduled inside the render or layout
+ * window itself are still consumed by the finishing commit, so an isolated
+ * `unattributedCommits` tick with a run of 1 is scheduling noise; the signal
+ * is counts rivaling `commits` and long runs.
  */
 export function recordCommit(): void {
   const ts = now();
