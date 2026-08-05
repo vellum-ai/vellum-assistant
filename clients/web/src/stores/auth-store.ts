@@ -596,8 +596,13 @@ async function reconcilePlatformAssistants(
     if (isSettledSessionRejection(apiAssistants)) {
       // The org fetch self-clears on its own rejection; an assistants-only
       // rejection must clear the org state too, or the request interceptor
-      // keeps stamping the rejected account's Vellum-Organization-Id.
-      useOrganizationStore.getState().clearOrganization();
+      // keeps stamping the rejected account's Vellum-Organization-Id. The
+      // currency guard matches the sync below: a timed-out or superseded
+      // probe settled "present" from cached data, and its dangling call must
+      // not strip the org header out from under that session.
+      if (syncIsCurrent?.() ?? true) {
+        useOrganizationStore.getState().clearOrganization();
+      }
       return true;
     }
     if ((syncIsCurrent?.() ?? true) && apiAssistants.ok) {
