@@ -20,6 +20,7 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { Button } from "@vellumai/design-library/components/button";
 import {
   Dropdown,
@@ -91,6 +92,9 @@ function priceSuffix(cents: number) {
 /**
  * A picker's caption and its docs link. The three links read "Learn more"
  * alike, so each takes an `aria-label` naming the dimension it explains.
+ * The click routes through the native opener because the iOS WKWebView shell
+ * cannot open a `target="_blank"` anchor on its own; the `href` stays for
+ * web and Electron.
  */
 function PickerLabel({
   label,
@@ -111,6 +115,7 @@ function PickerLabel({
         target="_blank"
         rel="noopener noreferrer"
         aria-label={docsLabel}
+        onClick={(e) => handleNativeAnchorClick(e, docsUrl)}
         className="text-[11px] font-medium text-[var(--content-tertiary)] underline hover:text-[var(--content-default)]"
       >
         Learn more

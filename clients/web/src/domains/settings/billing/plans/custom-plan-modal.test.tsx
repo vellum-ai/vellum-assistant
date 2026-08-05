@@ -32,6 +32,7 @@ import {
 } from "@/domains/settings/billing/plans/docs-links";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
+import * as nativeAuth from "@/runtime/native-auth";
 import * as platformGate from "@/hooks/use-platform-gate";
 import {
   organizationsBillingPlansRetrieveQueryKey,
@@ -54,6 +55,8 @@ let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
+// True puts the app in the iOS Capacitor shell for the anchor-routing tests.
+let nativePlatform = false;
 // When non-null, the change-machine-tier call rejects with this — drives the
 // error path (the hook toasts and the caller keeps the modal open).
 let machineTierError: unknown = null;
@@ -106,6 +109,13 @@ mock.module("@/runtime/browser", () => ({
     openedUrl = url;
     return Promise.resolve();
   },
+}));
+
+// Drives `handleNativeAnchorClick`: on iOS the docs anchors must route through
+// the native opener, since the WKWebView shell cannot open a `target="_blank"`.
+mock.module("@/runtime/native-auth", () => ({
+  ...nativeAuth,
+  isNativePlatform: () => nativePlatform,
 }));
 
 // Force the platform-hosted gate open so the page mounts its pricing body
@@ -386,6 +396,7 @@ beforeEach(() => {
   storageTierCall = null;
   creditTierCall = null;
   openedUrl = null;
+  nativePlatform = false;
   machineTierError = null;
   onboardingHangs = false;
   subscriptionFixture = null;
@@ -425,6 +436,16 @@ function recapRows(): string[] {
   return Array.from(dialog?.querySelectorAll("li") ?? []).map(
     (li) => li.textContent?.trim() ?? "",
   );
+}
+
+function docsLink(href: string): HTMLAnchorElement {
+  const link = document.querySelector<HTMLAnchorElement>(
+    `[role="dialog"] a[href="${href}"]`,
+  );
+  if (!link) {
+    throw new Error(`expected a docs link to ${href}`);
+  }
+  return link;
 }
 
 /** Struck-through (previous-value) recap labels. */
@@ -767,6 +788,31 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(hrefs).toContain(MACHINE_DOCS_URL);
     expect(hrefs).toContain(STORAGE_DOCS_URL);
     expect(hrefs).toContain(CREDIT_DOCS_URL);
+  });
+
+  test("on iOS the docs links open through the native opener", () => {
+    // The WKWebView shell cannot open a target="_blank" anchor, so an
+    // unhandled click would silently do nothing.
+    nativePlatform = true;
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    const link = docsLink(STORAGE_DOCS_URL);
+    const dispatched = fireEvent.click(link);
+
+    expect(openedUrl).toBe(STORAGE_DOCS_URL);
+    // Default prevented, so the shell never gets the dead new-tab navigation.
+    expect(dispatched).toBe(false);
+  });
+
+  test("off native the docs links keep their plain new-tab behavior", () => {
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    const dispatched = fireEvent.click(docsLink(STORAGE_DOCS_URL));
+
+    expect(openedUrl).toBeNull();
+    expect(dispatched).toBe(true);
   });
 
   test("a baseline Pro sub picking a machine dispatches the upgrade", async () => {
