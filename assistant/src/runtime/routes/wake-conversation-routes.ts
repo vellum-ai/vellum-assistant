@@ -80,11 +80,15 @@ export const ROUTES: RouteDefinition[] = [
 
       // A script-mode schedule hands off to the agent loop through this route,
       // so the schedule's pinned profile has to be applied here for the woken
-      // turn to run on the model the schedule was created under. The pin is a
-      // per-turn override rather than a durable conversation pin: the script's
-      // conversation is `scheduled`, and override profiles do not resolve for
-      // that conversation type. A schedule with no pin resolves as any other
-      // turn does.
+      // turn to run on the model the schedule was created under.
+      //
+      // The pin applies per turn rather than as a durable conversation pin,
+      // and it wins over the target conversation's own pin for turns the
+      // schedule triggers. That matters because a script may wake any
+      // conversation it names, not only the `scheduled` one it created:
+      // waking an interactive chat runs that one turn on the schedule's
+      // profile, while the user's own replies keep using their selection.
+      // A schedule with no pin resolves as any other turn does.
       const scheduleProfile =
         isLocal && scheduleId
           ? (getSchedule(scheduleId)?.inferenceProfile ?? null)
