@@ -23,6 +23,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -34,6 +35,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getConsolidationLockPath,
+  reclaimStaleLock,
   releaseLock,
   STALE_LOCK_TTL_MS,
   tryAcquireLock,
@@ -227,5 +229,59 @@ describe("releaseLock", () => {
     releaseLock(lockPath, ownerToken);
     expect(existsSync(lockPath)).toBe(true);
     expect(readFileSync(lockPath, "utf-8")).toBe("");
+  });
+});
+
+describe("reclaimStaleLock", () => {
+  test("reclaims the exact stale lock it observed and clears the path", () => {
+    const staleHolder = "999999 1700000000000 crashed-run";
+    writeFileSync(lockPath, `${staleHolder}\n`);
+
+    expect(reclaimStaleLock(lockPath, staleHolder)).toBe("reclaimed");
+    expect(existsSync(lockPath)).toBe(false);
+    // A subsequent create succeeds and no quarantine debris remains.
+    acquireExpectingSuccess("next-run");
+    expect(
+      readdirSync(dirname(lockPath)).filter((f) => f.includes(".reclaim-")),
+    ).toEqual([]);
+  });
+
+  test("REGRESSION: a reclaimer whose observation is stale cannot delete a live successor lock", () => {
+    // The two-reclaimer race from review: R1 and R2 both classify the same
+    // stale lock; R1 completes reclaim and installs a fresh lock; R2 then
+    // proceeds on its stale observation. With the old unlink-based takeover,
+    // R2 deleted R1's fresh lock. The rename quarantine makes R2's reclaim
+    // capture the successor, detect the mismatch against its observation,
+    // and restore the file atomically via link, same inode and all.
+    const staleObservation = "999999 1700000000000 crashed-run";
+    const liveSuccessor = `${process.pid} ${Date.now()} consolidation-successor`;
+    writeFileSync(lockPath, `${liveSuccessor}\n`);
+
+    expect(reclaimStaleLock(lockPath, staleObservation)).toBe("lost");
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(lockPath, "utf-8")).toBe(`${liveSuccessor}\n`);
+    expect(
+      readdirSync(dirname(lockPath)).filter((f) => f.includes(".reclaim-")),
+    ).toEqual([]);
+  });
+
+  test("a reclaimer that lost the rename race deletes nothing and reports gone", () => {
+    expect(existsSync(lockPath)).toBe(false);
+    expect(reclaimStaleLock(lockPath, "999999 1700000000000")).toBe("gone");
+  });
+
+  test("full-acquire integration: takeover of a dead-PID lock still works end to end", () => {
+    writeFileSync(lockPath, "999999 1700000000000\n");
+    acquireExpectingSuccess();
+    expect(readFileSync(lockPath, "utf-8")).toStartWith(`${process.pid} `);
+  });
+
+  test("abandoned quarantine debris older than the TTL is swept on acquire", () => {
+    const ancient = Date.now() - STALE_LOCK_TTL_MS - 1;
+    const debris = `${lockPath}.reclaim-12345-${ancient}-abc123`;
+    writeFileSync(debris, "999999 1700000000000\n");
+
+    acquireExpectingSuccess();
+    expect(existsSync(debris)).toBe(false);
   });
 });
