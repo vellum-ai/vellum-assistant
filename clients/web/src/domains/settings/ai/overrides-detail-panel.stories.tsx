@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import {
@@ -82,7 +83,7 @@ const CONFIG: ConfigGetResponse = {
 // Seed through the generated options factories rather than a hand-written
 // key. HeyAPI bakes the path params into the query key, so a literal
 // `[{ _id: "configGet" }]` misses and the panel renders its error state.
-function seededClient() {
+function seededClient(config: ConfigGetResponse) {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
@@ -94,23 +95,47 @@ function seededClient() {
   });
   const path = { assistant_id: ASSISTANT_ID };
   client.setQueryData(configLlmCallsitesGetOptions({ path }).queryKey, CATALOG);
-  client.setQueryData(configGetOptions({ path }).queryKey, CONFIG);
+  client.setQueryData(configGetOptions({ path }).queryKey, config);
   return client;
+}
+
+/** Wraps a story in a provider seeded with `config`. */
+function withConfig(config: ConfigGetResponse) {
+  return function ConfigDecorator(Story: () => ReactNode) {
+    return (
+      <QueryClientProvider client={seededClient(config)}>
+        <div style={{ maxWidth: 560, height: 720 }}>
+          <Story />
+        </div>
+      </QueryClientProvider>
+    );
+  };
+}
+
+/**
+ * Pins the assistant version the `complete-profile-snapshots` gate reads,
+ * and restores it afterwards.
+ *
+ * The identity store is a module singleton, so a story that leaves a version
+ * behind changes how later stories resolve. Seeding in `beforeEach` rather
+ * than during decorator render also keeps the write out of the render pass,
+ * where two mounted variants would race and the last one would win.
+ */
+function withAssistantVersion(version: string) {
+  return () => {
+    const previous = useAssistantIdentityStore.getState().version;
+    useAssistantIdentityStore.setState({ version });
+    return () => {
+      useAssistantIdentityStore.setState({ version: previous });
+    };
+  };
 }
 
 const meta: Meta<typeof OverridesDetailPanel> = {
   title: "Settings/AI/OverridesDetailPanel",
   component: OverridesDetailPanel,
   args: { assistantId: ASSISTANT_ID, onClose: () => {} },
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={seededClient()}>
-        <div style={{ maxWidth: 560, height: 720 }}>
-          <Story />
-        </div>
-      </QueryClientProvider>
-    ),
-  ],
+  decorators: [withConfig(CONFIG)],
 };
 
 export default meta;
@@ -196,45 +221,17 @@ const MIXED_HEALTH_CONFIG: ConfigGetResponse = {
  * all absent, because the resolver would skip each of them and run something
  * else while the picker showed your choice.
  *
- * The Advisor is set to Half Made, so it stays visible as the current
- * selection carrying the warning icon, with the reason on hover. Hiding the
- * current selection would blank the trigger and leave no way back.
+ * The Advisor is set to Half Made, so it renders as the current selection
+ * labeled "(Unavailable)": the one entry that stays visible whatever its
+ * state, so the trigger has a label and there is a way back.
  */
 export const UndispatchableProfilesHidden: Story = {
-  decorators: [
-    (Story) => {
-      // The strict predicate is gated on `complete-profile-snapshots`
-      // (0.10.8). The identity store starts with a null version, which reads
-      // as a legacy assistant, so without this the panel takes the
-      // live-inherit path and this story would show the opposite of its name.
-      useAssistantIdentityStore.setState({ version: "0.10.8" });
-      const client = new QueryClient({
-        defaultOptions: {
-          queries: {
-            retry: false,
-            refetchOnWindowFocus: false,
-            staleTime: Infinity,
-          },
-        },
-      });
-      const path = { assistant_id: ASSISTANT_ID };
-      client.setQueryData(
-        configLlmCallsitesGetOptions({ path }).queryKey,
-        CATALOG,
-      );
-      client.setQueryData(
-        configGetOptions({ path }).queryKey,
-        MIXED_HEALTH_CONFIG,
-      );
-      return (
-        <QueryClientProvider client={client}>
-          <div style={{ maxWidth: 560, height: 720 }}>
-            <Story />
-          </div>
-        </QueryClientProvider>
-      );
-    },
-  ],
+  // Kept off the autodocs page: it and the legacy variant below need
+  // different assistant versions, and autodocs mounts every story in this
+  // file into one preview where the identity singleton cannot hold both.
+  tags: ["!autodocs"],
+  beforeEach: withAssistantVersion("0.10.8"),
+  decorators: [withConfig(MIXED_HEALTH_CONFIG)],
 };
 
 /**
@@ -247,34 +244,7 @@ export const UndispatchableProfilesHidden: Story = {
  * since its sparse arm is valid there.
  */
 export const LegacyAssistantKeepsSparseProfiles: Story = {
-  decorators: [
-    (Story) => {
-      useAssistantIdentityStore.setState({ version: "0.10.7" });
-      const client = new QueryClient({
-        defaultOptions: {
-          queries: {
-            retry: false,
-            refetchOnWindowFocus: false,
-            staleTime: Infinity,
-          },
-        },
-      });
-      const path = { assistant_id: ASSISTANT_ID };
-      client.setQueryData(
-        configLlmCallsitesGetOptions({ path }).queryKey,
-        CATALOG,
-      );
-      client.setQueryData(
-        configGetOptions({ path }).queryKey,
-        MIXED_HEALTH_CONFIG,
-      );
-      return (
-        <QueryClientProvider client={client}>
-          <div style={{ maxWidth: 560, height: 720 }}>
-            <Story />
-          </div>
-        </QueryClientProvider>
-      );
-    },
-  ],
+  tags: ["!autodocs"],
+  beforeEach: withAssistantVersion("0.10.7"),
+  decorators: [withConfig(MIXED_HEALTH_CONFIG)],
 };
