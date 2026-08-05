@@ -65,7 +65,7 @@ export function useScheduleProfileRebase(
   onRebased: () => void,
 ): ScheduleProfileRebase {
   const defaultProfile = useCallSiteDefaultProfile(assistantId, "mainAgent");
-  const supportsProfileMoves = useSupportsScheduleProfileMoves();
+  const supportsProfileMoves = useSupportsScheduleProfileMoves(assistantId);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const offDefaultCount = useMemo(() => {

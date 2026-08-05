@@ -150,7 +150,7 @@ function renderedText(): string {
 
 beforeEach(() => {
   // The bulk move needs an assistant carrying the reassign route.
-  useAssistantIdentityStore.getState().setIdentity("asst-1", MIN_VERSION);
+  useAssistantIdentityStore.getState().setIdentity("asst-1", MIN_VERSION, "asst-1");
   reassignBodies = [];
   reassignedCount = 2;
   reassignFails = false;
@@ -233,7 +233,7 @@ describe("useScheduleProfileRebase", () => {
   // An assistant older than the reassign route requires `from` and answers a
   // blanket move with a 400, so the action must not be offered at all.
   test("the action is withheld on an assistant without the reassign route", async () => {
-    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.2");
+    useAssistantIdentityStore.getState().setIdentity("asst-1", "0.11.2", "asst-1");
     render(
       <Wrapper>
         <Harness />
