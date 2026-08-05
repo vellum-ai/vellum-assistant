@@ -22,11 +22,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import {
-  commitDeferredConversation,
-  discardDeferredConversation,
-  registerDeferredConversation,
-} from "../notifications/deferred-emit.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
@@ -189,11 +184,6 @@ export interface RunBackgroundJobOptions {
    */
   assistantSandwich?: { preamble: string; content: string; postamble: string };
   /**
-   * Buffer in-band `notifications send` calls and only flush them after the
-   * run completes successfully. See `notifications/deferred-emit.ts`.
-   */
-  deferNotifications?: boolean;
-  /**
    * Persist the kickoff `prompt` without indexing it — no memory segments,
    * no embeddings, no lexical-index entry. Opt-in for jobs whose prompt is a
    * static machine-authored instruction manual (e.g. memory consolidation)
@@ -304,10 +294,6 @@ export async function runBackgroundJob(
       ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
     });
 
-    if (opts.deferNotifications) {
-      registerDeferredConversation(conversation.id);
-    }
-
     // Fire the sidebar-creation callback synchronously after bootstrap so
     // connected clients (macOS sidebar, etc.) see the conversation appear
     // immediately rather than after `processMessage` returns. Wrapped so a
@@ -382,22 +368,18 @@ export async function runBackgroundJob(
 
     const runResult = await Promise.race([work, timeout]);
     // Symmetric with the `work.catch` above: once `work` has won the race,
-    // the orphan timeout promise can still reject during the await below
-    // (commitDeferredConversation). Swallow so it doesn't surface as an
-    // unhandled rejection that Bun can use to terminate the process.
+    // the orphan timeout promise can still reject if the timer fires before
+    // the `finally` clears it. Swallow so it doesn't surface as an unhandled
+    // rejection that Bun can use to terminate the process.
     timeout.catch(() => {});
     // The turn completed but its LLM call failed (e.g. an invalid provider):
     // `processMessage` reports this via `turnFailure` instead of throwing.
-    // Rethrow so it flows through the shared failure path below (which
-    // discards any deferred notifications) rather than committing them and
-    // returning `ok: true`.
+    // Rethrow so it flows through the shared failure path below (logging +
+    // `activity.failed` emission) rather than returning `ok: true`.
     if (runResult.turnFailure) {
       throw new BackgroundJobTurnFailureError(
         runResult.turnFailure.failureCode,
       );
-    }
-    if (opts.deferNotifications) {
-      await commitDeferredConversation(conversation.id);
     }
     return { conversationId: conversation.id, ok: true };
   } catch (err) {
@@ -410,10 +392,6 @@ export async function runBackgroundJob(
     // Bootstrap can fail before `conversation` is assigned; fall back to ""
     // so the structured failure result still flows to the caller.
     const conversationId = conversation?.id ?? "";
-
-    if (opts.deferNotifications && conversationId) {
-      discardDeferredConversation(conversationId);
-    }
 
     log.error(
       {
