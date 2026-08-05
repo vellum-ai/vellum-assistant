@@ -12,6 +12,8 @@ Flux is a spike. `liveVoice.flux.turnEnd.enabled` defaults to `false`, the exist
 
 It is stamped in `releaseUtterance` (`live-voice-session.ts`), which every committed turn passes through whichever decider released it, from the same speech-stop anchor on both. So the two arms are one population measured over one span. It is absent only on a turn that never committed, and in push-to-talk, which this spike does not run.
 
+It is also the only endpoint number that the Flux socket teardown stays out of: `releaseUtterance` stamps it before it stops the transcriber. `roundTripMs`, `llmFirstDeltaMs`, and `totalMs` all carry that teardown on a Flux arm, and so does what the caller hears. Read "The per-turn socket teardown, and why it is load-bearing" in section 3 before you compare any of those three against a `deepgram` run.
+
 ### Why the other endpoint fields are not the comparison
 
 `endpointDecisionMaxLatencyMs`, `endpointHoldCount`, and `endpointDecisionSource` all still exist and are all still worth reading. But `endpointDecisionMaxLatencyMs` is **not** comparable between arms, in two independent ways, and comparing it flatters Flux by roughly a full second with nothing in the output to tell you.
@@ -98,10 +100,23 @@ The rest of `liveVoice.flux` is optional and defaulted (`config/schemas/live-voi
 
 **Do not A/B by switching the provider between `deepgram` and `deepgram-flux`.** That confounds two changes at once:
 
-1. It swaps the STT model, so any transcript-quality or first-partial difference lands in your latency numbers.
-2. It swaps the transcriber lifecycle. `deepgram` implements `finalizeUtterance`, so the session adopts it as a persistent stream shared across the whole session. Flux deliberately does not implement it, so every utterance dials a fresh `/v2/listen` socket. That is a per-turn connection setup you would be attributing to turn detection.
+1. It swaps the STT model. `deepgram` runs `nova-2` (`DEFAULT_MODEL`, `deepgram-realtime.ts`), so any transcript-quality or first-partial difference lands in your latency numbers.
+2. It swaps the transcriber lifecycle. `deepgram` implements `finalizeUtterance`, so the session adopts it as a persistent stream shared across the whole session (`sharedTranscriber`) and never tears it down between turns. Flux implements no `finalizeUtterance`, so every utterance owns its own `/v2/listen` socket and every release closes it. That per-turn socket churn is inside `roundTripMs` and `totalMs` on the Flux side and absent on the `deepgram` side, so a naive provider-swap A/B attributes it to turn detection. The next section is what it costs and why it cannot be removed.
 
 Say the same scripted set of utterances in both arms. Include at least a few deliberate mid-sentence thinking pauses, because that is the case the hold path exists for and the case Flux has to not regress.
+
+### The per-turn socket teardown, and why it is load-bearing
+
+The Flux adapter implements no `finalizeUtterance`. That is forced by Flux's wire protocol, not a statement that Flux owns the turn boundary, and adding the method as a no-op would break transcript correctness.
+
+`parseFluxFrame` emits `final` only on `EndOfTurn`, and that is the adapter's sole source of `final`. Flux offers no mid-stream flush, so `CloseStream` is the only message that makes it answer for a turn still in progress, which is exactly what `stop()` sends. A no-op `finalizeUtterance` would report `finalized` without flushing anything, so a turn released on a caller-side boundary would dispatch on an empty transcript while its real text arrived afterwards and was dropped as a late final segment. With `turnEnd.enabled` at its default `false` that is every turn, because the release always comes from the local silence path. With the latch on it is still every fail-open fallback, every max-duration force-end, and every barge-in, all of which release with a Flux turn open.
+
+So the release path is: `stop()` sends `CloseStream`, the adapter waits for Deepgram's close frame under a `CLOSE_GRACE_MS` ceiling (**5000ms**, `deepgram-flux-realtime.ts`), and then emits `closed`. The cycle only reaches `transcriber_closed` on that `closed` event, and `startAssistantTurnIfReady` refuses to dispatch before it. Two consequences for the numbers:
+
+- **`endpointCommitLatencyMs` does not contain the teardown.** `releaseUtterance` stamps the commit latency and `utteranceEndAtMs` before it calls `stop()`, so the headline comparison is clean on both arms.
+- **`roundTripMs`, `llmFirstDeltaMs`, and `totalMs` do contain it,** and so does the silence the caller sits through. On a Flux arm the assistant turn cannot start until the socket has closed. A `deepgram` run pays none of that: the shared stream stays open and the cycle reaches `transcriber_closed` on the `finalized` event instead.
+
+The re-dial is off the end-of-turn path but is not free either. `rearmAfterTurn` opens the next `/v2/listen` socket once the assistant turn finishes, and speech arriving during that handshake is held in the VAD pre-roll buffer, so its cost lands on the next utterance's first partial rather than on its commit.
 
 ### What this A/B still does not hold constant
 
@@ -148,17 +163,17 @@ Set `liveVoice.flux.eotTimeoutMs` to **1500 to 2000** for the duration of the ru
 
 ### Prefer medians, and do not chase a single bad sample
 
-Per-turn Flux latency has a known outlier mode. If the caller resumes speaking and stops again before a delayed `turn-end` lands, the second boundary re-stamps `fluxBoundaryGeneration`, so `isStaleFluxTurnEnd` no longer recognizes the in-flight event as stale and accepts it. The **commit is still correct** (the caller has finished, and the transcript is the accumulated one), but the speech-stop mark is the newer one, so the recorded latency is wrong for that turn. This affects `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike: they share the anchor.
+`isStaleFluxTurnEnd` decides on Flux's own `turn_index`, which `parseFluxFrame` carries onto `turn-start` and `turn-end`. The cycle records the newest turn Flux opened, so a delayed end-of-turn for an older index is recognized as stale and dropped, even though the caller has resumed speaking since. An end-of-turn for the turn still in progress is never stale: the mid-thought pause is what Flux's turn model exists to judge, its verdict covers the resumed speech, and the newest speech-stop mark is the right anchor for it.
 
-The nearby case, where the event **is** recognized as stale and dropped, logs at `info` and so is visible at the default log level:
+The local VAD generation counter is only the fallback, for an event that carries no turn number. There the outlier mode survives: if the caller resumes and stops again before a delayed `turn-end` lands, the second boundary re-stamps `fluxBoundaryGeneration` to the current generation, the event stops looking stale, and it is accepted against the newer speech-stop mark. The **commit is still correct**, but the recorded latency is understated for that turn, in `endpointCommitLatencyMs` and `endpointDecisionMaxLatencyMs` alike, since they share the anchor.
+
+Drops log at `info` and so are visible at the default log level, carrying `turnIndex`, `openTurnIndex`, `boundaryGeneration`, and `speechGeneration`:
 
 ```
 Dropping a stale Flux end-of-turn: the caller resumed speaking past the boundary it closed
 ```
 
-A drop is not itself an error (the turn still commits, on the end-of-turn for the resumed speech or on the fail-open deadline), but the two cases are the same race and only one of them announces itself. Count the drops in your run: if they are frequent, assume the silent variant is skewing individual samples too.
-
-This is not fixable session-side. It needs Flux's turn id carried on the `turn-end` event so the session can match the event to the boundary it closed. Until then, report medians over a run of turns and ignore individual extremes.
+A drop is not itself an error: the cycle stays open and still commits, on the end-of-turn for the resumed speech or on the fail-open deadline. Read the line's fields. A drop with both `turnIndex` and `openTurnIndex` present is the turn-index path working, and it also drops the silent variant of the same race. A drop with `turnIndex` absent means Deepgram is sending unnumbered events and the run is on the generation fallback, where individual samples can be skewed and legitimate fast end-of-turns are dropped conservatively. Either way, report medians over a run of turns and ignore individual extremes.
 
 ## 5. Confirm the session is really running Flux
 
@@ -170,15 +185,17 @@ grep "Opening Deepgram Flux session" ~/.vellum/workspace/data/logs/assistant-*.l
 
 Check the URL is `/v2/listen` and contains `model=flux-general-en`, `eot_threshold`, `eot_timeout_ms`, and **no** `eager_eot_threshold`. That is the cheapest confirmation that the tuning you wrote is the tuning in force.
 
-`ConfigureSuccess` frames would carry Deepgram's authoritative `thresholds` and the adapter logs them at `debug`, but nothing in the adapter ever sends a mid-stream `Configure`, so that line does not appear in practice. The dialed URL is the confirmation you actually have.
+Deepgram's authoritative thresholds would come back on a `ConfigureSuccess` frame, but the adapter never sends `Configure` and the parser has no case for the response, so nothing echoes the tuning back. The dialed URL is the confirmation you have.
 
-### Seeing the debug lines
+### Log levels
 
-The pino level is hardcoded to `info` in `src/util/logger.ts`, with no config key and no env var. Every diagnostic this runbook tells you to read is at `info` or `warn` and needs no change. The per-session chunk cadence line (section 6) is the one at `debug`; to see it, temporarily change the `level: "info"` values in `getRootLogger` / `buildRotatingLogger` to `"debug"`.
+Every diagnostic this runbook tells you to read is at `info` or `warn`, and the pino level is `info` (`src/util/logger.ts`), so nothing here needs a source edit or a rebuild. That includes the stale-turn-end drop in section 4 and the chunk-cadence line in section 6.
+
+One Flux line does sit at `debug`: `buildFluxQueryParams` reports clamping `eager_eot_threshold` down to the effective `eot_threshold`. It fires only if you set `eagerEotThreshold`, which this spike says to leave unset.
 
 ## 6. Chunk cadence
 
-Deepgram recommends 80ms audio chunks for Flux. Capture cadence is a client concern and this spike does not change it, but the adapter makes it measurable from the daemon side: once per session, on the first audio frame, it logs at `debug`
+Deepgram recommends 80ms audio chunks for Flux. Capture cadence is a client concern and this spike does not change it, but the adapter makes it measurable from the daemon side: once per session, on the first audio frame, it logs at `info`
 
 ```
 Deepgram Flux audio chunk cadence
@@ -190,7 +207,7 @@ with `byteLength`, `sampleRate`, `encoding`, `observedChunkMs`, and `recommended
 
 Do not rediscover these.
 
-- **English only.** The spike pins `flux-general-en`. No language is forwarded to the adapter, because `language_hint` means nothing to a monolingual model. The web language catalog is untouched.
+- **English only.** The spike pins `flux-general-en`. No language is forwarded to the adapter, because `language_hint` means nothing to a monolingual model. The catalog entry carries `languageSelection: "auto"`, so the Settings speech-to-text card renders no language picker for Flux. Read that as "no picker", not as detection: audio in another language transcribes as English rather than being detected.
 - **No telephony, and no fallback either.** The catalog entry sets `telephonyMode: "none"`, so `resolveTelephonySttCapability` reports Flux as unsupported and the call session reports that as its error. Nothing reroutes the call to the `deepgram` provider: with Flux configured, calls on this assistant are not transcribed at all.
 - **No batch, workspace-wide.** `supportedBoundaries` is `daemon-streaming` only, and `resolveBatchTranscriber` throws for it rather than returning the `null` that every batch caller reports as "no speech-to-text provider is configured". Callers surface the thrown message instead: `Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".` See the warning in section 2 for the full list of surfaces this takes down.
 - **No managed / velay path.** This is BYOK through the daemon only. The relay pins the model server-side, so managed rollout is a relay change.
@@ -199,12 +216,12 @@ Do not rediscover these.
 - **Local VAD still owns barge-in in both modes,** and must. A local energy gate on audio already in hand beats a provider roundtrip for an interrupt during playback, and the echo-adaptive part of the guard has to stay upstream of Flux, which hears only the microphone and cannot tell our own TTS bleeding through imperfect echo cancellation from a real caller turn.
 - **Self-hosted bundles and `KeepAlive`.** The adapter sends a `KeepAlive` control frame every 5s, which cloud `/v2/listen` accepts and which is the only thing that resets Deepgram's server-side inactivity timer during silence. Self-hosted SageMaker Flux bundles reject it as a fatal `UNPARSABLE_CLIENT_MESSAGE`. The escape hatch is the adapter's `keepaliveIntervalMs: 0` option, but it is a constructor option only: `resolve.ts` passes just `sampleRate`, so pointing the adapter at a self-hosted bundle means editing that call site. There is no config key for it.
 
-### Two traps that were fixed, listed so you can check your build
+### Two invariants the measurement rests on
 
-Both are fixed on this branch. They matter only if you are measuring on an older build.
+Check these if you port the spike anywhere else, because a run that violates either produces numbers that look plausible and are not.
 
-- **A first utterance during a slow STT dial used to run the old path while looking like a Flux session.** `start()` sends `ready` without waiting on the transcriber resolve, so the caller could speak and close a whole silence boundary while the handshake was still in flight, with the latch still on its default `false`. The latch is now seeded from the **configured** provider before the dial and reconciled against the resolved one afterwards. Symptom on an older build: the session's opening turn silently uses the front door.
-- **The first turn's latency used to be anchored at zero rather than the real speech-stop,** inflating it. `msSinceLocalSpeechStop()` returns 0 when no speech has been heard, and `localSpeechStopAtMs` is stamped on every above-gate chunk in every server-VAD session, so both arms share the anchor.
+- **The latch is up before the session's first boundary.** `start()` sends `ready` without waiting on the transcriber resolve, so the caller can speak and close a whole silence boundary while the handshake is in flight. `beginUtterance` seeds the latch from the **configured** provider before the dial and reconciles it against the resolved provider afterwards, so the opening turn is a Flux turn like every other one rather than a front-door turn inside a session that looks like a Flux session.
+- **Every recorded latency is anchored at a real speech-stop.** `localSpeechStopAtMs` is stamped on every above-gate chunk in every server-VAD session, and `markEndpointCommit` records nothing at all when there is no mark, which is push-to-talk. `msSinceLocalSpeechStop()` therefore never reports a turn measured from zero, and both arms share the anchor.
 
 ## 8. Falling back
 
@@ -216,7 +233,7 @@ Runtime fallback needs no action. A Flux stream that never emits `turn-end` is c
 
 The follow-up cleanup is not small: `HOLD_VERDICT_TOKEN`, the `includeHold` branch of `frontDoorDecisionRule`, the `holdEnabled` parameter on `classifyFrontDoorLeading`, six pieces of speculative-dispatch state in the session, and the `endpointExtensionMs` / `endpointMaxExtensions` config surface. It is worth doing only if Flux clears a real bar. Deepgram claims Flux decides in under 400ms; that claim is the hypothesis under test here, not an input.
 
-Suggested bar, all measured on `endpointCommitLatencyMs` over enough turns for a median to mean something:
+Suggested bar, all measured on `endpointCommitLatencyMs` over enough turns for a median to mean something. That field deliberately excludes the per-turn socket teardown, which keeps the arms comparable but also means a bar cleared here is not by itself a case for running Flux in front of users: the teardown is a cost Flux keeps paying and `deepgram` does not.
 
 1. **Median `endpointCommitLatencyMs` in arm B beats the median in arm A.** Most arm-A turns are unheld, so that median sits near `silenceThresholdMs`, about 1200ms with the defaults. Do not set the bar against arm A's held turns: beating those is easy and proves nothing, because most turns are not held.
 2. **No regression on thinking pauses.** The hold path exists so a mid-sentence pause does not trigger a premature reply. Count premature commits on the scripted pause utterances in both arms. Flux has to be at least as good, not merely faster. A fast path that interrupts people is worse than the slow one.
