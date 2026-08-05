@@ -150,10 +150,10 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Sync idempotency: one DB row projects to one JSONL record
+// Append semantics: one call appends one record, unconditionally
 // ---------------------------------------------------------------------------
 
-describe("syncMessageToDisk idempotency", () => {
+describe("syncMessageToDisk append semantics", () => {
   beforeEach(() => {
     resetTables();
     resetConversationsDir();
@@ -167,60 +167,25 @@ describe("syncMessageToDisk idempotency", () => {
     return readFileSync(jsonlPath, "utf-8").trim().split("\n");
   }
 
-  test("re-syncing an unchanged row does not append a duplicate record", async () => {
-    const conv = createConversation("Idempotent Sync");
+  // Pins the caller contract: the projection appends per call and carries no
+  // row identity, so a row synced twice lands twice. Callers must therefore
+  // sync each row exactly once, at the seam where its content is final. This
+  // is what makes an on-arrival sync of a row that is rewritten in place (the
+  // grouped tool-result row) a duplication bug rather than a harmless retry.
+  test("syncing the same row twice appends two records", async () => {
+    const conv = createConversation("Repeated Sync");
     const msg = await addMessage(conv.id, "user", "Hello once", {
       skipIndexing: true,
     });
 
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);
-    syncMessageToDisk(conv.id, msg.id, conv.createdAt);
 
     const lines = readJsonlLines(conv.id, conv.createdAt);
-    expect(lines).toHaveLength(1);
+    expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]).content).toBe("Hello once");
+    expect(JSON.parse(lines[1]).content).toBe("Hello once");
   });
-
-  // The grouped tool-result row is written to the DB as each result arrives
-  // and projected to JSONL only at finalize. This fixture drives N + 1 sync
-  // calls against the same row (one per arriving result plus one at
-  // finalize) and asserts the projection holds exactly one record: the tail
-  // guard must absorb repeated syncs of a row no matter how many arrive. A
-  // retried finalize (e.g. after crash recovery) is the same call shape. The
-  // turn-boundary git commit touches no message rows, so a commit timeout
-  // with background completion cannot introduce a duplicate either: the only
-  // JSONL append for the row is the finalize sync.
-  // Parameterized across both persisted tool id shapes: Anthropic-style
-  // `toolu_` ids and OpenAI Responses-native `call_` ids.
-  for (const idPrefix of ["toolu", "call"] as const) {
-    test(`the pre-fix N+1 sync pattern for a grouped tool-result row (${idPrefix}_ ids) projects one record`, async () => {
-      const conv = createConversation(`Tool Result Sync ${idPrefix}`);
-      const nToolResults = 3;
-      const batch = Array.from({ length: nToolResults }, (_, i) => ({
-        type: "tool_result",
-        tool_use_id: `${idPrefix}_${i + 1}`,
-        content: `result ${i + 1}`,
-      }));
-      const msg = await addMessage(conv.id, "user", JSON.stringify(batch), {
-        skipIndexing: true,
-      });
-
-      // One sync per arriving tool result, then the finalize sync.
-      for (let i = 0; i < nToolResults; i++) {
-        syncMessageToDisk(conv.id, msg.id, conv.createdAt);
-      }
-      syncMessageToDisk(conv.id, msg.id, conv.createdAt);
-
-      const lines = readJsonlLines(conv.id, conv.createdAt);
-      expect(lines).toHaveLength(1);
-      const record = JSON.parse(lines[0]);
-      expect(record.role).toBe("user");
-      expect(record.toolResults).toEqual(
-        batch.map((block) => ({ content: block.content })),
-      );
-    });
-  }
 
   test("a row whose content changed since its last sync appends a new record", async () => {
     const conv = createConversation("Changed Row");
