@@ -10,10 +10,14 @@
  *
  * Flow: hover highlights the element under the cursor; click sends its
  * text to the worker (`deslop-rewrite`), which asks the assistant for a
- * plain-language rewrite; the response replaces the element's content
- * and the element is marked with a faint tint plus a wand badge. Esc
- * exits the picker. The picker stays active after a rewrite so several
- * blocks can be cleaned up in one session.
+ * plain-language rewrite. While the request is in flight the block is
+ * dimmed under a shimmering overlay with a spinner badge and the hint
+ * pill switches to its active state; the response then replaces the
+ * element's content and the element is marked with a faint tint plus a
+ * wand badge that toggles between the rewrite and the original text.
+ * Esc exits the picker. The picker stays active after a rewrite so
+ * several blocks can be cleaned up in one session, and several rewrites
+ * can be in flight at once.
  */
 
 (() => {
@@ -21,6 +25,15 @@
   const STYLE_ID = "vellum-deslop-style";
   const REWRITTEN_ATTR = "data-vellum-desloped";
   const PENDING_CLASS = "vellum-deslop-pending";
+  const PROGRESS_CLASS = "vellum-deslop-progress";
+  const SPINNER_CLASS = "vellum-deslop-spinner";
+  const BADGE_CLASS = "vellum-deslop-badge";
+  const SHOWING_ORIGINAL_CLASS = "vellum-deslop-showing-original";
+  const HINT_CLASS = "vellum-deslop-hint";
+  const HINT_ACTIVE_CLASS = "vellum-deslop-hint-active";
+  const HINT_IDLE_TEXT =
+    "Deslop: click a block of text to rewrite it · Esc to exit";
+  const HINT_ACTIVE_TEXT = "Rewriting with your assistant…";
   const MIN_TEXT_LENGTH = 8;
   const MAX_TEXT_LENGTH = 20000;
   const WAND_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 4V2M15 10V8M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -49,11 +62,12 @@
   const highlight = document.createElement("div");
   highlight.className = "vellum-deslop-highlight";
   const hint = document.createElement("div");
-  hint.className = "vellum-deslop-hint";
-  hint.textContent = "Deslop: click a block of text to rewrite it · Esc to exit";
+  hint.className = HINT_CLASS;
+  hint.textContent = HINT_IDLE_TEXT;
   document.documentElement.append(highlight, hint);
 
   let hovered: HTMLElement | null = null;
+  let pendingCount = 0;
 
   function isPickable(el: Element | null): el is HTMLElement {
     if (!(el instanceof HTMLElement)) return false;
@@ -100,7 +114,15 @@
     }
   }
 
+  // The wand badge owns its own click (it toggles between the rewrite and
+  // the original), so the picker lets badge events through untouched.
+  function isBadgeEvent(event: MouseEvent): boolean {
+    const target = event.target;
+    return target instanceof Element && target.closest(`.${BADGE_CLASS}`) !== null;
+  }
+
   function onClick(event: MouseEvent): void {
+    if (isBadgeEvent(event)) return;
     const target = hovered;
     if (!target) return;
     event.preventDefault();
@@ -111,10 +133,43 @@
   // Swallow the mousedown/mouseup pair too so pages with mousedown-driven
   // handlers (menus, editors) don't react to the pick.
   function swallow(event: MouseEvent): void {
+    if (isBadgeEvent(event)) return;
     if (hovered) {
       event.preventDefault();
       event.stopPropagation();
     }
+  }
+
+  function syncHint(): void {
+    if (!hint.isConnected) return;
+    const active = pendingCount > 0;
+    hint.className = active ? `${HINT_CLASS} ${HINT_ACTIVE_CLASS}` : HINT_CLASS;
+    hint.textContent = active ? HINT_ACTIVE_TEXT : HINT_IDLE_TEXT;
+  }
+
+  // Dims the block under a shimmering overlay with a spinner badge, and
+  // returns the matching teardown so concurrent rewrites clean up on
+  // their own element without touching each other.
+  function beginPending(el: HTMLElement): () => void {
+    el.classList.add(PENDING_CLASS);
+    if (getComputedStyle(el).position === "static") {
+      el.style.position = "relative";
+    }
+    const overlay = document.createElement("div");
+    overlay.className = PROGRESS_CLASS;
+    const spinner = document.createElement("div");
+    spinner.className = SPINNER_CLASS;
+    el.append(overlay, spinner);
+    pendingCount += 1;
+    syncHint();
+
+    return () => {
+      overlay.remove();
+      spinner.remove();
+      el.classList.remove(PENDING_CLASS);
+      pendingCount = Math.max(0, pendingCount - 1);
+      syncHint();
+    };
   }
 
   async function rewriteElement(el: HTMLElement): Promise<void> {
@@ -122,7 +177,8 @@
     if (text.length === 0) return;
 
     clearHighlight();
-    el.classList.add(PENDING_CLASS);
+    clearRewrittenState(el);
+    const endPending = beginPending(el);
 
     const response = await new Promise<DeslopRewriteResponse | undefined>(
       (resolve) => {
@@ -150,27 +206,60 @@
       },
     );
 
-    el.classList.remove(PENDING_CLASS);
+    endPending();
 
     if (!response?.ok || typeof response.rewritten !== "string") {
       flashError(el, response?.error ?? "The assistant could not rewrite this text.");
       return;
     }
 
-    el.innerText = response.rewritten.trim();
-    markRewritten(el);
+    markRewritten(el, text, response.rewritten.trim());
   }
 
-  function markRewritten(el: HTMLElement): void {
+  // Drops the badge and toggle state of an earlier rewrite so a block
+  // picked a second time starts from a clean slate.
+  function clearRewrittenState(el: HTMLElement): void {
+    el.classList.remove(SHOWING_ORIGINAL_CLASS);
+    for (const badge of Array.from(el.querySelectorAll(`.${BADGE_CLASS}`))) {
+      badge.remove();
+    }
+  }
+
+  function markRewritten(
+    el: HTMLElement,
+    original: string,
+    rewritten: string,
+  ): void {
     el.setAttribute(REWRITTEN_ATTR, "true");
     if (getComputedStyle(el).position === "static") {
       el.style.position = "relative";
     }
+
     const badge = document.createElement("span");
-    badge.className = "vellum-deslop-badge";
-    badge.title = "Rewritten by your Vellum assistant";
+    badge.className = BADGE_CLASS;
     badge.innerHTML = WAND_SVG;
-    el.appendChild(badge);
+
+    let showingOriginal = false;
+
+    // Writing innerText discards the element's children, so the badge is
+    // re-attached on every swap.
+    function render(): void {
+      el.innerText = showingOriginal ? original : rewritten;
+      el.classList.toggle(SHOWING_ORIGINAL_CLASS, showingOriginal);
+      badge.title = showingOriginal
+        ? "Showing the original text. Click to show the rewrite."
+        : "Rewritten by your Vellum assistant. Click to show the original.";
+      el.appendChild(badge);
+    }
+
+    badge.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showingOriginal = !showingOriginal;
+      render();
+    });
+
+    render();
   }
 
   function flashError(el: HTMLElement, message: string): void {
@@ -224,7 +313,7 @@
         border-radius: 3px;
         transition: top 40ms linear, left 40ms linear, width 40ms linear, height 40ms linear;
       }
-      .vellum-deslop-hint {
+      .${HINT_CLASS} {
         position: fixed;
         bottom: 16px;
         left: 50%;
@@ -238,36 +327,92 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
         pointer-events: none;
       }
+      .${HINT_ACTIVE_CLASS} {
+        background: rgba(79, 70, 229, 0.95);
+      }
       .${PENDING_CLASS} {
         outline: 2px solid rgba(99, 102, 241, 0.85);
         outline-offset: -1px;
-        animation: vellum-deslop-pulse 1.2s ease-in-out infinite;
+        opacity: 0.55;
       }
-      @keyframes vellum-deslop-pulse {
-        0%, 100% { background-color: rgba(99, 102, 241, 0.06); }
-        50% { background-color: rgba(99, 102, 241, 0.18); }
+      .${PROGRESS_CLASS} {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 2147483644;
+        border-radius: 3px;
+        background-color: rgba(99, 102, 241, 0.1);
+        background-image: linear-gradient(
+          110deg,
+          rgba(99, 102, 241, 0) 20%,
+          rgba(99, 102, 241, 0.28) 50%,
+          rgba(99, 102, 241, 0) 80%
+        );
+        background-repeat: no-repeat;
+        background-size: 200% 100%;
+        animation: vellum-deslop-shimmer 1.1s linear infinite;
+      }
+      @keyframes vellum-deslop-shimmer {
+        from { background-position: -100% 0; }
+        to { background-position: 200% 0; }
+      }
+      .${SPINNER_CLASS} {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        box-sizing: border-box;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(99, 102, 241, 0.95);
+        pointer-events: none;
+        z-index: 2147483645;
+      }
+      .${SPINNER_CLASS}::after {
+        content: "";
+        position: absolute;
+        inset: 4px;
+        box-sizing: border-box;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        border-top-color: #ffffff;
+        animation: vellum-deslop-spin 0.8s linear infinite;
+      }
+      @keyframes vellum-deslop-spin {
+        to { transform: rotate(360deg); }
       }
       [${REWRITTEN_ATTR}] {
         background-color: rgba(99, 102, 241, 0.07);
         border-radius: 3px;
         transition: background-color 300ms ease;
       }
-      .vellum-deslop-badge {
+      [${REWRITTEN_ATTR}].${SHOWING_ORIGINAL_CLASS} {
+        background-color: transparent;
+      }
+      .${BADGE_CLASS} {
         position: absolute;
         top: 2px;
         right: 2px;
+        box-sizing: border-box;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         width: 18px;
         height: 18px;
         border-radius: 50%;
+        border: 1px solid transparent;
         background: rgba(99, 102, 241, 0.9);
         color: #ffffff;
+        cursor: pointer;
         pointer-events: auto;
         z-index: 2147483645;
       }
-      .vellum-deslop-badge svg {
+      .${SHOWING_ORIGINAL_CLASS} .${BADGE_CLASS} {
+        background: transparent;
+        border-color: rgba(107, 114, 128, 0.7);
+        color: rgba(107, 114, 128, 0.95);
+      }
+      .${BADGE_CLASS} svg {
         width: 11px;
         height: 11px;
         display: block;
