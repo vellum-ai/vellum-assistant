@@ -8,7 +8,9 @@ import {
 
 import {
   fetchForwardPlanWithRetry,
+  hasTrustedBrowserInitiator,
   type ForwardFetchRetryOptions,
+  type PlatformForwardAllowedOrigin,
 } from "./platform-forward";
 
 /**
@@ -125,14 +127,15 @@ export function planGatewayForward(
  * `sanitizePairedForwardHeaders`. The trusted main process installs the
  * paired assistant's guardian bearer before executing the plan.
  *
- * The `app://` handler is the paired authorization boundary: only the app's
- * renderer can address this custom protocol, and the lockfile allowlists the
- * target. A compromised renderer retains access through the running proxy but
- * cannot read or reuse the guardian credential outside it.
+ * The renderer's browser-controlled initiator proof and the lockfile pairing
+ * together form the authorization boundary. A compromised trusted renderer
+ * retains access through the running proxy but cannot read or reuse the
+ * guardian credential outside it.
  */
 export function planPairedGatewayForward(
   request: GatewayForwardRequest,
   getTargets: () => Map<string, string>,
+  allowedOrigin: PlatformForwardAllowedOrigin,
 ): GatewayForwardPlan {
   const url = new URL(request.url);
   const decision = resolvePairedGatewayProxyTarget(
@@ -146,6 +149,13 @@ export function planPairedGatewayForward(
     case "reject":
       return decision;
     case "forward": {
+      if (!hasTrustedBrowserInitiator(request, allowedOrigin)) {
+        return {
+          kind: "reject",
+          status: 403,
+          message: "Forbidden paired gateway proxy request",
+        };
+      }
       const headers = new Headers(request.headers);
       sanitizePairedForwardHeaders(headers);
       return {

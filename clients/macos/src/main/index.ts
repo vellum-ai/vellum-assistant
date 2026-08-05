@@ -342,7 +342,7 @@ const forwardPairedGatewayRequest = async (
   getTargets: () => Map<string, string>,
 ): Promise<Response | null> => {
   const plan = await authorizePairedGatewayForwardPlan(
-    planPairedGatewayForward(request, getTargets),
+    planPairedGatewayForward(request, getTargets, resolveAllowedOrigin()),
     getPairedGuardianAccessToken,
   );
   return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
