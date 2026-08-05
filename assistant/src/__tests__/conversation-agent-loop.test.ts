@@ -1191,14 +1191,17 @@ describe("session-agent-loop", () => {
 
     test("skips workspace Git initialization when tools are disabled", async () => {
       const ensureInitialized = mock(async () => {});
+      const commitTurnChanges = mock(async () => {});
       const ctx = makeCtx({
         toolsDisabledDepth: 1,
         getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
       expect(ensureInitialized).not.toHaveBeenCalled();
+      expect(commitTurnChanges).not.toHaveBeenCalled();
     });
 
     test("initializes workspace Git before hooks when tools can run", async () => {
@@ -1206,6 +1209,7 @@ describe("session-agent-loop", () => {
       const ensureInitialized = mock(async () => {
         initialized = true;
       });
+      const commitTurnChanges = mock(async () => {});
       const initializedDuringHook: boolean[] = [];
       registerPlugin({
         manifest: {
@@ -1220,11 +1224,13 @@ describe("session-agent-loop", () => {
       });
       const ctx = makeCtx({
         getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
       expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
       expect(initializedDuringHook).toEqual([true]);
     });
 
