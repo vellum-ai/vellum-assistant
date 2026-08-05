@@ -807,7 +807,6 @@ export async function primeLocalGatewayConnection(
     if (getSelfHostedIngressUrl() === ingressUrl) {
       setSelfHostedConnection(null);
     }
-    clearGatewayToken();
     const response = await fetch(`${pairedUrl}/readyz`);
     if (!response.ok) {
       const message = await response.text();
@@ -816,6 +815,7 @@ export async function primeLocalGatewayConnection(
         message || `Paired gateway request failed: ${response.status}`,
       );
     }
+    clearGatewayToken();
     setSelfHostedConnection({
       url: ingressUrl,
       token: null,

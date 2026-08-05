@@ -972,6 +972,38 @@ describe("primeLocalGatewayConnection", () => {
     expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
     expect(isGatewayAuthMode()).toBe(false);
   });
+
+  test("failed paired prime preserves the current local session", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    seedGatewayToken({
+      token: "local-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway/7830`,
+      token: "local-actor-token",
+    });
+    globalThis.fetch = mock(
+      async () => new Response("Guardian token not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+
+    await expect(
+      primeLocalGatewayConnection(pairedEntry),
+    ).rejects.toBeInstanceOf(localModeHost.GuardianTokenError);
+
+    expect(getGatewayToken()).toBe("local-actor-token");
+    expect(getSelfHostedIngressUrl()).toBe(
+      `${window.location.origin}/assistant/__gateway/7830`,
+    );
+    expect(getSelfHostedActorToken()).toBe("local-actor-token");
+    expect(isGatewayAuthMode()).toBe(true);
+  });
 });
 
 describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
