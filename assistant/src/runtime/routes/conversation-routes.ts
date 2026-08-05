@@ -116,6 +116,7 @@ import {
   isConversationProcessing,
   isHiddenMessageMetadata,
   isProviderErrorMetadata,
+  isSuppressedQueuedMessage,
   isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
@@ -713,12 +714,17 @@ function buildQueuedMessagePayloads(
     return [];
   }
 
-  // Hidden sends are suppressed from the transcript at every stage — echo,
-  // persisted row, and here the in-memory queue window: a latest-page fetch
-  // while the item still awaits drain must not surface it as a queued bubble.
+  // Rows that never render as a user bubble are suppressed at every stage —
+  // echo, persisted row, and here the in-memory queue window: a latest-page
+  // fetch while the item still awaits drain must not surface it as a queued
+  // bubble. That covers hidden sends and the daemon's own injected
+  // notifications (a subagent's completion summary enqueued into a busy
+  // parent, an ACP run outcome, a wake trigger) — the user follows those
+  // through their inline cards, never as a queued message they could steer or
+  // cancel.
   return conversation
     .snapshotQueuedMessages()
-    .filter((item) => !isHiddenMessageMetadata(item.metadata))
+    .filter((item) => !isSuppressedQueuedMessage(item.metadata))
     .map((item, index) => {
       const text = item.displayContent ?? item.content;
       const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(

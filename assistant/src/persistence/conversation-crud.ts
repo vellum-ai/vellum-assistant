@@ -393,6 +393,7 @@ export {
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
   isVoiceSessionUserMessage,
 } from "./conversation-types.js";
 

@@ -138,6 +138,29 @@ export function isEchoSuppressedUserMessage(
 }
 
 /**
+ * True when a queued message has no client-visible queued row, so every event
+ * and snapshot that describes the queue to clients must skip it.
+ *
+ * Same set as {@link isEchoSuppressedUserMessage}: a row that never renders as
+ * a user bubble must not render as a queued one either. A subagent's
+ * completion notification injected into a busy parent (`subagent/notify.ts`)
+ * is the common case — the user sees that run through its inline card, and a
+ * `[Subagent "…" — …]` row in the queue drawer is daemon scaffolding leaking
+ * into the transcript's place.
+ *
+ * Named separately from the echo predicate for the queue sites that must
+ * agree: the `message_queued` ack and its visible-position count, the
+ * corrective `message_requeued` position, the terminal
+ * `message_queued_deleted` on user delete and on abort discard, and the
+ * list-messages queued snapshot a cold reload reads.
+ */
+export function isSuppressedQueuedMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return isEchoSuppressedUserMessage(metadata);
+}
+
+/**
  * True when a role-`"user"` row was persisted by the voice bridge for a live
  * phone call or in-app voice session (every row `startVoiceTurn` persists, see
  * `calls/voice-session-bridge.ts`).
