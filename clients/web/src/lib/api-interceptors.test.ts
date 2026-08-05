@@ -1858,6 +1858,10 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
       PLATFORM_RECOVERY_MAX_ATTEMPTS + 2,
     );
     expect(sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY)).toBeNull();
+    // The refund also drops the remembered pathname; a leftover key would
+    // re-seed the outstanding flag after a reload and let a heal clear the
+    // retained cooldown.
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY)).toBeNull();
 
     // The cooldown survives the refund: an immediate rejection stays paced.
     platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
@@ -1865,6 +1869,11 @@ describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
     expect(refreshSession).toHaveBeenCalledTimes(
       PLATFORM_RECOVERY_MAX_ATTEMPTS + 2,
     );
+
+    // With no remembered pathname, a later 2xx on that route cannot clear
+    // the cooldown the refund kept.
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    expect(sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY)).not.toBeNull();
   });
 
   test("a 2xx on the rejected route restores the recovery budget", async () => {

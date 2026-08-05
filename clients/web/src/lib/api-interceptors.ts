@@ -715,6 +715,10 @@ function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
 function refundPlatformRecoveryAttempt(): void {
   try {
     sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    // Drop the remembered pathname too: a leftover key would re-seed the
+    // outstanding flag after a reload, letting a heal clear the cooldown
+    // this refund deliberately keeps.
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
   } catch {
     // sessionStorage unavailable; the claim already fails closed.
   }
@@ -796,9 +800,6 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
           clearPlatformRecoveryBudgetIfHealed(pathname);
         }
       }
-      // The redirect budget stays gated on a confirmed session: the platform
-      // serves some routes anonymously, so a 2xx alone does not prove the
-      // session works.
       if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
         clearPlatformAuthRedirectBudget();
       }
@@ -821,8 +822,6 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (fromSelfHostedGateway) {
     return response;
   }
-  // Claim only for a session currently believed live: the boot probe owns
-  // unsettled ("unknown") evidence, and settled-absent has nothing to recover.
   if (!hasLivePlatformSession(platformSession)) {
     return response;
   }
