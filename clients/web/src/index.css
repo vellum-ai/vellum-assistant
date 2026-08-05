@@ -8,7 +8,7 @@
  * library's touch-mobile: pill classes, which are single-class rules
  * inside a media query (0,1,0) and would otherwise win or lose on
  * emission order. */
-@custom-variant native-mobile (&:is(:root[data-native-platform] *));
+@custom-variant native-mobile (&:is(:root[data-native-platform="ios"] *, :root[data-native-platform="android"] *));
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
@@ -18,7 +18,7 @@ body {
 /* Capacitor shells briefly expose the document canvas while their web views
  * resize for the keyboard. Paint it to prevent the native backdrop flashing
  * through. Electron's transparent floating windows remain unpainted. */
-:root[data-native-platform] body {
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) body {
   background: var(--surface-base);
 }
 
@@ -690,15 +690,21 @@ body {
  * browser chrome. Scrolling and momentum are unaffected. The native-platform
  * prefix covers the document scrollbar, every inner scroller, and pseudo
  * elements while outranking the global and theme scrollbar rules. */
-:root[data-native-platform],
-:root[data-native-platform] *,
-:root[data-native-platform] *::before,
-:root[data-native-platform] *::after {
+:root:is([data-native-platform="ios"], [data-native-platform="android"]),
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) *,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  *::before,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  *::after {
   scrollbar-width: none;
 }
 
-:root[data-native-platform]::-webkit-scrollbar,
-:root[data-native-platform] ::-webkit-scrollbar {
+:root:is(
+    [data-native-platform="ios"],
+    [data-native-platform="android"]
+  )::-webkit-scrollbar,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  ::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;

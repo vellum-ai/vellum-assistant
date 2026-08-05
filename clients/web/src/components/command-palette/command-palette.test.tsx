@@ -9,8 +9,8 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-mock.module("@/runtime/native-auth", () => ({
-  useIsNativePlatform: () => nativeMobileRef.value,
+mock.module("@/runtime/platform-detection", () => ({
+  useIsNativeMobile: () => nativeMobileRef.value,
 }));
 
 const { CommandPalette } =

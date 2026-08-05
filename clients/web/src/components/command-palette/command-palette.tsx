@@ -22,7 +22,7 @@ import { createPortal } from "react-dom";
 
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 
 // z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
 // in chat-layout), which stays mounted underneath so dismissing search returns
@@ -178,7 +178,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   surface = "overlay",
 }) => {
   const isMobile = useIsMobile();
-  const isNativeMobileShell = useIsNativePlatform();
+  const isNativeMobileShell = useIsNativeMobile();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);

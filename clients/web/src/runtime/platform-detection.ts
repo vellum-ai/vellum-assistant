@@ -346,3 +346,8 @@ export function useIsNativeIOS(): boolean {
 export function useIsNativeAndroid(): boolean {
   return useSyncExternalStore(noop, isNativeAndroid, () => false);
 }
+
+/** Hook form of `isNativeMobile()`, restricted to iOS and Android shells. */
+export function useIsNativeMobile(): boolean {
+  return useSyncExternalStore(noop, isNativeMobile, () => false);
+}

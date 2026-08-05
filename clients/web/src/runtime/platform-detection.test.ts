@@ -36,6 +36,7 @@ const {
   isNativeMobile,
   useIsAndroidWeb,
   useIsNativeIOS,
+  useIsNativeMobile,
 } = await import("@/runtime/platform-detection");
 
 const ORIGINAL_UA = navigator.userAgent;
@@ -144,6 +145,7 @@ describe("native mobile shell detection", () => {
     expect(isNativeIOS()).toBe(true);
     expect(isNativeAndroid()).toBe(false);
     expect(isNativeMobile()).toBe(true);
+    expect(renderHook(() => useIsNativeMobile()).result.current).toBe(true);
   });
 
   test("distinguishes the native Android shell", () => {
@@ -153,6 +155,15 @@ describe("native mobile shell detection", () => {
     expect(isNativeIOS()).toBe(false);
     expect(isNativeAndroid()).toBe(true);
     expect(isNativeMobile()).toBe(true);
+    expect(renderHook(() => useIsNativeMobile()).result.current).toBe(true);
+  });
+
+  test("excludes other native platforms", () => {
+    nativePlatform = true;
+    nativeOsPlatform = "macos";
+
+    expect(isNativeMobile()).toBe(false);
+    expect(renderHook(() => useIsNativeMobile()).result.current).toBe(false);
   });
 
   test("does not treat mobile browsers as native shells", () => {
