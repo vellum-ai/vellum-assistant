@@ -33,6 +33,7 @@ import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/inv
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
   configGetQueryKey,
+  configLlmCallsitesGetQueryKey,
   identityGetQueryKey,
   inferenceProfilesGetQueryKey,
   schedulesGetQueryKey,
@@ -92,6 +93,12 @@ export function useAssistantResourceSync(
               // client can change the Language Model card's rows.
               void queryClient.invalidateQueries({
                 queryKey: inferenceProfilesGetQueryKey(pathOpts),
+              });
+              // The call-site catalog reports each action's winning profile,
+              // resolved from config, so a config write on any client can
+              // change it. Surfaces treat that winner as authoritative.
+              void queryClient.invalidateQueries({
+                queryKey: configLlmCallsitesGetQueryKey(pathOpts),
               });
               // Memory availability is derived from config (`memory.enabled`,
               // `memory.v3.live`), so a config write on any client can change

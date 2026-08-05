@@ -11,6 +11,7 @@ import {
   configGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  configLlmCallsitesGetQueryKey,
   inferenceProfilesGetQueryKey,
   pluginsGetQueryKey,
   pluginsSearchGetQueryKey,
@@ -146,6 +147,7 @@ describe("useAssistantResourceSync", () => {
         expect.arrayContaining([
           configGetQueryKey(pathOpts),
           inferenceProfilesGetQueryKey(pathOpts),
+          configLlmCallsitesGetQueryKey(pathOpts),
           soundsConfigGetQueryKey(pathOpts),
           schedulesGetQueryKey(pathOpts),
           [
@@ -227,16 +229,16 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit((syncEvent([SYNC_TAGS.assistantConfig]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantConfig]) as unknown as AssistantEvent);
     await waitFor(() => {
       const queryKeys = calls.map(
-        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           memoryGraphOptions("asst-1").queryKey,
           memoryStatsOptions("asst-1").queryKey,
-        ]) as never
+        ]) as never,
       );
     });
   });
@@ -258,13 +260,13 @@ describe("useAssistantResourceSync", () => {
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
     await waitFor(() => {
       const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           memoryGraphOptions("asst-1").queryKey,
           memoryStatsOptions("asst-1").queryKey,
-        ]) as never
+        ]) as never,
       );
     });
   });
@@ -272,7 +274,8 @@ describe("useAssistantResourceSync", () => {
   test("invalidates app list queries on apps:list sync tag", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {
@@ -379,7 +382,8 @@ describe("useAssistantResourceSync", () => {
   test("invalidates home-feed query on home_feed_updated", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {
