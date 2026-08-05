@@ -610,6 +610,57 @@ describe("sandboxReadPolicy", () => {
       expect(result.reason).toBe("out_of_bounds");
     }
   });
+
+  // The daemon's own environment carries the actor token signing key, the CES
+  // service token, the guardian bootstrap secret, and forwarded provider API
+  // keys, so no policy may serve a process environment block.
+  test.each([
+    "/proc/self/environ",
+    "/proc/thread-self/environ",
+    "/proc/1/environ",
+    "/proc/4242/environ",
+  ])("denies %s", (path) => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(path, boundary, { mustExist: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a process environ path reached through a symlink", () => {
+    const boundary = makeTempDir();
+    symlinkSync("/proc/self/environ", join(boundary, "innocent.txt"));
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "innocent.txt"), boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("still allows other /proc entries", () => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy("/proc/self/status", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("does not deny an unrelated file named environ", () => {
+    const boundary = makeTempDir();
+    writeFileSync(join(boundary, "environ"), "notes");
+
+    const result = sandboxReadPolicy("environ", boundary);
+    expect(result.ok).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

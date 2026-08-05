@@ -108,6 +108,18 @@ describe("file_read outside the workspace in a container", () => {
     expect(result.content).not.toContain("trust body");
   });
 
+  test("denies the daemon's own process environment", async () => {
+    const workspace = makeTempDir("container-workspace-");
+
+    const result = await fileReadTool.execute(
+      { path: "/proc/self/environ" },
+      makeContext(workspace),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("process environment");
+  });
+
   test("denies file_write outside the workspace", async () => {
     const workspace = makeTempDir("container-workspace-");
     const skillDir = makeInstalledSkill("image-studio");

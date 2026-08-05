@@ -35,6 +35,26 @@ export function isDeniedBasename(path: string): boolean {
   return DENIED_BASENAMES.has(basename(path));
 }
 
+/**
+ * `/proc/<pid>/environ` for any pid, including the `self` and `thread-self`
+ * aliases. Reading one yields the target process's full environment.
+ */
+const PROC_ENVIRON_PATTERN = /^\/proc\/(?:\d+|self|thread-self)\/environ$/;
+
+/**
+ * Whether a path exposes a process environment block.
+ *
+ * The daemon's own environment carries credential material the file tools
+ * must never hand back: the actor token signing key, the CES service token,
+ * the guardian bootstrap secret, and any provider API keys forwarded in at
+ * launch. The bash tool strips those from the child processes it spawns via
+ * the `SAFE_ENV_VARS` allowlist, so denying them here keeps the file tools
+ * from becoming the looser path to the same secrets.
+ */
+export function isProcessEnvironPath(path: string): boolean {
+  return PROC_ENVIRON_PATTERN.test(path);
+}
+
 export type PathResult =
   | { ok: true; resolved: string }
   | { ok: false; reason: PathFailureReason; error: string };
@@ -184,6 +204,16 @@ function deniedFailure(target: SandboxTarget): PathResult | null {
       ok: false,
       reason: "denied",
       error: `Access to "${basename(target.resolved)}" is denied`,
+    };
+  }
+  if (
+    isProcessEnvironPath(target.resolved) ||
+    isProcessEnvironPath(target.realResolved)
+  ) {
+    return {
+      ok: false,
+      reason: "denied",
+      error: "Access to process environment blocks is denied",
     };
   }
   return null;
@@ -377,12 +407,13 @@ export function sandboxPolicyWithHostFallback(
  * elevated risk before execution (see the gateway FileRiskClassifier). Either
  * way the boundary is not what protects secrets.
  *
- * What protects them is unchanged and applies to every read: the service
- * security directories (gateway trust material, CES credential keys, the
- * daemon dotenv) stay denied outright, as does the basename denylist, on both
- * the logical and the symlink-resolved path. When that deny set cannot be
- * mirrored faithfully (see {@link securityDirConfigMirrorable}), reads fail
- * closed to the hard boundary rather than escape it unprotected.
+ * The denials are what protect secrets, and they apply to every read: the
+ * service security directories (gateway trust material, CES credential keys,
+ * the daemon dotenv), the basename denylist, and process environment blocks
+ * (see {@link isProcessEnvironPath}), each checked on both the logical and
+ * the symlink-resolved path. When that deny set cannot be mirrored faithfully
+ * (see {@link securityDirConfigMirrorable}), reads fail closed to the hard
+ * boundary rather than escape it unprotected.
  *
  * Write-side policies do not take this allowance.
  */
