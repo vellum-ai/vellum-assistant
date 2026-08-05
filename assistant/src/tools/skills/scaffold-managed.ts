@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
+import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
@@ -231,6 +232,50 @@ async function resolveRetrospectiveDedup(
     return { kind: "covered", skillId: top.skillId, source: "managed" };
   }
   return { kind: "update", skillId: top.skillId };
+}
+
+/**
+ * Tell the user that a background pass changed a skill they already have.
+ *
+ * A newly authored skill announces itself in the conversation through the
+ * `skill_card` surface, but an UPDATE had no signal at all: the pass rewrites
+ * the body of a skill the user may be relying on, and `createManagedSkill`
+ * writes through an atomic rename keeping no prior version. Routing it
+ * through the notification pipeline puts it in the background feed alongside
+ * the other unattended work (sweeps, scheduled jobs, heartbeat), which is
+ * where a user already looks to see what the assistant did on its own.
+ *
+ * Deduped per skill per day, so a pass that refines the same skill repeatedly
+ * cannot flood the feed. Best-effort and non-blocking: the skill is already
+ * written, and a notification failure must never turn that into a tool error.
+ */
+function notifyBackgroundSkillUpdate(args: {
+  skillId: string;
+  name: string;
+  sourceConversationId?: string;
+}): void {
+  const day = new Date().toISOString().slice(0, 10);
+  void emitNotificationSignal({
+    sourceChannel: "scheduler",
+    sourceContextId: args.sourceConversationId ?? args.skillId,
+    sourceEventName: "activity.complete",
+    dedupeKey: `skill-updated:${args.skillId}:${day}`,
+    contextPayload: {
+      summary: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
+      skillId: args.skillId,
+    },
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+  }).catch((err: unknown) => {
+    log.warn(
+      { err, skillId: args.skillId },
+      "skill update notification failed; the skill write stands",
+    );
+  });
 }
 
 /**
@@ -564,6 +609,16 @@ export async function executeScaffoldManagedSkill(
       // recordWatchdogEvent already no-ops on opt-out and a missing
       // telemetry DB; anything past that is not worth surfacing here.
     }
+  }
+
+  // A background pass changed a skill that already existed. Creates announce
+  // themselves through the skill card below; updates had no signal at all.
+  if (fromRetrospective && managedSkillExistedBefore) {
+    notifyBackgroundSkillUpdate({
+      skillId: id,
+      name: normalizedName,
+      sourceConversationId,
+    });
   }
 
   // Surface a genuine retrospective CREATE to the user as a skill card on the

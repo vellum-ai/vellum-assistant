@@ -32,6 +32,24 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
+// Background skill updates route through the notification pipeline; record
+// the signals rather than standing up delivery.
+let emittedSignals: Array<{
+  sourceEventName: string;
+  dedupeKey?: string;
+  contextPayload?: Record<string, unknown>;
+}> = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (params: {
+    sourceEventName: string;
+    dedupeKey?: string;
+    contextPayload?: Record<string, unknown>;
+  }) => {
+    emittedSignals.push(params);
+    return { signalId: "test-signal" };
+  },
+}));
+
 // The retrospective dedup path calls the skill matcher, which would otherwise
 // reach a live embedding backend and Qdrant. Default it to an empty shortlist
 // (the same value the real matcher degrades to when its scorer fails), so
@@ -115,6 +133,7 @@ beforeEach(() => {
   skillCardJobUpserts = [];
   skillCardUpsertThrows = false;
   watchdogEvents.length = 0;
+  emittedSignals = [];
 });
 
 afterEach(() => {
@@ -1811,6 +1830,55 @@ describe("retrospective dedup", () => {
 
     expect(result.isError).toBe(false);
     expect(skillExists("export-weekly-report")).toBe(true);
+  });
+
+  test("a background update of an existing skill notifies the user, deduped per skill per day", async () => {
+    await seedAssistantSkill("existing-export", "Old body.");
+
+    await executeScaffoldManagedSkill(capture(), makeRetrospectiveContext(), {
+      ...matcher({ skillId: "existing-export", score: 0.95 }),
+      loadCatalog: () => [
+        { id: "existing-export", source: "managed" as SkillSource },
+      ],
+    });
+
+    // The update is otherwise invisible: no card, no authoring counter.
+    expect(skillCardJobUpserts).toHaveLength(0);
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe("activity.complete");
+    expect(emittedSignals[0]!.contextPayload?.skillId).toBe("existing-export");
+    expect(String(emittedSignals[0]!.contextPayload?.summary)).toContain(
+      "Export Weekly Report",
+    );
+    // Deduped by skill and day so repeated refinements cannot flood the feed.
+    expect(emittedSignals[0]!.dedupeKey).toContain("existing-export");
+  });
+
+  test("a background CREATE gets the skill card, not an update notification", async () => {
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext({ conversationId: "retro-conv" }),
+      { ...matcher(), loadCatalog: () => [] },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("a user-directed overwrite does not notify: it is not unattended work", async () => {
+    await executeScaffoldManagedSkill(
+      capture({ body_markdown: "V1." }),
+      makeContext(),
+    );
+    emittedSignals = [];
+
+    await executeScaffoldManagedSkill(
+      capture({ body_markdown: "V2.", overwrite: true }),
+      makeContext(),
+    );
+
+    expect(readBody("export-weekly-report")).toContain("V2.");
+    expect(emittedSignals).toHaveLength(0);
   });
 
   test("user-directed scaffolds never consult the matcher", async () => {
