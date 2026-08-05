@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { cleanup } from "@testing-library/react";
 
 type MockSessionUser = {
@@ -144,6 +152,17 @@ const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 // unaffected; the reconciliation tests override it to a well-formed result.
 let mockListAssistantsResult: unknown = [];
 const listAssistantsMock = mock(async () => mockListAssistantsResult);
+// Controls the `OrgFetchOutcome` the probe's evidence check reads. A thrown
+// error simulates a transport failure; a never-resolving promise as the
+// outcome makes the fetch hang so the probe's sync race times out.
+let mockOrgFetchOutcome: unknown = { ok: true };
+let mockOrgFetchError: Error | null = null;
+const fetchOrganizationsMock = mock(async () => {
+  if (mockOrgFetchError) {
+    throw mockOrgFetchError;
+  }
+  return mockOrgFetchOutcome;
+});
 const syncPlatformAssistantsToLockfileMock = mock(
   async (_list: unknown, _orgId?: string) => {},
 );
@@ -314,7 +333,7 @@ mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
   useOrganizationStore: {
     getState: () => ({
-      fetchOrganizations: async () => {},
+      fetchOrganizations: fetchOrganizationsMock,
       currentOrganizationId: "org-test",
     }),
   },
@@ -344,8 +363,11 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore, __resetConsentSyncUserForTesting } =
-  await import("@/stores/auth-store");
+const {
+  useAuthStore,
+  whenPlatformSessionSettled,
+  __resetConsentSyncUserForTesting,
+} = await import("@/stores/auth-store");
 const { useAssistantLifecycleStore } =
   await import("@/assistant/lifecycle-store");
 const { useResolvedAssistantsStore } =
@@ -438,6 +460,9 @@ beforeEach(() => {
   lifecycleCheckAssistantMock.mockClear();
   mockListAssistantsResult = [];
   listAssistantsMock.mockClear();
+  mockOrgFetchOutcome = { ok: true };
+  mockOrgFetchError = null;
+  fetchOrganizationsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   bootstrapLocalAssistantPlatformIdentityMock.mockClear();
   resetAuthStore();
@@ -1709,6 +1734,147 @@ describe("platform session probe resolution", () => {
     gates[1]();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+});
+
+describe("platform probe conclusive rejection (half-dead session)", () => {
+  // The half-dead state: allauth answers 200 with a user while the platform
+  // API conclusively rejects the same credential. The probe consumes the
+  // org/assistants evidence it already gathers and settles the session
+  // "absent", which un-gates org-gated daemon queries on bearer-auth
+  // connections and surfaces the login affordances. The recovery
+  // interceptor's settled-absent gate then treats any residual platform 403
+  // as a no-op instead of looping.
+  //
+  // Every test drives the local-client init path (no gateway auth, no
+  // platform assistants), where the probe runs with `setUserOnSuccess`.
+  function arrangeLocalProbe(): void {
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+  }
+
+  test("an org-fetch session rejection settles the session absent", async () => {
+    arrangeLocalProbe();
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    // A rejected session must not install a platform user, persist a
+    // restorable snapshot, or bootstrap the platform identity.
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
+    // The evidence check short-circuits before the assistants call and sync.
+    expect(listAssistantsMock).not.toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("a session rejection clears a previously persisted snapshot", async () => {
+    arrangeLocalProbe();
+    // A snapshot persisted by an earlier confirmed session must not survive
+    // the rejection: restoreOfflineSession would otherwise resurrect the
+    // rejected account as "present" on a later offline boot.
+    localStorage.setItem(
+      "vellum:auth:userSnapshot",
+      JSON.stringify({ id: "user-1", email: "user@example.com" }),
+    );
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("an assistants-list session rejection settles the session absent", async () => {
+    arrangeLocalProbe();
+    mockListAssistantsResult = { ok: false, status: 403, error: {} };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("a transport-thrown org fetch keeps the present settle", async () => {
+    arrangeLocalProbe();
+    mockOrgFetchError = new TypeError("Failed to fetch");
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    // No evidence of rejection: the offline-restore contract (LUM-2412)
+    // keeps the session present.
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalled();
+  });
+
+  test("a non-rejection org failure keeps the present settle", async () => {
+    arrangeLocalProbe();
+    mockOrgFetchOutcome = { ok: false, kind: "unavailable" };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+  });
+
+  test("a sync race timeout keeps the present settle", async () => {
+    arrangeLocalProbe();
+    // An org fetch that never resolves leaves the race with only the timeout
+    // arm; shrink the 3s timer to 0 so the test settles immediately.
+    mockOrgFetchOutcome = new Promise(() => {});
+    const originalSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    setTimeoutSpy.mockImplementation(((
+      handler: () => void,
+      timeout?: number,
+    ) =>
+      originalSetTimeout(
+        handler,
+        timeout === 3_000 ? 0 : timeout,
+      )) as typeof setTimeout);
+
+    try {
+      await useAuthStore.getState().initSession();
+      await whenPlatformSessionSettled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+  });
+
+  test("the probe clears its sync race timer once it settles", async () => {
+    arrangeLocalProbe();
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
+
+    try {
+      await useAuthStore.getState().initSession();
+      await whenPlatformSessionSettled();
+
+      const raceTimerIndex = setTimeoutSpy.mock.calls.findIndex(
+        (call) => call[1] === 3_000,
+      );
+      expect(raceTimerIndex).toBeGreaterThanOrEqual(0);
+      const raceTimerHandle = setTimeoutSpy.mock.results[raceTimerIndex]?.value;
+      expect(
+        clearTimeoutSpy.mock.calls.some((call) => call[0] === raceTimerHandle),
+      ).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
   });
 });
 

@@ -627,33 +627,38 @@ function probePlatformSession(
       }
       if (result.ok && result.data.user) {
         const probedUser = toAuthUser(result.data.user);
-        const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
-        // Adopting the probed user confirms a platform session outside the
-        // `authenticatedPlatformUser` transition — persist here too so the
-        // local-mode path feeds the offline restore (LUM-2412).
-        if (options.setUserOnSuccess) {
-          persistUserSnapshot(probedUser);
-        }
         // Sync platform assistants to the lockfile BEFORE setting
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
         // already reflect synced platform assistants at that point.
         // The whole sequence (org fetch, list, host replace) is bounded
-        // to 3s so a hanging call can't block the probe from settling —
+        // to 3s so a hanging call can't block the probe from settling;
         // the middleware's 5s timeout would loop indefinitely otherwise.
         // The race does not cancel the inner branch, so the guard also
         // checks `timedOut`: once the probe settles without the sync, a
         // late commit must not land after routing decisions were made on
         // the un-synced lockfile. `!isStale()` likewise keeps a
         // superseded probe from committing an out-of-date lockfile.
+        let sessionRejected = false;
         if (isLocalClient()) {
           let timedOut = false;
           const syncIsCurrent = (): boolean => !timedOut && !isStale();
+          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
           try {
             await Promise.race([
               (async () => {
-                await useOrganizationStore.getState().fetchOrganizations();
+                const orgOutcome = await useOrganizationStore
+                  .getState()
+                  .fetchOrganizations();
+                if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
+                  sessionRejected = true;
+                  return;
+                }
                 const apiAssistants = await listAssistants();
+                if (isSettledSessionRejection(apiAssistants)) {
+                  sessionRejected = true;
+                  return;
+                }
                 if (syncIsCurrent() && apiAssistants.ok) {
                   await syncPlatformAssistantsToLockfile(
                     apiAssistants.data,
@@ -663,19 +668,53 @@ function probePlatformSession(
                   );
                 }
               })(),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => {
+              new Promise<never>((_, reject) => {
+                timeoutHandle = setTimeout(() => {
                   timedOut = true;
                   reject(new Error("sync timeout"));
-                }, 3_000),
-              ),
+                }, 3_000);
+              }),
             ]);
           } catch {
-            // Sync failed or timed out — continue with cached lockfile data
+            // Sync failed or timed out; continue with cached lockfile data
+          } finally {
+            clearTimeout(timeoutHandle);
           }
         }
         if (isStale()) {
           return;
+        }
+        if (sessionRejected) {
+          // The allauth cookie answered, but the platform API conclusively
+          // rejected the credential (a settled 401/403/410 on the org or
+          // assistants call), so this session is unusable for every consumer:
+          // settle it as absent, install no user, and skip the platform
+          // identity bootstrap. Transport failures and the race timeout
+          // deliberately never reach this branch (LUM-2412 offline restore).
+          // The persisted snapshot must go too, or `restoreOfflineSession`
+          // could resurrect the rejected account as "present" on a later
+          // offline boot; an already-authenticated local/gateway session
+          // demotes its user to the local shape, mirroring refreshSession's
+          // stands-alone demotion.
+          clearUserSnapshot();
+          const demotion = isAuthenticated(
+            useAuthStore.getState().sessionStatus,
+          )
+            ? authenticatedLocalUser()
+            : {};
+          set({
+            ...demotion,
+            platformSession: "absent",
+            platformSessionRestoredOffline: false,
+          });
+          return;
+        }
+        const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
+        // Adopting the probed user confirms a platform session outside the
+        // `authenticatedPlatformUser` transition, so persist here too to feed
+        // the local-mode offline restore (LUM-2412).
+        if (options.setUserOnSuccess) {
+          persistUserSnapshot(probedUser);
         }
         set({
           platformSession: "present",
