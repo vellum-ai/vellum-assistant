@@ -87,19 +87,29 @@ mock.module("@/domains/onboarding/components/connect-recovery-dialog", () => ({
   ConnectRecoveryDialog: () => null,
 }));
 
-// A stub that surfaces the open state and lets tests drive the imported
-// callback the way a successful paste-and-submit would.
+// A stub that surfaces the open state and deep-link payload, and lets tests
+// drive close and the imported callback the way real dialog interactions
+// would.
 mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
   ConnectAssistantDialog: ({
     open,
+    initialBundle,
+    guidanceMessage,
+    onClose,
     onImported,
   }: {
     open: boolean;
+    initialBundle?: string;
+    guidanceMessage?: string;
+    onClose: () => void;
     onImported: (assistantId: string) => void;
   }) =>
     open ? (
       <div>
         Connect dialog open
+        {initialBundle && <div>{`bundle:${initialBundle}`}</div>}
+        {guidanceMessage && <div>{guidanceMessage}</div>}
+        <button onClick={onClose}>Close dialog</button>
         <button onClick={() => onImported("paired-new")}>
           Simulate import
         </button>
@@ -228,6 +238,12 @@ mock.module("@vellumai/design-library/components/menu", () => ({
   },
 }));
 
+// The real (unmocked) store: the screen reads its dialog state from it so a
+// deep link parked by the global consumer opens the dialog on mount.
+const { __resetConnectDialogForTesting, useConnectDialogStore } = await import(
+  "@/stores/connect-dialog-store"
+);
+
 const { SelectAssistantScreen } = await import(
   "@/domains/onboarding/pages/select-assistant-screen"
 );
@@ -288,6 +304,7 @@ describe("SelectAssistantScreen paired assistants", () => {
     removePlatformAssistantFromLockfileMock.mockClear();
     activeAssistantIdValue = null;
     setActiveAssistantIdMock.mockClear();
+    __resetConnectDialogForTesting();
   });
 
   afterEach(cleanup);
@@ -573,6 +590,83 @@ describe("SelectAssistantScreen paired assistants", () => {
     );
     // The dialog closes as the connect kicks off.
     expect(screen.queryByText("Connect dialog open")).toBeNull();
+  });
+
+  test("a connect deep link parked in the store opens the dialog on mount with the bundle prefilled", () => {
+    // What `useGlobalDeepLinkConsumer` does for a `<scheme>://connect?bundle=`
+    // link before navigating here.
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Connect dialog open")).toBeTruthy();
+    expect(screen.getByText("bundle:eyJnYXRld2F5")).toBeTruthy();
+  });
+
+  test("a bundle-less connect deep link opens the dialog with its guidance copy", () => {
+    useConnectDialogStore.getState().openConnectDialog({
+      guidanceMessage: "Run vellum pair on the assistant's machine.",
+    });
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(
+      screen.getByText("Run vellum pair on the assistant's machine."),
+    ).toBeTruthy();
+  });
+
+  test("closing the dialog clears the parked deep-link payload", () => {
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Close dialog"));
+
+    expect(screen.queryByText("Connect dialog open")).toBeNull();
+    expect(useConnectDialogStore.getState().open).toBe(false);
+    expect(useConnectDialogStore.getState().initialBundle).toBeNull();
+  });
+
+  test("a manual open after a deep-link close starts empty", () => {
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Close dialog"));
+    fireEvent.click(screen.getByText("Connect a remote assistant"));
+
+    expect(screen.getByText("Connect dialog open")).toBeTruthy();
+    expect(screen.queryByText("bundle:eyJnYXRld2F5")).toBeNull();
+  });
+
+  test("a parked connect deep link suppresses the sole-assistant auto-skip", async () => {
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Connect dialog open")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   test("an open connect dialog suppresses the sole-assistant auto-skip", async () => {

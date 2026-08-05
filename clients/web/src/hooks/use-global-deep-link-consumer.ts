@@ -10,6 +10,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { requestVoiceStartFromDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
+import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -39,6 +40,12 @@ import { routes } from "@/utils/routes";
  *   just navigates back to a running session's conversation. A `prompt`
  *   (Siri's "Ask …" intent, which collects the question before the app is
  *   up) is parked in the composer inbox — see below.
+ * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
+ *   in the connect-dialog store + navigate to the assistant chooser,
+ *   which opens its Connect a Remote Assistant dialog off that store: a
+ *   `bundle` prefills the paste field; a bundle-less link (the pair
+ *   page's url+code hand-off, which cannot complete a durable desktop
+ *   pairing) gets guidance naming the host instead.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * ## Why a start-voice `prompt` goes to the composer, not into the session
@@ -68,6 +75,30 @@ import { routes } from "@/utils/routes";
  * generic — chat-specific store handling lives in the shared
  * `navigateToConversation` util.
  */
+
+/**
+ * Guidance for a connect link that carried no bundle: the pair page's
+ * url+code hand-off. The device-code exchange cannot produce a durable
+ * desktop pairing (its refresh token is an HttpOnly cookie), so the
+ * dialog explains how to get a pastable bundle instead. Named host only
+ * when the link carried a parseable https base.
+ */
+function connectGuidanceMessage(url: string | null): string {
+  let host: string | null = null;
+  if (url !== null) {
+    try {
+      host = new URL(url).host;
+    } catch {
+      // Main-side validation makes this unreachable; guidance degrades
+      // to the hostless copy.
+    }
+  }
+  const machine =
+    host === null
+      ? "the assistant's machine"
+      : `the assistant's machine at ${host}`;
+  return `This link came from a pairing QR code. To connect this Mac, run vellum pair on ${machine} and paste the bundle here.`;
+}
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
@@ -173,6 +204,18 @@ export function useGlobalDeepLinkConsumer(): void {
       );
     },
   );
+
+  useBusSubscription("deeplink.connect", ({ url, bundle }) => {
+    void ensureMainWindowVisible();
+    // Park before navigating so the chooser mounts with the dialog
+    // already open (its auto-skip stands down while it is).
+    useConnectDialogStore.getState().openConnectDialog(
+      bundle !== null
+        ? { initialBundle: bundle }
+        : { guidanceMessage: connectGuidanceMessage(url) },
+    );
+    navigateRef.current(routes.selectAssistant);
+  });
 
   useBusSubscription("deeplink.unknown", ({ url }) => {
     Sentry.addBreadcrumb({
