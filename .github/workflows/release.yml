@@ -2124,6 +2124,9 @@ jobs:
     needs: [extract-version]
     runs-on: macos-26
     timeout-minutes: 30
+    # Resolves the environment-scoped STRIPE_PUBLISHABLE_KEY secret baked into
+    # the renderer below (same environment expression as upload-electron-updates).
+    environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
     strategy:
       # Let both arches finish so a failure reports which arch(es) broke; any
       # failed leg fails the job (and therefore the release).
@@ -2209,6 +2212,11 @@ jobs:
           VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          # Environment-scoped secret (pk_test_ on staging, pk_live_ on prod);
+          # requires the job's `environment:` above, else it resolves empty and
+          # the payment-method modal can't mount Stripe Elements. Publishable
+          # keys are public, so embedding them is expected.
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           # Sentry release tracking for the Electron renderer. VITE_APP_VERSION
           # tags renderer events with the release (read in
           # clients/web/src/lib/sentry/sentry-init.ts) and names the registered

@@ -1660,6 +1660,9 @@ jobs:
     needs: [compute-version]
     runs-on: macos-26
     timeout-minutes: 30
+    # Resolves the environment-scoped STRIPE_PUBLISHABLE_KEY secret baked into
+    # the renderer below.
+    environment: dev
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -1746,6 +1749,11 @@ jobs:
           VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: dev
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          # Environment-scoped secret (pk_test_ on dev); requires the job's
+          # `environment: dev` above, else it resolves empty and the
+          # payment-method modal can't mount Stripe Elements. Publishable keys
+          # are public, so embedding them is expected.
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           # Sentry release tracking for the Electron renderer (mirrors release.yml).
           # VITE_APP_VERSION tags renderer events with the release (read in
           # clients/web/src/lib/sentry/sentry-init.ts) and names the registered
