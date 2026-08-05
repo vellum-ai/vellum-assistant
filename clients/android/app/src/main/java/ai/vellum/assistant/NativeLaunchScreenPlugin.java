@@ -1,7 +1,11 @@
 package ai.vellum.assistant;
 
+import android.app.UiModeManager;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.os.Build;
+import androidx.appcompat.app.AppCompatDelegate;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -32,19 +36,15 @@ public class NativeLaunchScreenPlugin extends Plugin {
     }
 
     static int backgroundColor(Context context) {
-        return context.getColor(
-            isDark(context)
-                ? R.color.launch_screen_background_dark
-                : R.color.launch_screen_background_light
-        );
+        return context.getColor(R.color.launch_screen_background);
     }
 
     static int foregroundColor(Context context) {
-        return context.getColor(
-            isDark(context)
-                ? R.color.launch_screen_foreground_dark
-                : R.color.launch_screen_foreground_light
-        );
+        return context.getColor(R.color.launch_screen_foreground);
+    }
+
+    static void applySavedTheme(Context context) {
+        applyTheme(context, storedTheme(context));
     }
 
     private boolean storeTheme(PluginCall call) {
@@ -57,22 +57,47 @@ public class NativeLaunchScreenPlugin extends Plugin {
             .edit()
             .putString(THEME_KEY, theme)
             .apply();
+        applyTheme(getContext(), theme);
         return true;
     }
 
-    private static boolean isDark(Context context) {
-        String theme = context
+    private static String storedTheme(Context context) {
+        return context
             .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .getString(THEME_KEY, "system");
+    }
+
+    private static void applyTheme(Context context, String theme) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            UiModeManager uiModeManager = context.getSystemService(UiModeManager.class);
+            uiModeManager.setApplicationNightMode(platformNightMode(theme));
+            return;
+        }
+        AppCompatDelegate.setDefaultNightMode(appCompatNightMode(theme));
+    }
+
+    private static int platformNightMode(String theme) {
         if ("dark".equals(theme)) {
-            return true;
+            return UiModeManager.MODE_NIGHT_YES;
         }
         if ("light".equals(theme)) {
-            return false;
+            return UiModeManager.MODE_NIGHT_NO;
         }
-        int nightMode = context.getResources().getConfiguration().uiMode
+        int nightMode = Resources.getSystem().getConfiguration().uiMode
             & Configuration.UI_MODE_NIGHT_MASK;
-        return nightMode == Configuration.UI_MODE_NIGHT_YES;
+        return nightMode == Configuration.UI_MODE_NIGHT_YES
+            ? UiModeManager.MODE_NIGHT_YES
+            : UiModeManager.MODE_NIGHT_NO;
+    }
+
+    private static int appCompatNightMode(String theme) {
+        if ("dark".equals(theme)) {
+            return AppCompatDelegate.MODE_NIGHT_YES;
+        }
+        if ("light".equals(theme)) {
+            return AppCompatDelegate.MODE_NIGHT_NO;
+        }
+        return AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM;
     }
 
     private static boolean isTheme(String theme) {

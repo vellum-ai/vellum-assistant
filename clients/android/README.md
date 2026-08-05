@@ -53,7 +53,8 @@ origin and native auth host agree.
 
 Launcher colors distinguish production, staging, and dev installs. The launch
 screen follows the saved app appearance, falling back to the Android light or
-dark setting until the web app has stored a preference.
+dark setting until the web app has stored a preference. Android's app night
+mode keeps the OS splash and native overlay on the same theme.
 
 ## HTTPS App Links
 

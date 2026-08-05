@@ -46,6 +46,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        NativeLaunchScreenPlugin.applySavedTheme(this);
         boolean recoveredProcess = VoiceLiveActivityPlugin.clearRecoveredStatus(this);
         if (
             VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
