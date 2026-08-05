@@ -2712,6 +2712,9 @@ jobs:
         && (needs.publish-plugin-api-prod.result == 'success' || needs.publish-plugin-api-prod.result == 'skipped')
         && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
       }}
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/release-android.yaml
     with:
       environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
