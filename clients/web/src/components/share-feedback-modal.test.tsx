@@ -6,11 +6,18 @@ import userEvent from "@testing-library/user-event";
 
 const feedbackRequests: unknown[] = [];
 let capacitorPlatform: "web" | "ios" | "android" = "web";
+let rejectAndroidFeedbackClient = false;
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   feedbackCreateMutation: () => ({
     mutationFn: async (request: unknown) => {
       feedbackRequests.push(request);
+      if (
+        rejectAndroidFeedbackClient &&
+        (request as { body?: { client?: string } }).body?.client === "android"
+      ) {
+        throw { client: ["Unsupported client."] };
+      }
       return { id: "feedback-1" };
     },
   }),
@@ -39,6 +46,7 @@ afterEach(() => {
   cleanup();
   feedbackRequests.length = 0;
   capacitorPlatform = "web";
+  rejectAndroidFeedbackClient = false;
   delete (window as unknown as { _vellumDebug?: unknown })._vellumDebug;
 });
 
@@ -119,6 +127,36 @@ describe("ShareFeedbackModal", () => {
     await waitFor(() => expect(feedbackRequests).toHaveLength(1));
     const request = feedbackRequests[0] as { body: { client?: string } };
     expect(request.body.client).toBe("android");
+  });
+
+  test("falls back to web when the platform rejects Android", async () => {
+    capacitorPlatform = "android";
+    rejectAndroidFeedbackClient = true;
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="other"
+          initialMessage="The app colors are ugly."
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(feedbackRequests).toHaveLength(2));
+    expect(
+      feedbackRequests.map(
+        (request) => (request as { body: { client?: string } }).body.client,
+      ),
+    ).toEqual(["android", "web"]);
   });
 
   test("submits Doctor session id and transcript diagnostics", async () => {

@@ -149,6 +149,10 @@ function getFeedbackClient(): ClientEnum {
   return "web";
 }
 
+function isFeedbackClientValidationError(error: unknown): boolean {
+  return error !== null && typeof error === "object" && "client" in error;
+}
+
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;
 
 interface ExtraLogFile {
@@ -867,43 +871,58 @@ export function ShareFeedbackModal({
               },
             )
           : null;
-      await mutation.mutateAsync({
-        headers: { "Content-Type": null },
-        body: {
-          message: message.trim(),
-          classification: CLASSIFICATION_MAP[selectedReason],
-          email: email.trim(),
-          client: getFeedbackClient(),
-          client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
-          ...(assistantId ? { assistant_id: assistantId } : {}),
-          ...(assistantVersion ? { assistant_version: assistantVersion } : {}),
-          ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
-          ...(logsFile ? { logs_file: logsFile } : {}),
-          ...(attachments.length ? { attachments } : {}),
-        },
-        bodySerializer: (body) => {
-          const form = new FormData();
-          for (const [key, value] of Object.entries(
-            body as Record<string, unknown>,
-          )) {
-            if (value == null) {
-              continue;
-            }
-            if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value) {
-                form.append("attachments", file as Blob);
+      const feedbackClient = getFeedbackClient();
+      const submitFeedback = (client: ClientEnum) =>
+        mutation.mutateAsync({
+          headers: { "Content-Type": null },
+          body: {
+            message: message.trim(),
+            classification: CLASSIFICATION_MAP[selectedReason],
+            email: email.trim(),
+            client,
+            client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
+            ...(assistantId ? { assistant_id: assistantId } : {}),
+            ...(assistantVersion
+              ? { assistant_version: assistantVersion }
+              : {}),
+            ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
+            ...(logsFile ? { logs_file: logsFile } : {}),
+            ...(attachments.length ? { attachments } : {}),
+          },
+          bodySerializer: (body) => {
+            const form = new FormData();
+            for (const [key, value] of Object.entries(
+              body as Record<string, unknown>,
+            )) {
+              if (value == null) {
+                continue;
               }
-              continue;
+              if (key === "attachments" && Array.isArray(value)) {
+                for (const file of value) {
+                  form.append("attachments", file as Blob);
+                }
+                continue;
+              }
+              if (value instanceof Blob) {
+                form.append(key, value);
+              } else {
+                form.append(key, String(value));
+              }
             }
-            if (value instanceof Blob) {
-              form.append(key, value);
-            } else {
-              form.append(key, String(value));
-            }
-          }
-          return form;
-        },
-      });
+            return form;
+          },
+        });
+      try {
+        await submitFeedback(feedbackClient);
+      } catch (err) {
+        if (
+          feedbackClient !== "android" ||
+          !isFeedbackClientValidationError(err)
+        ) {
+          throw err;
+        }
+        await submitFeedback("web");
+      }
       onSubmitted?.();
       onClose();
     } catch (err) {
