@@ -1,3 +1,5 @@
+import { type ClientOs, parseClientOs } from "../channels/types.js";
+
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
   "audio",
@@ -98,6 +100,21 @@ export interface LiveVoiceClientStartFrame {
    * [{@link MIN_BARGE_IN_MIN_SPEECH_MS}, {@link MAX_BARGE_IN_MIN_SPEECH_MS}].
    */
   readonly bargeInMinSpeechMs?: number;
+  /**
+   * Which client opened the session. Absent from clients that predate the
+   * field, in which case the originating client is simply unknown.
+   *
+   * A {@link ClientOs}, not an `InterfaceId`, and deliberately so: the iOS and
+   * macOS apps run the same web bundle over the same transport, so the thing
+   * that actually differs between them is the OS surface. `ClientOs` is also
+   * the vocabulary that is barred by contract from answering transport
+   * questions (see `channels/types.ts`), which is the invariant wanted here:
+   * this value is **analytics only**. It rides the voice turn's telemetry
+   * `client` bag (see `voice-session-bridge.ts`) and never reaches
+   * `userMessageInterface`, which feeds `resolveChannelCapabilities` and is
+   * load-bearing for what a voice turn may do.
+   */
+  readonly client?: ClientOs;
 }
 
 /**
@@ -642,6 +659,11 @@ function validateStartFrame(
     );
   }
 
+  // An unrecognized client is dropped rather than rejected: the field is an
+  // analytics dimension, and failing a session's startup over it would trade a
+  // gap in a chart for a user who cannot talk to their assistant.
+  const client = parseClientOs(value.client);
+
   return {
     ok: true,
     frame: {
@@ -649,6 +671,7 @@ function validateStartFrame(
       ...(typeof value.conversationId === "string"
         ? { conversationId: value.conversationId }
         : {}),
+      ...(client ? { client } : {}),
       audio: audioConfig.frame,
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }

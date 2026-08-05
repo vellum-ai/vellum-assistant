@@ -38,6 +38,10 @@ import {
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  recordLiveVoiceSessionEnded,
+  recordLiveVoiceSessionStarted,
+} from "../onboarding/onboarding-events-store.js";
 import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -54,6 +58,7 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -972,6 +977,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
   private sessionEndMetricsEmitted = false;
+  /**
+   * Protocol error code of the failure that killed the session, latched by
+   * {@link sendFrame} when an error frame goes out on an already-`failed`
+   * session. Both fatal paths (`failStartup` before `ready`, a failed
+   * utterance arm after it) set `state = "failed"` before sending, and no
+   * other error frame does, so this catches exactly the session-ending
+   * failures and ignores the recoverable mid-session ones. `null` on a
+   * session that never failed.
+   */
+  private failureCode: LiveVoiceProtocolErrorCode | null = null;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
   // Energy gate for server-VAD speech classification; undefined defers to
@@ -1184,6 +1199,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    // Before the preflight, not after: a session rejected for missing
+    // credentials is precisely the one the failure rate needs to count, and
+    // recording the start only once `ready` goes out would hide every such
+    // session from both the numerator and the denominator.
+    recordLiveVoiceSessionStarted(this.context.sessionId);
+
     if (this.resolveCredentialReadiness) {
       const readiness = await this.resolveCredentialReadiness();
       if (readiness.status === "not-ready") {
@@ -1261,10 +1282,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.handleAudio(Buffer.from(chunk));
   }
 
-  async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
+  async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) {
       return;
     }
+
+    // Recorded first, and independently of `shouldEmitSessionEndMetrics`
+    // below: that flag governs the client-facing `metrics` frame, and a
+    // failed session (which suppresses the frame) is the one whose end
+    // telemetry matters most. Session duration downstream is this row's
+    // `recorded_at` minus the started row's, so it must be written before the
+    // teardown below, which awaits a pending continuation and can run long.
+    const failed = this.state === "failed";
+    recordLiveVoiceSessionEnded({
+      sessionId: this.context.sessionId,
+      screen: liveVoiceEndScreen(reason, failed ? this.failureCode : null),
+      outcome: failed ? "failed" : "completed",
+    });
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
@@ -3807,8 +3841,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceSessionId: this.context.sessionId,
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
+        // Fixed, and NOT the originating client: this pair resolves the turn's
+        // channel capabilities, where `macos` is what grants a live-voice turn
+        // desktop UI and dynamic surfaces. Reporting the true client here would
+        // strip `supportsDynamicUi` from every iOS session: a behavior change
+        // wearing an attribution fix's clothes. The originating client travels
+        // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
+        voiceTelemetry: {
+          sessionId: this.context.sessionId,
+          ...(this.context.startFrame.client
+            ? { client: this.context.startFrame.client }
+            : {}),
+        },
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
           ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
         }),
@@ -5506,6 +5552,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // method, and a per-call-site hook would drift from it on the first frame
     // anyone added. Fire-and-forget by contract — see the reporter.
     this.liveActivityReporter.report(frame);
+    // Latched here for the same reason: both fatal paths mark the session
+    // `failed` and then send their error frame through this method, so the
+    // code that ended the session is readable at close without either path
+    // having to remember to stash it.
+    if (frame.type === "error" && this.state === "failed") {
+      this.failureCode ??= frame.code;
+    }
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})

@@ -137,6 +137,7 @@ import { repairStaleFireworksKimiModelIdMigration } from "./136-repair-stale-fir
 import { repairRetiredFireworksMinimaxModelIdMigration } from "./137-repair-retired-fireworks-minimax-model-id.js";
 import { backfillHomeFeedTitlesMigration } from "./138-backfill-home-feed-titles.js";
 import { clearRenamedCostProfileLabelMigration } from "./139-clear-renamed-cost-profile-label.js";
+import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-memory-v3-live.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -289,4 +290,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRetiredFireworksMinimaxModelIdMigration,
   backfillHomeFeedTitlesMigration,
   clearRenamedCostProfileLabelMigration,
+  repairSeedPinnedMemoryV3LiveMigration,
 ];

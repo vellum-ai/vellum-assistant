@@ -78,3 +78,14 @@ export const MEMORY_RETROSPECTIVE_ORIGIN = "memory_retrospective";
  * set from turn 1, and matched by the permission checker's origin-scoped grant.
  */
 export const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
+
+/**
+ * The exact reply the fork instruction mandates when a reviewed window
+ * contains nothing worth saving. The finalizer treats a persisted assistant
+ * text block that trims to exactly this phrase (with no memory-writing tool
+ * attempts in the run) as the positive artifact of a legitimate no-findings
+ * review, advancing the cursor without fabricating a memory write. Compared
+ * by strict whole-block equality so analysis prose that merely mentions the
+ * phrase does not qualify.
+ */
+export const MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT = "Nothing new to save.";
