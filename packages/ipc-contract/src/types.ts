@@ -54,6 +54,7 @@ export type VellumCommand =
   | { kind: "chooseAssistant" }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "removePairedAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
