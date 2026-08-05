@@ -10,6 +10,7 @@ import type {
   ConfigLlmCallsitesGetResponse,
 } from "@/generated/daemon/types.gen";
 import { OverridesDetailPanel } from "@/domains/settings/ai/overrides-detail-panel";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const ASSISTANT_ID = "story-assistant";
 
@@ -195,13 +196,60 @@ const MIXED_HEALTH_CONFIG: ConfigGetResponse = {
  * all absent, because the resolver would skip each of them and run something
  * else while the picker showed your choice.
  *
- * The Advisor is set to Half Made, so it renders as the current selection
- * labeled "(Unavailable)": the one entry that stays visible whatever its
- * state, so the trigger has a label and there is a way back.
+ * The Advisor is set to Half Made, so it stays visible as the current
+ * selection carrying the warning icon, with the reason on hover. Hiding the
+ * current selection would blank the trigger and leave no way back.
  */
 export const UndispatchableProfilesHidden: Story = {
   decorators: [
     (Story) => {
+      // The strict predicate is gated on `complete-profile-snapshots`
+      // (0.10.8). The identity store starts with a null version, which reads
+      // as a legacy assistant, so without this the panel takes the
+      // live-inherit path and this story would show the opposite of its name.
+      useAssistantIdentityStore.setState({ version: "0.10.8" });
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: {
+            retry: false,
+            refetchOnWindowFocus: false,
+            staleTime: Infinity,
+          },
+        },
+      });
+      const path = { assistant_id: ASSISTANT_ID };
+      client.setQueryData(
+        configLlmCallsitesGetOptions({ path }).queryKey,
+        CATALOG,
+      );
+      client.setQueryData(
+        configGetOptions({ path }).queryKey,
+        MIXED_HEALTH_CONFIG,
+      );
+      return (
+        <QueryClientProvider client={client}>
+          <div style={{ maxWidth: 560, height: 720 }}>
+            <Story />
+          </div>
+        </QueryClientProvider>
+      );
+    },
+  ],
+};
+
+/**
+ * The same config against an assistant older than 0.10.8.
+ *
+ * Those assistants deep-merge at resolution time, so a blank provider or
+ * model live-inherits and Half Made dispatches fine. Nothing is hidden and
+ * nothing is flagged: only Retired is missing, because disabled is a choice
+ * the user made rather than an inherited blank. Flaky Mix is offered too,
+ * since its sparse arm is valid there.
+ */
+export const LegacyAssistantKeepsSparseProfiles: Story = {
+  decorators: [
+    (Story) => {
+      useAssistantIdentityStore.setState({ version: "0.10.7" });
       const client = new QueryClient({
         defaultOptions: {
           queries: {
