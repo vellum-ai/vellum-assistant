@@ -40,9 +40,10 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
-  DRAWER_SLIDE_MS,
-  useEdgeSwipeDrawer,
-} from "@/hooks/use-edge-swipe-drawer";
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
+import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
@@ -1050,7 +1051,7 @@ export function ChatLayout({
               style={{
                 zIndex: 40,
                 transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-                transition: `transform ${DRAWER_SLIDE_MS}ms ease-out`,
+                transition: `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
               }}
               role="dialog"
               aria-modal="true"
