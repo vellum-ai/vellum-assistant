@@ -12,10 +12,10 @@ import {
 } from "./language-catalog";
 
 describe("STT_LANGUAGES", () => {
-  test("has exactly 50 entries: 2 sentinel rows + 48 monolinguals", () => {
-    // The verified nova-3 monolingual roster is 49 base codes; English rides
-    // the default-sentinel row, so 48 monolingual entries remain.
-    expect(STT_LANGUAGES).toHaveLength(50);
+  test("has exactly 51 entries: 2 sentinel rows + 49 monolinguals", () => {
+    // The verified nova-3 monolingual roster is 50 base codes; English rides
+    // the default-sentinel row, so 49 monolingual entries remain.
+    expect(STT_LANGUAGES).toHaveLength(51);
   });
 
   test("monolingual entries are ordered A-Z by English label", () => {

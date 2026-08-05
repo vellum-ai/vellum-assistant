@@ -138,6 +138,7 @@ export const STT_LANGUAGES: readonly SttLanguageOption[] = [
   { code: "th", label: "Thai", nativeLabel: "ไทย", extended: true },
   { code: "tr", label: "Turkish", nativeLabel: "Türkçe", extended: true },
   { code: "uk", label: "Ukrainian", nativeLabel: "Українська", extended: true },
+  { code: "ur", label: "Urdu", nativeLabel: "اردو", extended: true },
   {
     code: "vi",
     label: "Vietnamese",
