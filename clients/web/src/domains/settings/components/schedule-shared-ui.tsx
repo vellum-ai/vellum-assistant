@@ -1,3 +1,5 @@
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
+
 import {
   formatScheduleCost,
   formatScheduleRunCount,
@@ -46,8 +48,8 @@ export function ScheduleUsageStats({
         aria-label="Loading schedule usage"
         className="flex w-[156px] shrink-0 items-center justify-end gap-3"
       >
-        <span className="h-5 w-16 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <span className="h-5 w-16 animate-pulse rounded bg-[var(--surface-muted)]" />
+        <Skeleton as="span" className="h-5 w-16" />
+        <Skeleton as="span" className="h-5 w-16" />
       </div>
     );
   }

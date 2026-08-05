@@ -7,6 +7,7 @@
  *   - uncataloged model without --allow-unlisted
  *   - missing provider connection
  *   - managed-profile create / update / delete rejection
+ *   - the dispatch-availability guard on create / update / set-active
  *
  * Routing-identity creates exercise the happy-path write end-to-end (through
  * `commitConfigWrite` with the registry reinit stubbed); other happy-path
@@ -29,6 +30,35 @@ mock.module("../../../providers/registry.js", () => ({
 
 mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
+}));
+
+// The availability guard judges the Vellum-managed route and the credential
+// store for real; both are stood in for here so tests can pick a state.
+let managedProxyEnabled = true;
+mock.module("../../../providers/platform-proxy/context.js", () => ({
+  resolveManagedProxyContext: async () => ({
+    enabled: managedProxyEnabled,
+    platformBaseUrl: "https://platform.example",
+    assistantApiKey: managedProxyEnabled ? "key" : "",
+  }),
+}));
+
+let secureKeyResult: { value: string | undefined; unreachable: boolean } = {
+  value: "test-key",
+  unreachable: false,
+};
+mock.module("../../../security/secure-keys.js", () => ({
+  getSecureKeyResultAsync: async () => secureKeyResult,
+}));
+
+// commitConfigWrite notifies clients after every successful write so their
+// config views (e.g. the chat composer's model pill) refetch without a manual
+// refresh; counted here so tests can assert the notification fired.
+let configChangedPublishes = 0;
+mock.module("../../sync/resource-sync-events.js", () => ({
+  publishConfigChanged: () => {
+    configChangedPublishes += 1;
+  },
 }));
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
@@ -59,24 +89,50 @@ function call(operationId: string, args: RouteHandlerArgs): Promise<unknown> {
   return Promise.resolve(handler(operationId)(args));
 }
 
-function seedConnection(name: string, provider: string): void {
+function seedConnection(
+  name: string,
+  provider: string,
+  auth: object = { type: "none" },
+): void {
   const now = Date.now();
   getDb()
     .insert(providerConnections)
     .values({
       name,
       provider,
-      auth: JSON.stringify({ type: "none" }),
+      auth: JSON.stringify(auth),
       createdAt: now,
       updatedAt: now,
     })
     .run();
 }
 
+/** A credentialed API-key connection — the healthy BYO shape. */
+function seedKeyedConnection(provider: string): void {
+  seedConnection(`${provider}-personal`, provider, {
+    type: "api_key",
+    credential: `credential/${provider}/api_key`,
+  });
+}
+
+/** The Vellum-managed row every routing-identity profile resolves to. */
+function seedVellumConnection(): void {
+  seedConnection("vellum", "vellum", { type: "platform" });
+}
+
+function persistedProfiles(): Record<string, unknown> {
+  const llm = loadRawConfig().llm as
+    | { profiles?: Record<string, unknown> }
+    | undefined;
+  return llm?.profiles ?? {};
+}
+
 beforeEach(() => {
   getDb().delete(providerConnections).run();
   setConfig("llm", {});
   initializeProvidersCalls = 0;
+  managedProxyEnabled = true;
+  secureKeyResult = { value: "test-key", unreachable: false };
 });
 
 // ── create validation ─────────────────────────────────────────────────────────
@@ -95,15 +151,19 @@ describe("POST inference/profiles (create) validation", () => {
   });
 
   test("creates a vellum profile for a managed-routable model", async () => {
+    seedVellumConnection();
     const result = (await call("inference_profiles_create", {
       body: {
         name: "my-managed",
         provider: "vellum",
         model: "claude-opus-4-8",
       },
-    })) as { entry: Record<string, unknown> };
+    })) as { entry: Record<string, unknown>; verify: string };
     expect(result.entry.provider).toBe("vellum");
     expect(result.entry.model).toBe("claude-opus-4-8");
+    expect(result.verify).toBe(
+      'assistant inference send --profile my-managed "Reply with OK"',
+    );
     expect(loadRawConfig().llm).toMatchObject({
       profiles: { "my-managed": { provider: "vellum" } },
     });
@@ -136,6 +196,10 @@ describe("POST inference/profiles (create) validation", () => {
   });
 
   test("creates a chatgpt profile for a Codex model", async () => {
+    seedConnection("chatgpt-subscription", "openai", {
+      type: "oauth_subscription",
+      credential: "credential/chatgpt/access_token",
+    });
     const result = (await call("inference_profiles_create", {
       body: {
         name: "my-subscription",
@@ -156,6 +220,57 @@ describe("POST inference/profiles (create) validation", () => {
         },
       }),
     ).rejects.toThrow(/Codex models only/);
+  });
+
+  test("defaults the label to the catalog display name when omitted", async () => {
+    seedKeyedConnection("gemini");
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "gemini-latest",
+        provider: "gemini",
+        model: "gemini-3.6-flash",
+      },
+    })) as { ok: true; entry: Record<string, unknown> };
+    expect(result.entry.label).toBe("Gemini 3.6 Flash");
+  });
+
+  test("keeps an explicit label over the catalog display name", async () => {
+    seedKeyedConnection("gemini");
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "my-fast-gemini",
+        provider: "gemini",
+        model: "gemini-3.6-flash",
+        label: "My Fast Model",
+      },
+    })) as { ok: true; entry: Record<string, unknown> };
+    expect(result.entry.label).toBe("My Fast Model");
+  });
+
+  test("accepts a model advertised by the named connection", async () => {
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "stub-local",
+        provider: "openai-compatible",
+        auth: JSON.stringify({ type: "none" }),
+        baseUrl: "http://localhost:9123/v1",
+        models: JSON.stringify([{ id: "stub-model" }]),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "stub-fast",
+        provider: "openai-compatible",
+        model: "stub-model",
+        connection: "stub-local",
+      },
+    })) as { ok: true; warnings: string[] };
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
   });
 
   test("rejects an uncataloged model without allowUnlisted", async () => {
@@ -193,6 +308,175 @@ describe("POST inference/profiles (create) validation", () => {
         },
       }),
     ).rejects.toThrow(/reserved for a code-defined default/);
+  });
+});
+
+// ── write-time availability guard ─────────────────────────────────────────────
+
+describe("inference-profile writes are availability-aware", () => {
+  const geminiBody = {
+    name: "gemini-latest",
+    provider: "gemini",
+    model: "gemini-3.6-flash",
+  };
+
+  test("rejects a BYO provider with no connection and names the managed alternative", async () => {
+    const promise = call("inference_profiles_create", { body: geminiBody });
+    await expect(promise).rejects.toBeInstanceOf(BadRequestError);
+    await expect(promise).rejects.toThrow(
+      /Provider "gemini" is a valid provider id, but no gemini connection\/API key is configured/,
+    );
+    await expect(promise).rejects.toThrow(
+      /Recreate with --provider vellum --model gemini-3\.6-flash/,
+    );
+    await expect(promise).rejects.toThrow(/allowUnavailable/);
+    expect(persistedProfiles()).toEqual({});
+  });
+
+  test("falls back to the credential sequence when the managed route is unusable", async () => {
+    managedProxyEnabled = false;
+    secureKeyResult = { value: undefined, unreachable: false };
+    const promise = call("inference_profiles_create", { body: geminiBody });
+    await expect(promise).rejects.toThrow(
+      /assistant credentials prompt --service gemini --field api_key/,
+    );
+    await expect(promise).rejects.toThrow(
+      /assistant inference providers create gemini-personal --provider gemini --credential credential\/gemini\/api_key/,
+    );
+    await expect(promise).rejects.toThrow(/never ask for the key in chat/);
+    expect(persistedProfiles()).toEqual({});
+  });
+
+  test("missing credential on an existing connection suggests key collection only", async () => {
+    managedProxyEnabled = false;
+    seedKeyedConnection("gemini");
+    secureKeyResult = { value: undefined, unreachable: false };
+    const promise = call("inference_profiles_create", { body: geminiBody });
+    await expect(promise).rejects.toThrow(
+      /assistant credentials prompt --service gemini --field api_key/,
+    );
+    // The connection already exists — a `providers create` would collide.
+    await expect(promise).rejects.not.toThrow(/inference providers create/);
+    expect(persistedProfiles()).toEqual({});
+  });
+
+  test("shell-quotes profile names in generated commands", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my profile; echo x": {
+          source: "user",
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+          status: "active",
+        },
+      },
+    });
+    const promise = call("inference_profiles_set_active", {
+      body: { name: "my profile; echo x" },
+    });
+    await expect(promise).rejects.toThrow(
+      /--profile 'my profile; echo x' "Reply with OK"/,
+    );
+  });
+
+  test("allowUnavailable writes the profile and warns instead", async () => {
+    const result = (await call("inference_profiles_create", {
+      body: { ...geminiBody, allowUnavailable: true },
+    })) as { warnings: string[]; verify: string };
+    expect(result.warnings.join(" ")).toMatch(
+      /cannot serve requests yet \(missing_connection\)/,
+    );
+    expect(result.verify).toBe(
+      'assistant inference send --profile gemini-latest "Reply with OK"',
+    );
+    expect(persistedProfiles()).toHaveProperty("gemini-latest");
+  });
+
+  test("an unreachable credential store does not block the write", async () => {
+    // `unknown` means the credential could not be verified, not that it is
+    // absent — blocking here would punish a CES outage.
+    seedKeyedConnection("gemini");
+    secureKeyResult = { value: undefined, unreachable: true };
+    const result = (await call("inference_profiles_create", {
+      body: geminiBody,
+    })) as { warnings: string[] };
+    expect(result.warnings).toEqual([]);
+    expect(persistedProfiles()).toHaveProperty("gemini-latest");
+  });
+
+  test("accepts a BYO provider once a credentialed connection exists", async () => {
+    seedKeyedConnection("gemini");
+    const result = (await call("inference_profiles_create", {
+      body: geminiBody,
+    })) as { warnings: string[]; verify: string };
+    expect(result.warnings).toEqual([]);
+    expect(result.verify).toBe(
+      'assistant inference send --profile gemini-latest "Reply with OK"',
+    );
+  });
+
+  test("rejects an update that leaves the profile unable to dispatch", async () => {
+    seedKeyedConnection("anthropic");
+    setConfig("llm", {
+      profiles: {
+        "my-fast": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+    const promise = call("inference_profiles_update", {
+      pathParams: { name: "my-fast" },
+      body: { provider: "gemini", model: "gemini-3.6-flash" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(BadRequestError);
+    await expect(promise).rejects.toThrow(
+      /Update it with --provider vellum --model gemini-3\.6-flash/,
+    );
+    expect(persistedProfiles()).toMatchObject({
+      "my-fast": { provider: "anthropic" },
+    });
+  });
+
+  test("a metadata-only update skips the availability guard", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my-gemini": {
+          source: "user",
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+        },
+      },
+    });
+    const result = (await call("inference_profiles_update", {
+      pathParams: { name: "my-gemini" },
+      body: { label: "Pre-staged Gemini" },
+    })) as { ok: true; warnings: string[] };
+    expect(result.ok).toBe(true);
+    expect(persistedProfiles()).toMatchObject({
+      "my-gemini": { label: "Pre-staged Gemini", provider: "gemini" },
+    });
+  });
+
+  test("a healthy update returns the verify command", async () => {
+    seedKeyedConnection("anthropic");
+    setConfig("llm", {
+      profiles: {
+        "my-fast": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+    const result = (await call("inference_profiles_update", {
+      pathParams: { name: "my-fast" },
+      body: { effort: "low" },
+    })) as { verify: string };
+    expect(result.verify).toBe(
+      'assistant inference send --profile my-fast "Reply with OK"',
+    );
   });
 });
 
@@ -389,6 +673,7 @@ describe("GET inference/profiles honors llm.defaultProvider", () => {
 
 describe("PUT inference/active-profile validation", () => {
   test("sets a valid profile", async () => {
+    seedKeyedConnection("anthropic");
     setConfig("llm", {
       profiles: {
         "my-fast": {
@@ -399,6 +684,7 @@ describe("PUT inference/active-profile validation", () => {
         },
       },
     });
+    const publishesBefore = configChangedPublishes;
     const result = (await call("inference_profiles_set_active", {
       body: { name: "my-fast" },
     })) as { ok: true; activeProfile: string };
@@ -406,6 +692,9 @@ describe("PUT inference/active-profile validation", () => {
     expect(
       (loadRawConfig().llm as { activeProfile?: string }).activeProfile,
     ).toBe("my-fast");
+    // Clients are notified so their config views (composer model pill,
+    // Settings) refetch without a manual refresh.
+    expect(configChangedPublishes).toBe(publishesBefore + 1);
   });
 
   test("rejects a typo'd name with the valid-name list", async () => {
@@ -433,5 +722,53 @@ describe("PUT inference/active-profile validation", () => {
     await expect(
       call("inference_profiles_set_active", { body: { name: "my-fast" } }),
     ).rejects.toThrow(/disabled/);
+  });
+
+  test("rejects a profile that cannot serve requests — no escape hatch", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my-gemini": {
+          source: "user",
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+          status: "active",
+        },
+      },
+    });
+    const promise = call("inference_profiles_set_active", {
+      body: { name: "my-gemini", allowUnavailable: true },
+    });
+    await expect(promise).rejects.toBeInstanceOf(BadRequestError);
+    await expect(promise).rejects.toThrow(
+      /no gemini connection\/API key is configured/,
+    );
+    await expect(promise).rejects.toThrow(
+      /assistant inference profiles update my-gemini --provider vellum --model gemini-3\.6-flash/,
+    );
+    await expect(promise).rejects.toThrow(
+      /assistant inference send --profile my-gemini "Reply with OK"/,
+    );
+    expect(
+      (loadRawConfig().llm as { activeProfile?: string }).activeProfile,
+    ).toBeUndefined();
+  });
+
+  test("allows a profile whose availability is indeterminate", async () => {
+    seedKeyedConnection("gemini");
+    secureKeyResult = { value: undefined, unreachable: true };
+    setConfig("llm", {
+      profiles: {
+        "my-gemini": {
+          source: "user",
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+          status: "active",
+        },
+      },
+    });
+    const result = (await call("inference_profiles_set_active", {
+      body: { name: "my-gemini" },
+    })) as { ok: true; activeProfile: string };
+    expect(result).toEqual({ ok: true, activeProfile: "my-gemini" });
   });
 });

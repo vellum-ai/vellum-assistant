@@ -185,6 +185,30 @@ Reference: [TypeScript — Type-Only Imports](https://www.typescriptlang.org/doc
 
 ---
 
+## Native mobile styling
+
+CSS written for a Capacitor shell should apply to both iOS and Android by
+default. Use the `native-mobile:` Tailwind variant from `src/index.css` for
+component classes. For global CSS, match both explicit platform markers:
+
+```css
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) {
+  /* Native mobile styles */
+}
+```
+
+Do not use a generic `[data-native-platform]` selector. The native mobile
+boundary is specifically iOS plus Android and must not silently expand to a
+future native platform or the Electron macOS app. In render code, use
+`useIsNativeMobile()` for the same boundary.
+
+Keep a style iOS-only only when it depends on an iOS-specific platform
+constraint, such as the Dynamic Island or a documented WKWebView behavior.
+State that constraint at the call site. Otherwise, treat an iOS styling change
+as native-mobile work and verify its Android behavior in the same change.
+
+---
+
 ## Color
 
 ### Theme-aware color

@@ -1,14 +1,22 @@
 import type { ReactNode } from "react";
 
+import { X } from "lucide-react";
+
 import { Button } from "@vellumai/design-library";
+
+interface BillingErrorBannerAction {
+  label: string;
+  onClick: () => void;
+}
 
 interface BillingErrorBannerProps {
   ariaLabel: string;
   icon?: ReactNode;
   title: string;
   subtitle: string;
-  ctaLabel: string;
-  onAction: () => void;
+  action?: BillingErrorBannerAction;
+  /** When provided, renders a small dismiss (X) button after the CTA. */
+  onDismiss?: () => void;
   /**
    * Render as a standalone, centered card ~24px narrower than the composer with
    * full rounding, instead of a full-width banner flush-mounted above the
@@ -22,8 +30,8 @@ export function BillingErrorBanner({
   icon,
   title,
   subtitle,
-  ctaLabel,
-  onAction,
+  action,
+  onDismiss,
   detached = false,
 }: BillingErrorBannerProps) {
   return (
@@ -69,16 +77,30 @@ export function BillingErrorBanner({
           </p>
         </div>
 
-        <div className="flex items-center shrink-0">
-          <Button
-            variant="primary"
-            size="regular"
-            onClick={onAction}
-            aria-label={ctaLabel}
-          >
-            {ctaLabel}
-          </Button>
-        </div>
+        {action || onDismiss ? (
+          <div className="flex items-center gap-1 shrink-0">
+            {action ? (
+              <Button
+                variant="primary"
+                size="regular"
+                onClick={action.onClick}
+                aria-label={action.label}
+              >
+                {action.label}
+              </Button>
+            ) : null}
+            {onDismiss ? (
+              <Button
+                variant="ghost"
+                size="compact"
+                iconOnly={<X />}
+                tooltip="Dismiss"
+                aria-label="Dismiss"
+                onClick={onDismiss}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

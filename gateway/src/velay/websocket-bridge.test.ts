@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
+
 import { VELAY_BRIDGE_AUTH_HEADER } from "./bridge-auth.js";
 import {
   VELAY_FRAME_TYPES,
@@ -377,15 +379,37 @@ describe("VelayWebSocketBridge", () => {
     });
   });
 
-  test("remaps closeAll going-away semantics to an application close code", () => {
+  test("invokes onIdle when the last connection goes away", () => {
+    let idleCalls = 0;
+    const idleBridge = new VelayWebSocketBridge(
+      "http://127.0.0.1:7830",
+      () => {},
+      () => {
+        idleCalls++;
+      },
+    );
+    idleBridge.open(makeOpenFrame());
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+    expect(idleCalls).toBe(0);
+
+    fakeSocket.emit("close", { code: 1000, reason: "" });
+
+    expect(idleCalls).toBe(1);
+    expect(idleBridge.getConnectionCount()).toBe(0);
+  });
+
+  test("closeAll uses the dedicated tunnel-lost close code", () => {
     bridge.open(makeOpenFrame());
     fakeSocket.readyState = WS_OPEN;
     fakeSocket.emit("open");
 
     bridge.closeAll();
 
+    // Not the remapped 1001-to-4001 code: the reason string does not survive
+    // the relay to the daemon, so the code alone must identify tunnel loss.
     expect(fakeSocket.closes).toEqual([
-      { code: 4001, reason: "Tunnel closed" },
+      { code: GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE, reason: "Tunnel closed" },
     ]);
     expect(bridge.getConnectionCount()).toBe(0);
   });

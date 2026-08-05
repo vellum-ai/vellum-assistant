@@ -8,7 +8,6 @@ import {
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
   isIncompleteControlMarkerTail,
-  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "../calls/voice-control-protocol.js";
 import type {
@@ -39,6 +38,10 @@ import {
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  recordLiveVoiceSessionEnded,
+  recordLiveVoiceSessionStarted,
+} from "../onboarding/onboarding-events-store.js";
 import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -55,10 +58,17 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import {
+  activityLabelForTool,
+  approvalActivityLabel,
+  dismissesUiSurface,
+  revealsUiSurface,
+} from "./activity-label.js";
 import {
   createVoiceFrontDecider,
   type VoiceFrontDecider,
@@ -478,9 +488,38 @@ interface ActiveAssistantTurn {
   progress: TurnProgressState;
   assistantCompleted: boolean;
   ttsDone: boolean;
-  // Latched when the leg's stream contains MINIMIZE_ROOM_MARKER; consumed
+  // Latched when the turn puts something on screen (a ui tool ran); consumed
   // once at TTS drain, where the minimize_room frame goes out after tts_done.
+  // Never set from anything the model says: the reveal is a consequence of
+  // showing a surface, not a token the model has to remember.
   minimizeRequested: boolean;
+  // The activity label the client was last told about, so a run of tools that
+  // map to the same line sends one frame rather than one per call. Empty means
+  // the client believes nothing is running, which is also where a turn ends.
+  activityLabel: string;
+  // The approval id that went out with it, so the de-duplication covers the
+  // whole frame rather than its wording. What the CLIENT believes, as against
+  // `pendingApproval`, which is what is true.
+  publishedApprovalRequestId: string | null;
+  // Set while the turn is blocked on a decision the user has to make, and null
+  // when it is not. Suppresses progress narration, whose entire vocabulary
+  // ("still on it", "almost there") describes work in flight and would be
+  // false here.
+  //
+  // Carries the request id so a surface that is not the app — the Live
+  // Activity's buttons — can answer *that* request rather than whatever is
+  // pending by the time the tap arrives, and the wording that named it, which
+  // is captured once at the reveal rather than recomputed: a parallel op
+  // starting mid-wait moves `currentActivityLabel` on, and the line beside an
+  // Approve button must keep naming the thing being approved.
+  //
+  // The FIRST one, on a turn that leaves two decisions pending at once: the
+  // wait is announced once (see `revealRoomForPendingApproval`) and the pair
+  // resolves as one. A tap answering the first after it has already been
+  // decided is dropped client-side by the id check, which is the safe end of
+  // a rare case — the island never silently answers a request other than the
+  // one it named.
+  pendingApproval: { requestId: string; label: string } | null;
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
@@ -599,13 +638,16 @@ interface ActiveAssistantTurn {
  * runs forward from the emitted boundary — not from the last "[" — so
  * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
  * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
- * its terminator. As a side effect the force flush latches the turn's
- * `minimizeRequested` when the completed stream ENDS with
- * MINIMIZE_ROOM_MARKER — terminal position only, matching the prompt's
- * "end the reply with it" contract, so a reply whose CONTENT happens to
- * contain "[-1]" (an array literal, a temperature) never minimizes the
- * room. The marker itself is stripped wherever it appears (the shared
- * marker-strip convention), so the latch is the only observable.
+ * its terminator.
+ *
+ * **Markers are stripped, never acted on.** Nothing the model can say
+ * minimizes the room any more: that is decided by whether a ui tool ran (see
+ * the `tool_use_start` handler), so the reveal cannot depend on the model
+ * remembering a token, and a reply whose content happens to contain "[-1]" (an
+ * array literal, a temperature) cannot move the room either. No prompt teaches
+ * a marker, so this stripping is defense against a model that emits one
+ * regardless: an unspoken, unpersisted "[-1]" is the correct handling of a
+ * token that now means nothing.
  */
 function createControlMarkerHoldback(
   turn: ActiveAssistantTurn,
@@ -613,13 +655,6 @@ function createControlMarkerHoldback(
 ): (raw: string, opts?: { force?: boolean }) => void {
   let emitted = 0;
   return (raw, opts) => {
-    if (
-      opts?.force === true &&
-      !turn.minimizeRequested &&
-      raw.trimEnd().endsWith(MINIMIZE_ROOM_MARKER)
-    ) {
-      turn.minimizeRequested = true;
-    }
     let safeEnd = raw.length;
     if (opts?.force !== true) {
       for (
@@ -644,30 +679,30 @@ function createControlMarkerHoldback(
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
-const LIVE_VOICE_CONTROL_PROMPT_BASE =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. ";
+// Spoken once when a turn starts waiting on the user's decision. Fixed rather
+// than generated: this is a statement about the system's state, not about the
+// work, and it has to be true every time. Kept in the shape of the progress
+// phrases it displaces (short, neutral, no claim about tools).
+const APPROVAL_PENDING_PHRASE = "I need your okay for that one. Take a look.";
 
-// MINIMIZE_ROOM_MARKER teaching, appended for the legs that can actually put
-// something on screen — the main leg and the escalated leg. The front-door
-// (fast) leg never receives it: that leg is toolless, so it has nothing to
-// show, and its decision rule promises that apart from a leading verdict
-// token every character is spoken verbatim — teaching it the marker would
-// contradict that rule and could only produce spurious minimizes.
+const LIVE_VOICE_CONTROL_PROMPT_BASE =
+  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. ";
+
+// Appended for the legs that can actually put something on screen: the main
+// leg and the escalated leg. The front-door (fast) leg never receives it, for
+// the same reason it never received the marker this replaces: that leg is
+// toolless, so it has nothing to show.
 //
-// The teaching deliberately keeps the no-interactive-UI rule intact
-// (live-voice turns are non-interactive, JARVIS-1291): the marker does not
-// render UI — it asks the client to reveal the screen the call overlay
-// covers. The gate in createControlMarkerHoldback strips it from speech, and
-// completeTtsForTurn sends the minimize_room frame only after the reply's
-// TTS drains, so "end your reply with it" is the whole contract the model
-// needs.
-//
-// The narration guidance is load-bearing: without it, the base prompt's
-// convey-everything-in-speech rule reads to the model as "the user can never
-// see the screen", and it minimizes the room while telling the user it has
-// no way to show them anything ("check it from the app later").
-const LIVE_VOICE_MINIMIZE_MARKER_TEACHING =
-  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. The user is in the app and sees what you made the moment the overlay minimizes, so when you end with the marker, speak as if you are showing it to them right now (for example, close with something like: take a look) — never say you cannot show it, that you cannot display it because this is a voice call, or that they should check it later. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. ";
+// **The model no longer asks for the minimize; it is told one is coming.**
+// Revealing the screen used to be a marker the model emitted at the end of a
+// reply, which made "did the user see it" depend on the model remembering a
+// token. It is now a consequence of showing a surface at all: the session
+// latches the minimize when a ui tool runs, and the room opens after the
+// reply's speech drains. What is left for the prompt is the part only the
+// model can get right, which is speaking as though the thing is already in
+// front of the user, because by the time it stops talking it is.
+const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
+  "The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
@@ -726,8 +761,8 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
 }
 
 // Assemble a leg's model-facing control prompt: the base live-voice rules,
-// the [-1] minimize teaching (withheld from the front-door leg — see
-// LIVE_VOICE_MINIMIZE_MARKER_TEACHING), the shared no-setup-flows rule, plus
+// the screen-reveal teaching (withheld from the front-door leg, see
+// LIVE_VOICE_SCREEN_REVEAL_TEACHING), the shared no-setup-flows rule, plus
 // any pending barge-in merge context, completed-continuation context, and/or
 // the announcement instruction. A turn can carry several (a barge-in follow-up
 // that also has a continuation result waiting); the notes are model-only and
@@ -738,7 +773,7 @@ function buildVoiceControlPrompt(
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
-    (leg.frontDoor === true ? "" : LIVE_VOICE_MINIMIZE_MARKER_TEACHING) +
+    (leg.frontDoor === true ? "" : LIVE_VOICE_SCREEN_REVEAL_TEACHING) +
     VOICE_NO_SETUP_FLOWS_RULE;
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
@@ -942,6 +977,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
   private sessionEndMetricsEmitted = false;
+  /**
+   * Protocol error code of the failure that killed the session, latched by
+   * {@link sendFrame} when an error frame goes out on an already-`failed`
+   * session. Both fatal paths (`failStartup` before `ready`, a failed
+   * utterance arm after it) set `state = "failed"` before sending, and no
+   * other error frame does, so this catches exactly the session-ending
+   * failures and ignores the recoverable mid-session ones. `null` on a
+   * session that never failed.
+   */
+  private failureCode: LiveVoiceProtocolErrorCode | null = null;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
   // Energy gate for server-VAD speech classification; undefined defers to
@@ -1154,6 +1199,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    // Before the preflight, not after: a session rejected for missing
+    // credentials is precisely the one the failure rate needs to count, and
+    // recording the start only once `ready` goes out would hide every such
+    // session from both the numerator and the denominator.
+    recordLiveVoiceSessionStarted(this.context.sessionId);
+
     if (this.resolveCredentialReadiness) {
       const readiness = await this.resolveCredentialReadiness();
       if (readiness.status === "not-ready") {
@@ -1231,10 +1282,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.handleAudio(Buffer.from(chunk));
   }
 
-  async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
+  async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) {
       return;
     }
+
+    // Recorded first, and independently of `shouldEmitSessionEndMetrics`
+    // below: that flag governs the client-facing `metrics` frame, and a
+    // failed session (which suppresses the frame) is the one whose end
+    // telemetry matters most. Session duration downstream is this row's
+    // `recorded_at` minus the started row's, so it must be written before the
+    // teardown below, which awaits a pending continuation and can run long.
+    const failed = this.state === "failed";
+    recordLiveVoiceSessionEnded({
+      sessionId: this.context.sessionId,
+      screen: liveVoiceEndScreen(reason, failed ? this.failureCode : null),
+      outcome: failed ? "failed" : "completed",
+    });
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
@@ -1920,6 +1984,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         "barge_in",
         turn.turnId,
       );
+      // A cancelled turn's tools are abandoned, not finished, so nothing will
+      // arrive to clear the line it left behind.
+      this.publishActivity(turn, "");
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
       // Keep the interrupted turn's work alive on a background subagent; the
@@ -2315,6 +2382,172 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       this.scheduleContinuationAnnouncement(true, drainRearms);
     }, drainMs + this.continuationAnnounceSilenceMs);
+  }
+
+  /**
+   * The line describing what this turn is doing right now: the newest tool
+   * still running, or nothing when none is.
+   *
+   * Newest-first because parallel ops are the interesting case. A turn that
+   * starts a search and a file read, then finishes the search, is still
+   * reading a file, and a surface that went blank there would claim the turn
+   * had gone idle while it plainly has not.
+   */
+  private currentActivityLabel(turn: ActiveAssistantTurn): string {
+    for (let i = turn.progress.ops.length - 1; i >= 0; i -= 1) {
+      const op = turn.progress.ops[i];
+      if (op !== undefined && op.completedAtMs === undefined) {
+        return activityLabelForTool(op.toolName);
+      }
+    }
+    return "";
+  }
+
+  /**
+   * The line for a turn that is waiting on a decision about its newest running
+   * op.
+   *
+   * The approval gate sits behind `tool_use_start`, so the tool being waited on
+   * is the one the turn last said it was running — which is precisely why the
+   * wait has to be published at all: without it the surfaces keep showing that
+   * tool as *running* for the whole time it is doing nothing of the kind.
+   * Falls back to the tool-less phrase when no op is open, which is the case
+   * for a confirmation raised by a prompter outside the tool pipeline.
+   *
+   * Read once, at the reveal — see `pendingApproval` for why it is then held
+   * rather than recomputed.
+   */
+  private pendingApprovalLabel(turn: ActiveAssistantTurn): string {
+    for (let i = turn.progress.ops.length - 1; i >= 0; i -= 1) {
+      const op = turn.progress.ops[i];
+      if (op !== undefined && op.completedAtMs === undefined) {
+        return approvalActivityLabel(op.toolName);
+      }
+    }
+    return approvalActivityLabel("");
+  }
+
+  /**
+   * Publish whatever the turn's activity line should be right now: the
+   * decision it is waiting on if it is waiting, and its newest running tool if
+   * it is not.
+   *
+   * The single entry point for every caller that would otherwise reach for
+   * `currentActivityLabel` directly. A turn can start and finish other ops
+   * while it is blocked on an approval — a parallel `tool_use_start` or
+   * `tool_result` lands mid-wait — and each of those would otherwise publish a
+   * line composed as if nothing were pending, taking the request id down with
+   * it and retiring the island's buttons while the turn was still waiting.
+   */
+  private refreshActivity(turn: ActiveAssistantTurn): void {
+    if (turn.pendingApproval !== null) {
+      this.publishActivity(
+        turn,
+        turn.pendingApproval.label,
+        turn.pendingApproval.requestId,
+      );
+      return;
+    }
+    this.publishActivity(turn, this.currentActivityLabel(turn));
+  }
+
+  /**
+   * Open the room because a decision is waiting behind it.
+   *
+   * The approval card renders in the app, and the room covers the app, so
+   * without this the turn simply goes quiet: nothing is spoken, nothing is
+   * visible, and the only cue is a call that stopped talking. Sent
+   * immediately rather than latched for the drain the way a shown surface is,
+   * because there is no drain coming. The turn is blocked on this decision,
+   * and the whole point is that the user can make it now.
+   *
+   * The latch is cleared as well, so a turn that also showed a surface does
+   * not send a second minimize once its speech ends; the room is already open.
+   */
+  private revealRoomForPendingApproval(
+    turn: ActiveAssistantTurn,
+    requestId: string,
+  ): void {
+    if (turn.pendingApproval !== null) {
+      return;
+    }
+    turn.pendingApproval = {
+      requestId,
+      label: this.pendingApprovalLabel(turn),
+    };
+    turn.minimizeRequested = false;
+    // Say what the turn is actually doing on the surfaces that are not the
+    // app. Without this the island keeps showing the tool as running for the
+    // whole wait — and it is the surface most likely to be the only one the
+    // user can see, since the case this exists for is a phone put down.
+    // Carrying the request id is what makes the line answerable there rather
+    // than merely accurate.
+    this.refreshActivity(turn);
+    void this.sendFrame(
+      { type: "minimize_room", turnId: turn.turnId },
+      () => !this.isClosed,
+    );
+    // Spoken, because opening the room is only a cue for someone looking at
+    // the screen, and the case this exists for is a phone the user has put
+    // down. One line, not narration: the turn is not working, it is waiting,
+    // and it says which.
+    this.enqueueFillerPhrase(turn, APPROVAL_PENDING_PHRASE);
+  }
+
+  /** Clear the wait once a decision lands, so the turn narrates normally again. */
+  private clearAwaitingApproval(turn: ActiveAssistantTurn): void {
+    turn.pendingApproval = null;
+    // Put the activity line back to whatever the turn resumed doing, and
+    // retire the request id with it, so the island's Approve/Deny buttons go
+    // away the moment the decision is no longer the user's to make — including
+    // when it was made somewhere else entirely (the card in the app, the
+    // 45-second fallback, a superseding message).
+    this.refreshActivity(turn);
+  }
+
+  /**
+   * Tell the client what the turn is doing, if it changed.
+   *
+   * De-duplicated for the same reason the Live Activity reporter de-duplicates
+   * phases: this frame reaches ActivityKit, whose update budget is finite and
+   * whose overflow is dropped silently, and a turn that runs four file reads in
+   * a row would otherwise spend that budget restating one line.
+   *
+   * Fire-and-forget. An activity label is a flourish, and nothing about the
+   * conversation may wait on one.
+   *
+   * Callers whose line depends on turn state go through
+   * {@link refreshActivity}; this is called directly only to clear the line
+   * outright, which a cancelled or finished turn does regardless of what it
+   * was waiting on.
+   */
+  private publishActivity(
+    turn: ActiveAssistantTurn,
+    label: string,
+    approvalRequestId?: string,
+  ): void {
+    // De-duplicated on the request id as well as the wording. The two move
+    // independently: a wait can be entered and left without the tool line
+    // changing at all, and a label-only check would swallow the frame that
+    // retires the approval — leaving the island's buttons up with nothing
+    // behind them.
+    if (
+      turn.activityLabel === label &&
+      turn.publishedApprovalRequestId === (approvalRequestId ?? null)
+    ) {
+      return;
+    }
+    turn.activityLabel = label;
+    turn.publishedApprovalRequestId = approvalRequestId ?? null;
+    void this.sendFrame(
+      {
+        type: "activity",
+        turnId: turn.turnId,
+        label,
+        ...(approvalRequestId !== undefined ? { approvalRequestId } : {}),
+      },
+      () => !this.isClosed,
+    );
   }
 
   private clearActiveAssistantTurn(token: symbol): void {
@@ -3409,6 +3642,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantCompleted: false,
       ttsDone: false,
       minimizeRequested: false,
+      activityLabel: "",
+      publishedApprovalRequestId: null,
+      pendingApproval: null,
       ttsAudioStarted: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
@@ -3605,11 +3841,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceSessionId: this.context.sessionId,
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
+        // Fixed, and NOT the originating client: this pair resolves the turn's
+        // channel capabilities, where `macos` is what grants a live-voice turn
+        // desktop UI and dynamic surfaces. Reporting the true client here would
+        // strip `supportsDynamicUi` from every iOS session: a behavior change
+        // wearing an attribution fix's clothes. The originating client travels
+        // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
+        voiceTelemetry: {
+          sessionId: this.context.sessionId,
+          ...(this.context.startFrame.client
+            ? { client: this.context.startFrame.client }
+            : {}),
+        },
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
           ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
         }),
+        onApprovalPending: (requestId) => {
+          this.revealRoomForPendingApproval(activeTurn, requestId);
+        },
+        onApprovalsResolved: () => {
+          this.clearAwaitingApproval(activeTurn);
+        },
         content: leg.content,
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,
@@ -3835,6 +4089,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             });
             current.progress.opsSinceNarration += 1;
             current.progress.stateEpoch += 1;
+            this.refreshActivity(current);
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
             // Definitive tool use means the turn is guaranteed slow: speak
             // the floor-holding ack now instead of waiting out the
@@ -3888,6 +4143,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               }
             }
             current.progress.stateEpoch += 1;
+            // Showing a surface implies revealing it: the room is a
+            // full-screen overlay, so a surface rendered behind it is a
+            // surface nobody sees.
+            //
+            // **Latched on the result, not the tool start.** A ui call can be
+            // rejected (no `surface_type`, an empty card, a client that never
+            // acks), and a reveal driven by the attempt would minimize the room
+            // to show nothing at all. Only a call that came back without an
+            // error actually put something on screen.
+            //
+            // A dismissal clears it again, so a turn that shows a surface and
+            // then takes it away does not reveal an empty screen. Last write
+            // wins, which is the right reading of "what did this turn leave up"
+            // without tracking surfaces individually.
+            if (event.isError !== true) {
+              if (revealsUiSurface(event.toolName)) {
+                current.minimizeRequested = true;
+              } else if (dismissesUiSurface(event.toolName)) {
+                current.minimizeRequested = false;
+              }
+            }
+            this.refreshActivity(current);
             this.maybeNarrateProgress(current, trigger);
           },
         },
@@ -4259,6 +4536,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return (
       this.isActiveAssistantTurn(turn.token) &&
       !turn.assistantCompleted &&
+      // Nothing is in flight while a decision is pending, so every phrase
+      // narration has would be a lie about who the call is waiting on. The
+      // turn says so once, when it starts waiting, and is quiet after that.
+      turn.pendingApproval === null &&
       this.turnAudioIdle(turn)
     );
   }
@@ -4568,6 +4849,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             currentTurn.finalized &&
             !this.isClosed,
         );
+
+        // The turn is over, so nothing is running. Ordinarily the line is
+        // already clear (the last tool_result cleared it); this is the net
+        // for a turn that ends with an op still open, which would otherwise
+        // leave the last tool it touched on screen through the next silence.
+        this.publishActivity(currentTurn, "");
 
         // Drain-scoped minimize: the latched marker is consumed here, after
         // the turn's speech has fully drained — never mid-speech, never for
@@ -5265,6 +5552,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // method, and a per-call-site hook would drift from it on the first frame
     // anyone added. Fire-and-forget by contract — see the reporter.
     this.liveActivityReporter.report(frame);
+    // Latched here for the same reason: both fatal paths mark the session
+    // `failed` and then send their error frame through this method, so the
+    // code that ended the session is readable at close without either path
+    // having to remember to stash it.
+    if (frame.type === "error" && this.state === "failed") {
+      this.failureCode ??= frame.code;
+    }
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})
@@ -5434,6 +5728,12 @@ export async function defaultSpawnBackgroundContinuation(args: {
       objective: args.objective,
       fork: true,
       sendResultToUser: false,
+      // Distinct spawn mode so this unattended continuation is separable in
+      // cost telemetry from a tool-initiated fork. Mechanically both are
+      // forks, but they come from different call sites with different cost
+      // profiles, and lumping them together is what made delegated spend
+      // opaque in the first place.
+      spawnMode: "voice_continuation",
       // Full subagent abilities: the continuation runs like any other
       // background subagent, so it can genuinely finish build-shaped work
       // (JARVIS-1354). Side effects are governed by the standard

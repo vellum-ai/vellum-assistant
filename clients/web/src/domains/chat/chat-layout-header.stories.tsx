@@ -29,6 +29,7 @@ import {
   appsGetQueryKey,
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
 import { ConversationActivityPill } from "@/domains/chat/components/conversation-activity-pill";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
@@ -209,9 +210,13 @@ function NotificationsStandIn() {
 function Harness({
   activity,
   isMobile,
+  channelBound = false,
 }: {
   activity: "none" | "mixed" | "completed" | "many";
   isMobile: boolean;
+  /** Renders the "Open in Slack" source-link pill leading the cluster, the
+   *  way `useChatHeaderRegistration` composes it for channel-bound chats. */
+  channelBound?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [seeded] = useState(() => {
@@ -267,6 +272,12 @@ function Harness({
       }
       topBarRightSlot={
         <>
+          {channelBound ? (
+            <ChannelSourceLinkPill
+              href="https://example.slack.com/archives/C0123456789/p1720000000000000"
+              channelId="slack"
+            />
+          ) : null}
           <ConversationAssetsPill
             assistantId={ASSISTANT_ID}
             conversationId={CONVERSATION_ID}
@@ -397,6 +408,16 @@ export const DesktopCompletedClosed: Story = {
  */
 export const DesktopManyClosed: Story = {
   args: { activity: "many", isMobile: false },
+};
+
+/**
+ * The fullest right cluster a conversation can produce: a channel-bound chat
+ * ("Open in Slack" source-link pill) with assets, heavy agent activity, and
+ * Notifications, against the long title. Protects the squeeze behavior: the
+ * cluster is `shrink-0`, so only the centre title may give.
+ */
+export const DesktopChannelBoundManyClosed: Story = {
+  args: { activity: "many", isMobile: false, channelBound: true },
 };
 
 /**

@@ -11,6 +11,19 @@ const upsertCalls: Array<{
   payload: { conversationId: string };
   runAfter: number;
 }> = [];
+let cfgRequireUserActivity = true;
+let mockStateRow: {
+  conversationId: string;
+  lastProcessedMessageId: string;
+  lastRunAt: number;
+  rememberedLog: string[];
+} | null = null;
+let tailQualifies = true;
+let gateProbeThrows = false;
+let gateProbeCalls: Array<{
+  conversationId: string;
+  afterMessageId: string | null;
+}> = [];
 
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
@@ -30,6 +43,29 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   },
 }));
 
+mock.module("../../../../config/loader.js", () => ({
+  getConfig: () => ({
+    memory: { retrospective: { requireUserActivity: cfgRequireUserActivity } },
+  }),
+}));
+
+mock.module("../memory-retrospective-state.js", () => ({
+  getRetrospectiveState: (_id: string) => mockStateRow,
+}));
+
+mock.module("../memory-retrospective-accounting.js", () => ({
+  hasQualifyingUserMessageAfter: (
+    conversationId: string,
+    afterMessageId: string | null,
+  ) => {
+    gateProbeCalls.push({ conversationId, afterMessageId });
+    if (gateProbeThrows) {
+      throw new Error("messages table unavailable");
+    }
+    return tailQualifies;
+  },
+}));
+
 import {
   enqueueMemoryRetrospectiveIfEnabled,
   enqueueMemoryRetrospectiveOnCompaction,
@@ -42,21 +78,79 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     convType = "standard";
     convSource = "user";
     upsertCalls.length = 0;
+    cfgRequireUserActivity = true;
+    mockStateRow = null;
+    tailQualifies = true;
+    gateProbeThrows = false;
+    gateProbeCalls = [];
   });
 
   test("standard source — interval trigger enqueues with runAfter ≈ now", () => {
     const before = Date.now();
-    enqueueMemoryRetrospectiveIfEnabled({
+    const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
     });
     const after = Date.now();
 
+    expect(result).toBe(true);
     expect(upsertCalls).toHaveLength(1);
     const call = upsertCalls[0]!;
     expect(call.payload).toEqual({ conversationId: "c1" });
     expect(call.runAfter).toBeGreaterThanOrEqual(before);
     expect(call.runAfter).toBeLessThanOrEqual(after);
+  });
+
+  test("assistant-only tail — user-activity gate skips the enqueue", () => {
+    tailQualifies = false;
+    const result = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+
+    expect(result).toBe(false);
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("requireUserActivity=false — assistant-only tail still enqueues", () => {
+    cfgRequireUserActivity = false;
+    tailQualifies = false;
+    const result = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+
+    expect(result).toBe(true);
+    expect(upsertCalls).toHaveLength(1);
+    expect(gateProbeCalls).toHaveLength(0);
+  });
+
+  test("gate probes the tail from the state row's cursor", () => {
+    mockStateRow = {
+      conversationId: "c1",
+      lastProcessedMessageId: "m9",
+      lastRunAt: 1,
+      rememberedLog: [],
+    };
+    enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "sweep",
+    });
+
+    expect(gateProbeCalls).toEqual([
+      { conversationId: "c1", afterMessageId: "m9" },
+    ]);
+  });
+
+  test("an unevaluable gate fails open — the enqueue proceeds", () => {
+    gateProbeThrows = true;
+    const result = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+
+    expect(result).toBe(true);
+    expect(upsertCalls).toHaveLength(1);
   });
 
   test("compaction trigger applies the small debounce", () => {
@@ -135,6 +229,9 @@ describe("enqueueMemoryRetrospectiveOnCompaction", () => {
   beforeEach(() => {
     sourceTag = null;
     upsertCalls.length = 0;
+    cfgRequireUserActivity = true;
+    tailQualifies = true;
+    gateProbeThrows = false;
   });
 
   test("untrusted trust class — no enqueue", () => {

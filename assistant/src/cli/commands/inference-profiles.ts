@@ -35,6 +35,8 @@ interface ProfileWriteResult {
   name: string;
   entry: Record<string, unknown>;
   warnings: string[];
+  /** Live-call command the daemon suggests for verifying the written profile. */
+  verify?: string;
 }
 
 type WriteFlags = {
@@ -48,6 +50,7 @@ type WriteFlags = {
   thinking?: string;
   description?: string;
   allowUnlisted?: boolean;
+  allowUnavailable?: boolean;
   json?: boolean;
 };
 
@@ -79,6 +82,9 @@ function buildWriteBody(
   }
   if (opts.allowUnlisted) {
     body.allowUnlisted = true;
+  }
+  if (opts.allowUnavailable) {
+    body.allowUnavailable = true;
   }
 
   if (opts.maxTokens !== undefined) {
@@ -118,9 +124,9 @@ function printWriteResult(
     writeLine(`warning: ${warning}`);
   }
   writeLine(`profile ${result.name} ${verb}`);
-  writeLine(
-    `Verify it works: assistant inference send --profile ${result.name} "Reply with OK"`,
-  );
+  if (result.verify) {
+    writeLine(`Verify it works: ${result.verify}`);
+  }
 }
 
 export function attachProfilesSubcommand(inference: Command): void {

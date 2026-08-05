@@ -9,8 +9,9 @@ import { migrateProviderConnectionStatusLabel } from "../../persistence/migratio
 import { migrateProviderConnectionBaseUrlAndModels } from "../../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../../persistence/schema/index.js";
 import { createAdapterFromConnection } from "../inference/adapter-factory.js";
-import type { ProviderConnection } from "../inference/auth.js";
+import type { Auth, ProviderConnection } from "../inference/auth.js";
 import type { ResolvedAuth } from "../inference/auth.js";
+import { effectiveConnectionAuth } from "../inference/auth.js";
 import {
   createConnection,
   getConnection,
@@ -44,16 +45,11 @@ const resolvedAuth: ResolvedAuth = {
 describe("vellum connection routing", () => {
   test("isVellumManagedConnection identifies the sentinel connection", () => {
     expect(isVellumManagedConnection(vellumConnection)).toBe(true);
-    expect(
-      isVellumManagedConnection({
-        provider: "fireworks",
-        auth: { type: "platform" },
-      }),
-    ).toBe(false);
-    // `vellum` provider with non-platform auth is not a managed vellum route.
-    expect(
-      isVellumManagedConnection({ provider: "vellum", auth: { type: "none" } }),
-    ).toBe(false);
+    // The provider column alone decides: a concrete provider is never the
+    // managed route (platform auth always pairs with provider "vellum";
+    // DB migration 361 reconciles stored rows).
+    expect(isVellumManagedConnection({ provider: "fireworks" })).toBe(false);
+    expect(isVellumManagedConnection({ provider: "vellum" })).toBe(true);
   });
 
   test("the vellum sentinel is not a real provider without an override", () => {
@@ -79,6 +75,41 @@ describe("vellum connection routing", () => {
       },
     );
     expect(adapter).not.toBeNull();
+  });
+});
+
+describe("effectiveConnectionAuth", () => {
+  test("a vellum row dispatches on platform auth regardless of the stored variant", () => {
+    for (const stored of [
+      { type: "api_key", credential: "vault/x" },
+      { type: "none" },
+      { type: "platform" },
+    ] as Auth[]) {
+      expect(
+        effectiveConnectionAuth({ provider: "vellum", auth: stored }),
+      ).toEqual({ type: "platform" });
+    }
+  });
+
+  test("payload-carrying rows keep their stored auth verbatim", () => {
+    const keyed: Auth = { type: "api_key", credential: "vault/anthropic" };
+    expect(
+      effectiveConnectionAuth({ provider: "anthropic", auth: keyed }),
+    ).toBe(keyed);
+    const subscription: Auth = { type: "oauth_subscription" } as Auth;
+    expect(
+      effectiveConnectionAuth({ provider: "openai", auth: subscription }),
+    ).toBe(subscription);
+  });
+
+  test("a deliberately keyed keyless provider keeps its key", () => {
+    // Keyless means no key REQUIRED, not no key possible: the ollama adapter
+    // accepts one, so stored api_key auth on an ollama row is payload and
+    // must never be derived away.
+    const keyed: Auth = { type: "api_key", credential: "vault/ollama" };
+    expect(effectiveConnectionAuth({ provider: "ollama", auth: keyed })).toBe(
+      keyed,
+    );
   });
 });
 

@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -395,15 +395,28 @@ function assertStagedSkillRoot(skillId: string, stagedDir: string): void {
   }
 }
 
-export function installSkillDependenciesIfPresent(skillDir: string): void {
-  if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${homedir()}/.bun/bin`;
-    execSync("bun install", {
+export async function installSkillDependenciesIfPresent(
+  skillDir: string,
+): Promise<void> {
+  if (!existsSync(join(skillDir, "package.json"))) {
+    return;
+  }
+  const bunPath = `${homedir()}/.bun/bin`;
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("bun", ["install"], {
       cwd: skillDir,
       stdio: "inherit",
       env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
     });
-  }
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`bun install exited with code ${code}`));
+      }
+    });
+  });
 }
 
 function restoreOrRemoveFailedSkillInstall(
@@ -518,7 +531,7 @@ export async function installSkillLocally(
       contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
 
-    installSkillDependenciesIfPresent(stagedDir);
+    await installSkillDependenciesIfPresent(stagedDir);
     commitStagedSkillInstall(skillId, stagedDir);
 
     log.info(

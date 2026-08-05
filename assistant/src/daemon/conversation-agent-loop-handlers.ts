@@ -11,6 +11,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
@@ -120,6 +121,7 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
+  type ConversationErrorAttribution,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
@@ -224,6 +226,13 @@ export interface EventHandlerState {
    * path.
    */
   providerErrorCode: string | null;
+  /**
+   * Classified category of the most recent provider error
+   * (`classifyConversationError(...).errorCategory`). Stamped onto the
+   * synthetic error row's metadata alongside {@link providerErrorCode} when
+   * the loop persists the failure as an assistant message.
+   */
+  providerErrorCategory: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -326,6 +335,12 @@ export interface EventHandlerState {
    * tools (in handleToolResult) and native server tools (server_tool_complete).
    */
   readonly toolActivityMetadata: Map<string, ToolActivityMetadata>;
+  /**
+   * Answered `ask_question` records keyed by tool_use_id, captured when the
+   * result lands so the questions and the user's answers are persisted on the
+   * tool's content block and the answered card survives a history reopen.
+   */
+  readonly toolAnsweredQuestions: Map<string, AnsweredQuestion>;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
@@ -548,6 +563,8 @@ export interface EventHandlerDeps {
    * degrades gracefully when it's absent.
    */
   readonly latencyTracker?: TurnLatencyTracker;
+  /** Best-effort resolved route metadata for provider error classification. */
+  readonly errorAttribution?: () => ConversationErrorAttribution;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -568,6 +585,7 @@ export function createEventHandlerState(): EventHandlerState {
     model: "",
     providerErrorUserMessage: null,
     providerErrorCode: null,
+    providerErrorCategory: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -591,6 +609,7 @@ export function createEventHandlerState(): EventHandlerState {
     toolConfirmationOutcomes: new Map(),
     toolRiskOutcomes: new Map(),
     toolActivityMetadata: new Map(),
+    toolAnsweredQuestions: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
@@ -826,6 +845,12 @@ export function buildPersistedAssistantContent(
       display: surface.display,
       ...(surface.persistent ? { persistent: true } : {}),
       ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
+      // A surface answered before this write lands owns no persisted block for
+      // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+      ...(surface.completed ? { completed: true } : {}),
+      ...(surface.completionSummary
+        ? { completionSummary: surface.completionSummary }
+        : {}),
     } as unknown as ContentBlock);
   }
   return withSurfaces.map((block) => {
@@ -1994,7 +2019,7 @@ export async function finalizePendingToolResultRow(
   );
   const contentJson = JSON.stringify(
     conv != null
-      ? referenceMediaBlocksForPersist(
+      ? await referenceMediaBlocksForPersist(
           conversationId,
           conv.createdAt,
           rowId,
@@ -2266,6 +2291,20 @@ export async function handleToolResult(
     state.toolActivityMetadata.set(event.toolUseId, event.activityMetadata);
   }
 
+  // Capture the answered `ask_question` record and stamp it on the durable
+  // tool_use block right away. The end-of-turn annotation re-stamps it, but
+  // that only runs once every tool in the turn has finished: a user who
+  // switches conversations while a sibling tool is still running would
+  // otherwise reload into history that has lost their answer.
+  if (event.answeredQuestion) {
+    state.toolAnsweredQuestions.set(event.toolUseId, event.answeredQuestion);
+    recordAnsweredQuestionOnPersistedMessage(
+      state,
+      event.toolUseId,
+      event.answeredQuestion,
+    );
+  }
+
   const toolName = state.toolUseIdToName.get(event.toolUseId);
   if (toolName === "file_write" || toolName === "bash") {
     deps.ctx.markWorkspaceTopLevelDirty();
@@ -2349,6 +2388,7 @@ export async function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    answeredQuestion: event.answeredQuestion,
     errorCode: event.errorCode,
     completedAt,
   });
@@ -2369,18 +2409,23 @@ export async function handleToolResult(
 }
 
 /**
- * Stamp `_startedAt` onto the in-flight tool_use block in the persisted
- * assistant message the moment the tool begins. The block is already durable
- * (message_complete precedes tool events), so without this a `/messages`
- * snapshot fetched mid-tool would carry no start time and clients could not
- * render a running elapsed-time counter until the whole turn finished. The
- * full timing + risk annotation still happens in
- * `annotatePersistedAssistantMessage` once every tool in the turn completes.
+ * Stamp vellum-internal metadata onto an in-flight tool_use block in the
+ * persisted assistant message, ahead of the turn's end-of-turn annotation. The
+ * block is already durable (message_complete precedes tool events), so without
+ * an early stamp a `/messages` snapshot fetched mid-turn carries none of it and
+ * clients render a degraded row until every tool in the turn has finished.
+ *
+ * `apply` mutates the block record and returns false when the value is already
+ * stamped, which skips the write. The write itself is best-effort:
+ * `annotatePersistedAssistantMessage` re-stamps from the same state maps once
+ * the turn's tools complete, so a transient `SQLITE_BUSY` here must not abort
+ * the turn. `what` names the field for the failure log.
  */
-function recordToolStartOnPersistedMessage(
+function stampToolUseBlockEarly(
   state: EventHandlerState,
   toolUseId: string,
-  startedAt: number,
+  what: string,
+  apply: (block: Record<string, unknown>) => boolean,
 ): void {
   const messageId = state.lastAssistantMessageId;
   if (!messageId) {
@@ -2402,19 +2447,15 @@ function recordToolStartOnPersistedMessage(
     if (rec.id !== toolUseId) {
       continue;
     }
-    if (rec._startedAt === startedAt) {
+    if (!apply(rec)) {
       return;
     }
-    rec._startedAt = startedAt;
-    // Best-effort early stamp: `annotatePersistedAssistantMessage` re-stamps
-    // once every tool in the turn completes, so a transient `SQLITE_BUSY` here
-    // must not abort the turn — the end-of-turn write recovers it.
     try {
       updateMessageContent(messageId, JSON.stringify(content));
     } catch (err) {
       log.error(
         { err, messageId },
-        "stamping tool start time failed; end-of-turn annotation will recover",
+        `stamping ${what} failed; end-of-turn annotation will recover`,
       );
     }
     return;
@@ -2422,57 +2463,73 @@ function recordToolStartOnPersistedMessage(
 }
 
 /**
- * Stamp `_previewStartedAt` (the first-byte timestamp) onto the durable
- * tool_use block, mirroring `recordToolStartOnPersistedMessage`. Called from
- * `handleToolUse` rather than `handleToolUsePreviewStart`: the block only exists
- * once message_complete has written it, which happens after the preview event
- * but before the tool event. Without this a `/messages` snapshot fetched
- * mid-tool would lose the perceived-start anchor and clients would fall back to
- * execution start — hiding the input-streaming gap the user actually waited
- * through.
+ * Stamp `_startedAt` the moment the tool begins, so a mid-tool `/messages`
+ * snapshot can render a running elapsed-time counter.
+ */
+function recordToolStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  startedAt: number,
+): void {
+  stampToolUseBlockEarly(state, toolUseId, "tool start time", (rec) => {
+    if (rec._startedAt === startedAt) {
+      return false;
+    }
+    rec._startedAt = startedAt;
+    return true;
+  });
+}
+
+/**
+ * Stamp `_previewStartedAt` (the first-byte timestamp). Called from
+ * `handleToolUse` rather than `handleToolUsePreviewStart`: the block only
+ * exists once message_complete has written it, which happens after the preview
+ * event but before the tool event. Without it a mid-tool `/messages` snapshot
+ * loses the perceived-start anchor and clients fall back to execution start,
+ * hiding the input-streaming gap the user actually waited through.
  */
 function recordToolPreviewStartOnPersistedMessage(
   state: EventHandlerState,
   toolUseId: string,
   previewStartedAt: number,
 ): void {
-  const messageId = state.lastAssistantMessageId;
-  if (!messageId) {
-    return;
-  }
-
-  const row = getMessageById(messageId);
-  if (!row) {
-    return;
-  }
-
-  const content: ContentBlock[] = row.content;
-
-  for (const block of content) {
-    if (block.type !== "tool_use") {
-      continue;
-    }
-    const rec = block as unknown as Record<string, unknown>;
-    if (rec.id !== toolUseId) {
-      continue;
-    }
+  stampToolUseBlockEarly(state, toolUseId, "tool preview-start time", (rec) => {
     if (rec._previewStartedAt === previewStartedAt) {
-      return;
+      return false;
     }
     rec._previewStartedAt = previewStartedAt;
-    // Best-effort early stamp, mirroring `recordToolStartOnPersistedMessage`:
-    // `annotatePersistedAssistantMessage` re-stamps at end of turn, so a
-    // transient `SQLITE_BUSY` here must not abort the turn.
-    try {
-      updateMessageContent(messageId, JSON.stringify(content));
-    } catch (err) {
-      log.error(
-        { err, messageId },
-        "stamping tool preview-start time failed; end-of-turn annotation will recover",
-      );
+    return true;
+  });
+}
+
+/**
+ * Stamp `_answeredQuestion` the moment an `ask_question` prompt settles, so a
+ * user who leaves the conversation while a sibling tool is still running comes
+ * back to their answer rather than to a question that lost its response.
+ */
+function recordAnsweredQuestionOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  answeredQuestion: AnsweredQuestion,
+): void {
+  stampToolUseBlockEarly(state, toolUseId, "answered question", (rec) => {
+    // Narrow the persisted marker rather than casting it: the row is data read
+    // back from the database, so its shape is an assumption until checked. Any
+    // value that is not a record with a string `requestId` is treated as absent
+    // and overwritten, which is the safe direction for a dedup check.
+    const existing: unknown = rec._answeredQuestion;
+    const existingRequestId =
+      typeof existing === "object" &&
+      existing !== null &&
+      typeof (existing as { requestId?: unknown }).requestId === "string"
+        ? (existing as { requestId: string }).requestId
+        : undefined;
+    if (existingRequestId === answeredQuestion.requestId) {
+      return false;
     }
-    return;
-  }
+    rec._answeredQuestion = answeredQuestion;
+    return true;
+  });
 }
 
 /**
@@ -2572,6 +2629,11 @@ function annotatePersistedAssistantMessage(
         rec._activityMetadata = activity;
         modified = true;
       }
+      const answeredQuestion = state.toolAnsweredQuestions.get(id);
+      if (answeredQuestion) {
+        rec._answeredQuestion = answeredQuestion;
+        modified = true;
+      }
     }
   }
 
@@ -2597,6 +2659,12 @@ function annotatePersistedAssistantMessage(
         ...(surface.activationMoment
           ? { activationMoment: surface.activationMoment }
           : {}),
+        // A surface answered before this write lands owns no persisted block for
+        // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+        ...(surface.completed ? { completed: true } : {}),
+        ...(surface.completionSummary
+          ? { completionSummary: surface.completionSummary }
+          : {}),
       } as unknown as ContentBlock);
     }
     modified = true;
@@ -2620,9 +2688,7 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (classified.errorCategory === "provider_api_error") {
     log.error(
       {
@@ -2647,6 +2713,7 @@ function handleError(
   );
   state.providerErrorUserMessage = classified.userMessage;
   state.providerErrorCode = classified.code;
+  state.providerErrorCategory = classified.errorCategory;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }
@@ -3131,9 +3198,7 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
     return;
   }
@@ -3153,6 +3218,16 @@ function handleProviderError(
       "Failed to persist provider-error LLM request log (non-fatal)",
     );
   }
+}
+
+function classifyAgentLoopError(
+  error: Error,
+  deps: EventHandlerDeps,
+): ReturnType<typeof classifyConversationError> {
+  return classifyConversationError(error, {
+    phase: "agent_loop",
+    ...deps.errorAttribution?.(),
+  });
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────

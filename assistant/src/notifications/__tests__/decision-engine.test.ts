@@ -55,25 +55,31 @@ mock.module("../../contacts/contact-store.js", () => ({
 // Provider mock. By default `sendMessage` throws so the pass-through paths
 // (which must skip the LLM) fail loudly if they reach the provider. LLM-path
 // tests override `providerSendMessage` to capture inputs.
+type ProviderSendOptions = { systemPrompt?: string; tools?: unknown[] };
+
 let providerSendMessage: (
   messages: unknown[],
-  opts: { systemPrompt?: string },
+  opts: ProviderSendOptions,
 ) => Promise<unknown> = () => {
   throw new Error(
     "provider.sendMessage should NOT be invoked for pass-through decisions",
   );
 };
 
+// Tool block the engine reads back from a provider response. Null drives the
+// deterministic fallback, so LLM-path tests set it before calling in.
+let toolUseBlock: { input: Record<string, unknown> } | null = null;
+
 mock.module("../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => ({
-    sendMessage: (messages: unknown[], opts: { systemPrompt?: string }) =>
+    sendMessage: (messages: unknown[], opts: ProviderSendOptions) =>
       providerSendMessage(messages, opts),
   }),
   createTimeout: () => ({
     signal: new AbortController().signal,
     cleanup: () => {},
   }),
-  extractToolUse: () => null,
+  extractToolUse: () => toolUseBlock,
   userMessage: (text: string) => ({ role: "user", content: text }),
 }));
 
@@ -128,6 +134,24 @@ function makeAssistantReplySignal(
       visibleInSourceNow: false,
     },
     ...overrides,
+  };
+}
+
+/** A signal with no verbatim copy, so the engine takes the LLM path. */
+function makeLlmSignal(): NotificationSignal {
+  return {
+    signalId: "sig-llm-1",
+    createdAt: Date.now(),
+    sourceChannel: "scheduler",
+    sourceContextId: "schedule-1",
+    sourceEventName: "schedule.notify",
+    contextPayload: {},
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
   };
 }
 
@@ -485,23 +509,6 @@ describe("chat.assistant_reply pass-through in notification decision engine", ()
 });
 
 describe("recipient notes injection (ACL from gateway, notes joined locally)", () => {
-  function makeLlmSignal(): NotificationSignal {
-    return {
-      signalId: "sig-llm-notes-1",
-      createdAt: Date.now(),
-      sourceChannel: "scheduler",
-      sourceContextId: "schedule-1",
-      sourceEventName: "schedule.notify",
-      contextPayload: {},
-      attentionHints: {
-        requiresAction: false,
-        urgency: "low",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-    };
-  }
-
   test("injects the guardian's local notes, resolved via the gateway contactId", async () => {
     guardianDeliveryFixture = [{ contactId: "contact-42" }];
     contactInfoFixture = { "contact-42": { notes: "Prefers terse updates." } };
@@ -531,5 +538,128 @@ describe("recipient notes injection (ACL from gateway, notes joined locally)", (
     await evaluateSignal(makeLlmSignal(), ["vellum"] as NotificationChannel[]);
 
     expect(capturedSystemPrompt).not.toContain("<recipient-context>");
+  });
+});
+
+describe("decision tool title field specification", () => {
+  test("pins the length, form, and no-echo constraints in the tool schema", async () => {
+    guardianDeliveryFixture = [];
+    contactInfoFixture = {};
+
+    let capturedTools: unknown[] | undefined;
+    providerSendMessage = async (_messages, opts) => {
+      capturedTools = opts.tools;
+      return {};
+    };
+
+    await evaluateSignal(makeLlmSignal(), ["vellum"] as NotificationChannel[]);
+
+    const tool = capturedTools?.[0] as {
+      input_schema: {
+        properties: {
+          renderedCopy: {
+            properties: Record<
+              string,
+              { properties: { title: { description: string } } }
+            >;
+          };
+        };
+      };
+    };
+    const description =
+      tool.input_schema.properties.renderedCopy.properties.vellum.properties
+        .title.description;
+
+    expect(description).toContain("2 to 5 words");
+    expect(description).toContain("40 characters");
+    expect(description).toContain("noun phrase");
+    expect(description).toContain(
+      "Do NOT restate, summarize, or echo the body",
+    );
+    expect(description).toContain("no markdown");
+    expect(description).toContain("Missing Context");
+    expect(description.match(/NOT '/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("title normalization", () => {
+  /** Run the LLM path with the given channel copy and return the kept title. */
+  async function titleFromModelCopy(
+    title: string,
+    body: string,
+  ): Promise<string | undefined> {
+    guardianDeliveryFixture = [];
+    contactInfoFixture = {};
+    const previousSendMessage = providerSendMessage;
+    providerSendMessage = async () => ({});
+    toolUseBlock = {
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "model decision",
+        dedupeKey: "title-normalization-test",
+        renderedCopy: { vellum: { title, body } },
+      },
+    };
+
+    try {
+      const decision = await evaluateSignal(makeLlmSignal(), [
+        "vellum",
+      ] as NotificationChannel[]);
+      return decision.renderedCopy.vellum?.title;
+    } finally {
+      toolUseBlock = null;
+      providerSendMessage = previousSendMessage;
+    }
+  }
+
+  test("replaces a model title that restates the body with a derived one", async () => {
+    const title = "The staging deploy finished and the build is live.";
+    const body = `Deploy complete. ${title}`;
+
+    expect(await titleFromModelCopy(title, body)).toBe("Deploy complete.");
+  });
+
+  test("keeps a clean model title verbatim", async () => {
+    expect(
+      await titleFromModelCopy(
+        "Staging Deploy Status",
+        "The staging deploy finished.",
+      ),
+    ).toBe("Staging Deploy Status");
+  });
+
+  test("truncates a model title longer than 40 characters", async () => {
+    const kept = await titleFromModelCopy(
+      "Quarterly Infrastructure Migration Status Report",
+      "The migration is on track for the quarter.",
+    );
+
+    expect(kept).toBe("Quarterly Infrastructure Migration");
+    expect(kept?.length).toBeLessThanOrEqual(40);
+  });
+
+  test("strips markdown from a model title", async () => {
+    expect(
+      await titleFromModelCopy(
+        "**Deploy Status**",
+        "The staging deploy finished.",
+      ),
+    ).toBe("Deploy Status");
+  });
+
+  test("replaces a pass-through requestedTitle that stutters against the body", async () => {
+    const requestedTitle = "The nightly backup finished without any errors.";
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: `Backup finished. ${requestedTitle}`,
+        requestedTitle,
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.renderedCopy.vellum?.title).toBe("Backup finished.");
   });
 });

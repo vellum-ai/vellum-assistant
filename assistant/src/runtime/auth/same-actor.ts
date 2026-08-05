@@ -18,9 +18,12 @@
  * Both paths log a single structured warn line on rejection with the
  * shape `{ sourceActorPrincipalId, targetClientId, targetActorPrincipalId,
  * op, reason }` so that bash, file, and CU rejections render identically
- * in the audit log.
+ * in the audit log. The user-facing wording differs by path: the proxy
+ * result names the failing comparison, while the HTTP 403 stays generic
+ * because it can reach a caller who does not own the target client.
  */
 import type { HostProxyCapability } from "../../channels/types.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { ForbiddenError } from "../routes/errors.js";
@@ -28,13 +31,38 @@ import { ForbiddenError } from "../routes/errors.js";
 const log = getLogger("same-actor");
 
 /**
- * Canonical user-facing rejection message. Used by both the proxy and
- * route paths so operators and auditors see identical wording regardless
- * of whether the failure surfaced as a tool-execution result or an HTTP
- * 403.
+ * Canonical user-facing rejection message for the HTTP/IPC route path,
+ * where the caller may be any principal and the reason must not describe
+ * the target client's internal state.
  */
 const REJECTION_MESSAGE =
   "Submitting actor does not match the target client's actor for this request. The targeted client's authenticated user must submit the result.";
+
+/**
+ * Per-reason rejection messages for the proxy path.
+ *
+ * The proxy's rejection is read by the agent (and, through the transcript,
+ * by the user) on their own turn, so it can and should name which of the
+ * three comparisons failed. Collapsing them into one sentence made a
+ * single-user desktop report that "the submitting actor does not match the
+ * target client's actor" in two cases where the two actors were never
+ * compared at all: the turn carried no actor principal, or the target
+ * client registered its SSE stream without one. Those have different fixes
+ * — re-establish the caller's identity versus reconnect the client — and
+ * neither is "sign in as the other user".
+ *
+ * The route path keeps {@link REJECTION_MESSAGE}: an HTTP 403 can reach a
+ * caller who is not the owner, and `missing_target` versus `mismatch` would
+ * describe a client that is not theirs.
+ */
+const PROXY_REJECTION_MESSAGES: Record<RejectionReason, string> = {
+  missing_source:
+    "This turn has no authenticated actor, so it cannot target a connected client. Host-proxy execution binds each request to the user who sent the message; retry from a signed-in client, or check that the assistant's guardian binding resolved.",
+  missing_target:
+    "The target client is connected but registered without an authenticated user, so it cannot be targeted. Quit and reopen the desktop app to re-register it, then retry.",
+  mismatch:
+    "Submitting actor does not match the target client's actor for this request. The target client is signed in as a different user — run `assistant clients list` to see which connected clients you own.",
+};
 
 /** OpenAPI 403 description for `*-result` endpoints, kept identical. */
 export const SAME_ACTOR_FORBIDDEN_DESCRIPTION =
@@ -74,6 +102,17 @@ export interface SameActorPersistedArgs {
   targetActorPrincipalId: string | undefined;
   targetClientId: string;
   op: SameActorOp;
+  /**
+   * Fill-if-missing fallback for dev-bypass deployments: when the PERSISTED
+   * target principal is absent (the request was registered before the SSE
+   * self-heal filled the target client's hub record), re-read the live hub
+   * record. Only consulted when `targetActorPrincipalId` is nullish AND HTTP
+   * auth is disabled. A present persisted value always wins, so a
+   * present-but-mismatched principal still rejects, and JWT-auth deployments
+   * are unaffected. The hub value is set server-side at SSE registration (or
+   * by the self-heal), never from client input.
+   */
+  hubForMissingTarget?: Pick<AssistantEventHub, "getActorPrincipalIdForClient">;
 }
 
 export type SameActorArgs = SameActorLiveArgs;
@@ -97,7 +136,12 @@ function detectRejection(
   const { sourceActorPrincipalId, targetClientId, op } = args;
   const targetActorPrincipalId = isLive(args)
     ? args.hub.getActorPrincipalIdForClient(targetClientId)
-    : args.targetActorPrincipalId;
+    : (args.targetActorPrincipalId ??
+      (isHttpAuthDisabled()
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
+            targetClientId,
+          )
+        : undefined));
 
   let reason: RejectionReason | undefined;
   if (sourceActorPrincipalId == null) {
@@ -147,14 +191,18 @@ export function enforceSameActorOrThrow(
  * on rejection (so the proxy can pass it directly back to the agent),
  * or `null` on success. Always uses the live hub lookup — proxy
  * registration runs while the target SSE subscription is active.
+ *
+ * The returned message names the failing comparison — see
+ * {@link PROXY_REJECTION_MESSAGES}.
  */
 export function enforceSameActorOrErrorResult(
   args: SameActorLiveArgs,
 ): { content: string; isError: true } | null {
-  if (detectRejection(args) == null) {
+  const reason = detectRejection(args);
+  if (reason == null) {
     return null;
   }
-  return { content: REJECTION_MESSAGE, isError: true };
+  return { content: PROXY_REJECTION_MESSAGES[reason], isError: true };
 }
 
 /**

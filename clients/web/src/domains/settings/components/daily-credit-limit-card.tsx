@@ -9,10 +9,19 @@ import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
+import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+/**
+ * In-page anchor for deep links straight to this card (chat banner "Adjust
+ * Limit", the platform's daily-limit email). Must match the hash in
+ * `routes.settings.usageBillingDailyLimit`.
+ */
+export const DAILY_CREDIT_LIMIT_ANCHOR_ID = "daily-credit-limit";
 
 /** Format a USD decimal string ("5.00") as "$5.00" for display copy. */
 function formatUsd(value: string): string {
@@ -65,6 +74,14 @@ export function DailyCreditLimitCard() {
     organizationsBillingDailyCreditLimitUpdateMutation(),
   );
 
+  // Deep links (`#daily-credit-limit`) land here once both queries have
+  // settled, so the content above the anchor has taken its final height
+  // before we scroll.
+  useScrollToAnchor(
+    DAILY_CREDIT_LIMIT_ANCHOR_ID,
+    !limitQuery.isLoading && !summaryQuery.isLoading,
+  );
+
   // `draft === null` means "not yet edited"; seed from the query below. Tracking
   // the edited value separately keeps the input controlled without an effect
   // that copies server state into local state.
@@ -103,6 +120,7 @@ export function DailyCreditLimitCard() {
   const summary = summaryQuery.data;
   const dailySpend = summary?.daily_spend_usd ?? config.current_day_spent_usd;
   const limitReached = summary?.daily_limit_reached === true;
+  const resetPhrase = dailyResetTimePhrase();
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     setDraft(e.target.value);
@@ -185,7 +203,7 @@ export function DailyCreditLimitCard() {
                   step="0.01"
                   min="1"
                   label="Stop spending Vellum credits after"
-                  helperText="Per UTC day. Resets at midnight UTC."
+                  helperText={`Resets daily at ${resetPhrase}.`}
                   placeholder="0.00"
                   value={value}
                   onChange={onChange}
@@ -224,7 +242,7 @@ export function DailyCreditLimitCard() {
             {limitReached && (
               <Notice tone="warning" data-testid="daily-credit-limit-reached">
                 Today&apos;s Vellum credit spend has reached this limit.
-                Generation resumes after midnight UTC or when you raise the
+                Generation resumes at {resetPhrase} or when you raise the
                 limit.
               </Notice>
             )}
@@ -234,7 +252,7 @@ export function DailyCreditLimitCard() {
 
       <p className="mt-3 text-body-small-default text-[var(--content-tertiary)]">
         Applies to Vellum credit spend only. Usage billed to your own provider
-        API keys isn&apos;t limited. Resets at midnight UTC.
+        API keys isn&apos;t limited. Resets daily at {resetPhrase}.
       </p>
 
       {showGenericError && (

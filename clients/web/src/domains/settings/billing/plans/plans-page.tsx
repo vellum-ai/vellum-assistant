@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import {
   isCleanPin,
   PACKAGE_ORDER,
@@ -26,6 +27,7 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
+import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
@@ -47,7 +49,10 @@ import {
   extractMutationError,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
-import { formatDollars } from "@/domains/settings/components/tier-pricing";
+import {
+  formatDollars,
+  priceLabelFromCents,
+} from "@/domains/settings/components/tier-pricing";
 import {
   buildPortalReturnSnapshot,
   useBillingPortalSession,
@@ -84,10 +89,6 @@ import { toast } from "@vellumai/design-library/components/toast";
 // dark-theme surface is `--surface-base` (#17191C) — so the raw hex stands.
 const PAGE_BACKGROUND = "#0A0A0B";
 
-// External pricing docs — the closest existing docs link in the web client
-// (also used by the AI settings pricing banner).
-const DOCS_URL = "https://www.vellum.ai/docs/pricing";
-
 // How long the `?package=` deep link waits for its forced re-read of the
 // billing data before deciding on whatever the cache already holds.
 const DEEP_LINK_REFRESH_TIMEOUT_MS = 8_000;
@@ -110,11 +111,6 @@ const FREE_FEATURES: readonly string[] = [
   `${FREE_STORAGE_GIB} GB Storage`,
   "Pay-as-you-go credits",
 ];
-
-/** "$50/month" (or "$0/month"). */
-function priceLabelFromCents(cents: number): string {
-  return `${formatDollars(cents)}/month`;
-}
 
 /** Machine label for a package's feature row, e.g. "Medium Computer". */
 function machineComputerLabel(pkg: ProPackage): string {
@@ -148,7 +144,7 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
  * `pro-packages` flag off the catalog is empty and the route bounces back to
  * the billing page.
  */
-export function PlansPage() {
+function PlansPageContent() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -859,7 +855,7 @@ export function PlansPage() {
         <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)] sm:mt-10">
           You can cancel or change your plan anytime you want. To learn more{" "}
           <a
-            href={DOCS_URL}
+            href={PRICING_DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[var(--content-default)] underline"
@@ -909,5 +905,13 @@ export function PlansPage() {
         {body}
       </div>
     </div>
+  );
+}
+
+export function PlansPage() {
+  return (
+    <AndroidBillingGate redirectToBilling>
+      <PlansPageContent />
+    </AndroidBillingGate>
   );
 }

@@ -5,6 +5,7 @@ import {
   canMarkRead,
   canMarkUnread,
   contributesToUnreadCount,
+  countUnreadConversationsInList,
   isBackgroundConversation,
   isScheduledConversation,
 } from "@/utils/conversation-predicates";
@@ -167,5 +168,104 @@ describe("unread predicates for surfaced conversations", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+/**
+ * The client half of the unread-count contract.
+ *
+ * `GET /v1/conversations/unread-count` answers the same question in SQL
+ * (`countUnreadConversations` in
+ * `assistant/src/persistence/conversation-queries.ts`), and the daemon's
+ * `conversation-list-routes.test.ts` asserts this same matrix against the
+ * database. The two definitions are maintained separately, so this matrix is
+ * the tripwire: a rule changed on one side without the other shows up as one
+ * of these scenarios disagreeing across the two suites.
+ *
+ * Keep the scenario names identical on both sides.
+ */
+describe("unread-count contract (client half)", () => {
+  const scenarios: Array<{
+    name: string;
+    conversation: Partial<Conversation>;
+    counts: boolean;
+  }> = [
+    {
+      name: "unseen foreground row",
+      conversation: { hasUnseenLatestAssistantMessage: true },
+      counts: true,
+    },
+    {
+      name: "seen foreground row",
+      conversation: { hasUnseenLatestAssistantMessage: false },
+      counts: false,
+    },
+    {
+      name: "unseen archived row",
+      conversation: {
+        hasUnseenLatestAssistantMessage: true,
+        archivedAt: 1704153600000,
+      },
+      counts: false,
+    },
+    {
+      name: "unseen background row, not surfaced",
+      conversation: {
+        hasUnseenLatestAssistantMessage: true,
+        conversationType: "background",
+      },
+      counts: false,
+    },
+    {
+      name: "unseen scheduled row, not surfaced",
+      conversation: {
+        hasUnseenLatestAssistantMessage: true,
+        conversationType: "scheduled",
+      },
+      counts: false,
+    },
+    {
+      name: "unseen background row, surfaced",
+      conversation: {
+        hasUnseenLatestAssistantMessage: true,
+        conversationType: "background",
+        surfacedAt: 1704067200000,
+      },
+      counts: true,
+    },
+    {
+      name: "unseen background row filed in a custom group, not surfaced",
+      conversation: {
+        hasUnseenLatestAssistantMessage: true,
+        conversationType: "background",
+        groupId: "3f0b7a4e-1111-2222-3333-444455556666",
+      },
+      counts: false,
+    },
+    {
+      name: "unseen standard row filed in a custom group",
+      conversation: {
+        hasUnseenLatestAssistantMessage: true,
+        groupId: "3f0b7a4e-1111-2222-3333-444455556666",
+      },
+      counts: true,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    test(`${scenario.name} ${scenario.counts ? "counts" : "does not count"}`, () => {
+      expect(
+        contributesToUnreadCount(makeConversation(scenario.conversation)),
+      ).toBe(scenario.counts);
+    });
+  }
+
+  test("the matrix totals what countUnreadConversationsInList reports", () => {
+    const expected = scenarios.filter((s) => s.counts).length;
+    const list = scenarios.map((s, index) =>
+      makeConversation({ ...s.conversation, conversationId: `conv-${index}` }),
+    );
+
+    expect(countUnreadConversationsInList(list)).toBe(expected);
   });
 });

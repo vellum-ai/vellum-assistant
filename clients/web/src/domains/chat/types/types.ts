@@ -163,6 +163,13 @@ export interface DisplayMessage {
    *  summarize-up-to results). Rendered as a standalone system notice —
    *  no avatar, no persona bubble — never as assistant speech. */
   isSystemCard?: boolean;
+  /** Provider-failure notice metadata, carried from the wire
+   *  `ConversationMessage["providerError"]`. `code` is the stable classified
+   *  error code (e.g. `"PROVIDER_BILLING"`), `category` the classified
+   *  category (e.g. `"credits_exhausted"`). Credits-exhausted rows render as
+   *  the upsell card instead of a persona bubble; other categories keep the
+   *  plain rendering. */
+  providerError?: { code?: string; category?: string };
 }
 
 /**

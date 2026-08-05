@@ -257,14 +257,49 @@ describe("parseFeedFile", () => {
     ).toThrow();
   });
 
-  test("throws when an item in the file is invalid", () => {
-    expect(() =>
-      parseFeedFile({
-        version: 2,
-        items: [{ ...minimalNotification(), priority: 999 }],
-        updatedAt: NOW_ISO,
-      }),
-    ).toThrow();
+  test("throws when `items` is missing entirely", () => {
+    expect(() => parseFeedFile({ version: 2, updatedAt: NOW_ISO })).toThrow();
+  });
+
+  test("throws when `updatedAt` is missing", () => {
+    expect(() => parseFeedFile({ version: 2, items: [] })).toThrow();
+  });
+
+  test("drops an invalid item but keeps the valid ones", () => {
+    const parsed = parseFeedFile({
+      version: 2,
+      items: [
+        minimalNotification(),
+        { ...minimalNotification(), id: "notif-bad", priority: 999 },
+      ],
+      updatedAt: NOW_ISO,
+    });
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.id).toBe("notif-1");
+    expect(parsed.droppedCount).toBe(1);
+    expect(parsed.updatedAt).toBe(NOW_ISO);
+  });
+
+  test("reports droppedCount 0 for a fully valid file", () => {
+    const parsed = parseFeedFile({
+      version: 2,
+      items: [minimalNotification(), notificationWithActions()],
+      updatedAt: NOW_ISO,
+    });
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.droppedCount).toBe(0);
+  });
+
+  test("returns an empty item list when every item is invalid", () => {
+    const parsed = parseFeedFile({
+      version: 2,
+      items: [{ ...minimalNotification(), type: "banner" }, null, "nope"],
+      updatedAt: NOW_ISO,
+    });
+    expect(parsed.items).toEqual([]);
+    expect(parsed.droppedCount).toBe(3);
+    expect(parsed.version).toBe(2);
+    expect(parsed.updatedAt).toBe(NOW_ISO);
   });
 
   test("accepts a file with a noteworthy item", () => {

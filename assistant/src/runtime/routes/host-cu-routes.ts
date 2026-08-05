@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-registry.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -107,6 +108,7 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId: peeked.targetClientId,
       op: "host_cu",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 

@@ -2,6 +2,8 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
+import { PeekCharacter } from "@/app/docs/_components/peek-character";
+
 interface TocItem {
   id: string;
   label: string;
@@ -22,8 +24,8 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
   const columnRef = useRef<HTMLDivElement | null>(null);
   const [peekLeft, setPeekLeft] = useState<number | null>(null);
 
-  // Anchor the peek bubble to the TOC menu column: measure where the
-  // menu list actually sits and pin the bubble's left edge to it, so
+  // Anchor the peek character to the TOC menu column: measure where the
+  // menu list actually sits and pin the character's left edge to it, so
   // they stay aligned at any viewport width.
   useEffect(() => {
     const measure = () => {
@@ -68,7 +70,7 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
     };
   }, [items]);
 
-  // Reveal the peek bubble once the reader scrolls past the threshold;
+  // Reveal the peeking avatar once the reader scrolls past the threshold;
   // hide it again when they return to the top so it never crowds the hero.
   useEffect(() => {
     const onScroll = () => {
@@ -115,9 +117,11 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
         </ul>
       </div>
       {footer ? <div className="mt-4">{footer}</div> : null}
-      {/* Speech bubble that peeks up from the bottom of the viewport, right
-          side of the TOC column, once the reader scrolls into the page. It
-          invites the reader to the community Discord. */}
+      {/* Peek character: peeks up from the bottom of the viewport, right side
+          of the TOC column, once the reader scrolls into the page. Only the
+          top of the head is visible; the rest is cut off below the fold.
+          A speech bubble always sits beside it inviting the reader to the
+          community Discord. */}
       <div
         className="docs-toc-peek-wrapper"
         style={{
@@ -130,10 +134,10 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
           height: 160,
           opacity: peekVisible ? 1 : 0,
           transform: peekVisible ? "translateY(0)" : "translateY(96px)",
-          transition: "opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
           zIndex: 10,
         }}
       >
+        {/* Speech bubble: always visible, sits on top of the urchin's head */}
         <a
           href="https://discord.gg/ZABd9V2zM8"
           target="_blank"
@@ -180,9 +184,9 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
             Come say hi
           </span>
           <span>in the community!</span>
-          {/* Bubble tail pointing down: two stacked triangles, gray behind
-              for the border, white on top for the fill. Nested inside the
-              bubble so it moves with the hover lift. */}
+          {/* Bubble tail pointing down toward the urchin: two stacked
+              triangles, gray behind for the border, white on top for the
+              fill. Nested inside the bubble so it moves with the hover lift. */}
           <div
             aria-hidden="true"
             style={{
@@ -210,10 +214,32 @@ export function TableOfContents({ items, footer }: TableOfContentsProps) {
             }}
           />
         </a>
+        <div
+          aria-hidden="true"
+          className="docs-toc-peek"
+          style={{
+            width: 160,
+            height: 160,
+            cursor: "pointer",
+          }}
+        >
+          <PeekCharacter size={160} />
+        </div>
       </div>
       <style>{`
-        .docs-toc-peek-wrapper:hover .docs-toc-peek-bubble {
-          transform: translateY(-2px);
+        @media (prefers-reduced-motion: no-preference) {
+          .docs-toc-peek-wrapper {
+            transition: opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+          }
+          .docs-toc-peek {
+            transition: transform 200ms ease;
+          }
+          .docs-toc-peek-wrapper:hover .docs-toc-peek {
+            transform: translateY(-6px) rotate(-3deg);
+          }
+          .docs-toc-peek-wrapper:hover .docs-toc-peek-bubble {
+            transform: translateY(-2px);
+          }
         }
       `}</style>
     </div>

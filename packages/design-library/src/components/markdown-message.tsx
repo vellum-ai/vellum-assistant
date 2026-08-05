@@ -419,6 +419,12 @@ function buildMarkdownComponents(
     img: ({ src, alt }) => {
       const srcStr = typeof src === "string" ? src : "";
       const altStr = typeof alt === "string" ? alt : "";
+      // Every src goes to the consumer's component, absolute host paths and
+      // inline `data:`/`blob:` payloads included: only the app knows which of
+      // them it can resolve into a real image.
+      if (ImageComponent) {
+        return <ImageComponent src={srcStr} alt={altStr} />;
+      }
       const isLocal =
         !srcStr ||
         srcStr.startsWith("/") ||
@@ -429,9 +435,6 @@ function buildMarkdownComponents(
         return (
           <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />
         );
-      }
-      if (ImageComponent) {
-        return <ImageComponent src={srcStr} alt={altStr} />;
       }
       return (
         <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
@@ -484,22 +487,31 @@ const CURRENCY_AMOUNT =
  */
 const structureParser = unified().use(remarkParse).use(remarkGfm);
 
+/** Prose: the only node type a source rewrite may touch. */
+const TEXT_NODES: ReadonlySet<string> = new Set(["text"]);
+
+/** Regions a source rewrite must leave byte-for-byte intact. */
+const VERBATIM_NODES: ReadonlySet<string> = new Set([
+  "inlineCode",
+  "code",
+  "html",
+]);
+
 /**
- * Source offset ranges of every `text` node in `content`, in document order.
- * Verbatim regions — inline code, fenced code, link/image destinations,
- * autolinks — are non-`text` nodes, so they are excluded: a rewrite scoped to
- * these ranges leaves them byte-for-byte intact. Shared by currency escaping
- * and soft-break conversion so both stay confined to prose.
+ * Source offset ranges of every node in `tree` whose type is in `types`, in
+ * document order. Matched nodes are not descended into.
  */
-function collectTextRanges(content: string): Array<[number, number]> {
-  const tree = structureParser.parse(content);
+function collectRanges(
+  tree: unknown,
+  types: ReadonlySet<string>,
+): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   const collect = (node: {
     type: string;
     position?: { start: { offset?: number }; end: { offset?: number } };
     children?: unknown[];
   }) => {
-    if (node.type === "text") {
+    if (types.has(node.type)) {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
       if (typeof start === "number" && typeof end === "number") {
@@ -515,6 +527,18 @@ function collectTextRanges(content: string): Array<[number, number]> {
   };
   collect(tree as Parameters<typeof collect>[0]);
   return ranges;
+}
+
+/**
+ * Source offset ranges of every `text` node in `content`, in document order.
+ * Verbatim regions (inline code, fenced code, link/image destinations,
+ * autolinks) are non-`text` nodes, so they are excluded: a rewrite scoped to
+ * these ranges leaves them byte-for-byte intact. Shared by currency escaping,
+ * soft-break conversion, and math-delimiter conversion so all three stay
+ * confined to prose.
+ */
+function collectTextRanges(content: string): Array<[number, number]> {
+  return collectRanges(structureParser.parse(content), TEXT_NODES);
 }
 
 /**
@@ -574,6 +598,272 @@ function hardBreakNewlines(content: string): string {
   return rewriteTextSlices(content, ranges, (slice) =>
     slice.replace(/\n/g, "  \n"),
   );
+}
+
+/**
+ * Math delimiter pairs in the ChatGPT house style (`\(…\)` inline, `\[…\]`
+ * display), mapped to the `$`-delimited form remark-math understands.
+ */
+const LATEX_MATH_DELIMITERS = [
+  { open: "\\[", close: "\\]", dollars: "$$" },
+  { open: "\\(", close: "\\)", dollars: "$" },
+] as const;
+
+/**
+ * Whether a single range in `ranges` holds both characters of the delimiter at
+ * `offset`. Binary search, not a linear probe: this runs at every delimiter in
+ * the message, and a long message has many of both.
+ *
+ * `ranges` must be sorted and non-overlapping, which document-order collection
+ * guarantees.
+ */
+function containsDelimiter(
+  ranges: Array<[number, number]>,
+  offset: number,
+): boolean {
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const [start, end] = ranges[mid]!;
+    if (offset < start) {
+      high = mid - 1;
+    } else if (offset >= end) {
+      low = mid + 1;
+    } else {
+      return offset + 2 <= end;
+    }
+  }
+  return false;
+}
+
+/**
+ * Offset of the `close` delimiter pairing with the opener that ends at `from`,
+ * or -1 when there is none.
+ *
+ * The search stops at the next opener of either style: no equation contains
+ * one, so a closer reached past it belongs to that opener rather than this one.
+ * Without the stop, a stray `\(` earlier in the prose would pair with the
+ * closer of the next real equation and swallow it. Stopping also bounds the
+ * scan by the distance to the next opener, which keeps a message full of
+ * unmatched openers linear rather than quadratic.
+ *
+ * Every other backslash consumes the character it escapes, so a `\\]` (an
+ * escaped backslash followed by a bracket) never reads as a closer.
+ */
+function findClosingDelimiter(
+  content: string,
+  from: number,
+  close: string,
+  inProse: (offset: number) => boolean,
+): number {
+  for (let i = from; i < content.length; i += 1) {
+    if (content[i] !== "\\") {
+      continue;
+    }
+    if (content.startsWith(close, i) && inProse(i)) {
+      return i;
+    }
+    const opensAgain = LATEX_MATH_DELIMITERS.some((candidate) =>
+      content.startsWith(candidate.open, i),
+    );
+    if (opensAgain && inProse(i)) {
+      return -1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/**
+ * Rewrite ChatGPT-style math delimiters to the `$` form remark-math parses:
+ * `\(x\)` becomes `$x$` and `\[x\]` becomes `$$x$$`. Models trained on that
+ * house style emit it regardless of which renderer is downstream, and CommonMark
+ * reads `\(` as a plain escaped paren, so without this the equation renders as
+ * literal text with the backslashes stripped.
+ *
+ * Only paired delimiters are converted, and only where both halves sit in
+ * prose: a lone `\[` left as `$$` would pair with the next unrelated `$$` and
+ * swallow the text between them. For the same reason a pair whose contents span
+ * a blank line (which ends the enclosing block), a verbatim region (inline or
+ * fenced code), or another opener is left alone: none of those is an equation.
+ * A rejected opener is skipped rather than abandoning the rest of the message,
+ * so a stray delimiter never costs a real equation that follows it.
+ */
+function convertLatexDelimiters(content: string): string {
+  // Fast path: neither opener present means no work to do.
+  if (!content.includes("\\[") && !content.includes("\\(")) {
+    return content;
+  }
+  const tree = structureParser.parse(content);
+  const prose = collectRanges(tree, TEXT_NODES);
+  if (prose.length === 0) {
+    return content;
+  }
+  const verbatim = collectRanges(tree, VERBATIM_NODES);
+  const inProse = (offset: number) => containsDelimiter(prose, offset);
+
+  let result = "";
+  let cursor = 0;
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] !== "\\") {
+      i += 1;
+      continue;
+    }
+    const delimiter = LATEX_MATH_DELIMITERS.find((candidate) =>
+      content.startsWith(candidate.open, i),
+    );
+    if (!delimiter || !inProse(i)) {
+      i += 2; // skip the escaped character
+      continue;
+    }
+    const close = findClosingDelimiter(
+      content,
+      i + delimiter.open.length,
+      delimiter.close,
+      inProse,
+    );
+    const inner =
+      close === -1 ? "" : content.slice(i + delimiter.open.length, close);
+    if (!inner.trim() || /\n[ \t]*\n/.test(inner)) {
+      i += 2;
+      continue;
+    }
+    if (verbatim.some(([start, end]) => start < close && end > i)) {
+      i += 2;
+      continue;
+    }
+    result += content.slice(cursor, i);
+    result += `${delimiter.dollars}${inner}${delimiter.dollars}`;
+    cursor = close + delimiter.close.length;
+    i = cursor;
+  }
+  return result + content.slice(cursor);
+}
+
+/**
+ * The block-level `math` node remark-math emits for a `$$` fence that opens a
+ * line, built by hand for a `$$…$$` span found mid-paragraph. The `data` hints
+ * are what mdast→hast turns into the `math-display` element rehype-katex
+ * typesets in display mode.
+ */
+function displayMathNode(value: string) {
+  return {
+    type: "math",
+    value,
+    data: {
+      hName: "pre",
+      hChildren: [
+        {
+          type: "element",
+          tagName: "code",
+          properties: { className: ["language-math", "math-display"] },
+          children: [{ type: "text", value }],
+        },
+      ],
+    },
+  };
+}
+
+interface PhrasingNode {
+  type: string;
+  value?: string;
+  position?: { start: { offset?: number } };
+}
+
+/** A node that contributes nothing visible once its paragraph is split. */
+function isBlankPhrasing(node: PhrasingNode): boolean {
+  if (node.type === "break") {
+    return true;
+  }
+  return node.type === "text" && (node.value ?? "").trim() === "";
+}
+
+/**
+ * remark plugin: lift `$$…$$` math out of the paragraph it was typed in so
+ * KaTeX typesets it in display mode.
+ *
+ * remark-math only produces a block `math` node when the `$$` fence opens a
+ * line; the same span mid-sentence becomes an inline `inlineMath` node, which
+ * KaTeX renders in text mode (cramped sum/integral limits, inline fractions).
+ * Display delimiters mean display math wherever they appear (`\[x\]` arrives
+ * here as `$$x$$` after delimiter conversion), so each double-dollar span
+ * becomes its own block and the surrounding prose splits around it. Single-`$`
+ * math is untouched, and math inside a heading or table cell stays inline
+ * because neither can host a block child.
+ */
+function remarkDisplayMathBlocks() {
+  return (tree: unknown, file: { toString(): string }) => {
+    const source = String(file);
+    const isDisplay = (node: PhrasingNode) => {
+      const offset = node.position?.start.offset;
+      return (
+        node.type === "inlineMath" &&
+        typeof offset === "number" &&
+        source.startsWith("$$", offset)
+      );
+    };
+    const split = (paragraph: { children: PhrasingNode[] }) => {
+      const blocks: unknown[] = [];
+      let buffer: PhrasingNode[] = [];
+      const flush = () => {
+        while (buffer.length > 0 && isBlankPhrasing(buffer[0]!)) {
+          buffer.shift();
+        }
+        while (
+          buffer.length > 0 &&
+          isBlankPhrasing(buffer[buffer.length - 1]!)
+        ) {
+          buffer.pop();
+        }
+        if (buffer.length > 0) {
+          blocks.push({ type: "paragraph", children: buffer });
+        }
+        buffer = [];
+      };
+      for (const child of paragraph.children) {
+        if (isDisplay(child)) {
+          flush();
+          blocks.push(displayMathNode(child.value ?? ""));
+        } else {
+          buffer.push(child);
+        }
+      }
+      flush();
+      return blocks;
+    };
+    const visit = (node: { type: string; children?: unknown[] }) => {
+      if (!Array.isArray(node.children)) {
+        return;
+      }
+      const rebuilt: unknown[] = [];
+      let changed = false;
+      for (const child of node.children) {
+        const candidate = child as {
+          type: string;
+          children?: PhrasingNode[];
+        };
+        if (
+          candidate.type === "paragraph" &&
+          Array.isArray(candidate.children) &&
+          candidate.children.some(isDisplay)
+        ) {
+          rebuilt.push(...split(candidate as { children: PhrasingNode[] }));
+          changed = true;
+        } else {
+          rebuilt.push(child);
+        }
+      }
+      if (changed) {
+        node.children = rebuilt;
+      }
+      for (const child of node.children) {
+        visit(child as Parameters<typeof visit>[0]);
+      }
+    };
+    visit(tree as Parameters<typeof visit>[0]);
+  };
 }
 
 /** Leading marker of an ordered-list item: up to 3 spaces, digits, then `.`/`)`. */
@@ -651,9 +941,13 @@ export interface MarkdownMessageProps {
    */
   linkComponent?: MarkdownLinkComponent;
   /**
-   * Custom image component for rendering external `<img>` elements inside
-   * markdown. Receives `src` and `alt` props. By default, external images
-   * are blocked and show a placeholder label.
+   * Custom image component for rendering every `<img>` element inside
+   * markdown. Receives `src` and `alt` props, whatever the src looks like:
+   * remote URLs, absolute host paths, relative paths, `data:`/`blob:`
+   * payloads, and the empty string a rejected `urlTransform` leaves behind.
+   *
+   * Without it, local-looking srcs render a plain `<img>` and remote ones are
+   * blocked behind a placeholder label.
    *
    * Pass a stable reference (module-level function or `useCallback`) to
    * avoid rebuilding internal component overrides on every render.
@@ -703,7 +997,10 @@ export function MarkdownMessage({
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
-    return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
+    const broken = hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
+    // Last: currency escaping would otherwise read a converted `\(5\)` as an
+    // amount and escape the `$` it just introduced.
+    return convertLatexDelimiters(broken);
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(
@@ -730,6 +1027,7 @@ export function MarkdownMessage({
           remarkGfm,
           remarkMath,
           remarkPreserveOrderedListNumbers,
+          remarkDisplayMathBlocks,
         ]}
         rehypePlugins={rehypePlugins}
         components={components}

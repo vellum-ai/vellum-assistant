@@ -88,7 +88,7 @@ export const fileEditTool = {
       sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: rawPath,
       oldString,
       newString,

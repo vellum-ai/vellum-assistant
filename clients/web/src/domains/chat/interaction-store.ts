@@ -121,6 +121,7 @@ export interface InteractionActions {
   submitQuestionStart: () => void;
   submitQuestionEnd: () => void;
   dismissQuestion: () => void;
+  dismissQuestionIfMatches: (requestId: string) => void;
   dismissQuestionCard: () => void;
 
   // ACP Connect Claude prompt
@@ -294,6 +295,18 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       isQuestionCardDismissed: false,
     }),
 
+  dismissQuestionIfMatches: (requestId) => {
+    const { pendingQuestion } = get();
+    if (!pendingQuestion || pendingQuestion.requestId !== requestId) {
+      return;
+    }
+    set({
+      pendingQuestion: null,
+      isSubmittingQuestion: false,
+      isQuestionCardDismissed: false,
+    });
+  },
+
   dismissQuestionCard: () => set({ isQuestionCardDismissed: true }),
 
   // ----- Resets -----
@@ -305,10 +318,11 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       pendingConfirmation: null,
       isSubmittingConfirmation: false,
       inlineConfirmationToolCallId: null,
-      // Question state intentionally NOT cleared — the composer intercept
-      // (`pendingQuestion && trimmed`) only fires for text sends; clearing
-      // the question would hide the card while the daemon blocks on
-      // /question-response/.
+      // Question state is intentionally not cleared: the daemon blocks on
+      // /question-response until the prompt settles, and clearing here would
+      // hide a card that is still answerable. A question that the daemon does
+      // settle retires through `dismissQuestionIfMatches`, driven by the
+      // `interaction_resolved` handler and the 404 paths in `question-actions`.
     }),
 
   // ----- ACP Connect Claude prompt -----

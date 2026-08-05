@@ -26,8 +26,9 @@
  * - `state`/`error`/transcripts/amplitude — observable session state.
  *
  * It is also where optional native voice accessories are bound to the session:
- * audio focus ({@link useNativeAudioSessionLifecycle}) and the platform status
- * surface ({@link useLiveActivityMirror}).
+ * audio focus ({@link useNativeAudioSessionLifecycle}) and both halves of the
+ * platform status surface — what it shows ({@link useLiveActivityMirror}) and
+ * what its buttons do ({@link useLiveActivityControls}).
  */
 
 import { useEffect } from "react";
@@ -43,6 +44,7 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
+import { useLiveActivityControls } from "@/domains/chat/voice/live-voice/use-live-activity-controls";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
 import {
   activateVoiceAudioSession,
@@ -191,4 +193,7 @@ export function useLiveVoiceSessionController(
 
   useNativeAudioSessionLifecycle();
   useLiveActivityMirror();
+  // The island's inbound half. Separate from the mirror because it reaches the
+  // session and the mirror may not; see `use-live-activity-controls.ts`.
+  useLiveActivityControls();
 }

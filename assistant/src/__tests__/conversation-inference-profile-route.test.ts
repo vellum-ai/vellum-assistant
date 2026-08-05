@@ -1,4 +1,16 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// The profiles pinned below are managed presets judged for real by the
+// session handler's availability guard. Stand in for a signed-in platform
+// session so the pin path under test is the healthy one — same pattern as
+// inference-profile-session-handler.test.ts.
+mock.module("../providers/platform-proxy/context.js", () => ({
+  resolveManagedProxyContext: async () => ({
+    enabled: true,
+    platformBaseUrl: "https://platform.example",
+    assistantApiKey: "key",
+  }),
+}));
 
 import {
   conversationMetadataSyncTag,
@@ -10,6 +22,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
@@ -17,6 +30,19 @@ import { resetDbForTesting } from "./db-test-helpers.js";
 import { waitFor } from "./helpers/wait-for.js";
 
 await initializeDb();
+
+// The Vellum-managed connection row the managed presets resolve to.
+getDb()
+  .insert(providerConnections)
+  .values({
+    name: "vellum",
+    provider: "vellum",
+    auth: JSON.stringify({ type: "platform" }),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  .onConflictDoNothing()
+  .run();
 
 const profileRoute = ROUTES.find(
   (r) => r.operationId === "setConversationInferenceProfile",

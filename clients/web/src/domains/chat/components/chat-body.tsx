@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { Paperclip, X } from "lucide-react";
+import { Paperclip } from "lucide-react";
 
 import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
@@ -21,7 +21,7 @@ import {
   RefreshFeedbackPill,
   type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
-import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
+import { Notice, type NoticeTone } from "@vellumai/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -117,9 +117,9 @@ export interface ChatBodyProps {
     tone?: NoticeTone;
   } | null;
   /**
-   * Dismiss handler for {@link genericChatError}. When provided, the
-   * banner renders a "Dismiss" button as a second action next to the
-   * existing actions (typically "Go to Doctor").
+   * Dismiss handler for {@link genericChatError}. When provided, the banner
+   * renders the notice's own dismiss control, leaving the actions row to the
+   * error's own actions (typically "Go to Doctor").
    */
   onDismissChatError?: () => void;
 
@@ -351,7 +351,7 @@ export function ChatBody({
   // `trailingStarters` lets the docked layout render the starters elsewhere
   // (its own bottom dock) instead of directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
-    <div className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0">
+    <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
       {refreshFeedback && (
         <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
           <RefreshFeedbackPill
@@ -383,27 +383,8 @@ export function ChatBody({
           <div className="mb-2">
             <Notice
               tone={genericChatError.tone ?? "error"}
-              actions={
-                <>
-                  {genericChatError.actions}
-                  {onDismissChatError ? (
-                    <Button
-                      variant="outlined"
-                      size="compact"
-                      leftIcon={
-                        <X
-                          className="h-3.5 w-3.5"
-                          strokeWidth={2}
-                          aria-hidden="true"
-                        />
-                      }
-                      onClick={onDismissChatError}
-                    >
-                      Dismiss
-                    </Button>
-                  ) : null}
-                </>
-              }
+              onDismiss={onDismissChatError}
+              actions={genericChatError.actions}
             >
               {genericChatError.message}
             </Notice>

@@ -335,15 +335,75 @@ jobs:
             exit 1
           fi
 
+          # `altool` exits 0 even when it fails. It prints "VERIFY FAILED" or
+          # "UPLOAD FAILED", reports the reason, and returns success anyway, so
+          # `bash -e` never trips and the step goes green having shipped
+          # nothing. Every dev release between the VoiceActivity appex landing
+          # (#39306) and #39556 was green while uploading nothing at all: the
+          # appex was missing CFBundleDisplayName and App Store Connect
+          # rejected all of them.
+          #
+          # So the exit code is not the signal. `--output-format json` makes
+          # altool emit a `product-errors` array, which is, and it is a
+          # documented contract rather than a message string that can be
+          # reworded. The raw JSON is echoed so the log keeps the detail that
+          # the human-readable output used to carry.
+          #
+          # The text scan afterwards is a backstop for the case this exists to
+          # prevent: a failure altool reports in some shape that is neither a
+          # non-zero exit nor a `product-errors` entry. Between the three, a
+          # release that does not reach TestFlight cannot report success.
+          run_altool() {
+            local label="$1"
+            shift
+
+            local output status
+            set +e
+            output=$(xcrun altool "$@" --output-format json)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::$label failed (altool exited $status)"
+              exit 1
+            fi
+
+            # Unparseable output is not proof of failure, and failing on it
+            # would block releases on a formatting change, so that case falls
+            # through to the text scan below instead. Both probes are one-line
+            # programs on purpose: a `run: |` block scalar ends at the first
+            # line indented less than the block, so an indentation-sensitive
+            # heredoc cannot live here.
+            if printf '%s' "$output" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+              local errors
+              errors=$(printf '%s' "$output" | python3 -c 'import json,sys; print("\n".join(str(e.get("message","unknown error")) for e in (json.load(sys.stdin).get("product-errors") or [])))')
+              if [ -n "$errors" ]; then
+                while IFS= read -r message; do
+                  echo "::error::$label: $message"
+                done <<< "$errors"
+                exit 1
+              fi
+            else
+              echo "::warning::altool output was not valid JSON; relying on the text scan"
+            fi
+
+            if printf '%s' "$output" | grep -qE 'VERIFY FAILED|UPLOAD FAILED|Failed to (validate|upload)'; then
+              echo "::error::$label reported a failure in its output"
+              exit 1
+            fi
+          }
+
           echo "Validating $IPA_FILE..."
-          xcrun altool --validate-app \
+          run_altool "Validation" --validate-app \
             -f "$IPA_FILE" \
             --type ios \
             --apiKey "$ASC_KEY_ID" \
             --apiIssuer "$ASC_ISSUER_ID"
 
           echo "Uploading $IPA_FILE to TestFlight..."
-          xcrun altool --upload-package "$IPA_FILE" \
+          run_altool "Upload" --upload-package "$IPA_FILE" \
             --type ios \
             --apple-id "$APPLE_APP_ID" \
             --bundle-id "$BUNDLE_ID" \

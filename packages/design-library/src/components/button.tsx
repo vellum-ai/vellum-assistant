@@ -266,6 +266,13 @@ export interface ButtonProps
   tooltip?: string;
   /** Side the tooltip is placed on. Defaults to Radix's "top". */
   tooltipSide?: "top" | "right" | "bottom" | "left";
+  /**
+   * Render as the child element (e.g. a `Link`) while keeping button
+   * styling and accessibility semantics. When combined with `leftIcon` /
+   * `rightIcon`, `children` must be a single React element: Radix's Slot
+   * re-parents the icons into it and throws (`Children.only`) on
+   * multi-node children.
+   */
   asChild?: boolean;
   children?: ReactNode;
 }
@@ -379,27 +386,29 @@ export function Button({
       ) : leftIcon == null && rightIcon == null ? (
         children
       ) : (
-        // When `asChild` is set, `Comp` is Radix's `Slot`, which forwards its
-        // props (e.g. `type`, `disabled`) onto its single React-element child.
-        // A bare Fragment can't accept those props — React 19 hard-errors with
-        // "Invalid prop `type` supplied to React.Fragment". `Slottable` marks
-        // `children` as the prop target so Slot clones the caller's element
-        // and re-parents the icons as its children. In the non-asChild path
-        // (`Comp === "button"`) Slottable is a transparent Fragment, so this
-        // is safe for both branches.
-        <>
-          {leftIcon != null ? (
-            <span aria-hidden="true" style={iconStyle}>
+        // When `asChild` is set, `Comp` is Radix's `Slot`, which looks for a
+        // `Slottable` among its DIRECT children (`Children.toArray(...).find`)
+        // to know which element receives the button props, then re-parents
+        // the sibling icons into that element. `Children.toArray` does not
+        // descend into Fragments, so these must be a keyed array: a `<>...</>`
+        // wrapper hides the Slottable and Slot falls back to cloning the
+        // Fragment itself, silently dropping className/style/type on it and
+        // leaving the caller's element unstyled. In the non-asChild path
+        // (`Comp === "button"`) Slottable renders as a transparent Fragment,
+        // so the array is safe for both branches.
+        [
+          leftIcon != null ? (
+            <span key="left-icon" aria-hidden="true" style={iconStyle}>
               {leftIcon}
             </span>
-          ) : null}
-          <Slottable>{children}</Slottable>
-          {rightIcon != null ? (
-            <span aria-hidden="true" style={iconStyle}>
+          ) : null,
+          <Slottable key="children">{children}</Slottable>,
+          rightIcon != null ? (
+            <span key="right-icon" aria-hidden="true" style={iconStyle}>
               {rightIcon}
             </span>
-          ) : null}
-        </>
+          ) : null,
+        ]
       )}
     </Comp>
   );

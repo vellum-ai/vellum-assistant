@@ -342,6 +342,7 @@ describe("manage_workflows", () => {
     expect(parsed.profiles).toEqual([
       "balanced",
       "cost-optimized",
+      "latency-optimized",
       "quality-optimized",
     ]);
     expect(parsed.activeProfile).toBe("balanced");

@@ -1,16 +1,18 @@
 import {
-  ArrowLeft,
   Check,
   Cloud,
   EllipsisVertical,
   Laptop,
+  Link2,
   Plus,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
+import { removePairedAssistant } from "@/assistant/switch-service";
+import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
   clearGatewayToken,
   isRepairableGatewayTokenError,
@@ -20,10 +22,10 @@ import {
   removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
+import { ConnectAssistantDialog } from "@/domains/onboarding/components/connect-assistant-dialog";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
-import { SessionCornerAction } from "@/domains/onboarding/components/session-corner-action";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
@@ -33,25 +35,33 @@ import {
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
   useResolvedAssistantsStore,
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+import { pairedHostLabel } from "@vellumai/local-mode/contract";
 import { Button } from "@vellumai/design-library/components/button";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Menu } from "@vellumai/design-library/components/menu";
 
 function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
     return a.name;
   }
+  if (a.isPaired) {
+    return "Paired Assistant";
+  }
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
 function assistantSubtitle(a: ResolvedAssistant): string {
-  const hosting = a.isLocal ? "On this computer" : "Cloud-hosted";
+  const hosting = a.isPaired
+    ? pairedHostLabel(a.runtimeUrl)
+    : a.isLocal
+      ? "On this computer"
+      : "Cloud-hosted";
   if (!a.hatchedAt) {
     return hosting;
   }
@@ -76,14 +86,18 @@ export function SelectAssistantScreen() {
   } = useOnboardingLogin();
 
   const isAccessible = (a: ResolvedAssistant): boolean =>
-    a.isLocal || hasPlatformSession;
+    a.isLocal || a.isPaired || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
+  // Unpairing and importing a pairing bundle both rewrite the lockfile
+  // through the local-mode host, and a pairing is device-local regardless of
+  // platform session: one gate covers the paired-removal and connect
+  // affordances (never shown in remote-gateway mode or hostless browsers).
+  const localModeHostAvailable = isLocalModeHostAvailable();
   // A locked platform entry can be forgotten on this device (dropped from the
-  // lockfile) only where a local-mode host can rewrite the lockfile.
-  const canRemoveLockedAssistants =
-    !hasPlatformSession && isLocalModeHostAvailable();
+  // lockfile) only where that same host is present and the user is logged out.
+  const canRemoveLockedAssistants = !hasPlatformSession && localModeHostAvailable;
 
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -101,6 +115,17 @@ export function SelectAssistantScreen() {
   );
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // The "Connect a remote assistant" paste-a-bundle dialog. Store-driven
+  // rather than local state so a `<scheme>://connect` deep link parked by
+  // the global consumer opens it on mount, carrying a bundle prefill or
+  // guidance copy.
+  const connectDialogOpen = useConnectDialogStore.use.open();
+  const connectInitialBundle = useConnectDialogStore.use.initialBundle();
+  const connectGuidanceMessage = useConnectDialogStore.use.guidanceMessage();
+  // Electron buffers deep links that arrive before the renderer exists and
+  // drains them shortly after mount; the auto-skip below defers until that
+  // drain settles so a cold-start connect link opens the dialog first.
+  const deepLinkDrainSettled = useConnectDialogStore.use.deepLinkDrainSettled();
   // After a manual removal the user is mid-management on this screen: a
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
@@ -132,7 +157,9 @@ export function SelectAssistantScreen() {
     setConnecting(true);
     setError(null);
     try {
-      if (assistant.isLocal) {
+      if (assistant.isPaired) {
+        await useAuthStore.getState().connectPairedAssistant(assistant.id);
+      } else if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
@@ -156,6 +183,12 @@ export function SelectAssistantScreen() {
         isCliWakeableAssistant(assistant.id)
       ) {
         setRecoveryAssistant(assistant);
+      } else if (assistant.isPaired && requiresGuardianReprovision(err)) {
+        // The host's own guardian-token message says to re-run hatch/wake,
+        // which cannot fix a remote pairing; surface re-pair guidance instead.
+        setError(
+          "This pairing has expired. Run vellum pair on the assistant's machine and import it again with vellum connect import.",
+        );
       } else {
         setError("Failed to connect. Please try again.");
       }
@@ -242,9 +275,31 @@ export function SelectAssistantScreen() {
     }
     setRemovePending(true);
     setRemoveError(null);
+    if (removeTarget.isPaired) {
+      // The shared service owns the paired sequence (lockfile removal plus
+      // lifecycle active-id cleanup); its chooser-route outcome is ignored
+      // because this screen is already the chooser.
+      const outcome = await removePairedAssistant(removeTarget.id);
+      if (outcome.ok) {
+        removedThisVisitRef.current = true;
+        setRemoveTarget(null);
+      } else {
+        setRemoveError(outcome.error);
+      }
+      setRemovePending(false);
+      return;
+    }
     try {
       const result = await removePlatformAssistantFromLockfile(removeTarget.id);
       if (result.ok) {
+        // The lockfile subscription reconciles the list and the selection,
+        // but not the lifecycle's active id: without this, navigating back
+        // to /assistant could admit the removed assistant with no
+        // connection behind it.
+        const resolvedStore = useResolvedAssistantsStore.getState();
+        if (resolvedStore.activeAssistantId === removeTarget.id) {
+          resolvedStore.setActiveAssistantId(null);
+        }
         removedThisVisitRef.current = true;
         setRemoveTarget(null);
       } else {
@@ -257,6 +312,23 @@ export function SelectAssistantScreen() {
     setRemovePending(false);
   };
 
+  const handleImported = (assistantId: string) => {
+    useConnectDialogStore.getState().closeConnectDialog();
+    // The import refreshes the lockfile before resolving, so the store already
+    // lists the new entry; the fallback keeps the connect total if it lags.
+    const imported = useResolvedAssistantsStore
+      .getState()
+      .assistants.find((a) => a.id === assistantId);
+    void handleConnect(
+      imported ?? {
+        id: assistantId,
+        isLocal: false,
+        isPlatformHosted: false,
+        isPaired: true,
+      },
+    );
+  };
+
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in or navigated here deliberately
   // (e.g. from settings or the Developer menu): let them see the chooser.
@@ -265,7 +337,13 @@ export function SelectAssistantScreen() {
     if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
       return;
     }
-    if (connecting || autoSkipping) {
+    // On a cold Electron start the buffered deep links publish after mount;
+    // hold the skip until the drain settles so a parked connect link wins
+    // (it opens the dialog, which stands the auto-skip down below).
+    if (electron && !deepLinkDrainSettled) {
+      return;
+    }
+    if (connecting || autoSkipping || connectDialogOpen) {
       return;
     }
     if (assistants.length === 0) {
@@ -276,7 +354,7 @@ export function SelectAssistantScreen() {
       void handleConnect(accessibleAssistants[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assistants.length, accessibleAssistants.length]);
+  }, [assistants.length, accessibleAssistants.length, deepLinkDrainSettled]);
 
   const onContinue = () => {
     const assistant = assistants.find((a) => a.id === selected);
@@ -307,11 +385,6 @@ export function SelectAssistantScreen() {
 
   return (
     <OnboardingLayout>
-      <SessionCornerAction
-        loginLoading={loginLoading}
-        onLogin={() => void login()}
-        onCancelLogin={cancelLogin}
-      />
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
       >
@@ -321,12 +394,11 @@ export function SelectAssistantScreen() {
           className={`flex w-full flex-col items-center ${electron ? "" : "flex-1 justify-center"}`}
         >
         <h1
-          className={`text-center ${
-            electron
-              ? "text-title-large"
-              : "text-3xl font-semibold tracking-tight"
-          }`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
+          className="text-center text-5xl font-normal tracking-tight"
+          style={{
+            fontFamily: "var(--font-serif)",
+            animation: "fadeInUp 0.5s ease-out 0.1s both",
+          }}
         >
           Choose an Assistant
         </h1>
@@ -372,38 +444,34 @@ export function SelectAssistantScreen() {
                     : undefined
                 }
                 onRemove={
-                  assistant.isPlatformHosted && canRemoveLockedAssistants
+                  (assistant.isPlatformHosted && canRemoveLockedAssistants) ||
+                  (assistant.isPaired && localModeHostAvailable)
                     ? () => setRemoveTarget(assistant)
                     : undefined
                 }
               />
             );
           })}
-          <button
-            type="button"
+          <DashedActionButton
+            icon={<Plus className="h-4 w-4" />}
+            label="Create a new assistant"
+            disabled={connecting || loginLoading}
             onClick={() =>
               void navigate(
                 `${routes.onboarding.hosting}?from=select-assistant`,
               )
             }
-            disabled={connecting || loginLoading}
-            className={[
-              "group flex w-full items-center justify-center gap-2 border border-dashed border-[var(--border-element)]/50 text-[var(--content-tertiary)]",
-              electron ? "rounded-lg px-3 py-2.5" : "rounded-xl px-5 py-3",
-              "cursor-pointer transition-all duration-200 ease-out",
-              "hover:border-[var(--border-element)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            ].join(" ")}
-          >
-            <Plus className="h-4 w-4" />
-            <span
-              className={
-                electron ? "text-body-small-default" : "text-body-medium-default"
+          />
+          {localModeHostAvailable && (
+            <DashedActionButton
+              icon={<Link2 className="h-4 w-4" />}
+              label="Connect a remote assistant"
+              disabled={connecting || loginLoading}
+              onClick={() =>
+                useConnectDialogStore.getState().openConnectDialog()
               }
-            >
-              Create a new assistant
-            </span>
-          </button>
+            />
+          )}
         </div>
 
         {accessibleAssistants.length > 0 && (
@@ -429,9 +497,8 @@ export function SelectAssistantScreen() {
         >
           <Button
             variant="ghost"
-            size="compact"
+            size="regular"
             className="text-[var(--content-tertiary)]"
-            leftIcon={<ArrowLeft />}
             onClick={onBack}
             disabled={connecting || loginLoading}
           >
@@ -440,6 +507,13 @@ export function SelectAssistantScreen() {
         </div>
         </div>
       </div>
+      <ConnectAssistantDialog
+        open={connectDialogOpen}
+        initialBundle={connectInitialBundle ?? undefined}
+        guidanceMessage={connectGuidanceMessage ?? undefined}
+        onClose={() => useConnectDialogStore.getState().closeConnectDialog()}
+        onImported={handleImported}
+      />
       <ConnectRecoveryDialog
         open={recoveryAssistant != null}
         assistantName={
@@ -451,29 +525,56 @@ export function SelectAssistantScreen() {
         onRepair={() => void handleRecoveryRepair()}
         onRetire={() => void handleRecoveryRetire()}
       />
-      <ConfirmDialog
+      <RemoveFromDeviceDialog
         open={removeTarget != null}
-        title="Remove from this device?"
-        message={
-          <>
-            This won&rsquo;t delete{" "}
-            {removeTarget ? assistantLabel(removeTarget) : "the assistant"}.
-            It only removes it from this device. Logging in will make it
-            available again.
-            {removeError && (
-              <span className="mt-2 block text-[var(--system-negative-strong)]">
-                {removeError}
-              </span>
-            )}
-          </>
+        kind={removeTarget?.isPaired ? "paired" : "platform"}
+        assistantName={
+          removeTarget ? assistantLabel(removeTarget) : "the assistant"
         }
-        confirmLabel="Remove"
-        destructive
+        errorMessage={removeError ?? undefined}
         isPending={removePending}
         onConfirm={() => void handleRemoveConfirm()}
         onCancel={closeRemoveDialog}
       />
     </OnboardingLayout>
+  );
+}
+
+/** Dashed full-width secondary action below the assistant cards. */
+function DashedActionButton({
+  icon,
+  label,
+  disabled,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const electron = isElectron();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "group flex w-full items-center justify-center gap-2 border border-dashed border-[var(--border-element)]/50 text-[var(--content-tertiary)]",
+        electron ? "rounded-lg px-3 py-2.5" : "rounded-xl px-5 py-3",
+        "cursor-pointer transition-all duration-200 ease-out",
+        "hover:border-[var(--border-element)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+      ].join(" ")}
+    >
+      {icon}
+      <span
+        className={
+          electron ? "text-body-small-default" : "text-body-medium-default"
+        }
+      >
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -508,6 +609,28 @@ function AssistantCard({
   // the picker reads at the same density as the native windows.
   const electron = isElectron();
 
+  const removeMenu = onRemove && (
+    <Menu.Root>
+      <Menu.Trigger asChild>
+        <Button
+          variant="ghost"
+          size="regular"
+          className="text-[var(--content-tertiary)]"
+          iconOnly={<EllipsisVertical />}
+          aria-label={`Actions for ${assistantLabel(assistant)}`}
+        />
+      </Menu.Trigger>
+      <Menu.Content align="end" sideOffset={4}>
+        <Menu.Item
+          onSelect={onRemove}
+          className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+        >
+          Remove from this device…
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
+  );
+
   return (
     <div
       role={locked ? undefined : "radio"}
@@ -526,7 +649,9 @@ function AssistantCard({
       }
       className={[
         "group flex w-full items-center border text-left",
-        electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
+        electron
+          ? "gap-3 rounded-lg px-[10px] py-3"
+          : "gap-4 rounded-2xl px-[18px] py-4",
         "transition-all duration-200 ease-out",
         locked
           ? "border-[var(--border-base)] bg-[var(--surface-overlay)]"
@@ -541,13 +666,15 @@ function AssistantCard({
       <div
         className={[
           "flex shrink-0 items-center justify-center transition-colors duration-200",
-          electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
+          "h-12 w-12 rounded-[10px]",
           selected && !locked
             ? "bg-[var(--primary-base)] text-[var(--surface-base)]"
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
         ].join(" ")}
       >
-        {assistant.isLocal ? (
+        {assistant.isPaired ? (
+          <Link2 className="h-5 w-5" />
+        ) : assistant.isLocal ? (
           <Laptop className="h-5 w-5" />
         ) : (
           <Cloud className="h-5 w-5" />
@@ -559,7 +686,7 @@ function AssistantCard({
           {assistantLabel(assistant)}
         </span>
         <span
-          className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
+          className={`mt-1 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default font-normal" : "text-body-small-lighter"}`}
         >
           {subtitle}
         </span>
@@ -577,43 +704,36 @@ function AssistantCard({
               {loginLabel}
             </Button>
           )}
-          {onRemove && (
-            <Menu.Root>
-              <Menu.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  size="regular"
-                  className="text-[var(--content-tertiary)]"
-                  iconOnly={<EllipsisVertical />}
-                  aria-label={`Actions for ${assistantLabel(assistant)}`}
-                />
-              </Menu.Trigger>
-              <Menu.Content align="end" sideOffset={4}>
-                <Menu.Item
-                  onSelect={onRemove}
-                  className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
-                >
-                  Remove from this device…
-                </Menu.Item>
-              </Menu.Content>
-            </Menu.Root>
-          )}
+          {removeMenu}
         </div>
       ) : (
-        <div
-          className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
-            selected
-              ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
-              : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
-          ].join(" ")}
-        >
-          {selected && (
-            <Check
-              className="h-3 w-3 text-[var(--surface-base)]"
-              strokeWidth={3}
-            />
+        <div className="flex shrink-0 items-center gap-2">
+          {removeMenu && (
+            /* The trigger sits inside the radio card: stop clicks and keys
+               from bubbling so opening the menu never selects the card and
+               the radio's Enter/Space handler never swallows the trigger. */
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              {removeMenu}
+            </div>
           )}
+          <div
+            className={[
+              "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
+              selected
+                ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
+                : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
+            ].join(" ")}
+          >
+            {selected && (
+              <Check
+                className="h-3 w-3 text-[var(--surface-base)]"
+                strokeWidth={3}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>

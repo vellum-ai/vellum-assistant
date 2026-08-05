@@ -105,4 +105,79 @@ describe("commit-pressure probe", () => {
     expect(Object.keys(snapshot?.sources ?? {}).length).toBeLessThanOrEqual(25);
     expect(snapshot?.sources.other).toBe(16);
   });
+
+  test("a commit preceded by a recorded update is attributed", () => {
+    recordUpdate("smooth-stream");
+    recordCommit();
+
+    const snapshot = snapshotCommitPressure();
+    expect(snapshot?.commits).toBe(1);
+    expect(snapshot?.unattributedCommits).toBe(0);
+    expect(snapshot?.maxUnattributedCommits).toBe(0);
+  });
+
+  test("one update attributes only the next commit, not a cascade behind it", () => {
+    // The LUM-3062 shape: an instrumented update drives a commit, then an
+    // uninstrumented effect setState drives another. The cascade commit has
+    // no recorded update of its own and must count as unattributed.
+    recordUpdate("transcript-scroll");
+    recordCommit();
+    clock += 2;
+    recordCommit();
+
+    const snapshot = snapshotCommitPressure();
+    expect(snapshot?.commits).toBe(2);
+    expect(snapshot?.unattributedCommits).toBe(1);
+    expect(snapshot?.maxUnattributedCommits).toBe(1);
+  });
+
+  test("tracks the longest unattributed run across interleaved attributed traffic", () => {
+    for (let i = 0; i < 5; i += 1) {
+      recordCommit();
+      clock += 2;
+    }
+    recordUpdate("smooth-stream");
+    recordCommit(); // attributed, breaks the run
+    clock += 2;
+    for (let i = 0; i < 3; i += 1) {
+      recordCommit();
+      clock += 2;
+    }
+
+    const snapshot = snapshotCommitPressure();
+    expect(snapshot?.commits).toBe(9);
+    expect(snapshot?.unattributedCommits).toBe(8);
+    expect(snapshot?.maxUnattributedCommits).toBe(5);
+  });
+
+  test("unattributed run survives a bucket rollover", () => {
+    for (let i = 0; i < 4; i += 1) {
+      recordCommit();
+      clock += 2;
+    }
+    clock += 1100; // roll into the next bucket, no idle gap
+    for (let i = 0; i < 4; i += 1) {
+      recordCommit();
+      clock += 2;
+    }
+
+    // Rollover is not an update; the run keeps growing across it.
+    expect(snapshotCommitPressure()?.maxUnattributedCommits).toBe(8);
+  });
+
+  test("idle gap clears attribution state along with the tallies", () => {
+    recordUpdate("smooth-stream");
+    for (let i = 0; i < 4; i += 1) {
+      recordCommit();
+      clock += 2;
+    }
+    clock += 5000; // idle: everything on record is stale
+    recordCommit();
+
+    const snapshot = snapshotCommitPressure();
+    expect(snapshot?.commits).toBe(1);
+    // The pre-gap update must not attribute a post-gap commit.
+    expect(snapshot?.unattributedCommits).toBe(1);
+    expect(snapshot?.maxUnattributedCommits).toBe(1);
+  });
 });

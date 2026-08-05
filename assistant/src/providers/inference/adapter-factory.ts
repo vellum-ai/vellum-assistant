@@ -34,9 +34,12 @@ import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { isVellumManagedConnection } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
+import { effectiveConnectionAuth } from "./auth.js";
+import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
 export interface AdapterCreateOpts {
@@ -227,6 +230,77 @@ export function createAdapterFromConnection(
   },
 ): Provider | null {
   const provider = opts.provider ?? connection.provider;
+  const adapter = buildConnectionAdapter(connection, resolvedAuth, opts);
+  if (!adapter) {
+    return null;
+  }
+
+  /**
+   * Re-read the managed credential after an auth rejection and rebuild the
+   * adapter around it, so a key rotated out-of-band is picked up without a
+   * restart. Returns `null` when the store hands back the same credential
+   * that just failed — otherwise a proxy 401 from any other cause (platform
+   * auth degraded, revoked account) would make every request pay a second
+   * doomed upstream call forever.
+   */
+  function makeCredentialRefresher(): () => Promise<Provider | null> {
+    let lastAuth = JSON.stringify(resolvedAuth);
+    return async (): Promise<Provider | null> => {
+      const refreshedAuth = await resolveAuth(
+        effectiveConnectionAuth(connection),
+        provider,
+        { baseUrl: connection.baseUrl },
+      );
+      if (!refreshedAuth.ok) {
+        return null;
+      }
+      const nextAuth = JSON.stringify(refreshedAuth.resolved);
+      if (nextAuth === lastAuth) {
+        return null;
+      }
+      lastAuth = nextAuth;
+      return buildConnectionAdapter(connection, refreshedAuth.resolved, opts);
+    };
+  }
+
+  // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
+  // request is routed through the Vellum-managed proxy. They carry billing
+  // metadata for our own backend. Forwarding them to a third-party endpoint
+  // would leak internal Vellum metadata, so gate on the managed connection
+  // identity, the only route that flows through our proxy.
+  const isManagedProxy = isVellumManagedConnection(connection);
+  const effectiveAuth = effectiveConnectionAuth(connection);
+  return new UsageTrackingProvider(
+    new RetryProvider(adapter, {
+      forwardUsageAttributionHeaders: isManagedProxy,
+      credentialSource: isManagedProxy
+        ? "vellum-managed"
+        : effectiveAuth.type === "api_key"
+          ? "byok"
+          : effectiveAuth.type === "oauth_subscription"
+            ? "oauth-subscription"
+            : effectiveAuth.type === "none"
+              ? "no-auth"
+              : undefined,
+      connectionName: connection.name,
+      ...(isManagedProxy
+        ? { refreshCredentialProvider: makeCredentialRefresher() }
+        : {}),
+    }),
+  );
+}
+
+function buildConnectionAdapter(
+  connection: ProviderConnection,
+  resolvedAuth: ResolvedAuth,
+  opts: {
+    model: string;
+    streamTimeoutMs?: number;
+    useNativeWebSearch?: boolean;
+    provider?: string;
+  },
+): Provider | null {
+  const provider = opts.provider ?? connection.provider;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
   if (!entry) {
     return null;
@@ -251,7 +325,8 @@ export function createAdapterFromConnection(
       : undefined;
 
   const codexSubscription =
-    connection.auth.type === "oauth_subscription" && provider === "openai";
+    effectiveConnectionAuth(connection).type === "oauth_subscription" &&
+    provider === "openai";
 
   const adapter = buildProviderAdapter(provider, {
     apiKey,
@@ -264,16 +339,5 @@ export function createAdapterFromConnection(
   if (!adapter) {
     return null;
   }
-
-  // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
-  // request is routed through the Vellum-managed proxy — they carry billing
-  // metadata for our own backend. Forwarding them to a third-party endpoint
-  // would leak internal Vellum metadata, so gate on the auth type:
-  // `platform` is the only auth that flows through our proxy.
-  const isManagedProxy = connection.auth.type === "platform";
-  return new UsageTrackingProvider(
-    new RetryProvider(adapter, {
-      forwardUsageAttributionHeaders: isManagedProxy,
-    }),
-  );
+  return adapter;
 }

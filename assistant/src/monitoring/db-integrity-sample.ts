@@ -17,6 +17,7 @@
 
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
@@ -59,7 +60,11 @@ let activeChild: ReturnType<typeof Bun.spawn> | null = null;
 async function runCheckSubprocess(
   dbPath: string,
 ): Promise<IntegritySampleResult | null> {
-  const entry = new URL("./db-integrity-check.ts", import.meta.url).pathname;
+  // `fileURLToPath`, not `.pathname`: the latter percent-encodes, and an
+  // install path with a space in it would not resolve. See worker-process.ts.
+  const entry = fileURLToPath(
+    new URL("./db-integrity-check.ts", import.meta.url),
+  );
   const child = Bun.spawn({
     cmd: ["bun", "--smol", "run", entry, dbPath],
     stdio: ["ignore", "pipe", "ignore"],

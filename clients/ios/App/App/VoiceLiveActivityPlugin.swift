@@ -20,6 +20,15 @@ import Foundation
 /// native side never derives phase wording — see `VoiceSessionAttributes` for
 /// why.
 ///
+/// ## Traffic runs both ways
+///
+/// Content goes out (`start` / `update` / `end`); two things come back as
+/// events. The ActivityKit push token, so the *server* can drive the island
+/// while iOS has this web view suspended, and island button presses, which
+/// arrive through ``deliverControl(_:)`` from an App Intent iOS performs in
+/// this process. Both are events rather than promise results because neither
+/// is the answer to a call the web side made.
+///
 /// ## At most one activity, ever
 ///
 /// The plugin holds a single handle. `start` while one is already running
@@ -69,6 +78,10 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Event carrying an ActivityKit push token to JS. Must match the listener
     /// name in `clients/web/src/runtime/native-live-activity.ts`.
     private static let pushTokenEvent = "liveActivityPushToken"
+
+    /// Event carrying an island button press to JS. Must match the listener
+    /// name in `clients/web/src/runtime/native-live-activity.ts`.
+    private static let controlEvent = "liveActivityControl"
 
     /// Watches ``Activity/pushTokenUpdates`` for the running activity.
     ///
@@ -157,7 +170,12 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             if let running = self.activity {
-                await running.update(Self.content(state))
+                let alert = self.alertConfiguration(for: state)
+                self.lastApprovalRequestId = state.approvalRequestId
+                await running.update(
+                    Self.content(state),
+                    alertConfiguration: alert
+                )
                 call.resolve(["started": true])
                 return
             }
@@ -169,6 +187,13 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 let requested = try Activity.request(
                     attributes: VoiceSessionAttributes(
                         assistantName: assistantName,
+                        // Stamped here, at the one moment an activity begins.
+                        // A `start` that lands on a running activity takes the
+                        // branch above and only updates its content, so the
+                        // timer keeps counting the session rather than
+                        // restarting on a redundant start (the controller
+                        // remounting across a route change issues exactly one).
+                        startedAt: Date(),
                         avatarImageData: Self.avatarImageData(from: call)
                     ),
                     content: Self.content(state),
@@ -181,6 +206,12 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                     pushType: .token
                 )
                 self.activity = requested
+                // A fresh activity has alerted for nothing yet, and its opening
+                // content is almost never a wait. Seeding from it rather than
+                // clearing keeps the one case that is — a session started while
+                // a decision was already outstanding — from alerting again on
+                // its first update.
+                self.lastApprovalRequestId = state.approvalRequestId
                 self.observePushToken(of: requested)
                 call.resolve(["started": true])
             } catch {
@@ -206,13 +237,58 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         Task { @MainActor [weak self] in
-            guard let running = self?.activity else {
+            guard let self, let running = self.activity else {
                 call.resolve()
                 return
             }
-            await running.update(Self.content(state))
+            let alert = self.alertConfiguration(for: state)
+            self.lastApprovalRequestId = state.approvalRequestId
+            await running.update(Self.content(state), alertConfiguration: alert)
             call.resolve()
         }
+    }
+
+    /// The `approvalRequestId` of the last content pushed, so a *new* wait can
+    /// be told from a repaint of one already on screen.
+    @MainActor private var lastApprovalRequestId = ""
+
+    /// The alert to raise with this update, or `nil` for a silent one.
+    ///
+    /// **Exactly one thing alerts: a decision the turn has just started waiting
+    /// on.** A Live Activity update is silent by default, which is right for
+    /// every other field here — a session moves through `listening`,
+    /// `thinking`, and `speaking` many times a minute, and a phase change that
+    /// buzzed the phone would make the island unbearable inside one call.
+    ///
+    /// A pending approval is the opposite case. The turn is *blocked*, the card
+    /// that would normally carry it is behind a lock screen, and the daemon's
+    /// fallback decides for the user in 45 seconds. A silent update there is a
+    /// question asked of someone who was never told they were asked.
+    ///
+    /// Gated on the id *changing* to a non-empty value, not on it being
+    /// non-empty: a wait outlives several pushes (a parallel tool starting, an
+    /// accent arriving late), and re-alerting on each would be one prompt
+    /// buzzing repeatedly.
+    @MainActor
+    private func alertConfiguration(
+        for state: VoiceSessionAttributes.ContentState
+    ) -> AlertConfiguration? {
+        guard !state.approvalRequestId.isEmpty,
+              state.approvalRequestId != lastApprovalRequestId
+        else {
+            return nil
+        }
+        // The title and body are the alert's own words, not the activity's, and
+        // there is no passthrough to use: `detail` is written for a glance at a
+        // running session ("Running a command — needs your okay"), while this is
+        // a notification banner that has to make sense on its own. Kept generic
+        // for the same reason the activity line names no arguments — it can be
+        // read by anyone holding the phone.
+        return AlertConfiguration(
+            title: "Waiting on you",
+            body: "Your assistant needs permission to continue.",
+            sound: .default
+        )
     }
 
     // MARK: - end
@@ -266,6 +342,62 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     private func cancelPushTokenObservation() {
         pushTokenTask?.cancel()
         pushTokenTask = nil
+    }
+
+    // MARK: - Controls
+
+    /// Forward an island button press to the web layer, which owns the session.
+    ///
+    /// Called from ``VoiceSessionControlIntent/perform()``, which iOS runs in
+    /// *this* process — so this is a direct call, not IPC, and there is no
+    /// App Group, no shared file, and no server round trip between the button
+    /// and the session. `registered` is how it finds the live plugin: an
+    /// intent is not constructed by the bridge and has no handle of its own.
+    ///
+    /// **Best-effort, deliberately not retained.** Capacitor can hold an event
+    /// until a listener attaches (`retainUntilConsumed`), which is right for
+    /// facts and wrong for commands: a mute pressed against a session that is
+    /// already gone would be replayed at whatever session attached next. A
+    /// press that lands with nothing listening does nothing, and the user sees
+    /// that it did nothing, because the island never claimed otherwise (see
+    /// ``VoiceSessionControlIntent/perform()`` on why nothing is applied
+    /// optimistically).
+    ///
+    /// In practice there IS a listener whenever there is an activity: a live
+    /// session holds an active audio session, which is what keeps this app —
+    /// and the web view driving it — running behind the Lock Screen at all.
+    /// `requestId` is the confirmation an approve/deny press is answering and
+    /// is empty for every other action. It is passed through untouched — the
+    /// web layer is what decides whether it still matches the pending request,
+    /// because it is the only side that knows.
+    static func deliverControl(
+        _ action: VoiceSessionControlAction,
+        requestId: String = ""
+    ) {
+        guard let plugin = registered else {
+            NSLog("[voice] Live Activity control with no plugin loaded; dropping")
+            return
+        }
+        // Logged on every press, because this hop is otherwise invisible: an
+        // island button leaves no trace in the app, `WKWebView` console output
+        // never reaches the unified log, and a press that lands with nothing
+        // listening is indistinguishable from one that was never made. The
+        // listener count is what separates "the web layer never subscribed"
+        // from "it subscribed and declined to act".
+        NSLog(
+            "[voice] Live Activity control %@ (listening: %@)",
+            action.rawValue,
+            plugin.hasListeners(controlEvent) ? "yes" : "no"
+        )
+        // The id is omitted rather than sent empty when there is none, so the
+        // bridge payload matches the optional field the web type declares and
+        // an action that carries no request cannot be read as carrying a
+        // blank one.
+        var payload: [String: Any] = ["action": action.rawValue]
+        if !requestId.isEmpty {
+            payload["requestId"] = requestId
+        }
+        plugin.notifyListeners(controlEvent, data: payload)
     }
 
     // MARK: - Teardown
@@ -331,9 +463,9 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         return Data(base64Encoded: base64)
     }
 
-    /// Read the four `ContentState` fields off a bridge call. `phase` is
-    /// required and must decode; the rest degrade to harmless defaults rather
-    /// than failing a best-effort call. `accentHex` is canonicalized by
+    /// Read the `ContentState` fields off a bridge call. `phase` is required
+    /// and must decode; the rest degrade to harmless defaults rather than
+    /// failing a best-effort call. `accentHex` is canonicalized by
     /// `ContentState.init`, so an unparseable color lands as the neutral accent.
     private static func contentState(from call: CAPPluginCall) -> VoiceSessionAttributes.ContentState? {
         guard let rawPhase = call.getString("phase"),
@@ -346,7 +478,18 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             label: call.getString("label") ?? "",
             accentHex: call.getString("accentHex")
                 ?? VoiceSessionAttributes.ContentState.neutralAccentHex,
-            muted: call.getBool("muted") ?? false
+            muted: call.getBool("muted") ?? false,
+            // Absent from a web bundle older than this field, whose island
+            // shows the assistant as audible. See the property's docs.
+            outputMuted: call.getBool("outputMuted") ?? false,
+            // Absent from a web bundle older than this field, which simply has
+            // no activity line to show.
+            detail: call.getString("detail") ?? "",
+            // Absent from a web bundle older than this field, and from the
+            // great majority of pushes a current one sends, since a turn is
+            // seldom waiting on a decision. Both read as "nothing pending",
+            // which offers no buttons.
+            approvalRequestId: call.getString("approvalRequestId") ?? ""
         )
     }
 }

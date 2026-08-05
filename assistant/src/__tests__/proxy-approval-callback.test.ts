@@ -20,7 +20,7 @@ mock.module("../security/redaction.js", () => ({
 // Import after mocks are registered.
 // ---------------------------------------------------------------------------
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { createProxyApprovalCallback } from "../daemon/conversation-tool-setup.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 
@@ -28,7 +28,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(overrides?: Partial<ToolSetupContext>): ToolSetupContext {
+function makeContext(overrides?: Partial<Conversation>): Conversation {
   return {
     conversationId: "conv-test",
     workingDir: "/tmp/test-project",
@@ -36,7 +36,7 @@ function makeContext(overrides?: Partial<ToolSetupContext>): ToolSetupContext {
     sendToClient: () => {},
     surfacesByAppId: new Map(),
     ...overrides,
-  } as ToolSetupContext;
+  } as unknown as Conversation;
 }
 
 function makeAskMissingCredentialRequest(

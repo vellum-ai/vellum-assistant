@@ -67,14 +67,20 @@ export const SttServiceSchema = z
       .describe("Active STT provider used for speech-to-text transcription"),
     /**
      * Spoken-language selection, forwarded to providers whose adapters accept
-     * a language (Deepgram, xAI, and the managed relay). Left unset the
-     * provider applies its own default, which for Deepgram (and therefore
-     * for the managed relay) is English, NOT auto-detection.
+     * a language (Deepgram, xAI, and the managed relay).
      *
      * `"multi"` selects Deepgram's nova-3 code-switching mode, which follows
      * a speaker moving between languages inside a single utterance (e.g.
      * Hinglish). Providers that auto-detect natively and take no language
      * option (Gemini, Whisper) ignore this field.
+     *
+     * Left unset, the resolver fills in the provider's default rather than
+     * sending nothing: `"multi"` on Deepgram and the managed relay, where
+     * sending nothing would mean English rather than detection, and nothing
+     * at all on providers that detect natively. See `effectiveSttLanguage` in
+     * `providers/speech-to-text/resolve.ts`. Unset is kept meaningful here on
+     * purpose: it records that the user has not chosen, which is what lets
+     * the settings surfaces label a row "default".
      */
     language: z
       .string({ error: "services.stt.language must be a string" })
@@ -82,7 +88,7 @@ export const SttServiceSchema = z
       .min(1, { error: "services.stt.language must not be empty" })
       .optional()
       .describe(
-        "BCP-47 language code (e.g. 'en-US', 'hi') or 'multi' for code-switching across languages. Unset uses the provider default (English on Deepgram/managed, not auto-detect)",
+        "BCP-47 language code (e.g. 'en-US', 'hi') or 'multi' for code-switching across languages. Unset resolves to 'multi' on Deepgram/managed and to native auto-detection elsewhere",
       ),
     providers: SttProvidersSchema.default({}),
   })

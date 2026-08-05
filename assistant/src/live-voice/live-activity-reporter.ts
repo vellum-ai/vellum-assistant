@@ -109,21 +109,45 @@ export function phaseForFrame(
  */
 export class LiveActivityReporter {
   private lastPhase: LiveActivityPhase | null = null;
+  private lastDetail = "";
   private ended = false;
 
   constructor(private readonly conversationId: string) {}
 
   /**
-   * Report the phase a frame implies, if it changed. Fire-and-forget: callers
-   * are on the session's send path and must not await this.
+   * Report what a frame implies about the phase or the activity line, if
+   * either changed. Fire-and-forget: callers are on the session's send path
+   * and must not await this.
+   *
+   * Both travel in one dispatch because they are two fields of one content
+   * state: ActivityKit replaces the whole thing per push, so a dispatch that
+   * carried only the field that moved would blank the other.
    */
   report(frame: LiveVoiceServerFramePayload): void {
-    const phase = phaseForFrame(frame, this.lastPhase);
-    if (phase === null || phase === this.lastPhase || this.ended) {
+    if (this.ended) {
       return;
     }
-    this.lastPhase = phase;
-    void this.dispatch(phase, "update");
+    const phase = phaseForFrame(frame, this.lastPhase);
+    // The session sends this frame only on a change it wants surfaced, and
+    // sends an empty label when the turn stops working, so it is taken
+    // verbatim rather than derived.
+    const detail = frame.type === "activity" ? frame.label : this.lastDetail;
+    const phaseMoved = phase !== null && phase !== this.lastPhase;
+    if (!phaseMoved && detail === this.lastDetail) {
+      return;
+    }
+    if (phase !== null) {
+      this.lastPhase = phase;
+    }
+    this.lastDetail = detail;
+    // An activity line can arrive before any phase has been established (a
+    // turn whose first tool starts before the phase-bearing frame lands).
+    // There is no content state to attach it to yet, and the phase the next
+    // frame sets will carry it.
+    if (this.lastPhase === null) {
+      return;
+    }
+    void this.dispatch(this.lastPhase, "update", this.lastDetail);
   }
 
   /**
@@ -139,13 +163,17 @@ export class LiveActivityReporter {
       return;
     }
     this.ended = true;
-    void this.dispatch("ending", "end");
+    // No detail on the way out: whatever the turn was doing, it is not doing
+    // it any more, and this state is the one that lingers on the Lock Screen
+    // through the dismissal window.
+    void this.dispatch("ending", "end", "");
   }
 
   /** `protected` so a test can observe what would be sent without sending it. */
   protected async dispatch(
     phase: LiveActivityPhase,
     event: "update" | "end",
+    detail: string,
   ): Promise<void> {
     try {
       const client = await VellumPlatformClient.create();
@@ -162,6 +190,7 @@ export class LiveActivityReporter {
           conversation_id: this.conversationId,
           phase,
           event,
+          detail,
         }),
       });
       if (!response.ok) {

@@ -185,11 +185,11 @@ describe("Profiler routes", () => {
         );
       });
 
-      test(`POST export rejects runId "${payload}"`, () => {
+      test(`POST export rejects runId "${payload}"`, async () => {
         const route = findRoute("profiler_runs_by_runId_export_post")!;
-        expect(() => route.handler({ pathParams: { runId: payload } })).toThrow(
-          BadRequestError,
-        );
+        await expect(
+          route.handler({ pathParams: { runId: payload } }),
+        ).rejects.toThrow(BadRequestError);
       });
 
       test(`DELETE rejects runId "${payload}"`, () => {
@@ -270,29 +270,29 @@ describe("Profiler routes", () => {
   });
 
   describe("POST /v1/profiler/runs/:runId/export", () => {
-    test("returns 404 for missing run", () => {
+    test("returns 404 for missing run", async () => {
       const route = findRoute("profiler_runs_by_runId_export_post")!;
-      expect(() =>
+      await expect(
         route.handler({ pathParams: { runId: "nonexistent" } }),
-      ).toThrow(NotFoundError);
+      ).rejects.toThrow(NotFoundError);
     });
 
-    test("returns tar.gz bytes for a valid run", () => {
+    test("returns tar.gz bytes for a valid run", async () => {
       createRun("exportable-run", {
         sizeBytes: 512,
         manifest: { status: "completed" },
       });
 
       const route = findRoute("profiler_runs_by_runId_export_post")!;
-      const result = route.handler({
+      const result = (await route.handler({
         pathParams: { runId: "exportable-run" },
-      }) as Uint8Array;
+      })) as Uint8Array;
 
       expect(result).toBeInstanceOf(Uint8Array);
       expect(result.byteLength).toBeGreaterThan(0);
     });
 
-    test("returns 500 when archive exceeds size limit", () => {
+    test("returns 500 when archive exceeds size limit", async () => {
       // Create a run with a very large file that will exceed the 50MB archive cap.
       const runDir = join(runsDir, "huge-run");
       mkdirSync(runDir, { recursive: true });
@@ -325,9 +325,9 @@ describe("Profiler routes", () => {
       }
 
       const route = findRoute("profiler_runs_by_runId_export_post")!;
-      expect(() =>
+      await expect(
         route.handler({ pathParams: { runId: "huge-run" } }),
-      ).toThrow(InternalError);
+      ).rejects.toThrow(InternalError);
     }, 30000);
   });
 

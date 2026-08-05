@@ -66,7 +66,11 @@ export class SlackStore {
    * human re-engagement signal (an @-mention, or a reply already admitted
    * by the active-thread filter), which re-arms a muted thread. The bot's
    * own thread-reply echoes must check `isThreadDetached` before calling
-   * this — they are not a re-engagement signal.
+   * this: they are not a re-engagement signal.
+   *
+   * Also clears the speculative-root marker, promoting a root the assistant
+   * armed from its own top-level post into a fully tracked thread once a
+   * human actually engages with it. See `armSpeculativeThreadRoot`.
    */
   trackThread(threadTs: string, channelId: string, ttlMs: number): void {
     const now = Date.now();
@@ -78,6 +82,7 @@ export class SlackStore {
         trackedAt: now,
         expiresAt: now + ttlMs,
         detachedAt: null,
+        speculativeRootAt: null,
       })
       .onConflictDoUpdate({
         target: slackActiveThreads.threadTs,
@@ -86,8 +91,89 @@ export class SlackStore {
           trackedAt: now,
           expiresAt: now + ttlMs,
           detachedAt: null,
+          speculativeRootAt: null,
         },
       })
+      .run();
+  }
+
+  /**
+   * Arm the assistant's own top-level post as a speculative thread root, so
+   * a human replying under it passes the active-thread filter.
+   *
+   * "Speculative" because nothing yet says this post will become a
+   * conversation: the assistant opens one on every heartbeat or triage turn,
+   * and most are never replied to. The marker separates those from threads
+   * with real engagement so reconnect catch-up can skip them
+   * (`listActiveThreadsWithChannel`), and callers pass a shorter TTL than the
+   * inbound one. The first human reply calls `trackThread`, which clears the
+   * marker and extends the row to the full TTL.
+   *
+   * Insert-only: an existing row is left alone. A re-delivered echo of the
+   * same post must not downgrade a root a human has since replied into back
+   * to speculative, nor stomp an explicit-detach marker.
+   */
+  armSpeculativeThreadRoot(
+    threadTs: string,
+    channelId: string,
+    ttlMs: number,
+  ): void {
+    const now = Date.now();
+    this.db
+      .insert(slackActiveThreads)
+      .values({
+        threadTs,
+        channelId,
+        trackedAt: now,
+        expiresAt: now + ttlMs,
+        detachedAt: null,
+        speculativeRootAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  /**
+   * Track a thread from the assistant's own reply echo into it.
+   *
+   * Differs from `trackThread` in exactly one way: it must not promote a
+   * speculative root. The assistant threading follow-ups under its own
+   * never-answered post is not human engagement, and promoting would move a
+   * row nobody replied to into the reconnect catch-up fan-out
+   * (`listActiveThreadsWithChannel`), which is the cost this split exists to
+   * avoid. A still-speculative root keeps its marker and has its shorter
+   * window refreshed instead, so admission stays alive for as long as the
+   * assistant keeps talking.
+   *
+   * Every other thread is tracked at the full TTL exactly as before: one a
+   * human already promoted, and one the assistant is joining for the first
+   * time (JARVIS-1086), which is a real thread it did not originate.
+   */
+  trackThreadAfterBotReply(
+    threadTs: string,
+    channelId: string,
+    ttlMs: number,
+    speculativeTtlMs: number,
+  ): void {
+    const speculative = this.db
+      .select({ threadTs: slackActiveThreads.threadTs })
+      .from(slackActiveThreads)
+      .where(
+        and(
+          eq(slackActiveThreads.threadTs, threadTs),
+          isNotNull(slackActiveThreads.speculativeRootAt),
+        ),
+      )
+      .get();
+    if (!speculative) {
+      this.trackThread(threadTs, channelId, ttlMs);
+      return;
+    }
+    const now = Date.now();
+    this.db
+      .update(slackActiveThreads)
+      .set({ channelId, trackedAt: now, expiresAt: now + speculativeTtlMs })
+      .where(eq(slackActiveThreads.threadTs, threadTs))
       .run();
   }
 
@@ -178,9 +264,19 @@ export class SlackStore {
 
   /**
    * Returns all unexpired active threads with a known channel for reconnect
-   * catch-up. Rows with a NULL `channel_id` (legacy rows from before the
-   * column was introduced) and explicit-detach markers are filtered out —
-   * a muted thread must not be fanned out during catch-up.
+   * catch-up. Three kinds of row are filtered out:
+   *
+   *   - NULL `channel_id` (legacy rows from before the column existed):
+   *     `conversations.replies` cannot be scoped without a channel.
+   *   - explicit-detach markers: a muted thread must not be fanned out.
+   *   - speculative roots (`armSpeculativeThreadRoot`): every row here costs
+   *     one tier-3 `conversations.replies` call on every reconnect, and the
+   *     assistant arms a root for each of its own top-level posts. Fanning
+   *     out over roots nobody replied to would spend the rate limit that
+   *     recovery of genuinely missed messages depends on. The trade-off is
+   *     that a reply arriving under a never-engaged root while the socket is
+   *     down is not recovered by catch-up; once any reply is admitted live,
+   *     `trackThread` promotes the row and later reconnects do cover it.
    */
   listActiveThreadsWithChannel(): ActiveThreadRow[] {
     const now = Date.now();
@@ -195,6 +291,7 @@ export class SlackStore {
           gt(slackActiveThreads.expiresAt, now),
           isNotNull(slackActiveThreads.channelId),
           isNull(slackActiveThreads.detachedAt),
+          isNull(slackActiveThreads.speculativeRootAt),
         ),
       )
       .all();

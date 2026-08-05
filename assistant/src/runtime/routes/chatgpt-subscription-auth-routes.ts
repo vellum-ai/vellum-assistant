@@ -159,8 +159,13 @@ async function handleExchange(args: RouteHandlerArgs) {
 
   const existing = getConnection(db, CONNECTION_NAME);
   if (existing) {
+    // Stamp the provider with the auth: this row is the subscription
+    // connection by name, and dispatch derives auth from the provider for
+    // managed rows, so a claiming row with e.g. provider "vellum" would
+    // otherwise strand the fresh token behind derived platform auth.
     const updateResult = updateConnection(db, CONNECTION_NAME, {
       auth: authInput,
+      provider: "openai",
     });
     if (!updateResult.ok) {
       log.error(

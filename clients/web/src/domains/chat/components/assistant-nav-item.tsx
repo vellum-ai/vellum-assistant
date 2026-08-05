@@ -45,8 +45,6 @@ import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 const ROW_HEIGHT = 30;
 /** Mobile-overlay row height, matching `SideMenu.Item`'s mobile row. */
 const MOBILE_ROW_HEIGHT = 44;
-/** The New Chat row runs taller than a standard nav row (Figma 7257:135743). */
-const NEW_CHAT_ROW_HEIGHT = 38;
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 const COLLAPSED_ASSISTANT_ROW_HEIGHT = 32;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
@@ -242,11 +240,7 @@ export function AssistantNavItem({
       )}
       style={
         {
-          height: collapsed
-            ? COLLAPSED_ASSISTANT_ROW_HEIGHT
-            : isMobile
-              ? MOBILE_ROW_HEIGHT
-              : NEW_CHAT_ROW_HEIGHT,
+          height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
           gap: SIDEBAR_CHIP_GAP,
           paddingLeft: collapsed ? 0 : ROW_PADDING_X,
           paddingRight: collapsed ? 0 : ROW_PADDING_X,
@@ -296,7 +290,7 @@ export function AssistantNavItem({
           aria-current={active ? "page" : undefined}
           className={cn(
             "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-            "rounded-[6px]",
+            collapsed ? "rounded-[6px]" : "rounded-[8px]",
             "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
             "transition-colors duration-150 active:scale-[0.98]",
             active
@@ -382,7 +376,7 @@ export function AssistantNavItem({
       aria-current={active ? "page" : undefined}
       className={cn(
         "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-        "rounded-[6px]",
+        collapsed ? "rounded-[6px]" : "rounded-[8px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
         navTourActive

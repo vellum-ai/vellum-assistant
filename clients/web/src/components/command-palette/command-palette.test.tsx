@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
 const isMobileRef = { value: false };
-const nativeIOSRef = { value: false };
+const nativeMobileRef = { value: false };
 
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => isMobileRef.value,
@@ -10,7 +10,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
-  useIsNativeIOS: () => nativeIOSRef.value,
+  useIsNativeMobile: () => nativeMobileRef.value,
 }));
 
 const { CommandPalette } =
@@ -19,7 +19,7 @@ const { CommandPalette } =
 afterEach(() => {
   cleanup();
   isMobileRef.value = false;
-  nativeIOSRef.value = false;
+  nativeMobileRef.value = false;
 });
 
 const SECTIONS = [
@@ -237,18 +237,18 @@ describe("CommandPalette", () => {
     expect(highlight?.textContent).toBe("alpha");
   });
 
-  test("renders nothing while closed outside the iOS shell", () => {
+  test("renders nothing while closed outside native mobile shells", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = false;
+    nativeMobileRef.value = false;
 
     renderPalette(false);
 
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  test("unmounts the sheet synchronously on close outside the iOS shell", () => {
+  test("unmounts the sheet synchronously on close outside native mobile shells", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = false;
+    nativeMobileRef.value = false;
 
     const { rerender } = renderPalette(true);
     expect(screen.getByRole("dialog", { name: "Search" })).toBeTruthy();
@@ -258,9 +258,9 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  test("keeps the sheet in the DOM after close in the iOS shell", () => {
+  test("keeps the sheet in the DOM after close in native mobile shells", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = true;
+    nativeMobileRef.value = true;
 
     const { rerender } = renderPalette(true);
     expect(screen.getByRole("dialog", { name: "Search" })).toBeTruthy();
@@ -274,7 +274,7 @@ describe("CommandPalette", () => {
 
   test("stops taking taps and announcing itself while the exit plays", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = true;
+    nativeMobileRef.value = true;
 
     const { rerender } = renderPalette(true);
     const sheet = screen.getByRole("dialog", { name: "Search" });
@@ -293,7 +293,7 @@ describe("CommandPalette", () => {
 
   test("releases focus held inside the sheet when the exit starts", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = true;
+    nativeMobileRef.value = true;
 
     const { rerender } = renderPalette(true);
     const input = screen.getByRole("textbox", { name: "Search" });
@@ -302,13 +302,13 @@ describe("CommandPalette", () => {
 
     rerender(paletteElement(false));
 
-    // Blurring here starts the iOS keyboard dismissal alongside the slide-out.
+    // Blurring starts keyboard dismissal alongside the slide-out.
     expect(document.activeElement).not.toBe(input);
   });
 
   test("leaves focus outside the sheet alone when the exit starts", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = true;
+    nativeMobileRef.value = true;
 
     const composer = document.createElement("textarea");
     document.body.appendChild(composer);
@@ -323,9 +323,9 @@ describe("CommandPalette", () => {
     composer.remove();
   });
 
-  test("renders the mobile sheet affordances in the iOS shell", () => {
+  test("renders the mobile sheet affordances in native mobile shells", () => {
     isMobileRef.value = true;
-    nativeIOSRef.value = true;
+    nativeMobileRef.value = true;
 
     renderPalette(true);
 

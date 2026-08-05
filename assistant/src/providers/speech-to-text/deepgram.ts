@@ -105,6 +105,7 @@ export const DEEPGRAM_NOVA3_MONOLINGUAL_CODES = [
   "tl",
   "tr",
   "uk",
+  "ur",
   "vi",
   "zh",
 ] as const;

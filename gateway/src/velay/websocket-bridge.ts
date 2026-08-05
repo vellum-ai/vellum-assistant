@@ -1,5 +1,7 @@
 import type { OutgoingHttpHeaders } from "node:http";
 
+import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
+
 import { addVelayBridgeAuthHeader } from "./bridge-auth.js";
 import {
   binaryLikeToBytes,
@@ -52,6 +54,8 @@ export class VelayWebSocketBridge {
   constructor(
     private readonly gatewayLoopbackBaseUrl: string,
     private readonly sendFrame: SendVelayFrame,
+    /** Invoked whenever the last bridged connection goes away. */
+    private readonly onIdle?: () => void,
   ) {}
 
   handleFrame(frame: VelayWebSocketInboundFrame): void {
@@ -188,7 +192,10 @@ export class VelayWebSocketBridge {
     );
   }
 
-  closeAll(code = 1001, reason = "Tunnel closed"): void {
+  closeAll(
+    code = GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE,
+    reason = "Tunnel closed",
+  ): void {
     for (const [connectionId, connection] of this.connections) {
       connection.suppressNextCloseFrame = true;
       this.closeConnection(connectionId, connection, code, reason);
@@ -226,16 +233,19 @@ export class VelayWebSocketBridge {
         connection,
         "WebSocket connection failed",
       );
+      this.notifyIfIdle();
       return;
     }
 
-    if (connection.suppressNextCloseFrame) return;
-    this.sendFrame({
-      type: VELAY_FRAME_TYPES.websocketClose,
-      connection_id: connectionId,
-      code: event.code,
-      reason: event.reason,
-    } satisfies VelayWebSocketCloseFrame);
+    if (!connection.suppressNextCloseFrame) {
+      this.sendFrame({
+        type: VELAY_FRAME_TYPES.websocketClose,
+        connection_id: connectionId,
+        code: event.code,
+        reason: event.reason,
+      } satisfies VelayWebSocketCloseFrame);
+    }
+    this.notifyIfIdle();
   }
 
   private failOpeningConnection(
@@ -249,6 +259,7 @@ export class VelayWebSocketBridge {
     connection.pendingMessages = [];
     this.sendOpenErrorOnce(connectionId, connection, reason);
     closeWebSocket(connection.ws);
+    this.notifyIfIdle();
   }
 
   private closeExisting(connectionId: string): void {
@@ -269,6 +280,13 @@ export class VelayWebSocketBridge {
     }
     connection.pendingMessages = [];
     closeWebSocket(connection.ws, code, reason);
+    this.notifyIfIdle();
+  }
+
+  private notifyIfIdle(): void {
+    if (this.connections.size === 0) {
+      this.onIdle?.();
+    }
   }
 
   private sendOpenError(connectionId: string, reason: string): void {

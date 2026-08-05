@@ -67,7 +67,7 @@ Semantic tokens flip automatically between light and dark. Use them for every su
 - Surfaces: --surface-base (page), --surface-lift (card), --surface-overlay, --surface-sunken (recessed tile), --surface-hover, --surface-active.
 - Text, strongest to faintest: --content-emphasised, --content-strong, --content-default (body), --content-secondary (labels and any text under 14px), --content-tertiary (14px and up only), --content-quiet, --content-faint, --content-disabled, --content-inset (on inverted fills). Text at 11 to 13px always takes --content-secondary or stronger.
 - Borders: --border-base (hairline), --border-subtle, --border-element (visible control edge), --border-hover, --border-active, --border-disabled.
-- Status pairs: --system-positive-strong/-weak, --system-negative-strong/-weak (and --system-negative-hover), --system-mid-strong/-weak, --system-info-strong/-weak.
+- Status pairs: --system-positive-strong/-weak, --system-negative-strong/-weak (and --system-negative-hover), --system-mid-strong/-weak, --system-info-strong/-weak. A non-text glyph sitting on its own -weak fill takes --system-positive-on-weak or --system-negative-on-weak; those clear the 3:1 that non-text indicators need, which --system-negative-strong misses on --system-negative-weak in the dark theme. Text on a -weak fill needs 4.5:1 and takes --content-default or stronger; --content-tertiary misses that on both fills in the light and dark themes, and --content-secondary misses it on the negative fill in light.
 - Type: --font-sans (default), --font-mono (identifiers, code, tabular numbers only), --font-serif (editorial pull-quotes only).
 - Radius: --radius-xs 2, --radius-sm 4, --radius-md 8, --radius-lg 12, --radius-xl 16, --radius-xxl 20, --radius-pill 999.
 

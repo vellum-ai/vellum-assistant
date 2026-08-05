@@ -2,7 +2,7 @@
  * Consolidates side effects that fire when `activeConversationId` changes:
  *
  * - Reset subagent tracking state (needed for URL-navigation paths that
- *   bypass the `switchConversation` / `startNewConversation` wrappers)
+ *   bypass the `navigateToConversation` / `startNewConversation` wrappers)
  * - Auto-fetch detail for the subagents that can't wait for a click: the ones
  *   still running, and the stubs deferring their live events until a backfill
  *   lands
@@ -57,7 +57,7 @@ export function useConversationChangeEffects(
   // child (effects fire children-first), letting a card capture the pre-reset
   // `generation`; the reset would then bump it and the in-flight hydration
   // would discard its own result as stale — leaving the card blank with no
-  // retry. The wrapper-initiated path (`switchConversation` /
+  // retry. The wrapper-initiated path (`navigateToConversation` /
   // `startNewConversation`) also resets eagerly; the double-reset is idempotent.
   // This effect catches the URL-navigation path where wrappers don't run.
   useLayoutEffect(() => {

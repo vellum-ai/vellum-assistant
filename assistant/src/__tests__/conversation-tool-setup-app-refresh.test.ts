@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -65,7 +65,9 @@ mock.module("../apps/app-store.js", () => ({
 // Import createToolExecutor after mocks are in place
 // ---------------------------------------------------------------------------
 
+import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import { createToolExecutor } from "../daemon/conversation-tool-setup.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,12 +86,13 @@ function expectAppChangeBroadcast(appId: string): void {
   );
 }
 
-/** Build a minimal ToolSetupContext stub. */
-function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
-  return {
+/** Build a minimal Conversation stub. */
+function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
+  return asConversation({
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
+    getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
@@ -103,9 +106,9 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     enqueueMessage: () => ({ queued: false, requestId: "r" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
+    withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
 /** Fake ToolExecutor whose execute() returns a controlled result. */
