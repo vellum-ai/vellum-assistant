@@ -16,23 +16,24 @@ import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
  * ----------------------------
  * `@sentry/capacitor` initializes the native SDK only through
  * `Capacitor.init` and `initNativeSdk`. The iOS shell has no Info.plist
- * Sentry block, and the Android package disables sentry-android auto-init in
- * its manifest. This flavor is driven solely through the consent-gated path
- * in `sentry-control.ts`, so native capture begins only after consent is
- * granted. A crash before consent is never captured.
+ * Sentry block, and the Android app manifest disables sentry-android
+ * auto-init. This flavor is driven solely through the consent-gated path in
+ * `sentry-control.ts`, so native capture begins only after consent is granted.
+ * A crash before consent is never captured.
  *
- * sentry-cocoa flushes crash envelopes cached from a prior session on its next
- * native init. Because that init only fires when consent is currently granted,
- * a cached crash is flushed only if the user remains opted in across launches
- * (correct). If consent was revoked, `init` never runs, the native SDK never
- * starts, and the cached envelope is never uploaded. There is no native
- * cache-purge API in `@sentry/capacitor` 4.1.0 (only `closeNativeSdk`), so this
- * gated-init contract is the purge.
+ * On iOS, sentry-cocoa flushes crash envelopes cached from a prior session on
+ * its next native init. Because that init only fires when consent is currently
+ * granted, a cached crash is flushed only if the user remains opted in across
+ * launches. If consent was revoked, `init` never runs, the native SDK never
+ * starts, and the cached envelope is never uploaded. There is no native cache
+ * purge API in `@sentry/capacitor` 4.1.0, so consent-gated initialization is
+ * the iOS purge contract.
  *
- * The JS `beforeSend` below gates webview JS errors, which DO round-trip
- * through it. It is not the native gate: on iOS the SDK skips `beforeSend` for
- * native envelopes captured via `captureEnvelope` (see its SdkInfo
- * integration). The native gate is consent-gated init + `Capacitor.close()`.
+ * The JS `beforeSend` below gates WebView JS errors that round-trip through it.
+ * It is not the native gate. On iOS, the SDK skips `beforeSend` for native
+ * envelopes captured via `captureEnvelope` (see its SdkInfo integration).
+ * Native capture on both platforms is gated by consent-controlled init and
+ * `Capacitor.close()`.
  */
 export const capacitorFlavor: SentryFlavor = {
   init(options) {
