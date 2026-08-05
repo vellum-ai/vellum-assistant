@@ -59,7 +59,7 @@ If the user later needs additional scopes for a different task in your-own mode,
 
 If the provider is in managed mode, use `ui_show` with `surface_type: "oauth_connect"`. This is the same managed connection path available through Settings, but presented in chat at the moment the task needs it.
 
-Use a short task-specific description, and let the client own the action label. Do not include raw OAuth URLs or a custom connect button label in the surface. If the task needs non-default scopes, pass them in the optional `data.requestedScopes` field; that is the supported way to request them.
+Use a short task-specific description, and let the client own the action label. Do not include raw OAuth URLs or a custom connect button label in the surface. If the task needs non-default scopes, pass them in the optional `data.requestedScopes` field (see [Choosing Scopes](#choosing-scopes) for the replacement-set semantics).
 
 ```json
 {
@@ -68,12 +68,16 @@ Use a short task-specific description, and let the client own the action label. 
   "data": {
     "providerKey": "google",
     "displayName": "Google",
-    "description": "Connect Gmail, Calendar, and Drive for this task."
+    "description": "Connect Gmail, Calendar, and Drive for this task.",
+    "requestedScopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/tasks"
+    ]
   }
 }
 ```
 
-To request non-default scopes, add an optional `data.requestedScopes` array of scopes. Remember it is a full replacement set, not a merge with the defaults.
+`requestedScopes` is optional; omit it to use the platform's default scopes.
 
 Wait for the user to complete or dismiss the surface before proceeding. If they connect, verify the connection before making requests. If they dismiss it, continue only if the task can proceed without that account.
 
