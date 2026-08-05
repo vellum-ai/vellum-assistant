@@ -19,10 +19,19 @@ import type { ExtensionEnvironment } from "./extension-environment.js";
 export const DESLOP_SYSTEM_PROMPT =
   "You rewrite text on behalf of the user. Reply with only the rewritten text. No preamble, no surrounding quotes, no commentary.";
 
+/**
+ * Named profile requested for the rewrite. Installs without a usable
+ * latency-optimized profile fall back to the assistant's own resolution.
+ */
+const DESLOP_PROFILE = "latency-optimized";
+
 export function buildDeslopPrompt(text: string): string {
   return (
     "Rewrite the selected text without any jargon and speak coherently. " +
-    "State it more simply and concisely, like one human talking to another. " +
+    "State it much more simply and concisely, like one human talking to another. " +
+    "Be aggressive about cutting length: drop filler, hedging, repetition, and " +
+    "needless detail, and keep only what the reader actually needs. " +
+    "Aim for at most half the original length. " +
     `<selected_text>${text}</selected_text>`
   );
 }
@@ -35,19 +44,62 @@ interface InferenceSendResponse {
   response?: unknown;
 }
 
+type DeslopAttempt =
+  | { ok: true; rewrite: string }
+  | { ok: false; status: number; detail: string };
+
 /**
  * Ask the assistant to rewrite `text`. Resolves to the rewritten text,
  * or throws with a message suitable for surfacing on the page.
+ *
+ * The rewrite asks for the latency-optimized profile. Installs where that
+ * profile is missing or disabled answer 400 with a `Profile "..."` message,
+ * which earns a single retry without the profile field.
  */
 export async function requestDeslopRewrite(
   text: string,
   target: DeslopTarget,
 ): Promise<string> {
-  const body = JSON.stringify({
+  const request = {
     message: buildDeslopPrompt(text),
     systemPrompt: DESLOP_SYSTEM_PROMPT,
-  });
+  };
 
+  let attempt = await attemptDeslopRewrite(
+    target,
+    JSON.stringify({ ...request, profile: DESLOP_PROFILE }),
+  );
+  if (!attempt.ok && isProfileRejection(attempt)) {
+    attempt = await attemptDeslopRewrite(target, JSON.stringify(request));
+  }
+
+  if (!attempt.ok) {
+    throw new Error(
+      `Assistant rewrite failed (${attempt.status})${attempt.detail ? `: ${truncate(attempt.detail, 300)}` : ""}`,
+    );
+  }
+  return attempt.rewrite;
+}
+
+/**
+ * The daemon rejects an unusable profile with a message starting `Profile "`.
+ * The quote arrives backslash-escaped when the message is wrapped in a JSON
+ * error envelope, so both spellings count.
+ */
+const PROFILE_REJECTION_PATTERN = /Profile\s+\\?"/;
+
+function isProfileRejection(
+  attempt: Extract<DeslopAttempt, { ok: false }>,
+): boolean {
+  return (
+    attempt.status === 400 && PROFILE_REJECTION_PATTERN.test(attempt.detail)
+  );
+}
+
+async function attemptDeslopRewrite(
+  target: DeslopTarget,
+  body: string,
+): Promise<DeslopAttempt> {
   let response: Response;
   if (target.kind === "self-hosted") {
     const headers: Record<string, string> = {
@@ -74,16 +126,14 @@ export async function requestDeslopRewrite(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Assistant rewrite failed (${response.status})${detail ? `: ${truncate(detail, 300)}` : ""}`,
-    );
+    return { ok: false, status: response.status, detail };
   }
 
   const payload = (await response.json()) as InferenceSendResponse;
   if (typeof payload.response !== "string" || payload.response.trim().length === 0) {
     throw new Error("Assistant returned an empty rewrite");
   }
-  return payload.response.trim();
+  return { ok: true, rewrite: payload.response.trim() };
 }
 
 function truncate(value: string, max: number): string {

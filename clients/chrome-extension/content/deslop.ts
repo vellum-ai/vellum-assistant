@@ -14,7 +14,8 @@
  * dimmed under a shimmering overlay with a spinner badge and the hint
  * pill switches to its active state; the response then replaces the
  * element's content and the element is marked with a faint tint plus a
- * wand badge that toggles between the rewrite and the original text.
+ * wand badge that toggles between the rewrite and the original content,
+ * which is kept as live DOM nodes so its markup returns intact.
  * Esc exits the picker. The picker stays active after a rewrite so
  * several blocks can be cleaned up in one session, and several rewrites
  * can be in flight at once.
@@ -213,7 +214,7 @@
       return;
     }
 
-    markRewritten(el, text, response.rewritten.trim());
+    markRewritten(el, response.rewritten.trim());
   }
 
   // Drops the badge and toggle state of an earlier rewrite so a block
@@ -225,11 +226,7 @@
     }
   }
 
-  function markRewritten(
-    el: HTMLElement,
-    original: string,
-    rewritten: string,
-  ): void {
+  function markRewritten(el: HTMLElement, rewritten: string): void {
     el.setAttribute(REWRITTEN_ATTR, "true");
     if (getComputedStyle(el).position === "static") {
       el.style.position = "relative";
@@ -239,12 +236,25 @@
     badge.className = BADGE_CLASS;
     badge.innerHTML = WAND_SVG;
 
+    // The original content is held as live nodes rather than as text, so
+    // toggling back restores its exact markup: code chips, list items,
+    // links, and syntax highlighting all survive the round trip. The
+    // overlay and spinner are already gone by this point, so the captured
+    // set is exactly what the block displayed before the rewrite.
+    const originalNodes = Array.from(el.childNodes);
+
     let showingOriginal = false;
 
-    // Writing innerText discards the element's children, so the badge is
-    // re-attached on every swap.
+    // Emptying the element first detaches the original nodes into their
+    // array, which keeps the innerText write on the rewrite path from
+    // destroying them. The badge is re-attached on every swap.
     function render(): void {
-      el.innerText = showingOriginal ? original : rewritten;
+      el.replaceChildren();
+      if (showingOriginal) {
+        el.append(...originalNodes);
+      } else {
+        el.innerText = rewritten;
+      }
       el.classList.toggle(SHOWING_ORIGINAL_CLASS, showingOriginal);
       badge.title = showingOriginal
         ? "Showing the original text. Click to show the rewrite."
