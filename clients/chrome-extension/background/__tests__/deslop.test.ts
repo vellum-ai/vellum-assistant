@@ -2,8 +2,13 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
 import {
   buildDeslopPrompt,
+  buildHighlightedUserTurn,
+  capTranscript,
+  requestDeslopChat,
   requestDeslopRewrite,
+  DESLOP_CHAT_SYSTEM_PROMPT,
   DESLOP_SYSTEM_PROMPT,
+  type DeslopTranscriptTurn,
 } from "../deslop.js";
 
 const originalFetch = globalThis.fetch;
@@ -72,6 +77,53 @@ describe("buildDeslopPrompt", () => {
     expect(prompt).toContain("at most half the original length");
     expect(prompt).toContain("Remove fluff and pleasantries entirely");
     expect(prompt).toContain("Start directly with the substance");
+  });
+});
+
+describe("buildHighlightedUserTurn", () => {
+  test("wraps the highlighted page text alongside the message", () => {
+    expect(buildHighlightedUserTurn("the fine print", "what does this mean?")).toBe(
+      "<user_highlighted>the fine print</user_highlighted> what does this mean?",
+    );
+  });
+
+  test("returns the bare message when nothing is highlighted", () => {
+    expect(buildHighlightedUserTurn("", "what does this mean?")).toBe(
+      "what does this mean?",
+    );
+  });
+});
+
+describe("capTranscript", () => {
+  function makeTurns(count: number): DeslopTranscriptTurn[] {
+    return Array.from({ length: count }, (_unused, index) => ({
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: `${index}`.padEnd(60, "x"),
+    }));
+  }
+
+  test("returns the transcript untouched when it fits", () => {
+    const turns = makeTurns(6);
+    expect(capTranscript(turns, 100_000)).toBe(turns);
+  });
+
+  test("drops the oldest turns in pairs until it fits", () => {
+    const turns = makeTurns(6);
+    const capped = capTranscript(turns, 400);
+
+    expect(JSON.stringify(capped).length).toBeLessThanOrEqual(400);
+    expect(capped.length).toBe(4);
+    expect(capped[0]).toEqual(turns[2]!);
+    expect(capped[3]).toEqual(turns[5]!);
+    expect(capped[0]!.role).toBe("user");
+  });
+
+  test("keeps the most recent turns even when a single turn exceeds the cap", () => {
+    const turns = makeTurns(5);
+    const capped = capTranscript(turns, 10);
+
+    expect(capped.length).toBe(1);
+    expect(capped[0]).toEqual(turns[4]!);
   });
 });
 
@@ -218,5 +270,88 @@ describe("requestDeslopRewrite (cloud)", () => {
     const headers = captured[0]!.init?.headers as Record<string, string>;
     expect(headers["X-Session-Token"]).toBe("sess-token");
     expect(headers["Vellum-Organization-Id"]).toBe("org-abc");
+  });
+});
+
+describe("requestDeslopChat", () => {
+  const transcript: DeslopTranscriptTurn[] = [
+    { role: "user", content: "rewrite this" },
+    { role: "assistant", content: "Rewritten." },
+    {
+      role: "user",
+      content: "<user_highlighted>the fine print</user_highlighted> why?",
+    },
+  ];
+
+  test("sends the transcript as messages and returns the trimmed reply", async () => {
+    const captured: CapturedRequest[] = [];
+    installFetchMock(captured, () =>
+      Response.json({ response: "  Because of the clause.  " }),
+    );
+
+    const reply = await requestDeslopChat(transcript, {
+      kind: "self-hosted",
+      gatewayUrl: "http://127.0.0.1:7830",
+      pairToken: "jwt-123",
+    });
+
+    expect(reply).toBe("Because of the clause.");
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.url).toBe("http://127.0.0.1:7830/v1/inference/send");
+    const body = parseBody(captured[0]!);
+    expect(body["messages"]).toEqual(transcript);
+    expect(body).not.toHaveProperty("message");
+    expect(body["systemPrompt"]).toBe(DESLOP_CHAT_SYSTEM_PROMPT);
+    expect(body["profile"]).toBe("latency-optimized");
+  });
+
+  test("retries without the profile when the assistant rejects it", async () => {
+    const captured: CapturedRequest[] = [];
+    installFetchMock(captured, (callIndex) =>
+      callIndex === 0
+        ? new Response('{"error":"Profile \\"latency-optimized\\" is disabled"}', {
+            status: 400,
+          })
+        : Response.json({ response: "Because of the clause." }),
+    );
+
+    const reply = await requestDeslopChat(transcript, {
+      kind: "self-hosted",
+      gatewayUrl: "http://127.0.0.1:7830",
+      pairToken: null,
+    });
+
+    expect(reply).toBe("Because of the clause.");
+    expect(captured.length).toBe(2);
+    expect(parseBody(captured[0]!)["profile"]).toBe("latency-optimized");
+    const retried = parseBody(captured[1]!);
+    expect(retried).not.toHaveProperty("profile");
+    expect(retried).not.toHaveProperty("message");
+    expect(retried["messages"]).toEqual(transcript);
+    expect(retried["systemPrompt"]).toBe(DESLOP_CHAT_SYSTEM_PROMPT);
+  });
+
+  test("throws with status detail on a non-OK response", async () => {
+    installFetchMock([], () => new Response("nope", { status: 500 }));
+
+    await expect(
+      requestDeslopChat(transcript, {
+        kind: "self-hosted",
+        gatewayUrl: "http://127.0.0.1:7830",
+        pairToken: "jwt",
+      }),
+    ).rejects.toThrow(/Assistant chat failed \(500\).*nope/);
+  });
+
+  test("throws when the assistant returns an empty reply", async () => {
+    installFetchMock([], () => Response.json({ response: "   " }));
+
+    await expect(
+      requestDeslopChat(transcript, {
+        kind: "self-hosted",
+        gatewayUrl: "http://127.0.0.1:7830",
+        pairToken: "jwt",
+      }),
+    ).rejects.toThrow(/empty reply/);
   });
 });

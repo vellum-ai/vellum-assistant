@@ -57,7 +57,16 @@ import {
   submitFeedback,
   type FeedbackFormData,
 } from "./feedback.js";
-import { requestDeslopRewrite, type DeslopTarget } from "./deslop.js";
+import {
+  buildDeslopPrompt,
+  buildHighlightedUserTurn,
+  capTranscript,
+  requestDeslopChat,
+  requestDeslopRewrite,
+  DESLOP_TRANSCRIPT_MAX_CHARS,
+  type DeslopTarget,
+  type DeslopTranscriptTurn,
+} from "./deslop.js";
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -1503,7 +1512,59 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       }
       const target = await resolveDeslopTarget();
       const rewritten = await requestDeslopRewrite(text, target);
-      sendResponseFn({ ok: true, rewritten });
+      // The page records the exchange as a chat turn, so it needs the exact
+      // prompt that was sent. buildDeslopPrompt is deterministic.
+      sendResponseFn({
+        ok: true,
+        rewritten,
+        promptUsed: buildDeslopPrompt(text),
+      });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true; // async
+  }
+
+  if (message.type === "deslop-chat") {
+    (async () => {
+      const userMessage =
+        typeof message.message === "string" ? message.message.trim() : "";
+      if (!userMessage) {
+        sendResponseFn({ ok: false, error: "No message to send" });
+        return;
+      }
+      if (
+        message.transcript !== undefined &&
+        !Array.isArray(message.transcript)
+      ) {
+        sendResponseFn({ ok: false, error: "Invalid transcript" });
+        return;
+      }
+      if (
+        message.highlighted !== undefined &&
+        typeof message.highlighted !== "string"
+      ) {
+        sendResponseFn({ ok: false, error: "Invalid highlighted text" });
+        return;
+      }
+
+      const highlighted =
+        typeof message.highlighted === "string" ? message.highlighted.trim() : "";
+      const userTurn = buildHighlightedUserTurn(highlighted, userMessage);
+      const turns = capTranscript(
+        [
+          ...sanitizeDeslopTranscript(message.transcript),
+          { role: "user" as const, content: userTurn },
+        ],
+        DESLOP_TRANSCRIPT_MAX_CHARS,
+      );
+
+      const target = await resolveDeslopTarget();
+      const reply = await requestDeslopChat(turns, target);
+      sendResponseFn({ ok: true, reply, userTurn });
     })().catch((err) =>
       sendResponseFn({
         ok: false,
@@ -1544,6 +1605,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   // Unknown message type — let Chrome close the port naturally.
   return false;
 });
+
+/**
+ * Keep only well-formed turns from a page-supplied transcript. The page owns
+ * the thread state, so anything malformed is dropped rather than trusted.
+ */
+function sanitizeDeslopTranscript(value: unknown): DeslopTranscriptTurn[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const turns: DeslopTranscriptTurn[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const { role, content } = entry as { role?: unknown; content?: unknown };
+    if (role !== "user" && role !== "assistant") {
+      continue;
+    }
+    if (typeof content !== "string" || content.trim().length === 0) {
+      continue;
+    }
+    turns.push({ role, content });
+  }
+  return turns;
+}
 
 /**
  * Resolve where a Deslop rewrite should be sent based on the user's
