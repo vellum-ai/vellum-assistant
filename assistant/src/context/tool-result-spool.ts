@@ -102,7 +102,7 @@ export function spoolAndStubOversizedToolResults(
      */
     toolCallById: (
       toolUseId: string,
-    ) => { name: string; input: Record<string, unknown> } | undefined,
+    ) => { name: string; input: Record<string, unknown> } | undefined;
   },
 ): number {
   let stubbedCount = 0;

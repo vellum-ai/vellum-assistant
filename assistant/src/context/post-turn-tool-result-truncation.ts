@@ -37,10 +37,10 @@ export const TRUNCATION_MARKER = "\u2014 full result:";
 export const TRUNCATION_EXEMPT_TOOLS = new Set<string>(["skill_load"]);
 
 /**
- * File-read tools that page spooled `.tool-results/` content back into context.
- * `file_read` reads inside the workspace; `host_file_read` reads anywhere on the
- * host. Sharing one set keeps the passes that care about them from drifting if a
- * new file-read tool is added.
+ * File-read tools that can page spooled `.tool-results/` content back into
+ * context. `file_read` reads inside the workspace; `host_file_read` reads
+ * anywhere on the host. A new file-read tool belongs here so
+ * {@link isSpooledToolResultRead} recognizes it.
  */
 export const FILE_READ_TOOL_NAMES = new Set<string>([
   "file_read",
@@ -66,8 +66,7 @@ export function isSpooledToolResultRead(
   }
   const filePath = input?.path ?? input?.file_path;
   return (
-    typeof filePath === "string" &&
-    filePath.includes(`/${TOOL_RESULT_DIR}/`)
+    typeof filePath === "string" && filePath.includes(`/${TOOL_RESULT_DIR}/`)
   );
 }
 
