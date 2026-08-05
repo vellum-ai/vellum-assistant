@@ -65,9 +65,13 @@ export function isSpooledToolResultRead(
     return false;
   }
   const filePath = input?.path ?? input?.file_path;
-  return (
-    typeof filePath === "string" && filePath.includes(`/${TOOL_RESULT_DIR}/`)
-  );
+  if (typeof filePath !== "string") {
+    return false;
+  }
+  // The path in the stub comes from `join`, so it is backslash-separated on
+  // Windows. Compare on a normalized form: a missed match would let the spool
+  // pass stub this read and put the saved content permanently out of reach.
+  return filePath.replace(/\\/g, "/").includes(`/${TOOL_RESULT_DIR}/`);
 }
 
 /**

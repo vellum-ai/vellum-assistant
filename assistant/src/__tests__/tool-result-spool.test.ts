@@ -185,6 +185,25 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(blocks).toEqual(originals);
   });
 
+  test("recognizes a backslash-separated spooled path", () => {
+    // `getToolResultFilePath` builds the stub path with `join`, so on Windows
+    // it is backslash-separated. Missing that match would stub the read and
+    // put the saved content out of reach.
+    const blocks = [makeToolResult(LONG, "tu_read")];
+    const originals = blocks.map((b) => b);
+
+    const count = spoolAndStubOversizedToolResults(blocks, {
+      conversationDir: convDir,
+      toolCallById: () => ({
+        name: "file_read",
+        input: { path: `C:\\conv\\${TOOL_RESULT_DIR}\\abc123.txt` },
+      }),
+    });
+
+    expect(count).toBe(0);
+    expect(blocks).toEqual(originals);
+  });
+
   test("spools each eligible block in a mixed batch", () => {
     const blocks = [
       makeToolResult(LONG, "tu_a"),
