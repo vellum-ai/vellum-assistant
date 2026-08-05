@@ -1,11 +1,11 @@
 import { Bell } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { routes } from "@/utils/routes";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import type { FeedItem } from "@vellumai/assistant-api";
 import {
   BottomSheet,
@@ -23,10 +23,15 @@ import {
   markAllReadArgs,
   sortFeedItems,
 } from "../utils";
+import {
+  NOTIFICATIONS_PANEL_HEADER_CLASS,
+  NotificationsBellDetail,
+  resolveNotificationTitle,
+} from "./notifications-bell-detail";
 
 /**
- * Router state consumed by `HomePageRoute`: opening a notification from the
- * bell lands on the Activity page with that item's detail drawer open.
+ * Router state read by `HomePageRoute`: arriving at the Activity page with a
+ * `feedItemId` opens that item's detail drawer.
  */
 export interface ActivityLocationState {
   feedItemId?: string;
@@ -36,15 +41,16 @@ export interface ActivityLocationState {
 // them. A compact card is 73px tall: 2px borders, 16px padding, a 32px title
 // line (sized by the h-8 hover actions that share it with the timestamp), a 2px
 // gap, and a 21px preview line. 5 * 73 + 4 * 8 = 397. Older notifications stay
-// reachable by scrolling.
-const LIST_MAX_HEIGHT_CLASS = "max-h-[397px]";
+// reachable by scrolling. The detail view's body takes the same cap, so the
+// panel keeps its height across the swap.
+const SCROLL_MAX_HEIGHT_CLASS = "max-h-[397px]";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
  * that opens the latest notifications in a popover (desktop) or bottom sheet
  * (mobile) — the same split the sidebar preferences menu uses. Rows reuse
- * `HomeRecapRow`, so mark-read and dismiss work inline; clicking a row (or
- * "View all") continues to the full Activity page.
+ * `HomeRecapRow`, so mark-read and dismiss work inline; selecting one swaps
+ * the panel to that notification's detail, which a back control returns from.
  *
  * Owned by the home domain (it renders the home feed), so the chat layout
  * can't import it directly (cross-domain); `routes.tsx` injects it into
@@ -54,9 +60,9 @@ const LIST_MAX_HEIGHT_CLASS = "max-h-[397px]";
  */
 export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const location = useLocation();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
   const supportsBulkStatus = useSupportsBulkFeedStatus();
@@ -71,24 +77,41 @@ export function NotificationsBell() {
   );
   const hasUnread = visibleItems.some((item) => item.status === "new");
 
-  const openActivityPage = (item?: FeedItem) => {
-    setIsOpen(false);
-    void navigate(routes.home, {
-      // Re-clicking from the Activity page itself must not stack history
-      // entries (each carrying stale feedItemId state that would replay
-      // closed drawers on Back).
-      replace: location.pathname === routes.home,
-      state: item
-        ? ({ feedItemId: item.id } satisfies ActivityLocationState)
-        : undefined,
-    });
+  // Tracked by id, not by value: the feed is the one owner of an item's
+  // status, so the detail follows a mark-read or a dismissal without a second
+  // copy to reconcile.
+  const selectedItem = selectedItemId
+    ? (visibleItems.find((item) => item.id === selectedItemId) ?? null)
+    : null;
+
+  // The list unmounts while the detail is open, so its scroll offset is parked
+  // here and written back when the list mounts again.
+  const listScrollTopRef = useRef(0);
+  const restoreListScroll = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      node.scrollTop = listScrollTopRef.current;
+    }
+  }, []);
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (!open) {
+      // Reopening always lands on the list, at the top.
+      setSelectedItemId(null);
+      listScrollTopRef.current = 0;
+    }
   };
 
   const handleSelectItem = (item: FeedItem) => {
     if (item.status === "new") {
       feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
     }
-    openActivityPage(item);
+    setSelectedItemId(item.id);
+  };
+
+  const handleGoToConversation = (conversationId: string) => {
+    handleOpenChange(false);
+    navigateToConversation(navigate, conversationId);
   };
 
   const handleMarkAllRead = () => {
@@ -129,6 +152,10 @@ export function NotificationsBell() {
     />
   );
 
+  const scrollMaxHeightClass = isMobile
+    ? "max-h-[60dvh]"
+    : SCROLL_MAX_HEIGHT_CLASS;
+
   const list =
     visibleItems.length === 0 ? (
       <Typography
@@ -141,9 +168,11 @@ export function NotificationsBell() {
       </Typography>
     ) : (
       <div
-        className={`flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto ${
-          isMobile ? "max-h-[60dvh]" : LIST_MAX_HEIGHT_CLASS
-        }`}
+        ref={restoreListScroll}
+        onScroll={(event) => {
+          listScrollTopRef.current = event.currentTarget.scrollTop;
+        }}
+        className={`flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto ${scrollMaxHeightClass}`}
       >
         {visibleItems.map((item) => (
           <HomeRecapRow
@@ -162,59 +191,77 @@ export function NotificationsBell() {
       </div>
     );
 
+  // Keyed so the swap remounts the incoming view and replays its entrance.
   const panel = (
-    <div className="flex min-w-0 flex-col">
-      <div className="flex items-center justify-between gap-2 pb-[var(--app-spacing-sm)] pl-[var(--app-spacing-md)]">
-        <Typography
-          variant="body-medium-default"
-          as="h2"
-          className="text-[var(--content-default)]"
-        >
-          Notifications
-        </Typography>
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={() => openActivityPage()}
-        >
-          View all
-        </Button>
-      </div>
-
-      {list}
-
-      {supportsBulkStatus && visibleItems.length > 0 ? (
-        <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
-          {hasUnread ? (
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={handleMarkAllRead}
-              disabled={feedQuery.markAll.isPending}
-            >
-              Mark all as read
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="compact"
-            onClick={handleClearAll}
-            disabled={feedQuery.markAll.isPending}
+    <div
+      key={selectedItem ? "detail" : "list"}
+      className={`flex min-w-0 flex-col ${
+        selectedItem
+          ? "notifications-panel-detail-enter"
+          : "notifications-panel-list-enter"
+      }`}
+    >
+      {selectedItem ? (
+        <NotificationsBellDetail
+          item={selectedItem}
+          bodyMaxHeightClass={scrollMaxHeightClass}
+          onBack={() => setSelectedItemId(null)}
+          onGoToConversation={handleGoToConversation}
+        />
+      ) : (
+        <>
+          <div
+            className={`${NOTIFICATIONS_PANEL_HEADER_CLASS} pl-[var(--app-spacing-md)]`}
           >
-            Clear all
-          </Button>
-        </div>
-      ) : null}
+            <Typography
+              variant="body-medium-default"
+              as="h2"
+              className="text-[var(--content-default)]"
+            >
+              Notifications
+            </Typography>
+          </div>
+
+          {list}
+
+          {supportsBulkStatus && visibleItems.length > 0 ? (
+            <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
+              {hasUnread ? (
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={handleMarkAllRead}
+                  disabled={feedQuery.markAll.isPending}
+                >
+                  Mark all as read
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="compact"
+                onClick={handleClearAll}
+                disabled={feedQuery.markAll.isPending}
+              >
+                Clear all
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 
   if (isMobile) {
     return (
-      <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
+      <BottomSheet.Root open={isOpen} onOpenChange={handleOpenChange}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         <BottomSheet.Content className="max-h-[85dvh]">
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Notifications</BottomSheet.Title>
+            <BottomSheet.Title>
+              {selectedItem
+                ? resolveNotificationTitle(selectedItem)
+                : "Notifications"}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{panel}</BottomSheet.Body>
         </BottomSheet.Content>
@@ -223,7 +270,7 @@ export function NotificationsBell() {
   }
 
   return (
-    <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
+    <Popover.Root open={isOpen} onOpenChange={handleOpenChange}>
       <Tooltip content="Notifications">
         <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       </Tooltip>

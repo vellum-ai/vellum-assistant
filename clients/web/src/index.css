@@ -115,6 +115,31 @@ body {
   height: 100%;
 }
 
+/* Notifications bell popover swapping between the list and one notification's
+   detail. The detail arrives from the right and the list fades back in behind
+   it, so the two views read as one container moving laterally. `backwards`
+   for the same reason as `.home-detail-drawer` above: nothing here should be
+   left holding a transform once the entrance ends. */
+@keyframes notifications-panel-detail-in {
+  0% { transform: translateX(8px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.notifications-panel-detail-enter {
+  animation: notifications-panel-detail-in var(--anim-fast) var(--anim-ease-out) backwards;
+}
+
+.notifications-panel-list-enter {
+  animation: fadeIn var(--anim-fast) var(--anim-ease-out) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notifications-panel-detail-enter,
+  .notifications-panel-list-enter {
+    animation: none;
+  }
+}
+
 @keyframes typing-dot-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.6); }
   50% { opacity: 1; transform: scale(1); }
