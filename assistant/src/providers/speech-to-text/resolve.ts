@@ -115,16 +115,12 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   if (provider === "vellum") {
-    // Managed batch transcription rides the platform's speech proxy, whose
-    // transcribe endpoint accepts no language parameter at all (see
-    // `managedSpeechTranscribe`). Neither a configured language nor the
-    // default above can reach it, so managed voice notes and the managed
-    // dictation fallback transcribe as English while managed streaming
-    // honors both. Closing that gap needs the platform endpoint to take a
-    // language first; until then this path is deliberately language-less
-    // rather than silently passing one that would be dropped downstream.
+    // Managed batch rides the platform's speech proxy, which forwards the
+    // language to Deepgram server-side. A platform build predating that
+    // field ignores it rather than failing, so the daemon can send one
+    // before the platform side deploys.
     return (await sttProviderKeyResolves("vellum"))
-      ? createDaemonBatchTranscriber(null, "vellum")
+      ? createDaemonBatchTranscriber(null, "vellum", language)
       : null;
   }
 

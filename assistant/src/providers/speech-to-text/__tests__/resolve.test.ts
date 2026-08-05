@@ -58,9 +58,27 @@ mock.module("../../../security/credential-key.js", () => ({
 
 let mockVellumAvailable = false;
 
+/**
+ * Arguments the managed batch adapter was called with. The managed path has
+ * no constructor to spy on (the platform connection is the credential), so
+ * the language it forwards is observable only at the transcribe call.
+ */
+const vellumManagedTranscribeCalls: Array<{
+  mimeType: string;
+  language: string | undefined;
+}> = [];
+
 mock.module("../vellum-managed.js", () => ({
   vellumManagedSpeechAvailable: async () => mockVellumAvailable,
-  vellumManagedTranscribe: async () => ({ text: "" }),
+  vellumManagedTranscribe: async (
+    _audio: Buffer,
+    mimeType: string,
+    _signal?: AbortSignal,
+    language?: string,
+  ) => {
+    vellumManagedTranscribeCalls.push({ mimeType, language });
+    return { text: "" };
+  },
   sttErrorFromManagedSpeech: (failure: unknown) => new Error(String(failure)),
 }));
 
@@ -1307,6 +1325,40 @@ describe("resolveStreamingTranscriber language plumbing", () => {
       language: "multi",
       model: "nova-3",
     });
+  });
+
+  test("managed batch forwards the configured language to the platform", async () => {
+    // The platform proxy passes it to Deepgram server-side, so a managed
+    // voice note decodes in the same language the live session does.
+    vellumManagedTranscribeCalls.length = 0;
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum", language: "ta" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(vellumManagedTranscribeCalls).toHaveLength(1);
+    expect(vellumManagedTranscribeCalls[0]?.language).toBe("ta");
+  });
+
+  test("managed batch falls to multilingual when no language is configured", async () => {
+    // The gap this closes: managed voice notes used to decode as English no
+    // matter what the user had chosen, because nothing was forwarded.
+    vellumManagedTranscribeCalls.length = 0;
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(vellumManagedTranscribeCalls).toHaveLength(1);
+    expect(vellumManagedTranscribeCalls[0]?.language).toBe("multi");
   });
 
   test("batch resolution falls to multilingual when no language is configured", async () => {
