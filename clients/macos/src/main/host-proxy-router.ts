@@ -543,7 +543,17 @@ export function installHostProxyBridge(
   // monitor first keeps a second install from leaking its interval and
   // powerMonitor listeners.
   stopPresenceMonitor?.();
-  stopPresenceMonitor = installPresenceMonitor(reportPresence);
+  // Guarded because this install runs inside `app.whenReady()` ahead of the
+  // tray, native auth, and the main window, so a throw escaping here would
+  // take the rest of app startup with it. Presence is an optional
+  // optimization and losing it lets the mobile push through, which is the
+  // safe direction; losing the app is not. Left null so teardown no-ops.
+  stopPresenceMonitor = null;
+  try {
+    stopPresenceMonitor = installPresenceMonitor(reportPresence);
+  } catch (err) {
+    log.warn("[host-proxy-router] presence monitor install failed", { err });
+  }
 
   return () => {
     stopPresenceMonitor?.();
