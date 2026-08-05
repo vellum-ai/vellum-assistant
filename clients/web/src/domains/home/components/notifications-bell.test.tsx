@@ -112,6 +112,40 @@ function conversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
 }
 
+/**
+ * The schedules list the detail validates its "View schedule" link against,
+ * plus a record of the `enabled` flag the query was called with. Same shape as
+ * the conversation lists above, and the flags pin the same lazy-loading
+ * property: the bell must not fetch schedules to render its list view.
+ */
+const schedulesRef: { list: { id: string }[]; isPending: boolean } = {
+  list: [],
+  isPending: false,
+};
+
+const scheduleEnabledCalls: boolean[] = [];
+
+mock.module("@/domains/settings/api/schedules", () => ({
+  schedulesListQueryOptions: (assistantId: string | undefined) => ({
+    queryKey: ["schedules", assistantId ?? ""],
+    queryFn: () => Promise.resolve(schedulesRef.list),
+  }),
+}));
+
+// The bell is the only part of this tree that reads a TanStack query directly
+// (the feed and conversation hooks are mocked above), so stubbing `useQuery`
+// stands in for a QueryClientProvider and exposes the `enabled` flag.
+mock.module("@tanstack/react-query", () => ({
+  useQuery: (options: { enabled?: boolean }) => {
+    scheduleEnabledCalls.push(options.enabled === true);
+    return { data: schedulesRef.list, isPending: schedulesRef.isPending };
+  },
+}));
+
+function schedule(id: string): { id: string } {
+  return { id };
+}
+
 mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
   store.use = {
@@ -178,6 +212,9 @@ beforeEach(() => {
   enabledCalls.foreground = [];
   enabledCalls.background = [];
   enabledCalls.scheduled = [];
+  schedulesRef.list = [];
+  schedulesRef.isPending = false;
+  scheduleEnabledCalls.length = 0;
   navigateMock.mockClear();
   navigateToConversationMock.mockClear();
 });
@@ -422,17 +459,92 @@ describe("NotificationsBell detail", () => {
     ).toBeTruthy();
   });
 
-  test("loads the conversation lists only once a detail is open", async () => {
+  test("offers View schedule when the item's schedule still exists", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { scheduleId: "schedule-1" } }];
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.getByRole("button", { name: "View schedule" })).toBeTruthy();
+  });
+
+  test("omits View schedule when the item has no schedule", async () => {
+    feedRef.items = [FIRST];
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
+  });
+
+  test("omits View schedule when the schedule is gone", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { scheduleId: "deleted-1" } }];
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
+  });
+
+  test("offers View schedule while the schedules list is still loading", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { scheduleId: "schedule-1" } }];
+    schedulesRef.isPending = true;
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.getByRole("button", { name: "View schedule" })).toBeTruthy();
+  });
+
+  test("View schedule opens the schedule and closes the bell", async () => {
+    feedRef.items = [{ ...FIRST, metadata: { scheduleId: "schedule-1" } }];
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openDetail("Watcher job failed");
+    fireEvent.click(screen.getByRole("button", { name: "View schedule" }));
+    await act(async () => {});
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock.mock.calls[0]?.[0]).toBe(
+      "/assistant/schedules/schedule-1",
+    );
+    // Navigating closes the bell, so the panel is gone with it.
+    expect(
+      screen.queryByRole("heading", { name: "Watcher job failed" }),
+    ).toBeNull();
+  });
+
+  test("offers both footer links when the item has a schedule and a conversation", async () => {
+    feedRef.items = [
+      {
+        ...FIRST,
+        conversationId: "conversation-1",
+        metadata: { scheduleId: "schedule-1" },
+      },
+    ];
+    conversationListsRef.foreground = [conversation("conversation-1")];
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.getByRole("button", { name: "View schedule" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Go to Conversation" }),
+    ).toBeTruthy();
+  });
+
+  test("loads the conversation and schedule lists only once a detail is open", async () => {
     feedRef.items = [FIRST];
 
     await openBell();
 
-    // The list view has no use for conversation ids, and the bell renders on
-    // every route, so nothing may be fetched to show it.
+    // The list view has no use for conversation or schedule ids, and the bell
+    // renders on every route, so nothing may be fetched to show it.
     expect(enabledCalls.foreground.length).toBeGreaterThan(0);
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
+    expect(scheduleEnabledCalls.length).toBeGreaterThan(0);
+    expect(scheduleEnabledCalls.some((enabled) => enabled)).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
@@ -440,6 +552,7 @@ describe("NotificationsBell detail", () => {
     expect(enabledCalls.foreground.at(-1)).toBe(true);
     expect(enabledCalls.background.at(-1)).toBe(true);
     expect(enabledCalls.scheduled.at(-1)).toBe(true);
+    expect(scheduleEnabledCalls.at(-1)).toBe(true);
   });
 
   test("reopening the bell lands back on the list", async () => {

@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import {
   useBackgroundConversationListQuery,
   useConversationListQuery,
@@ -12,6 +14,7 @@ import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-stat
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
+import { routes } from "@/utils/routes";
 import type { FeedItem } from "@vellumai/assistant-api";
 import {
   BottomSheet,
@@ -125,6 +128,19 @@ export function NotificationsBell() {
   const areConversationListsPending =
     isForegroundPending || isBackgroundPending || isScheduledPending;
 
+  // A scheduled-run notification links back to the schedule that produced it,
+  // which may since have been deleted, so the link is checked against the same
+  // list the Schedules page renders (shared options, shared cache entry). Same
+  // gate as the conversation lists: the list view has no use for schedule ids.
+  const { data: schedules, isPending: isScheduleListPending } = useQuery({
+    ...schedulesListQueryOptions(assistantId ?? undefined),
+    enabled: isDetailOpen,
+  });
+  const validScheduleIds = useMemo(
+    () => new Set((schedules ?? []).map((schedule) => schedule.id)),
+    [schedules],
+  );
+
   // The list unmounts while the detail is open, so its scroll offset is parked
   // here and written back when the list mounts again.
   const listScrollTopRef = useRef(0);
@@ -153,6 +169,11 @@ export function NotificationsBell() {
   const handleGoToConversation = (conversationId: string) => {
     handleOpenChange(false);
     navigateToConversation(navigate, conversationId);
+  };
+
+  const handleViewSchedule = (scheduleId: string) => {
+    handleOpenChange(false);
+    navigate(routes.schedules.detail(scheduleId));
   };
 
   const handleMarkAllRead = () => {
@@ -248,8 +269,11 @@ export function NotificationsBell() {
           bodyMaxHeightClass={scrollMaxHeightClass}
           validConversationIds={validConversationIds}
           areConversationListsPending={areConversationListsPending}
+          validScheduleIds={validScheduleIds}
+          isScheduleListPending={isScheduleListPending}
           onBack={() => setSelectedItemId(null)}
           onGoToConversation={handleGoToConversation}
+          onViewSchedule={handleViewSchedule}
         />
       ) : (
         <>

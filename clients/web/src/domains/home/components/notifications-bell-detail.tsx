@@ -1,4 +1,4 @@
-import { ChevronLeft } from "lucide-react";
+import { Calendar, ChevronLeft } from "lucide-react";
 
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import type { FeedItem } from "@vellumai/assistant-api";
@@ -29,6 +29,16 @@ export function resolveNotificationTitle(item: FeedItem): string {
   return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
 }
 
+/**
+ * Scheduled-run notifications (`schedule.notify`) carry their originating
+ * schedule id in `metadata.scheduleId`, letting the detail link to the
+ * schedule. Returns null for feed items not tied to a schedule.
+ */
+function getFeedItemScheduleId(item: FeedItem): string | null {
+  const id = item.metadata?.scheduleId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 export interface NotificationsBellDetailProps {
   item: FeedItem;
   /**
@@ -43,8 +53,13 @@ export interface NotificationsBellDetailProps {
   validConversationIds: Set<string>;
   /** True while any of those lists has yet to resolve. */
   areConversationListsPending: boolean;
+  /** Ids of the schedules that still exist, from the Schedules page's list. */
+  validScheduleIds: Set<string>;
+  /** True while that list has yet to resolve. */
+  isScheduleListPending: boolean;
   onBack: () => void;
   onGoToConversation: (conversationId: string) => void;
+  onViewSchedule: (scheduleId: string) => void;
 }
 
 /**
@@ -57,8 +72,11 @@ export function NotificationsBellDetail({
   bodyMaxHeightClass,
   validConversationIds,
   areConversationListsPending,
+  validScheduleIds,
+  isScheduleListPending,
   onBack,
   onGoToConversation,
+  onViewSchedule,
 }: NotificationsBellDetailProps) {
   const conversationId = item.conversationId;
   // Same rule as the Activity page's detail panel, plus a pending case the
@@ -70,6 +88,16 @@ export function NotificationsBellDetail({
   const hasValidConversation =
     !!conversationId &&
     (areConversationListsPending || validConversationIds.has(conversationId));
+
+  // Same rule as the Activity page's detail panel, on the same pending terms
+  // as the conversation link above so the two footer buttons appear together
+  // rather than one at a time as their lists land.
+  const scheduleId = getFeedItemScheduleId(item);
+  const linkedScheduleId =
+    scheduleId !== null &&
+    (isScheduleListPending || validScheduleIds.has(scheduleId))
+      ? scheduleId
+      : null;
 
   return (
     <>
@@ -104,14 +132,28 @@ export function NotificationsBellDetail({
         </div>
       </div>
 
-      {conversationId && hasValidConversation ? (
-        <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
-          <Button
-            variant="primary"
-            onClick={() => onGoToConversation(conversationId)}
-          >
-            Go to Conversation
-          </Button>
+      {linkedScheduleId || (conversationId && hasValidConversation) ? (
+        // Both links can be offered at once. They sit on one right-aligned row
+        // at the popover's width and wrap onto a second one below it in the
+        // narrowest bottom sheets, so neither ever overflows the panel.
+        <div className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
+          {linkedScheduleId ? (
+            <Button
+              variant="outlined"
+              leftIcon={<Calendar className="size-4" />}
+              onClick={() => onViewSchedule(linkedScheduleId)}
+            >
+              View schedule
+            </Button>
+          ) : null}
+          {conversationId && hasValidConversation ? (
+            <Button
+              variant="primary"
+              onClick={() => onGoToConversation(conversationId)}
+            >
+              Go to Conversation
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </>
