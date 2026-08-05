@@ -47,12 +47,15 @@ interface DispatchResult {
 }
 
 /** Drive a loopback GET through the captured connect chain. */
-function dispatch(url: string): Promise<DispatchResult> {
+function dispatch(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<DispatchResult> {
   return new Promise((resolve, reject) => {
     const req = Object.assign(new EventEmitter(), {
       url,
       method: "GET",
-      headers: { host: "127.0.0.1:5173" },
+      headers: { host: "127.0.0.1:5173", ...headers },
       socket: { remoteAddress: "127.0.0.1" },
     }) as unknown as Connect.IncomingMessage;
     const res = {
@@ -165,5 +168,36 @@ describe("guardian-token middleware", () => {
     expect(result.status).toBe(403);
     const { error } = JSON.parse(result.body) as { error: string };
     expect(error).toContain("paired gateway proxy");
+  });
+});
+
+describe("paired gateway proxy", () => {
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    fs.rmSync(path.join(configDir, "assistants"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  test("rejects a browser request from another loopback origin", async () => {
+    writeLockfile([
+      {
+        assistantId: "paired-g",
+        cloud: "paired",
+        paired: true,
+        runtimeUrl: "https://gateway.example.com",
+      },
+    ]);
+    writeToken("paired-g", {
+      pairedGatewayUrl: "https://gateway.example.com",
+    });
+
+    const result = await dispatch("/__gateway-paired/paired-g/readyz", {
+      origin: "http://127.0.0.1:9999",
+      "sec-fetch-site": "same-site",
+    });
+
+    expect(result).toEqual({ status: 403, body: "Forbidden" });
   });
 });

@@ -473,9 +473,9 @@ function currentPlatformToken(): string | null {
   return platformSessionToken;
 }
 
-// Whether to attach the platform credential to a proxied request. Only
-// same-origin (SPA) traffic qualifies — a cross-site page must not be able to
-// use the local proxy as a confused deputy for authenticated platform calls.
+// Whether to attach a host-owned credential to a proxied request. Only
+// same-origin (SPA) traffic qualifies. A cross-origin page must not be able to
+// use the local proxy as a confused deputy for authenticated upstream calls.
 // Cross-origin fetches always send an Origin; `Sec-Fetch-Site` is a belt-and-
 // braces check for browsers that send it.
 function isSameOriginRequest(req: Request): boolean {
@@ -837,6 +837,9 @@ async function handleLocalEndpoints(
     });
   }
   if (pairedDecision.kind === "forward") {
+    if (!isSameOriginRequest(req)) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
     let invocation: CliInvocation;
     try {
       invocation = resolveDevCliInvocation(_baseDir);

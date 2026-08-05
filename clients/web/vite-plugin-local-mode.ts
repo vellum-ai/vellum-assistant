@@ -51,9 +51,9 @@ export function getDevPlatformToken(): string | null {
 }
 
 /**
- * Whether a proxied request is same-origin SPA traffic that may carry the
- * platform credential. A cross-site page must not be able to use the dev proxy
- * as a confused deputy. Mirrors the Bun server's check.
+ * Whether a proxied request is same-origin SPA traffic that may carry a
+ * host-owned credential. A cross-origin page must not be able to use the dev
+ * proxy as a confused deputy. Mirrors the Bun server's check.
  */
 export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
   const origin = Array.isArray(req.headers.origin)
@@ -987,6 +987,12 @@ function pairedGatewayProxyMiddleware(
     if (decision.kind === "reject") {
       res.statusCode = decision.status;
       res.end(decision.message);
+      return;
+    }
+
+    if (!isSameOriginProxyRequest(req)) {
+      res.statusCode = 403;
+      res.end("Forbidden");
       return;
     }
 
