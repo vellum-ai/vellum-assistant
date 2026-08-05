@@ -94,6 +94,22 @@ export function isUsableRuntimeUrl(url: unknown): boolean {
 }
 
 /**
+ * User-facing hosting label for a paired entry: "Paired · <hostname>" when
+ * `runtimeUrl` names the remote host, plain "Paired" otherwise. Shared by the
+ * macOS tray switcher and the web chooser so their renderings cannot drift.
+ */
+export function pairedHostLabel(runtimeUrl: string | undefined): string {
+  if (runtimeUrl) {
+    try {
+      return `Paired · ${new URL(runtimeUrl).hostname}`;
+    } catch {
+      // Unparseable runtimeUrl: plain "Paired".
+    }
+  }
+  return "Paired";
+}
+
+/**
  * Clouds whose gateway listens on a loopback port of this machine: the
  * on-machine daemon ("local") and local Docker instances ("docker").
  */

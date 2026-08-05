@@ -3,6 +3,7 @@ import {
   getLockfileAssistant,
   getSelectedAssistant,
   isPairedAssistant,
+  loadLockfile,
   removePairedAssistantFromLockfile,
 } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
@@ -27,7 +28,15 @@ export type SwitchOutcome = { ok: true } | { ok: false; error: string };
 export async function switchToAssistant(
   assistantId: string,
 ): Promise<SwitchOutcome> {
-  const entry = getLockfileAssistant(assistantId);
+  let entry = getLockfileAssistant(assistantId);
+  if (!entry) {
+    // The renderer cache can trail main's watched lockfile (e.g. a
+    // `vellum connect import` while the app was open). Reload before
+    // treating the id as managed, or a fresh paired entry would be
+    // selected without credentials.
+    await loadLockfile();
+    entry = getLockfileAssistant(assistantId);
+  }
   if (entry && isPairedAssistant(entry)) {
     try {
       await useAuthStore.getState().connectPairedAssistant(assistantId);

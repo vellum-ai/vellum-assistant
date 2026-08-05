@@ -9,7 +9,14 @@
  * run this file solo (`mock.module` leaks across a shared `bun test` run).
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
@@ -63,6 +70,9 @@ mock.module("react-router", () => ({
 
 mock.module("@/assistant/selection", () => ({
   resolveSelectedAssistantId: () => null,
+  // Imported by switch-service (pulled in for the paired-removal branch);
+  // never reached by these tests.
+  setSelectedAssistant: async () => {},
 }));
 
 mock.module("@/assistant/retire-service", () => ({
@@ -76,8 +86,14 @@ mock.module("@/lib/auth/gateway-session", () => ({
 
 class MockUnresolvedLocalGatewayError extends Error {}
 
+// Includes the surface `@/assistant/switch-service` (the real module, which
+// the chooser's paired-removal branch calls into) pulls from local-mode.
 mock.module("@/lib/local-mode", () => ({
+  getLockfileAssistant: () => undefined,
+  getSelectedAssistant: () => undefined,
   isCliWakeableAssistant: () => false,
+  isPairedAssistant: (a: { cloud?: string }) => a?.cloud === "paired",
+  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   removePairedAssistantFromLockfile: removePairedAssistantFromLockfileMock,
   removePlatformAssistantFromLockfile: removePlatformAssistantFromLockfileMock,
   UnresolvedLocalGatewayError: MockUnresolvedLocalGatewayError,
@@ -138,8 +154,9 @@ mock.module("@/hooks/use-onboarding-login", () => ({
   }),
 }));
 
+let isElectronValue = false;
 mock.module("@/runtime/is-electron", () => ({
-  isElectron: () => false,
+  isElectron: () => isElectronValue,
 }));
 
 mock.module("@/runtime/local-mode-host", () => ({
@@ -182,6 +199,7 @@ mock.module("@/stores/resolved-assistants-store", () => ({
 mock.module("@/utils/routes", () => ({
   routes: {
     assistant: "/assistant",
+    selectAssistant: "/select-assistant",
     welcome: "/welcome",
     onboarding: { hosting: "/onboarding/hosting" },
   },
@@ -297,6 +315,7 @@ describe("SelectAssistantScreen paired assistants", () => {
     hasPlatformSessionValue = false;
     assistantsValue = [];
     localModeHostAvailableValue = false;
+    isElectronValue = false;
     removePairedAssistantFromLockfileMock.mockClear();
     removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
       ok: true,
@@ -687,6 +706,48 @@ describe("SelectAssistantScreen paired assistants", () => {
     );
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("on Electron the sole-assistant auto-skip waits for the deep-link drain, so a buffered connect link wins", async () => {
+    isElectronValue = true;
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    // Drain not settled yet: the chooser holds instead of auto-connecting.
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+
+    // The buffered connect link publishes (parking the dialog), then the
+    // drain settles.
+    act(() => {
+      useConnectDialogStore
+        .getState()
+        .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      useConnectDialogStore.getState().markDeepLinkDrainSettled();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Connect dialog open")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("on Electron an empty drain releases the sole-assistant auto-skip", async () => {
+    isElectronValue = true;
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+
+    act(() => {
+      useConnectDialogStore.getState().markDeepLinkDrainSettled();
+    });
+
+    await waitFor(() =>
+      expect(connectPairedAssistantMock).toHaveBeenCalledWith(PAIRED_ID),
+    );
   });
 
   test("confirming a locked platform removal still calls removePlatformAssistantFromLockfile", async () => {

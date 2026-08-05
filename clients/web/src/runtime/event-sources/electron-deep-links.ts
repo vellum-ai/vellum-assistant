@@ -6,6 +6,7 @@ import {
   subscribeToDeepLinks,
   type DeepLink,
 } from "@/runtime/deep-links";
+import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 
 /**
  * Electron `vellum://` deep-link bridge → typed bus events:
@@ -75,6 +76,11 @@ export function publishElectronDeepLinksSource(): () => void {
     })
     .catch((err) => {
       captureError(err, { context: "deep_link_drain", level: "warning" });
+    })
+    .finally(() => {
+      // Latch after the backlog publishes so a buffered connect link parks
+      // its dialog state before the chooser's auto-skip resumes.
+      useConnectDialogStore.getState().markDeepLinkDrainSettled();
     });
 
   return unsubscribe;

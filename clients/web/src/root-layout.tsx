@@ -68,8 +68,8 @@ import {
   switchToAssistant,
 } from "@/assistant/switch-service";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
+import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const ShareFeedbackModal = lazy(() =>
@@ -428,23 +428,16 @@ export function RootLayout() {
         onCancel={() => setRetireId(null)}
       />
 
-      {/* Confirmation for the tray "Remove from this Mac…" command. Same copy
-          as the chooser's remove dialog: forgetting the pairing on this device
+      {/* Confirmation for the tray "Remove from this Mac…" command. Shares
+          the chooser's remove dialog: forgetting the pairing on this device
           never touches the assistant on its host machine. */}
-      <ConfirmDialog
+      <RemoveFromDeviceDialog
         open={removePairedId !== null}
-        title="Remove from this device?"
-        message={
-          <>
-            This won&rsquo;t affect{" "}
-            {(removePairedId && getLockfileAssistant(removePairedId)?.name) ||
-              "the assistant"}{" "}
-            on its host machine. It only forgets the pairing on this device.
-            Pair again anytime with vellum connect import.
-          </>
+        kind="paired"
+        assistantName={
+          (removePairedId && getLockfileAssistant(removePairedId)?.name) ||
+          "the assistant"
         }
-        confirmLabel="Remove"
-        destructive
         isPending={removePairedPending}
         onConfirm={() => void handleConfirmRemovePaired()}
         onCancel={() => setRemovePairedId(null)}
