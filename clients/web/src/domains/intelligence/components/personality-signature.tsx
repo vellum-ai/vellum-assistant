@@ -25,15 +25,22 @@ import {
 } from "../identity-actions/personality-axes";
 
 const W = 340;
-const H = 194;
+/**
+ * The frame is taller than the mark strictly needs so the signature fills its
+ * card rather than floating in the middle of it — the extra height goes to
+ * capsule travel and to the gap between the poles, not to dead margin. The
+ * label baselines sit the same distance from the top and bottom edges, so a
+ * frame that ends flush with the card leaves an even gap at both.
+ */
+const H = 226;
 /** The neutral line: where a trait sits when neither pole has been chosen. */
-const MID = 97;
+const MID = 113;
 const PAD_X = 46;
 /** Vertical travel from the neutral line to a pole. */
-const SPAN = 44;
+const SPAN = 58;
 /** Baselines for the first line of each pole label. */
 const TOP_Y = 15;
-const BOTTOM_Y = 179;
+const BOTTOM_Y = 216;
 const LINE_H = 11.5;
 /** Inside this much of neutral a trait reads as unset, not as a lean. */
 const DEAD_ZONE = 5;
