@@ -739,6 +739,7 @@ describe("vellum:localMode:connectImport handler", () => {
     );
 
     expect(result).toEqual({ ok: true, assistantId: "desk", accessOnly: true });
+    expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(guardianTokenPath("desk"))).toBe(true);
     const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
       assistants: Array<Record<string, unknown>>;
@@ -757,6 +758,7 @@ describe("vellum:localMode:connectImport handler", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("base64");
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
     expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 

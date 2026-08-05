@@ -365,13 +365,15 @@ export const installLocalMode = (): void => {
         bundle: decoded.bundle,
         name: name || undefined,
       });
-      return result.ok
-        ? {
-            ok: true,
-            assistantId: result.assistantId,
-            accessOnly: result.accessOnly,
-          }
-        : { ok: false, error: result.error };
+      if (!result.ok) {
+        return { ok: false, error: result.error };
+      }
+      refreshLockfileNow();
+      return {
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      };
     },
   );
 
