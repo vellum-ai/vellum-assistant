@@ -34,6 +34,12 @@ export interface ManagedOAuthConnectOptions {
   assistantId: string;
   providerKey: string;
   providerLabel: string;
+  /**
+   * Full replacement set of OAuth scopes; see
+   * OAuthConnectSurfaceData.requestedScopes for semantics.
+   * Omit to use platform defaults.
+   */
+  requestedScopes?: string[];
 }
 
 export type ManagedOAuthConnectResult =
@@ -124,12 +130,13 @@ async function startManagedOAuth(
   providerKey: string,
   requestId: string,
   native: boolean,
+  requestedScopes: string[] | undefined,
 ): Promise<string> {
   const redirectAfterConnect = `${routes.account.oauth.popupComplete}?requestId=${requestId}${native ? "&native=1" : ""}`;
   const { data, error, response } = await assistantsOauthStartCreate({
     path: { assistant_id: assistantId, provider: providerKey },
     body: {
-      requested_scopes: [],
+      requested_scopes: requestedScopes ?? [],
       redirect_after_connect: redirectAfterConnect,
     },
     throwOnError: false,
@@ -164,6 +171,7 @@ function runManagedOAuthConnect({
   assistantId,
   providerKey,
   providerLabel,
+  requestedScopes,
 }: ManagedOAuthConnectOptions): Promise<ManagedOAuthConnectResult> {
   const requestId = crypto.randomUUID();
   const native = isNativePlatform();
@@ -345,6 +353,7 @@ function runManagedOAuthConnect({
           providerKey,
           requestId,
           native,
+          requestedScopes,
         );
 
         if (native) {
@@ -386,14 +395,30 @@ function runManagedOAuthConnect({
 }
 
 /**
- * In-flight managed-OAuth connects keyed by `${assistantId}::${providerKey}`.
- * The map lives at module scope so the guard survives React remounts — the
- * `oauth_connect` card's local `"connecting"` state does not (JARVIS-1286).
+ * In-flight managed-OAuth connects keyed by
+ * `${assistantId}::${providerKey}::${normalizedScopes}`. The map lives at
+ * module scope so the guard survives React remounts; the `oauth_connect`
+ * card's local `"connecting"` state does not (JARVIS-1286).
+ *
+ * The map enforces two properties: repeats with the same scope set share the
+ * one in-flight popup, and requests with a mismatched scope set are rejected
+ * while another flow for the provider is in flight. Completion detection
+ * (`waitForProviderConnection`, `handlePopupClosed`) is provider-scoped, so
+ * two concurrent flows for one provider could not attribute a granted token
+ * to the right flow; at most one popup per provider keeps it unambiguous.
  */
 const inFlightManagedOAuthConnects = new Map<
   string,
   Promise<ManagedOAuthConnectResult>
 >();
+
+/**
+ * Order-insensitive scope-set fingerprint for the dedupe key. Undefined and
+ * empty both mean platform defaults, so they normalize to the same value.
+ */
+function normalizeRequestedScopes(scopes: string[] | undefined): string {
+  return scopes && scopes.length > 0 ? [...scopes].sort().join(" ") : "";
+}
 
 /**
  * Connect a managed OAuth provider, deduping concurrent connects for the same
@@ -408,15 +433,30 @@ const inFlightManagedOAuthConnects = new Map<
  * flipped to "Connected" even though the account did connect (JARVIS-1286).
  *
  * Returning the already-running promise means repeat triggers latch onto the
- * one popup + one listener set that will actually resolve.
+ * one popup + one listener set that will actually resolve. The dedupe key
+ * includes the normalized scope set, so a remounted identical card (same
+ * scopes) reuses the in-flight connect. A request with a mismatched scope set
+ * is rejected outright while another flow for the provider is in flight:
+ * completion detection is provider-scoped and cannot tell two concurrent
+ * flows' tokens apart, so at most one popup per provider may be open.
  */
 export function connectManagedOAuthProvider(
   options: ManagedOAuthConnectOptions,
 ): Promise<ManagedOAuthConnectResult> {
-  const dedupeKey = `${options.assistantId}::${options.providerKey}`;
+  const providerPrefix = `${options.assistantId}::${options.providerKey}::`;
+  const dedupeKey = `${providerPrefix}${normalizeRequestedScopes(options.requestedScopes)}`;
   const existing = inFlightManagedOAuthConnects.get(dedupeKey);
   if (existing) {
     return existing;
+  }
+
+  for (const key of inFlightManagedOAuthConnects.keys()) {
+    if (key.startsWith(providerPrefix)) {
+      return Promise.resolve({
+        status: "error",
+        message: `Another ${options.providerLabel} connection is already in progress with different scopes. Complete or dismiss it first, then try again.`,
+      });
+    }
   }
 
   const connectPromise = runManagedOAuthConnect(options);

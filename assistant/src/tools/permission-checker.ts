@@ -104,14 +104,15 @@ export class PermissionChecker {
       toolName: string,
       input: Record<string, unknown>,
       workingDir: string,
-    ) =>
+    ) => Promise<
       | {
           filePath: string;
           oldContent: string;
           newContent: string;
           isNewFile: boolean;
         }
-      | undefined,
+      | undefined
+    >,
   ): Promise<PermissionDecision> {
     // Sandbox/host routing for the prompt comes from the tool's manifest.
     const executionTarget = resolveExecutionTarget(tool);
@@ -378,7 +379,11 @@ export class PermissionChecker {
           };
         }
 
-        const previewDiff = computePreviewDiff(name, input, context.workingDir);
+        const previewDiff = await computePreviewDiff(
+          name,
+          input,
+          context.workingDir,
+        );
         const promptOptions = {
           allowlistOptions: await generateAllowlistOptions(
             name,

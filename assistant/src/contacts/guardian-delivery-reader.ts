@@ -151,8 +151,8 @@ export async function getGuardianDelivery(input?: {
  * Returns the fresh cached list for the given channel filter, or `undefined`
  * when the cache is cold or expired. Used by sync hot paths (SSE subscribe)
  * that cannot await {@link getGuardianDelivery} but must resolve the SAME
- * gateway-owned principal the async paths land on. A cold/expired return lets
- * the caller fall back to the local store as before.
+ * gateway-owned principal the async paths land on. There is no fallback
+ * fetch — on a cold/expired cache the caller proceeds without a principal.
  */
 export function peekCachedGuardianDelivery(input?: {
   channelTypes?: string[];

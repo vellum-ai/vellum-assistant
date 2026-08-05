@@ -176,6 +176,7 @@ describe("useAssistantOperationalStatus", () => {
           id: "assistant-platform",
           isLocal: false,
           isPlatformHosted: true,
+          isPaired: false,
         },
       ],
       selectedAssistantId: "assistant-platform",

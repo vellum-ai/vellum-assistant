@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.1
+  version: 0.11.2
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4615,6 +4615,43 @@ paths:
                 required:
                   - disconnected
                 additionalProperties: false
+  /v1/clients/presence:
+    post:
+      operationId: clients_presence_post
+      summary: Report desktop presence
+      description: Record the desktop presence state reported by the client identified by the X-Vellum-Client-Id header.
+      tags:
+        - clients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - active
+                    - idle
+                    - away
+                  description: Reported desktop presence state.
+              required:
+                - state
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    description: Whether a connected client matched the reporting clientId.
+                required:
+                  - recorded
+                additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
@@ -4736,6 +4773,8 @@ paths:
                         domain:
                           type: string
                         defaultProfile:
+                          type: string
+                        shippedDefaultProfile:
                           type: string
                       required:
                         - id
@@ -6796,9 +6835,15 @@ paths:
                     `id`.
                   type: string
                 conversationType:
-                  description: Only standard conversations are created by this endpoint
+                  description:
+                    Conversation type for the new row. "background" keeps it out of the foreground list and the sidebar's
+                    Recents grouping, used by internal side-channel flows (onboarding research, persona/identity
+                    rewrites) that mint a throwaway thread the user should never see. "scheduled" is not accepted here;
+                    scheduled rows are owned by the schedule pipeline.
                   type: string
-                  const: standard
+                  enum:
+                    - standard
+                    - background
                 title:
                   description:
                     Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never
@@ -8420,7 +8465,8 @@ paths:
       summary: Open an inference-profile session
       description:
         Open (or replace) a session-backed inference-profile override for a conversation. Supports an optional TTL
-        — omit for a sticky (non-expiring) override.
+        — omit for a sticky (non-expiring) override. A profile that provably cannot dispatch is rejected rather than
+        pinned.
       tags:
         - conversations
       requestBody:
@@ -14340,7 +14386,8 @@ paths:
       description:
         Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware
         default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be
-        silently stripped on the next config load.
+        silently stripped on the next config load. A profile that provably cannot dispatch is also rejected — there is
+        no escape hatch, because an unusable active profile locks the user out of chat.
       tags:
         - inference
       requestBody:
@@ -14373,7 +14420,7 @@ paths:
                   - activeProfile
                 additionalProperties: false
         "400":
-          description: Unknown or disabled profile name
+          description: Unknown or disabled profile name, or a profile that cannot serve requests
   /v1/inference/callsites:
     get:
       operationId: inference_callsites_get
@@ -14548,7 +14595,9 @@ paths:
       summary: Create an inference profile
       description:
         Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
-        catalog (unless allowUnlisted), and a referenced connection must exist. Managed default names cannot be created.
+        catalog (unless allowUnlisted), a referenced connection must exist, and the profile must be able to dispatch — a
+        valid provider id with no credentialed connection behind it is rejected unless allowUnavailable is set, in which
+        case it is created with a warning.
       tags:
         - inference
       requestBody:
@@ -14587,6 +14636,8 @@ paths:
                   type: string
                 allowUnlisted:
                   type: boolean
+                allowUnavailable:
+                  type: boolean
               required:
                 - name
                 - provider
@@ -14599,7 +14650,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid provider, uncataloged model, or missing connection
+          description: Invalid provider, uncataloged model, missing connection, or a profile that cannot serve requests
         "409":
           description: A profile with this name already exists
   /v1/inference/profiles/{name}:
@@ -14637,7 +14688,9 @@ paths:
         "404":
           description: Profile not found
         "409":
-          description: Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm
+          description:
+            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a
+            mix arm
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile
@@ -14663,8 +14716,9 @@ paths:
       operationId: inference_profiles_by_name_patch
       summary: Update an inference profile
       description:
-        Partial update of a custom profile with the same write-time validation as create. Managed default profiles
-        are read-only.
+        Partial update of a custom profile with the same write-time validation as create. The dispatch-availability
+        guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection;
+        metadata-only edits skip it. Managed default profiles are read-only.
       tags:
         - inference
       parameters:
@@ -14706,6 +14760,8 @@ paths:
                   type: string
                 allowUnlisted:
                   type: boolean
+                allowUnavailable:
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -14714,7 +14770,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid fields, or attempt to edit a managed profile
+          description: Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile
         "404":
           description: Profile not found
   /v1/inference/provider-connections:
@@ -19052,6 +19108,76 @@ paths:
                                   - requestId
                                   - entries
                                 additionalProperties: false
+                              answeredQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  questions:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                  responses:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        questionId:
+                                          type: string
+                                        decision:
+                                          type: string
+                                          enum:
+                                            - option
+                                            - free_text
+                                            - skipped
+                                        optionId:
+                                          type: string
+                                        text:
+                                          type: string
+                                      required:
+                                        - questionId
+                                        - decision
+                                      additionalProperties: false
+                                  overall:
+                                    type: string
+                                    enum:
+                                      - completed
+                                      - closed
+                                required:
+                                  - requestId
+                                  - questions
+                                  - responses
+                                  - overall
+                                additionalProperties: false
                             required:
                               - name
                               - input
@@ -19490,6 +19616,76 @@ paths:
                                         required:
                                           - requestId
                                           - entries
+                                        additionalProperties: false
+                                      answeredQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          questions:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                          responses:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                questionId:
+                                                  type: string
+                                                decision:
+                                                  type: string
+                                                  enum:
+                                                    - option
+                                                    - free_text
+                                                    - skipped
+                                                optionId:
+                                                  type: string
+                                                text:
+                                                  type: string
+                                              required:
+                                                - questionId
+                                                - decision
+                                              additionalProperties: false
+                                          overall:
+                                            type: string
+                                            enum:
+                                              - completed
+                                              - closed
+                                        required:
+                                          - requestId
+                                          - questions
+                                          - responses
+                                          - overall
                                         additionalProperties: false
                                     required:
                                       - name
@@ -21767,8 +21963,6 @@ paths:
                   type: string
                 throwOnError:
                   type: boolean
-                originatingConversationId:
-                  type: string
               required:
                 - sourceEventName
                 - sourceChannel
@@ -27286,10 +27480,13 @@ paths:
                     type: string
                   name:
                     type: string
+                  error:
+                    description:
+                      Why the secret was not stored (e.g. provider-side API key validation failed). Present only when success is
+                      false.
+                    type: string
                 required:
                   - success
-                  - type
-                  - name
                 additionalProperties: false
   /v1/secrets/read:
     post:
@@ -34627,11 +34824,14 @@ components:
           type: array
           items:
             type: string
+        verify:
+          type: string
       required:
         - ok
         - name
         - entry
         - warnings
+        - verify
       additionalProperties: false
     InferenceProfileDetail:
       type: object

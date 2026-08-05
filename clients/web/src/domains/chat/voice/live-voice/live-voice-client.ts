@@ -43,6 +43,7 @@ import {
   type LiveVoiceUtteranceEndServerFrame,
   parseServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -381,6 +382,7 @@ export class LiveVoiceChannelClient {
     const startFrame: LiveVoiceClientStartFrame = {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
+      client: detectClientOs(),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined

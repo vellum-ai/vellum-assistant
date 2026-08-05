@@ -137,7 +137,7 @@ async function checkSkillLoad(skill: string) {
     skillLoadTool,
     makeBackgroundGuardianContext(),
     Date.now(),
-    () => undefined,
+    async () => undefined,
   );
 }
 
@@ -176,7 +176,7 @@ async function checkSkillLoadWith(
     skillLoadTool,
     context,
     Date.now(),
-    () => undefined,
+    async () => undefined,
   );
 }
 

@@ -409,9 +409,10 @@ describe("memory retrospective wake state chain (real AgentLoop)", () => {
     expect(listRetroForksOf(fixture.sourceId)).toEqual([fixture.priorRetroId]);
 
     // (2) The window stays retryable: the same slice succeeds on retry.
-    providerScript = [
-      { response: textResponse("Reviewed. Nothing new worth saving.") },
-    ];
+    // The finalizer's usable-output gate accepts free text only when it is
+    // exactly the mandated no-findings sentinel; a verified remember write
+    // is the other accepted evidence. Use the sentinel for the control.
+    providerScript = [{ response: textResponse("Nothing new to save.") }];
     providerCallCount = 0;
     const retry = await runForkBasedRetrospective(
       fixture.sourceId,
@@ -459,7 +460,7 @@ describe("memory retrospective wake state chain (real AgentLoop)", () => {
     expect(listRetroForksOf(fixture.sourceId)).toEqual([fixture.priorRetroId]);
 
     // The window stays retryable and a usable reply consumes it.
-    providerScript = [{ response: textResponse("Reviewed; nothing new.") }];
+    providerScript = [{ response: textResponse("Nothing new to save.") }];
     providerCallCount = 0;
     const retry = await runForkBasedRetrospective(
       fixture.sourceId,

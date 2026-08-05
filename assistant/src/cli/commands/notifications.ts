@@ -258,9 +258,9 @@ export function registerNotificationsCommand(program: Command): void {
               return;
             }
 
-            // Picks up __CONVERSATION_ID / __SKILL_CONTEXT_JSON env vars
-            // so deferred-emit can buffer notifications when called from a
-            // background job that hasn't confirmed success yet.
+            // Picks up __CONVERSATION_ID / __SKILL_CONTEXT_JSON env vars so
+            // a send invoked from inside an agent turn resolves the
+            // conversation it originated from.
             const originatingConversationId = tryResolveConversationId();
 
             // The signal's `sourceContextId` doubles as the home-feed's
@@ -305,9 +305,6 @@ export function registerNotificationsCommand(program: Command): void {
                 ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
                 ...(conversationId
                   ? { conversationAffinityHint: { vellum: conversationId } }
-                  : {}),
-                ...(originatingConversationId
-                  ? { originatingConversationId }
                   : {}),
                 throwOnError: true,
               },

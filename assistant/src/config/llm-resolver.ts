@@ -40,7 +40,7 @@ import {
  *   3. `llm.callSites[callSite].profile` (the call site's named profile)
  *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent resolved through
  *      `llm.defaultProvider`
- *   5. balanced intent through `llm.defaultProvider` — the code-owned anchor
+ *   5. balanced intent through `llm.defaultProvider`: the code-owned anchor
  *      for profileless call sites, or when nothing above is usable
  *
  * A winner must carry its own `provider` AND `model`: the base layer's schema
@@ -221,8 +221,9 @@ export function selectWinningProfile(
   }
   // Anchor: profileless call sites (`vision`, `workflowLeaf`) and any
   // resolution whose every named rung was unusable land on balanced intent
-  // through the default provider. `profileName` stays null — the anchor is
-  // not a selection.
+  // through the default provider, bottoming out on the code-owned catalog,
+  // so it always resolves. `profileName` stays null on the catalog path:
+  // the anchor itself is not a selection.
   return {
     profileName: null,
     source: "default",

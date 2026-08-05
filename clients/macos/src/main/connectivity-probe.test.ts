@@ -12,9 +12,10 @@ mock.module("./status", () => ({
   },
 }));
 
-// Track net.fetch calls so tests can assert on the probe target.
+// Track net.fetch calls so tests can assert on the probe target and headers.
 let fetchCalls: string[] = [];
-let fetchResponseOk = true;
+let fetchHeaders: (Record<string, string> | undefined)[] = [];
+let fetchBehavior: "ok" | "http-error" | "reject" = "ok";
 mock.module("electron", () => ({
   app: {
     on: () => {},
@@ -23,12 +24,13 @@ mock.module("electron", () => ({
     getAllWindows: () => [],
   },
   net: {
-    fetch: (url: string) => {
+    fetch: (url: string, init?: { headers?: Record<string, string> }) => {
       fetchCalls.push(url);
-      if (fetchResponseOk) {
-        return Promise.resolve({ ok: true } as Response);
+      fetchHeaders.push(init?.headers);
+      if (fetchBehavior === "reject") {
+        return Promise.reject(new Error("connection refused"));
       }
-      return Promise.reject(new Error("connection refused"));
+      return Promise.resolve({ ok: fetchBehavior === "ok" } as Response);
     },
   },
   powerMonitor: {
@@ -69,7 +71,8 @@ const runProbe = installConnectivityProbe(["/mock/lockfile.json"]);
 beforeEach(() => {
   backendReachableCalls = [];
   fetchCalls = [];
-  fetchResponseOk = true;
+  fetchHeaders = [];
+  fetchBehavior = "ok";
   mockLockfileData = { ok: true, data: { assistants: [], activeAssistant: null } };
 });
 
@@ -96,6 +99,8 @@ describe("connectivity-probe", () => {
     await runProbe();
 
     expect(fetchCalls).toEqual(["http://127.0.0.1:7830/healthz"]);
+    // Local probes carry no extra headers.
+    expect(fetchHeaders).toEqual([undefined]);
     expect(backendReachableCalls).toEqual([true]);
   });
 
@@ -119,6 +124,94 @@ describe("connectivity-probe", () => {
 
     expect(fetchCalls).toEqual([]);
     expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("sets backend reachable=true when a cloud assistant carries leftover local resources", async () => {
+    // A stale gatewayPort merged onto a platform entry must not be probed.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            resources: { gatewayPort: 7830 },
+          },
+        ],
+        activeAssistant: "cloud-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("probes docker assistants over their loopback gateway", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            resources: { gatewayPort: 7840 },
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["http://127.0.0.1:7840/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("recovers the docker probe port from a loopback runtimeUrl", async () => {
+    // Docker hatch records the published gateway as a loopback runtimeUrl
+    // with no `resources` block.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            runtimeUrl: "http://localhost:7841",
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["http://127.0.0.1:7841/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("does not probe a non-loopback runtimeUrl", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "docker-1",
+            cloud: "docker",
+            runtimeUrl: "http://192.0.2.10:7841",
+          },
+        ],
+        activeAssistant: "docker-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([]);
   });
 
   test("does not change reachability when lockfile cannot be read", async () => {
@@ -170,7 +263,7 @@ describe("connectivity-probe", () => {
   });
 
   test("sets backend reachable=false when local gateway is unreachable", async () => {
-    fetchResponseOk = false;
+    fetchBehavior = "reject";
     mockLockfileData = {
       ok: true,
       data: {
@@ -193,7 +286,7 @@ describe("connectivity-probe", () => {
 
   test("clears stale unreachable when switching from local to cloud assistant", async () => {
     // First probe: local assistant with a dead gateway.
-    fetchResponseOk = false;
+    fetchBehavior = "reject";
     mockLockfileData = {
       ok: true,
       data: {
@@ -217,7 +310,7 @@ describe("connectivity-probe", () => {
     expect(backendReachableCalls).toEqual([false]);
 
     // Simulate lockfile change: active assistant is now the cloud one.
-    fetchResponseOk = true;
+    fetchBehavior = "ok";
     mockLockfileData = {
       ok: true,
       data: {
@@ -242,5 +335,133 @@ describe("connectivity-probe", () => {
     expect(backendReachableCalls).toEqual([false, true]);
     // No fetch was made for the cloud probe.
     expect(fetchCalls).toEqual(["http://127.0.0.1:7830/healthz"]);
+  });
+
+  test("probes a paired assistant's tunnel /healthz with the ngrok skip header", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+            runtimeUrl: "https://abc123.ngrok.app",
+          },
+        ],
+        activeAssistant: "paired-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["https://abc123.ngrok.app/healthz"]);
+    expect(fetchHeaders).toEqual([{ "ngrok-skip-browser-warning": "true" }]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("strips trailing slashes from the paired runtimeUrl before appending /healthz", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+            runtimeUrl: "https://abc123.ngrok.app/",
+          },
+        ],
+        activeAssistant: "paired-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["https://abc123.ngrok.app/healthz"]);
+    expect(backendReachableCalls).toEqual([true]);
+  });
+
+  test("sets backend reachable=false when the paired tunnel is dead", async () => {
+    fetchBehavior = "reject";
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+            runtimeUrl: "https://abc123.ngrok.app",
+          },
+        ],
+        activeAssistant: "paired-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["https://abc123.ngrok.app/healthz"]);
+    expect(backendReachableCalls).toEqual([false]);
+  });
+
+  test("sets backend reachable=false when the paired tunnel answers non-2xx", async () => {
+    fetchBehavior = "http-error";
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+            runtimeUrl: "https://abc123.ngrok.app",
+          },
+        ],
+        activeAssistant: "paired-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual(["https://abc123.ngrok.app/healthz"]);
+    expect(backendReachableCalls).toEqual([false]);
+  });
+
+  test("sets backend reachable=false when a paired entry has an unusable runtimeUrl", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+            runtimeUrl: "not-a-url",
+          },
+        ],
+        activeAssistant: "paired-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([false]);
+  });
+
+  test("sets backend reachable=false when a paired entry has no runtimeUrl", async () => {
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+          },
+        ],
+        activeAssistant: "paired-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([false]);
   });
 });

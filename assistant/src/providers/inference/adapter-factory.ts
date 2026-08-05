@@ -34,9 +34,11 @@ import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { isVellumManagedConnection } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
+import { effectiveConnectionAuth } from "./auth.js";
 import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
@@ -244,9 +246,11 @@ export function createAdapterFromConnection(
   function makeCredentialRefresher(): () => Promise<Provider | null> {
     let lastAuth = JSON.stringify(resolvedAuth);
     return async (): Promise<Provider | null> => {
-      const refreshedAuth = await resolveAuth(connection.auth, provider, {
-        baseUrl: connection.baseUrl,
-      });
+      const refreshedAuth = await resolveAuth(
+        effectiveConnectionAuth(connection),
+        provider,
+        { baseUrl: connection.baseUrl },
+      );
       if (!refreshedAuth.ok) {
         return null;
       }
@@ -262,19 +266,20 @@ export function createAdapterFromConnection(
   // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
   // request is routed through the Vellum-managed proxy. They carry billing
   // metadata for our own backend. Forwarding them to a third-party endpoint
-  // would leak internal Vellum metadata, so gate on the auth type:
-  // `platform` is the only auth that flows through our proxy.
-  const isManagedProxy = connection.auth.type === "platform";
+  // would leak internal Vellum metadata, so gate on the managed connection
+  // identity, the only route that flows through our proxy.
+  const isManagedProxy = isVellumManagedConnection(connection);
+  const effectiveAuth = effectiveConnectionAuth(connection);
   return new UsageTrackingProvider(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isManagedProxy,
       credentialSource: isManagedProxy
         ? "vellum-managed"
-        : connection.auth.type === "api_key"
+        : effectiveAuth.type === "api_key"
           ? "byok"
-          : connection.auth.type === "oauth_subscription"
+          : effectiveAuth.type === "oauth_subscription"
             ? "oauth-subscription"
-            : connection.auth.type === "none"
+            : effectiveAuth.type === "none"
               ? "no-auth"
               : undefined,
       connectionName: connection.name,
@@ -320,7 +325,8 @@ function buildConnectionAdapter(
       : undefined;
 
   const codexSubscription =
-    connection.auth.type === "oauth_subscription" && provider === "openai";
+    effectiveConnectionAuth(connection).type === "oauth_subscription" &&
+    provider === "openai";
 
   const adapter = buildProviderAdapter(provider, {
     apiKey,

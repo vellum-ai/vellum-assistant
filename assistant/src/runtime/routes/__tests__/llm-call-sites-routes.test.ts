@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { LLMCallSiteEnum } from "../../../config/schemas/llm.js";
+import { CALL_SITE_DEFAULTS } from "../../../config/call-site-defaults.js";
+import {
+  type LLMCallSite,
+  LLMCallSiteEnum,
+} from "../../../config/schemas/llm.js";
 import { ROUTES } from "../llm-call-sites-routes.js";
 
 const route = ROUTES.find((r) => r.operationId === "llm_call_sites_list")!;
@@ -59,6 +63,29 @@ describe("llm-call-sites-routes", () => {
         expect(typeof site.defaultProfile).toBe("string");
         expect(site.defaultProfile.length).toBeGreaterThan(0);
       }
+    }
+  });
+
+  test("shippedDefaultProfile is the code-owned tier, unaffected by pins", async () => {
+    const result = (await route.handler({})) as {
+      callSites: Array<{ id: string; shippedDefaultProfile?: string }>;
+    };
+    for (const site of result.callSites) {
+      expect(site.shippedDefaultProfile).toBe(
+        CALL_SITE_DEFAULTS[site.id as LLMCallSite]?.profile ?? "balanced",
+      );
+    }
+  });
+
+  test("profileless call sites report the balanced anchor tier", async () => {
+    const result = (await route.handler({})) as {
+      callSites: Array<{ id: string; shippedDefaultProfile?: string }>;
+    };
+    // Both omit `profile` in CALL_SITE_DEFAULTS and ride the resolver's
+    // balanced anchor, so the catalog groups them under Balanced.
+    for (const id of ["workflowLeaf", "vision"]) {
+      const site = result.callSites.find((s) => s.id === id);
+      expect(site?.shippedDefaultProfile).toBe("balanced");
     }
   });
 

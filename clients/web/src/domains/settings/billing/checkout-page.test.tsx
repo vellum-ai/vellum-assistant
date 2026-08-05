@@ -214,6 +214,7 @@ beforeEach(() => {
   useOrganizationStore.setState({
     fetchOrganizations: async () => {
       fetchOrganizationsCalls += 1;
+      return { ok: true };
     },
   });
   upgradeRejects = false;
@@ -292,7 +293,9 @@ describe("CheckoutPage", () => {
     // Capture only stashes for a hydrated list holding exactly one assistant.
     useResolvedAssistantsStore.setState({
       activeAssistantId: "a1",
-      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistants: [
+        { id: "a1", isLocal: false, isPlatformHosted: true, isPaired: false },
+      ],
       assistantsHydrated: true,
     });
     render(checkoutTree("/assistant/checkout?package=super", client));

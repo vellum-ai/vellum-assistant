@@ -1,16 +1,27 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { ApiError } from "@/utils/api-errors";
-
-import {
-  fetchLatestHistoryPage,
-  fetchOlderHistoryPage,
-} from "@/domains/chat/api/history";
-
 import {
   messageText,
   textBody,
 } from "@/domains/chat/utils/message-test-helpers";
+
+const recordedDiagnostics: Array<{
+  kind: string;
+  details: Record<string, unknown>;
+}> = [];
+const actualDiagnostics = await import("@/lib/diagnostics");
+mock.module("@/lib/diagnostics", () => ({
+  ...actualDiagnostics,
+  recordDiagnostic: (kind: string, details: Record<string, unknown> = {}) => {
+    recordedDiagnostics.push({ kind, details });
+  },
+}));
+
+// Imported after the diagnostics mock so the fetchers bind to it.
+const { fetchLatestHistoryPage, fetchOlderHistoryPage } =
+  await import("@/domains/chat/api/history");
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -22,12 +33,17 @@ interface CapturedRequest {
 
 function makeJsonResponse(
   body: unknown,
-  init: { status?: number } = {},
+  init: { status?: number; contentLength?: number | string } = {},
 ): Response {
   const status = init.status ?? 200;
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.contentLength === undefined
+        ? {}
+        : { "Content-Length": String(init.contentLength) }),
+    },
   });
 }
 
@@ -39,6 +55,7 @@ beforeEach(() => {
   originalFetch = globalThis.fetch;
   captured = [];
   nextResponse = null;
+  recordedDiagnostics.length = 0;
   globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
     const url =
       typeof input === "string"
@@ -465,5 +482,113 @@ describe("error handling", () => {
     }
     expect(caught).toBeInstanceOf(ApiError);
     expect((caught as ApiError).status).toBe(502);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fetch diagnostics
+// ---------------------------------------------------------------------------
+
+function lastDiagnostic(kind: string): Record<string, unknown> {
+  const event = recordedDiagnostics.findLast((entry) => entry.kind === kind);
+  if (!event) {
+    throw new Error(`no ${kind} diagnostic was recorded`);
+  }
+  return event.details;
+}
+
+function expectDurationMs(details: Record<string, unknown>): void {
+  expect(Number.isInteger(details.durationMs)).toBe(true);
+  expect(details.durationMs as number).toBeGreaterThanOrEqual(0);
+}
+
+describe("fetch diagnostics", () => {
+  test("history_page_fetch carries the full payload plus durationMs and bytes", async () => {
+    nextResponse = makeJsonResponse(
+      {
+        messages: [],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 7,
+      },
+      { contentLength: 1234 },
+    );
+
+    await fetchLatestHistoryPage("asst-1", "K", 25);
+
+    const details = lastDiagnostic("history_page_fetch");
+    expect(details).toEqual({
+      assistantId: "asst-1",
+      query: { conversationId: "K", page: "latest", limit: 25 },
+      status: 200,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+      seq: 7,
+      messages: {
+        count: 0,
+        roleCounts: {},
+        queuedCount: 0,
+        processingCount: 0,
+        first: null,
+        last: null,
+        tail: [],
+      },
+      durationMs: expect.any(Number),
+      bytes: 1234,
+    });
+    expectDurationMs(details);
+  });
+
+  test("bytes is null when the response omits content-length", async () => {
+    nextResponse = makeJsonResponse({ messages: [], hasMore: false });
+
+    await fetchOlderHistoryPage("asst-1", "K", 100);
+
+    const details = lastDiagnostic("history_page_fetch");
+    expect(details.bytes).toBeNull();
+    expectDurationMs(details);
+  });
+
+  test("bytes is null for a malformed content-length, never NaN", async () => {
+    nextResponse = makeJsonResponse(
+      { messages: [], hasMore: false },
+      { contentLength: "not-a-number" },
+    );
+
+    await fetchLatestHistoryPage("asst-1", "K");
+
+    const details = lastDiagnostic("history_page_fetch");
+    expect(details.bytes).toBeNull();
+    expect(Number.isNaN(details.bytes)).toBe(false);
+  });
+
+  test("bytes is null for a blank content-length, never zero", async () => {
+    nextResponse = makeJsonResponse(
+      { messages: [], hasMore: false },
+      { contentLength: "" },
+    );
+
+    await fetchLatestHistoryPage("asst-1", "K");
+
+    const details = lastDiagnostic("history_page_fetch");
+    expect(details.bytes).toBeNull();
+  });
+
+  test("history_page_fetch_error carries durationMs and bytes", async () => {
+    nextResponse = makeJsonResponse(
+      { detail: "boom" },
+      { status: 500, contentLength: 16 },
+    );
+
+    await expect(fetchLatestHistoryPage("asst-1", "K")).rejects.toBeInstanceOf(
+      ApiError,
+    );
+
+    const details = lastDiagnostic("history_page_fetch_error");
+    expect(details.status).toBe(500);
+    expect(details.bytes).toBe(16);
+    expectDurationMs(details);
   });
 });

@@ -9,13 +9,19 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
 import com.getcapacitor.Logger;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginLoadException;
+import com.getcapacitor.PluginManager;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import org.json.JSONException;
 
 public class MainActivity extends BridgeActivity {
@@ -23,6 +29,7 @@ public class MainActivity extends BridgeActivity {
 
     private AlertDialog unreachableDialog;
     private URI effectiveServer;
+    private URI pendingAppLink;
     private ConnectDeepLink pendingConnect;
     private boolean pendingNewChat;
     private Intent pendingVoiceLaunch;
@@ -44,22 +51,48 @@ public class MainActivity extends BridgeActivity {
             pendingConnect = consumeConnectIntent(getIntent());
         }
         configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
-        registerPlugin(NativeAuthPlugin.class);
-        registerPlugin(NativeBiometricPlugin.class);
-        registerPlugin(AndroidNotificationSettingsPlugin.class);
-        registerPlugin(VoiceAudioSessionPlugin.class);
-        registerPlugin(VoiceLiveActivityPlugin.class);
+        pendingAppLink = consumeAppLinkIntent(getIntent());
         super.onCreate(savedInstanceState);
         deliverPendingVoiceLaunch();
         if (bridge != null) {
             bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
         }
+        deliverPendingAppLink();
         deliverPendingConnect();
         deliverPendingNewChat();
     }
 
     @Override
+    protected void load() {
+        List<Class<? extends Plugin>> plugins;
+        try {
+            plugins = new PluginManager(getAssets()).loadPluginClasses();
+            plugins.removeIf(PushNotificationsPlugin.class::equals);
+        } catch (PluginLoadException exception) {
+            Logger.error("Unable to load Capacitor plugins", exception);
+            plugins = new ArrayList<>();
+        }
+        bridgeBuilder.setPlugins(plugins);
+        registerPlugin(NativeAuthPlugin.class);
+        registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(AndroidNotificationSettingsPlugin.class);
+        registerPlugin(AndroidPushRegistrationPlugin.class);
+        registerPlugin(VoiceAudioSessionPlugin.class);
+        registerPlugin(VoiceLiveActivityPlugin.class);
+        registerPlugin(SafePushNotificationsPlugin.class);
+        super.load();
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
+        URI appLink = consumeAppLinkIntent(intent);
+        if (appLink != null) {
+            super.onNewIntent(withoutData(intent));
+            pendingAppLink = appLink;
+            deliverPendingAppLink();
+            return;
+        }
+
         VoiceDeepLink.Command voiceCommand = VoiceDeepLink.parse(
             intent,
             getString(R.string.vellum_auth_scheme)
@@ -141,6 +174,27 @@ public class MainActivity extends BridgeActivity {
             && ConnectDeepLink.handles(intent.getDataString(), getString(R.string.vellum_auth_scheme));
     }
 
+    private URI consumeAppLinkIntent(Intent intent) {
+        if (
+            intent == null
+                || !Intent.ACTION_VIEW.equals(intent.getAction())
+                || effectiveServer != null
+                || pendingConnect != null
+        ) {
+            return null;
+        }
+        URI appLink = AndroidAppLink.parse(
+            intent.getDataString(),
+            getString(R.string.vellum_auth_host)
+        );
+        if (appLink == null) {
+            return null;
+        }
+        intent.setData(null);
+        setIntent(withoutData(intent));
+        return appLink;
+    }
+
     private Intent withoutData(Intent intent) {
         Intent sanitized = intent == null ? new Intent() : new Intent(intent);
         sanitized.setData(null);
@@ -152,6 +206,19 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         bridge.getWebView().loadUrl(pendingConnect.pairPage().toASCIIString());
+    }
+
+    private void deliverPendingAppLink() {
+        if (pendingAppLink == null || bridge == null) {
+            return;
+        }
+        if (effectiveServer != null || pendingConnect != null) {
+            pendingAppLink = null;
+            return;
+        }
+        URI appLink = pendingAppLink;
+        pendingAppLink = null;
+        bridge.getWebView().loadUrl(appLink.toASCIIString());
     }
 
     private void finishPendingConnect(String loadedUrl) {

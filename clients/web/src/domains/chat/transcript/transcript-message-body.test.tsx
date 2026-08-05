@@ -701,6 +701,88 @@ describe("TranscriptMessageBody", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
+  test("renders the answered question card for a settled ask_question", () => {
+    const { queryByTestId, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "answered-response",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-ask",
+              name: "ask_question",
+              input: {},
+              completedAt: 1,
+              answeredQuestion: {
+                requestId: "req-1",
+                questions: [
+                  {
+                    id: "q1",
+                    question: "Which Alice?",
+                    options: [{ id: "alice_work", label: "Alice (work)" }],
+                  },
+                ],
+                responses: [
+                  {
+                    questionId: "q1",
+                    decision: "option",
+                    optionId: "alice_work",
+                  },
+                ],
+                overall: "completed",
+              },
+            }),
+            textBlock("Booking with Alice (work)."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // The answer is content the conversation keeps, so it stays out of the
+    // collapsed "Earlier activity" run that swallows plain completed tools.
+    expect(queryByTestId("answered-question-card")).not.toBeNull();
+    expect(queryByText("Which Alice?")).not.toBeNull();
+    expect(queryByText("Alice (work)")).not.toBeNull();
+    // The card supersedes the raw chip, so the question and answer appear once.
+    expect(queryByTestId("inline-tool-link")).toBeNull();
+    expect(queryByTestId("tool-progress-card")).toBeNull();
+  });
+
+  test("falls back to the raw chip when an answered record has no questions", () => {
+    // The card draws nothing for an empty record, so suppression must not fire
+    // on the field's mere presence: otherwise the step renders neither a card
+    // nor a chip and disappears from the conversation. The daemon cannot write
+    // this, but a truncated persisted row satisfies the wire schema.
+    const { queryByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "empty-answer-response",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-ask-empty",
+              name: "ask_question",
+              input: {},
+              completedAt: 1,
+              answeredQuestion: {
+                requestId: "req-1",
+                questions: [],
+                responses: [],
+                overall: "completed",
+              },
+            }),
+          ],
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(queryByTestId("answered-question-card")).toBeNull();
+    expect(queryByTestId("inline-tool-link")).not.toBeNull();
+  });
+
   test("keeps completed assistant activity visible when the flag is disabled", () => {
     useClientFeatureFlagStore.setState({
       collapseAssistantIntermediates: false,
@@ -836,7 +918,8 @@ describe("TranscriptMessageBody", () => {
     const secondText = getByText("I will summarize it.");
     const finalText = getByText("Here are the results.");
     expect(
-      firstText.compareDocumentPosition(image!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      firstText.compareDocumentPosition(image!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
       image!.compareDocumentPosition(secondText) &

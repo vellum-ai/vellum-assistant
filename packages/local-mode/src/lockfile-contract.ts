@@ -77,6 +77,78 @@ export function resolveCloud(raw: {
 }
 
 /**
+ * Whether an entry's `runtimeUrl` is one a serving host can forward to: an
+ * absolute http(s) URL. Shared by the renderer's paired-gateway URL derivation
+ * and the host-side paired allowlist reader so the two can't drift.
+ */
+export function isUsableRuntimeUrl(url: unknown): boolean {
+  if (typeof url !== "string" || url === "") {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * User-facing hosting label for a paired entry: "Paired · <hostname>" when
+ * `runtimeUrl` names the remote host, plain "Paired" otherwise. Shared by the
+ * macOS tray switcher and the web chooser so their renderings cannot drift.
+ */
+export function pairedHostLabel(runtimeUrl: string | undefined): string {
+  if (runtimeUrl) {
+    try {
+      return `Paired · ${new URL(runtimeUrl).hostname}`;
+    } catch {
+      // Unparseable runtimeUrl: plain "Paired".
+    }
+  }
+  return "Paired";
+}
+
+/**
+ * Clouds whose gateway listens on a loopback port of this machine: the
+ * on-machine daemon ("local") and local Docker instances ("docker").
+ */
+export const LOOPBACK_GATEWAY_CLOUDS: readonly Cloud[] = ["local", "docker"];
+
+export function isLoopbackGatewayCloud(cloud: Cloud): boolean {
+  return LOOPBACK_GATEWAY_CLOUDS.includes(cloud);
+}
+
+/**
+ * The loopback gateway port recorded for an assistant entry:
+ * `resources.gatewayPort` when present, else the port of a loopback
+ * `runtimeUrl` (how docker hatch records its published gateway). A
+ * non-loopback `runtimeUrl` yields nothing.
+ */
+export function getLoopbackGatewayPort(entry: {
+  resources?: { gatewayPort?: number };
+  runtimeUrl?: string;
+}): number | undefined {
+  const recorded = entry.resources?.gatewayPort;
+  if (recorded != null) {
+    return recorded;
+  }
+  if (!entry.runtimeUrl) {
+    return undefined;
+  }
+  try {
+    const url = new URL(entry.runtimeUrl);
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      return undefined;
+    }
+    const port = Number(url.port);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Per-instance resources for a local assistant: the renderer-facing subset of
  * ports, the instance directory, and the local runtime install metadata.
  * Richer host-only fields (other ports, the signing key) live on the CLI's

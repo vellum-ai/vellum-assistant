@@ -59,6 +59,20 @@ export async function isConversationProcessing(id: string): Promise<boolean> {
   return fn(id);
 }
 
+/**
+ * The persisted `processing_started_at` stamp for a conversation, or null
+ * when the conversation is idle (or the row does not exist). Lets background
+ * consumers age-gate the processing flag: a stamp far in the past is a
+ * stranded flag (a swallowed turn-end clear), not a live turn.
+ */
+export async function getConversationProcessingStartedAt(
+  id: string,
+): Promise<number | null> {
+  const { getConversationProcessingStartedAt: fn } =
+    await import("./conversation-crud.js");
+  return fn(id);
+}
+
 /** Parse a stored message-metadata JSON string; undefined when absent/invalid. */
 export async function parseMessageMetadata(
   metadataJson: string | null,

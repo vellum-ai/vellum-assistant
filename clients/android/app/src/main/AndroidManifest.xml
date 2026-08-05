@@ -91,6 +91,54 @@
                     android:host="voice" />
             </intent-filter>
 
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant/pair" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:pathPrefix="/assistant/conversations/" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant/settings/voice" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/account/oauth/complete" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant/checkout" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant/plans" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant/settings/billing" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:pathPrefix="/assistant/settings/billing/" />
+                <data
+                    android:scheme="https"
+                    android:host="${vellumAppLinkHost}"
+                    android:path="/assistant/settings/usage" />
+            </intent-filter>
+
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />

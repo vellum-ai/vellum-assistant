@@ -264,6 +264,20 @@ export const messageMetadataSchema = z
      * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * True when the `client.os` above was reported by this row's own request
+     * or transport rather than inherited from the conversation's live client
+     * state. `Conversation.clientOs` is refreshed only by a message that
+     * carries transport metadata, so a transport-less turn (surface action,
+     * signal ingress) stamps the OS of an earlier send. Consumers that must
+     * not misattribute a turn to a surface require this marker (the
+     * `chat.assistant_reply` presence gate, which drops the push when the Mac
+     * that opened the turn is attended). Absent reads as "origin unknown".
+     * Deliberately a sibling of `client` rather than an entry inside it:
+     * `turn-events-store` forwards `$.client` verbatim onto
+     * `TurnTelemetryEvent.client`.
+     */
+    clientOsFromRequest: z.boolean().optional(),
     subagentNotification: subagentNotificationSchema.optional(),
     acpNotification: acpNotificationSchema.optional(),
     /**
@@ -958,6 +972,14 @@ export function createConversation(
          * `forkParentConversationId` it implies no history inheritance.
          */
         parentConversationId?: string;
+        /**
+         * Role of the subagent that owns this conversation, and how it was
+         * spawned. Persisted here (not only on the ephemeral `subagents` row)
+         * so usage telemetry can decompose delegated spend by variety long
+         * after the subagent record is disposed. See migration 362.
+         */
+        subagentRole?: string;
+        subagentSpawnMode?: string;
       },
 ) {
   const db = getDb();
@@ -1001,6 +1023,8 @@ export function createConversation(
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     parentConversationId: opts.parentConversationId ?? null,
+    subagentRole: opts.subagentRole ?? null,
+    subagentSpawnMode: opts.subagentSpawnMode ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
@@ -2822,6 +2846,21 @@ export function isConversationProcessing(id: string): boolean {
     id,
   );
   return row?.processing_started_at != null;
+}
+
+/**
+ * The persisted `processing_started_at` stamp, or null when idle or missing.
+ * Deliberately reads only the column (no in-memory fallback): consumers use
+ * it to age a flag {@link isConversationProcessing} already reported set, and
+ * the column is the only signal that carries a start time.
+ */
+export function getConversationProcessingStartedAt(id: string): number | null {
+  const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:getProcessingStartedAt",
+    "SELECT processing_started_at FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.processing_started_at ?? null;
 }
 
 /**

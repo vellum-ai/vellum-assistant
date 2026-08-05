@@ -333,6 +333,11 @@
   --system-negative-strong: #DA491A;
   --system-negative-hover: #E86B40;
   --system-negative-weak: #F7DAC9;
+  /* Strong tone to use when the glyph sits on its own weak fill. Tracks
+     *-strong except in dark, where negative-strong drops under 3:1 on
+     negative-weak. */
+  --system-positive-on-weak: #277E41;
+  --system-negative-on-weak: #DA491A;
   --system-mid-strong: #F1B21E;
   --system-mid-weak: #FCF3DD;
   --system-info-strong: #467CC8;
@@ -415,6 +420,10 @@
   --system-negative-strong: #DA491A;
   --system-negative-hover: #AB3F1C;
   --system-negative-weak: #4F2D24;
+  --system-positive-on-weak: #309C50;
+  /* Not negative-strong: #DA491A measures 2.86:1 on #4F2D24. #E86B40 is
+     3.81:1, clearing the 3:1 WCAG 1.4.11 asks of non-text indicators. */
+  --system-negative-on-weak: #E86B40;
   --system-mid-strong: #F1B21E;
   --system-mid-weak: #4B3D1E;
   --system-info-strong: #467CC8;
@@ -501,6 +510,8 @@
   --system-negative-strong: #EF4444;
   --system-negative-hover: #F87171;
   --system-negative-weak: #3A2024;
+  --system-positive-on-weak: #E83F5B;
+  --system-negative-on-weak: #EF4444;
   --system-mid-strong: #F1B21E;
   --system-mid-weak: #42321C;
   --system-info-strong: #467CC8;

@@ -15,13 +15,25 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
+import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
 
 const log = getLogger("conversation-key-store");
 
-/** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
+/**
+ * Set after the first *standard* conversation is created so BOOTSTRAP.md is
+ * deleted on the second. Background creates never touch it.
+ */
 let firstConversationSeen = false;
+
+/**
+ * Test-only reset of the process-global first-conversation flag, so a test file
+ * can replay the "fresh install" sequence more than once.
+ */
+export function _resetFirstConversationSeenForTesting(): void {
+  firstConversationSeen = false;
+}
 
 export interface ConversationKeyMapping {
   id: string;
@@ -142,7 +154,7 @@ export function resolveConversationId(idOrKey: string): string | null {
 export function getOrCreateConversation(
   conversationKey: string,
   opts?: {
-    conversationType?: "standard";
+    conversationType?: NonScheduledConversationType;
     /**
      * Caller-supplied title for the conversation, used only when this call
      * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
@@ -209,14 +221,16 @@ export function getOrCreateConversation(
       };
     }
 
-    // Delete BOOTSTRAP.md when a non-first conversation is created.
-    // The first conversation is the onboarding one; keep BOOTSTRAP.md
-    // for its entire duration. Any subsequent conversation means
-    // onboarding is over.
-    if (firstConversationSeen) {
-      cleanupBootstrapFiles("new conversation created after onboarding");
+    // The first standard conversation is the onboarding one, so BOOTSTRAP.md
+    // survives its whole duration and any later standard create means
+    // onboarding is over. Background rows stay inert: a hidden side thread
+    // minted before the user's first visible chat must not consume that slot.
+    if (conversationType === "standard") {
+      if (firstConversationSeen) {
+        cleanupBootstrapFiles("new conversation created after onboarding");
+      }
+      firstConversationSeen = true;
     }
-    firstConversationSeen = true;
 
     const now = Date.now();
     const conversationId = uuid();

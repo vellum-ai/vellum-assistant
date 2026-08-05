@@ -40,8 +40,8 @@ export interface IdentitySectionStat {
   label?: string;
   /** Plain one-liner for sections without a countable stat. */
   text?: string;
-  /** Persisted personality slider values, plotted as a radar chart. */
-  radar?: Record<string, number>;
+  /** Persisted personality slider values, drawn as the signature mark. */
+  signature?: Record<string, number>;
   /** Upcoming enabled schedules (soonest first) + how many were cut. */
   schedules?: { items: SchedulePreview[]; more: number };
 }
@@ -129,7 +129,7 @@ export function useIdentitySectionStats(
     ...common,
   });
   // Shares the personality page's query key, so applying an update there
-  // refreshes the card's radar too.
+  // refreshes the card's signature too.
   const sliders = useQuery({
     queryKey: personalitySlidersQueryKey(assistantId),
     queryFn: () => fetchPersonalitySliders(assistantId),
@@ -140,10 +140,10 @@ export function useIdentitySectionStats(
     personality: {
       // `null` means the sidecar was never persisted (onboarded before it
       // was saved, or never touched the sliders) — fall back to the
-      // all-centered neutral shape instead of a blank card. `undefined`
+      // all-centered flat line instead of a blank card. `undefined`
       // covers still-loading and read errors, which stay a no-stat card so a
-      // transient failure never overwrites saved dials with a neutral radar.
-      radar:
+      // transient failure never overwrites saved dials with a neutral mark.
+      signature:
         sliders.data !== undefined
           ? completeSliderValues(sliders.data ?? {})
           : undefined,

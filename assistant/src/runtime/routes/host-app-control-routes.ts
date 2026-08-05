@@ -19,6 +19,7 @@ import type {
   HostAppControlResultPayload,
   HostAppControlState,
 } from "../../daemon/message-types/host-app-control.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -118,6 +119,7 @@ async function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId: peeked.targetClientId,
       op: "host_app_control",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 

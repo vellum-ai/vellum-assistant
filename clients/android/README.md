@@ -54,6 +54,39 @@ origin and native auth host agree.
 Launcher and splash colors also distinguish production, staging, and dev
 installs.
 
+## HTTPS App Links
+
+Each flavor claims only its own web host. The verified routes are the app root,
+pairing, conversations, voice settings, OAuth completion, and billing pages.
+Other paths stay in the browser. Incoming links navigate the existing WebView
+with their query string and fragment intact.
+
+A shell paired to a self-hosted assistant keeps its current server when a
+Vellum Cloud App Link arrives. App Links do not interrupt pairing or switch a
+self-hosted WebView to Vellum Cloud.
+
+Android verifies a claim only after the matching host serves
+`/.well-known/assetlinks.json` with HTTP 200, `application/json`, and no
+redirect. Each statement must use the application ID in the Build Variants
+table and real SHA-256 fingerprints for every certificate that signs that
+flavor. Play App Signing fingerprints must come from Play Console. Do not use
+an upload-certificate fingerprint as a substitute.
+
+The existing custom schemes remain supported for native auth, pairing, billing
+completion, and voice commands. HTTPS App Links are additive.
+
+After the Digital Asset Links file is deployed, install the matching build on
+a physical device and check verification with:
+
+```bash
+adb shell pm get-app-links ai.vellum.assistant
+adb shell am start -a android.intent.action.VIEW \
+  -c android.intent.category.BROWSABLE \
+  -d 'https://www.vellum.ai/assistant/conversations/conv-xyz?message=message-123#reply'
+```
+
+Use the suffixed application ID and matching host when checking staging or dev.
+
 ## Native Auth
 
 The `NativeAuth` Capacitor plugin opens WorkOS AuthKit in the system browser,

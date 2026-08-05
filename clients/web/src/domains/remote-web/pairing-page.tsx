@@ -7,6 +7,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { Button } from "@vellumai/design-library/components/button";
+
 import { NotFound } from "@/components/not-found";
 import {
   activateRemoteGatewaySession,
@@ -18,10 +20,7 @@ import {
 } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
-import {
-  isAndroidBrowser,
-  isIOSBrowser,
-} from "@/runtime/platform-detection";
+import { isAndroidBrowser, isIOSBrowser } from "@/runtime/platform-detection";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 
@@ -81,10 +80,20 @@ function statusCopy(state: PairingState): { title: string; body: string } {
 
 function StatusIcon({ state }: { state: PairingState }) {
   if (state.kind === "approved") {
-    return <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />;
+    return (
+      <CheckCircle2
+        className="h-5 w-5 text-[var(--system-positive-strong)]"
+        aria-hidden
+      />
+    );
   }
   if (state.kind === "handoff_choice") {
-    return <Smartphone className="h-5 w-5 text-blue-600" aria-hidden />;
+    return (
+      <Smartphone
+        className="h-5 w-5 text-[var(--system-info-strong)]"
+        aria-hidden
+      />
+    );
   }
   if (
     state.kind === "starting" ||
@@ -93,12 +102,17 @@ function StatusIcon({ state }: { state: PairingState }) {
   ) {
     return (
       <LoaderCircle
-        className="h-5 w-5 animate-spin text-blue-600"
+        className="h-5 w-5 animate-spin text-[var(--system-info-strong)]"
         aria-hidden
       />
     );
   }
-  return <AlertCircle className="h-5 w-5 text-red-600" aria-hidden />;
+  return (
+    <AlertCircle
+      className="h-5 w-5 text-[var(--system-negative-strong)]"
+      aria-hidden
+    />
+  );
 }
 
 /**
@@ -179,19 +193,12 @@ function PairingHandoffActions({
 
   return (
     <div className="mt-6 flex flex-col gap-3">
-      <a
-        href={appLink}
-        className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
-      >
-        Open in the Vellum app
-      </a>
-      <button
-        type="button"
-        onClick={onContinueInBrowser}
-        className="inline-flex items-center justify-center rounded-md border border-[var(--border-element)] bg-[var(--background-surface)] px-4 py-2.5 text-sm font-medium text-[var(--content-primary)] transition-colors hover:bg-[var(--background-muted)]"
-      >
+      <Button variant="primary" fullWidth asChild>
+        <a href={appLink}>Open in the Vellum app</a>
+      </Button>
+      <Button variant="outlined" fullWidth onClick={onContinueInBrowser}>
         Continue in this browser
-      </button>
+      </Button>
     </div>
   );
 }
@@ -215,18 +222,15 @@ export function RemoteWebPairingPage() {
   // A phone that scanned the pairing QR with its camera lands here in a browser.
   // If the Vellum app is installed we offer to hand the pairing to it before
   // burning the single-use code, never inside a native shell that pairs directly.
-  const appHandoffPlatform = useMemo<AppHandoffPlatform | null>(
-    () => {
-      if (!params.deviceCode || isNativePlatform()) {
-        return null;
-      }
-      if (isAndroidBrowser()) {
-        return "android";
-      }
-      return isIOSBrowser() ? "ios" : null;
-    },
-    [params.deviceCode],
-  );
+  const appHandoffPlatform = useMemo<AppHandoffPlatform | null>(() => {
+    if (!params.deviceCode || isNativePlatform()) {
+      return null;
+    }
+    if (isAndroidBrowser()) {
+      return "android";
+    }
+    return isIOSBrowser() ? "ios" : null;
+  }, [params.deviceCode]);
 
   const [pairing, setPairing] = useState<PairingDetails | null>(() =>
     params.deviceCode
@@ -383,25 +387,27 @@ export function RemoteWebPairingPage() {
   const copy = statusCopy(state);
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--background-default)] px-6 py-10 text-[var(--content-primary)]">
-      <section className="w-full max-w-md rounded-lg border border-[var(--border-element)] bg-[var(--background-surface)] p-8 shadow-sm">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--surface-base)] px-6 py-10 text-[var(--content-default)]">
+      <section className="w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-8 shadow-[var(--shadow-sm)]">
         <div className="mb-5 flex items-center gap-3">
           <StatusIcon state={state} />
-          <h1 className="text-xl font-semibold">{copy.title}</h1>
+          <h1 className="text-title-medium text-[var(--content-emphasised)]">
+            {copy.title}
+          </h1>
         </div>
 
         {state.kind === "polling" && pairing?.userCode ? (
-          <div className="mb-5 rounded-md border border-[var(--border-subtle)] bg-[var(--background-muted)] p-4 text-center">
-            <div className="text-xs font-medium uppercase text-[var(--content-secondary)]">
+          <div className="mb-5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4 text-center">
+            <div className="text-label-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
               Pairing code
             </div>
-            <div className="mt-2 font-mono text-3xl font-semibold tracking-[0.18em]">
+            <div className="mt-2 font-mono text-3xl font-semibold tracking-[0.18em] text-[var(--content-emphasised)]">
               {pairing.userCode}
             </div>
           </div>
         ) : null}
 
-        <p className="text-sm leading-6 text-[var(--content-secondary)]">
+        <p className="text-body-medium-lighter leading-6 text-[var(--content-secondary)]">
           {copy.body}
         </p>
 
@@ -414,7 +420,7 @@ export function RemoteWebPairingPage() {
         ) : null}
 
         {state.kind === "polling" && state.expiresAt ? (
-          <p className="mt-4 text-xs text-[var(--content-tertiary)]">
+          <p className="text-body-small-lighter mt-4 text-[var(--content-tertiary)]">
             Expires {new Date(state.expiresAt).toLocaleTimeString()}.
           </p>
         ) : null}

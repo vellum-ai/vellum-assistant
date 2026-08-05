@@ -131,7 +131,10 @@ export const hostFileWriteTool = {
 
     const ops = new FileSystemOps(hostPolicy);
 
-    const result = ops.writeFileSafe({ path: rawPath, content: fileContent });
+    const result = await ops.writeFileSafe({
+      path: rawPath,
+      content: fileContent,
+    });
 
     if (!result.ok) {
       const { error } = result;

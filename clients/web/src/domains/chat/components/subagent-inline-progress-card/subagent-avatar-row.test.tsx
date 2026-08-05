@@ -90,4 +90,18 @@ describe("SubagentAvatarRow", () => {
     fireEvent.click(getAllByTestId("subagent-avatar-badge")[0]);
     expect(expanded).toBe(1);
   });
+
+  test("the row and its avatar stack both wrap so a full row cannot clip", () => {
+    const ids = spawnIds(MAX_VISIBLE_SUBAGENT_AVATARS + 3);
+    const { getByTestId } = render(
+      <SubagentAvatarRow subagentIds={ids} onExpand={() => {}} />,
+    );
+
+    // At the cap the row is wider than any phone in portrait leaves, and the
+    // transcript wrapper is `contain-content`, so without wrapping the
+    // Details affordance is clipped instead of overflowing visibly.
+    const row = getByTestId("subagent-avatar-row-details");
+    expect(row.className).toContain("flex-wrap");
+    expect(row.firstElementChild?.className).toContain("flex-wrap");
+  });
 });

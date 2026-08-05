@@ -356,7 +356,7 @@ export const defaultToolErrorPlugin: Plugin = {
  * file_list) with no user-facing text, or (on loop-prone models such as Kimi
  * K2.6 and MiniMax M3) the model re-issuing a byte-identical exploration call — and nudges
  * the model via `additionalContext` to summarize progress for the user and
- * delegate the remaining investigation to an `investigator` subagent rather
+ * delegate the remaining investigation to a `researcher` subagent rather
  * than continuing inline.
  */
 export const defaultExplorationDriftPlugin: Plugin = {

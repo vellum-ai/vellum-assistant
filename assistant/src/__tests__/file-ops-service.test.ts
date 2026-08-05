@@ -44,12 +44,12 @@ function sandboxPolicyFor(boundary: string): PathPolicy {
 // ---------------------------------------------------------------------------
 
 describe("FileSystemOps.readFileSafe", () => {
-  test("reads a file successfully", () => {
+  test("reads a file successfully", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "hello.txt"), "line one\nline two\nline three\n");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.readFileSafe({ path: "hello.txt" });
+    const result = await ops.readFileSafe({ path: "hello.txt" });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -59,11 +59,11 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(result.value.content).toContain("line three");
   });
 
-  test("returns NOT_FOUND for missing file", () => {
+  test("returns NOT_FOUND for missing file", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.readFileSafe({ path: "nonexistent.txt" });
+    const result = await ops.readFileSafe({ path: "nonexistent.txt" });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
@@ -71,12 +71,12 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
-  test("returns NOT_A_FILE for a directory", () => {
+  test("returns NOT_A_FILE for a directory", async () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, "subdir"));
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.readFileSafe({ path: "subdir" });
+    const result = await ops.readFileSafe({ path: "subdir" });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
@@ -84,13 +84,13 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(result.error.code).toBe("NOT_A_FILE");
   });
 
-  test("returns SIZE_LIMIT_EXCEEDED for oversized file", () => {
+  test("returns SIZE_LIMIT_EXCEEDED for oversized file", async () => {
     const dir = makeTempDir();
     const filePath = join(dir, "big.txt");
     writeFileSync(filePath, "x".repeat(200));
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 100 });
-    const result = ops.readFileSafe({ path: "big.txt" });
+    const result = await ops.readFileSafe({ path: "big.txt" });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
@@ -98,11 +98,11 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(result.error.code).toBe("SIZE_LIMIT_EXCEEDED");
   });
 
-  test("returns PATH_OUT_OF_BOUNDS for path outside sandbox", () => {
+  test("returns PATH_OUT_OF_BOUNDS for path outside sandbox", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.readFileSafe({ path: "../../../etc/passwd" });
+    const result = await ops.readFileSafe({ path: "../../../etc/passwd" });
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
@@ -110,12 +110,16 @@ describe("FileSystemOps.readFileSafe", () => {
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 
-  test("respects offset and limit", () => {
+  test("respects offset and limit", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "lines.txt"), "a\nb\nc\nd\ne\n");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.readFileSafe({ path: "lines.txt", offset: 2, limit: 2 });
+    const result = await ops.readFileSafe({
+      path: "lines.txt",
+      offset: 2,
+      limit: 2,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
@@ -132,11 +136,11 @@ describe("FileSystemOps.readFileSafe", () => {
 // ---------------------------------------------------------------------------
 
 describe("FileSystemOps.writeFileSafe", () => {
-  test("writes a new file", () => {
+  test("writes a new file", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.writeFileSafe({
+    const result = await ops.writeFileSafe({
       path: "new.txt",
       content: "hello world",
     });
@@ -150,12 +154,12 @@ describe("FileSystemOps.writeFileSafe", () => {
     expect(existsSync(join(dir, "new.txt"))).toBe(true);
   });
 
-  test("overwrites an existing file and returns old content", () => {
+  test("overwrites an existing file and returns old content", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "existing.txt"), "old stuff");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.writeFileSafe({
+    const result = await ops.writeFileSafe({
       path: "existing.txt",
       content: "new stuff",
     });
@@ -168,11 +172,11 @@ describe("FileSystemOps.writeFileSafe", () => {
     expect(result.value.newContent).toBe("new stuff");
   });
 
-  test("creates parent directories when needed", () => {
+  test("creates parent directories when needed", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.writeFileSafe({
+    const result = await ops.writeFileSafe({
       path: "a/b/c/deep.txt",
       content: "deep",
     });
@@ -184,11 +188,11 @@ describe("FileSystemOps.writeFileSafe", () => {
     expect(existsSync(join(dir, "a/b/c/deep.txt"))).toBe(true);
   });
 
-  test("returns PATH_OUT_OF_BOUNDS for path outside sandbox", () => {
+  test("returns PATH_OUT_OF_BOUNDS for path outside sandbox", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.writeFileSafe({
+    const result = await ops.writeFileSafe({
       path: "../../../tmp/evil.txt",
       content: "bad",
     });
@@ -199,11 +203,11 @@ describe("FileSystemOps.writeFileSafe", () => {
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 
-  test("returns SIZE_LIMIT_EXCEEDED for oversized content", () => {
+  test("returns SIZE_LIMIT_EXCEEDED for oversized content", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 10 });
 
-    const result = ops.writeFileSafe({
+    const result = await ops.writeFileSafe({
       path: "big.txt",
       content: "x".repeat(50),
     });
@@ -220,11 +224,43 @@ describe("FileSystemOps.writeFileSafe", () => {
 // ---------------------------------------------------------------------------
 
 describe("FileSystemOps.editFileSafe", () => {
-  test("returns NOT_FOUND for nonexistent file", () => {
+  test("concurrent edits of the same file both land", async () => {
+    const dir = makeTempDir();
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+    writeFileSync(join(dir, "shared.txt"), "alpha\nbeta\n");
+
+    // Without per-path serialization, both edits read the same original
+    // content and the later write drops the earlier edit.
+    const [first, second] = await Promise.all([
+      ops.editFileSafe({
+        path: "shared.txt",
+        oldString: "alpha",
+        newString: "ALPHA",
+        replaceAll: false,
+      }),
+      ops.editFileSafe({
+        path: "shared.txt",
+        oldString: "beta",
+        newString: "BETA",
+        replaceAll: false,
+      }),
+    ]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    const read = await ops.readFileSafe({ path: "shared.txt" });
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.value.content).toContain("ALPHA");
+      expect(read.value.content).toContain("BETA");
+    }
+  });
+
+  test("returns NOT_FOUND for nonexistent file", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "nope.txt",
       oldString: "a",
       newString: "b",
@@ -237,12 +273,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
-  test("returns NOT_A_FILE when target is a directory", () => {
+  test("returns NOT_A_FILE when target is a directory", async () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, "subdir"));
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "subdir",
       oldString: "a",
       newString: "b",
@@ -255,12 +291,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.error.code).toBe("NOT_A_FILE");
   });
 
-  test("returns MATCH_NOT_FOUND when old_string is absent", () => {
+  test("returns MATCH_NOT_FOUND when old_string is absent", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "hello world");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "file.txt",
       oldString: "xyz",
       newString: "abc",
@@ -273,12 +309,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.error.code).toBe("MATCH_NOT_FOUND");
   });
 
-  test("returns MATCH_AMBIGUOUS when old_string matches multiple times", () => {
+  test("returns MATCH_AMBIGUOUS when old_string matches multiple times", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "foo bar foo baz foo");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "file.txt",
       oldString: "foo",
       newString: "qux",
@@ -291,12 +327,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.error.code).toBe("MATCH_AMBIGUOUS");
   });
 
-  test("replaces all occurrences when replaceAll is true", () => {
+  test("replaces all occurrences when replaceAll is true", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "foo bar foo baz foo");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "file.txt",
       oldString: "foo",
       newString: "qux",
@@ -312,12 +348,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.value.matchMethod).toBe("exact");
   });
 
-  test("performs a unique edit successfully", () => {
+  test("performs a unique edit successfully", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "one two three");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "file.txt",
       oldString: "two",
       newString: "TWO",
@@ -333,12 +369,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.value.filePath).toContain("file.txt");
   });
 
-  test("returns MATCH_NOT_FOUND for empty oldString", () => {
+  test("returns MATCH_NOT_FOUND for empty oldString", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "file.txt"), "hello world");
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "file.txt",
       oldString: "",
       newString: "injected",
@@ -351,12 +387,12 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.error.code).toBe("MATCH_NOT_FOUND");
   });
 
-  test("returns SIZE_LIMIT_EXCEEDED for oversized file on edit", () => {
+  test("returns SIZE_LIMIT_EXCEEDED for oversized file on edit", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "big.txt"), "x".repeat(200));
     const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 100 });
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "big.txt",
       oldString: "x",
       newString: "y",
@@ -369,11 +405,11 @@ describe("FileSystemOps.editFileSafe", () => {
     expect(result.error.code).toBe("SIZE_LIMIT_EXCEEDED");
   });
 
-  test("returns PATH_OUT_OF_BOUNDS for path outside sandbox", () => {
+  test("returns PATH_OUT_OF_BOUNDS for path outside sandbox", async () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: "../../../etc/passwd",
       oldString: "root",
       newString: "toor",

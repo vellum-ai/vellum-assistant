@@ -380,6 +380,56 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
       voiceSessionTurn: true,
     });
   });
+
+  test("a live-voice turn persists its session attribution under metadata.client", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceTelemetry: { sessionId: "session-123", client: "ios" },
+    });
+
+    // `turn-events-store` projects `$.client` onto `TurnTelemetryEvent.client`,
+    // so this bag is what makes a voice turn countable per client and joinable
+    // to its session's funnel rows. The platform goes in `os`, the same key
+    // the HTTP send path fills, so voice turns sit in the column existing turn
+    // analytics already read.
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+      client: {
+        voice: true,
+        voice_session_id: "session-123",
+        os: "ios",
+      },
+    });
+  });
+
+  test("omits the client key when the session reported no originating client", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceTelemetry: { sessionId: "session-123" },
+    });
+
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+      client: { voice: true, voice_session_id: "session-123" },
+    });
+  });
+
+  test("a phone turn carries no client bag", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions());
+
+    // Only live-voice sessions pass `voiceTelemetry`; a phone call has no
+    // live-voice session id to attribute a turn to.
+    expect(fake.lastPersistOpts()?.metadata).not.toHaveProperty("client");
+  });
 });
 
 describe("startVoiceTurn hiddenSyntheticPrompt", () => {

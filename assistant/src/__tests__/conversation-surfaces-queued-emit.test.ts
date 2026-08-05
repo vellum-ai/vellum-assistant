@@ -1,24 +1,25 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
-  type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 const CONV_ID = "surfaces-queued-emit-conv";
 
 /**
- * Minimal SurfaceConversationContext whose `enqueueMessage` behaves like the
+ * Minimal Conversation whose `enqueueMessage` behaves like the
  * real one on the queued path: it acks the accepted enqueue by emitting
  * `message_queued` on the caller-supplied `onEvent` sink, then reports
  * `queued: true`.
  */
-function makeQueuedContext(): SurfaceConversationContext {
-  return {
+function makeQueuedContext(): Conversation {
+  return asConversation({
     conversationId: CONV_ID,
     sendToClient: () => {},
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -45,7 +46,7 @@ function makeQueuedContext(): SurfaceConversationContext {
     getQueueDepth: () => 1,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
-  };
+  });
 }
 
 describe("surface action queued path", () => {

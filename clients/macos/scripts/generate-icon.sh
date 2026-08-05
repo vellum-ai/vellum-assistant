@@ -245,6 +245,14 @@ iconutil --convert icns --output "$OUTPUT_DIR/icon.icns" "$ICONSET_DIR"
 
 echo "generate-icon: wrote $OUTPUT_DIR/icon.icns ($VELLUM_ENVIRONMENT)"
 
+# actool ships with full Xcode, not the Command Line Tools. Without it there is
+# no Assets.car, so Finder falls back to the icon.icns written above via
+# CFBundleIconFile. afterPack.js copies Assets.car only when it exists.
+if ! xcrun -f actool >/dev/null 2>&1; then
+    echo "generate-icon: actool unavailable (requires full Xcode); skipping Assets.car, using icon.icns fallback." >&2
+    exit 0
+fi
+
 # Compile the Icon Composer .icon bundle into Assets.car so Finder/Dock can use
 # the Liquid Glass icon on Tahoe and actool's rounded raster fallback on pre-Tahoe.
 # The .icns above is a full-bleed square (required for Tahoe edge-alpha check) and

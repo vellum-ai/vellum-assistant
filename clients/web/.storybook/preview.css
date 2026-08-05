@@ -1,9 +1,26 @@
-@import "tailwindcss";
-@import "@vellumai/design-library/tokens.css";
-@source "../src/**/*.{ts,tsx}";
+/* Storybook renders the same components the app does, so it loads the app's
+ * own global stylesheet. `src/index.css` carries Tailwind, the design tokens,
+ * the app-global classes (`.skeleton-shimmer`), and the custom variants
+ * (`native-ios:`), and importing it is what makes a story look like the app
+ * rather than like an approximation of it.
+ *
+ * Tailwind's source detection roots at the stylesheet that imports it, so
+ * pulling Tailwind in through `src/index.css` covers everything under `src/`
+ * with no separate `@source`, exactly as it does for the app.
+ *
+ * Add global styles to `src/index.css`, never here. This file carries only
+ * what the *canvas* needs and the app shell would otherwise provide.
+ */
+@import "../src/index.css";
 
+/* The app paints its backdrop from the shell (and, on the iOS shell, from
+ * `index.css`'s native-platform rule). Storybook has no shell, so the canvas
+ * paints it here, which is what puts surfaces on the contrast they have in
+ * the app. The transition keeps the theme toggle from snapping. `color` comes
+ * from `index.css`'s own `body` rule. */
 body {
   background: var(--surface-base);
-  color: var(--content-default);
-  transition: background-color 200ms, color 200ms;
+  transition:
+    background-color 200ms,
+    color 200ms;
 }

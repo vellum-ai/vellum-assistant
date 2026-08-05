@@ -33,7 +33,6 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -52,8 +51,8 @@ export interface OverridesDetailPanelProps {
 
 /**
  * Sidepanel host for the Action Overrides editor (the Overrides section's
- * Manage action): search, apply-to-all, and per-call-site rows grouped by
- * domain in the scrollable body, with Save / Reset pinned in the
+ * Manage action): search, the Advisor row, and per-call-site rows grouped
+ * by domain in the scrollable body, with Save / Reset pinned in the
  * DetailShell footer so a long catalog never hides the actions. Hosts
  * remount the panel per open so draft state resets.
  */
@@ -97,7 +96,6 @@ export function OverridesDetailPanel({
   });
 
   const [search, setSearch] = useState("");
-  const [applyAllProfile, setApplyAllProfile] = useState("");
   const [draftEdits, setDraftEdits] = useState<
     Record<string, CallSiteOverrideDraft | null>
   >({});
@@ -163,19 +161,27 @@ export function OverridesDetailPanel({
     [catalogCallSiteIds],
   );
 
+  const profileLabelFor = useCallback(
+    (name: string) =>
+      orderedProfiles.find((p) => p.name === name)?.label ?? name,
+    [orderedProfiles],
+  );
+
   // The advisor is a top-level `llm.advisorProfile` selection, not a call-site
   // override. It rides this panel's draft/Save cycle but never enters the
-  // `llm.callSites` patch, the apply-to-all sweep, or the Overrides count.
+  // `llm.callSites` patch or the Overrides count.
   const persistedAdvisor = daemonConfig?.llm?.advisorProfile ?? "";
   const advisorProfile = advisorEdit ?? persistedAdvisor;
   const advisorDirty = advisorProfile !== persistedAdvisor;
 
   const advisorOptions = useMemo(
     () =>
-      visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map((p) => ({
-        value: p.name,
-        label: profilePickerLabel(p),
-      })),
+      visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map(
+        (p) => ({
+          value: p.name,
+          label: profilePickerLabel(p),
+        }),
+      ),
     [orderedProfiles, persistedAdvisor],
   );
 
@@ -217,26 +223,6 @@ export function OverridesDetailPanel({
       ),
     [drafts],
   );
-
-  const applyAllOptions = useMemo(
-    () =>
-      visibleProfilesForPicker(orderedProfiles, []).map((p) => ({
-        value: p.name,
-        label: profilePickerLabel(p),
-      })),
-    [orderedProfiles],
-  );
-
-  const handleApplyAll = useCallback(() => {
-    if (!applyAllProfile) {
-      return;
-    }
-    const next: Record<string, CallSiteOverrideDraft | null> = {};
-    for (const id of catalogCallSiteIds) {
-      next[id] = { profile: applyAllProfile };
-    }
-    setDraftEdits(next);
-  }, [applyAllProfile, catalogCallSiteIds]);
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
@@ -471,32 +457,6 @@ export function OverridesDetailPanel({
           />
         </div>
 
-        {/* Apply one profile to every action */}
-        {applyAllOptions.length > 0 && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
-            <p className="min-w-0 flex-1 text-body-medium-default text-[var(--content-default)]">
-              Use one profile for all actions
-            </p>
-            <Dropdown
-              value={applyAllProfile}
-              onChange={setApplyAllProfile}
-              options={applyAllOptions}
-              placeholder="Choose profile…"
-              className="w-44"
-              menuMinWidth={280}
-              menuAlign="end"
-            />
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={handleApplyAll}
-              disabled={!applyAllProfile || !isSeeded || saving}
-            >
-              Apply to all
-            </Button>
-          </div>
-        )}
-
         {/* Advisor: a top-level selection, not a catalog call site, so it
             renders off `daemonConfig` alone and stays put if the call-site
             catalog fails to load. */}
@@ -571,10 +531,14 @@ export function OverridesDetailPanel({
                         }
                         return d.profile ?? "";
                       })();
-                      const defaultProfileLabel = cs.defaultProfile
-                        ? (orderedProfiles.find(
-                            (op) => op.name === cs.defaultProfile,
-                          )?.label ?? cs.defaultProfile)
+                      // The caption names the shipped tier (what the action
+                      // falls back to when unpinned) when the daemon reports
+                      // one; `defaultProfile` is the effective winner, pins
+                      // included, so alone it would echo a pin back.
+                      const defaultKey =
+                        cs.shippedDefaultProfile ?? cs.defaultProfile;
+                      const defaultProfileLabel = defaultKey
+                        ? profileLabelFor(defaultKey)
                         : null;
 
                       return (
@@ -603,11 +567,10 @@ export function OverridesDetailPanel({
         )}
       </div>
 
-
       <ConfirmDialog
         open={showResetConfirmation}
         title="Reset to Defaults"
-        message="Every task override will be reset and will follow your active profile. This cannot be undone."
+        message="Every action override will be reset and will follow its default. This cannot be undone."
         confirmLabel="Reset to Defaults"
         destructive
         onConfirm={() => {

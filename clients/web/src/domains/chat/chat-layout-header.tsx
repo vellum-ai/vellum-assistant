@@ -195,7 +195,10 @@ export function ChatLayoutHeader({
 
       <div
         inert={controlsHidden || centerHidden || undefined}
-        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
+        // Left-aligned on mobile, pulled in 12px past the header's own
+        // `gap-4` (16px) to sit closer to the menu button, 4px total.
+        // Desktop keeps the title centered in the remaining space.
+        className={`flex min-w-0 flex-1 items-center max-md:-ml-3 max-md:justify-start justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
       >
         {topBarCenter}
       </div>

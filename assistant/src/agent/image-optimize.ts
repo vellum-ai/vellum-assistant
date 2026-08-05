@@ -110,10 +110,10 @@ export function upscaleTargetDimensions(dims: {
  * Reactive only: called by the image-recovery plugin after an actual
  * "Could not process image" rejection, never on the pre-send path.
  */
-export function upscaleImageToMinimum(
+export async function upscaleImageToMinimum(
   base64Data: string,
   mediaType: string,
-): { data: string; mediaType: string } | null {
+): Promise<{ data: string; mediaType: string } | null> {
   const dims = parseImageDimensions(base64Data, mediaType);
   if (!dims) {
     return null;
@@ -122,7 +122,7 @@ export function upscaleImageToMinimum(
   if (!target) {
     return null;
   }
-  const upscaled = convertImageToJpeg(Buffer.from(base64Data, "base64"), {
+  const upscaled = await convertImageToJpeg(Buffer.from(base64Data, "base64"), {
     resizeToPx: target,
     quality: JPEG_QUALITY,
   });
@@ -144,10 +144,10 @@ export function upscaleImageToMinimum(
  * Conversion (and its content-addressed disk cache) is shared with attachment
  * storage normalization — see `util/image-conversion.ts`.
  */
-export function optimizeImageForTransport(
+export async function optimizeImageForTransport(
   base64Data: string,
   mediaType: string,
-): { data: string; mediaType: string } {
+): Promise<{ data: string; mediaType: string }> {
   const rawBytes = Buffer.from(base64Data, "base64");
   const dims = parseImageDimensions(base64Data, mediaType);
 
@@ -155,7 +155,7 @@ export function optimizeImageForTransport(
     return { data: base64Data, mediaType };
   }
 
-  const optimized = convertImageToJpeg(rawBytes, {
+  const optimized = await convertImageToJpeg(rawBytes, {
     maxDimensionPx: MAX_DIMENSION,
     quality: JPEG_QUALITY,
   });

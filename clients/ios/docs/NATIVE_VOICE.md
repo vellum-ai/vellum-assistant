@@ -466,10 +466,12 @@ verbatim), either of which would produce an unopenable URL.
 must match its `App-*.xcconfig` character for character.** A mismatch sends a Dev
 island's tap into the production app.
 
-## v1 scope decisions
+## Design decisions
 
-Three things were deliberately left out. Each is listed with what would have to
-change to revisit it.
+Three shape-the-whole-thing decisions, with what would have to change to
+revisit each. The third has already been revisited once — it is kept here,
+rewritten, rather than deleted, because the reasoning that overturned it is
+what a future button has to satisfy too.
 
 ### 1. Live Activity updates come from two drivers
 
@@ -556,7 +558,8 @@ healthy session that nobody happens to be talking to.
 ### 2. No App Group
 
 `ContentState` carries only primitives (`phase`, `label`, `detail`,
-`accentHex`, `muted`), and the attributes carry `assistantName`, `startedAt`, and the
+`accentHex`, `muted`, `outputMuted`, `approvalRequestId`), and the attributes
+carry `assistantName`, `startedAt`, and the
 avatar as `Data`. The extension ships **no entitlements file at all**.
 
 *Why:* an App Group is only needed to share *files*, and nothing here needs
@@ -574,24 +577,71 @@ before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
 `clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
 activity rather than degrading the image.
 
-### 3. The island is tap-to-return only, with no interactive End button
+### 3. The island's buttons act in the app process, with no credential
 
-`VoiceSessionLiveActivity` has no buttons. The only affordance is
-`.widgetURL(VoiceModeDeepLink.resume.url())`, which a tap follows; a touch and
-hold expands the presentation instead, and that is the system's gesture
-mapping, not a choice made here.
+This section used to record the opposite — "tap-to-return only, no interactive
+End button" — on two arguments that have both since dissolved. The room stopped
+being a full-app takeover (it minimizes, and the session runs on), so "act on
+the call" was already not room-shaped; and `LiveActivityIntent` turned out to
+need no signalling path worth the name.
 
-*Why:* two reasons. Mechanically, an in-island control needs a
-`LiveActivityIntent` plus a signalling path into the running app (the appex
-cannot reach the session). Product-wise, it contradicts the voice room's
-established invariant that the room is a full-app takeover whose ✕ is the only
-exit — tapping the island returns to the room, where ✕ already ends the session,
-so "look at it" and "act on it" resolve to the same place.
+The mechanism, which is the part worth knowing before adding a button:
 
-*To revisit:* decide the invariant question first — it is a product decision, not
-an engineering one. Then add a `LiveActivityIntent` in `Shared/` and a way for it
-to reach the web layer; the existing deep-link channel is the natural candidate
-(an `<scheme>://voice?mode=end`), which would keep it to one command surface.
+```
+Button(intent: VoiceSessionControlIntent(action:requestId:))   rendered by the appex
+        │  iOS performs a LiveActivityIntent in the APP process, without foregrounding
+        ▼
+VoiceLiveActivityPlugin.deliverControl(_:requestId:)           a direct call, not IPC
+        │  notifyListeners("liveActivityControl")
+        ▼
+use-live-activity-controls.ts                                  the session's own layer
+```
+
+**There is no endpoint, no token, and no network hop**, and that is not an
+optimization — it is why this is buildable at all. The session lives in the web
+layer inside this process's `WKWebView`; the intent runs in the same process, so
+a press is one bridge event away from the code that already owns the socket. An
+island button that had to authenticate would need a credential the app process
+does not hold (the session token is in the web view's cookie jar), and every
+proposal for getting one there — reading `WKWebsiteDataStore`, minting a scoped
+token at session start — is a security question this design never has to ask.
+
+The intent must be a `LiveActivityIntent`, not an `AppIntent`: it is the variant
+performed in the app process without foregrounding. The voice-*launching*
+intents deliberately do the opposite (`openAppWhenRun`), because starting a
+conversation means putting the room on screen. Muting a call must not unlock the
+phone.
+
+Two rules govern what a button may send:
+
+- **A status control sends the state its own label promised**, not a toggle. The
+  island renders content that can be seconds old — and on the APNs path content
+  composed without `outputMuted` at all — so a toggle resolved against live
+  session state would be self-consistent and still invert what the user asked
+  for. A stale absolute command is a no-op the next push corrects.
+- **A decision names the request it is answering.** Approve/Deny carry the
+  `approvalRequestId` they were drawn from, and the web layer answers *that*
+  request or drops the press. The staleness that makes a mute harmless makes an
+  approval dangerous: between the push and the press the request can be decided
+  in the app, hit the daemon's 45-second fallback, or be superseded, and a press
+  without an id would land on whatever came next.
+
+Nothing is applied optimistically to the activity. The web layer is the only
+thing that knows whether a command took, so it stays the only writer; the island
+repaints through the mirror's own `update`.
+
+Which presentations carry buttons: the Lock Screen card and the expanded island
+only. The compact and minimal slots stay pure status, because reaching them
+takes no gesture at all and a control there is one a pocket can press.
+
+*Known gap:* `outputMuted` and `approvalRequestId` are local-path only. The
+platform composes server-driven pushes from the fields registered on the token
+row, which has neither, so an island being driven by APNs shows the assistant as
+audible and offers no approval buttons. The wait itself still shows, because the
+daemon words it into `detail`, which *is* on the push path. Registering the two
+fields is the fix and it is a platform-side change — though for approvals the
+gap is close to moot: a suspended web layer is precisely the state in which no
+press could be acted on anyway.
 
 ## Background audio: what is known and what is not
 
@@ -640,10 +690,19 @@ expect.
 | Deep-link contract, both modes | `xcrun simctl openurl booted "vellum-assistant-dev://voice?mode=new"` — and `…?mode=resume`, and a `&prompt=` variant with `&`, `#`, and emoji to check the round trip |
 | Terminated-launch delivery | Force-quit the app in the simulator first, then `openurl`. This is the path that used to drop; a warm-open pass proves nothing about it |
 | Scheme isolation | Open a `vellum-assistant://` link with only the Dev build installed — nothing should happen |
-| Live Activity presentations | Start a session; the Lock Screen presentation renders in the simulator. Check both appearances (Features → Toggle Appearance) — the accent is an arbitrary avatar color over a wallpaper |
+| Live Activity presentations | Start a session, then background the app (`xcrun simctl launch booted com.apple.Preferences`; there is no home key). **The Dynamic Island renders in the simulator** on a Pro device: compact inline, and expanded on a touch and hold. Lock (⌘L) for the Lock Screen presentation, and check both appearances (Features → Toggle Appearance) since the accent is an arbitrary avatar color over a wallpaper |
+| The mic privacy indicator competing for the island | Also reproducible: a session holds the mic for the whole call, muted included, so the island is shared and iOS falls back to the minimal presentation. This is the one that decides whether the compact slots are ever seen during a call |
 | App Intents in the Shortcuts app | The three intents appear under the app with their icons and short titles |
 | Control Center control | Add "New voice conversation" from the gallery and tap it |
-| Extension builds | `cd clients/ios/App && xcodebuild -project App.xcodeproj -target "VoiceActivity Dev" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO` after `bun run ios:setup` |
+| Extension builds (compile check only) | `cd clients/ios/App && xcodebuild -project App.xcodeproj -target "VoiceActivity Dev" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO` after `bun run ios:setup`. **Never install a build made with that flag**; see below |
+
+**`CODE_SIGNING_ALLOWED=NO` silently kills Live Activities.** It is fine for a
+compile check and wrong for anything you install: it strips the signature *and*
+the entitlements, and an unsigned widget extension is never loaded, so the app
+runs, the session runs, and the activity simply has nothing to render it. There
+is no error anywhere, on either side, which makes it look like backgrounding
+stopped working. Simulator builds ad-hoc sign without a team, so the flag buys
+nothing there: build with signing on and install that.
 
 Note on local builds: a full-app local build has been failing while resolving the
 Capacitor SPM graph (`IONFilesystemLib`), which is environmental and pre-existing
@@ -660,7 +719,6 @@ The Simulator does not faithfully reproduce any of these.
 
 | What | Why the simulator can't |
 | --- | --- |
-| Dynamic Island (compact / expanded / minimal) | No island hardware; only the Lock Screen presentation renders |
 | Backgrounded and locked audio | The simulator does not suspend the web process the way real iOS does — this is exactly the measurement the missing spike needs |
 | Siri phrase matching | Needs the on-device App Intents index and real speech. Allow a few minutes after install before the phrases resolve |
 | Action Button | iPhone 15 Pro or newer. Settings → Action Button → Shortcut → Vellum → "New voice conversation" |
@@ -702,6 +760,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/App/Shared/BundleURLScheme.swift` | Per-build scheme resolution, deliberately optional |
 | `App/App/Shared/CSSHexColor.swift` | `UIColor`/`Color` from a CSS hex, plus contrast-picking |
 | `App/App/Shared/StartNewVoiceConversationIntent.swift` | In `Shared/` because the Control Center control needs the type |
+| `App/App/Shared/VoiceSessionControlIntent.swift` | The intent behind every island button; in `Shared/` so the appex can name it |
 | `App/App/Intents/` | The other two intents and `VoiceAppShortcuts` |
 | `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center control |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
@@ -713,7 +772,7 @@ Web-side counterparts:
 | --- | --- |
 | `clients/web/src/runtime/native-voice.ts` | `callNativeVoice` — the skew-safe seam |
 | `clients/web/src/runtime/native-audio-session.ts` | `VoiceAudioSession` bridge |
-| `clients/web/src/runtime/native-live-activity.ts` | `VoiceLiveActivity` bridge |
+| `clients/web/src/runtime/native-live-activity.ts` | `VoiceLiveActivity` bridge — content out, button presses back |
 | `clients/web/src/runtime/native-deep-link.ts` | `parseStartVoiceDeepLink` and prompt sanitization |
 | `clients/web/src/domains/chat/voice/live-voice/use-live-activity-mirror.ts` | Store → island mirror |
 | `clients/web/src/domains/chat/voice/live-voice/use-live-voice-session-controller.ts` | Mounts the mirror and the audio-session lifecycle |

@@ -317,6 +317,7 @@ export {
   deleteConversation,
   getConversation,
   getConversationDirPath,
+  getConversationProcessingStartedAt,
   getMessages,
   hasLexicalTokens,
   isConversationProcessing,

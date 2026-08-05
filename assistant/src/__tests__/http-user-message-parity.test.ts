@@ -650,6 +650,50 @@ describe("HTTP POST /v1/messages client metadata headers", () => {
     ];
     expect(persistOptions.metadata).toBeUndefined();
   });
+
+  // Persistence merges the row's `client.os` from two sources and only one of
+  // them is this row's own: the request. Threading the body's `clientOs` is
+  // what lets it tell a reported OS apart from the one a transport-less turn
+  // inherits off the live conversation.
+  test("threads the body clientOs as this row's own OS evidence", async () => {
+    const persistUserMessage = mock(
+      async (_options: { requestClientOs?: string }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("hello", conversation, {
+      clientOs: "macos",
+    });
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { requestClientOs?: string },
+    ];
+    expect(persistOptions.requestClientOs).toBe("macos");
+  });
+
+  test("omits the OS evidence when the body reports no clientOs", async () => {
+    const persistUserMessage = mock(
+      async (_options: { requestClientOs?: string }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("hello", conversation);
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { requestClientOs?: string },
+    ];
+    expect(persistOptions.requestClientOs).toBeUndefined();
+  });
 });
 
 // ============================================================================
