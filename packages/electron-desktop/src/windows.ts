@@ -1,13 +1,15 @@
 import {
   BrowserWindow,
-  session,
   type BrowserWindowConstructorOptions,
   type WebContents,
   type WebPreferences,
 } from "electron";
 import path from "node:path";
 
-import { createAuthPopupSignInTracker } from "@vellumai/electron-utils/auth-popup-session";
+import {
+  type CookieJar,
+  createAuthPopupSignInTracker,
+} from "@vellumai/electron-utils/auth-popup-session";
 
 import { areChromeDevToolsEnabled } from "./devtools";
 
@@ -92,6 +94,7 @@ export const createWindow = (opts: CreateWindowOptions): BrowserWindow => {
 };
 
 export interface WebContentsSecurityOptions {
+  cookies: () => CookieJar;
   logger: Pick<Console, "error" | "info" | "warn">;
   openExternal: (url: string) => void | Promise<void>;
 }
@@ -115,7 +118,7 @@ export const installWebContentsSecurity = (
   });
 
   const authPopups = createAuthPopupSignInTracker({
-    cookies: () => session.defaultSession.cookies,
+    cookies: options.cookies,
     onCleared: (hosts, removed) =>
       options.logger.info(
         `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,

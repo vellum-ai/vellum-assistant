@@ -1,6 +1,6 @@
 import "./env-seed";
 
-import { app, net, protocol, shell } from "electron";
+import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -210,6 +210,7 @@ app.on("second-instance", () => {
 
 app.on("web-contents-created", (_event, contents) => {
   installWebContentsSecurity(contents, {
+    cookies: () => session.defaultSession.cookies,
     logger: log,
     openExternal: (url) => shell.openExternal(url),
   });
