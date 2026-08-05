@@ -7,6 +7,7 @@ import { Button, Tag, Typography } from "@vellumai/design-library";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import { flattenSummary } from "../feed-preview";
+import { getFeedItemScheduleId } from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -27,16 +28,6 @@ const UNNAMED_ITEM_TITLE = "Notification";
 export function resolveNotificationTitle(item: FeedItem): string {
   const resolved = item.title ?? flattenSummary(item.summary);
   return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
-}
-
-/**
- * Scheduled-run notifications (`schedule.notify`) carry their originating
- * schedule id in `metadata.scheduleId`, letting the detail link to the
- * schedule. Returns null for feed items not tied to a schedule.
- */
-function getFeedItemScheduleId(item: FeedItem): string | null {
-  const id = item.metadata?.scheduleId;
-  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 export interface NotificationsBellDetailProps {

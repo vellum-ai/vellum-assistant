@@ -99,6 +99,18 @@ export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
   return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
 }
 
+/**
+ * Scheduled-run notifications (`schedule.notify`) carry their originating
+ * schedule id in `metadata.scheduleId`, letting a detail view link to the
+ * schedule. Returns null for feed items not tied to a schedule. Shared by the
+ * Activity page and the notifications bell so both offer the link on exactly
+ * the same items.
+ */
+export function getFeedItemScheduleId(item: FeedItem | null): string | null {
+  const id = item?.metadata?.scheduleId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 /** Arguments for the feed's bulk status mutation (`markAll`). */
 export interface FeedMarkAllArgs {
   from: FeedItemStatus[];
