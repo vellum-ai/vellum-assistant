@@ -6,6 +6,7 @@ import {
   isMemoryV1Active,
   isMemoryV2ExplicitlyDisabled,
   isMemoryV3Live,
+  isRetrospectiveSkillAuthoringActive,
   isV2InjectionEngineActive,
   isV3TierActive,
   usesConceptPageMemory,
@@ -313,5 +314,74 @@ describe("v3 tier is one condition", () => {
   test("false when v3 is not live, and on an empty config", () => {
     expect(isV3TierActive(makeConfig(undefined, undefined, false))).toBe(false);
     expect(isV3TierActive({} as AssistantConfig)).toBe(false);
+  });
+});
+
+/**
+ * The retrospective skill-authoring predicate composes the v3 tier with the
+ * `memory.retrospective.skillAuthoring` opt-out. The key defaults true, so
+ * the predicate must equal `isV3TierActive` everywhere the key is unset:
+ * default behavior is unchanged, and the key is purely an operator off-switch.
+ */
+describe("isRetrospectiveSkillAuthoringActive", () => {
+  function withSkillAuthoring(
+    base: AssistantConfig,
+    skillAuthoring: boolean | undefined,
+  ): AssistantConfig {
+    return {
+      ...base,
+      memory: {
+        ...base.memory,
+        ...(skillAuthoring === undefined
+          ? {}
+          : { retrospective: { skillAuthoring } }),
+      },
+    } as AssistantConfig;
+  }
+
+  test("equals isV3TierActive when the key is unset (default-preserving)", () => {
+    for (const base of [
+      makeConfig(undefined, undefined, true),
+      makeConfig(true, true, true),
+      makeConfig(undefined, undefined, false),
+      makeConfig(false, undefined, true),
+      {} as AssistantConfig,
+    ]) {
+      expect(isRetrospectiveSkillAuthoringActive(base)).toBe(
+        isV3TierActive(base),
+      );
+    }
+  });
+
+  test("explicit true matches the default", () => {
+    const config = withSkillAuthoring(
+      makeConfig(undefined, undefined, true),
+      true,
+    );
+    expect(isRetrospectiveSkillAuthoringActive(config)).toBe(true);
+  });
+
+  test("explicit false suppresses authoring on an otherwise v3-tier assistant", () => {
+    const config = withSkillAuthoring(
+      makeConfig(undefined, undefined, true),
+      false,
+    );
+    expect(isV3TierActive(config)).toBe(true);
+    expect(isRetrospectiveSkillAuthoringActive(config)).toBe(false);
+  });
+
+  test("never active off the v3 tier, regardless of the key", () => {
+    // Memory off with v3.live set: the tier predicate already says no.
+    expect(
+      isRetrospectiveSkillAuthoringActive(
+        withSkillAuthoring(makeConfig(false, undefined, true), true),
+      ),
+    ).toBe(false);
+    // v3 not live: the key cannot turn authoring on by itself.
+    expect(
+      isRetrospectiveSkillAuthoringActive(
+        withSkillAuthoring(makeConfig(undefined, true, false), true),
+      ),
+    ).toBe(false);
   });
 });

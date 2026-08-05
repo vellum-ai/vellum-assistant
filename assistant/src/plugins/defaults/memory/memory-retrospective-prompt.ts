@@ -123,7 +123,9 @@ export interface ForkInstructionArgs {
   /** True when this is the first retrospective pass over the source conversation. */
   isFirstPass: boolean;
   /**
-   * Whether procedural-memory-as-skills is active (memory-v3 live).
+   * Whether procedural-memory-as-skills is active
+   * (`isRetrospectiveSkillAuthoringActive`: the v3 tier is active and
+   * `memory.retrospective.skillAuthoring` is not opted out).
    * Gates the skill-authoring section of the instruction: when false the pass
    * keeps its remember-only behavior, matching the permission checker's grant
    * gate so the directives never appear when the tools would be denied anyway.

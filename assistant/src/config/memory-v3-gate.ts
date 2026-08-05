@@ -81,12 +81,13 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
  * FEATURE asks this predicate; only the injection-suppression checks that must
  * mirror the raw `memory.v3.live` key ask {@link isMemoryV3Live} directly.
  *
- * The two features gated on it, and why they must agree:
+ * The two features scoped to it, and why they must agree:
  *
  * - The memory concept graph — the single source of truth for both
  *   `GET /memory-graph` (`supported`) and the cheap `graph_supported` bit on
  *   `GET /memory/stats`, so the advertised capability and the actual build can
- *   never drift. The graph builds off the v3 concept-page substrate.
+ *   never drift. The graph builds off the v3 concept-page substrate. Asks this
+ *   predicate directly.
  * - Procedural-memory-as-skills — the retrospective's skill-authoring step and
  *   its permission grant. Scoped to the v3 tier because skill retrieval rides
  *   the v3 lanes and the usage-prune stage lives in the v3 maintain job. That
@@ -94,13 +95,40 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
  *   default (`null`) it reports stale assistant-authored skills
  *   (`prunableSkills`) but deletes none — so a v3-tier assistant authors skills
  *   without an automatic retirement bound until a positive `skillPruneDays` is
- *   configured.
+ *   configured. Asks {@link isRetrospectiveSkillAuthoringActive}, which ANDs
+ *   this predicate with its own `memory.retrospective.skillAuthoring` opt-out.
  *
  * Both write into memory on the user's behalf, so both honor the Memory
- * opt-out identically: one predicate, one answer.
+ * opt-out identically: one tier predicate, one answer.
  */
 export function isV3TierActive(config: AssistantConfig): boolean {
   return isMemoryEnabled(config) && isMemoryV3Live(config);
+}
+
+/**
+ * Whether the retrospective's skill-authoring surface is active: the v3 tier
+ * is active AND `memory.retrospective.skillAuthoring` is not explicitly
+ * `false` (the key defaults true). This is THE predicate for every
+ * procedural-memory-as-skills surface: the fork instruction's skill-authoring
+ * section, the retrospective wake's authoring-tool allowlist and
+ * skill-management preactivation, and the permission checker's origin-scoped
+ * grant (via the precomputed `procToSkillsActive` policy-context bit). All
+ * three must agree: if the sites diverged, a pass could be instructed to
+ * author with the tools denied (wasted directives), or granted tools it was
+ * never instructed to use.
+ *
+ * The key gates only retrospective skill AUTHORING. It does not affect skill
+ * retrieval, the v3 maintain job's observe-first prune reporting, or any
+ * other v3-tier feature, and user-directed skill scaffolding in interactive
+ * sessions is out of its scope entirely.
+ */
+export function isRetrospectiveSkillAuthoringActive(
+  config: AssistantConfig,
+): boolean {
+  return (
+    isV3TierActive(config) &&
+    config.memory?.retrospective?.skillAuthoring !== false
+  );
 }
 
 /**

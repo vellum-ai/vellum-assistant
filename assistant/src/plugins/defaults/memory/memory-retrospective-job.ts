@@ -55,7 +55,7 @@ import {
   isInteractiveInterface,
   parseInterfaceId,
 } from "../../../channels/types.js";
-import { isV3TierActive } from "../../../config/memory-v3-gate.js";
+import { isRetrospectiveSkillAuthoringActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../../../context/compactor.js";
@@ -410,7 +410,7 @@ export async function runForkBasedRetrospective(
   }
   const forkId = forkConversationRow.id;
 
-  const procToSkillsActive = isV3TierActive(config);
+  const procToSkillsActive = isRetrospectiveSkillAuthoringActive(config);
   const instruction = buildForkInstruction({
     windowStartTimestamp,
     windowAnchorKind: turnContextTimestamp ? "turn_context" : "created_at",

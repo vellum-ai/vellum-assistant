@@ -324,13 +324,20 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
 // The v3-tier gate. Drives both `buildForkInstruction`'s skill-authoring
 // section (proc-to-skills) and the wake's origin pin behavior. Default inactive
 // (remember-only), matching a stock install; tests flip it on to assert the
-// authoring section.
+// authoring section. `isRetrospectiveSkillAuthoringActive` mirrors the real
+// composition (tier AND `memory.retrospective.skillAuthoring !== false`) so
+// the opt-out tests exercise the same config read the production predicate
+// performs.
 let mockV3TierActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
   isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
     config?.memory?.enabled !== false,
   isV3TierActive: () => mockV3TierActive,
   isMemoryV3Live: () => mockV3TierActive,
+  isRetrospectiveSkillAuthoringActive: (config?: {
+    memory?: { retrospective?: { skillAuthoring?: boolean } };
+  }) =>
+    mockV3TierActive && config?.memory?.retrospective?.skillAuthoring !== false,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };
@@ -355,6 +362,7 @@ function makeConfig(
     matchConversationProfile?: boolean;
     promptPath?: string;
     requireUserActivity?: boolean;
+    skillAuthoring?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -364,6 +372,11 @@ function makeConfig(
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
+        // Unset by default (the shipped schema default is true); the opt-out
+        // tests pass an explicit false.
+        ...(overrides.skillAuthoring === undefined
+          ? {}
+          : { skillAuthoring: overrides.skillAuthoring }),
         // Neutral in the stub (the shipped schema default is true): the
         // default `newMessages` rows carry no roles, so the gate's own tests
         // opt in explicitly with role-shaped slices.
@@ -1227,6 +1240,18 @@ describe("memoryRetrospectiveJob", () => {
     // The authoring trio is not even named on the allowlist when inactive.
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
     // And skill-management is not preactivated, so its tools never go active.
+    expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
+  });
+
+  test("wake is remember-only when memory.retrospective.skillAuthoring is false, even on the v3 tier", async () => {
+    mockV3TierActive = true;
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ skillAuthoring: false }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
     expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
   });
 

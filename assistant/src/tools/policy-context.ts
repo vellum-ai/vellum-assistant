@@ -1,5 +1,5 @@
 import { getConfig } from "../config/loader.js";
-import { isV3TierActive } from "../config/memory-v3-gate.js";
+import { isRetrospectiveSkillAuthoringActive } from "../config/memory-v3-gate.js";
 import type { ExecutionContext } from "../permissions/approval-policy.js";
 import type { ChannelPermissionCoordinates } from "../permissions/channel-permission-query.js";
 import type { PolicyContext } from "../permissions/types.js";
@@ -62,12 +62,12 @@ export function buildPolicyContext(
   const originSignals = {
     requestOrigin: context?.requestOrigin,
     ...channelCoordinatesFromToolContext(context),
-    // Precompute the proc-to-skills gate — the v3 tier being active, i.e.
-    // memory on AND v3 live — here so the permission checker, a leaf module
-    // that must not read config, can deny the memory-retrospective
-    // skill-authoring grant whenever the feature is inactive just by reading
-    // this boolean.
-    procToSkillsActive: isV3TierActive(getConfig()),
+    // Precompute the proc-to-skills gate (the v3 tier active AND
+    // memory.retrospective.skillAuthoring not opted out) here so the
+    // permission checker, a leaf module that must not read config, can deny
+    // the memory-retrospective skill-authoring grant whenever the feature is
+    // inactive just by reading this boolean.
+    procToSkillsActive: isRetrospectiveSkillAuthoringActive(getConfig()),
   };
 
   const ownerKind = getToolOwner(tool.name)?.kind;

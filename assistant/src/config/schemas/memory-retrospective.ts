@@ -93,6 +93,15 @@ export const MemoryRetrospectiveConfigSchema = z
         "When true, fork-based retrospectives run under the source conversation's inference profile (which forkConversation copies onto the fork) instead of the call site's default. Provider prompt caches are byte-exact prefix matches scoped per model, and a thinking enable/disable mismatch invalidates the messages cache tier — so reusing the source's cached prefix requires the retrospective to resolve the SAME model/thinking/effort as the conversation's own turns. Falls back to the call site's default when the conversation has no profile or the referenced profile no longer exists.",
       ),
 
+    skillAuthoring: z
+      .boolean({
+        error: "memory.retrospective.skillAuthoring must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "When true (default), retrospective passes on a v3-tier assistant (memory enabled and memory.v3.live) may author managed skills from observed procedures: the fork instruction carries the skill-authoring section, the wake allowlists the authoring tools, and the permission checker's retrospective grant resolves them. Set false to make retrospective passes remember-only without changing the memory tier; the rest of the v3 tier (injection, the memory graph, maintenance) is unaffected.",
+      ),
+
     promptPath: z
       .string({ error: "memory.retrospective.promptPath must be a string" })
       .nullable()
