@@ -64,6 +64,8 @@ If it does not, set the Deepgram key the ordinary way (client Settings, Speech-t
 
 ## 2. Enable Flux
 
+> **Setting `services.stt.provider` to `deepgram-flux` turns off batch transcription for the whole workspace, not just live voice.** `services.stt.provider` is the single source of truth for every STT route, and Flux is the only provider in the catalog with no `daemon-batch` boundary. For as long as it is set, these all stop working: voice-message and inbound-attachment transcription, the `transcribe` skill, the `media-processing` skill's audio segments, `POST /v1/stt/transcribe`, and phone-call transcription. Each reports a message naming Flux as the cause rather than failing silently, but they do not fall back to `deepgram` on their own. **Set `services.stt.provider` back to `deepgram` when the spike is over**, and do not run the spike on an assistant that is also taking calls or handling voice messages.
+
 Two keys in `config.json`, which lives at `$VELLUM_WORKSPACE_DIR/config.json` (default `~/.vellum/workspace/config.json`):
 
 ```json
@@ -184,8 +186,8 @@ with `byteLength`, `sampleRate`, `encoding`, `observedChunkMs`, and `recommended
 Do not rediscover these.
 
 - **English only.** The spike pins `flux-general-en`. No language is forwarded to the adapter, because `language_hint` means nothing to a monolingual model. The web language catalog is untouched.
-- **No telephony.** The catalog entry sets `telephonyMode: "none"`, so phone calls resolve to `null` for Flux and stay on the `deepgram` provider. That is verified by test, not by a runtime conditional.
-- **No batch.** `supportedBoundaries` is `daemon-streaming` only. A batch transcription request on `deepgram-flux` fails with an explicit streaming-only message.
+- **No telephony, and no fallback either.** The catalog entry sets `telephonyMode: "none"`, so `resolveTelephonySttCapability` reports Flux as unsupported and the call session reports that as its error. Nothing reroutes the call to the `deepgram` provider: with Flux configured, calls on this assistant are not transcribed at all.
+- **No batch, workspace-wide.** `supportedBoundaries` is `daemon-streaming` only, and `resolveBatchTranscriber` throws for it rather than returning the `null` that every batch caller reports as "no speech-to-text provider is configured". Callers surface the thrown message instead: `Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".` See the warning in section 2 for the full list of surfaces this takes down.
 - **No managed / velay path.** This is BYOK through the daemon only. The relay pins the model server-side, so managed rollout is a relay change.
 - **Eager end-of-turn is off, and its being off is load-bearing.** `eagerEotThreshold` is optional with no default, and leaving it unset is precisely what stops Deepgram emitting `EagerEndOfTurn` / `TurnResumed` at all. The parser handles both frames and the session no-ops them, so the follow-up is small, but Deepgram warns that enabling speculation raises LLM calls by 50 to 70 percent. Note also that `buildFluxQueryParams` clamps `eager_eot_threshold` **down** to the effective `eot_threshold`, because Deepgram rejects the inverse combination.
 - **The hold machinery is present and unchanged.** `HOLD_VERDICT_TOKEN`, the `includeHold` branch, the speculative dispatch and rollback state, `endpointExtensionMs`, and `endpointMaxExtensions` are all still there. The latch only skips them.

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { getConfig } from "../../../config/loader.js";
+import { SttError } from "../../../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any subject imports
@@ -509,8 +510,9 @@ describe("telephony capability catalog alignment", () => {
 
   /**
    * Providers that deliberately sit out telephony (`telephonyMode: "none"`).
-   * `deepgram-flux` is a streaming-only spike: phone calls stay on the
-   * `deepgram` provider until Flux proves itself in live voice.
+   * `deepgram-flux` is a streaming-only spike, and telephony is out of its
+   * scope. Nothing reroutes a call to another provider, so opting out here
+   * means a Flux-configured assistant does not transcribe calls.
    */
   const TELEPHONY_OPT_OUT: ReadonlySet<SttProviderId> = new Set([
     "deepgram-flux",
@@ -1598,6 +1600,65 @@ describe("deepgram-flux streaming resolution", () => {
     });
 
     expect(transcriber).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: batch resolution against a streaming-only provider
+// ---------------------------------------------------------------------------
+
+describe("deepgram-flux batch resolution", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = {};
+    loggerWarnings.length = 0;
+  });
+
+  /**
+   * Every batch caller pairs a `null` resolve with "no speech-to-text
+   * provider is configured". Flux is configured, and the operator who set it
+   * needs to be told which of the two Deepgram entries batch runs on, so the
+   * resolver raises a typed error instead of returning that `null`.
+   */
+  test("throws a named error rather than resolving null", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    await expect(resolveBatchTranscriber()).rejects.toThrow(
+      'Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".',
+    );
+  });
+
+  test("marks the error user-facing so friendly copy does not overwrite it", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    const err = await resolveBatchTranscriber().catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SttError);
+    expect((err as SttError).category).toBe("provider-error");
+    expect((err as SttError).userFacing).toBe(true);
+  });
+
+  test("logs the gap so a degrading caller still leaves a daemon-side trace", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram-flux" });
+
+    await resolveBatchTranscriber().catch(() => undefined);
+
+    expect(loggerWarnings).toHaveLength(1);
+    expect(
+      (loggerWarnings[0]!.data as { providerId?: unknown }).providerId,
+    ).toBe("deepgram-flux");
+  });
+
+  test("a provider that is absent from the catalog still resolves null", async () => {
+    // "Unknown provider" is a different situation from "known provider,
+    // wrong boundary", and only the latter has a fix worth naming.
+    applyConfig({ provider: "not-a-provider" });
+
+    expect(await resolveBatchTranscriber()).toBeNull();
   });
 });
 
