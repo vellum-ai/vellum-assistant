@@ -11,7 +11,7 @@ import {
  * Electron `vellum://` deep-link bridge → typed bus events:
  * `deeplink.send { message }` / `deeplink.openThread { threadId }`
  * / `deeplink.billingCheckoutComplete { status, sessionId }`
- * / `deeplink.unknown { url }`.
+ * / `deeplink.connect { url, bundle }` / `deeplink.unknown { url }`.
  *
  * Two surfaces because deep links can arrive BEFORE the renderer
  * exists (OS launches the app via a `vellum://` click → `open-url`
@@ -49,6 +49,15 @@ export function publishElectronDeepLinksSource(): () => void {
             ? { status: "success", sessionId: link.sessionId }
             : { status: "cancel", sessionId: null },
         );
+        break;
+      case "connect":
+        // `code` stays behind: the renderer cannot complete a device-code
+        // exchange as a durable pairing, and the code is secret material
+        // with no consumer.
+        publish("deeplink.connect", {
+          url: link.url ?? null,
+          bundle: link.bundle ?? null,
+        });
         break;
       case "unknown":
         publish("deeplink.unknown", { url: link.url });

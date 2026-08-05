@@ -34,6 +34,7 @@ import {
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
   useResolvedAssistantsStore,
@@ -127,8 +128,13 @@ export function SelectAssistantScreen() {
   );
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  // The "Connect a remote assistant" paste-a-bundle dialog.
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  // The "Connect a remote assistant" paste-a-bundle dialog. Store-driven
+  // rather than local state so a `<scheme>://connect` deep link parked by
+  // the global consumer opens it on mount, carrying a bundle prefill or
+  // guidance copy.
+  const connectDialogOpen = useConnectDialogStore.use.open();
+  const connectInitialBundle = useConnectDialogStore.use.initialBundle();
+  const connectGuidanceMessage = useConnectDialogStore.use.guidanceMessage();
   // After a manual removal the user is mid-management on this screen: a
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
@@ -304,7 +310,7 @@ export function SelectAssistantScreen() {
   };
 
   const handleImported = (assistantId: string) => {
-    setConnectDialogOpen(false);
+    useConnectDialogStore.getState().closeConnectDialog();
     // The import refreshes the lockfile before resolving, so the store already
     // lists the new entry; the fallback keeps the connect total if it lags.
     const imported = useResolvedAssistantsStore
@@ -452,7 +458,9 @@ export function SelectAssistantScreen() {
               icon={<Link2 className="h-4 w-4" />}
               label="Connect a remote assistant"
               disabled={connecting || loginLoading}
-              onClick={() => setConnectDialogOpen(true)}
+              onClick={() =>
+                useConnectDialogStore.getState().openConnectDialog()
+              }
             />
           )}
         </div>
@@ -492,7 +500,9 @@ export function SelectAssistantScreen() {
       </div>
       <ConnectAssistantDialog
         open={connectDialogOpen}
-        onClose={() => setConnectDialogOpen(false)}
+        initialBundle={connectInitialBundle ?? undefined}
+        guidanceMessage={connectGuidanceMessage ?? undefined}
+        onClose={() => useConnectDialogStore.getState().closeConnectDialog()}
         onImported={handleImported}
       />
       <ConnectRecoveryDialog

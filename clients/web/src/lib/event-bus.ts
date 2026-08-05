@@ -168,6 +168,18 @@ export interface BusEventMap {
    * either trustworthy text or nothing.
    */
   "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
+  /**
+   * Electron host only: inbound `<scheme>://connect` URL from the pair
+   * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
+   * QR code. `bundle` is a pairing bundle that prefills the connect
+   * dialog's paste field; it is secret material, so consumers must never
+   * log or breadcrumb it. `url` is the https server base a url+code link
+   * carried (the device-code exchange cannot produce a durable desktop
+   * pairing, so those links get guidance naming the host instead).
+   * `useGlobalDeepLinkConsumer` parks the request in the connect-dialog
+   * store and navigates to the assistant chooser.
+   */
+  "deeplink.connect": { url: string | null; bundle: string | null };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses
