@@ -272,6 +272,26 @@ function readLockHolder(lockPath: string): string | null {
 }
 
 /**
+ * Age past which an owner-verified release abstains and cedes reclamation to
+ * the stale classifier. The read/compare-then-unlink in `releaseLock` is not
+ * atomic, so a stale-TTL takeover racing it could swap the lock between the
+ * compare and the unlink, and the release would delete the NEW holder's
+ * lock. The race is closed by temporal partitioning instead of a filesystem
+ * primitive (POSIX unlink is by path and cannot be made conditional): a
+ * live releaser's own lock can only ever be stale-classified via the
+ * `expired` reason (its PID is alive because the releaser IS that process,
+ * and a payload matching the synthesized token cannot be `unparseable`), and
+ * `expired` requires the lock's age to exceed {@link STALE_LOCK_TTL_MS}. An
+ * owner-verified release that refuses once the token is within a safety
+ * margin of that TTL therefore can never interleave with a takeover of its
+ * own lock: before the cutoff no takeover of it is possible, and after the
+ * cutoff the release is a guaranteed no-op. The abandoned lock is then
+ * reclaimed by the next acquirer's stale takeover, which is already the
+ * documented recovery path.
+ */
+export const OWNER_RELEASE_CUTOFF_MS = STALE_LOCK_TTL_MS - 60_000;
+
+/**
  * Idempotent unlink of the lock file. Called from the caller's `finally`
  * block so a crash in the run path doesn't leave the lock stranded. ENOENT is
  * swallowed
@@ -279,13 +299,24 @@ function readLockHolder(lockPath: string): string | null {
  * (acquire failed before reaching the lock-write step).
  *
  * `expectedHolder` makes the release owner-verified: when provided, the lock
- * is unlinked only while its current payload still matches, so a caller
- * whose lock was taken over (stale-classified and re-acquired by a newer
- * run) cannot release the newer holder's lock. Omitting it preserves the
- * unconditional unlink for callers that positively own the file.
+ * is unlinked only while its current payload still matches AND the token is
+ * younger than {@link OWNER_RELEASE_CUTOFF_MS}, so a caller whose lock was
+ * (or could concurrently be) taken over by a newer run can never delete that
+ * newer holder's lock. Omitting it preserves the unconditional unlink for
+ * callers that positively own the file.
  */
 export function releaseLock(lockPath: string, expectedHolder?: string): void {
   if (expectedHolder !== undefined) {
+    const parsed = parseHolder(expectedHolder);
+    const age =
+      parsed?.timestamp != null ? Date.now() - parsed.timestamp : null;
+    if (age === null || age >= OWNER_RELEASE_CUTOFF_MS) {
+      log.warn(
+        { lockPath, expectedHolder, ageMs: age },
+        "consolidation: skipping owner-verified release; lock is old enough to be takeover-eligible, ceding reclamation to the stale classifier",
+      );
+      return;
+    }
     const current = readLockHolder(lockPath);
     if (current === null) {
       return;

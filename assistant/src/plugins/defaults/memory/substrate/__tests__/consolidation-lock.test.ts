@@ -33,6 +33,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getConsolidationLockPath,
+  OWNER_RELEASE_CUTOFF_MS,
   releaseLock,
   STALE_LOCK_TTL_MS,
   tryAcquireLock,
@@ -188,5 +189,47 @@ describe("releaseLock", () => {
     const ownerToken = acquireExpectingSuccess();
     releaseLock(lockPath);
     expect(() => releaseLock(lockPath, ownerToken)).not.toThrow();
+  });
+
+  test("REGRESSION: owner-verified release abstains once the lock is takeover-eligible, even when the payload still matches", () => {
+    // The read/compare-then-unlink in releaseLock is not atomic: a stale-TTL
+    // takeover racing it could swap the lock between the compare and the
+    // unlink, and the release would delete the NEW holder's lock. The race
+    // is closed temporally: takeover of a live-PID, well-formed lock is only
+    // possible once its age exceeds STALE_LOCK_TTL_MS, so a release that
+    // abstains within OWNER_RELEASE_CUTOFF_MS of that TTL can never
+    // interleave with a takeover of its own lock. Simulate the dangerous
+    // moment: a token old enough that a takeover could be mid-flight. The
+    // release must be a no-op and leave reclamation to the stale classifier.
+    const age = OWNER_RELEASE_CUTOFF_MS + 1_000;
+    const oldToken = `${process.pid} ${Date.now() - age} consolidation`;
+    writeFileSync(lockPath, `${oldToken}\n`);
+
+    releaseLock(lockPath, oldToken);
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(lockPath, "utf-8").trim()).toBe(oldToken);
+  });
+
+  test("owner-verified release still unlinks below the takeover-eligibility cutoff", () => {
+    // Directly below the cutoff the temporal argument guarantees no takeover
+    // of this lock can be in flight, so the release proceeds.
+    const age = OWNER_RELEASE_CUTOFF_MS - 60_000;
+    const youngToken = `${process.pid} ${Date.now() - age} consolidation`;
+    writeFileSync(lockPath, `${youngToken}\n`);
+
+    releaseLock(lockPath, youngToken);
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("owner-verified release abstains when the token carries no timestamp to judge eligibility by", () => {
+    // A token whose age cannot be established cannot prove the takeover
+    // window is closed, so the release must not unlink. (Synthesized tokens
+    // always carry a timestamp; this pins the fail-closed direction for a
+    // malformed one.)
+    const bareToken = `${process.pid}`;
+    writeFileSync(lockPath, `${bareToken}\n`);
+
+    releaseLock(lockPath, bareToken);
+    expect(existsSync(lockPath)).toBe(true);
   });
 });
