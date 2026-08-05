@@ -87,6 +87,26 @@ mock.module("@/domains/onboarding/components/connect-recovery-dialog", () => ({
   ConnectRecoveryDialog: () => null,
 }));
 
+// A stub that surfaces the open state and lets tests drive the imported
+// callback the way a successful paste-and-submit would.
+mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
+  ConnectAssistantDialog: ({
+    open,
+    onImported,
+  }: {
+    open: boolean;
+    onImported: (assistantId: string) => void;
+  }) =>
+    open ? (
+      <div>
+        Connect dialog open
+        <button onClick={() => onImported("paired-new")}>
+          Simulate import
+        </button>
+      </div>
+    ) : null,
+}));
+
 mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
 }));
@@ -142,6 +162,7 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: {
     use: { assistants: () => assistantsValue },
     getState: () => ({
+      assistants: assistantsValue,
       activeAssistantId: activeAssistantIdValue,
       setActiveAssistantId: setActiveAssistantIdMock,
     }),
@@ -510,6 +531,48 @@ describe("SelectAssistantScreen paired assistants", () => {
       radios.find((r) => r.textContent?.includes("Second Mac"))
         ?.getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  test("the connect-a-remote-assistant affordance is hidden without a local-mode host", () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Connect a remote assistant")).toBeNull();
+  });
+
+  test("the connect-a-remote-assistant affordance opens the dialog when a local-mode host is available", () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Connect dialog open")).toBeNull();
+
+    fireEvent.click(screen.getByText("Connect a remote assistant"));
+
+    expect(screen.getByText("Connect dialog open")).toBeTruthy();
+  });
+
+  test("a successful import connects the new pairing and navigates", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Connect a remote assistant"));
+    fireEvent.click(screen.getByText("Simulate import"));
+
+    await waitFor(() =>
+      expect(connectPairedAssistantMock).toHaveBeenCalledWith("paired-new"),
+    );
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/assistant", {
+        replace: true,
+      }),
+    );
+    // The dialog closes as the connect kicks off.
+    expect(screen.queryByText("Connect dialog open")).toBeNull();
   });
 
   test("confirming a locked platform removal still calls removePlatformAssistantFromLockfile", async () => {
