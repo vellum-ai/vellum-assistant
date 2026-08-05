@@ -632,10 +632,20 @@ async function createStreamingTranscriber(
           : {}),
       });
     }
-    case "deepgram-flux":
-      // Flux has no streaming adapter in this factory; `null` is the
-      // documented "no streaming adapter" signal callers fall back on.
-      return null;
+    case "deepgram-flux": {
+      // Flux is streaming-only and dials Deepgram's /v2/listen conversational
+      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which
+      // the adapter reads itself, so only the transport-level sample rate is
+      // passed here. No language is forwarded: the spike pins the
+      // English-only `flux-general-en`, and `language_hint` means nothing to
+      // a monolingual model. Diarization is off in the catalog, so a
+      // `"required"` caller never reaches this case.
+      const { DeepgramFluxRealtimeTranscriber } =
+        await import("./deepgram-flux-realtime.js");
+      return new DeepgramFluxRealtimeTranscriber(apiKey, {
+        sampleRate: options.sampleRate,
+      });
+    }
     default: {
       const _exhaustive: never = providerId;
       return null;

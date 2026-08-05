@@ -205,7 +205,7 @@ describe("parseFluxFrame", () => {
     expect(categoryOf({ code: "SOMETHING_NEW" })).toBe("provider-error");
     expect(categoryOf({})).toBe("provider-error");
     // A complaint about eot_timeout_ms is a config error, not a transport
-    // timeout — the timeout matcher must not claim it.
+    // timeout, so the timeout matcher must not claim it.
     expect(
       categoryOf({
         code: "INVALID_EOT_TIMEOUT_MS",

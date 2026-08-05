@@ -348,8 +348,8 @@ export interface FluxQueryParamOptions {
  * its `eot_threshold`
  * (https://developers.deepgram.com/docs/flux/configuration#validation-rules),
  * so after each threshold is clamped to its own range the eager value is
- * clamped down again to the EOT threshold in force — the one being sent, or
- * Deepgram's {@link DEFAULT_EOT_THRESHOLD} when none is. Clamping keeps a
+ * clamped down again to the EOT threshold in force (the one being sent, or
+ * Deepgram's {@link DEFAULT_EOT_THRESHOLD} when none is). Clamping keeps a
  * misconfigured pair from failing the whole session; the adjustment is logged
  * at debug when it fires.
  */

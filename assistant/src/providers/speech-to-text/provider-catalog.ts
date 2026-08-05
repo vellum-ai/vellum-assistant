@@ -118,8 +118,8 @@ interface SttProviderEntry {
 // ---------------------------------------------------------------------------
 
 /**
- * Shared by every provider that authenticates against a Deepgram account —
- * the key is the same one, so the instructions must not drift apart.
+ * Shared by every provider that authenticates against a Deepgram account.
+ * The key is the same one, so the instructions must not drift apart.
  */
 const DEEPGRAM_CREDENTIALS_GUIDE: SttCredentialsGuide = {
   description:
@@ -171,11 +171,11 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
         "Conversational speech-to-text with model-native turn detection. Uses your Deepgram API key.",
       setupMode: "api-key",
       setupHint:
-        "Enter your Deepgram API key — Flux shares the same key as Deepgram.",
+        "Enter your Deepgram API key. Flux shares the same key as Deepgram.",
       // Shared with the `deepgram` provider: Flux is a model on the same
       // account, not a separate credential.
       credentialProvider: "deepgram",
-      // Streaming only — Flux has no batch endpoint.
+      // Streaming only: Flux has no batch endpoint.
       supportedBoundaries: new Set<SttBoundaryId>(["daemon-streaming"]),
       // Phone calls stay on the `deepgram` provider while Flux is a spike.
       telephonyMode: "none",
