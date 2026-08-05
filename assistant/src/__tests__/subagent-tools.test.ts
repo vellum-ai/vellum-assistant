@@ -686,7 +686,7 @@ describe("Subagent spawn success and failure", () => {
       );
 
       expect(result.isError).toBe(false);
-      // A subagent spawned from a heartbeat turn no longer picks up
+      // A subagent spawned from a heartbeat turn does not pick up
       // heartbeatAgent's cost-optimized default. Delegated work is priced by
       // where it runs, not by which call site happened to delegate it.
       expect(capturedConfig!.overrideProfile).toBeUndefined();

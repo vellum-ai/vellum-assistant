@@ -261,12 +261,9 @@ export async function executeSubagentSpawn(
 
   // A subagent resolves the `subagentSpawn` call site's own default profile.
   // A profile pinned on a conversation is a choice about that conversation,
-  // not about delegated work, yet inheriting it carried the pinned model's
-  // price and its tool-calling reliability into every child the turn spawned.
-  // That inheritance caused a production incident once already: removing the
-  // per-call-site pins so routing would fall back to managed defaults exposed
-  // the rung, and spawned work began running on the parent's expensive profile
-  // under heavy parallel load.
+  // not about the work it delegates, and carrying it into a child would apply
+  // the pinned model's price and its tool-calling reliability to every spawn
+  // the turn makes.
   //
   // Landing on the call site's own profile means passing NO override: the
   // child already runs its loop under `callSite: "subagentSpawn"`, so the
