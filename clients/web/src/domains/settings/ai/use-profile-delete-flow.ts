@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { isDispatchableProfile } from "@/assistant/profile-pickers";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { useProfileActions } from "@/domains/settings/ai/use-profile-actions";
 import {
@@ -45,6 +46,9 @@ export function useProfileDeleteFlow(
   options?: { onDeleted?: (name: string) => void },
 ): ProfileDeleteFlow {
   const actions = useProfileActions(assistantId);
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile is a valid reassignment target there.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
 
   const activeProfile = config?.llm?.activeProfile ?? null;
   const advisorProfile = config?.llm?.advisorProfile ?? null;
@@ -146,7 +150,10 @@ export function useProfileDeleteFlow(
   // elsewhere. Candidates are filtered the same way the pickers are.
   const replacementCandidates = orderedProfiles.filter(
     (p) =>
-      p.name !== blocked?.name && isDispatchableProfile(p, orderedProfiles),
+      p.name !== blocked?.name &&
+      isDispatchableProfile(p, orderedProfiles, {
+        requireOwnProviderAndModel,
+      }),
   );
   // Prefer non-managed profiles as replacement targets.
   const userReplacements = replacementCandidates.filter(

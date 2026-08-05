@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import {
+  type ProfileDispatchOptions,
   type ProfilePickerIssue,
   profilePickerIssue,
   profilePickerLabel,
@@ -10,6 +11,7 @@ import {
 } from "@/assistant/profile-pickers";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 
 import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 
@@ -26,19 +28,22 @@ export interface ProfileOption {
 
 export function buildProfileOptions(
   llm: LlmConfig | undefined,
-  selectedProfile?: string | null,
+  selectedProfile: string | null | undefined,
+  options: ProfileDispatchOptions,
 ): ProfileOption[] {
   const profiles = llm?.profiles ?? {};
   const profileOrder = llm?.profileOrder ?? [];
   const orderedProfiles = buildOrderedProfiles(profiles, profileOrder);
-  const visibleProfiles = visibleProfilesForPicker(orderedProfiles, [
-    selectedProfile,
-  ]);
+  const visibleProfiles = visibleProfilesForPicker(
+    orderedProfiles,
+    [selectedProfile],
+    options,
+  );
 
   return [
     { value: null, label: "Default" },
     ...visibleProfiles.map((profile) => {
-      const issue = profilePickerIssue(profile, orderedProfiles);
+      const issue = profilePickerIssue(profile, orderedProfiles, options);
       return {
         value: profile.name,
         label: profilePickerLabel(profile),
@@ -61,8 +66,13 @@ export function useProfileOptions(
     staleTime: 60_000,
   });
 
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
+
   return useMemo(
-    () => buildProfileOptions(daemonConfig?.llm, selectedProfile),
+    () =>
+      buildProfileOptions(daemonConfig?.llm, selectedProfile, {
+        requireOwnProviderAndModel,
+      }),
     [daemonConfig?.llm, selectedProfile],
   );
 }

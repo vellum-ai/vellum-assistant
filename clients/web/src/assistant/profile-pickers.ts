@@ -25,9 +25,32 @@ export interface ProfilePickerEntry {
   readonly mix?: ProfileEntry["mix"];
 }
 
+/**
+ * Options describing what the connected assistant guarantees about the
+ * profile shapes it serves.
+ */
+export interface ProfileDispatchOptions {
+  /**
+   * Whether a profile must carry its own provider and model to dispatch.
+   *
+   * True from assistant 0.10.8 on, where blank fields are baked at write
+   * time (`complete-profile-snapshots`). Older assistants deep-merge at
+   * resolution time, so a blank field live-inherits and a sparse profile
+   * dispatches fine. Judging those by the strict rule would hide a working
+   * profile, so only the disabled check applies there.
+   */
+  readonly requireOwnProviderAndModel: boolean;
+}
+
 /** A profile that names no other profiles: it dispatches on its own fields. */
-function isDispatchableStandardProfile(p: ProfilePickerEntry): boolean {
-  return p.status !== "disabled" && !!p.provider && !!p.model;
+function isDispatchableStandardProfile(
+  p: ProfilePickerEntry,
+  { requireOwnProviderAndModel }: ProfileDispatchOptions,
+): boolean {
+  if (p.status === "disabled") {
+    return false;
+  }
+  return requireOwnProviderAndModel ? !!p.provider && !!p.model : true;
 }
 
 /**
@@ -51,16 +74,21 @@ function isDispatchableStandardProfile(p: ProfilePickerEntry): boolean {
  * let `filter(isDispatchableProfile)` pass the array index in its place.
  * An arm naming a profile absent from the set is treated as broken, matching
  * the resolver reporting that expansion as `"missing"`.
+ *
+ * `options` carries what the connected assistant guarantees; see
+ * `ProfileDispatchOptions`. Callers in React read it from
+ * `useSupportsCompleteProfileSnapshots()`.
  */
 export function isDispatchableProfile(
   p: ProfilePickerEntry,
   siblings: ReadonlyArray<ProfilePickerEntry>,
+  options: ProfileDispatchOptions,
 ): boolean {
   if (p.status === "disabled") {
     return false;
   }
   if (p.mix == null) {
-    return isDispatchableStandardProfile(p);
+    return isDispatchableStandardProfile(p, options);
   }
   const arms = Array.isArray(p.mix) ? p.mix : [];
   if (arms.length === 0) {
@@ -68,7 +96,7 @@ export function isDispatchableProfile(
   }
   return arms.every((arm) => {
     const target = siblings.find((s) => s.name === arm?.profile);
-    return target != null && isDispatchableStandardProfile(target);
+    return target != null && isDispatchableStandardProfile(target, options);
   });
 }
 
@@ -80,8 +108,11 @@ export function isDispatchableProfile(
 export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   preferredProfile: string | null | undefined,
+  options: ProfileDispatchOptions,
 ): string | undefined {
-  const candidates = profiles.filter((p) => isDispatchableProfile(p, profiles));
+  const candidates = profiles.filter((p) =>
+    isDispatchableProfile(p, profiles, options),
+  );
   if (preferredProfile && candidates.some((p) => p.name === preferredProfile)) {
     return preferredProfile;
   }
@@ -101,6 +132,7 @@ export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
 export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   selectedNames: ReadonlyArray<string | null | undefined>,
+  options: ProfileDispatchOptions,
 ): T[] {
   const selected = new Set<string>();
   for (const n of selectedNames) {
@@ -109,7 +141,7 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
     }
   }
   return profiles.filter(
-    (p) => isDispatchableProfile(p, profiles) || selected.has(p.name),
+    (p) => isDispatchableProfile(p, profiles, options) || selected.has(p.name),
   );
 }
 
@@ -140,11 +172,12 @@ export type ProfilePickerIssue = "disabled" | "undispatchable";
 export function profilePickerIssue(
   p: ProfilePickerEntry,
   siblings: ReadonlyArray<ProfilePickerEntry>,
+  options: ProfileDispatchOptions,
 ): ProfilePickerIssue | null {
   if (p.status === "disabled") {
     return "disabled";
   }
-  return isDispatchableProfile(p, siblings) ? null : "undispatchable";
+  return isDispatchableProfile(p, siblings, options) ? null : "undispatchable";
 }
 
 /** Hover copy for an `"undispatchable"` entry. */

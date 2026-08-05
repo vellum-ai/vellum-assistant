@@ -27,6 +27,7 @@ import {
   configLlmCallsitesGetOptions,
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
@@ -74,6 +75,13 @@ export function OverridesDetailPanel({
     [profiles, profileOrder],
   );
   const selectableInferenceProviders = useSelectableInferenceProviders();
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile dispatches there and must not be judged incomplete.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
+  const dispatchOptions = useMemo(
+    () => ({ requireOwnProviderAndModel }),
+    [requireOwnProviderAndModel],
+  );
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
@@ -162,7 +170,8 @@ export function OverridesDetailPanel({
     (p: (typeof orderedProfiles)[number]) => ({
       value: p.name,
       label: profilePickerLabel(p),
-      ...(profilePickerIssue(p, orderedProfiles) === "undispatchable"
+      ...(profilePickerIssue(p, orderedProfiles, dispatchOptions) ===
+      "undispatchable"
         ? {
             icon: (
               <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
@@ -171,14 +180,16 @@ export function OverridesDetailPanel({
           }
         : {}),
     }),
-    [orderedProfiles],
+    [orderedProfiles, dispatchOptions],
   );
 
   const advisorOptions = useMemo(
     () =>
-      visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map(
-        toProfileOption,
-      ),
+      visibleProfilesForPicker(
+        orderedProfiles,
+        [persistedAdvisor],
+        dispatchOptions,
+      ).map(toProfileOption),
     [orderedProfiles, persistedAdvisor, toProfileOption],
   );
 
@@ -201,15 +212,17 @@ export function OverridesDetailPanel({
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = visibleProfilesForPicker(orderedProfiles, [
-        selectedProfile,
-      ]);
+      const visible = visibleProfilesForPicker(
+        orderedProfiles,
+        [selectedProfile],
+        dispatchOptions,
+      );
       return [
         ...visible.map(toProfileOption),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles, toProfileOption],
+    [orderedProfiles, toProfileOption, dispatchOptions],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -265,6 +278,7 @@ export function OverridesDetailPanel({
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
+        dispatchOptions,
       );
       if (seedProfile) {
         setDraft(id, { profile: seedProfile });

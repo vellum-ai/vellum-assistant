@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
@@ -441,9 +442,15 @@ export function ComposerSettingsMenu({
     return [...ordered, ...extras];
   }, [profiles, profileOrder]);
 
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile dispatches there and must not be hidden.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
   const visibleProfileEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
-    [orderedProfileEntries, profileActiveKey],
+    () =>
+      visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey], {
+        requireOwnProviderAndModel,
+      }),
+    [orderedProfileEntries, profileActiveKey, requireOwnProviderAndModel],
   );
 
   // Label for the currently-active profile, shown inline on the composer

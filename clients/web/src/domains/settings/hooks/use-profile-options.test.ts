@@ -23,9 +23,14 @@ const llm: LlmConfig = {
   },
 } as LlmConfig;
 
+// 0.10.8+ bakes blank profile fields at write time; older assistants
+// live-inherit them, so a sparse profile dispatches there.
+const STRICT = { requireOwnProviderAndModel: true } as const;
+const LEGACY = { requireOwnProviderAndModel: false } as const;
+
 describe("buildProfileOptions", () => {
   test("orders by profileOrder, omits what the resolver would skip, and prepends Default", () => {
-    expect(buildProfileOptions(llm)).toEqual([
+    expect(buildProfileOptions(llm, null, STRICT)).toEqual([
       { value: null, label: "Default" },
       { value: "smart", label: "Smart" },
       { value: "fast", label: "Fast" },
@@ -33,7 +38,7 @@ describe("buildProfileOptions", () => {
   });
 
   test("keeps the selected disabled profile visible", () => {
-    expect(buildProfileOptions(llm, "legacy")).toEqual([
+    expect(buildProfileOptions(llm, "legacy", STRICT)).toEqual([
       { value: null, label: "Default" },
       { value: "smart", label: "Smart" },
       { value: "fast", label: "Fast" },
@@ -44,7 +49,7 @@ describe("buildProfileOptions", () => {
   // Hiding the current selection would leave the trigger blank with no way
   // back, so it stays and is flagged instead.
   test("keeps a selected undispatchable profile visible and marks the issue", () => {
-    expect(buildProfileOptions(llm, "extra")).toEqual([
+    expect(buildProfileOptions(llm, "extra", STRICT)).toEqual([
       { value: null, label: "Default" },
       { value: "smart", label: "Smart" },
       { value: "fast", label: "Fast" },
@@ -58,8 +63,21 @@ describe("buildProfileOptions", () => {
   });
 
   test("returns just the Default option when config is missing", () => {
-    expect(buildProfileOptions(undefined)).toEqual([
+    expect(buildProfileOptions(undefined, null, STRICT)).toEqual([
       { value: null, label: "Default" },
+    ]);
+  });
+});
+
+describe("buildProfileOptions on a pre-0.10.8 assistant", () => {
+  // `extra` carries nothing, which live-inherits there, so it is a normal
+  // option rather than being hidden or flagged.
+  test("keeps sparse profiles as ordinary options", () => {
+    expect(buildProfileOptions(llm, null, LEGACY)).toEqual([
+      { value: null, label: "Default" },
+      { value: "smart", label: "Smart" },
+      { value: "fast", label: "Fast" },
+      { value: "extra", label: "extra" },
     ]);
   });
 });
