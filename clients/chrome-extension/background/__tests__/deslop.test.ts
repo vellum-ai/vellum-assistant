@@ -4,8 +4,10 @@ import {
   buildDeslopPrompt,
   buildHighlightedUserTurn,
   capTranscript,
+  flattenTranscript,
   requestDeslopChat,
   requestDeslopRewrite,
+  resetDeslopTranscriptSupport,
   DESLOP_CHAT_SYSTEM_PROMPT,
   DESLOP_SYSTEM_PROMPT,
   type DeslopTranscriptTurn,
@@ -53,6 +55,7 @@ function installChromeStorageMock(local: Record<string, unknown>): void {
 
 beforeEach(() => {
   delete (globalThis as unknown as { chrome?: unknown }).chrome;
+  resetDeslopTranscriptSupport();
 });
 
 afterEach(() => {
@@ -353,5 +356,99 @@ describe("requestDeslopChat", () => {
         pairToken: "jwt",
       }),
     ).rejects.toThrow(/empty reply/);
+  });
+});
+
+describe("assistants without transcript support", () => {
+  const transcript: DeslopTranscriptTurn[] = [
+    { role: "user", content: "Rewrite this" },
+    { role: "assistant", content: "Rewritten" },
+    { role: "user", content: "<user_highlighted>null</user_highlighted> why?" },
+  ];
+
+  // The wire shape an assistant older than the `messages` field answers with:
+  // it reads the request as a single-message send that carries no message.
+  const legacyRejection = new Response(
+    '{"error":{"code":"BAD_REQUEST","message":"message must be a non-empty string"}}',
+    { status: 400 },
+  );
+
+  test("flattenTranscript labels the history and sets apart the new turn", () => {
+    const flattened = flattenTranscript(transcript);
+    expect(flattened).toContain("Conversation so far:");
+    expect(flattened).toContain("User: Rewrite this");
+    expect(flattened).toContain("Assistant: Rewritten");
+    expect(flattened).toContain("The user now says:");
+    expect(flattened.endsWith(transcript[2]!.content)).toBe(true);
+  });
+
+  test("flattenTranscript returns a lone turn verbatim", () => {
+    expect(flattenTranscript([{ role: "user", content: "just this" }])).toBe(
+      "just this",
+    );
+  });
+
+  test("retries as a single message when the assistant rejects a transcript", async () => {
+    const captured: CapturedRequest[] = [];
+    installFetchMock(captured, (callIndex) =>
+      callIndex === 0
+        ? legacyRejection.clone()
+        : Response.json({ response: "Because it resolves at run time." }),
+    );
+
+    const reply = await requestDeslopChat(transcript, {
+      kind: "self-hosted",
+      gatewayUrl: "http://127.0.0.1:7830",
+      pairToken: "jwt",
+    });
+
+    expect(reply).toBe("Because it resolves at run time.");
+    expect(captured.length).toBe(2);
+    expect(parseBody(captured[0]!)).toHaveProperty("messages");
+    const fallback = parseBody(captured[1]!);
+    expect(fallback).not.toHaveProperty("messages");
+    expect(String(fallback["message"])).toContain("User: Rewrite this");
+    expect(String(fallback["message"])).toContain("why?");
+    expect(fallback["systemPrompt"]).toBe(DESLOP_CHAT_SYSTEM_PROMPT);
+  });
+
+  test("skips the transcript attempt on later turns once one is rejected", async () => {
+    const captured: CapturedRequest[] = [];
+    installFetchMock(captured, (callIndex) =>
+      callIndex === 0
+        ? legacyRejection.clone()
+        : Response.json({ response: "ok" }),
+    );
+    const target = {
+      kind: "self-hosted" as const,
+      gatewayUrl: "http://127.0.0.1:7830",
+      pairToken: "jwt",
+    };
+
+    await requestDeslopChat(transcript, target);
+    await requestDeslopChat(transcript, target);
+
+    // Two sends for the first turn (rejected, then flattened), one for the
+    // second: the rejection is remembered.
+    expect(captured.length).toBe(3);
+    expect(parseBody(captured[2]!)).not.toHaveProperty("messages");
+    expect(parseBody(captured[2]!)).toHaveProperty("message");
+  });
+
+  test("a 400 that is not a transcript rejection still throws", async () => {
+    const captured: CapturedRequest[] = [];
+    installFetchMock(
+      captured,
+      () => new Response('{"error":"something else entirely"}', { status: 400 }),
+    );
+
+    await expect(
+      requestDeslopChat(transcript, {
+        kind: "self-hosted",
+        gatewayUrl: "http://127.0.0.1:7830",
+        pairToken: "jwt",
+      }),
+    ).rejects.toThrow(/Assistant chat failed \(400\)/);
+    expect(captured.length).toBe(1);
   });
 });

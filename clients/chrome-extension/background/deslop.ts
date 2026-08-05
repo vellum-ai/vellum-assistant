@@ -136,6 +136,49 @@ export async function requestDeslopRewrite(
   );
 }
 
+const CHAT_LABELS: DeslopErrorLabels = {
+  failure: "Assistant chat failed",
+  empty: "Assistant returned an empty reply",
+};
+
+/**
+ * An assistant that predates the `messages` field reads the request as a
+ * single-message send with no message at all, and says so. The extension
+ * ships independently of the assistant, so it must answer for both.
+ */
+const TRANSCRIPT_UNSUPPORTED_PATTERN = /message must be a non-empty string/;
+
+/**
+ * Latched once an assistant proves it cannot take a transcript, so later
+ * turns in the same session skip the doomed first attempt.
+ */
+let transcriptUnsupported = false;
+
+/** Test seam: forget what the last assistant supported. */
+export function resetDeslopTranscriptSupport(): void {
+  transcriptUnsupported = false;
+}
+
+/**
+ * Render a transcript as one labelled block, for assistants that take only
+ * a single message. The final turn is the question being asked now, so it
+ * is set apart from the history above it.
+ */
+export function flattenTranscript(turns: DeslopTranscriptTurn[]): string {
+  if (turns.length === 0) {
+    return "";
+  }
+  const history = turns.slice(0, -1);
+  const current = turns[turns.length - 1]!;
+  const rendered = history
+    .map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.content}`)
+    .join("\n\n");
+  if (rendered.length === 0) {
+    return current.content;
+  }
+  return `Conversation so far:\n\n${rendered}\n\nThe user now says:\n\n${current.content}`;
+}
+
 /**
  * Continue the page-side chat thread. `transcript` is the full exchange so
  * far, ending with the turn the user just sent. Resolves to the reply text.
@@ -144,16 +187,31 @@ export async function requestDeslopChat(
   transcript: DeslopTranscriptTurn[],
   target: DeslopTarget,
 ): Promise<string> {
+  if (!transcriptUnsupported) {
+    const attempt = await attemptWithProfileFallback(
+      target,
+      { messages: transcript, systemPrompt: DESLOP_CHAT_SYSTEM_PROMPT },
+      CHAT_LABELS,
+    );
+    if (attempt.ok) {
+      return attempt.reply;
+    }
+    if (
+      attempt.status !== 400 ||
+      !TRANSCRIPT_UNSUPPORTED_PATTERN.test(attempt.detail)
+    ) {
+      throw attemptFailure(attempt, CHAT_LABELS);
+    }
+    transcriptUnsupported = true;
+  }
+
   return sendDeslopRequest(
     target,
     {
-      messages: transcript,
+      message: flattenTranscript(transcript),
       systemPrompt: DESLOP_CHAT_SYSTEM_PROMPT,
     },
-    {
-      failure: "Assistant chat failed",
-      empty: "Assistant returned an empty reply",
-    },
+    CHAT_LABELS,
   );
 }
 
@@ -169,21 +227,40 @@ async function sendDeslopRequest(
   request: Record<string, unknown>,
   labels: DeslopErrorLabels,
 ): Promise<string> {
-  let attempt = await attemptDeslopSend(
+  const attempt = await attemptWithProfileFallback(target, request, labels);
+  if (!attempt.ok) {
+    throw attemptFailure(attempt, labels);
+  }
+  return attempt.reply;
+}
+
+/**
+ * Post a request with the preferred profile, retrying once without it when
+ * the assistant rejects the profile itself.
+ */
+async function attemptWithProfileFallback(
+  target: DeslopTarget,
+  request: Record<string, unknown>,
+  labels: DeslopErrorLabels,
+): Promise<DeslopAttempt> {
+  const attempt = await attemptDeslopSend(
     target,
     JSON.stringify({ ...request, profile: DESLOP_PROFILE }),
     labels,
   );
-  if (!attempt.ok && isProfileRejection(attempt)) {
-    attempt = await attemptDeslopSend(target, JSON.stringify(request), labels);
+  if (attempt.ok || !isProfileRejection(attempt)) {
+    return attempt;
   }
+  return attemptDeslopSend(target, JSON.stringify(request), labels);
+}
 
-  if (!attempt.ok) {
-    throw new Error(
-      `${labels.failure} (${attempt.status})${attempt.detail ? `: ${truncate(attempt.detail, 300)}` : ""}`,
-    );
-  }
-  return attempt.reply;
+function attemptFailure(
+  attempt: Extract<DeslopAttempt, { ok: false }>,
+  labels: DeslopErrorLabels,
+): Error {
+  return new Error(
+    `${labels.failure} (${attempt.status})${attempt.detail ? `: ${truncate(attempt.detail, 300)}` : ""}`,
+  );
 }
 
 /**
