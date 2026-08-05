@@ -305,17 +305,15 @@ export function ChatBody({
   // `trailingStarters` lets the docked layout render the starters elsewhere
   // (its own bottom dock) instead of directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
-    // The banner is a flow child of this group, not an overlay: it is an
-    // opaque full-width card that always occupies its own height, so letting
-    // the flex column size it is what reserves the transcript's space. The
-    // scroll area is the `flex-1` sibling, so it gives back exactly the
-    // banner's height at every viewport size, with nothing measured.
-    // Only the scroll-to-latest pill floats, and it anchors to the top of
-    // this group so it clears the banner.
+    // The banner is a flow child here because it is an opaque full-width
+    // card that always occupies its own height: the `flex-1` scroll area
+    // then gives back exactly that height at every viewport size, with
+    // nothing measured. The pill is the opposite and floats, so it anchors
+    // to the top of this group to clear the banner.
     <div className="relative">
       {showScrollToLatest && !isEmptyState && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2.5">
-          <div className="pointer-events-auto">
+        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center">
+          <div className="pointer-events-auto pb-2.5">
             <ScrollToLatestButton
               onClick={onScrollToLatest}
               isAssistantBusy={isAssistantBusy}
@@ -335,27 +333,27 @@ export function ChatBody({
           </div>
         )}
         <div className="mx-auto max-w-[var(--chat-max-width)]">
-        {genericChatError && (
-          <div className="mb-2">
-            <Notice
-              tone={genericChatError.tone ?? "error"}
-              onDismiss={onDismissChatError}
-              actions={genericChatError.actions}
-            >
-              {genericChatError.message}
-            </Notice>
-          </div>
-        )}
-        {queuedDrawerSlot}
-        <QuestionPromptSlot />
-        {channelFooterSlot}
-        <StagedQuotesStrip />
-        {composerSlot}
-        {pluginPillsSlot &&
-          renderKeyboardCollapse(
-            "new-chat-plugins",
-            <div className="mt-4">{pluginPillsSlot}</div>,
+          {genericChatError && (
+            <div className="mb-2">
+              <Notice
+                tone={genericChatError.tone ?? "error"}
+                onDismiss={onDismissChatError}
+                actions={genericChatError.actions}
+              >
+                {genericChatError.message}
+              </Notice>
+            </div>
           )}
+          {queuedDrawerSlot}
+          <QuestionPromptSlot />
+          {channelFooterSlot}
+          <StagedQuotesStrip />
+          {composerSlot}
+          {pluginPillsSlot &&
+            renderKeyboardCollapse(
+              "new-chat-plugins",
+              <div className="mt-4">{pluginPillsSlot}</div>,
+            )}
           {trailingStarters}
         </div>
       </div>
@@ -394,9 +392,7 @@ export function ChatBody({
           <div
             className={`flex flex-1 flex-col ${keyboardOpen ? "justify-end" : "[justify-content:safe_center]"}`}
           >
-            <ChatScrollArea
-              {...scrollAreaProps}
-            />
+            <ChatScrollArea {...scrollAreaProps} />
             {renderComposerStack(null)}
           </div>
           {startersSlot &&
@@ -431,9 +427,7 @@ export function ChatBody({
       onDrop={dragHandlers.onDrop}
     >
       <div className={nonDockedInnerClass}>
-        <ChatScrollArea
-          {...scrollAreaProps}
-        />
+        <ChatScrollArea {...scrollAreaProps} />
 
         {!isEmptyState && activeProcessOverlaysSlot && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">

@@ -71,12 +71,11 @@ export function ChatScrollArea({
   // When the empty state is shown, this wrapper must NOT take `flex-1` so
   // the parent `ChatBody` can center it together with the composer +
   // starters as a single group. In all other states (skeleton, maintenance,
-  // transcript), `flex-1` lets the content fill the available height.
-  //
-  // Bottom UI that needs space (the nudge banner) is a flow sibling in
-  // `ChatBody`, so `flex-1` gives that height back here with nothing
-  // measured. Only genuinely floating UI (the scroll-to-latest pill) is
-  // positioned over this area, and it reserves nothing by design.
+  // transcript), `flex-1` lets the content fill the available height, which
+  // is also how bottom UI that needs space gets it: the nudge banner is a
+  // flow sibling in `ChatBody`, so nothing here has to reserve room for it.
+  // Only genuinely floating UI (the scroll-to-latest pill) overlays this
+  // area, and that reserves nothing by design.
   const wrapperClass = showEmptyState
     ? "relative flex min-h-0 flex-col"
     : "relative flex min-h-0 flex-1 flex-col";
