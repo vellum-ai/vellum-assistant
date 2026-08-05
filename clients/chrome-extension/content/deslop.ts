@@ -1,0 +1,285 @@
+/**
+ * Deslop content script: inspect-element-style picker that rewrites the
+ * clicked block's text via the connected assistant.
+ *
+ * Injected on demand by the service worker (`deslop-activate`), never
+ * declared in the manifest. The script is bundled as a classic script
+ * (no imports/exports) so `chrome.scripting.executeScript({ files })`
+ * can run it directly. Re-injection while a picker session is already
+ * active restarts the session instead of stacking listeners.
+ *
+ * Flow: hover highlights the element under the cursor; click sends its
+ * text to the worker (`deslop-rewrite`), which asks the assistant for a
+ * plain-language rewrite; the response replaces the element's content
+ * and the element is marked with a faint tint plus a wand badge. Esc
+ * exits the picker. The picker stays active after a rewrite so several
+ * blocks can be cleaned up in one session.
+ */
+
+(() => {
+  const SESSION_PROP = "__vellumDeslopSession";
+  const STYLE_ID = "vellum-deslop-style";
+  const REWRITTEN_ATTR = "data-vellum-desloped";
+  const PENDING_CLASS = "vellum-deslop-pending";
+  const MIN_TEXT_LENGTH = 8;
+  const MAX_TEXT_LENGTH = 20000;
+  const WAND_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 4V2M15 10V8M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  interface DeslopSession {
+    stop(): void;
+  }
+
+  interface DeslopRewriteResponse {
+    ok: boolean;
+    rewritten?: string;
+    error?: string;
+  }
+
+  const globalScope = window as unknown as Record<string, unknown>;
+
+  // Restart cleanly if a previous session is still active (button
+  // clicked twice, or re-activated after a rewrite).
+  const existing = globalScope[SESSION_PROP] as DeslopSession | undefined;
+  if (existing) {
+    existing.stop();
+  }
+
+  ensureStyles();
+
+  const highlight = document.createElement("div");
+  highlight.className = "vellum-deslop-highlight";
+  const hint = document.createElement("div");
+  hint.className = "vellum-deslop-hint";
+  hint.textContent = "Deslop: click a block of text to rewrite it · Esc to exit";
+  document.documentElement.append(highlight, hint);
+
+  let hovered: HTMLElement | null = null;
+
+  function isPickable(el: Element | null): el is HTMLElement {
+    if (!(el instanceof HTMLElement)) return false;
+    if (el === document.documentElement || el === document.body) return false;
+    if (el === hint || el === highlight) return false;
+    if (el.closest(`.${PENDING_CLASS}`)) return false;
+    const text = el.innerText?.trim() ?? "";
+    return text.length >= MIN_TEXT_LENGTH;
+  }
+
+  function positionHighlight(el: HTMLElement): void {
+    const rect = el.getBoundingClientRect();
+    highlight.style.display = "block";
+    highlight.style.top = `${rect.top}px`;
+    highlight.style.left = `${rect.left}px`;
+    highlight.style.width = `${rect.width}px`;
+    highlight.style.height = `${rect.height}px`;
+  }
+
+  function clearHighlight(): void {
+    hovered = null;
+    highlight.style.display = "none";
+  }
+
+  function onMouseMove(event: MouseEvent): void {
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    if (!isPickable(el)) {
+      clearHighlight();
+      return;
+    }
+    hovered = el;
+    positionHighlight(el);
+  }
+
+  function onScrollOrResize(): void {
+    if (hovered) positionHighlight(hovered);
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      stop();
+    }
+  }
+
+  function onClick(event: MouseEvent): void {
+    const target = hovered;
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void rewriteElement(target);
+  }
+
+  // Swallow the mousedown/mouseup pair too so pages with mousedown-driven
+  // handlers (menus, editors) don't react to the pick.
+  function swallow(event: MouseEvent): void {
+    if (hovered) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  async function rewriteElement(el: HTMLElement): Promise<void> {
+    const text = el.innerText.trim();
+    if (text.length === 0) return;
+
+    clearHighlight();
+    el.classList.add(PENDING_CLASS);
+
+    const response = await new Promise<DeslopRewriteResponse | undefined>(
+      (resolve) => {
+        chrome.runtime.sendMessage(
+          { type: "deslop-rewrite", text: text.slice(0, MAX_TEXT_LENGTH) },
+          (raw: DeslopRewriteResponse | undefined) => {
+            // Read lastError so Chrome doesn't log an unchecked error
+            // when the worker died mid-request.
+            void chrome.runtime.lastError;
+            resolve(raw);
+          },
+        );
+      },
+    );
+
+    el.classList.remove(PENDING_CLASS);
+
+    if (!response?.ok || typeof response.rewritten !== "string") {
+      flashError(el, response?.error ?? "The assistant could not rewrite this text.");
+      return;
+    }
+
+    el.innerText = response.rewritten.trim();
+    markRewritten(el);
+  }
+
+  function markRewritten(el: HTMLElement): void {
+    el.setAttribute(REWRITTEN_ATTR, "true");
+    if (getComputedStyle(el).position === "static") {
+      el.style.position = "relative";
+    }
+    const badge = document.createElement("span");
+    badge.className = "vellum-deslop-badge";
+    badge.title = "Rewritten by your Vellum assistant";
+    badge.innerHTML = WAND_SVG;
+    el.appendChild(badge);
+  }
+
+  function flashError(el: HTMLElement, message: string): void {
+    const note = document.createElement("div");
+    note.className = "vellum-deslop-error";
+    note.textContent = `Deslop failed: ${message}`;
+    document.documentElement.appendChild(note);
+    el.classList.add("vellum-deslop-failed");
+    setTimeout(() => {
+      note.remove();
+      el.classList.remove("vellum-deslop-failed");
+    }, 4000);
+  }
+
+  function stop(): void {
+    document.removeEventListener("mousemove", onMouseMove, true);
+    document.removeEventListener("click", onClick, true);
+    document.removeEventListener("mousedown", swallow, true);
+    document.removeEventListener("mouseup", swallow, true);
+    document.removeEventListener("keydown", onKeyDown, true);
+    window.removeEventListener("scroll", onScrollOrResize, true);
+    window.removeEventListener("resize", onScrollOrResize, true);
+    highlight.remove();
+    hint.remove();
+    delete globalScope[SESSION_PROP];
+  }
+
+  document.addEventListener("mousemove", onMouseMove, true);
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("mousedown", swallow, true);
+  document.addEventListener("mouseup", swallow, true);
+  document.addEventListener("keydown", onKeyDown, true);
+  window.addEventListener("scroll", onScrollOrResize, true);
+  window.addEventListener("resize", onScrollOrResize, true);
+
+  globalScope[SESSION_PROP] = { stop } satisfies DeslopSession;
+
+  function ensureStyles(): void {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+      .vellum-deslop-highlight {
+        position: fixed;
+        display: none;
+        pointer-events: none;
+        z-index: 2147483646;
+        background: rgba(99, 102, 241, 0.14);
+        outline: 2px solid rgba(99, 102, 241, 0.85);
+        outline-offset: -1px;
+        border-radius: 3px;
+        transition: top 40ms linear, left 40ms linear, width 40ms linear, height 40ms linear;
+      }
+      .vellum-deslop-hint {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2147483647;
+        background: rgba(17, 24, 39, 0.92);
+        color: #f9fafb;
+        font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        padding: 8px 14px;
+        border-radius: 999px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        pointer-events: none;
+      }
+      .${PENDING_CLASS} {
+        outline: 2px solid rgba(99, 102, 241, 0.85);
+        outline-offset: -1px;
+        animation: vellum-deslop-pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes vellum-deslop-pulse {
+        0%, 100% { background-color: rgba(99, 102, 241, 0.06); }
+        50% { background-color: rgba(99, 102, 241, 0.18); }
+      }
+      [${REWRITTEN_ATTR}] {
+        background-color: rgba(99, 102, 241, 0.07);
+        border-radius: 3px;
+        transition: background-color 300ms ease;
+      }
+      .vellum-deslop-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(99, 102, 241, 0.9);
+        color: #ffffff;
+        pointer-events: auto;
+        z-index: 2147483645;
+      }
+      .vellum-deslop-badge svg {
+        width: 11px;
+        height: 11px;
+        display: block;
+      }
+      .vellum-deslop-failed {
+        outline: 2px solid rgba(220, 38, 38, 0.7);
+        outline-offset: -1px;
+      }
+      .vellum-deslop-error {
+        position: fixed;
+        bottom: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2147483647;
+        background: rgba(153, 27, 27, 0.95);
+        color: #fef2f2;
+        font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        padding: 8px 14px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        pointer-events: none;
+        max-width: 70vw;
+      }
+    `;
+    document.documentElement.appendChild(style);
+  }
+})();

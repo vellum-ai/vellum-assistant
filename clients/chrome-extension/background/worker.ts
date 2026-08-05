@@ -57,6 +57,7 @@ import {
   submitFeedback,
   type FeedbackFormData,
 } from "./feedback.js";
+import { requestDeslopRewrite, type DeslopTarget } from "./deslop.js";
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -1466,6 +1467,52 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return false;
   }
 
+  if (message.type === "deslop-activate") {
+    (async () => {
+      const [activeTab] = await chrome.tabs.query({
+        active: true,
+        lastFocusedWindow: true,
+      });
+      if (activeTab?.id === undefined) {
+        throw new Error("No active tab found");
+      }
+      const url = activeTab.url ?? activeTab.pendingUrl ?? "";
+      if (!/^https?:/.test(url)) {
+        throw new Error("Deslop only works on regular web pages");
+      }
+      await chrome.scripting.executeScript({
+        target: { tabId: activeTab.id },
+        files: ["content/deslop.js"],
+      });
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true; // async
+  }
+
+  if (message.type === "deslop-rewrite") {
+    (async () => {
+      const text = typeof message.text === "string" ? message.text.trim() : "";
+      if (!text) {
+        sendResponseFn({ ok: false, error: "No text to rewrite" });
+        return;
+      }
+      const target = await resolveDeslopTarget();
+      const rewritten = await requestDeslopRewrite(text, target);
+      sendResponseFn({ ok: true, rewritten });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true; // async
+  }
+
   if (message.type === "submit-feedback") {
     (async () => {
       const form = message.form as FeedbackFormData | undefined;
@@ -1497,6 +1544,54 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   // Unknown message type — let Chrome close the port naturally.
   return false;
 });
+
+/**
+ * Resolve where a Deslop rewrite should be sent based on the user's
+ * connection mode. Self-hosted targets pair on demand when no JWT is
+ * cached (the pair endpoint is loopback-trusted), so Deslop works even
+ * before the SSE relay has connected.
+ */
+async function resolveDeslopTarget(): Promise<DeslopTarget> {
+  const userMode = await getStoredUserMode();
+  if (userMode === "cloud") {
+    const selectedAssistant = await getSelectedAssistant();
+    if (!selectedAssistant) {
+      throw new Error("Select an assistant in the extension popup first");
+    }
+    const environment = await getEffectiveEnvironment();
+    return {
+      kind: "cloud",
+      environment,
+      assistantId: selectedAssistant.id,
+    };
+  }
+
+  const gatewayUrl = await getStoredGatewayUrl();
+  if (!selfHostedPairToken) {
+    try {
+      const pairResp = await fetch(`${gatewayUrl.replace(/\/$/, "")}/v1/pair`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-vellum-interface-id": "chrome-extension",
+        },
+      });
+      if (pairResp.ok) {
+        const body = (await pairResp.json()) as { token?: string };
+        selfHostedPairToken = body.token ?? null;
+      }
+    } catch {
+      throw new Error(
+        `Couldn't reach the assistant at ${gatewayUrl}. Make sure it is running.`,
+      );
+    }
+  }
+  return {
+    kind: "self-hosted",
+    gatewayUrl,
+    pairToken: selfHostedPairToken,
+  };
+}
 
 /**
  * Build the environment context used by the Share Feedback flow.

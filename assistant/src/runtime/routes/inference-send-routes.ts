@@ -18,7 +18,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
 import { runWithProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
-import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, UpstreamProviderError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -190,7 +190,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policy: {
       requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Send a message to the configured LLM",
     description:
