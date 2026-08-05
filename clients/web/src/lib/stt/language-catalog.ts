@@ -476,9 +476,14 @@ export function suggestedLanguageForLocale(
   navigatorLanguage: string | undefined,
   daemonProviderId: string,
   daemonDefaultsToMulti = false,
+  currentCode: string = STT_LANGUAGE_DEFAULT_CODE,
 ): string | null {
   const entry = sttCatalogEntryForLocale(navigatorLanguage);
   if (!entry) {
+    return null;
+  }
+  // Already pinned to exactly this language: nothing left to propose.
+  if (currentCode === entry.code) {
     return null;
   }
   if (entry.extended) {
@@ -486,18 +491,29 @@ export function suggestedLanguageForLocale(
       ? entry.code
       : null;
   }
-  // The locale's language is on the code-switching roster, so what to
-  // suggest depends on what this assistant already does with an unset value:
-  //
-  // - It resolves to code-switching: nothing to suggest. The speaker is
-  //   understood before anyone touches a setting, and a row proposing what is
-  //   already in effect reads as an unfinished task.
-  // - It decodes as English but can accept "multi": suggest that. This is the
-  //   pre-0.12.0 case, and it is the whole reason the row exists.
-  // - It detects natively (xai): the monolingual pin, which is the only thing
-  //   its option set offers.
-  if (resolvesUnsetToMulti(daemonProviderId, daemonDefaultsToMulti)) {
+
+  // The locale's language is on the code-switching roster, so the question is
+  // whether the CURRENT selection already covers this speaker. The provider's
+  // default only settles that when the user is actually on it: someone who
+  // pinned English is transcribed as English no matter what unset would have
+  // meant, and is exactly who the row exists for.
+  const onCodeSwitching =
+    currentCode === STT_MULTI_CODE ||
+    (currentCode === STT_LANGUAGE_DEFAULT_CODE &&
+      resolvesUnsetToMulti(daemonProviderId, daemonDefaultsToMulti));
+  const onNativeDetection =
+    currentCode === STT_LANGUAGE_DEFAULT_CODE &&
+    AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId);
+  if (onCodeSwitching || onNativeDetection) {
     return null;
+  }
+
+  // Not covered. Point at whichever row grants code-switching here: the
+  // default row where that is what unset resolves to, the standalone
+  // Multilingual row where it is offered separately, and the monolingual pin
+  // under a provider that has neither.
+  if (resolvesUnsetToMulti(daemonProviderId, daemonDefaultsToMulti)) {
+    return STT_LANGUAGE_DEFAULT_CODE;
   }
   return MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
     ? STT_MULTI_CODE

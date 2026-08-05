@@ -316,6 +316,29 @@ describe("VoiceFirstRunCard", () => {
       expect(queryByLabelText(ROW_LABEL)).toBeNull();
     });
 
+    test("an English pin on a covered locale still shows the row", () => {
+      // The default covers Hindi, but this user is not on the default: the
+      // old picker's default row wrote an explicit "en", so the session keeps
+      // transcribing them as English. Suppressing the row here would hide the
+      // fix from exactly the person who needs it.
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        currentCode: "en",
+      };
+      const { getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      const options = languageOptions(getByLabelText);
+      const suggested = options.find((o) =>
+        o.textContent?.includes("Suggested"),
+      );
+      // The multilingual default row is what grants code-switching here.
+      expect(suggested?.textContent).toContain("Multilingual (default)");
+    });
+
     test("a locale the default cannot follow shows the row with that language suggested", () => {
       // Tamil is on the monolingual roster but outside what code-switching
       // can follow, so this is exactly the case the row still exists for.
@@ -334,25 +357,26 @@ describe("VoiceFirstRunCard", () => {
       expect(options[2]?.textContent).toContain("Suggested");
     });
 
-    test("under xai a multi-roster locale still suggests the monolingual pin", () => {
-      // xai detects natively rather than defaulting to code-switching, so it
-      // has no default that already covers a Hindi speaker: the suggestion
-      // stands.
+    test("under xai an English pin on a Hindi locale suggests the monolingual pin", () => {
+      // xai's unset state detects natively and already covers this speaker,
+      // so the row turns on the pin rather than the provider: an explicit
+      // "en" is what leaves them transcribed as English.
       stubLocale("hi-IN");
       sttLanguageSelection = {
         ...sttLanguageSelection,
         available: true,
         configuredProviderId: "xai",
+        currentCode: "en",
       };
       const { getByLabelText } = render(
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
       const options = languageOptions(getByLabelText);
-      expect(options[0]?.textContent).toContain("Auto-detect (default)");
-      expect(options[1]?.textContent).toContain("English");
-      expect(options[2]?.textContent).toContain("Hindi");
-      expect(options[2]?.textContent).toContain("Suggested");
+      // The pinned English row leads Featured as the current value.
+      expect(options[0]?.textContent).toContain("English");
+      const hindi = options.find((o) => o.textContent?.includes("Hindi"));
+      expect(hindi?.textContent).toContain("Suggested");
       expect(options.some((o) => o.textContent?.includes("Multilingual"))).toBe(
         false,
       );

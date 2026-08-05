@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   STT_LANGUAGES,
+  STT_LANGUAGE_DEFAULT_CODE,
   STT_MULTI_CODE,
   sttCatalogEntryForLocale,
   sttLanguageGroupsFor,
@@ -404,10 +405,16 @@ describe("suggestedLanguageForLocale", () => {
     expect(suggestedLanguageForLocale("hi-IN", "vellum", true)).toBeNull();
   });
 
-  test("returns the monolingual pin where the provider detects natively", () => {
-    // xai has no code-switching default to fall back on, and "hi" is in
-    // every language-selectable provider's set, so the suggestion stands.
-    expect(suggestedLanguageForLocale("hi-IN", "xai")).toBe("hi");
+  test("returns null under xai while unset, which is native detection", () => {
+    // xai's unset state detects the language from the audio, so this speaker
+    // is already understood and there is nothing to propose.
+    expect(suggestedLanguageForLocale("hi-IN", "xai")).toBeNull();
+  });
+
+  test("returns the monolingual pin when xai has English pinned", () => {
+    // A real pin overrides native detection, so the row comes back for the
+    // one thing xai's option set can offer.
+    expect(suggestedLanguageForLocale("hi-IN", "xai", false, "en")).toBe("hi");
   });
 
   test("returns the monolingual pin for an extended-roster locale where nova-3 runs", () => {
@@ -486,6 +493,61 @@ describe("version skew: an assistant that predates the multilingual default", ()
   test("leaves xai untouched, whose default never depended on the version", () => {
     const options = sttLanguageOptionsFor("", "xai");
     expect(options[0]?.label).toBe("Auto-detect (default)");
-    expect(suggestedLanguageForLocale("hi-IN", "xai")).toBe("hi");
+    // Unset under xai is native detection either way, so the version gate
+    // never enters into it.
+    expect(suggestedLanguageForLocale("hi-IN", "xai", true)).toBeNull();
+    expect(suggestedLanguageForLocale("hi-IN", "xai", false)).toBeNull();
+  });
+});
+
+describe("suggestions follow the current selection, not just the default", () => {
+  // The provider default only settles whether a speaker is covered when the
+  // user is actually on it. Someone who pinned a language is transcribed as
+  // that language regardless of what unset would have meant.
+
+  test("an explicit English pin still gets a suggestion on a Hindi locale", () => {
+    // The case the row exists for: a persisted "en" (the old picker's default
+    // row wrote exactly this) means the session keeps hearing English.
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram", true, "en")).toBe(
+      STT_LANGUAGE_DEFAULT_CODE,
+    );
+  });
+
+  test("a pin that does not cover the locale points at code-switching", () => {
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram", true, "es")).toBe(
+      STT_LANGUAGE_DEFAULT_CODE,
+    );
+  });
+
+  test("being on the default itself suggests nothing", () => {
+    expect(
+      suggestedLanguageForLocale(
+        "hi-IN",
+        "deepgram",
+        true,
+        STT_LANGUAGE_DEFAULT_CODE,
+      ),
+    ).toBeNull();
+  });
+
+  test("an explicit multi pin suggests nothing", () => {
+    expect(
+      suggestedLanguageForLocale("hi-IN", "deepgram", true, STT_MULTI_CODE),
+    ).toBeNull();
+  });
+
+  test("a pin matching the locale exactly suggests nothing", () => {
+    expect(
+      suggestedLanguageForLocale("ta-IN", "deepgram", true, "ta"),
+    ).toBeNull();
+    expect(
+      suggestedLanguageForLocale("hi-IN", "deepgram", true, "hi"),
+    ).toBeNull();
+  });
+
+  test("a pre-0.12.0 assistant still points at the standalone Multilingual row", () => {
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram", false, "en")).toBe(
+      STT_MULTI_CODE,
+    );
   });
 });

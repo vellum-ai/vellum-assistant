@@ -148,10 +148,14 @@ export function VoiceFirstRunCard({
   // locale under xai), so the row never renders a suggestion the picker
   // withholds. `languageAvailable` stays false until config arrives, so the
   // row only renders once `configuredProviderId` is the real provider.
+  // `languageCode` matters as much as the provider default here: a user who
+  // pinned English is transcribed as English whatever unset would have meant,
+  // so the row has to stay visible for them.
   const suggestedCode = suggestedLanguageForLocale(
     navigatorLanguage,
     configuredProviderId,
     daemonDefaultsToMulti,
+    languageCode,
   );
 
   return (
