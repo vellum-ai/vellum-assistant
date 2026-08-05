@@ -23,16 +23,16 @@ export function buildProfileOptions(
 ): ProfileOption[] {
   const profiles = llm?.profiles ?? {};
   const profileOrder = llm?.profileOrder ?? [];
-  const visibleProfiles = visibleProfilesForPicker(
-    buildOrderedProfiles(profiles, profileOrder),
-    [selectedProfile],
-  );
+  const orderedProfiles = buildOrderedProfiles(profiles, profileOrder);
+  const visibleProfiles = visibleProfilesForPicker(orderedProfiles, [
+    selectedProfile,
+  ]);
 
   return [
     { value: null, label: "Default" },
     ...visibleProfiles.map((profile) => ({
       value: profile.name,
-      label: profilePickerLabel(profile),
+      label: profilePickerLabel(profile, orderedProfiles),
     })),
   ];
 }

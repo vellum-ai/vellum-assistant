@@ -25,6 +25,11 @@ export interface ProfilePickerEntry {
   readonly mix?: ProfileEntry["mix"];
 }
 
+/** A profile that names no other profiles: it dispatches on its own fields. */
+function isDispatchableStandardProfile(p: ProfilePickerEntry): boolean {
+  return p.status !== "disabled" && !!p.provider && !!p.model;
+}
+
 /**
  * Whether the resolver would accept this profile when a rung names it.
  *
@@ -34,20 +39,37 @@ export interface ProfilePickerEntry {
  * so offering it in a picker produces a pin that silently falls through to
  * the next rung while the UI still shows it as the selection.
  *
- * A mix carries no provider or model of its own: the daemon expands it to a
- * seeded arm and judges that arm. Treat mixes as dispatchable rather than
- * re-deriving arm selection here, so a working mix is never hidden. A mix
- * whose arms are all broken still falls through at resolution time, which is
- * the same outcome as today.
+ * A mix carries no provider or model of its own. The resolver expands it to
+ * one arm by a weighted pick seeded on the conversation, then judges that
+ * arm, so which arm runs is not knowable when the picker is drawn: a mix
+ * with one broken arm dispatches on some turns and falls through on others.
+ * A mix is therefore offered only when EVERY arm is dispatchable. Arms are
+ * standard profiles (the schema rejects nesting), so this does not recurse.
+ *
+ * `siblings` is the profile set the arms are resolved against, and is
+ * required: defaulting it would make a mix silently unjudgeable, and would
+ * let `filter(isDispatchableProfile)` pass the array index in its place.
+ * An arm naming a profile absent from the set is treated as broken, matching
+ * the resolver reporting that expansion as `"missing"`.
  */
-export function isDispatchableProfile(p: ProfilePickerEntry): boolean {
+export function isDispatchableProfile(
+  p: ProfilePickerEntry,
+  siblings: ReadonlyArray<ProfilePickerEntry>,
+): boolean {
   if (p.status === "disabled") {
     return false;
   }
-  if (p.mix != null) {
-    return true;
+  if (p.mix == null) {
+    return isDispatchableStandardProfile(p);
   }
-  return !!p.provider && !!p.model;
+  const arms = Array.isArray(p.mix) ? p.mix : [];
+  if (arms.length === 0) {
+    return false;
+  }
+  return arms.every((arm) => {
+    const target = siblings.find((s) => s.name === arm?.profile);
+    return target != null && isDispatchableStandardProfile(target);
+  });
 }
 
 /**
@@ -59,7 +81,7 @@ export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
   profiles: ReadonlyArray<T>,
   preferredProfile: string | null | undefined,
 ): string | undefined {
-  const candidates = profiles.filter(isDispatchableProfile);
+  const candidates = profiles.filter((p) => isDispatchableProfile(p, profiles));
   if (preferredProfile && candidates.some((p) => p.name === preferredProfile)) {
     return preferredProfile;
   }
@@ -87,7 +109,7 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
     }
   }
   return profiles.filter(
-    (p) => isDispatchableProfile(p) || selected.has(p.name),
+    (p) => isDispatchableProfile(p, profiles) || selected.has(p.name),
   );
 }
 
@@ -98,12 +120,15 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
  * the suffix the user sees a normal-looking selection that is not the
  * profile the action actually runs on.
  */
-export function profilePickerLabel(p: ProfilePickerEntry): string {
+export function profilePickerLabel(
+  p: ProfilePickerEntry,
+  siblings: ReadonlyArray<ProfilePickerEntry>,
+): string {
   const base = p.label ?? p.name;
   if (p.status === "disabled") {
     return `${base} (Disabled)`;
   }
-  if (!isDispatchableProfile(p)) {
+  if (!isDispatchableProfile(p, siblings)) {
     return `${base} (Unavailable)`;
   }
   return base;

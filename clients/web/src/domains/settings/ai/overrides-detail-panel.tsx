@@ -158,7 +158,7 @@ export function OverridesDetailPanel({
       visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map(
         (p) => ({
           value: p.name,
-          label: profilePickerLabel(p),
+          label: profilePickerLabel(p, orderedProfiles),
         }),
       ),
     [orderedProfiles, persistedAdvisor],
@@ -189,7 +189,7 @@ export function OverridesDetailPanel({
       return [
         ...visible.map((p) => ({
           value: p.name,
-          label: profilePickerLabel(p),
+          label: profilePickerLabel(p, orderedProfiles),
         })),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];

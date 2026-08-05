@@ -37,44 +37,97 @@ const profiles: ProfilePickerEntry[] = [
 
 describe("isDispatchableProfile", () => {
   test("true only when enabled with a provider and a model", () => {
-    expect(isDispatchableProfile(profiles[0]!)).toBe(true);
+    expect(isDispatchableProfile(profiles[0]!, profiles)).toBe(true);
   });
 
   test("false when disabled, even if complete", () => {
-    expect(isDispatchableProfile(profiles[2]!)).toBe(false);
+    expect(isDispatchableProfile(profiles[2]!, profiles)).toBe(false);
   });
 
   test("false when either half of the pair is missing", () => {
-    expect(isDispatchableProfile({ name: "a", provider: "anthropic" })).toBe(
-      false,
-    );
-    expect(isDispatchableProfile({ name: "b", model: "claude-opus-5" })).toBe(
-      false,
-    );
-    expect(isDispatchableProfile({ name: "c" })).toBe(false);
+    expect(
+      isDispatchableProfile({ name: "a", provider: "anthropic" }, profiles),
+    ).toBe(false);
+    expect(
+      isDispatchableProfile({ name: "b", model: "claude-opus-5" }, profiles),
+    ).toBe(false);
+    expect(isDispatchableProfile({ name: "c" }, profiles)).toBe(false);
   });
 
-  // A mix reports no provider or model of its own: the daemon expands it to
-  // a seeded arm. Hiding mixes would remove working profiles from pickers.
-  test("true for a mix despite having no provider or model", () => {
+  // A mix is expanded to ONE arm by a weighted pick seeded on the
+  // conversation, so which arm runs is not knowable when the picker is
+  // drawn. Offering a mix with a broken arm would dispatch on some turns
+  // and silently fall through on others.
+  test("true when every arm is dispatchable", () => {
     expect(
-      isDispatchableProfile({
-        name: "ab",
-        mix: [
-          { profile: "balanced", weight: 1 },
-          { profile: "quality", weight: 1 },
-        ],
-      }),
+      isDispatchableProfile(
+        {
+          name: "ab",
+          mix: [
+            { profile: "balanced", weight: 1 },
+            { profile: "quality", weight: 1 },
+          ],
+        },
+        profiles,
+      ),
     ).toBe(true);
   });
 
-  test("false for a disabled mix", () => {
+  test("false when any arm is incomplete", () => {
     expect(
-      isDispatchableProfile({
-        name: "ab",
-        status: "disabled",
-        mix: [{ profile: "balanced", weight: 1 }],
-      }),
+      isDispatchableProfile(
+        {
+          name: "ab",
+          mix: [
+            { profile: "balanced", weight: 1 },
+            { profile: "halfmade", weight: 1 },
+          ],
+        },
+        profiles,
+      ),
+    ).toBe(false);
+  });
+
+  test("false when any arm is disabled", () => {
+    expect(
+      isDispatchableProfile(
+        {
+          name: "ab",
+          mix: [
+            { profile: "balanced", weight: 1 },
+            { profile: "off", weight: 1 },
+          ],
+        },
+        profiles,
+      ),
+    ).toBe(false);
+  });
+
+  test("false when an arm names a profile that is not defined", () => {
+    expect(
+      isDispatchableProfile(
+        { name: "ab", mix: [{ profile: "ghost", weight: 1 }] },
+        profiles,
+      ),
+    ).toBe(false);
+  });
+
+  test("false for an empty mix", () => {
+    expect(isDispatchableProfile({ name: "ab", mix: [] }, profiles)).toBe(
+      false,
+    );
+  });
+
+  test("false for a disabled mix whose arms are all fine", () => {
+    expect(
+      isDispatchableProfile(
+        {
+          name: "ab",
+          status: "disabled",
+          mix: [{ profile: "balanced", weight: 1 }],
+        },
+        profiles,
+      ),
     ).toBe(false);
   });
 });
@@ -128,26 +181,27 @@ describe("visibleProfilesForPicker", () => {
 
 describe("profilePickerLabel", () => {
   test("plain label when dispatchable", () => {
-    expect(profilePickerLabel(profiles[0]!)).toBe("Balanced");
+    expect(profilePickerLabel(profiles[0]!, profiles)).toBe("Balanced");
   });
 
   test("flags disabled", () => {
-    expect(profilePickerLabel(profiles[2]!)).toBe("Off (Disabled)");
+    expect(profilePickerLabel(profiles[2]!, profiles)).toBe("Off (Disabled)");
   });
 
   // Kept visible only as a current selection, so it has to read as broken
   // rather than as a normal choice.
   test("flags an entry that cannot dispatch", () => {
-    expect(profilePickerLabel(profiles[3]!)).toBe("Half Made (Unavailable)");
+    expect(profilePickerLabel(profiles[3]!, profiles)).toBe(
+      "Half Made (Unavailable)",
+    );
   });
 
   test("falls back to the name when unlabeled", () => {
     expect(
-      profilePickerLabel({
-        name: "raw",
-        provider: "anthropic",
-        model: "claude-opus-5",
-      }),
+      profilePickerLabel(
+        { name: "raw", provider: "anthropic", model: "claude-opus-5" },
+        profiles,
+      ),
     ).toBe("raw");
   });
 });
