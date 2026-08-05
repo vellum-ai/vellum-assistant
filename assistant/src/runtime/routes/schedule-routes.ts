@@ -382,6 +382,7 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         timezone,
         expression: normalized.expression,
         syntax: normalized.syntax,
+        inferenceProfile,
       });
       log.info(
         { id: job.id, name: job.name, workflowName },
@@ -420,6 +421,7 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         expression: normalized.expression,
         syntax: normalized.syntax,
         timeoutMs,
+        inferenceProfile,
       });
       log.info({ id: job.id, name: job.name }, "Script schedule created");
       return { schedule: serializeSchedule(job, new Map()) };
