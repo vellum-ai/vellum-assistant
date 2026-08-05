@@ -1,7 +1,14 @@
-import { Calendar, ChevronLeft } from "lucide-react";
+import {
+  Calendar,
+  ChevronLeft,
+  Mail,
+  MailOpen,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
-import type { FeedItem } from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
@@ -34,9 +41,14 @@ export interface NotificationsBellDetailProps {
   validScheduleIds: Set<string>;
   /** True while that list has yet to resolve. */
   isScheduleListPending: boolean;
+  /** True while an action item's conversation is being created. */
+  isActionPending: boolean;
   onBack: () => void;
   onGoToConversation: (conversationId: string) => void;
   onViewSchedule: (scheduleId: string) => void;
+  onUpdateStatus: (itemId: string, status: FeedItemStatus) => void;
+  onDismiss: (itemId: string) => void;
+  onTriggerAction: (actionId: string) => void;
 }
 
 /**
@@ -51,12 +63,19 @@ export function NotificationsBellDetail({
   areConversationListsPending,
   validScheduleIds,
   isScheduleListPending,
+  isActionPending,
   onBack,
   onGoToConversation,
   onViewSchedule,
+  onUpdateStatus,
+  onDismiss,
+  onTriggerAction,
 }: NotificationsBellDetailProps) {
   const conversationId = item.conversationId ?? null;
   const scheduleId = getFeedItemScheduleId(item);
+  const isUnread = item.status === "new";
+  const isDismissed = item.status === "dismissed";
+  const actions = item.actions ?? [];
 
   // Same rule as the Activity page's detail panel, plus a pending case the
   // page doesn't have: the lists start loading when this view opens. Every
@@ -107,6 +126,40 @@ export function NotificationsBellDetail({
         >
           {resolveFeedItemTitle(item)}
         </Typography>
+
+        {/*
+          Status actions ride in the header as icon-only buttons, the
+          arrangement and labelling the Activity panel's mobile nav bar uses.
+          The pair holds its own width opposite the back control, leaving the
+          title the rest of the row to truncate into rather than pushing the
+          header onto a second line.
+        */}
+        <div className="flex shrink-0 items-center gap-[var(--app-spacing-xs)]">
+          <Button
+            variant="ghost"
+            iconOnly={isUnread ? <MailOpen /> : <Mail />}
+            onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
+            aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
+          />
+          {isDismissed ? (
+            <Button
+              variant="ghost"
+              iconOnly={<RotateCcw />}
+              onClick={() => onUpdateStatus(item.id, "seen")}
+              aria-label="Restore"
+              tooltip="Restore"
+            />
+          ) : (
+            <Button
+              variant="ghost"
+              iconOnly={<Trash2 />}
+              onClick={() => onDismiss(item.id)}
+              aria-label="Dismiss"
+              tooltip="Dismiss"
+            />
+          )}
+        </div>
       </div>
 
       <div
@@ -122,6 +175,37 @@ export function NotificationsBellDetail({
             {formatRelativeDate(item.timestamp)}
           </Tag>
         </div>
+
+        {/*
+          The assistant's own offers on this notification, so they sit with the
+          content rather than in the footer of navigation links. Each one starts
+          a fresh conversation, so all of them go inert together while one is in
+          flight and no second conversation can be opened by a double click. A
+          label longer than the panel truncates instead of widening the row.
+        */}
+        {actions.length > 0 ? (
+          <div
+            data-testid="notifications-bell-detail-actions"
+            className="mt-[var(--app-spacing-md)] flex flex-wrap gap-[var(--app-spacing-sm)]"
+          >
+            {actions.map((action) => (
+              <Button
+                key={action.id}
+                variant="outlined"
+                className="max-w-full"
+                disabled={isActionPending}
+                onClick={() => onTriggerAction(action.id)}
+              >
+                <Typography
+                  variant="body-medium-default"
+                  className="min-w-0 truncate"
+                >
+                  {action.label}
+                </Typography>
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {linkedScheduleId || linkedConversationId ? (

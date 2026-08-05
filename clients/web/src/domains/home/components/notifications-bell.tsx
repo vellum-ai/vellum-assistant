@@ -15,7 +15,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import type { FeedItem } from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
   BottomSheet,
   Button,
@@ -23,6 +23,7 @@ import {
   Tooltip,
   Typography,
 } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import { HomeRecapRow } from "../home-recap-row";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
@@ -87,10 +88,14 @@ export function NotificationsBell() {
   const hasUnread = visibleItems.some((item) => item.status === "new");
 
   // Tracked by id, not by value: the feed is the one owner of an item's
-  // status, so the detail follows a mark-read or a dismissal without a second
-  // copy to reconcile.
+  // status, so the detail follows a mark-read without a second copy to
+  // reconcile. Resolved against the whole feed rather than the visible slice,
+  // because the detail's own status actions can take the item out of that
+  // slice: an item dismissed from another surface keeps its detail open and
+  // offering Restore, and only an item the feed drops entirely closes it.
+  // Dismissing from here returns to the list explicitly, in `handleDismiss`.
   const selectedItem = selectedItemId
-    ? (visibleItems.find((item) => item.id === selectedItemId) ?? null)
+    ? ((items ?? []).find((item) => item.id === selectedItemId) ?? null)
     : null;
   const isDetailOpen = selectedItem !== null;
 
@@ -174,6 +179,46 @@ export function NotificationsBell() {
   const handleViewSchedule = (scheduleId: string) => {
     handleOpenChange(false);
     navigate(routes.schedules.detail(scheduleId));
+  };
+
+  const handleUpdateStatus = (itemId: string, status: FeedItemStatus) => {
+    feedQuery.updateStatus.mutate({ itemId, status });
+  };
+
+  const handleDismiss = (itemId: string) => {
+    feedQuery.updateStatus.mutate({ itemId, status: "dismissed" });
+    // A dismissed item is gone from the list behind the detail, so the detail
+    // has nothing left to return to. Closing it here rather than letting the
+    // lookup drop out keeps the list from flickering back if the mutation
+    // fails and the feed rolls the status back.
+    setSelectedItemId(null);
+  };
+
+  // Guards the mutation rather than the button: `isPending` reaches the button
+  // only on the next render, so a second click landing in the same tick would
+  // still get through and open a second conversation.
+  const isTriggeringActionRef = useRef(false);
+
+  const handleTriggerAction = (actionId: string) => {
+    if (!selectedItem || isTriggeringActionRef.current) {
+      return;
+    }
+    isTriggeringActionRef.current = true;
+    feedQuery.triggerAction.mutate(
+      { itemId: selectedItem.id, actionId },
+      {
+        onSuccess: (data) => {
+          handleOpenChange(false);
+          navigateToConversation(navigate, data.conversationId);
+        },
+        onError: () => {
+          toast.error("Couldn't start that conversation. Try again.");
+        },
+        onSettled: () => {
+          isTriggeringActionRef.current = false;
+        },
+      },
+    );
   };
 
   const handleMarkAllRead = () => {
@@ -271,9 +316,13 @@ export function NotificationsBell() {
           areConversationListsPending={areConversationListsPending}
           validScheduleIds={validScheduleIds}
           isScheduleListPending={isScheduleListPending}
+          isActionPending={feedQuery.triggerAction.isPending}
           onBack={() => setSelectedItemId(null)}
           onGoToConversation={handleGoToConversation}
           onViewSchedule={handleViewSchedule}
+          onUpdateStatus={handleUpdateStatus}
+          onDismiss={handleDismiss}
+          onTriggerAction={handleTriggerAction}
         />
       ) : (
         <>

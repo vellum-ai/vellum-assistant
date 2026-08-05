@@ -22,7 +22,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Conversation } from "@/types/conversation-types";
-import type { FeedItem } from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
 const isMobileRef = { value: false };
 
@@ -33,14 +33,69 @@ mock.module("@/hooks/use-is-mobile", () => ({
 
 const feedRef: { items: FeedItem[] } = { items: [] };
 
+interface UpdateStatusVars {
+  itemId: string;
+  status: FeedItemStatus;
+}
+
+interface TriggerActionVars {
+  itemId: string;
+  actionId: string;
+}
+
+interface TriggerActionCallbacks {
+  onSuccess?: (data: { conversationId: string }) => void;
+  onError?: (error: Error) => void;
+  onSettled?: () => void;
+}
+
+const updateStatusCalls: UpdateStatusVars[] = [];
+const triggerActionCalls: TriggerActionVars[] = [];
+
+/**
+ * How the mocked `triggerAction` settles. "pending" leaves it in flight, which
+ * is the state the double-click guard has to hold under: the real mutation's
+ * `isPending` only reaches the button on the next render, so a guard that
+ * relies on it would let a second click through and open a second
+ * conversation.
+ */
+const triggerActionRef: {
+  outcome: "pending" | "success" | "error";
+  conversationId: string;
+} = { outcome: "pending", conversationId: "action-conversation-1" };
+
 mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
   useHomeFeedQuery: () => ({
     data: { items: feedRef.items },
     isLoading: false,
     isError: false,
-    updateStatus: { mutate: () => {}, isPending: false },
+    updateStatus: {
+      mutate: (vars: UpdateStatusVars) => {
+        updateStatusCalls.push(vars);
+      },
+      isPending: false,
+    },
+    triggerAction: {
+      mutate: (vars: TriggerActionVars, callbacks?: TriggerActionCallbacks) => {
+        triggerActionCalls.push(vars);
+        if (triggerActionRef.outcome === "success") {
+          callbacks?.onSuccess?.({
+            conversationId: triggerActionRef.conversationId,
+          });
+          callbacks?.onSettled?.();
+        } else if (triggerActionRef.outcome === "error") {
+          callbacks?.onError?.(new Error("action failed"));
+          callbacks?.onSettled?.();
+        }
+      },
+      isPending: false,
+    },
     markAll: { mutate: () => {}, isPending: false },
   }),
+}));
+
+mock.module("@vellumai/design-library/components/toast", () => ({
+  toast: { error: () => {}, success: () => {} },
 }));
 
 mock.module("@/lib/backwards-compat/bulk-feed-status", () => ({
@@ -226,6 +281,9 @@ beforeEach(() => {
   schedulesRef.list = [];
   schedulesRef.isPending = false;
   scheduleEnabledCalls.length = 0;
+  updateStatusCalls.length = 0;
+  triggerActionCalls.length = 0;
+  triggerActionRef.outcome = "pending";
   navigateMock.mockClear();
   navigateToConversationMock.mockClear();
 });
@@ -694,5 +752,200 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
+  });
+});
+
+describe("NotificationsBell detail status actions", () => {
+  const READ = feedItem({
+    id: "first",
+    status: "seen",
+    title: "Watcher job failed",
+  });
+  const SECOND = feedItem({
+    id: "second",
+    status: "seen",
+    title: "Backup finished",
+  });
+
+  test("marks an unread item as read", async () => {
+    feedRef.items = [feedItem({ id: "first", title: "Watcher job failed" })];
+
+    await openDetail("Watcher job failed");
+    fireEvent.click(screen.getByRole("button", { name: "Mark as read" }));
+    await act(async () => {});
+
+    // Two calls: selecting the row already marks it seen, and the header
+    // button is the second. The mocked feed never writes the status back, so
+    // the item stays unread and the button keeps offering the same action.
+    expect(updateStatusCalls).toEqual([
+      { itemId: "first", status: "seen" },
+      { itemId: "first", status: "seen" },
+    ]);
+  });
+
+  test("marks a read item as unread", async () => {
+    feedRef.items = [READ];
+
+    await openDetail("Watcher job failed");
+    fireEvent.click(screen.getByRole("button", { name: "Mark as unread" }));
+    await act(async () => {});
+
+    expect(updateStatusCalls).toEqual([{ itemId: "first", status: "new" }]);
+  });
+
+  test("dismissing returns to the list", async () => {
+    feedRef.items = [READ, SECOND];
+
+    await openDetail("Watcher job failed");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await act(async () => {});
+
+    expect(updateStatusCalls).toEqual([
+      { itemId: "first", status: "dismissed" },
+    ]);
+    expect(screen.getByRole("heading", { name: "Notifications" })).toBeTruthy();
+    expect(screen.getByText("Backup finished")).toBeTruthy();
+  });
+
+  test("an item dismissed elsewhere offers Restore in place of Dismiss", async () => {
+    feedRef.items = [READ];
+
+    const { rerender } = render(<NotificationsBell />);
+    await clickTrigger();
+    fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
+    await act(async () => {});
+
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+
+    feedRef.items = [{ ...READ, status: "dismissed" }];
+    rerender(<NotificationsBell />);
+    await act(async () => {});
+
+    // The detail stays on the item rather than blanking, and swaps the
+    // destructive action for the one that undoes it.
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await act(async () => {});
+
+    expect(updateStatusCalls).toEqual([{ itemId: "first", status: "seen" }]);
+  });
+
+  test("the status actions stay out of the list view", async () => {
+    feedRef.items = [READ];
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+  });
+});
+
+describe("NotificationsBell detail action items", () => {
+  const ACTIONS = [
+    { id: "triage", label: "Triage my inbox", prompt: "Triage my inbox" },
+    { id: "digest", label: "Set up daily digest", prompt: "Set up a digest" },
+  ];
+
+  const WITH_ACTIONS = feedItem({
+    id: "first",
+    status: "seen",
+    title: "Gmail connected",
+    actions: ACTIONS,
+  });
+
+  async function openActionDetail(): Promise<void> {
+    feedRef.items = [WITH_ACTIONS];
+    await openDetail("Gmail connected");
+  }
+
+  test("renders one button per action, labelled by the action", async () => {
+    await openActionDetail();
+
+    expect(
+      screen.getByTestId("notifications-bell-detail-actions"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Triage my inbox" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Set up daily digest" }),
+    ).toBeTruthy();
+  });
+
+  test("renders no action section when the item carries none", async () => {
+    feedRef.items = [
+      feedItem({ id: "first", status: "seen", title: "Backup finished" }),
+    ];
+
+    await openDetail("Backup finished");
+
+    expect(
+      screen.queryByTestId("notifications-bell-detail-actions"),
+    ).toBeNull();
+  });
+
+  test("renders no action section when the actions list is empty", async () => {
+    feedRef.items = [{ ...WITH_ACTIONS, actions: [] }];
+
+    await openDetail("Gmail connected");
+
+    expect(
+      screen.queryByTestId("notifications-bell-detail-actions"),
+    ).toBeNull();
+  });
+
+  test("triggering an action opens the conversation it creates and closes the bell", async () => {
+    triggerActionRef.outcome = "success";
+    await openActionDetail();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Set up daily digest" }),
+    );
+    await act(async () => {});
+
+    expect(triggerActionCalls).toEqual([
+      { itemId: "first", actionId: "digest" },
+    ]);
+    expect(navigateToConversationMock).toHaveBeenCalledTimes(1);
+    expect(navigateToConversationMock.mock.calls[0]?.[1]).toBe(
+      "action-conversation-1",
+    );
+    // Navigating closes the bell, so the panel is gone with it.
+    expect(
+      screen.queryByRole("heading", { name: "Gmail connected" }),
+    ).toBeNull();
+  });
+
+  test("a second click while the first is in flight creates no second conversation", async () => {
+    triggerActionRef.outcome = "pending";
+    await openActionDetail();
+
+    const action = screen.getByRole("button", { name: "Triage my inbox" });
+    fireEvent.click(action);
+    fireEvent.click(action);
+    await act(async () => {});
+
+    expect(triggerActionCalls).toEqual([
+      { itemId: "first", actionId: "triage" },
+    ]);
+    expect(navigateToConversationMock).not.toHaveBeenCalled();
+  });
+
+  test("a failed action keeps the detail open and lets the user retry", async () => {
+    triggerActionRef.outcome = "error";
+    await openActionDetail();
+
+    const action = screen.getByRole("button", { name: "Triage my inbox" });
+    fireEvent.click(action);
+    await act(async () => {});
+
+    expect(navigateToConversationMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: "Gmail connected" }),
+    ).toBeTruthy();
+
+    fireEvent.click(action);
+    await act(async () => {});
+
+    expect(triggerActionCalls.length).toBe(2);
   });
 });
