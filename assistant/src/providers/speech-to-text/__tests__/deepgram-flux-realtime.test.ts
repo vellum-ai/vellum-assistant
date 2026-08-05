@@ -8,7 +8,7 @@ import type {
 import { SttError } from "../../../stt/types.js";
 
 // ---------------------------------------------------------------------------
-// Logger mock — must be declared before the subject import
+// Logger mock: must be declared before the subject import
 //
 // The adapter's only observable output for the chunk-cadence measurement is a
 // debug log line, and the Configure-failure contract is "warn, never a stream
@@ -504,6 +504,65 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(events[1]).toEqual({ type: "closed" });
     });
 
+    test("a normal close after a fatal Error frame adds no second error", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        JSON.stringify({
+          type: "Error",
+          code: "INVALID_AUTH",
+          description: "Invalid credentials",
+        }),
+      );
+      mockWs.simulateClose(1000, "closing");
+
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        type: "error",
+        category: "auth",
+        message: "Deepgram Flux error (INVALID_AUTH): Invalid credentials",
+      });
+      expect(events[1]).toEqual({ type: "closed" });
+    });
+
+    test("an abnormal close after a fatal Error frame adds no second error", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        JSON.stringify({
+          type: "Error",
+          code: "RATE_LIMIT_EXCEEDED",
+          description: "Too many requests",
+        }),
+      );
+      mockWs.simulateClose(1006, "abnormal");
+
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        type: "error",
+        category: "rate-limit",
+        message: "Deepgram Flux error (RATE_LIMIT_EXCEEDED): Too many requests",
+      });
+      expect(events[1]).toEqual({ type: "closed" });
+    });
+
+    test("a socket error after a fatal Error frame adds no second error", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        JSON.stringify({
+          type: "Error",
+          code: "INTERNAL_SERVER_ERROR",
+          description: "Something broke",
+        }),
+      );
+      mockWs.simulateError(new Error("connection reset"));
+
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({ type: "error" });
+      expect(events[1]).toEqual({ type: "closed" });
+    });
+
     test("the inactivity watchdog only fires while audio awaits a response", async () => {
       const { transcriber, events } = await startSession({
         inactivityTimeoutMs: 20,
@@ -571,13 +630,13 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(keepalives.length).toBeGreaterThanOrEqual(2);
     });
 
-    test("finalizeUtterance is deliberately absent — Flux owns turn boundaries", async () => {
+    test("finalizeUtterance is deliberately absent, Flux owns turn boundaries", async () => {
       const { transcriber } = await startSession();
 
       // Callers feature-detect this method and fall back to stop(), which is
       // the correct semantics for a provider whose model ends the turn. The
       // contract type is where the optional method lives, so the check goes
-      // through it — the class not declaring it at all is the point.
+      // through it. The class not declaring it at all is the point.
       const asContract: StreamingTranscriber = transcriber;
       expect(asContract.finalizeUtterance).toBeUndefined();
     });

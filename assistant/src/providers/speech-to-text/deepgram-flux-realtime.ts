@@ -24,7 +24,9 @@
  * Error handling mirrors `deepgram-realtime.ts`: socket closes and errors map
  * onto {@link SttErrorCategory} values (`auth`, `rate-limit`, `timeout`,
  * `provider-error`), in-session failures surface as `error` events, and
- * teardown always emits `closed`.
+ * teardown always emits `closed`. One failure produces exactly one `error`:
+ * a fatal `Error` frame is reported with the provider's own diagnostic, and
+ * the close Deepgram sends immediately after it goes straight to `closed`.
  */
 
 import { getConfig } from "../../config/loader.js";
@@ -67,8 +69,8 @@ const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
 /**
  * Interval (ms) between `KeepAlive` control frames. Deepgram closes a socket
- * that carries no audio for ~10s, and raw silence does not reset that timer —
- * only the explicit control message does.
+ * that carries no audio for ~10s, and raw silence does not reset that timer.
+ * Only the explicit control message does.
  */
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 5_000;
 
@@ -104,7 +106,7 @@ export interface DeepgramFluxRealtimeOptions {
   eotThreshold?: number;
   /**
    * Eager end-of-turn confidence. Defaults to
-   * `liveVoice.flux.eagerEotThreshold`, which is unset by default — and
+   * `liveVoice.flux.eagerEotThreshold`, which is unset by default, and
    * leaving it unset is what stops Deepgram emitting `EagerEndOfTurn` /
    * `TurnResumed` at all.
    */
@@ -123,7 +125,7 @@ export interface DeepgramFluxRealtimeOptions {
   inactivityTimeoutMs?: number;
   /**
    * Interval (ms) between `KeepAlive` control frames. Default: 5_000. Set to
-   * 0 to disable (tests only — Deepgram closes silent sockets after ~10s).
+   * 0 to disable (tests only, because Deepgram closes silent sockets after ~10s).
    */
   keepaliveIntervalMs?: number;
 }
@@ -194,6 +196,14 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   /** Whether stop() has been called. */
   private stopping = false;
 
+  /**
+   * Whether a fatal `Error` frame has already been reported as an `error`
+   * event. Deepgram closes the socket right after that frame, so the close
+   * that follows carries no information the provider's own diagnostic did not
+   * already carry and must not raise a second, more generic error.
+   */
+  private fatalErrorReported = false;
+
   /** Whether the per-session chunk-cadence line has already been logged. */
   private chunkCadenceLogged = false;
 
@@ -203,7 +213,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   /**
    * When the first audio frame went out after the last inbound provider
    * message; null while nothing is owed a response. The inactivity watchdog
-   * only rules "hung" while this is set — Flux says nothing during silence,
+   * only rules "hung" while this is set: Flux says nothing during silence,
    * so inbound quiet alone is not evidence of a hang.
    */
   private awaitingResponseSinceMs: number | null = null;
@@ -252,7 +262,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
 
     // Wait for the WebSocket to open or fail. Failures reject as SttError so
     // the caller gets the same normalized category an in-session failure
-    // would carry — a bad key is an `auth` problem whether it lands during
+    // would carry. A bad key is an `auth` problem whether it lands during
     // the handshake or after it.
     await new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -310,7 +320,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       ws.addEventListener("close", onClose);
     });
 
-    // Socket is open — attach the handlers for the active session lifetime.
+    // Socket is open. Attach the handlers for the active session lifetime.
     this.attachSessionHandlers(ws);
     this.resetInactivityTimer();
     this.startKeepaliveTimer();
@@ -328,7 +338,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    // Backpressure check — drop frames rather than grow the outbound buffer
+    // Backpressure check: drop frames rather than grow the outbound buffer
     // without bound when the network cannot keep up with the audio rate.
     if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
       log.warn(
@@ -367,7 +377,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     }
 
     this.closeGraceTimer = setTimeout(() => {
-      log.warn("Deepgram Flux close grace timeout — forcing close");
+      log.warn("Deepgram Flux close grace timeout, forcing close");
       this.emitClosedAndCleanup();
     }, CLOSE_GRACE_MS);
   }
@@ -377,7 +387,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   /**
    * Create a WebSocket instance. Factored out for test mockability.
    *
-   * The key travels in the `Authorization: Token` header — Flux needs no
+   * The key travels in the `Authorization: Token` header. Flux needs no
    * query auth, so no URL ever carries the credential and nothing here needs
    * redacting before it reaches a log.
    */
@@ -418,7 +428,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
    * Normalize one inbound Flux frame into daemon events.
    *
    * Everything except the `Configure*` acknowledgements goes straight to
-   * {@link parseFluxFrame} — the wire shapes live there, not here.
+   * {@link parseFluxFrame}: the wire shapes live there, not here.
    */
   private handleProviderMessage(data: unknown): void {
     if (this.closed) {
@@ -434,7 +444,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
           ? new TextDecoder().decode(data)
           : null;
     if (raw === null) {
-      // Unexpected binary format — ignore.
+      // Unexpected binary format, ignore.
       return;
     }
 
@@ -449,6 +459,9 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     }
 
     for (const event of parseFluxFrame(frame)) {
+      if (event.type === "error") {
+        this.fatalErrorReported = true;
+      }
       this.emitEvent(event);
     }
   }
@@ -461,8 +474,8 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
    *
    * Neither becomes a stream event. `ConfigureSuccess` echoes the
    * configuration actually in force, which is the cheapest confirmation that
-   * the thresholds we clamped are the ones Deepgram is using — worth a debug
-   * line, nothing more. `ConfigureFailure` leaves the stream running on the
+   * the thresholds we clamped are the ones Deepgram is using, worth a debug
+   * line and nothing more. `ConfigureFailure` leaves the stream running on the
    * previous settings, so raising an `error` event would tear down a session
    * that is still perfectly usable.
    */
@@ -474,7 +487,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
           keyterms: frame.keyterms,
           languageHints: frame.language_hints,
         },
-        "Deepgram Flux accepted a Configure — thresholds now in force",
+        "Deepgram Flux accepted a Configure, thresholds now in force",
       );
       return true;
     }
@@ -486,7 +499,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
           description: frame.description,
           sequenceId: frame.sequence_id,
         },
-        "Deepgram Flux rejected a Configure — the session continues at its previous settings",
+        "Deepgram Flux rejected a Configure, the session continues at its previous settings",
       );
       return true;
     }
@@ -503,6 +516,18 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     // Normal close (1000) or going-away (1001) after stop() is expected.
     if (this.stopping && (code === 1000 || code === 1001)) {
       log.info({ code, reason }, "Deepgram Flux session closed normally");
+      this.emitClosedAndCleanup();
+      return;
+    }
+
+    // A fatal `Error` frame already reported the provider's own diagnostic,
+    // and the close is that frame's second half. Go straight to `closed` so
+    // callers see exactly one error for one failure.
+    if (this.fatalErrorReported) {
+      log.info(
+        { code, reason },
+        "Deepgram Flux session closed after a fatal error frame",
+      );
       this.emitClosedAndCleanup();
       return;
     }
@@ -524,6 +549,18 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     }
 
     const message = describeSocketEvent(ev);
+
+    // Same one-error-per-failure rule as the close path: a socket error that
+    // trails a fatal `Error` frame is that failure surfacing again.
+    if (this.fatalErrorReported) {
+      log.info(
+        { error: message },
+        "Deepgram Flux WebSocket error after a fatal error frame",
+      );
+      this.emitClosedAndCleanup();
+      return;
+    }
+
     log.error({ error: message }, "Deepgram Flux WebSocket error");
 
     this.emitEvent({
@@ -584,7 +621,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   }
 
   /**
-   * Emit `closed` and release every resource. Idempotent — safe to call from
+   * Emit `closed` and release every resource. Idempotent, safe to call from
    * any teardown path.
    */
   private emitClosedAndCleanup(): void {
@@ -611,7 +648,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     try {
       ws.close();
     } catch {
-      // Best effort — already closed sockets may throw.
+      // Best effort: already closed sockets may throw.
     }
   }
 
@@ -633,7 +670,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   /**
    * Start the periodic keepalive. A `KeepAlive` control frame is the only
    * thing that resets Deepgram's server-side inactivity timer while the
-   * stream carries silence — raw silent PCM does not count.
+   * stream carries silence. Raw silent PCM does not count.
    */
   private startKeepaliveTimer(): void {
     if (this.closed || this.stopping || this.keepaliveIntervalMs <= 0) {
@@ -657,7 +694,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
 
   /**
    * Reset the inactivity watchdog on inbound provider messages. Not reset on
-   * outbound audio — continuous audio from the caller must not mask a silent
+   * outbound audio: continuous audio from the caller must not mask a silent
    * provider.
    */
   private resetInactivityTimer(): void {

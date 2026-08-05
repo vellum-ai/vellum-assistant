@@ -1417,7 +1417,7 @@ describe("resolveStreamingTranscriber language plumbing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — advertised streaming capability vs. what the factory can build
+// Tests: advertised streaming capability vs. what the factory can build
 // ---------------------------------------------------------------------------
 
 describe("streaming capability matches the streaming factory", () => {
@@ -1430,7 +1430,7 @@ describe("streaming capability matches the streaming factory", () => {
    * 2. `resolveStreamingTranscriber`, which has to actually build an adapter.
    * 3. The two user-facing "streaming-capable providers" strings, which list
    *    exactly `listProviderIds().filter(id => supportsBoundary(id,
-   *    "daemon-streaming"))` — `stt/stt-stream-session.ts` and
+   *    "daemon-streaming"))`: `stt/stt-stream-session.ts` and
    *    `live-voice/live-voice-session.ts`.
    *
    * A provider that is advertised by (1) and (3) but resolves to `null` in
@@ -1516,7 +1516,7 @@ describe("streaming capability matches the streaming factory", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — deepgram-flux streaming resolution
+// Tests: deepgram-flux streaming resolution
 // ---------------------------------------------------------------------------
 
 describe("deepgram-flux streaming resolution", () => {
@@ -1564,7 +1564,7 @@ describe("deepgram-flux streaming resolution", () => {
   });
 
   test("telephony callers resolve to null without a Flux-specific conditional", async () => {
-    // The catalog's telephonyMode: "none" is the only gate — boundary-
+    // The catalog's telephonyMode: "none" is the only gate. Boundary-
     // requiring callers fall back to per-turn batch transcription.
     mockProviderKeys = { deepgram: "dg-key" };
     applyConfig({ provider: "deepgram-flux" });
