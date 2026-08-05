@@ -98,7 +98,15 @@ function notifyBackgroundSkillUpdate(args: {
     sourceEventName: "activity.complete",
     dedupeKey: `skill-updated:${args.skillId}:${day}`,
     contextPayload: {
+      // `summary` feeds the copy composer; `title`/`body` are the home feed's
+      // fallback when no channel copy was rendered. Without them a fully
+      // suppressed delivery (the intended shape for this signal: low urgency,
+      // background, no interruption) leaves the feed writer with no summary
+      // and it skips the item entirely, so the quiet case would surface
+      // nothing at all.
       summary: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
+      title: "Skill updated",
+      body: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
       skillId: args.skillId,
     },
     attentionHints: {

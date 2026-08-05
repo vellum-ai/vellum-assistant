@@ -1553,6 +1553,13 @@ describe("background skill update notification", () => {
     expect(String(signal.contextPayload?.summary)).toContain(
       "Weekly Report Export",
     );
+    // The home feed falls back to `title`/`body` when no channel copy was
+    // rendered, which is the intended quiet shape for this signal. Without
+    // them a suppressed delivery would leave the feed item unwritten.
+    expect(signal.contextPayload?.title).toBe("Skill updated");
+    expect(String(signal.contextPayload?.body)).toContain(
+      "Weekly Report Export",
+    );
     // Deduped per skill per day so repeated refinements cannot flood the feed.
     expect(signal.dedupeKey).toBe(
       `skill-updated:weekly-export:${new Date().toISOString().slice(0, 10)}`,
