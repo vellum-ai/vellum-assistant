@@ -101,8 +101,33 @@ export const installPresenceMonitor = (
     }
   };
 
+  // Last state handed to the caller, so a poll tick can tell a repeat from a
+  // transition. Lives with the monitor, so a fresh install starts with none.
+  let lastReportedState: PresenceState | null = null;
+
+  const emit = (state: PresenceState): void => {
+    lastReportedState = state;
+    onReport(state);
+  };
+
+  // Unconditional: the install seed and every power event have to reach the
+  // daemon, an event being evidence something moved even when the state it
+  // derives to has not.
   const report = (): void => {
-    onReport(evaluate());
+    emit(evaluate());
+  };
+
+  // The poll carries no news of its own; it exists to refresh the daemon's
+  // record before the staleness bound expires it. Only an `active` record
+  // suppresses anything, so only `active` earns that keep-alive on every
+  // tick. While idle or away an expired record and a repeated report mean the
+  // same thing downstream (not attended, push sent), so a repeat is skipped
+  // and only the transition off that state goes out.
+  const reportOnPoll = (): void => {
+    const state = evaluate();
+    if (state === "active" || state !== lastReportedState) {
+      emit(state);
+    }
   };
 
   const onLockScreen = (): void => {
@@ -185,11 +210,11 @@ export const installPresenceMonitor = (
   // caller caches the state to cover assistants that connect later.
   report();
 
-  // Reports on every tick, not only on transitions: the daemon expires
-  // presence after a staleness bound, so a transition-only reporter would
-  // go stale while the user is still sitting there and pushes would
+  // Reports `active` on every tick, not only on transitions: the daemon
+  // expires presence after a staleness bound, so a transition-only reporter
+  // would go stale while the user is still sitting there and pushes would
   // silently resume.
-  const timer = setInterval(report, POLL_INTERVAL_MS);
+  const timer = setInterval(reportOnPoll, POLL_INTERVAL_MS);
 
   return (): void => {
     installed = false;

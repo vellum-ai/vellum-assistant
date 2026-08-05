@@ -201,8 +201,11 @@ describe("installPresenceMonitor", () => {
 
     fire("lock-screen");
     intervalCallback?.();
+    // The tick repeats a non-active state, so it stays off the wire and the
+    // unlock is what breaks the silence.
+    fire("unlock-screen");
 
-    expect(reports).toEqual(["away", "away"]);
+    expect(reports).toEqual(["away", "active"]);
   });
 
   test("stays away when a locked machine suspends and resumes", () => {
@@ -214,7 +217,7 @@ describe("installPresenceMonitor", () => {
     fire("resume");
     intervalCallback?.();
 
-    expect(reports).toEqual(["away", "away", "away", "away"]);
+    expect(reports).toEqual(["away", "away", "away"]);
   });
 
   test("returns to active once the lock screen clears after a resume", () => {
@@ -237,7 +240,7 @@ describe("installPresenceMonitor", () => {
     intervalCallback?.();
     fire("resume");
 
-    expect(reports).toEqual(["away", "away", "active"]);
+    expect(reports).toEqual(["away", "active"]);
   });
 
   test("reports away when the login session resigns", () => {
@@ -248,7 +251,7 @@ describe("installPresenceMonitor", () => {
     intervalCallback?.();
     fire("user-did-become-active");
 
-    expect(reports).toEqual(["away", "away", "active"]);
+    expect(reports).toEqual(["away", "active"]);
   });
 
   test("user-did-become-active does not clear the lock", () => {
@@ -259,12 +262,15 @@ describe("installPresenceMonitor", () => {
     fire("user-did-become-active");
     intervalCallback?.();
 
-    expect(reports).toEqual(["away", "away", "away"]);
+    expect(reports).toEqual(["away", "away"]);
   });
 
-  test("reports on every poll tick even with no state change", () => {
+  test("reports on every poll tick while active, even with no state change", () => {
     const { reports } = install();
 
+    // The keep-alive contract: the daemon expires presence after a staleness
+    // bound and only an `active` record suppresses a push, so every tick has
+    // to refresh it while the user is still there.
     idleSeconds = 0;
     intervalCallback?.();
     intervalCallback?.();
@@ -272,6 +278,80 @@ describe("installPresenceMonitor", () => {
 
     expect(reports).toEqual(["active", "active", "active"]);
     expect(intervalDelay).toBe(POLL_INTERVAL_MS);
+  });
+
+  test("posts idle once, then stays silent while it repeats", () => {
+    const { reports } = install();
+
+    // Nothing downstream distinguishes an expired record from a repeated
+    // non-active one, so the repeats are not worth a request.
+    idleSeconds = IDLE_THRESHOLD_MS / 1000;
+    intervalCallback?.();
+    intervalCallback?.();
+    intervalCallback?.();
+
+    expect(reports).toEqual(["idle"]);
+  });
+
+  test("posts the drop to idle on the tick it happens", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    intervalCallback?.();
+    idleSeconds = IDLE_THRESHOLD_MS / 1000;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["active", "idle"]);
+  });
+
+  test("posts the return to active after silent idle ticks", () => {
+    const { reports } = install();
+
+    idleSeconds = IDLE_THRESHOLD_MS / 1000;
+    intervalCallback?.();
+    intervalCallback?.();
+    idleSeconds = 0;
+    intervalCallback?.();
+
+    expect(reports).toEqual(["idle", "active"]);
+  });
+
+  test("posts an event-driven report even when it repeats away", () => {
+    const { reports } = install();
+
+    idleSeconds = 0;
+    fire("lock-screen");
+    intervalCallback?.();
+    // An event is evidence something moved, so it goes out whatever the
+    // derived state repeats.
+    fire("suspend");
+
+    expect(reports).toEqual(["away", "away"]);
+  });
+
+  test("posts the install report even when the state is idle", () => {
+    idleSeconds = IDLE_THRESHOLD_MS / 1000;
+    const reports: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => reports.push(state));
+
+    // The install seeds the daemon, so it never checks for a repeat.
+    expect(reports).toEqual(["idle"]);
+  });
+
+  test("a fresh install posts idle again after teardown", () => {
+    idleSeconds = IDLE_THRESHOLD_MS / 1000;
+    const first: string[] = [];
+    const teardown = installPresenceMonitor((state) => first.push(state));
+    intervalCallback?.();
+    expect(first).toEqual(["idle"]);
+    teardown();
+
+    const second: string[] = [];
+    activeTeardown = installPresenceMonitor((state) => second.push(state));
+    intervalCallback?.();
+
+    // Carrying the previous monitor's last state over would swallow this.
+    expect(second).toEqual(["idle"]);
   });
 
   test("degrades to idle, never active, when the idle read throws", () => {
@@ -293,7 +373,7 @@ describe("installPresenceMonitor", () => {
 
     intervalCallback?.();
 
-    expect(reports).toEqual(["away", "away"]);
+    expect(reports).toEqual(["away"]);
   });
 
   test("returns to active after unlocking a machine that was locked at install", () => {
@@ -337,7 +417,7 @@ describe("installPresenceMonitor", () => {
     fire("unlock-screen");
     intervalCallback?.();
 
-    expect(reports).toEqual(["away", "away", "away"]);
+    expect(reports).toEqual(["away", "away"]);
   });
 
   test("an idle OS state still reports active below the tuned threshold", () => {
