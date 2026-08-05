@@ -382,6 +382,7 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         timezone,
         expression: normalized.expression,
         syntax: normalized.syntax,
+        inferenceProfile,
       });
       log.info(
         { id: job.id, name: job.name, workflowName },
@@ -420,6 +421,7 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         expression: normalized.expression,
         syntax: normalized.syntax,
         timeoutMs,
+        inferenceProfile,
       });
       log.info({ id: job.id, name: job.name }, "Script schedule created");
       return { schedule: serializeSchedule(job, new Map()) };
@@ -625,8 +627,8 @@ async function handleUpdateSchedule(
     }
   }
 
-  // Inference profile: null clears the override (back to the default
-  // main-agent model selection); a string must name a configured profile.
+  // Inference profile: null re-pins to the currently resolved default; a
+  // string must name a configured profile.
   if ("inferenceProfile" in body) {
     const inferenceProfile = body.inferenceProfile;
     if (inferenceProfile !== null && typeof inferenceProfile !== "string") {
@@ -882,7 +884,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .describe(
-          "Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent call-site model selection.",
+          "Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the currently resolved default profile, so its model does not move when that default changes. Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not govern their runs.",
         )
         .optional(),
     }),
@@ -1002,7 +1004,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .describe(
-          "Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent call-site model selection",
+          "Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently resolved default profile. Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not govern their runs.",
         )
         .optional(),
     }),

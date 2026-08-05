@@ -28,14 +28,8 @@ async function main(): Promise<void> {
   const bundlePath = requireArgument("bundle", values.bundle);
   const packageId = requireArgument("package-id", values["package-id"]);
   const releaseName = requireArgument("release-name", values["release-name"]);
-  const credentialsJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
-
-  if (!credentialsJson) {
-    throw new Error("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is required");
-  }
 
   const auth = new androidpublisher.auth.GoogleAuth({
-    credentials: parseCredentials(credentialsJson),
     scopes: [ANDROID_PUBLISHER_SCOPE],
   });
   const publisher = androidpublisher.androidpublisher({
@@ -106,34 +100,6 @@ function requireArgument(name: string, value: string | undefined): string {
   }
 
   return value;
-}
-
-interface ServiceAccountCredentials {
-  type: "service_account";
-  client_email: string;
-  private_key: string;
-}
-
-function parseCredentials(value: string): ServiceAccountCredentials {
-  let credentials: Partial<ServiceAccountCredentials>;
-
-  try {
-    credentials = JSON.parse(value) as Partial<ServiceAccountCredentials>;
-  } catch {
-    throw new Error("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not valid JSON");
-  }
-
-  if (
-    credentials.type !== "service_account" ||
-    !credentials.client_email ||
-    !credentials.private_key
-  ) {
-    throw new Error(
-      "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON must contain service account credentials"
-    );
-  }
-
-  return credentials as ServiceAccountCredentials;
 }
 
 async function deleteEdit(

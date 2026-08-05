@@ -121,7 +121,9 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 ## Inference Profile
 
-Execute-mode runs use the default `mainAgent` model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). Pin a profile when a recurring task should run on a specific model — e.g. a cost-optimized profile for a high-frequency digest. Pass `inference_profile: null` on update to revert to the default. The pinned profile is shown on the schedule's details page in settings.
+Every schedule carries a pinned `inference_profile` (a key from `llm.profiles`), so a recurring task keeps running on the model (and the price) it was created under even when the user later changes their default profile. Creating a schedule without `inference_profile` pins it to the user's current default; pass one explicitly when a task should run on a specific model, e.g. a cost-optimized profile for a high-frequency digest. Passing `inference_profile: null` on update re-pins the schedule to the user's current default rather than unpinning it. The pinned profile is shown on the schedule's details page in settings.
+
+Workflow-mode schedules are the exception: each step of a workflow resolves its own model, so a workflow schedule's pin does not govern its runs.
 
 ## Conversation Group
 

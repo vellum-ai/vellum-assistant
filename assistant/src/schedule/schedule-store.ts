@@ -2,6 +2,7 @@ import { Cron } from "croner";
 import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { getGroup } from "../persistence/group-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
@@ -17,6 +18,10 @@ import {
   LEGACY_DEFER_CREATED_BY,
   OWNER_DEFER_CREATED_BY,
 } from "./defer-provenance.js";
+import {
+  resolveDefaultScheduleInferenceProfile,
+  resolveWakeScheduleInferenceProfile,
+} from "./inference-profile.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -77,7 +82,11 @@ export interface ScheduleJob {
   timeoutMs: number | null;
   /**
    * Inference profile (`llm.profiles` key) applied to the schedule's
-   * LLM-executed runs; null = default main-agent model selection.
+   * LLM-executed runs. Pinned at creation from the caller's choice or a
+   * snapshot of the resolved default, so the schedule's model (and cost) does
+   * not move when the global default changes. Null only where no named profile
+   * resolves at all, in which case runs follow the `mainAgent` call-site
+   * configuration.
    */
   inferenceProfile: string | null;
   /**
@@ -222,7 +231,25 @@ async function insertSchedule(
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
-  const inferenceProfile = params.inferenceProfile ?? null;
+  // The single chokepoint that pins every schedule to a concrete profile: a
+  // caller that names none gets a snapshot of what that row resolves today, so
+  // the schedule's cost stays put when the user changes their global default
+  // profile.
+  //
+  // A wake row snapshots its target conversation's durable pin instead of the
+  // global default, because `buildWakeScheduleOptions` forces the row's pin as
+  // the woken turn's override: an unpinned wake resolves the target's own
+  // choice live, so seeding anything else would silently re-point it. Seeding
+  // here rather than in `createOwnerDeferredWake` makes the rule structural —
+  // it holds for every wake row however it was minted — and matches what
+  // migration 363 backfills onto the rows that predate the pin.
+  const inferenceProfile =
+    params.inferenceProfile ??
+    (mode === "wake"
+      ? resolveWakeScheduleInferenceProfile(
+          getConversation(params.wakeConversationId!) ?? null,
+        )
+      : resolveDefaultScheduleInferenceProfile());
   const groupId = params.groupId ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
@@ -320,6 +347,15 @@ export async function createSchedule(
  *
  * Callers must have established owner authority first; `defer/create` is the
  * only production caller and is gated accordingly.
+ *
+ * The pin seeds from the source conversation's durable choice rather than the
+ * global default. A defer resumes the very conversation it was created in, and
+ * `buildWakeScheduleOptions` forces the row's pin as the woken turn's
+ * override, so a defer created inside a conversation the user pinned to a
+ * specific profile must fire on that profile. That seeding lives in
+ * `insertSchedule`, keyed on `mode: "wake"` rather than on defer provenance,
+ * so no wake row can be minted that overrides its target's pin with the global
+ * default.
  */
 export async function createOwnerDeferredWake(params: {
   conversationId: string;
@@ -337,9 +373,7 @@ export async function createOwnerDeferredWake(params: {
     createdBy: OWNER_DEFER_CREATED_BY,
     nextRunAt: params.fireAt,
     quiet: true,
-    ...(params.inferenceProfile !== undefined
-      ? { inferenceProfile: params.inferenceProfile }
-      : {}),
+    inferenceProfile: params.inferenceProfile ?? null,
   });
 }
 
@@ -610,7 +644,12 @@ export async function updateSchedule(
     set.timeoutMs = updates.timeoutMs;
   }
   if (updates.inferenceProfile !== undefined) {
-    set.inferenceProfile = updates.inferenceProfile;
+    // Null re-snapshots the currently resolved default instead of unpinning:
+    // "follow whatever my global default happens to be" is not a state a
+    // schedule can rest in, since it would let a later default change move the
+    // schedule's model and price without the user touching the schedule.
+    set.inferenceProfile =
+      updates.inferenceProfile ?? resolveDefaultScheduleInferenceProfile();
   }
   if (updates.groupId !== undefined) {
     set.groupId = updates.groupId;
