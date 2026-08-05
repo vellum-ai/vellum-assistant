@@ -68,7 +68,7 @@ Use a short task-specific description, and let the client own the action label. 
   "data": {
     "providerKey": "google",
     "displayName": "Google",
-    "description": "Connect Gmail, Calendar, and Drive for this task.",
+    "description": "Connect Gmail and Google Tasks for this task.",
     "requestedScopes": [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/tasks"

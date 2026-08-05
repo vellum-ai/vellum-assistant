@@ -95,14 +95,19 @@ beforeEach(() => {
 });
 
 /**
- * Flush microtasks until the start endpoint has been invoked: the connect
- * flow awaits identity resolution and a connections baseline first.
+ * Flush microtasks until the start endpoint has been invoked `count` times:
+ * the connect flow awaits identity resolution and a connections baseline
+ * first.
  */
-async function waitForStartCall(): Promise<void> {
-  for (let i = 0; i < 100 && startCreateMock.mock.calls.length === 0; i += 1) {
+async function waitForStartCalls(count: number): Promise<void> {
+  for (let i = 0; i < 100 && startCreateMock.mock.calls.length < count; i += 1) {
     await Promise.resolve();
   }
-  expect(startCreateMock).toHaveBeenCalledTimes(1);
+  expect(startCreateMock).toHaveBeenCalledTimes(count);
+}
+
+async function waitForStartCall(): Promise<void> {
+  await waitForStartCalls(1);
 }
 
 /** Settle an in-flight connect through the localStorage completion channel. */
@@ -164,6 +169,64 @@ describe("connectManagedOAuthProvider dedupe", () => {
     expect(openSpy).toHaveBeenCalledTimes(2);
     settleFailed(requestIds[1]!);
     await second;
+  });
+
+  test("concurrent connects with the same scopes in any order share one flow", async () => {
+    const first = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: ["scope-a", "scope-b"],
+    });
+    const second = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: ["scope-b", "scope-a"],
+    });
+
+    expect(second).toBe(first);
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    await waitForStartCall();
+
+    settleFailed(requestIds[0]!);
+    await Promise.all([first, second]);
+  });
+
+  test("concurrent connects with different scopes run independent flows", async () => {
+    const first = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: ["scope-a"],
+    });
+    const second = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: ["scope-a", "scope-b"],
+    });
+
+    expect(second).not.toBe(first);
+    expect(openSpy).toHaveBeenCalledTimes(2);
+    await waitForStartCalls(2);
+    expect(startCreateMock.mock.calls[0]?.[0].body?.requested_scopes).toEqual([
+      "scope-a",
+    ]);
+    expect(startCreateMock.mock.calls[1]?.[0].body?.requested_scopes).toEqual([
+      "scope-a",
+      "scope-b",
+    ]);
+
+    settleFailed(requestIds[0]!);
+    settleFailed(requestIds[1]!);
+    await Promise.all([first, second]);
+  });
+
+  test("undefined and empty requestedScopes normalize to the same flow", async () => {
+    const first = connectManagedOAuthProvider(OPTS);
+    const second = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: [],
+    });
+
+    expect(second).toBe(first);
+    expect(openSpy).toHaveBeenCalledTimes(1);
+
+    settleFailed(requestIds[0]!);
+    await Promise.all([first, second]);
   });
 });
 

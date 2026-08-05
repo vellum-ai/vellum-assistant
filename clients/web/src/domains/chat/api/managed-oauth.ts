@@ -395,14 +395,23 @@ function runManagedOAuthConnect({
 }
 
 /**
- * In-flight managed-OAuth connects keyed by `${assistantId}::${providerKey}`.
- * The map lives at module scope so the guard survives React remounts — the
- * `oauth_connect` card's local `"connecting"` state does not (JARVIS-1286).
+ * In-flight managed-OAuth connects keyed by
+ * `${assistantId}::${providerKey}::${normalizedScopes}`. The map lives at
+ * module scope so the guard survives React remounts; the `oauth_connect`
+ * card's local `"connecting"` state does not (JARVIS-1286).
  */
 const inFlightManagedOAuthConnects = new Map<
   string,
   Promise<ManagedOAuthConnectResult>
 >();
+
+/**
+ * Order-insensitive scope-set fingerprint for the dedupe key. Undefined and
+ * empty both mean platform defaults, so they normalize to the same value.
+ */
+function normalizeRequestedScopes(scopes: string[] | undefined): string {
+  return scopes && scopes.length > 0 ? [...scopes].sort().join(" ") : "";
+}
 
 /**
  * Connect a managed OAuth provider, deduping concurrent connects for the same
@@ -417,14 +426,16 @@ const inFlightManagedOAuthConnects = new Map<
  * flipped to "Connected" even though the account did connect (JARVIS-1286).
  *
  * Returning the already-running promise means repeat triggers latch onto the
- * one popup + one listener set that will actually resolve, even when the
- * repeat trigger's `requestedScopes` differ, since two concurrent connects
- * for the same provider are inherently conflicting regardless of scopes.
+ * one popup + one listener set that will actually resolve. The dedupe key
+ * includes the normalized scope set, so a remounted identical card (same
+ * scopes) reuses the in-flight connect while a request with mismatched scopes
+ * gets its own flow instead of sharing a popup whose start request used a
+ * different scope set.
  */
 export function connectManagedOAuthProvider(
   options: ManagedOAuthConnectOptions,
 ): Promise<ManagedOAuthConnectResult> {
-  const dedupeKey = `${options.assistantId}::${options.providerKey}`;
+  const dedupeKey = `${options.assistantId}::${options.providerKey}::${normalizeRequestedScopes(options.requestedScopes)}`;
   const existing = inFlightManagedOAuthConnects.get(dedupeKey);
   if (existing) {
     return existing;
