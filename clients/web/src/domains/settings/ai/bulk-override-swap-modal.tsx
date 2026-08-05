@@ -18,6 +18,7 @@ import {
   type CallSiteEffectiveProfile,
 } from "@/domains/settings/ai/call-site-helpers";
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   profileDisplayLabel,
   type ProfileWithName,
@@ -74,6 +75,13 @@ export function BulkOverrideSwapModal({
   onApplied,
 }: BulkOverrideSwapModalProps) {
   const configMutation = useLlmConfigPatch(assistantId);
+  // Older assistants live-inherit blank profile fields, so a sparse profile
+  // dispatches there and must not be filtered out of the target list.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
+  const dispatchOptions = useMemo(
+    () => ({ requireOwnProviderAndModel }),
+    [requireOwnProviderAndModel],
+  );
 
   // What each action currently runs on. The default key matches the row
   // caption: `shippedDefaultProfile` first, so profileless call sites
@@ -143,10 +151,10 @@ export function BulkOverrideSwapModal({
 
   const targetOptions = useMemo(
     () =>
-      visibleProfilesForPicker(orderedProfiles, [])
+      visibleProfilesForPicker(orderedProfiles, [], dispatchOptions)
         .filter((p) => p.name !== source)
         .map((p) => ({ value: p.name, label: profilePickerLabel(p) })),
-    [orderedProfiles, source],
+    [orderedProfiles, source, dispatchOptions],
   );
 
   const sourceLabel = profileDisplayLabel(orderedProfiles, source);
