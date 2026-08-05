@@ -1,11 +1,13 @@
-import { Loader2, Search } from "lucide-react";
+import { AlertCircle, Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  profilePickerIssue,
   profilePickerLabel,
   selectSeedProfileForOverride,
+  undispatchableProfileReason,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
@@ -153,15 +155,31 @@ export function OverridesDetailPanel({
     [orderedProfiles],
   );
 
+  // An entry only reaches a picker while undispatchable when it is the
+  // current selection. It carries the same warning affordance the Profiles
+  // row uses, rather than a word appended to its name.
+  const toProfileOption = useCallback(
+    (p: (typeof orderedProfiles)[number]) => ({
+      value: p.name,
+      label: profilePickerLabel(p),
+      ...(profilePickerIssue(p, orderedProfiles) === "undispatchable"
+        ? {
+            icon: (
+              <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
+            ),
+            tooltip: undispatchableProfileReason(p),
+          }
+        : {}),
+    }),
+    [orderedProfiles],
+  );
+
   const advisorOptions = useMemo(
     () =>
       visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map(
-        (p) => ({
-          value: p.name,
-          label: profilePickerLabel(p, orderedProfiles),
-        }),
+        toProfileOption,
       ),
-    [orderedProfiles, persistedAdvisor],
+    [orderedProfiles, persistedAdvisor, toProfileOption],
   );
 
   // "advisor" isn't in the call-site catalog, so its row filters on its own
@@ -187,14 +205,11 @@ export function OverridesDetailPanel({
         selectedProfile,
       ]);
       return [
-        ...visible.map((p) => ({
-          value: p.name,
-          label: profilePickerLabel(p, orderedProfiles),
-        })),
+        ...visible.map(toProfileOption),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles],
+    [orderedProfiles, toProfileOption],
   );
 
   const filteredCallSites = useMemo(() => {

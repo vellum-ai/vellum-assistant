@@ -120,16 +120,38 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
  * the suffix the user sees a normal-looking selection that is not the
  * profile the action actually runs on.
  */
-export function profilePickerLabel(
+export function profilePickerLabel(p: ProfilePickerEntry): string {
+  const base = p.label ?? p.name;
+  return p.status === "disabled" ? `${base} (Disabled)` : base;
+}
+
+/**
+ * Why a picker entry is not a usable choice, for surfaces that render an
+ * affordance rather than reading the predicate directly.
+ *
+ * `"disabled"` is a state the user chose and `profilePickerLabel` already
+ * says so in words. `"undispatchable"` is a misconfiguration: the profile
+ * looks selectable but the resolver skips it, so surfaces flag it the way
+ * the Profiles row flags an availability problem, with a warning icon and
+ * the reason on hover, rather than with a word appended to its name.
+ */
+export type ProfilePickerIssue = "disabled" | "undispatchable";
+
+export function profilePickerIssue(
   p: ProfilePickerEntry,
   siblings: ReadonlyArray<ProfilePickerEntry>,
-): string {
-  const base = p.label ?? p.name;
+): ProfilePickerIssue | null {
   if (p.status === "disabled") {
-    return `${base} (Disabled)`;
+    return "disabled";
   }
-  if (!isDispatchableProfile(p, siblings)) {
-    return `${base} (Unavailable)`;
+  return isDispatchableProfile(p, siblings) ? null : "undispatchable";
+}
+
+/** Hover copy for an `"undispatchable"` entry. */
+export function undispatchableProfileReason(p: ProfilePickerEntry): string {
+  const base = p.label ?? p.name;
+  if (p.mix != null) {
+    return `"${base}" mixes a profile that has no provider and model, so some turns would fall back to another profile.`;
   }
-  return base;
+  return `"${base}" has no provider and model, so it cannot be used and the action falls back to another profile.`;
 }

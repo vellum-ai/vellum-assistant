@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import {
+  type ProfilePickerIssue,
+  profilePickerIssue,
   profilePickerLabel,
+  undispatchableProfileReason,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
@@ -15,6 +18,10 @@ type LlmConfig = ConfigGetResponse["llm"];
 export interface ProfileOption {
   readonly value: string | null;
   readonly label: string;
+  /** Set when the resolver would skip this profile; the view renders it. */
+  readonly issue?: ProfilePickerIssue;
+  /** Hover copy for an `"undispatchable"` option. */
+  readonly reason?: string;
 }
 
 export function buildProfileOptions(
@@ -30,10 +37,17 @@ export function buildProfileOptions(
 
   return [
     { value: null, label: "Default" },
-    ...visibleProfiles.map((profile) => ({
-      value: profile.name,
-      label: profilePickerLabel(profile, orderedProfiles),
-    })),
+    ...visibleProfiles.map((profile) => {
+      const issue = profilePickerIssue(profile, orderedProfiles);
+      return {
+        value: profile.name,
+        label: profilePickerLabel(profile),
+        ...(issue ? { issue } : {}),
+        ...(issue === "undispatchable"
+          ? { reason: undispatchableProfileReason(profile) }
+          : {}),
+      };
+    }),
   ];
 }
 

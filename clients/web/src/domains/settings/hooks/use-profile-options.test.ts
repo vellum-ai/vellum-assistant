@@ -37,18 +37,23 @@ describe("buildProfileOptions", () => {
       { value: null, label: "Default" },
       { value: "smart", label: "Smart" },
       { value: "fast", label: "Fast" },
-      { value: "legacy", label: "Legacy (Disabled)" },
+      { value: "legacy", label: "Legacy (Disabled)", issue: "disabled" },
     ]);
   });
 
   // Hiding the current selection would leave the trigger blank with no way
   // back, so it stays and is flagged instead.
-  test("keeps a selected undispatchable profile visible and flags it", () => {
+  test("keeps a selected undispatchable profile visible and marks the issue", () => {
     expect(buildProfileOptions(llm, "extra")).toEqual([
       { value: null, label: "Default" },
       { value: "smart", label: "Smart" },
       { value: "fast", label: "Fast" },
-      { value: "extra", label: "extra (Unavailable)" },
+      {
+        value: "extra",
+        label: "extra",
+        issue: "undispatchable",
+        reason: expect.stringContaining("cannot be used"),
+      },
     ]);
   });
 

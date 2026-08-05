@@ -456,7 +456,7 @@ export function ComposerSettingsMenu({
     const entry = orderedProfileEntries.find(
       (e) => e.name === profileActiveKey,
     );
-    return entry ? profilePickerLabel(entry, orderedProfileEntries) : null;
+    return entry ? profilePickerLabel(entry) : null;
   }, [orderedProfileEntries, profileActiveKey]);
 
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
@@ -658,7 +658,7 @@ export function ComposerSettingsMenu({
                     <PanelItem
                       key={entry.name}
                       icon={Sparkles}
-                      label={profilePickerLabel(entry, orderedProfileEntries)}
+                      label={profilePickerLabel(entry)}
                       active={isActive}
                       className="max-md:[&>span:first-child]:gap-[11px]"
                       trailingAction={
@@ -752,7 +752,7 @@ export function ComposerSettingsMenu({
                     ) : undefined
                   }
                 >
-                  {profilePickerLabel(entry, orderedProfileEntries)}
+                  {profilePickerLabel(entry)}
                 </Menu.Item>
               );
             })}

@@ -6,6 +6,8 @@ import {
   selectSeedProfileForOverride,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
+  profilePickerIssue,
+  undispatchableProfileReason,
 } from "@/assistant/profile-pickers";
 
 // Config-shaped entries: `llm.profiles` values always carry a provider and
@@ -181,27 +183,66 @@ describe("visibleProfilesForPicker", () => {
 
 describe("profilePickerLabel", () => {
   test("plain label when dispatchable", () => {
-    expect(profilePickerLabel(profiles[0]!, profiles)).toBe("Balanced");
+    expect(profilePickerLabel(profiles[0]!)).toBe("Balanced");
   });
 
   test("flags disabled", () => {
-    expect(profilePickerLabel(profiles[2]!, profiles)).toBe("Off (Disabled)");
+    expect(profilePickerLabel(profiles[2]!)).toBe("Off (Disabled)");
   });
 
-  // Kept visible only as a current selection, so it has to read as broken
-  // rather than as a normal choice.
-  test("flags an entry that cannot dispatch", () => {
-    expect(profilePickerLabel(profiles[3]!, profiles)).toBe(
-      "Half Made (Unavailable)",
-    );
+  // The undispatchable case is not a word in the label: surfaces render the
+  // warning affordance for it, so the label stays the profile's own name.
+  test("leaves an undispatchable entry's name alone", () => {
+    expect(profilePickerLabel(profiles[3]!)).toBe("Half Made");
   });
 
   test("falls back to the name when unlabeled", () => {
     expect(
-      profilePickerLabel(
-        { name: "raw", provider: "anthropic", model: "claude-opus-5" },
+      profilePickerLabel({
+        name: "raw",
+        provider: "anthropic",
+        model: "claude-opus-5",
+      }),
+    ).toBe("raw");
+  });
+});
+
+describe("profilePickerIssue", () => {
+  test("null when the profile is a usable choice", () => {
+    expect(profilePickerIssue(profiles[0]!, profiles)).toBeNull();
+  });
+
+  // Disabled is a state the user chose, and the label already says so. The
+  // undispatchable case is a misconfiguration, so surfaces flag it the way
+  // the Profiles row flags an availability problem.
+  test("distinguishes a chosen off state from a broken one", () => {
+    expect(profilePickerIssue(profiles[2]!, profiles)).toBe("disabled");
+    expect(profilePickerIssue(profiles[3]!, profiles)).toBe("undispatchable");
+  });
+
+  test("a mix with a broken arm is undispatchable, not disabled", () => {
+    expect(
+      profilePickerIssue(
+        { name: "ab", mix: [{ profile: "halfmade", weight: 1 }] },
         profiles,
       ),
-    ).toBe("raw");
+    ).toBe("undispatchable");
+  });
+});
+
+describe("undispatchableProfileReason", () => {
+  test("names the profile and what happens instead", () => {
+    const reason = undispatchableProfileReason(profiles[3]!);
+    expect(reason).toContain("Half Made");
+    expect(reason).toContain("falls back");
+  });
+
+  test("a mix explains that only some turns fall back", () => {
+    const reason = undispatchableProfileReason({
+      name: "ab",
+      label: "A/B",
+      mix: [{ profile: "halfmade", weight: 1 }],
+    });
+    expect(reason).toContain("some turns");
   });
 });
