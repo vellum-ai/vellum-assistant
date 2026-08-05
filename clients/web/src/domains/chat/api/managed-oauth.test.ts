@@ -5,7 +5,9 @@
  * resetting its per-instance `"connecting"` guard. Without a cross-instance
  * guard a second trigger opened a second popup and stranded the first behind a
  * `requestId` that never completed. `connectManagedOAuthProvider` reuses the
- * in-flight promise for the same assistant + provider so only one popup opens.
+ * in-flight promise for the same assistant + provider + scope set so only one
+ * popup opens, and rejects a mismatched-scope request while another flow for
+ * the provider is in flight (completion detection is provider-scoped).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -189,7 +191,7 @@ describe("connectManagedOAuthProvider dedupe", () => {
     await Promise.all([first, second]);
   });
 
-  test("concurrent connects with different scopes run independent flows", async () => {
+  test("a concurrent connect with different scopes is rejected", async () => {
     const first = connectManagedOAuthProvider({
       ...OPTS,
       requestedScopes: ["scope-a"],
@@ -199,20 +201,43 @@ describe("connectManagedOAuthProvider dedupe", () => {
       requestedScopes: ["scope-a", "scope-b"],
     });
 
-    expect(second).not.toBe(first);
-    expect(openSpy).toHaveBeenCalledTimes(2);
-    await waitForStartCalls(2);
+    // The mismatched request is rejected without starting a flow or popup.
+    const rejected = await second;
+    expect(rejected.status).toBe("error");
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    await waitForStartCalls(1);
     expect(startCreateMock.mock.calls[0]?.[0].body?.requested_scopes).toEqual([
       "scope-a",
     ]);
+
+    // The original flow is untouched and still completable.
+    settleFailed(requestIds[0]!);
+    const result = await first;
+    expect(result.status).toBe("error");
+  });
+
+  test("a connect with different scopes proceeds once the prior flow settled", async () => {
+    const first = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: ["scope-a"],
+    });
+    await waitForStartCalls(1);
+    settleFailed(requestIds[0]!);
+    await first;
+
+    const second = connectManagedOAuthProvider({
+      ...OPTS,
+      requestedScopes: ["scope-a", "scope-b"],
+    });
+    expect(openSpy).toHaveBeenCalledTimes(2);
+    await waitForStartCalls(2);
     expect(startCreateMock.mock.calls[1]?.[0].body?.requested_scopes).toEqual([
       "scope-a",
       "scope-b",
     ]);
 
-    settleFailed(requestIds[0]!);
     settleFailed(requestIds[1]!);
-    await Promise.all([first, second]);
+    await second;
   });
 
   test("undefined and empty requestedScopes normalize to the same flow", async () => {
