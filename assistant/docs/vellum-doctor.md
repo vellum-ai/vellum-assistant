@@ -93,14 +93,15 @@ Sharing feedback is separate from approving a Doctor operation. A guardian can c
 
 The platform API exposes Doctor under the assistant-scoped routes below. Requests use the same authentication options as the surrounding platform API.
 
-| Operation        | Route                                                                       | Purpose                                                    |
-| ---------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| List history     | `GET /v1/assistants/{assistant_id}/doctor/history/`                         | List persisted sessions, newest first.                     |
-| Retrieve history | `GET /v1/assistants/{assistant_id}/doctor/history/{doctor_session_id}/`     | Retrieve one session and its ordered message ledger.       |
-| Create session   | `POST /v1/assistants/{assistant_id}/doctor/sessions/`                       | Create a new diagnostic session and return its session ID. |
-| Stream events    | `GET /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/events/`    | Receive Doctor events over Server-Sent Events.             |
-| Send message     | `POST /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/messages/` | Send a message to an active session.                       |
-| Delete session   | `DELETE /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/`        | End and clean up a session.                                |
+| Operation        | Route                                                                           | Purpose                                                    |
+| ---------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| List history     | `GET /v1/assistants/{assistant_id}/doctor/history/`                             | List persisted sessions, newest first.                     |
+| Retrieve history | `GET /v1/assistants/{assistant_id}/doctor/history/{doctor_session_id}/`         | Retrieve one session and its ordered message ledger.       |
+| Create session   | `POST /v1/assistants/{assistant_id}/doctor/sessions/`                           | Create a new diagnostic session and return its session ID. |
+| Stream events    | `GET /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/events/`        | Receive Doctor events over Server-Sent Events.             |
+| Send message     | `POST /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/messages/`     | Send a message to an active session.                       |
+| Record outcome   | `POST /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/user-outcome/` | Record whether Doctor solved the problem.                  |
+| Delete session   | `DELETE /v1/assistants/{assistant_id}/doctor/sessions/{session_id}/`            | End and clean up a session.                                |
 
 ### Create a session
 
@@ -124,21 +125,34 @@ The message body requires non-empty `content` and can include an optional `sourc
 
 A successful request is accepted with HTTP `202` while the response arrives on the event stream.
 
+### Record the user outcome
+
+When Doctor asks whether it solved the problem, submit the answer to the session's outcome route:
+
+```json
+{
+  "resolved": true
+}
+```
+
+Use `false` when the problem was not resolved. The endpoint returns `200`, records the latest answer for the session, and works for both active and completed sessions.
+
 ### Event types
 
 The event stream validates and handles these event types:
 
-| Event               | Meaning                                                         |
-| ------------------- | --------------------------------------------------------------- |
-| `message`           | A complete Doctor message.                                      |
-| `message_delta`     | A streamed part of a Doctor message.                            |
-| `tool_call`         | Doctor started a tool operation.                                |
-| `tool_result`       | A tool operation returned output, including whether it failed.  |
-| `approval_required` | Doctor is waiting for an approval response.                     |
-| `backup_prompt`     | Doctor is asking whether to create a backup before continuing.  |
-| `feedback_prompt`   | Doctor is offering a feedback handoff.                          |
-| `status`            | The session is active, completed, or in an error state.         |
-| `error`             | The session encountered an error with a human-readable message. |
+| Event                 | Meaning                                                         |
+| --------------------- | --------------------------------------------------------------- |
+| `message`             | A complete Doctor message.                                      |
+| `message_delta`       | A streamed part of a Doctor message.                            |
+| `tool_call`           | Doctor started a tool operation.                                |
+| `tool_result`         | A tool operation returned output, including whether it failed.  |
+| `approval_required`   | Doctor is waiting for an approval response.                     |
+| `backup_prompt`       | Doctor is asking whether to create a backup before continuing.  |
+| `feedback_prompt`     | Doctor is offering a feedback handoff.                          |
+| `user_outcome_prompt` | Doctor is asking whether it solved the guardian's problem.      |
+| `status`              | The session is active, completed, or in an error state.         |
+| `error`               | The session encountered an error with a human-readable message. |
 
 Malformed events and unknown event types are ignored by the web client rather than being treated as trusted Doctor output.
 
