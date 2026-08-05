@@ -265,9 +265,12 @@ export const sseService: SseService = {
     // cancel any pending grace teardown (so a brief tab-out keeps its live
     // socket) and reopen only if the connection was torn down, or if the
     // background ran long enough that the socket we still hold is suspect.
-    // The self-dedup window collapses double-fires from visibilitychange +
-    // Capacitor appStateChange (both arrive in close succession on
-    // foregrounding the iOS native shell).
+    // `runtime/event-sources/lifecycle-edge.ts` is the primary collapse: the
+    // visibilitychange + Capacitor appStateChange pair for one physical edge
+    // reaches the bus as a single `app.resume`. The self-dedup window below
+    // covers the redundant resumes that still arrive: an
+    // `app.resume{signal:"online"}` landing next to a foreground resume, and a
+    // visibility/app_state pair spread further apart than the edge window.
     const handleAppResume = ({ signal }: { signal: AppResumeSignal }) => {
       // Only a real foreground consumes the hidden state. `online` is a
       // network transition that can arrive while the app is still
@@ -286,8 +289,8 @@ export const sseService: SseService = {
         clearHiddenTeardownTimer();
         // Consume the hidden mark on this first resume edge, ahead of the
         // dedup window below, so the suspect check runs once per background
-        // and cannot be skipped: the iOS double-fire's second resume finds
-        // it null and so can neither bypass nor re-run the bounce.
+        // and cannot be skipped: a redundant second resume finds it null and
+        // so can neither bypass nor re-run the bounce.
         hiddenSince = hiddenAt;
         hiddenAt = null;
       }
@@ -305,15 +308,15 @@ export const sseService: SseService = {
         teardown();
       }
       if (now - lastAppResumeAt < RESUME_DEDUP_WINDOW_MS) {
-        // Inside the dedup window. This collapses the iOS double-fire
-        // (visibilitychange + Capacitor appStateChange deliver two
-        // resumes ms apart for a single foreground) so the health check
-        // below runs once. But the window must NOT suppress a genuine
-        // reopen: an `app.hidden` can land *between* two resumes and (once
-        // its grace elapses) tear the socket down (`current === null`),
-        // and a blanket early-return would then strand the connection
-        // torn-down until the next foreground — the user sees a frozen
-        // transcript and has to refresh to get streaming back. Reopen
+        // Inside the dedup window. This collapses a redundant second resume
+        // (an `online` edge landing next to a foreground one, or a
+        // visibility/app_state pair spread further apart than the
+        // lifecycle-edge window) so the health check below runs once. But the
+        // window must NOT suppress a genuine reopen: an `app.hidden` can land
+        // *between* two resumes and (once its grace elapses) tear the socket
+        // down (`current === null`), and a blanket early-return would then
+        // strand the connection torn-down until the next foreground, leaving
+        // the user a frozen transcript that only a refresh recovers. Reopen
         // whenever the connection is down; only the redundant health check
         // is skipped here.
         if (!current) {

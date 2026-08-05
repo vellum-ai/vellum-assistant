@@ -596,7 +596,7 @@ describe("sseService.attach: background grace policy", () => {
     expect(cancelMock).toHaveBeenCalledTimes(1);
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
 
-    // AND the iOS double-fire's second resume neither bounces the fresh
+    // AND a redundant second resume neither bounces the fresh
     // connection nor re-runs the check: the hidden mark was consumed on
     // the first resume edge, ahead of the dedup window
     eventBus.publish("app.resume", { signal: "visibility" });
@@ -619,7 +619,7 @@ describe("sseService.attach: background grace policy", () => {
     eventBus.publish("app.resume", { signal: "app_state" });
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
 
-    // THEN the iOS double-fire's second resume leaves the seconds-old socket
+    // THEN a redundant second resume leaves the seconds-old socket
     // alone: the mark is consumed on the first edge, so an old `hiddenAt`
     // cannot make a freshly opened connection look suspect
     eventBus.publish("app.resume", { signal: "visibility" });
