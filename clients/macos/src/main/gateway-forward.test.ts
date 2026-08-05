@@ -4,7 +4,7 @@ import {
   authorizePairedGatewayForwardPlan,
   executeGatewayForwardPlan,
   planGatewayForward,
-  planPairedGatewayForward as planPairedGatewayForwardImpl,
+  planPairedGatewayForward,
   type GatewayForwardPlan,
 } from "./gateway-forward";
 import {
@@ -26,9 +26,6 @@ const request = (
   } = {},
 ) => {
   const headers = new Headers(init.headers);
-  if (!headers.has("sec-fetch-site")) {
-    headers.set("sec-fetch-site", "same-origin");
-  }
   if (init.origin !== undefined) {
     headers.set("origin", init.origin);
   }
@@ -38,12 +35,6 @@ const request = (
     headers,
   };
 };
-
-const APP_ORIGIN = { protocol: "app:", host: "vellum.ai" };
-const planPairedGatewayForward = (
-  req: Parameters<typeof planPairedGatewayForwardImpl>[0],
-  getTargets: Parameters<typeof planPairedGatewayForwardImpl>[1],
-) => planPairedGatewayForwardImpl(req, getTargets, APP_ORIGIN);
 
 describe("planGatewayForward", () => {
   test("passes non-gateway requests through to static serving", () => {
@@ -153,47 +144,6 @@ describe("planPairedGatewayForward", () => {
       status: 403,
       message: "Assistant is not paired in lockfile",
     });
-  });
-
-  test("rejects a paired request from a foreign origin", () => {
-    expect(
-      planPairedGatewayForward(
-        request("/__gateway-paired/abc/v1", {
-          origin: "https://example.com",
-        }),
-        pair({ abc: "https://gw.example.com" }),
-      ),
-    ).toEqual({
-      kind: "reject",
-      status: 403,
-      message: "Forbidden paired gateway proxy request",
-    });
-  });
-
-  test("rejects a paired request with cross-site Fetch Metadata", () => {
-    expect(
-      planPairedGatewayForward(
-        request("/__gateway-paired/abc/v1", {
-          headers: { "sec-fetch-site": "cross-site" },
-        }),
-        pair({ abc: "https://gw.example.com" }),
-      ),
-    ).toMatchObject({ kind: "reject", status: 403 });
-  });
-
-  test("does not trust a renderer-origin marker without browser proof", () => {
-    expect(
-      planPairedGatewayForward(
-        {
-          url: "app://vellum.ai/__gateway-paired/abc/v1",
-          method: "GET",
-          headers: new Headers({
-            "X-Vellum-Electron-Renderer-Origin": "app://vellum.ai",
-          }),
-        },
-        pair({ abc: "https://gw.example.com" }),
-      ),
-    ).toMatchObject({ kind: "reject", status: 403 });
   });
 
   test("forwards a paired assistant to its runtimeUrl, preserving the query", () => {

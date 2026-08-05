@@ -34,6 +34,7 @@ import {
   fetchForwardPlanWithRetry,
   planPlatformForward,
 } from "./platform-forward";
+import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -265,8 +266,8 @@ const registerAppProtocol = (): void => {
     // Paired remote gateways ride the same-origin path too, via
     // `/assistant/__gateway-paired/{assistantId}/*`: the packaged app's CSP
     // pins `connect-src` to Vellum origins, so the renderer cannot reach a
-    // paired gateway directly. The lockfile's paired entries are the
-    // allowlist.
+    // paired gateway directly. The WebRequest guard admits only trusted app
+    // frames, and the lockfile's paired entries allowlist the remote targets.
     const pairedProxied = await forwardPairedGatewayRequest(
       request,
       getPairedGatewayTargets,
@@ -342,7 +343,7 @@ const forwardPairedGatewayRequest = async (
   getTargets: () => Map<string, string>,
 ): Promise<Response | null> => {
   const plan = await authorizePairedGatewayForwardPlan(
-    planPairedGatewayForward(request, getTargets, resolveAllowedOrigin()),
+    planPairedGatewayForward(request, getTargets),
     getPairedGuardianAccessToken,
   );
   return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
@@ -435,6 +436,7 @@ app
 
     if (!isDev) {
       registerAppProtocol();
+      installPairedGatewayRequestGuard();
     }
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),

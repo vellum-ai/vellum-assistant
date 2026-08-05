@@ -81,7 +81,6 @@ function hasTrustedSourceLessRendererSignal(
   requestUrl: URL,
   headers: Headers,
   allowed: PlatformForwardAllowedOrigin,
-  allowRendererOriginHeader = true,
 ): boolean {
   if (
     requestUrl.protocol !== allowed.protocol ||
@@ -91,7 +90,6 @@ function hasTrustedSourceLessRendererSignal(
   }
 
   if (
-    allowRendererOriginHeader &&
     headers.get(ELECTRON_RENDERER_ORIGIN_HEADER) ===
       expectedRendererOrigin(allowed)
   ) {
@@ -105,7 +103,6 @@ function getInitiatorTrust(
   requestUrl: URL,
   headers: Headers,
   allowed?: PlatformForwardAllowedOrigin,
-  allowRendererOriginHeader = true,
 ): { trusted: boolean; rejected: boolean } {
   if (!allowed) return { trusted: false, rejected: false };
 
@@ -122,7 +119,6 @@ function getInitiatorTrust(
         requestUrl,
         headers,
         allowed,
-        allowRendererOriginHeader,
       ),
       rejected: false,
     };
@@ -130,24 +126,6 @@ function getInitiatorTrust(
 
   const trusted = isAllowedSource(referer, allowed);
   return { trusted, rejected: !trusted };
-}
-
-/**
- * Require browser-controlled proof that the configured renderer initiated a
- * request. The renderer-origin marker is excluded because arbitrary pages can
- * set ordinary request headers, while Origin, Referer, and Sec-Fetch-Site are
- * browser-controlled.
- */
-export function hasTrustedBrowserInitiator(
-  request: PlatformForwardRequest,
-  allowed: PlatformForwardAllowedOrigin,
-): boolean {
-  return getInitiatorTrust(
-    new URL(request.url),
-    request.headers,
-    allowed,
-    false,
-  ).trusted;
 }
 
 /**

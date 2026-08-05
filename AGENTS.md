@@ -275,7 +275,10 @@ through `/assistant/__gateway-paired/<assistantId>` without a bearer. The
 Electron main process, CLI web host, or Vite development host must remove any
 renderer-provided `Authorization` header and inject the guardian bearer on the
 remote gateway hop. Renderer-facing guardian-token endpoints must reject
-paired assistant IDs.
+paired assistant IDs. Packaged Electron must authorize the paired custom-
+protocol request through main-process `WebRequest` frame identity before the
+protocol handler runs. `GlobalRequest` headers are not an initiator proof for
+custom protocols because Chromium omits Origin, Referer, and Fetch Metadata.
 
 - **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
