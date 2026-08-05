@@ -2,9 +2,15 @@ import { Bell } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import {
+  useBackgroundConversationListQuery,
+  useConversationListQuery,
+  useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import type { FeedItem } from "@vellumai/assistant-api";
 import {
@@ -83,6 +89,41 @@ export function NotificationsBell() {
   const selectedItem = selectedItemId
     ? (visibleItems.find((item) => item.id === selectedItemId) ?? null)
     : null;
+  const isDetailOpen = selectedItem !== null;
+
+  // A notification can point at a conversation that has since been deleted, so
+  // the detail's "Go to Conversation" link is checked against the same three
+  // lists the Activity page merges. They load only while a detail is open: the
+  // bell renders in the top bar on every route, and the list view has no use
+  // for the ids. Disabled, these stay subscribed to the caches without
+  // fetching, so the foreground list the chat layout already loaded is read
+  // for free and opening a detail costs the background and scheduled lists at
+  // most.
+  const {
+    conversations: foregroundConversations,
+    isPending: isForegroundPending,
+  } = useConversationListQuery(assistantId, isDetailOpen);
+  const {
+    conversations: backgroundConversations,
+    isPending: isBackgroundPending,
+  } = useBackgroundConversationListQuery(assistantId, isDetailOpen);
+  const {
+    conversations: scheduledConversations,
+    isPending: isScheduledPending,
+  } = useScheduledConversationListQuery(assistantId, isDetailOpen);
+  const validConversationIds = useMemo(
+    () =>
+      new Set(
+        mergeConversationLists(
+          foregroundConversations,
+          backgroundConversations,
+          scheduledConversations,
+        ).map((conversation) => conversation.conversationId),
+      ),
+    [foregroundConversations, backgroundConversations, scheduledConversations],
+  );
+  const areConversationListsPending =
+    isForegroundPending || isBackgroundPending || isScheduledPending;
 
   // The list unmounts while the detail is open, so its scroll offset is parked
   // here and written back when the list mounts again.
@@ -205,6 +246,8 @@ export function NotificationsBell() {
         <NotificationsBellDetail
           item={selectedItem}
           bodyMaxHeightClass={scrollMaxHeightClass}
+          validConversationIds={validConversationIds}
+          areConversationListsPending={areConversationListsPending}
           onBack={() => setSelectedItemId(null)}
           onGoToConversation={handleGoToConversation}
         />

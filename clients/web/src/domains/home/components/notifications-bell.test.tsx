@@ -21,6 +21,7 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import type { Conversation } from "@/types/conversation-types";
 import type { FeedItem } from "@vellumai/assistant-api";
 
 const isMobileRef = { value: false };
@@ -60,6 +61,56 @@ const navigateToConversationMock = mock((..._args: unknown[]) => {});
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: navigateToConversationMock,
 }));
+
+/**
+ * The three conversation lists the detail validates its link against, plus a
+ * record of the `enabled` flag each hook was called with. The flags are what
+ * pin the lazy-loading property: the bell must not fetch these lists to render
+ * its list view.
+ */
+type ConversationListName = "foreground" | "background" | "scheduled";
+
+const conversationListsRef: {
+  foreground: Conversation[];
+  background: Conversation[];
+  scheduled: Conversation[];
+  isPending: boolean;
+} = { foreground: [], background: [], scheduled: [], isPending: false };
+
+const enabledCalls: Record<ConversationListName, boolean[]> = {
+  foreground: [],
+  background: [],
+  scheduled: [],
+};
+
+function conversationListResult(name: ConversationListName, enabled: boolean) {
+  enabledCalls[name].push(enabled);
+  return {
+    conversations: conversationListsRef[name],
+    isLoading: false,
+    isPending: conversationListsRef.isPending,
+    isError: false,
+    error: null,
+    refetch: () => {},
+  };
+}
+
+mock.module("@/hooks/conversation-queries", () => ({
+  useConversationListQuery: (_assistantId: string | null, enabled = true) =>
+    conversationListResult("foreground", enabled),
+  useBackgroundConversationListQuery: (
+    _assistantId: string | null,
+    enabled = true,
+  ) => conversationListResult("background", enabled),
+  useScheduledConversationListQuery: (
+    _assistantId: string | null,
+    enabled = true,
+  ) => conversationListResult("scheduled", enabled),
+}));
+
+function conversation(conversationId: string): Conversation {
+  return { conversationId } as Conversation;
+}
 
 mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
@@ -120,6 +171,13 @@ async function openDetail(title: string): Promise<void> {
 beforeEach(() => {
   isMobileRef.value = false;
   feedRef.items = [];
+  conversationListsRef.foreground = [];
+  conversationListsRef.background = [];
+  conversationListsRef.scheduled = [];
+  conversationListsRef.isPending = false;
+  enabledCalls.foreground = [];
+  enabledCalls.background = [];
+  enabledCalls.scheduled = [];
   navigateMock.mockClear();
   navigateToConversationMock.mockClear();
 });
@@ -304,6 +362,7 @@ describe("NotificationsBell detail", () => {
 
   test("offers Go to Conversation when the item has a conversation", async () => {
     feedRef.items = [{ ...FIRST, conversationId: "conversation-1" }];
+    conversationListsRef.foreground = [conversation("conversation-1")];
 
     await openDetail("Watcher job failed");
     fireEvent.click(screen.getByRole("button", { name: "Go to Conversation" }));
@@ -327,6 +386,60 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.queryByRole("button", { name: "Go to Conversation" }),
     ).toBeNull();
+  });
+
+  test("offers Go to Conversation for a background job that still exists", async () => {
+    feedRef.items = [{ ...FIRST, conversationId: "background-1" }];
+    conversationListsRef.background = [conversation("background-1")];
+
+    await openDetail("Watcher job failed");
+
+    expect(
+      screen.getByRole("button", { name: "Go to Conversation" }),
+    ).toBeTruthy();
+  });
+
+  test("omits the conversation footer when the conversation is gone", async () => {
+    feedRef.items = [{ ...FIRST, conversationId: "deleted-1" }];
+    conversationListsRef.foreground = [conversation("other-1")];
+    conversationListsRef.scheduled = [conversation("other-2")];
+
+    await openDetail("Watcher job failed");
+
+    expect(
+      screen.queryByRole("button", { name: "Go to Conversation" }),
+    ).toBeNull();
+  });
+
+  test("offers Go to Conversation while the lists are still loading", async () => {
+    feedRef.items = [{ ...FIRST, conversationId: "background-1" }];
+    conversationListsRef.isPending = true;
+
+    await openDetail("Watcher job failed");
+
+    expect(
+      screen.getByRole("button", { name: "Go to Conversation" }),
+    ).toBeTruthy();
+  });
+
+  test("loads the conversation lists only once a detail is open", async () => {
+    feedRef.items = [FIRST];
+
+    await openBell();
+
+    // The list view has no use for conversation ids, and the bell renders on
+    // every route, so nothing may be fetched to show it.
+    expect(enabledCalls.foreground.length).toBeGreaterThan(0);
+    expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
+    expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
+    expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
+    await act(async () => {});
+
+    expect(enabledCalls.foreground.at(-1)).toBe(true);
+    expect(enabledCalls.background.at(-1)).toBe(true);
+    expect(enabledCalls.scheduled.at(-1)).toBe(true);
   });
 
   test("reopening the bell lands back on the list", async () => {

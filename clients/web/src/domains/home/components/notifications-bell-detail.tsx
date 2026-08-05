@@ -36,6 +36,13 @@ export interface NotificationsBellDetailProps {
    * for the list, so the panel never jumps height between the two views.
    */
   bodyMaxHeightClass: string;
+  /**
+   * Ids of the conversations that still exist, merged from the foreground,
+   * background, and scheduled lists exactly as the Activity page merges them.
+   */
+  validConversationIds: Set<string>;
+  /** True while any of those lists has yet to resolve. */
+  areConversationListsPending: boolean;
   onBack: () => void;
   onGoToConversation: (conversationId: string) => void;
 }
@@ -48,10 +55,21 @@ export interface NotificationsBellDetailProps {
 export function NotificationsBellDetail({
   item,
   bodyMaxHeightClass,
+  validConversationIds,
+  areConversationListsPending,
   onBack,
   onGoToConversation,
 }: NotificationsBellDetailProps) {
   const conversationId = item.conversationId;
+  // Same rule as the Activity page's detail panel, plus a pending case the
+  // page doesn't have: the lists start loading when this view opens, so the
+  // link is offered until they come back without it rather than withheld until
+  // they come back with it. Withholding would drop a footer into a popover the
+  // user is already reading, and the notifications that reference background
+  // and scheduled jobs are exactly the ones whose lists arrive last.
+  const hasValidConversation =
+    !!conversationId &&
+    (areConversationListsPending || validConversationIds.has(conversationId));
 
   return (
     <>
@@ -86,10 +104,7 @@ export function NotificationsBellDetail({
         </div>
       </div>
 
-      {/* The bell carries no conversation list of its own, so validity is the
-          item's own link: the branch `HomeRecapRow` takes for its "go to
-          thread" action when it renders without a set. */}
-      {conversationId ? (
+      {conversationId && hasValidConversation ? (
         <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
           <Button
             variant="primary"
