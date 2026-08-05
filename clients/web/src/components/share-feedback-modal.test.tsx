@@ -21,6 +21,7 @@ mock.module("@capacitor/core", () => ({
     getPlatform: () => capacitorPlatform,
     isNativePlatform: () => capacitorPlatform !== "web",
   },
+  registerPlugin: () => ({}),
 }));
 
 mock.module("@/stores/auth-store", () => ({
