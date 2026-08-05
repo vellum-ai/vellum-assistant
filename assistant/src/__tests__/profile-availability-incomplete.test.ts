@@ -10,7 +10,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { computeProfileAvailability } from "../providers/inference/connection-availability.js";
+import {
+  computeProfileAvailability,
+  isUnavailable,
+} from "../providers/inference/connection-availability.js";
+import { describeUnavailableProfile } from "../runtime/routes/inference-profile-availability-guard.js";
 
 describe("incomplete profiles", () => {
   test("no provider and no model reports both as missing", async () => {
@@ -65,5 +69,45 @@ describe("mix profiles", () => {
       model: "claude-opus-5",
     });
     expect(availability?.status).not.toBe("incomplete");
+  });
+});
+
+describe("selection guards", () => {
+  // The resolver skips an incomplete profile on every turn, so pinning one
+  // means the user's selection is not what runs. Before `incomplete` existed,
+  // a provider without a model reached the auto-resolve branch and could
+  // return `missing_connection`, which these guards already rejected; the new
+  // verdict has to keep that door shut rather than open it.
+  test("an incomplete profile counts as unavailable", async () => {
+    expect(isUnavailable(await computeProfileAvailability({}))).toBe(true);
+    expect(
+      isUnavailable(
+        await computeProfileAvailability({ provider: "anthropic" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("a mix is still not judged, so it is not blocked", async () => {
+    expect(
+      isUnavailable(
+        await computeProfileAvailability({
+          mix: [{ profile: "balanced", weight: 1 }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  // `describeUnavailableProfile` interpolates the provider, which an
+  // incomplete profile may not have. Its guidance must not leak "undefined".
+  test("the repair guidance names the fix without inventing a provider", async () => {
+    const availability = await computeProfileAvailability({});
+    const message = await describeUnavailableProfile({
+      availability: availability!,
+      provider: String(undefined),
+      repair: { kind: "repoint", profileName: "half-made" },
+      escapeHatch: false,
+    });
+    expect(message).not.toContain("undefined");
+    expect(message).toContain("provider and a model");
   });
 });

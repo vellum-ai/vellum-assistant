@@ -238,6 +238,11 @@ export async function computeConnectionAvailability(
  */
 const UNAVAILABLE_STATUSES: ReadonlySet<ConnectionAvailabilityStatus> = new Set(
   [
+    // A profile with no provider and model of its own is skipped by the
+    // resolver on every turn, so it provably cannot serve a request. It
+    // belongs here for the same reason the connection failures do: pinning
+    // one silently runs a different profile than the user selected.
+    "incomplete",
     "missing_connection",
     "missing_credential",
     "provider_mismatch",
