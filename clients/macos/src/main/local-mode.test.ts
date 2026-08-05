@@ -104,8 +104,6 @@ const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
 // Matches the module's `resolveConfigDir(process.env)` under the
 // production + XDG_CONFIG_HOME environment pinned above.
 const configDir = path.join(configHomeDir, "vellum");
-const guardianTokenPath = (assistantId: string): string =>
-  path.join(configDir, "assistants", assistantId, "guardian-token.json");
 
 let mockSessionToken: string | null = null;
 mock.module("./session-token-store", () => ({
@@ -122,6 +120,7 @@ mock.module("./lockfile-watcher", () => ({
 
 const { installLocalMode } = await import("./local-mode");
 const { resolveAllowedOrigin } = await import("./app-origin");
+const { guardianTokenPath } = await import("@vellumai/local-mode");
 
 // The IPC wrappers reject any sender whose frame origin isn't the build's
 // renderer origin. Tests drive the registered handlers directly, so they
@@ -633,10 +632,10 @@ describe("vellum:localMode:unpair handler", () => {
       { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://h" },
       "paired-1",
     );
-    fs.mkdirSync(path.dirname(guardianTokenPath("paired-1")), {
+    fs.mkdirSync(path.dirname(guardianTokenPath(configDir, "paired-1")), {
       recursive: true,
     });
-    fs.writeFileSync(guardianTokenPath("paired-1"), "{}");
+    fs.writeFileSync(guardianTokenPath(configDir, "paired-1"), "{}");
 
     const result = unpair("paired-1");
 
@@ -646,7 +645,7 @@ describe("vellum:localMode:unpair handler", () => {
     }
     expect(result.lockfile.activeAssistant).toBeNull();
     expect(result.lockfile.assistants).toEqual([]);
-    expect(fs.existsSync(guardianTokenPath("paired-1"))).toBe(false);
+    expect(fs.existsSync(guardianTokenPath(configDir, "paired-1"))).toBe(false);
     expect(spawnArgs).toHaveLength(0);
   });
 
@@ -740,7 +739,7 @@ describe("vellum:localMode:connectImport handler", () => {
 
     expect(result).toEqual({ ok: true, assistantId: "desk", accessOnly: true });
     expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
-    expect(fs.existsSync(guardianTokenPath("desk"))).toBe(true);
+    expect(fs.existsSync(guardianTokenPath(configDir, "desk"))).toBe(true);
     const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
       assistants: Array<Record<string, unknown>>;
     };
@@ -775,7 +774,7 @@ describe("vellum:localMode:connectImport handler", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("already exists");
-    expect(fs.existsSync(guardianTokenPath("local-1"))).toBe(false);
+    expect(fs.existsSync(guardianTokenPath(configDir, "local-1"))).toBe(false);
   });
 
   test("rejects a missing or oversized bundle with a structured error", () => {
@@ -899,11 +898,11 @@ describe("vellum:localMode:guardianToken handler", () => {
     assistantId: string,
     over: Record<string, unknown>,
   ): void => {
-    fs.mkdirSync(path.dirname(guardianTokenPath(assistantId)), {
+    fs.mkdirSync(path.dirname(guardianTokenPath(configDir, assistantId)), {
       recursive: true,
     });
     fs.writeFileSync(
-      guardianTokenPath(assistantId),
+      guardianTokenPath(configDir, assistantId),
       JSON.stringify({
         guardianPrincipalId: "principal",
         accessToken: "stored-token",
@@ -962,6 +961,8 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(await pending).toEqual({ ok: true, accessToken: "refreshed-token" });
   });
 
+  // The exact guidance copy is pinned in the package's guardian-token tests;
+  // here a distinguishing marker proves the handler routed the paired flag.
   test("expired refresh token resolves a structured 401 with hatch/wake guidance", async () => {
     writeToken("asst-g", {
       accessTokenExpiresAt: PAST,
@@ -977,7 +978,7 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe(401);
     expect(result.error).toContain("vellum hatch");
-    expect(result.error).toContain("vellum wake");
+    expect(result.error).not.toContain("vellum pair");
     expect(spawnArgs).toHaveLength(0);
   });
 
@@ -1000,7 +1001,6 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe(401);
     expect(result.error).toContain("vellum pair");
-    expect(result.error).toContain("vellum connect import");
     expect(result.error).not.toContain("vellum hatch");
     expect(spawnArgs).toHaveLength(0);
   });
