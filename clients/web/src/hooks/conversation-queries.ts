@@ -247,6 +247,11 @@ export function useUnreadConversationCountQuery(
  * the query resolves. It counts only the conversations it is handed, so it is
  * accurate only while the caller holds the complete list; see
  * {@link countUnreadConversationsInList}.
+ *
+ * Clamping at zero happens here rather than in `adjustUnreadCountCache`,
+ * which keeps optimistic adjustments exactly reversible: the cached value can
+ * dip below zero when optimistic writes outrun the server, and this is the
+ * boundary where that becomes a number a user sees.
  */
 export function useUnreadConversationCount(
   assistantId: string | null,
@@ -258,7 +263,7 @@ export function useUnreadConversationCount(
     () => countUnreadConversationsInList(fallbackConversations),
     [fallbackConversations],
   );
-  return serverCount ?? derivedCount;
+  return Math.max(0, serverCount ?? derivedCount);
 }
 
 /**

@@ -161,16 +161,33 @@ const limitedRefreshConversationRow = createConcurrencyLimiter(
   MAX_CONCURRENT_ROW_REFRESHES,
 );
 
+/**
+ * Run `task` after {@link CONVERSATION_LIST_DEBOUNCE_MS}, replacing whatever
+ * run is already pending on `timerRef`.
+ *
+ * Every scheduler here collapses a burst: sync signals arrive one per
+ * conversation (a bulk mark-read on another client emits hundreds), and each
+ * burst should cost one refetch rather than one per event.
+ */
+function scheduleDebounced(
+  timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+  task: () => void,
+): void {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+  }
+  timerRef.current = setTimeout(() => {
+    timerRef.current = null;
+    task();
+  }, CONVERSATION_LIST_DEBOUNCE_MS);
+}
+
 function scheduleConversationListRefetch(
   queryClient: ReturnType<typeof useQueryClient>,
   assistantId: string,
   debounceTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
-  if (debounceTimerRef.current) {
-    clearTimeout(debounceTimerRef.current);
-  }
-  debounceTimerRef.current = setTimeout(() => {
-    debounceTimerRef.current = null;
+  scheduleDebounced(debounceTimerRef, () => {
     // One first-page GET per populated list bucket — never a full
     // paginated drain (see refreshConversationListWindows).
     void refreshConversationListWindows(queryClient, assistantId).catch(
@@ -199,7 +216,7 @@ function scheduleConversationListRefetch(
     void queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
     });
-  }, CONVERSATION_LIST_DEBOUNCE_MS);
+  });
 }
 
 /**
@@ -208,24 +225,19 @@ function scheduleConversationListRefetch(
  * Seen-state changes and newly landed assistant replies surface as
  * per-conversation `conversation:<id>:metadata` tags without a
  * `conversationsList` umbrella tag, so the count must refetch on metadata
- * signals too. Debounced on its own timer because a bulk mark-read on
- * another client emits one metadata tag per conversation; collapsing the
- * burst costs a single scalar GET.
+ * signals too. It runs on its own timer so a burst of metadata tags does not
+ * keep pushing back the list refresh (and vice versa).
  */
 function scheduleUnreadCountRefetch(
   queryClient: ReturnType<typeof useQueryClient>,
   assistantId: string,
   timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
-  if (timerRef.current) {
-    clearTimeout(timerRef.current);
-  }
-  timerRef.current = setTimeout(() => {
-    timerRef.current = null;
+  scheduleDebounced(timerRef, () => {
     void queryClient.invalidateQueries({
       queryKey: unreadConversationCountQueryKey(assistantId),
     });
-  }, CONVERSATION_LIST_DEBOUNCE_MS);
+  });
 }
 
 function handleConversationSyncTags(

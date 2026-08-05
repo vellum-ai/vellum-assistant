@@ -233,7 +233,7 @@ export function ChatLayout({
   // Prefers the server-side unread count, falling back to counting the
   // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
-  useElectronDockSync(assistantId, conversations);
+  useElectronDockSync(assistantId, conversations, isAssistantActive);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their

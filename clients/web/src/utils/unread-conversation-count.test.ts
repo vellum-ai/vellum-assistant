@@ -138,11 +138,30 @@ describe("adjustUnreadCountCache", () => {
     expect(read(client)).toBe(4);
   });
 
-  test("clamps at zero rather than going negative", () => {
+  test("a decrement past zero and its revert cancel out exactly", () => {
+    // The revert applies the inverse delta, so the decrement must not clamp:
+    // a decrement that saturated at zero would be undone by more than it
+    // removed, leaving the badge reporting unread conversations that do not
+    // exist. Display clamps instead (see useUnreadConversationCount).
     const client = seededClient(0);
 
-    expect(adjustUnreadCountCache(client, ASSISTANT_ID, -1)).toBe(true);
+    adjustUnreadCountCache(client, ASSISTANT_ID, -1);
+    adjustUnreadCountCache(client, ASSISTANT_ID, 1);
+
     expect(read(client)).toBe(0);
+  });
+
+  test("a bulk decrement past zero and its per-item reverts cancel out exactly", () => {
+    // Mark-all-read decrements once for the whole batch and reverts one row
+    // at a time, so the same asymmetry would compound across the batch.
+    const client = seededClient(1);
+
+    adjustUnreadCountCache(client, ASSISTANT_ID, -3);
+    adjustUnreadCountCache(client, ASSISTANT_ID, 1);
+    adjustUnreadCountCache(client, ASSISTANT_ID, 1);
+    adjustUnreadCountCache(client, ASSISTANT_ID, 1);
+
+    expect(read(client)).toBe(1);
   });
 
   test("no-ops when the count is unavailable", () => {

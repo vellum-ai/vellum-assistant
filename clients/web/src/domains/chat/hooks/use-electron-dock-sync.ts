@@ -15,8 +15,12 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
  * (currently `ChatLayout`), which supplies the fallback the count hook uses
  * when the assistant serves no server-side count.
  *
- * The count query is gated on the Electron host and on the badge being
- * enabled, so no other host and no opted-out user pays the request.
+ * The count query is gated on three things, so nothing pays for a request it
+ * cannot use: the Electron host (no other host draws a Dock badge), the badge
+ * setting, and the assistant being active. The last matters because
+ * `ChatLayout` mounts before the assistant finishes starting, and querying a
+ * starting or stopped assistant would spend the retry budget on a request
+ * that cannot succeed.
  *
  * The app menu's platform-session state is published separately from
  * `RootLayout` (an always-mounted layer) so it stays correct on non-chat
@@ -25,6 +29,7 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
 export function useElectronDockSync(
   assistantId: string | null,
   conversations: Conversation[],
+  isAssistantActive: boolean,
 ): void {
   const [dockBadgesEnabled, setDockBadgesEnabled] = useState(() =>
     getDeviceBool("dockBadgesEnabled", true),
@@ -33,7 +38,7 @@ export function useElectronDockSync(
   const unreadCount = useUnreadConversationCount(
     assistantId,
     conversations,
-    isElectron() && dockBadgesEnabled,
+    isElectron() && dockBadgesEnabled && isAssistantActive,
   );
 
   useEffect(

@@ -25,6 +25,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
+  toApiError,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
@@ -574,12 +575,7 @@ export async function fetchUnreadConversationCount(
     if (response.status === 404) {
       return null;
     }
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to fetch unread conversation count.",
-    );
-    throw new ApiError(response.status, msg);
+    throw toApiError(error, response);
   }
   return data?.count ?? null;
 }

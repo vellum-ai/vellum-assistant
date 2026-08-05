@@ -54,13 +54,16 @@ type ReorderVars = { assistantId: string; orderedIds: string[] };
 type MutationContext = { snapshot: ConversationCacheSnapshot };
 
 /**
- * Context for the seen/unseen mutations, which additionally apply an
- * optimistic delta to the server-side unread-count cache. `onError`
- * reverts by applying the inverse delta (never a snapshot restore, so a
- * concurrent mutation's adjustment is not clobbered); `onSettled`'s
+ * Context for the mark-unread mutation, which additionally applies an
+ * optimistic delta to the server-side unread-count cache. `onError` reverts
+ * by applying the inverse delta (never a snapshot restore, so a concurrent
+ * mutation's adjustment is not clobbered); `onSettled`'s
  * `invalidateConversationQueries` refetches the authoritative count.
+ *
+ * The mark-seen counterpart lives in `useMarkConversationSeenMutation`,
+ * which two entry points share.
  */
-type SeenMutationContext = MutationContext & { unreadCountDelta: number };
+type MarkUnreadContext = MutationContext & { unreadCountDelta: number };
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -184,7 +187,7 @@ export function useConversationActions({
     void,
     Error,
     MarkUnreadVars,
-    SeenMutationContext
+    MarkUnreadContext
   >({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsUnreadPost({
