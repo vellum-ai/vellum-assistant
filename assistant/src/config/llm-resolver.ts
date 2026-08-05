@@ -383,21 +383,10 @@ function resolveOverrideOrDefault(
   const winnerFragment: Mergeable =
     selection.entry == null ? {} : winnerConfigFragment(selection.entry);
 
-  // The call site's own tweak fragment: the workspace entry layers over the
-  // shipped call-site default, so an entry that only names a profile changes
-  // the selection while the tuning the call site ships with (effort, token
-  // budgets, thinking, cache posture) still applies. A field the workspace
-  // entry sets wins for that field alone. `profile` is the selection
-  // discriminator and `logitBias` is winner-owned, so neither enters the
-  // merge.
-  const {
-    profile: _siteProfile,
-    logitBias: _siteBias,
-    ...tweak
-  } = deepMerge(
-    (CALL_SITE_DEFAULTS[callSite] ?? {}) as Mergeable,
-    (llm.callSites?.[callSite] ?? {}) as Mergeable,
-  ) as Record<string, unknown>;
+  const tweak = composeCallSiteTweak(
+    CALL_SITE_DEFAULTS[callSite] as Mergeable | undefined,
+    llm.callSites?.[callSite] as Mergeable | undefined,
+  );
 
   // Direct call-site model overrides are fragments by design: when the tweak
   // pins a model the winner's provider does not serve, stamp the catalog
@@ -479,6 +468,38 @@ function winnerConfigFragment(entry: ProfileEntry): Mergeable {
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+/**
+ * The call site's tuning fragment: its shipped `CALL_SITE_DEFAULTS` tuning
+ * with the workspace `llm.callSites` entry layered over it, field by field.
+ * An entry that only names a profile therefore repoints the selection while
+ * the tuning the call site ships with still applies, and a field the entry
+ * sets wins for that field alone.
+ *
+ * `profile` is the selection discriminator and `logitBias` is winner-owned,
+ * so neither survives into the fragment. A workspace entry also owns the
+ * selection for its own call site: when one exists the shipped layer
+ * contributes tuning only, so a shipped `provider`/`model` pin can never
+ * override the profile or the custom model the user chose there. With no
+ * workspace entry the shipped fragment applies whole, pin included.
+ */
+export function composeCallSiteTweak(
+  shipped: Mergeable | undefined,
+  workspace: Mergeable | undefined,
+): Mergeable {
+  const {
+    provider: _shippedProvider,
+    model: _shippedModel,
+    ...shippedTuning
+  } = shipped ?? {};
+  const shippedLayer = workspace == null ? (shipped ?? {}) : shippedTuning;
+  const {
+    profile: _siteProfile,
+    logitBias: _siteBias,
+    ...tweak
+  } = deepMerge(shippedLayer, workspace ?? {});
+  return tweak;
+}
 
 /**
  * FNV-1a 32-bit string hash → unit float in [0, 1). Deterministic and stable

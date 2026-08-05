@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.js";
 import {
+  composeCallSiteTweak,
   type ResolutionFallbackReason,
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
@@ -175,6 +176,51 @@ describe("fallback and completeness", () => {
     // default is overridden by the code-owned body.
     expect(resolved.model).not.toBe("gpt-5.4");
     expect(resolved.provider).toBe("anthropic");
+  });
+});
+
+describe("composeCallSiteTweak", () => {
+  // `CallSiteDefaultConfig` supports a shipped `model` (and the provider it
+  // implies). No entry sets one today, so these pin the invariant the merge
+  // depends on rather than waiting for the first entry that would break it.
+  test("a workspace entry owns selection: a shipped model/provider is dropped", () => {
+    const tweak = composeCallSiteTweak(
+      { model: "shipped-model", provider: "openai", effort: "low" },
+      { profile: "mine" },
+    );
+    expect("model" in tweak).toBe(false);
+    expect("provider" in tweak).toBe(false);
+    // The shipped tuning still layers in.
+    expect(tweak.effort).toBe("low");
+  });
+
+  test("with no workspace entry the shipped fragment applies whole", () => {
+    const tweak = composeCallSiteTweak(
+      { model: "shipped-model", provider: "openai", effort: "low" },
+      undefined,
+    );
+    expect(tweak.model).toBe("shipped-model");
+    expect(tweak.provider).toBe("openai");
+  });
+
+  test("a workspace provider/model still applies", () => {
+    const tweak = composeCallSiteTweak(
+      { model: "shipped-model", effort: "low" },
+      { provider: "anthropic", model: "chosen-model" },
+    );
+    expect(tweak.model).toBe("chosen-model");
+    expect(tweak.provider).toBe("anthropic");
+    expect(tweak.effort).toBe("low");
+  });
+
+  test("profile and logitBias never reach the fragment", () => {
+    const tweak = composeCallSiteTweak(
+      { effort: "low" },
+      { profile: "mine", logitBias: "suppress-cjk", maxTokens: 10 },
+    );
+    expect("profile" in tweak).toBe(false);
+    expect("logitBias" in tweak).toBe(false);
+    expect(tweak.maxTokens).toBe(10);
   });
 });
 
