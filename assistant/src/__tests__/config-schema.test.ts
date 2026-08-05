@@ -950,6 +950,12 @@ describe("AssistantConfigSchema", () => {
           generationTimeoutMs: 1500,
         },
       },
+      flux: {
+        turnEnd: { enabled: false },
+        model: "flux-general-en",
+        eotThreshold: 0.7,
+        eotTimeoutMs: 5000,
+      },
       maxSessionDurationSeconds: 1800,
       archiveAudio: false,
     });
@@ -974,6 +980,8 @@ describe("AssistantConfigSchema", () => {
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
+    // A config predating the flux block still parses, with Flux turn-end off.
+    expect(result.liveVoice.flux.turnEnd.enabled).toBe(false);
   });
 
   test("accepts a liveVoice.vad.bargeInMinSpeechMs of 0 (guard disabled)", () => {
