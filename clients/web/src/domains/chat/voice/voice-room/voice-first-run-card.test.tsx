@@ -66,10 +66,6 @@ const STT_LANGUAGE_SELECTION_DEFAULTS = {
   available: false,
   currentCode: "",
   configuredProviderId: "vellum",
-  // The assistant under test resolves an unset language to code-switching.
-  // The pre-0.12.0 shape is covered in the language-catalog suite, which owns
-  // the gate's branching.
-  daemonDefaultsToMulti: true,
   selectLanguage: (_code: string) => {},
   selecting: false,
 };
