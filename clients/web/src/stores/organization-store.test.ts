@@ -33,7 +33,6 @@ beforeEach(() => {
     persistedOrganizationId: null,
     status: "idle",
     error: null,
-    lastErrorStatus: null,
   });
 });
 
@@ -112,7 +111,6 @@ describe("fetch outcome classification", () => {
     expect(outcome).toEqual({ ok: false, kind: "rejected", status: 403 });
     const state = useOrganizationStore.getState();
     expect(state.status).toBe("error");
-    expect(state.lastErrorStatus).toBe(403);
     expect(state.error).toBe("Platform session was rejected (HTTP 403).");
   });
 
@@ -141,7 +139,6 @@ describe("fetch outcome classification", () => {
     expect(outcome).toEqual({ ok: false, kind: "unavailable" });
     const state = useOrganizationStore.getState();
     expect(state.status).toBe("error");
-    expect(state.lastErrorStatus).toBeNull();
     expect(state.error).toBe("network down");
   });
 
@@ -170,12 +167,14 @@ describe("fetch outcome classification", () => {
     expect(outcome).toEqual({ ok: false, kind: "unavailable" });
     const state = useOrganizationStore.getState();
     expect(state.status).toBe("error");
-    expect(state.lastErrorStatus).toBeNull();
     expect(state.error).toBe("No organization available for this user.");
   });
 
-  test("a successful fetch resets lastErrorStatus", async () => {
-    useOrganizationStore.setState({ lastErrorStatus: 403, status: "error" });
+  test("a successful fetch resets the error state", async () => {
+    useOrganizationStore.setState({
+      status: "error",
+      error: "Platform session was rejected (HTTP 403).",
+    });
     listOrganizations = () =>
       Promise.resolve({ data: { results: [ORG_A] } });
 
@@ -184,7 +183,6 @@ describe("fetch outcome classification", () => {
     expect(outcome).toEqual({ ok: true });
     const state = useOrganizationStore.getState();
     expect(state.status).toBe("ready");
-    expect(state.lastErrorStatus).toBeNull();
     expect(state.error).toBeNull();
   });
 });

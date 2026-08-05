@@ -56,12 +56,6 @@ interface OrganizationState {
   persistedOrganizationId: string | null;
   status: OrganizationStatus;
   error: string | null;
-  /**
-   * HTTP status of the last fetch that concluded with an error response;
-   * null while loading, after a success, and for failures with no
-   * completed response (transport errors).
-   */
-  lastErrorStatus: number | null;
 }
 
 interface OrganizationActions {
@@ -134,10 +128,9 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
   persistedOrganizationId: getStoredOrganizationId(),
   status: "idle",
   error: null,
-  lastErrorStatus: null,
 
   fetchOrganizations: async () => {
-    set({ status: "loading", error: null, lastErrorStatus: null });
+    set({ status: "loading", error: null });
 
     try {
       const result = await organizationsList();
@@ -171,10 +164,8 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
             : "No organization available for this user.";
       }
 
-      // A settled rejection means the platform no longer honors the session
-      // this org id came from, so the persisted fallback must not keep
-      // stamping requests with a stale Vellum-Organization-Id. Transport and
-      // other failures keep the fallback (offline reloads still need it).
+      // A rejected session must stop stamping requests with its stale org
+      // id; transport failures keep the fallback for offline reloads.
       if (rejectionStatus !== null) {
         clearStoredOrganizationId();
       }
@@ -189,7 +180,6 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
         persistedOrganizationId,
         status: currentOrganizationId ? "ready" : "error",
         error,
-        lastErrorStatus: failureStatus,
       });
 
       if (currentOrganizationId) {
@@ -231,7 +221,6 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
       persistedOrganizationId: null,
       status: "idle",
       error: null,
-      lastErrorStatus: null,
     });
   },
 }));
