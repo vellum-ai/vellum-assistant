@@ -3161,6 +3161,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // Per-cycle transcribers are torn down with stop(); the finalize
         // completion signal has no cycle to advance here.
         return;
+      case "turn-start":
+      case "eager-turn-end":
+      case "turn-resumed":
+      case "turn-end":
+        // The silence boundary owns turn commits. Listed case-by-case
+        // rather than under `default` so the exhaustiveness check flags
+        // this site when turn detection is wired in.
+        return;
       case "error":
         await this.sendTranscriberErrorFrame(event);
         return;
@@ -3182,6 +3190,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         await this.startAssistantTurnIfReady();
         return;
+      default: {
+        const _exhaustive: never = event;
+        return;
+      }
     }
   }
 
@@ -3280,6 +3292,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.startAssistantTurnIfReady();
         return;
       }
+      case "turn-start":
+      case "eager-turn-end":
+      case "turn-resumed":
+      case "turn-end":
+        // The silence boundary owns turn commits. Listed case-by-case
+        // rather than under `default` so the exhaustiveness check flags
+        // this site when turn detection is wired in.
+        return;
       case "error":
         await this.sendTranscriberErrorFrame(event);
         return;
@@ -3317,6 +3337,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           }
         }
         await this.startAssistantTurnIfReady();
+        return;
+      }
+      default: {
+        const _exhaustive: never = event;
         return;
       }
     }

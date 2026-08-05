@@ -268,6 +268,11 @@ export function createDaemonBatchTranscriber(
       return new GoogleGeminiBatchTranscriber(apiKey);
     case "xai":
       return new XAIBatchTranscriber(apiKey, language);
+    case "deepgram-flux":
+      throw new SttError(
+        "provider-error",
+        "Flux is streaming-only; use the deepgram provider for batch transcription",
+      );
     default: {
       // Exhaustive check — compile error if a new SttProviderId is added
       // without a corresponding case here.
