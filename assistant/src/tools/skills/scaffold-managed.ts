@@ -11,14 +11,14 @@ import {
   EXISTING_SKILL_THRESHOLD,
   nearestExistingSkills,
 } from "../../plugins/defaults/memory/v3/candidate-match.js";
-import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
   getManagedSkillDir,
+  readManagedSkillAuthor,
 } from "../../skills/managed-store.js";
 import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("scaffold-managed-skill");
 
@@ -138,46 +138,83 @@ type DedupOutcome =
  * unclassifiable hit is treated the same way.
  */
 async function resolveRetrospectiveDedup(
-  description: string,
+  args: {
+    description: string;
+    proposedId: string;
+    enabledPluginSet: ReadonlySet<string> | null;
+  },
   deps: {
     findNearest?: typeof nearestExistingSkills;
-    loadCatalog?: () => { id: string; source: SkillSource }[];
+    loadCatalog?: () => {
+      id: string;
+      source: SkillSource;
+      owner?: OwnerInfo;
+    }[];
     managedSkillExists?: (skillId: string) => boolean;
     readManagedAuthor?: (skillId: string) => "assistant" | "user" | undefined;
   },
 ): Promise<DedupOutcome> {
+  const { description, proposedId, enabledPluginSet } = args;
   const findNearest = deps.findNearest ?? nearestExistingSkills;
   const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
   const managedSkillExists =
     deps.managedSkillExists ??
     ((skillId: string) =>
       existsSync(join(getManagedSkillDir(skillId), "SKILL.md")));
-  const readManagedAuthor =
-    deps.readManagedAuthor ??
-    ((skillId: string) => {
-      try {
-        return readInstallMeta(getManagedSkillDir(skillId))?.author;
-      } catch {
-        return undefined;
-      }
-    });
+  const readManagedAuthor = deps.readManagedAuthor ?? readManagedSkillAuthor;
+
+  // An explicit self-update is not a blind capture. When the caller names a
+  // skill it already owns it has stated its target, so never retarget that
+  // onto a higher-scoring neighbour and never refuse it because some other
+  // skill scores well. This is the path the prompt asks for when refining a
+  // skill: overriding it would strand the intended skill AND rewrite an
+  // unrelated one.
+  if (
+    managedSkillExists(proposedId) &&
+    readManagedAuthor(proposedId) === "assistant"
+  ) {
+    return { kind: "proceed" };
+  }
+
+  const catalog = loadCatalog();
+  // Match the scoping `find_similar_skills` applies: a plugin-owned skill
+  // whose plugin is outside this conversation's effective set cannot be
+  // loaded here, so it must not rank, and certainly must not block a write.
+  const scopedCatalog =
+    enabledPluginSet === null
+      ? catalog
+      : catalog.filter(
+          (skill) =>
+            !(
+              skill.owner?.kind === "plugin" &&
+              !enabledPluginSet.has(skill.owner.id)
+            ),
+        );
 
   let hits: Array<{ skillId: string; score: number }>;
   try {
-    hits = await findNearest(description);
+    hits = await findNearest(description, {
+      loadCatalog: () => scopedCatalog,
+    });
   } catch (err) {
     log.warn({ err }, "skill dedup: matcher failed; proceeding without it");
     return { kind: "proceed" };
   }
 
-  const top = hits
+  const confident = hits
     .filter((hit) => hit.score >= EXISTING_SKILL_THRESHOLD)
-    .sort((a, b) => b.score - a.score)[0];
+    .sort((a, b) => b.score - a.score);
+  // The proposed id is itself among the confident matches, so the caller is
+  // already aiming at the right skill. Let it through untouched.
+  if (confident.some((hit) => hit.skillId === proposedId)) {
+    return { kind: "proceed" };
+  }
+  const top = confident[0];
   if (!top) {
     return { kind: "proceed" };
   }
 
-  const catalogEntry = loadCatalog().find((s) => s.id === top.skillId);
+  const catalogEntry = scopedCatalog.find((s) => s.id === top.skillId);
   if (catalogEntry && catalogEntry.source !== "managed") {
     return {
       kind: "covered",
@@ -209,7 +246,11 @@ export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
   context: ToolContext,
   deps: {
-    loadCatalog?: () => { id: string; source: SkillSource }[];
+    loadCatalog?: () => {
+      id: string;
+      source: SkillSource;
+      owner?: OwnerInfo;
+    }[];
     getConversation?: (
       id: string,
     ) => { forkParentConversationId: string | null } | null;
@@ -375,7 +416,14 @@ export async function executeScaffoldManagedSkill(
   let id = proposedId;
   let redirectedByDedup = false;
   if (fromRetrospective) {
-    const dedup = await resolveRetrospectiveDedup(description, deps);
+    const dedup = await resolveRetrospectiveDedup(
+      {
+        description,
+        proposedId,
+        enabledPluginSet: context.enabledPluginSet ?? null,
+      },
+      deps,
+    );
     if (dedup.kind === "covered") {
       recordDedupOutcome("covered");
       return {
@@ -420,7 +468,7 @@ export async function executeScaffoldManagedSkill(
     );
     if (nonManagedOwner) {
       return {
-        content: `Error: skill "${id}" is owned by a ${nonManagedOwner.source} skill; the retrospective may not create, overwrite, or shadow it. The procedure is already covered — skip it.`,
+        content: `Error: skill "${id}" is owned by a ${nonManagedOwner.source} skill; the retrospective may not create, overwrite, or shadow it. The procedure is already covered, so skip it.`,
         isError: true,
       };
     }
@@ -434,7 +482,7 @@ export async function executeScaffoldManagedSkill(
     // prune side where such skills are never pruned.
     if (
       managedSkillExistedBefore &&
-      readInstallMeta(getManagedSkillDir(id))?.author !== "assistant"
+      readManagedSkillAuthor(id) !== "assistant"
     ) {
       return {
         content: `Error: skill "${id}" is not verifiably assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,

@@ -84,6 +84,7 @@ function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
 }
 
 import { loadSkillCatalog } from "../config/skills.js";
+import type { nearestExistingSkills } from "../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
@@ -1717,6 +1718,99 @@ describe("retrospective dedup", () => {
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content).skill_id).toBe("mine");
+  });
+
+  test("an explicitly named skill the assistant owns is never retargeted onto a higher-scoring neighbour", async () => {
+    await seedAssistantSkill("intended-target", "Intended, stale.");
+    await seedAssistantSkill("other-skill", "Unrelated content.");
+
+    // The caller names the skill it means to refine, but a DIFFERENT
+    // assistant-authored skill scores higher.
+    const result = await executeScaffoldManagedSkill(
+      capture({
+        skill_id: "intended-target",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      }),
+      makeRetrospectiveContext(),
+      {
+        ...matcher(
+          { skillId: "other-skill", score: 0.93 },
+          { skillId: "intended-target", score: 0.84 },
+        ),
+        loadCatalog: () => [
+          { id: "other-skill", source: "managed" as SkillSource },
+          { id: "intended-target", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).skill_id).toBe("intended-target");
+    // The named skill got the refinement, and the neighbour was not touched.
+    expect(readBody("intended-target")).toContain("Refined steps.");
+    expect(readBody("other-skill")).toContain("Unrelated content.");
+    expect(dedupEvents()).toHaveLength(0);
+  });
+
+  test("an explicitly named skill the assistant owns is not refused by an unowned high scorer", async () => {
+    await seedAssistantSkill("intended-target", "Intended, stale.");
+
+    const result = await executeScaffoldManagedSkill(
+      capture({
+        skill_id: "intended-target",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      }),
+      makeRetrospectiveContext(),
+      {
+        ...matcher({ skillId: "deep-research", score: 0.95 }),
+        loadCatalog: () => [
+          { id: "deep-research", source: "bundled" as SkillSource },
+          { id: "intended-target", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    // Refining a skill it already owns was always permitted; a bundled
+    // neighbour scoring well must not take that away.
+    expect(result.isError).toBe(false);
+    expect(readBody("intended-target")).toContain("Refined steps.");
+  });
+
+  test("a plugin skill outside the conversation's plugin scope cannot block a write", async () => {
+    const result = await executeScaffoldManagedSkill(
+      capture(),
+      makeRetrospectiveContext({
+        // The conversation only has `other-plugin` enabled.
+        enabledPluginSet: new Set(["other-plugin"]),
+      }),
+      {
+        // The matcher must never see the out-of-scope skill, so assert on the
+        // catalog it is handed rather than on a hit it should never produce.
+        findNearest: (async (
+          _goal: string,
+          opts?: {
+            loadCatalog?: () => { id: string }[] | Promise<{ id: string }[]>;
+          },
+        ) => {
+          const scoped = (await opts?.loadCatalog?.()) ?? [];
+          expect(scoped.map((s) => s.id)).toEqual(["in-scope-skill"]);
+          return [];
+        }) as typeof nearestExistingSkills,
+        loadCatalog: () => [
+          {
+            id: "out-of-scope-skill",
+            source: "plugin" as SkillSource,
+            owner: { kind: "plugin" as const, id: "disabled-plugin" },
+          },
+          { id: "in-scope-skill", source: "managed" as SkillSource },
+        ],
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillExists("export-weekly-report")).toBe(true);
   });
 
   test("user-directed scaffolds never consult the matcher", async () => {

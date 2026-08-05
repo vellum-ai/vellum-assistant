@@ -1,8 +1,7 @@
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
-import { readInstallMeta } from "../../skills/install-meta.js";
-import { getManagedSkillDir } from "../../skills/managed-store.js";
+import { readManagedSkillAuthor } from "../../skills/managed-store.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -132,19 +131,4 @@ export async function executeFindSimilarSkills(
     content: JSON.stringify({ skills: enriched }),
     isError: false,
   };
-}
-
-/**
- * Read a managed skill's install-meta author, if any. Best-effort: any failure
- * (missing dir, malformed meta, untagged skill) resolves to undefined so the
- * enrichment loop never throws on a single bad hit.
- */
-function readManagedSkillAuthor(
-  skillId: string,
-): "assistant" | "user" | undefined {
-  try {
-    return readInstallMeta(getManagedSkillDir(skillId))?.author;
-  } catch {
-    return undefined;
-  }
 }
