@@ -73,6 +73,15 @@ export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
   }
 }
 
+/** Whether a URL's host is loopback; false for unparseable URLs. */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function isAccessTokenExpired(data: GuardianTokenData): boolean {
   const expiresAt = new Date(data.accessTokenExpiresAt).getTime();
   if (!Number.isFinite(expiresAt)) return true;

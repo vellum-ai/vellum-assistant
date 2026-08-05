@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { guardianTokenPath } from "./config";
 import {
   isConfidentialRefreshUrl,
+  isLoopbackUrl,
   saveGuardianToken,
 } from "./guardian-token";
 import { readRawLockfile, upsertLockfileAssistant } from "./lockfile";
@@ -158,6 +159,20 @@ export function pairAssistant(
     };
   }
 
+  // A paired entry is remote by definition (`vellum pair` refuses to advertise
+  // loopback URLs), and a loopback runtimeUrl in the lockfile would otherwise
+  // read as a local gateway to loopback-port consumers. Refuse it outright so
+  // a crafted bundle cannot point a pairing at this machine's own services.
+  if (isLoopbackUrl(bundle.gatewayUrl)) {
+    return {
+      ok: false,
+      status: 422,
+      error:
+        "A paired assistant needs a non-loopback gateway URL; run `vellum pair` " +
+        "with --url pointing at a tunnel or LAN address.",
+    };
+  }
+
   // Unique local id: a name slug, or paired-<deviceId> (deviceId is unique per
   // pairing). Never the bundle's "self" assistantId, which would collide. The
   // deviceId comes from an untrusted bundle and is used as a path component by
@@ -271,9 +286,9 @@ export function pairAssistant(
     ok: true,
     assistantId: localId,
     updated: existing !== undefined,
-    // A refresh token is only usable over a confidential channel (https or
-    // loopback); a bundle whose gateway is non-loopback plaintext http can
-    // never renew, so it is reported access-only and gets the expiry warning.
+    // A refresh token is only usable over a confidential channel; with
+    // loopback refused above, a plaintext http gateway can never renew, so it
+    // is reported access-only and gets the expiry warning.
     accessOnly:
       !bundle.refreshToken || !isConfidentialRefreshUrl(bundle.gatewayUrl),
   };

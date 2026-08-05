@@ -252,21 +252,31 @@ describe("pairAssistant", () => {
     expect(token.refreshAfter).toBe("2026-07-01T00:00:00.000Z");
   });
 
-  test("a loopback http gateway with a refresh token stays renewable", () => {
-    const result = pairAssistant([lockfilePath], configDir, {
-      bundle: bundle({
-        gatewayUrl: "http://127.0.0.1:7830",
-        deviceId: "dev-loopback",
-        refreshToken: "refresh-tok",
-        refreshTokenExpiresAt: "2027-01-01T00:00:00.000Z",
-      }),
-    });
+  test("refuses loopback gateway URLs so a bundle can't alias local services", () => {
+    // A stored loopback runtimeUrl would otherwise read as a local gateway
+    // (e.g. to the loopback proxy allowlist), aliasing arbitrary local ports.
+    for (const gatewayUrl of [
+      "http://127.0.0.1:5432",
+      "http://localhost:7830",
+      "http://[::1]:7830",
+      "https://127.0.0.1:7830",
+    ]) {
+      const result = pairAssistant([lockfilePath], configDir, {
+        bundle: bundle({ gatewayUrl, deviceId: "dev-loop" }),
+      });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        continue;
+      }
+      expect(result.status).toBe(422);
+      expect(result.error).toContain("non-loopback");
     }
-    expect(result.accessOnly).toBe(false);
+    // Nothing was written for any refused bundle.
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+    expect(
+      fs.existsSync(guardianTokenPath(configDir, "paired-dev-loop")),
+    ).toBe(false);
   });
 
   test("a non-loopback plaintext http gateway is access-only even with a refresh token", () => {
@@ -520,6 +530,24 @@ describe("connectImport", () => {
       status: 400,
       error: "Pairing bundle is too large",
     });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("a loopback gatewayUrl keeps pairAssistant's 422 and refusal copy", () => {
+    const result = connectImport([lockfilePath], configDir, {
+      bundle: encodeBundle({
+        gatewayUrl: "http://127.0.0.1:5432",
+        token: "tok",
+        deviceId: "dev-loop",
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.status).toBe(422);
+    expect(result.error).toContain("non-loopback");
     expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 

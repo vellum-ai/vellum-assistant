@@ -105,6 +105,15 @@ describe("resolveGatewayProxyTarget", () => {
               cloud: "gcp",
               runtimeUrl: "https://assistant.example.com:8443",
             },
+            // A paired entry is skipped wholesale: even a loopback runtimeUrl
+            // (rejected on import, but possibly pre-existing) must not open
+            // the loopback proxy to arbitrary local services.
+            {
+              assistantId: "paired-loopback",
+              cloud: "paired",
+              paired: true,
+              runtimeUrl: "http://127.0.0.1:5432",
+            },
           ],
         }),
       );

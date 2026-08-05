@@ -282,11 +282,20 @@ export function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
         continue;
       }
       const assistant = entry as {
+        cloud?: unknown;
+        project?: unknown;
+        sshUser?: unknown;
         gatewayUrl?: unknown;
         localUrl?: unknown;
         runtimeUrl?: unknown;
         resources?: { gatewayPort?: unknown };
       };
+      // A paired entry's gateway is remote by contract and reached through the
+      // paired proxy; even a (rejected-on-import, but possibly pre-existing)
+      // loopback runtimeUrl must never open the generic loopback proxy.
+      if (resolveCloud(assistant) === "paired") {
+        continue;
+      }
       addPortFromUrl(assistant.gatewayUrl, ports);
       addPortFromUrl(assistant.localUrl, ports);
       // Docker entries record their published gateway as a loopback
