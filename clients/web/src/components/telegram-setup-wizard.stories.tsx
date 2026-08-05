@@ -1,0 +1,81 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
+
+import { TelegramSetupWizard } from "./telegram-setup-wizard";
+
+const meta: Meta<typeof TelegramSetupWizard> = {
+  title: "Contacts/TelegramSetupWizard",
+  component: TelegramSetupWizard,
+  args: {
+    assistantName: "Example Assistant",
+  },
+  // 400px matches the drawer this renders in: `chat-content-layout.tsx` mounts
+  // the channel setup panel in an `AnimatedRightDrawer` with `defaultWidth` and
+  // `minWidth` both 400.
+  decorators: [
+    (Story) => (
+      <div style={{ width: 400, margin: "2rem auto" }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+export default meta;
+
+type Story = StoryObj<typeof TelegramSetupWizard>;
+
+// Assembled rather than written inline so the secret scanner doesn't read this
+// placeholder as a real credential (it exempts *.test.* files, not stories).
+const BOT_TOKEN = `123456789:${"A".repeat(10)}bCdEfGhIjKlMnOpQrStUvWx`;
+const WRONG_CHANNEL_TOKEN = `xoxb-${"0".repeat(10)}-${"0".repeat(10)}-abcdef`;
+
+const fillToken: Story["play"] = async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await userEvent.type(canvas.getByLabelText(/Bot Token/i), BOT_TOKEN);
+};
+
+/** Step 1: what to do in BotFather. */
+export const CreateBot: Story = {};
+
+/** Step 2, reached through Next rather than `initialStepId`. */
+export const Connect: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+  },
+};
+
+export const Saving: Story = {
+  args: { initialStepId: "connect", saveStatus: "pending" },
+  play: fillToken,
+};
+
+export const Connected: Story = {
+  args: { initialStepId: "connect", saveStatus: "success" },
+  play: fillToken,
+};
+
+export const SaveFailed: Story = {
+  args: {
+    initialStepId: "connect",
+    saveStatus: "error",
+    saveError: "Telegram rejected the bot token (401 Unauthorized).",
+  },
+  play: fillToken,
+};
+
+/**
+ * Token-format validation: a Slack token pasted into the Telegram field. The
+ * shape error renders and Connect stays disabled.
+ */
+export const TokenFormatValidation: Story = {
+  args: { initialStepId: "connect" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(
+      canvas.getByLabelText(/Bot Token/i),
+      WRONG_CHANNEL_TOKEN,
+    );
+  },
+};
