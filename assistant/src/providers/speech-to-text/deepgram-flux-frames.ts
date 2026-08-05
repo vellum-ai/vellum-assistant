@@ -143,6 +143,10 @@ type InboundFluxFrame = Partial<FluxTurnFrame> &
  *   it does for a provider without turn detection.
  * - `Error` emits `error`. This frame is fatal and is the only place the
  *   provider's own diagnostic appears, so it is surfaced rather than dropped.
+ *
+ * `turn-start` and `turn-end` carry the frame's `turn_index` when Deepgram
+ * sends one, which is what lets a consumer tell an end-of-turn for the turn
+ * still in progress from one Deepgram has already superseded.
  */
 export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
   const frame = coerceFrame(raw);
@@ -151,11 +155,17 @@ export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
   }
 
   const kind = readFrameKind(frame);
+  const turnIndex = readNumber(frame.turn_index);
   switch (kind) {
     case "Connected":
       return [];
     case "StartOfTurn":
-      return [{ type: "turn-start" }];
+      return [
+        {
+          type: "turn-start",
+          ...(turnIndex !== undefined ? { turnIndex } : {}),
+        },
+      ];
     case "Update":
     case "TurnInfo":
       return [{ type: "partial", text: readTranscript(frame) }];
@@ -172,6 +182,7 @@ export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
           type: "turn-end",
           text,
           ...(confidence !== undefined ? { confidence } : {}),
+          ...(turnIndex !== undefined ? { turnIndex } : {}),
         },
       ];
     }

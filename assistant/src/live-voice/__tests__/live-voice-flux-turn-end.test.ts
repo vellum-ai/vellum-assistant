@@ -87,10 +87,20 @@ class MockFluxTranscriber implements StreamingTranscriber {
     this.onEvent?.(event);
   }
 
+  // Flux's StartOfTurn frame, numbering the turn it opens.
+  startOfTurn(turnIndex: number): void {
+    this.emit({ type: "turn-start", turnIndex });
+  }
+
   // Flux's EndOfTurn frame maps onto a `final` followed by a `turn-end`.
-  endOfTurn(text: string): void {
+  endOfTurn(text: string, turnIndex?: number): void {
     this.emit({ type: "final", text });
-    this.emit({ type: "turn-end", text, confidence: 0.9 });
+    this.emit({
+      type: "turn-end",
+      text,
+      confidence: 0.9,
+      ...(turnIndex !== undefined ? { turnIndex } : {}),
+    });
   }
 }
 
@@ -463,6 +473,124 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
       () => (transcriber?.received.length ?? 0) > receivedBeforeResume,
       "The resumed speech stopped reaching the transcriber",
     );
+
+    await session.close("client_end");
+  });
+
+  test("commits a fast turn-end for the still-open turn after a mid-thought pause", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      emitMetrics: true,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    const transcriber = transcribers[0];
+    transcriber?.startOfTurn(0);
+    transcriber?.emit({ type: "partial", text: "what is the" });
+
+    // A mid-thought pause, long enough for the local silence boundary to hand
+    // the cycle to Flux, and then the caller keeps going.
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(
+      () => countFrames(frames, "speech_started") === 2,
+      "The resumed speech never re-opened a detector turn",
+    );
+
+    // Flux ends the turn it kept open across the pause, beating the next local
+    // silence boundary: the fast commit this feature exists for. Nothing here
+    // sleeps past that boundary, on purpose.
+    const emittedAtMs = Date.now();
+    transcriber?.endOfTurn("what is the weather today", 0);
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The fast turn-end after a mid-thought pause never committed",
+    );
+    const commitLatencyMs = Date.now() - emittedAtMs;
+
+    // The fail-open budget is eotTimeoutMs (500 ms) plus the margin (1000 ms).
+    // A commit anywhere near it means the turn-end was dropped and the
+    // deadline committed in its place.
+    expect(commitLatencyMs).toBeLessThan(300);
+    expect(turnCalls[0]?.content).toBe("what is the weather today");
+    // The Flux path, not the speculative hold path the deadline falls back to.
+    expect(turnCalls[0]?.unifiedVerdict).toBeUndefined();
+    expect(frames.some((frame) => frame.type === "utterance_end")).toBe(true);
+
+    await waitFor(
+      () =>
+        frames.some(
+          (frame) =>
+            frame.type === "metrics" && frame.event === "turn_completed",
+        ),
+      "The completed turn never reported its metrics",
+    );
+    const metricsFrame = frames.find(
+      (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+    );
+    expect(metricsFrame).toBeDefined();
+    if (metricsFrame?.type === "metrics") {
+      expect(metricsFrame.endpointDecisionSource).toBe("flux");
+    }
+
+    await session.close("client_end");
+  });
+
+  test("drops a turn-end for a turn flux has already superseded", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => transcribers.length > 0);
+    const transcriber = transcribers[0];
+    transcriber?.startOfTurn(0);
+    transcriber?.emit({ type: "partial", text: "what is the" });
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(
+      () => countFrames(frames, "speech_started") === 2,
+      "The resumed speech never re-opened a detector turn",
+    );
+    const receivedBeforeResume = transcriber?.received.length ?? 0;
+
+    // Flux closed turn 0 and opened turn 1 for the resumed speech, so the
+    // end-of-turn for turn 0 trailing behind describes speech the caller has
+    // moved past.
+    transcriber?.startOfTurn(1);
+    transcriber?.emit({
+      type: "turn-end",
+      text: "what is the",
+      confidence: 0.9,
+      turnIndex: 0,
+    });
+    await flushAsyncCallbacks();
+
+    expect(frames.some((frame) => frame.type === "utterance_end")).toBe(false);
+    expect(transcriber?.stopped).toBe(false);
+    expect(turnCalls).toHaveLength(0);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(
+      () => (transcriber?.received.length ?? 0) > receivedBeforeResume,
+      "The resumed speech stopped reaching the transcriber",
+    );
+
+    // Turn 1's own end-of-turn is the one that commits.
+    transcriber?.endOfTurn("what is the weather today", 1);
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The superseding turn never committed",
+    );
+    expect(turnCalls[0]?.content).toBe("what is the weather today");
+    expect(turnCalls[0]?.unifiedVerdict).toBeUndefined();
 
     await session.close("client_end");
   });
