@@ -1529,7 +1529,7 @@ describe("retrospective dedup", () => {
     ...overrides,
   });
 
-  test("a confident match on the assistant's own skill updates it instead of creating a sibling", async () => {
+  test("a confident match on the assistant's own skill refuses the sibling and names the skill to improve", async () => {
     await seedAssistantSkill("existing-export", "Old body.");
 
     const result = await executeScaffoldManagedSkill(
@@ -1543,29 +1543,36 @@ describe("retrospective dedup", () => {
       },
     );
 
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content).skill_id).toBe("existing-export");
-    // The write landed on the existing skill; no sibling was created.
-    expect(readBody("existing-export")).toContain("Run the export.");
+    // Refused, so no second skill covering the same procedure.
+    expect(result.isError).toBe(true);
     expect(skillExists("export-weekly-report")).toBe(false);
-    // A refinement is not a new capability: no counter, no card.
-    expect(
-      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
-    ).toHaveLength(0);
-    expect(skillCardJobUpserts).toHaveLength(0);
+    // Nothing was overwritten: the check never writes, it only declines.
+    expect(readBody("existing-export")).toContain("Old body.");
+    // The guidance names the existing skill and the explicit path to improve
+    // it, which is the already-supported model-driven overwrite.
+    expect(result.content).toContain("existing-export");
+    expect(result.content).toContain("overwrite: true");
     expect(dedupEvents()).toEqual([
-      { checkName: "skill_dedup", value: 1, detail: { outcome: "updated" } },
+      {
+        checkName: "skill_dedup",
+        value: 1,
+        detail: { outcome: "covered_own" },
+      },
     ]);
   });
 
-  test("the redirect overwrites without the caller passing overwrite", async () => {
+  test("an explicit overwrite of the assistant's own skill still lands (the improvement path is intact)", async () => {
     await seedAssistantSkill("existing-export", "Old body.");
 
     const result = await executeScaffoldManagedSkill(
-      capture({ body_markdown: "1. Corrected steps." }),
+      capture({
+        skill_id: "existing-export",
+        body_markdown: "1. Corrected steps.",
+        overwrite: true,
+      }),
       makeRetrospectiveContext(),
       {
-        ...matcher({ skillId: "existing-export", score: 0.9 }),
+        ...matcher(),
         loadCatalog: () => [
           { id: "existing-export", source: "managed" as SkillSource },
         ],
@@ -1574,7 +1581,6 @@ describe("retrospective dedup", () => {
 
     expect(result.isError).toBe(false);
     expect(readBody("existing-export")).toContain("Corrected steps.");
-    expect(readBody("existing-export")).not.toContain("Old body.");
   });
 
   test("a confident match on a bundled skill is refused, mutating nothing", async () => {
@@ -1598,7 +1604,11 @@ describe("retrospective dedup", () => {
     expect(skillExists("export-weekly-report")).toBe(false);
     expect(skillExists("deep-research")).toBe(false);
     expect(dedupEvents()).toEqual([
-      { checkName: "skill_dedup", value: 1, detail: { outcome: "covered" } },
+      {
+        checkName: "skill_dedup",
+        value: 1,
+        detail: { outcome: "covered_foreign" },
+      },
     ]);
   });
 
@@ -1697,7 +1707,7 @@ describe("retrospective dedup", () => {
     expect(skillExists("export-weekly-report")).toBe(true);
   });
 
-  test("the highest-scoring confident hit decides the outcome", async () => {
+  test("the highest-scoring confident hit decides which skill the refusal names", async () => {
     await seedAssistantSkill("mine", "Mine.");
 
     const result = await executeScaffoldManagedSkill(
@@ -1715,8 +1725,9 @@ describe("retrospective dedup", () => {
       },
     );
 
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content).skill_id).toBe("mine");
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("mine");
+    expect(dedupEvents()[0]!.detail).toEqual({ outcome: "covered_own" });
   });
 
   test("user-directed scaffolds never consult the matcher", async () => {
