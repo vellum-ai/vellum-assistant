@@ -286,6 +286,17 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Owner-verified release truncates through its fd rather than unlinking by
+ * path (inode-bound; see consolidation-lock.ts), so a released lock is
+ * either gone or an empty file.
+ */
+function expectLockReleased(): void {
+  if (existsSync(lockPath())) {
+    expect(readFileSync(lockPath(), "utf-8")).toBe("");
+  }
+}
+
 describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_per_run)", () => {
   const FIVE_ENTRIES = [
     "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
@@ -520,7 +531,7 @@ describe("memoryV2ConsolidateJob — empty buffer", () => {
   test("releases the lock on the empty-buffer skip path so the next run can re-attempt", async () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(result.kind).toBe("empty_buffer");
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 });
 
@@ -689,7 +700,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
   test("releases the lock after a successful invocation so the next run can acquire it", async () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(result.kind).toBe("invoked");
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("enqueues memory_v3_maintain as a follow-up when a v3 flag is on", async () => {
@@ -747,7 +758,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(enqueuedJobs).toHaveLength(0);
     // Lock must still be released on the failure path so the next
     // scheduled consolidation can re-attempt.
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("timeout whose turn stopped cooperatively releases the lock", async () => {
@@ -763,7 +774,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("run_failed");
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("timeout whose turn is STILL RUNNING keeps the lock held, then releases on late settlement", async () => {
@@ -793,7 +804,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await workSettled;
     // The release continuation runs on the microtask queue after settle.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("late settlement release is owner-verified: a taken-over lock is not clobbered", async () => {
@@ -1003,7 +1014,7 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     expect(result.kind).toBe("invoked");
     expect(runnerCalls).toBe(1);
     // AND the lock is released in the finally block after a successful run.
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("a stale lock from a non-running PID is taken over and consolidation proceeds", async () => {
@@ -1019,7 +1030,7 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     expect(result.kind).toBe("invoked");
     expect(runnerCalls).toBe(1);
     // Lock is released in the finally block after a successful run.
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("an empty / corrupted lock file is treated as stale and taken over", async () => {
@@ -1034,7 +1045,7 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
 
     expect(result.kind).toBe("invoked");
     expect(runnerCalls).toBe(1);
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 });
 

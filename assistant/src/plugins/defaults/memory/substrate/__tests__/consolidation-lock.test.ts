@@ -25,6 +25,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +34,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getConsolidationLockPath,
-  OWNER_RELEASE_CUTOFF_MS,
   releaseLock,
   STALE_LOCK_TTL_MS,
   tryAcquireLock,
@@ -152,11 +152,16 @@ describe("releaseLock", () => {
     expect(() => releaseLock(lockPath)).not.toThrow();
   });
 
-  test("owner-verified release removes the lock while the payload still matches", () => {
+  test("owner-verified release empties the lock (inode-bound truncate, never a path unlink)", () => {
     const ownerToken = acquireExpectingSuccess("consolidation");
 
     releaseLock(lockPath, ownerToken);
-    expect(existsSync(lockPath)).toBe(false);
+    // Released shape: the file remains but its payload is gone. Unlinking by
+    // path would reintroduce the compare-then-delete race the fd closes.
+    expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(lockPath, "utf-8")).toBe("");
+    // The empty corpse is immediately reclaimable: a fresh acquire succeeds.
+    acquireExpectingSuccess("next-run");
   });
 
   test("owner-verified release refuses to unlink a lock held by a different owner", () => {
@@ -191,45 +196,36 @@ describe("releaseLock", () => {
     expect(() => releaseLock(lockPath, ownerToken)).not.toThrow();
   });
 
-  test("REGRESSION: owner-verified release abstains once the lock is takeover-eligible, even when the payload still matches", () => {
-    // The read/compare-then-unlink in releaseLock is not atomic: a stale-TTL
-    // takeover racing it could swap the lock between the compare and the
-    // unlink, and the release would delete the NEW holder's lock. The race
-    // is closed temporally: takeover of a live-PID, well-formed lock is only
-    // possible once its age exceeds STALE_LOCK_TTL_MS, so a release that
-    // abstains within OWNER_RELEASE_CUTOFF_MS of that TTL can never
-    // interleave with a takeover of its own lock. Simulate the dangerous
-    // moment: a token old enough that a takeover could be mid-flight. The
-    // release must be a no-op and leave reclamation to the stale classifier.
-    const age = OWNER_RELEASE_CUTOFF_MS + 1_000;
-    const oldToken = `${process.pid} ${Date.now() - age} consolidation`;
-    writeFileSync(lockPath, `${oldToken}\n`);
+  test("REGRESSION: a takeover replacement on a NEW inode is untouchable by the old holder's release", () => {
+    // The exact interleaving from review: an owner-verified release can be
+    // suspended for an arbitrary interval (GC pause, SIGSTOP, machine sleep)
+    // while a stale-TTL takeover replaces the lock. A path-based
+    // compare-then-unlink would then delete the replacement. The release is
+    // instead inode-bound: the ownership read and the destructive truncate
+    // go through one file descriptor, so a suspended releaser can only ever
+    // touch the inode whose content matched its own token. Simulate the
+    // post-takeover world with a genuinely new inode (unlink + create, the
+    // same syscalls takeover uses) and assert the replacement survives
+    // byte-for-byte.
+    const ownerToken = acquireExpectingSuccess("consolidation");
+    unlinkSync(lockPath);
+    const newerHolder = `${process.pid} ${Date.now()} consolidation-newer`;
+    writeFileSync(lockPath, `${newerHolder}\n`);
 
-    releaseLock(lockPath, oldToken);
+    releaseLock(lockPath, ownerToken);
     expect(existsSync(lockPath)).toBe(true);
-    expect(readFileSync(lockPath, "utf-8").trim()).toBe(oldToken);
+    expect(readFileSync(lockPath, "utf-8")).toBe(`${newerHolder}\n`);
   });
 
-  test("owner-verified release still unlinks below the takeover-eligibility cutoff", () => {
-    // Directly below the cutoff the temporal argument guarantees no takeover
-    // of this lock can be in flight, so the release proceeds.
-    const age = OWNER_RELEASE_CUTOFF_MS - 60_000;
-    const youngToken = `${process.pid} ${Date.now() - age} consolidation`;
-    writeFileSync(lockPath, `${youngToken}\n`);
+  test("release of an already-released (empty) lock is a quiet no-op", () => {
+    const ownerToken = acquireExpectingSuccess("consolidation");
+    releaseLock(lockPath, ownerToken);
+    expect(readFileSync(lockPath, "utf-8")).toBe("");
 
-    releaseLock(lockPath, youngToken);
-    expect(existsSync(lockPath)).toBe(false);
-  });
-
-  test("owner-verified release abstains when the token carries no timestamp to judge eligibility by", () => {
-    // A token whose age cannot be established cannot prove the takeover
-    // window is closed, so the release must not unlink. (Synthesized tokens
-    // always carry a timestamp; this pins the fail-closed direction for a
-    // malformed one.)
-    const bareToken = `${process.pid}`;
-    writeFileSync(lockPath, `${bareToken}\n`);
-
-    releaseLock(lockPath, bareToken);
+    // Idempotent: a second release finds no payload to prove ownership
+    // against and leaves the released shape untouched.
+    releaseLock(lockPath, ownerToken);
     expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(lockPath, "utf-8")).toBe("");
   });
 });

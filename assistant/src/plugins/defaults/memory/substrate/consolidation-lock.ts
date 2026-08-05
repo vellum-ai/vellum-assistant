@@ -16,6 +16,7 @@
 
 import {
   closeSync,
+  ftruncateSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -125,10 +126,17 @@ export function tryAcquireLock(
     return first;
   }
 
-  log.info(
-    { lockPath, holder: first.holder, reason: staleReason },
-    "consolidation: taking over stale lock",
-  );
+  if (staleReason === "unparseable" && first.holder === "unknown") {
+    // The normal post-release shape: an owner-verified release empties the
+    // file rather than unlinking it (see `releaseLock`), so an empty lock is
+    // "released", not a genuine takeover. Reclaim quietly.
+    log.debug({ lockPath }, "consolidation: reclaiming released (empty) lock");
+  } else {
+    log.info(
+      { lockPath, holder: first.holder, reason: staleReason },
+      "consolidation: taking over stale lock",
+    );
+  }
   try {
     unlinkSync(lockPath);
   } catch (err) {
@@ -257,77 +265,76 @@ function holderStaleReason(holder: string): StaleReason | null {
 }
 
 /**
- * Read the lock file's current holder payload (trimmed), or `null` when the
- * file is missing or unreadable. Owner tokens come from `tryAcquireLock`'s
- * return value, not from this read-back; this helper exists for
- * `releaseLock`'s owner comparison.
- */
-function readLockHolder(lockPath: string): string | null {
-  try {
-    const holder = readFileSync(lockPath, "utf-8").trim();
-    return holder.length > 0 ? holder : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Age past which an owner-verified release abstains and cedes reclamation to
- * the stale classifier. The read/compare-then-unlink in `releaseLock` is not
- * atomic, so a stale-TTL takeover racing it could swap the lock between the
- * compare and the unlink, and the release would delete the NEW holder's
- * lock. The race is closed by temporal partitioning instead of a filesystem
- * primitive (POSIX unlink is by path and cannot be made conditional): a
- * live releaser's own lock can only ever be stale-classified via the
- * `expired` reason (its PID is alive because the releaser IS that process,
- * and a payload matching the synthesized token cannot be `unparseable`), and
- * `expired` requires the lock's age to exceed {@link STALE_LOCK_TTL_MS}. An
- * owner-verified release that refuses once the token is within a safety
- * margin of that TTL therefore can never interleave with a takeover of its
- * own lock: before the cutoff no takeover of it is possible, and after the
- * cutoff the release is a guaranteed no-op. The abandoned lock is then
- * reclaimed by the next acquirer's stale takeover, which is already the
- * documented recovery path.
- */
-export const OWNER_RELEASE_CUTOFF_MS = STALE_LOCK_TTL_MS - 60_000;
-
-/**
- * Idempotent unlink of the lock file. Called from the caller's `finally`
+ * Idempotent release of the lock file. Called from the caller's `finally`
  * block so a crash in the run path doesn't leave the lock stranded. ENOENT is
  * swallowed
  * because the lock may have been released by an operator or never created
  * (acquire failed before reaching the lock-write step).
  *
- * `expectedHolder` makes the release owner-verified: when provided, the lock
- * is unlinked only while its current payload still matches AND the token is
- * younger than {@link OWNER_RELEASE_CUTOFF_MS}, so a caller whose lock was
- * (or could concurrently be) taken over by a newer run can never delete that
- * newer holder's lock. Omitting it preserves the unconditional unlink for
- * callers that positively own the file.
+ * `expectedHolder` makes the release owner-verified AND inode-bound: the lock
+ * is opened once, its content is read through that file descriptor, and on a
+ * token match it is emptied with `ftruncateSync` through the SAME descriptor.
+ * It is never unlinked by path. This is what makes the release atomic with
+ * respect to stale-TTL takeover: a path-based compare-then-unlink can be
+ * suspended between the two steps (GC pause, SIGSTOP, machine sleep) while a
+ * takeover replaces the lock, and the resumed unlink would then delete the
+ * NEW holder's file. A descriptor cannot make that mistake. It is bound to
+ * the inode whose content matched the caller's token, so if takeover swapped
+ * the path at any point the descriptor addresses the old, orphaned inode and
+ * the truncate touches nothing anyone else can see. The replacement lock is
+ * unreachable from this code path by construction, not by timing.
+ *
+ * A successfully released lock therefore remains on disk as an EMPTY file.
+ * That is deliberate: empty is the `unparseable` stale shape, which the next
+ * acquirer reclaims immediately (`tryAcquireLock`'s takeover), so an empty
+ * lock is functionally "released". Unlinking the corpse here would reintroduce
+ * the path-based race the descriptor just closed.
+ *
+ * Omitting `expectedHolder` preserves the unconditional unlink for callers
+ * that positively own the file (tests, operator tooling).
  */
 export function releaseLock(lockPath: string, expectedHolder?: string): void {
   if (expectedHolder !== undefined) {
-    const parsed = parseHolder(expectedHolder);
-    const age =
-      parsed?.timestamp != null ? Date.now() - parsed.timestamp : null;
-    if (age === null || age >= OWNER_RELEASE_CUTOFF_MS) {
+    let fd: number;
+    try {
+      fd = openSync(lockPath, "r+");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log.warn(
+          { err, lockPath },
+          "consolidation: failed to open lock for owner-verified release (best-effort)",
+        );
+      }
+      return;
+    }
+    try {
+      const current = readFileSync(fd, "utf-8").trim();
+      if (current.length === 0) {
+        // Already released (or a swallowed payload write): nothing to prove
+        // ownership against, and empty is already the released shape.
+        return;
+      }
+      if (current !== expectedHolder) {
+        log.warn(
+          { lockPath, expectedHolder, currentHolder: current },
+          "consolidation: skipping lock release; lock is now held by a different owner",
+        );
+        return;
+      }
+      ftruncateSync(fd, 0);
+    } catch (err) {
       log.warn(
-        { lockPath, expectedHolder, ageMs: age },
-        "consolidation: skipping owner-verified release; lock is old enough to be takeover-eligible, ceding reclamation to the stale classifier",
+        { err, lockPath },
+        "consolidation: failed owner-verified lock release (best-effort)",
       );
-      return;
+    } finally {
+      try {
+        closeSync(fd);
+      } catch {
+        // best-effort
+      }
     }
-    const current = readLockHolder(lockPath);
-    if (current === null) {
-      return;
-    }
-    if (current !== expectedHolder) {
-      log.warn(
-        { lockPath, expectedHolder, currentHolder: current },
-        "consolidation: skipping lock release; lock is now held by a different owner",
-      );
-      return;
-    }
+    return;
   }
   try {
     unlinkSync(lockPath);

@@ -25,6 +25,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -139,6 +140,17 @@ function lockPath(): string {
   return getConsolidationLockPath(join(workspace, "memory"));
 }
 
+/**
+ * Owner-verified release truncates through its fd rather than unlinking by
+ * path (inode-bound; see consolidation-lock.ts), so a released lock is
+ * either gone or an empty file.
+ */
+function expectLockReleased(): void {
+  if (existsSync(lockPath())) {
+    expect(readFileSync(lockPath(), "utf-8")).toBe("");
+  }
+}
+
 describe("ingestPages", () => {
   test("happy path writes every page and enqueues both reindex jobs once", async () => {
     const summary = await ingestPages(workspace, [
@@ -172,7 +184,7 @@ describe("ingestPages", () => {
       "memory_v3_maintain",
     ]);
     // The lock is released after the batch.
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("dry-run reports per-page results without disk writes, lock, or enqueues", async () => {
@@ -394,7 +406,7 @@ describe("ingestPages", () => {
     expect(preserved?.body.trim()).toBe("Concurrent writer body.");
     // Nothing written, so no reindex fan-out; the lock is released.
     expect(enqueuedJobs).toEqual([]);
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 
   test("dry-run takes its advisory snapshot without touching the lock", async () => {
@@ -435,6 +447,6 @@ describe("ingestPages", () => {
       "memory_v3_maintain",
     ]);
     // The lock is released despite the failure.
-    expect(existsSync(lockPath())).toBe(false);
+    expectLockReleased();
   });
 });
