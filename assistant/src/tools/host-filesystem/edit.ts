@@ -158,7 +158,7 @@ export const hostFileEditTool = {
 
     const ops = new FileSystemOps(hostPolicy);
 
-    const result = ops.editFileSafe({
+    const result = await ops.editFileSafe({
       path: rawPath,
       oldString,
       newString,

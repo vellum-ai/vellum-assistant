@@ -702,7 +702,11 @@ describe("forkConversation", () => {
       "Attached the updated mock.",
       { skipIndexing: true },
     );
-    const uploaded = uploadAttachment("wireframe.png", "image/png", "iVBORw0K");
+    const uploaded = await uploadAttachment(
+      "wireframe.png",
+      "image/png",
+      "iVBORw0K",
+    );
     linkAttachmentToMessage(sourceAssistant.id, uploaded.id, 0);
 
     const sourceAttachments = getAttachmentsForMessage(sourceAssistant.id);

@@ -298,6 +298,37 @@ export async function retireLocalAssistantHost(
 }
 
 /**
+ * Forget a paired assistant (`cloud: "paired"`): remove its lockfile entry and
+ * delete its stored guardian token on this machine. Client-side only: the
+ * remote assistant is never touched. Both hosts run the shared package op in a
+ * trusted process and return the same `LockfileWriteResult` contract; hosts
+ * refuse non-paired entries (local/managed assistants go through
+ * {@link retireLocalAssistantHost}). Older Electron hosts that predate the IPC
+ * channel degrade to a structured unsupported error, mirroring
+ * {@link sleepLocalAssistantHost}.
+ */
+export async function unpairAssistantHost(
+  assistantId: string,
+): Promise<LockfileWriteResult> {
+  if (isElectron()) {
+    const unpair = window.vellum!.localMode.unpair;
+    if (!unpair) {
+      return {
+        ok: false,
+        error: "Unpair is not supported by this app version",
+      };
+    }
+    return unpair(assistantId);
+  }
+
+  return postLocalCommand<LockfileWriteResult>(
+    "/assistant/__local/unpair",
+    { assistantId },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
  * Stop a local assistant's daemon and gateway. Both hosts drive the Vellum
  * CLI's `sleep --force` in a trusted process and return the same `{ ok, error }`
  * contract. Used as the first half of a restart (sleep → wake).

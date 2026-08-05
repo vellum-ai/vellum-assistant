@@ -190,6 +190,24 @@ describe("startDictationStream", () => {
     expect(startDictationStream({ onPartial: () => undefined })).toBeNull();
   });
 
+  test("returns null for a paired-assistant ingress without dialling a socket", () => {
+    // The paired __gateway-paired proxy is HTTP-only, so streaming partials
+    // must skip deterministically; batch dictation is unaffected.
+    ingressUrl = "http://localhost:3000/assistant/__gateway-paired/asst-1";
+    let dialled = 0;
+    const handle = startDictationStream(
+      { onPartial: () => undefined },
+      {
+        webSocketFactory: () => {
+          dialled += 1;
+          throw new Error("unexpected socket dial for a paired ingress");
+        },
+      },
+    );
+    expect(handle).toBeNull();
+    expect(dialled).toBe(0);
+  });
+
   test("starts capture on open and composes partial/final transcripts", async () => {
     const partials: string[] = [];
     const { handle, ws, captureFake } = startWithFakes((t) => partials.push(t));

@@ -11,13 +11,19 @@
  * approval alone would only decide which paths exist, not who may call them.
  * Every request is therefore signature-checked before it is forwarded, and
  * a route whose secret is missing is refused rather than served unsigned.
- * The declaration picks whose secret that is — see `IngressRouteSchema.signer`.
+ * The declaration picks whose secret that is — see `IngressRouteSchema.signer`
+ * — and, for a route a third party calls, how the signature is formed at all
+ * (`IngressRouteSchema.verification`).
  */
 
 import {
   findServableRoute,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
+import {
+  verifyDeclaredSignature,
+  type VerificationRejection,
+} from "../../channels/ingress-verification.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -42,12 +48,23 @@ const log = getLogger("plugin-webhook");
  * from Vellum needs no secret of its own. Everything else verifies against
  * the plugin's, stored under its own service name.
  *
- * The field name is fixed for now; making it configurable per plugin is a
- * later step, along with what the HMAC covers.
+ * A route declaring `verification` names its own field instead, but only the
+ * field: the service half is composed here from the plugin's directory name,
+ * so no manifest can point a route at another plugin's secret or at the
+ * platform's.
  */
-function signingCredentialKey(plugin: string, signer: IngressSigner): string {
+function signingCredentialKey(
+  plugin: string,
+  route: {
+    signer: IngressSigner;
+    verification?: { secret: { field: string } };
+  },
+): string {
+  if (route.verification) {
+    return credentialKey(plugin, route.verification.secret.field);
+  }
   return credentialKey(
-    signer === "vellum" ? "vellum" : plugin,
+    route.signer === "vellum" ? "vellum" : plugin,
     "webhook_secret",
   );
 }
@@ -125,11 +142,12 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     // Signature check before the forward, and fail-closed when no secret is
     // configured: serving a public route unsigned because its secret is
     // missing would turn a setup mistake into an open endpoint.
-    const secretKey = signingCredentialKey(plugin, route.signer);
+    const verification = route.verification;
+    const secretKey = signingCredentialKey(plugin, route);
     const secret = await resolveCredentialWithRefresh(credentials, secretKey);
     if (!secret) {
       log.warn(
-        { plugin, path, signer: route.signer },
+        { plugin, path, signer: route.signer, secretKey },
         "Plugin webhook secret is not configured — rejecting request",
       );
       return Response.json(
@@ -138,17 +156,38 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
       );
     }
 
+    // Kept for the log line only. The retry inside verifySecretWithRefresh can
+    // overwrite it, which is what we want: the reason reported is the one from
+    // the last secret tried, not the stale-cache attempt that preceded it.
+    let rejection: VerificationRejection | undefined;
     const signatureValid = await verifySecretWithRefresh({
       credentials,
       key: secretKey,
-      verify: (candidate) =>
-        verifyVellumSignature(req.headers, body.bytes, candidate),
+      verify: (candidate) => {
+        if (!verification) {
+          return verifyVellumSignature(req.headers, body.bytes, candidate);
+        }
+        const result = verifyDeclaredSignature({
+          verification,
+          headers: req.headers,
+          body: body.bytes,
+          secret: candidate,
+        });
+        rejection = result.ok ? undefined : result.reason;
+        return result.ok;
+      },
       log,
       label: "Plugin webhook signature",
     });
     if (!signatureValid) {
       log.warn(
-        { plugin, path, signer: route.signer },
+        {
+          plugin,
+          path,
+          signer: route.signer,
+          scheme: verification?.kind ?? "vellum",
+          rejection,
+        },
         "Plugin webhook signature verification failed",
       );
       return Response.json({ error: "Forbidden" }, { status: 403 });

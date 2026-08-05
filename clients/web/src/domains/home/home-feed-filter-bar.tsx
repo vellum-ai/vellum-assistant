@@ -43,6 +43,16 @@ export const CATEGORY_STYLES: Record<FeedItemCategory, CategoryStyle> = {
   },
 };
 
+/** Resolves a category to its style, falling back to `system`. */
+export function resolveCategoryStyle(
+  category?: FeedItemCategory,
+): CategoryStyle {
+  if (category && CATEGORY_STYLES[category]) {
+    return CATEGORY_STYLES[category];
+  }
+  return CATEGORY_STYLES.system;
+}
+
 export const CATEGORY_ORDER: FeedItemCategory[] = [
   "security",
   "email",

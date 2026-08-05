@@ -28,7 +28,9 @@ const callSiteEntrySchema = z.object({
    * The code-owned `CALL_SITE_DEFAULTS` tier key, independent of pins and
    * tier remaps. Clients group call sites by tier with this; grouping by
    * `defaultProfile` would scatter pinned or remapped sites across their
-   * winners.
+   * winners. Profileless call sites report `balanced`: the resolver's
+   * fallback anchor consults the balanced remap for them, so they follow
+   * the Balanced tier like any balanced-keyed site.
    */
   shippedDefaultProfile: z.string().optional(),
 });
@@ -45,7 +47,8 @@ async function handleGetCallSites() {
     callSites: CALL_SITE_CATALOG.map((entry) => ({
       ...entry,
       defaultProfile: resolveDefaultProfileKey(entry.id as LLMCallSite, llm),
-      shippedDefaultProfile: CALL_SITE_DEFAULTS[entry.id]?.profile,
+      shippedDefaultProfile:
+        CALL_SITE_DEFAULTS[entry.id]?.profile ?? "balanced",
     })),
   };
 }

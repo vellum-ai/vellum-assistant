@@ -56,6 +56,7 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -506,6 +507,24 @@ export function ChatMainPanel({
   // nothing but two integers — see `lib/commit-pressure.ts`.
   useEffect(() => {
     recordCommit();
+  });
+
+  // Closes the switch measurement `switchToConversation` opened. That action
+  // blanks the snapshot and sets `isLoadingHistory` in one commit, so the first
+  // render that is not an empty loading transcript is the incoming
+  // conversation's first paint. It runs from an ancestor effect
+  // (`ActiveChatView`), which React commits after this one, so the render that
+  // first carries the new id finds no pending window and measures nothing.
+  // A history fetch that errored with nothing on screen reads exactly like an
+  // instant empty conversation, so it has to veto the paint; an error that
+  // still has a painted transcript behind it (a failed older page, a failed
+  // background refetch) does not.
+  const historyLoadFailed = historyPagination.isError && messages.length === 0;
+  useSwitchPaintMeasurement({
+    conversationId: activeConversationId,
+    historyLoadFailed,
+    transcriptPainted: !(isLoadingHistory && messages.length === 0),
+    hadHistory: messages.length > 0,
   });
 
   // Clear staged quotes and dismiss the reply bubble when the active

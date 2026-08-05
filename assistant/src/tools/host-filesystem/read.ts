@@ -170,7 +170,7 @@ export const hostFileReadTool = {
 
     const ops = new FileSystemOps(hostPolicy);
 
-    const result = ops.readFileSafe({ path: rawPath, offset, limit });
+    const result = await ops.readFileSafe({ path: rawPath, offset, limit });
 
     if (!result.ok) {
       const { error } = result;

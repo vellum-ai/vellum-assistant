@@ -82,7 +82,7 @@ import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecy
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
-import { installAssistantSymlink } from "./install-symlink.js";
+import { installAssistantCommand } from "./install-assistant-command.js";
 import {
   type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
@@ -774,10 +774,10 @@ export async function runDaemon(): Promise<void> {
 
   writePid(process.pid);
 
-  // Install the `assistant` CLI symlink idempotently on every daemon start.
+  // Install the `assistant` CLI command idempotently on every daemon start.
   // Best-effort and self-contained: every step swallows its own errors, so a
   // failure never affects startup.
-  installAssistantSymlink();
+  installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
 

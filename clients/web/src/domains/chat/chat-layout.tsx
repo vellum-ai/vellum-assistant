@@ -198,10 +198,12 @@ export function ChatLayout({
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const { conversations } = useConversationListQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  // `isLoading` (first fetch actually in flight), not `isPending`: the query
+  // is gated on `isAssistantActive`, and a gated query is pending without
+  // fetching, which would leave the sidebar under placeholders for as long as
+  // the assistant took to come up (or forever, if it never did).
+  const { conversations, isLoading: isLoadingConversations } =
+    useConversationListQuery(assistantId, isAssistantActive);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     isAssistantActive,
@@ -886,6 +888,7 @@ export function ChatLayout({
       width={args.width}
       onWidthChange={args.onWidthChange}
       conversations={conversations}
+      isLoadingConversations={isLoadingConversations}
       conversationGroups={conversationGroups}
       activeConversationId={sidebarActiveConversationId}
       processingConversationIds={processingConversationIds}

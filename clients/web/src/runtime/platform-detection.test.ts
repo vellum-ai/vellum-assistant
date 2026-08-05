@@ -34,6 +34,7 @@ const {
   isNativeAndroid,
   isNativeIOS,
   isNativeMobile,
+  useIsAndroidWeb,
   useIsNativeIOS,
 } = await import("@/runtime/platform-detection");
 
@@ -114,6 +115,24 @@ describe("useIsNativeIOS", () => {
 
   test("is false outside a native shell", () => {
     expect(renderHook(() => useIsNativeIOS()).result.current).toBe(false);
+  });
+});
+
+describe("useIsAndroidWeb", () => {
+  test("is true in an Android browser", () => {
+    setUserAgent(ANDROID_UA);
+    expect(renderHook(() => useIsAndroidWeb()).result.current).toBe(true);
+  });
+
+  test("is false inside the native Android shell", () => {
+    setUserAgent(ANDROID_UA);
+    nativePlatform = true;
+    nativeOsPlatform = "android";
+    expect(renderHook(() => useIsAndroidWeb()).result.current).toBe(false);
+  });
+
+  test("is false in a desktop browser", () => {
+    expect(renderHook(() => useIsAndroidWeb()).result.current).toBe(false);
   });
 });
 

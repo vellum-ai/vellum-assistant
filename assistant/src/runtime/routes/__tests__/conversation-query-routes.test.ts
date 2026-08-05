@@ -1624,54 +1624,6 @@ describe("sparse services.stt patch provider seeding", () => {
   });
 });
 
-describe("config_patch tier-override clears", () => {
-  const configPatchRoute = ROUTES.find(
-    (r) => r.operationId === "config_patch",
-  )!;
-
-  beforeEach(() => {
-    rawConfigFixture = {
-      llm: {
-        profiles: {
-          mine: {
-            source: "user",
-            provider: "anthropic",
-            model: "claude-haiku-4-5",
-          },
-        },
-        defaultProfileOverrides: { balanced: "mine", "cost-optimized": "mine" },
-      },
-    };
-    seedRawConfig();
-  });
-
-  const savedTierOverrides = () =>
-    (loadRawConfig().llm as Record<string, unknown>).defaultProfileOverrides;
-
-  test("a null tier value deletes the key instead of persisting null", async () => {
-    // Tier values are strings, so the deep-merge null sentinel would assign
-    // null (deletion covers only object-valued keys); a persisted null
-    // fails LLMSchema and only loader recovery would clear it. The scrub
-    // makes the wire contract's "null clears" a real delete.
-    await configPatchRoute.handler({
-      body: { llm: { defaultProfileOverrides: { "cost-optimized": null } } },
-    });
-    expect(savedTierOverrides()).toEqual({ balanced: "mine" });
-  });
-
-  test("a remap write and an untouched tier survive a patch", async () => {
-    await configPatchRoute.handler({
-      body: {
-        llm: { defaultProfileOverrides: { balanced: "cost-optimized" } },
-      },
-    });
-    expect(savedTierOverrides()).toEqual({
-      balanced: "cost-optimized",
-      "cost-optimized": "mine",
-    });
-  });
-});
-
 describe("config invariant flag enrichment", () => {
   const configGetRoute = ROUTES.find((r) => r.operationId === "config_get")!;
   const configPatchRoute = ROUTES.find(

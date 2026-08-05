@@ -179,6 +179,71 @@ describe("ingressDeclarationDigest", () => {
     ).toBe("db809d978434fd3804c8faad82851069");
   });
 
+  it("keeps the digest a route had before verification existed", () => {
+    // Same golden guarantee as the handshake default: a route that declares
+    // no descriptor must digest exactly as it did before the field, or every
+    // approved plugin drops back to pending on upgrade.
+    expect(
+      ingressDeclarationDigest([
+        {
+          kind: "http",
+          signer: "plugin",
+          handshake: "signed-headers",
+          path: "hook",
+          verification: undefined,
+        },
+      ]),
+    ).toBe(
+      ingressDeclarationDigest([
+        {
+          kind: "http",
+          signer: "plugin",
+          handshake: "signed-headers",
+          path: "hook",
+        },
+      ]),
+    );
+  });
+
+  it("changes when a route gains a verification descriptor", () => {
+    // The descriptor decides which secret and which bytes make a delivery
+    // authentic. A guardian approved a route verified one way, not any way.
+    const base = {
+      kind: "http" as const,
+      signer: "plugin" as const,
+      handshake: "signed-headers" as const,
+      path: "events-comms",
+    };
+    const declared = {
+      ...base,
+      verification: {
+        kind: "hmac" as const,
+        algorithm: "sha256" as const,
+        secret: { field: "comms_webhook_secret" },
+        signature: {
+          header: "X-Osis-Signature",
+          encoding: "hex" as const,
+          prefix: "sha256=",
+        },
+        payload: ["body" as const],
+      },
+    };
+    expect(ingressDeclarationDigest([declared])).not.toBe(
+      ingressDeclarationDigest([base]),
+    );
+    expect(
+      ingressDeclarationDigest([
+        {
+          ...declared,
+          verification: {
+            ...declared.verification,
+            secret: { field: "other_secret" },
+          },
+        },
+      ]),
+    ).not.toBe(ingressDeclarationDigest([declared]));
+  });
+
   it("changes when the handshake scheme changes", () => {
     // signed-query makes the URL itself the credential. A guardian who
     // approved the header scheme has not approved that.

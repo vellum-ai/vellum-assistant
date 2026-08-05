@@ -113,7 +113,7 @@ function seedSubagent(
     conversationId,
     label: "Test",
     objective: "test",
-    role: "general",
+    role: "builder",
     isFork: false,
     sendResultToUser: null,
     parentToolUseId: null,

@@ -68,6 +68,9 @@ jobs:
       #                              surfaces (web/Electron/iOS). Unset disables
       #                              session replay. Public, so baking it in is
       #                              expected.
+      #   - VITE_ANDROID_PLAY_STORE_URL  environment variable set only after
+      #                              the production Play listing is live.
+      #                              Unset keeps Android promotion disabled.
       #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
       #                              are public, so embedding them is expected
       #   - VITE_VELAY_HOST          per-environment variable: the live-voice
@@ -99,6 +102,7 @@ jobs:
           VITE_SENTRY_DSN_ANDROID: ${{ secrets.SENTRY_DSN_ANDROID }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          VITE_ANDROID_PLAY_STORE_URL: ${{ vars.VITE_ANDROID_PLAY_STORE_URL }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_VELAY_HOST: ${{ vars.VITE_VELAY_HOST }}
           VITE_APP_VERSION: ${{ github.sha }}

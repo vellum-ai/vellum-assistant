@@ -172,6 +172,12 @@ export interface VellumBridge {
       organizationId?: string,
     ): Promise<LockfileWriteResult>;
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Forget a paired assistant (`cloud: "paired"`): remove its lockfile
+     * entry and stored guardian token on this machine. Client-side only:
+     * the remote assistant is never touched.
+     */
+    unpair(assistantId: string): Promise<LockfileWriteResult>;
     sleep(assistantId: string): Promise<{ ok: boolean; error?: string }>;
     wake(
       assistantId: string,

@@ -848,7 +848,6 @@ export class HeartbeatService {
       callSite: "heartbeatAgent",
       timeoutMs: getConfig().timeouts.backgroundTurnTimeoutSec * 1000,
       origin: "heartbeat",
-      deferNotifications: true,
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
         broadcastMessage({

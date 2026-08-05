@@ -1,7 +1,10 @@
-// Collapsed-summary avatar unit: a 32px circle with an under-avatar status
-// indicator (running dots / green check / red !). Figma node 6063:148535.
+// Collapsed-summary avatar unit: a pill carrying a status glyph (running dots
+// / check / X) in a fixed slot to the left of the subagent's avatar. Terminal
+// states tint the pill with the matching weak system fill. The glyphs and the
+// slot are sized in px so they hold their proportions at any root font size;
+// the pill's height tracks the root like the rest of the row.
 
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
@@ -29,6 +32,25 @@ function deriveBadgeState(status: SubagentStatus): BadgeState {
   }
 }
 
+// Only a pill that can still change carries the hover swap, so the terminal
+// tints deliberately have none.
+function pillBackgroundClass(badgeState: BadgeState | undefined): string {
+  switch (badgeState) {
+    case "completed":
+      return "bg-[var(--system-positive-weak)]";
+    case "errored":
+      return "bg-[var(--system-negative-weak)]";
+    default:
+      return "bg-[var(--surface-lift)] hover:bg-[var(--surface-active)]";
+  }
+}
+
+const BADGE_STATE_GLYPH: Record<BadgeState, "dots" | "check" | "cross"> = {
+  "in-flight": "dots",
+  completed: "check",
+  errored: "cross",
+};
+
 // Per-status (not per-bucket) so "canceled" reads distinctly from "failed".
 const STATUS_ARIA_LABEL: Record<SubagentStatus, string> = {
   running: "running",
@@ -44,65 +66,76 @@ export function SubagentAvatarBadge({
   subagentId,
   className,
 }: SubagentAvatarBadgeProps) {
-  // Atomic selector — re-render only when this subagent's status changes.
+  // Atomic selector: re-render only when this subagent's status changes.
   const status = useSubagentStore((s) => s.byId[subagentId]?.status);
   const reduce = useReducedMotion();
 
-  // Spawn race: no entry yet → circle with no indicator.
+  // Spawn race: no entry yet → pill with an empty glyph slot.
   const badgeState = status ? deriveBadgeState(status) : undefined;
 
+  // The pill is `calc(1rem + 30px)` wide because its contents are two
+  // different units: the padding and the gap are rem (0.75 + 0.25), while the
+  // 14px slot and the 16px avatar are px that no root font size changes. A
+  // single rem value is exact only at a 16px root, spilling the avatar past
+  // the rounded edge below that and leaving dead space above it.
   return (
     <div
       data-testid="subagent-avatar-badge"
-      className={`relative flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-lift)] transition-colors hover:bg-[var(--surface-active)] ${className ?? ""}`.trim()}
+      className={`inline-flex h-8 w-[calc(1rem+30px)] shrink-0 items-center gap-1 rounded-full px-1.5 transition-colors ${pillBackgroundClass(badgeState)} ${className ?? ""}`.trim()}
     >
+      {/* The glyph slot is a fixed 14px and always renders, including before
+          the store entry lands. The three glyphs are different widths (13px
+          dots, 10px check, 10px X), and the pill packs its items at
+          flex-start, so a slot that sized to its content would slide the
+          avatar about 3px left the moment a subagent settles. The width is px
+          rather than rem so the 13px dots always fit it. */}
+      <span
+        data-testid="subagent-avatar-badge-slot"
+        className="flex w-[14px] shrink-0 items-center justify-center"
+      >
+        {badgeState && (
+          <span
+            // role="img" exposes aria-label; the dots/glyphs are aria-hidden.
+            role="img"
+            data-testid="subagent-avatar-badge-status"
+            data-status={status}
+            aria-label={status && STATUS_ARIA_LABEL[status]}
+            className="flex items-center justify-center"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={badgeState}
+                data-glyph={BADGE_STATE_GLYPH[badgeState]}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={
+                  reduce
+                    ? { duration: 0 }
+                    : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
+                }
+                className="flex items-center justify-center"
+              >
+                {badgeState === "in-flight" && (
+                  <ThreeDotIndicator dotSize={3} gap={2} />
+                )}
+                {badgeState === "completed" && (
+                  <Check className="h-[10px] w-[10px] text-[var(--system-positive-on-weak)]" />
+                )}
+                {badgeState === "errored" && (
+                  <X className="h-[10px] w-[10px] text-[var(--system-negative-on-weak)]" />
+                )}
+              </motion.span>
+            </AnimatePresence>
+          </span>
+        )}
+      </span>
+
       <SubagentAvatarChip
         subagentId={subagentId}
         size={16}
-        className="absolute top-[6px]"
+        className="shrink-0"
       />
-
-      {badgeState && (
-        <span
-          // role="img" exposes aria-label; the dots/glyphs are aria-hidden.
-          role="img"
-          data-testid="subagent-avatar-badge-status"
-          data-status={status}
-          aria-label={status && STATUS_ARIA_LABEL[status]}
-          // Running dots sit at bottom-[6px] per the mock (6063:148464);
-          // the terminal glyphs stay at bottom-[3px].
-          className={`absolute left-1/2 flex -translate-x-1/2 items-center justify-center ${
-            badgeState === "in-flight" ? "bottom-[6px]" : "bottom-[3px]"
-          }`}
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={badgeState}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={
-                reduce
-                  ? { duration: 0 }
-                  : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
-              }
-              className="flex items-center justify-center"
-            >
-              {badgeState === "in-flight" && (
-                <ThreeDotIndicator dotSize={3} gap={2} />
-              )}
-              {badgeState === "completed" && (
-                <Check className="h-2.5 w-2.5 text-[var(--system-positive-strong)]" />
-              )}
-              {badgeState === "errored" && (
-                <span className="text-[11px] font-bold leading-none text-[var(--system-negative-strong)]">
-                  !
-                </span>
-              )}
-            </motion.span>
-          </AnimatePresence>
-        </span>
-      )}
     </div>
   );
 }

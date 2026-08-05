@@ -5,6 +5,7 @@ import { describe, expect, it } from "bun:test";
 import "../../__tests__/test-preload.js";
 import { initSigningKey } from "../../auth/token-service.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
+import type { IngressRoute } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
 import { createPluginWebhookHandler } from "./plugin-webhook.js";
 
@@ -19,7 +20,7 @@ const CONFIG = {
   maxWebhookPayloadBytes: 1024,
 } as GatewayConfig;
 
-const ROUTE = {
+const ROUTE: IngressRoute = {
   path: "realtime",
   kind: "http" as const,
   signer: "plugin" as const,
@@ -29,6 +30,8 @@ const ROUTE = {
 
 const PLUGIN_SECRET = "plugin-webhook-secret";
 const VELLUM_SECRET = "platform-webhook-secret";
+/** Held under a field the manifest names, not under `webhook_secret`. */
+const VENDOR_SECRET = "whsec_vendor";
 
 /** Stands in for the credential cache, holding secrets by key. */
 function credentialsFor(entries: Record<string, string>) {
@@ -42,6 +45,7 @@ function credentialsFor(entries: Record<string, string>) {
 const CREDENTIALS = credentialsFor({
   "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
   "credential/vellum/webhook_secret": VELLUM_SECRET,
+  "credential/meeting-bot/vendor_webhook_secret": VENDOR_SECRET,
 });
 
 function sign(body: string, secret: string): string {
@@ -55,15 +59,7 @@ function resolution(
 }
 
 /** An approved declaration for `meeting-bot` carrying `routes`. */
-function approvedWith(
-  routes: {
-    path: string;
-    kind: "http" | "websocket";
-    signer: "plugin" | "vellum";
-    handshake: "signed-headers" | "signed-query";
-    description: string;
-  }[],
-): PluginIngressResolution {
+function approvedWith(routes: IngressRoute[]): PluginIngressResolution {
   return resolution({
     approved: [{ plugin: "meeting-bot", routes, digest: "d".repeat(32) }],
   });
@@ -494,6 +490,265 @@ describe("signature verification", () => {
       "meeting-bot",
       "realtime",
     );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("declared verification", () => {
+  /** A Comms-shaped descriptor: HMAC over the raw body, hex, prefixed. */
+  const BODY_ONLY: IngressRoute = {
+    ...ROUTE,
+    verification: {
+      kind: "hmac",
+      algorithm: "sha256",
+      secret: { field: "vendor_webhook_secret" },
+      signature: {
+        header: "X-Osis-Signature",
+        encoding: "hex",
+        prefix: "sha256=",
+      },
+      payload: ["body"],
+    },
+  };
+
+  /** A Photon-shaped descriptor: `v0:<timestamp>:<body>`, with a window. */
+  const TIMESTAMPED: IngressRoute = {
+    ...ROUTE,
+    verification: {
+      kind: "hmac",
+      algorithm: "sha256",
+      secret: { field: "vendor_webhook_secret" },
+      signature: {
+        header: "X-Spectrum-Signature",
+        encoding: "hex",
+        prefix: "v0=",
+      },
+      payload: [
+        { literal: "v0:" },
+        { header: "X-Spectrum-Timestamp" },
+        { literal: ":" },
+        "body",
+      ],
+      freshness: {
+        header: "X-Spectrum-Timestamp",
+        format: "unix-seconds",
+        toleranceSeconds: 300,
+      },
+    },
+  };
+
+  function hmac(payload: string, secret: string): string {
+    return createHmac("sha256", secret).update(payload, "utf8").digest("hex");
+  }
+
+  function vendorPost(body: string, headers: Record<string, string>): Request {
+    return new Request("http://gateway/webhooks/plugins/meeting-bot/realtime", {
+      method: "POST",
+      body,
+      headers,
+    });
+  }
+
+  it("accepts a delivery signed the vendor's way", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([BODY_ONLY]),
+      fetchImpl,
+    });
+
+    const body = '{"event":"comms.message.received"}';
+    const res = await handle(
+      vendorPost(body, {
+        "X-Osis-Signature": `sha256=${hmac(body, VENDOR_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toBe(body);
+  });
+
+  it("reads the secret from the declared field, not webhook_secret", async () => {
+    // The plugin's own `webhook_secret` must not open a route the manifest
+    // said is verified by something else.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([BODY_ONLY]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      vendorPost("{}", {
+        "X-Osis-Signature": `sha256=${hmac("{}", PLUGIN_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("stops accepting the platform scheme once a descriptor is declared", async () => {
+    // Otherwise a declared route would have two ways in, and the weaker one
+    // would decide.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([BODY_ONLY]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", VENDOR_SECRET),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("409s when the declared field holds nothing", async () => {
+    // Same fail-closed rule as a missing `webhook_secret`: the route is
+    // declared and approved, but nothing can authenticate a caller yet.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({
+        "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+      }),
+      resolve: () => approvedWith([BODY_ONLY]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      vendorPost("{}", {
+        "X-Osis-Signature": `sha256=${hmac("{}", VENDOR_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(calls).toEqual([]);
+  });
+
+  it("signs over the bytes as received, not a reserialization", async () => {
+    // Every vendor here signs pre-parse, so whitespace inside the JSON is
+    // part of what was signed.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([BODY_ONLY]),
+      fetchImpl,
+    });
+
+    const body = '{ "event" :  "comms.message.received" }';
+    const res = await handle(
+      vendorPost(body, {
+        "X-Osis-Signature": `sha256=${hmac(body, VENDOR_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls[0]!.body).toBe(body);
+  });
+
+  it("accepts a timestamped preamble inside the window", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([TIMESTAMPED]),
+      fetchImpl,
+    });
+
+    const body = '{"event":"message.received"}';
+    const ts = String(Math.floor(Date.now() / 1000));
+    const res = await handle(
+      vendorPost(body, {
+        "X-Spectrum-Timestamp": ts,
+        "X-Spectrum-Signature": `v0=${hmac(`v0:${ts}:${body}`, VENDOR_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a replay outside the declared window", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([TIMESTAMPED]),
+      fetchImpl,
+    });
+
+    const body = '{"event":"message.received"}';
+    const ts = String(Math.floor(Date.now() / 1000) - 3600);
+    const res = await handle(
+      vendorPost(body, {
+        "X-Spectrum-Timestamp": ts,
+        "X-Spectrum-Signature": `v0=${hmac(`v0:${ts}:${body}`, VENDOR_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a delivery that omits a header the payload names", async () => {
+    // Dropping the timestamp must not silently change what was signed into
+    // something the caller can produce.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([TIMESTAMPED]),
+      fetchImpl,
+    });
+
+    const body = '{"event":"message.received"}';
+    const res = await handle(
+      vendorPost(body, {
+        "X-Spectrum-Signature": `v0=${hmac(`v0::${body}`, VENDOR_SECRET)}`,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a delivery carrying no signature header at all", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([BODY_ONLY]),
+      fetchImpl,
+    });
+
+    const res = await handle(vendorPost("{}", {}), "meeting-bot", "realtime");
 
     expect(res.status).toBe(403);
     expect(calls).toEqual([]);
