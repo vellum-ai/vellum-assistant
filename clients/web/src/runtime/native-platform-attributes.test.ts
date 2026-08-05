@@ -1,9 +1,8 @@
 /**
  * Unit tests for `initNativePlatformAttributes`.
  *
- * The marker is what every `native-ios:` Tailwind utility and iOS-scoped CSS
- * rule keys off, so these pin that it appears only inside the Capacitor iOS
- * shell and that repeated calls stay idempotent.
+ * The marker powers `native-mobile:` Tailwind utilities and platform-scoped
+ * CSS, so these pin both Capacitor shells and repeated calls.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -25,7 +24,7 @@ afterEach(() => {
 });
 
 describe("initNativePlatformAttributes", () => {
-  test("leaves the marker unset outside the native iOS shell", () => {
+  test("leaves the marker unset outside native shells", () => {
     initNativePlatformAttributes();
     expect(document.documentElement.dataset.nativePlatform).toBeUndefined();
   });

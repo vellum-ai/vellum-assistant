@@ -41,7 +41,7 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
-import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
 import { Button, cn, SideMenu } from "@vellumai/design-library";
 
@@ -114,9 +114,9 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
 }
 
 /**
- * Top-edge fade for the overlay drawer's scrollport on the Capacitor iOS
- * shell, where the close and search glyphs float over the list. The gradient
- * spans the whole 3.5rem reserve (`native-ios:pt-14`), so a row is fully
+ * Top-edge fade for the overlay drawer's scrollport in Capacitor mobile
+ * shells, where the close and search glyphs float over the list. The gradient
+ * spans the whole 3.5rem reserve (`native-mobile:pt-14`), so a row is fully
  * transparent at the top of the glyph band and only reaches full opacity once
  * it has passed below the glyphs. The glyphs live in a sibling of the
  * scrollport, so the mask never dims them.
@@ -125,8 +125,8 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
  * candidates it finds verbatim in source; the prefixed pairing follows
  * {@link VOICE_WAVE_EDGE_FADE_CLASS} in `voice-listening-waves.tsx`.
  */
-const NATIVE_IOS_LIST_TOP_FADE =
-  "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)] native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]";
+const NATIVE_MOBILE_LIST_TOP_FADE =
+  "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]";
 
 function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
@@ -141,7 +141,7 @@ function SearchButton() {
       iconOnly={<Search />}
       aria-label="Search (⌘K)"
       title="Search (⌘K)"
-      className={`pointer-events-auto ${NATIVE_IOS_BARE_ICON_BUTTON}`}
+      className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
       onClick={handleClick}
     />
   );
@@ -446,16 +446,16 @@ export function AssistantSideMenu({
           {variant === "overlay" ? (
             /* Close on the left, Search pinned to the right so it stays put
                and always reads as the persistent search affordance
-               (Figma 6788:6749). On the Capacitor iOS shell the row floats
+               (Figma 6788:6749). In Capacitor mobile shells the row floats
                over the scrollport so list content travels beneath the bare
                glyphs; `pointer-events-none` keeps the empty span between the
                two buttons scrollable. */
-            <div className="flex items-center justify-between gap-2 native-ios:pointer-events-none native-ios:absolute native-ios:inset-x-4 native-ios:top-4 native-ios:z-10">
+            <div className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-4 native-mobile:top-4 native-mobile:z-10">
               <Button
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
-                className={`pointer-events-auto ${NATIVE_IOS_BARE_ICON_BUTTON}`}
+                className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
                 onClick={() => onClose?.()}
               />
               <SearchButton />
@@ -470,10 +470,9 @@ export function AssistantSideMenu({
           className={
             variant === "overlay"
               ? /* pb-24 is a coarse floating-column reserve until the measured
-                 inline padding below is applied. pt-14 on iOS clears the 40px
-                 the floating icon row covers plus a 16px gap, so the first
-                 row starts below the glyphs at rest. */
-                `-mx-4 gap-4 px-4 pb-24 native-ios:pt-14 ${NATIVE_IOS_LIST_TOP_FADE}`
+                 inline padding below is applied. The native-mobile pt-14
+                 clears the 40px floating icon row plus a 16px gap. */
+                `-mx-4 gap-4 px-4 pb-24 native-mobile:pt-14 ${NATIVE_MOBILE_LIST_TOP_FADE}`
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
-import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { isElectron } from "@/runtime/is-electron";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
@@ -94,7 +94,7 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
-      className={NATIVE_IOS_BARE_ICON_BUTTON}
+      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -148,7 +148,7 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
-            className={NATIVE_IOS_BARE_ICON_BUTTON}
+            className={NATIVE_MOBILE_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (

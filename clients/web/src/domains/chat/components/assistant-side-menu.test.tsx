@@ -735,9 +735,9 @@ describe("AssistantSideMenu · overlay close affordance", () => {
   });
 });
 
-describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
+describe("AssistantSideMenu · native mobile floating glyph row", () => {
   // Class-presence pins only: they assert the markup still carries the
-  // `native-ios:` utilities, not that anything floats or composites.
+  // `native-mobile:` utilities, not that anything floats or composites.
   const conversations = [
     makeConversation({ conversationId: "a", title: "Alpha" }),
   ];
@@ -770,11 +770,11 @@ describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
     const container = overlayDom();
     const row = classTokens(glyph(container, "Close navigation").parentElement);
 
-    expect(row).toContain("native-ios:absolute");
-    expect(row).toContain("native-ios:inset-x-4");
-    expect(row).toContain("native-ios:top-4");
-    expect(row).toContain("native-ios:z-10");
-    expect(row).toContain("native-ios:pointer-events-none");
+    expect(row).toContain("native-mobile:absolute");
+    expect(row).toContain("native-mobile:inset-x-4");
+    expect(row).toContain("native-mobile:top-4");
+    expect(row).toContain("native-mobile:z-10");
+    expect(row).toContain("native-mobile:pointer-events-none");
   });
 
   test("both glyphs opt back into pointer events", () => {
@@ -793,14 +793,14 @@ describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
       overlayDom().querySelector('[data-slot="side-menu-body"]'),
     );
 
-    expect(body).toContain("native-ios:pt-14");
+    expect(body).toContain("native-mobile:pt-14");
     // Complete declarations, so the fade geometry is pinned too: a different
     // stop or gradient direction is a different token.
     expect(body).toContain(
-      "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+      "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
     );
     expect(body).toContain(
-      "native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+      "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
     );
   });
 });
