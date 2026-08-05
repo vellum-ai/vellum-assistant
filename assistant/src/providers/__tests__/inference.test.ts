@@ -181,7 +181,7 @@ describe("Connection CRUD", () => {
     expect(fetched?.auth.type).toBe("api_key");
   });
 
-  test("updateConnection — provider correction rides an auth rewrite", () => {
+  test("updateConnection: provider correction rides an auth rewrite", () => {
     // The ChatGPT sign-in flow stamps provider "openai" when it writes
     // subscription auth, so a claiming row with another provider cannot
     // strand the fresh token behind derived platform auth.
@@ -204,7 +204,7 @@ describe("Connection CRUD", () => {
     expect(fetched?.auth.type).toBe("oauth_subscription");
   });
 
-  test("updateConnection — rejects an unknown provider", () => {
+  test("updateConnection: rejects an unknown provider", () => {
     const { db } = setupDb();
     createConnection(db, {
       name: "updatable-provider",
