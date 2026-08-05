@@ -518,6 +518,12 @@ Queries mounted inside `<ActiveAssistantGate>` typically don't race
 because the lifecycle resolves after org hydration, but the gate is
 cheap and safe to add defensively.
 
+A platform session whose API calls are conclusively rejected (a
+settled 401/403/410 from the org or assistants endpoints during the
+session probe) settles `platformSession: "absent"`, so bearer-auth
+(local/paired gateway) connections never stay org-gated behind a
+dead cookie.
+
 Reference: [TanStack Query — Dependent Queries](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries)
 
 ### Canonical migration example
