@@ -826,15 +826,9 @@ export function ChatLayout({
   // mutate the viewer store with no surface to display against. Navigate
   // to a chat route first when off-chat, then run the shared open flow.
   //
-  // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
-  // shared with the transcript / assets-pill open path.
-  const openAppFromChat = useOpenAppFromChat({
-    // When the user is off a chat route (home, library, identity, …), do
-    // not bind the stale `activeConversationId` as the editing target —
-    // the store value persists across route changes for SSE / attention
-    // consumers and doesn't reflect the user's current intent (LUM-2691).
-    bindConversation: isConversationChatPath(location.pathname),
-  });
+  // See `use-open-app-from-chat.ts` for the full-width loadApp flow shared
+  // with the transcript / assets-pill open path.
+  const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
