@@ -15,7 +15,10 @@ import {
 } from "@/assistant/profile-pickers";
 import { isProfileOnlyOverride } from "@/domains/settings/ai/call-site-helpers";
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
-import type { ProfileWithName } from "@/domains/settings/ai/utils";
+import {
+  profileDisplayLabel,
+  type ProfileWithName,
+} from "@/domains/settings/ai/utils";
 import type {
   CallSiteOverrideDraft,
   ConfigGetResponse,
@@ -132,10 +135,8 @@ export function BulkOverrideSwapModal({
     [orderedProfiles, source],
   );
 
-  const sourceLabel =
-    orderedProfiles.find((p) => p.name === source)?.label ?? source;
-  const targetLabel =
-    orderedProfiles.find((p) => p.name === target)?.label ?? target;
+  const sourceLabel = profileDisplayLabel(orderedProfiles, source);
+  const targetLabel = profileDisplayLabel(orderedProfiles, target);
 
   const overrideNoun = selectedIds.length === 1 ? "override" : "overrides";
   const allSelected = deselectedIds.size === 0;

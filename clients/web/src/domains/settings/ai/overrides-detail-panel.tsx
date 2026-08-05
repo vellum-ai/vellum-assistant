@@ -20,7 +20,10 @@ import {
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
-import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
+import {
+  buildOrderedProfiles,
+  profileDisplayLabel,
+} from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
   configGetSetQueryData,
@@ -165,8 +168,7 @@ export function OverridesDetailPanel({
   );
 
   const profileLabelFor = useCallback(
-    (name: string) =>
-      orderedProfiles.find((p) => p.name === name)?.label ?? name,
+    (name: string) => profileDisplayLabel(orderedProfiles, name),
     [orderedProfiles],
   );
 
