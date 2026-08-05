@@ -626,6 +626,14 @@ describe("web_search_tool_result structural guard", () => {
     // (stripHistoricalWebSearchResults), so nothing is silently dropped.
     "context/outbound-sanitize.ts",
 
+    // Send-boundary media guard: walks `tool_result.contentBlocks` to replace
+    // image blocks bound for a text-only model. Same rationale as the
+    // media-strip transform above: `web_search_tool_result` carries opaque
+    // provider content (`content: unknown`, encrypted search results), never
+    // a `contentBlocks` array, so there is no nested image for this pass to
+    // reach and nothing is silently dropped.
+    "context/outbound-media-guard.ts",
+
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
     "providers/anthropic/client.ts",
