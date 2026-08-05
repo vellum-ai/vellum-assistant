@@ -24,15 +24,17 @@ import type { MigrationRunContext, WorkspaceMigration } from "./types.js";
  *   reseed, so the current `false` is the seed's stamp.
  * - Seed-race repair: the workspace was created during the migration-105 era
  *   (105 completed in the first-boot sweep, i.e. at effectively the same
- *   time as the workspace's earliest checkpoint) AND memory-v3 never ran
- *   (no `memory_v3_selections` rows in either database). A deliberate
+ *   time as the workspace's earliest checkpoint), the archived hatch-time
+ *   overlay (`default-config.json`) records no `live: false` opt-out, AND
+ *   memory-v3 never ran (no `memory_v3_selections` rows in either database,
+ *   including the mid-drain `__relocating` staging name). A deliberate
  *   opt-out on such a workspace requires flipping v3 off before its first
  *   selection is logged; a workspace that DID run v3 and now reads `false`
  *   is treated as an opt-out and left alone.
  *
  * Everything else is skipped: `live` absent means a pre-105 assistant on the
- * deliberate manual-upgrade path (tier movement stays user-initiated), and
- * new workspaces are migration 105's job, and a post-#39847 hatch-time
+ * deliberate manual-upgrade path (tier movement stays user-initiated), while
+ * new workspaces are migration 105's job, where a post-#39847 hatch-time
  * `memory.v3.live=false` override merges after migrations and must win.
  */
 
@@ -137,6 +139,27 @@ function wasCreatedInMigration105Era(workspaceDir: string): boolean {
 }
 
 /**
+ * Whether a hatch-time default workspace overlay recorded a deliberate
+ * memory-v3 opt-out. `mergeDefaultWorkspaceConfig()` archives the consumed
+ * overlay to `default-config.json` next to config.json; an overlay carrying
+ * `memory.v3.live: false` merged AFTER workspace migrations, so the
+ * persisted `false` is the user's hatch-time choice, not the seed's stamp,
+ * even though the workspace otherwise fingerprints as a seed-race victim
+ * (born in the 105 era, no v3 selection rows).
+ */
+function hatchOverlayOptedOut(workspaceDir: string): boolean {
+  try {
+    const raw = readFileSync(
+      join(workspaceDir, "default-config.json"),
+      "utf-8",
+    );
+    return readMemoryV3Live(JSON.parse(raw)) === false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Whether memory-v3 ever ran a selection on this workspace. The
  * `memory_v3_selections` table lives in `assistant-memory.db` after DB
  * migration 338 and in `assistant.db` before it; both are checked, along
@@ -213,6 +236,9 @@ export const repairSeedPinnedMemoryV3LiveMigration: WorkspaceMigration = {
 
     if (!quarantinedConfigSaidLiveTrue(workspaceDir)) {
       if (!wasCreatedInMigration105Era(workspaceDir)) {
+        return;
+      }
+      if (hatchOverlayOptedOut(workspaceDir)) {
         return;
       }
       if (memoryV3EverRan(workspaceDir)) {

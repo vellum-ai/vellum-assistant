@@ -183,6 +183,32 @@ describe("140-repair-seed-pinned-memory-v3-live migration", () => {
     expect(readLive()).toBe(false);
   });
 
+  test("respects a hatch-time opt-out recorded in the archived default overlay", () => {
+    writeConfig({ memory: { v3: { live: false } } });
+    writeCheckpoints(FIRST_BOOT_GAP_MS);
+    writeFileSync(
+      join(workspaceDir, "default-config.json"),
+      JSON.stringify({ memory: { v3: { live: false } } }, null, 2),
+    );
+
+    repairSeedPinnedMemoryV3LiveMigration.run(workspaceDir, UPGRADE_CTX);
+
+    expect(readLive()).toBe(false);
+  });
+
+  test("an archived overlay without a memory.v3.live opt-out does not block repair", () => {
+    writeConfig({ memory: { v3: { live: false } } });
+    writeCheckpoints(FIRST_BOOT_GAP_MS);
+    writeFileSync(
+      join(workspaceDir, "default-config.json"),
+      JSON.stringify({ llm: { activeProfile: "balanced" } }, null, 2),
+    );
+
+    repairSeedPinnedMemoryV3LiveMigration.run(workspaceDir, UPGRADE_CTX);
+
+    expect(readLive()).toBe(true);
+  });
+
   test("respects a deliberate opt-out: v3 selection rows exist", () => {
     writeConfig({ memory: { v3: { live: false } } });
     writeCheckpoints(FIRST_BOOT_GAP_MS);
