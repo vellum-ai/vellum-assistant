@@ -11,8 +11,8 @@ import { routes } from "@/utils/routes";
 
 /**
  * Host-command (tray, command palette) entry points for switching to and
- * removing assistants by id. Extracted from the layout's command handlers so
- * the paired-vs-managed routing is testable without mounting the app shell.
+ * removing assistants by id, so the paired-vs-managed routing is testable
+ * without mounting the app shell.
  */
 
 export type SwitchOutcome = { ok: true } | { ok: false; error: string };

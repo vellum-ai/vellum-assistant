@@ -101,7 +101,9 @@ const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
  */
 const assistantMenuLabel = (assistant: LockfileAssistant): string => {
   const title = assistantDisplayTitle(assistant);
-  if (assistant.cloud !== "paired") return title;
+  if (assistant.cloud !== "paired") {
+    return title;
+  }
   let suffix = "Paired";
   if (assistant.runtimeUrl) {
     try {
