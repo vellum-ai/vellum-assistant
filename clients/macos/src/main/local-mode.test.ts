@@ -118,7 +118,8 @@ mock.module("./lockfile-watcher", () => ({
   refreshLockfileNow: refreshLockfileNowMock,
 }));
 
-const { installLocalMode } = await import("./local-mode");
+const { getPairedGuardianAccessToken, installLocalMode } =
+  await import("./local-mode");
 const { resolveAllowedOrigin } = await import("./app-origin");
 const { guardianTokenPath } = await import("@vellumai/local-mode");
 
@@ -961,8 +962,27 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(await pending).toEqual({ ok: true, accessToken: "refreshed-token" });
   });
 
-  // The exact guidance copy is pinned in the package's guardian-token tests;
-  // here a distinguishing marker proves the handler routed the paired flag.
+  test("deduplicates concurrent refreshes for the same credential", async () => {
+    writeToken("asst-g", { accessTokenExpiresAt: PAST });
+
+    const first = guardianToken("asst-g");
+    const second = guardianToken("asst-g");
+    await tick();
+    expect(spawnArgs).toHaveLength(1);
+
+    lastChild.stdout.emit("data", Buffer.from("refreshed-token\n"));
+    lastChild.emit("close", 0);
+
+    await expect(first).resolves.toEqual({
+      ok: true,
+      accessToken: "refreshed-token",
+    });
+    await expect(second).resolves.toEqual({
+      ok: true,
+      accessToken: "refreshed-token",
+    });
+  });
+
   test("expired refresh token resolves a structured 401 with hatch/wake guidance", async () => {
     writeToken("asst-g", {
       accessTokenExpiresAt: PAST,
@@ -982,15 +1002,12 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(spawnArgs).toHaveLength(0);
   });
 
-  test("expired refresh token for a paired lockfile entry directs to re-pairing", async () => {
+  test("does not expose a paired credential through renderer IPC", async () => {
     saveLockfileAssistant(
       { assistantId: "paired-g", cloud: "paired", runtimeUrl: "https://h" },
       "paired-g",
     );
-    writeToken("paired-g", {
-      accessTokenExpiresAt: PAST,
-      refreshTokenExpiresAt: PAST,
-    });
+    writeToken("paired-g", {});
 
     const result = (await guardianToken("paired-g")) as {
       ok: boolean;
@@ -999,10 +1016,18 @@ describe("vellum:localMode:guardianToken handler", () => {
     };
 
     expect(result.ok).toBe(false);
-    expect(result.status).toBe(401);
-    expect(result.error).toContain("vellum pair");
-    expect(result.error).not.toContain("vellum hatch");
+    expect(result.status).toBe(403);
+    expect(result.error).toContain("paired gateway proxy");
     expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("the trusted proxy helper can read a paired credential", async () => {
+    writeToken("paired-g", {});
+
+    expect(await getPairedGuardianAccessToken("paired-g")).toEqual({
+      ok: true,
+      accessToken: "stored-token",
+    });
   });
 
   test("missing token file resolves a structured 404 without spawning", async () => {

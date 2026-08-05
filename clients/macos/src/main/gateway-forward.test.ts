@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  authorizePairedGatewayForwardPlan,
   executeGatewayForwardPlan,
   planGatewayForward,
   planPairedGatewayForward,
@@ -145,7 +146,11 @@ describe("planPairedGatewayForward", () => {
     if (plan.kind !== "forward") {
       throw new Error("expected forward");
     }
+    if (!plan.remote) {
+      throw new Error("expected paired forward");
+    }
     expect(plan.url).toBe("https://gw.example.com/v1/foo?x=1");
+    expect(plan.assistantId).toBe("abc");
     expect(plan.method).toBe("GET");
     expect(plan.hasBody).toBe(false);
   });
@@ -190,7 +195,7 @@ describe("planPairedGatewayForward", () => {
     });
   });
 
-  test("preserves non-ambient headers such as the guardian bearer", () => {
+  test("strips renderer authorization while preserving ordinary headers", () => {
     const req = {
       url: "app://vellum.ai/assistant/__gateway-paired/abc/v1/foo",
       method: "GET",
@@ -207,8 +212,51 @@ describe("planPairedGatewayForward", () => {
     if (plan.kind !== "forward") {
       throw new Error("expected forward");
     }
-    expect(plan.headers.get("authorization")).toBe("Bearer guardian-token");
+    expect(plan.headers.has("authorization")).toBe(false);
     expect(plan.headers.get("accept")).toBe("text/event-stream");
+  });
+
+  test("injects the host-owned guardian bearer after sanitization", async () => {
+    const plan = planPairedGatewayForward(
+      {
+        url: "app://vellum.ai/assistant/__gateway-paired/abc/v1/foo",
+        method: "GET",
+        headers: new Headers({ authorization: "Bearer renderer-token" }),
+      },
+      pair({ abc: "https://gw.example.com" }),
+    );
+
+    const authorized = await authorizePairedGatewayForwardPlan(
+      plan,
+      async (assistantId) => {
+        expect(assistantId).toBe("abc");
+        return { ok: true, accessToken: "host-token" };
+      },
+    );
+
+    if (authorized.kind !== "forward") {
+      throw new Error("expected forward");
+    }
+    expect(authorized.headers.get("authorization")).toBe("Bearer host-token");
+  });
+
+  test("rejects before forwarding when the host cannot read the bearer", async () => {
+    const plan = planPairedGatewayForward(
+      request("/__gateway-paired/abc/v1/foo"),
+      pair({ abc: "https://gw.example.com" }),
+    );
+
+    expect(
+      await authorizePairedGatewayForwardPlan(plan, async () => ({
+        ok: false,
+        status: 404,
+        error: "Guardian token not found",
+      })),
+    ).toEqual({
+      kind: "reject",
+      status: 404,
+      message: "Guardian token not found",
+    });
   });
 });
 

@@ -6,6 +6,10 @@ import { guardianTokenPath } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
+const guardianTokenRefreshes = new Map<string, Promise<TokenResult>>();
+
+export const PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR =
+  "Paired assistant credentials are available only through the paired gateway proxy";
 
 /** The persisted shape of an assistant's guardian token file. */
 export interface GuardianTokenData {
@@ -160,7 +164,17 @@ export function getGuardianAccessToken(
     });
   }
 
-  return refreshToken(assistantId, invocation, env);
+  const existingRefresh = guardianTokenRefreshes.get(tokenPath);
+  if (existingRefresh) {
+    return existingRefresh;
+  }
+  const refresh = refreshToken(assistantId, invocation, env).finally(() => {
+    if (guardianTokenRefreshes.get(tokenPath) === refresh) {
+      guardianTokenRefreshes.delete(tokenPath);
+    }
+  });
+  guardianTokenRefreshes.set(tokenPath, refresh);
+  return refresh;
 }
 
 function refreshToken(

@@ -24,6 +24,7 @@ import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
+  authorizePairedGatewayForwardPlan,
   executeGatewayForwardPlan,
   planGatewayForward,
   planPairedGatewayForward,
@@ -61,7 +62,11 @@ import { installImageContextMenu } from "./image-context-menu";
 import { installTextContextMenu } from "./text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
-import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import {
+  getPairedGuardianAccessToken,
+  installLocalMode,
+  resolveCliInvocation,
+} from "./local-mode";
 import { installLoginItem, installLoginItemIpc } from "./login-item";
 import {
   getWatchedLockfileSnapshot,
@@ -335,12 +340,13 @@ const forwardGatewayRequest = async (
 const forwardPairedGatewayRequest = async (
   request: GlobalRequest,
   getTargets: () => Map<string, string>,
-): Promise<Response | null> =>
-  executeGatewayForwardPlan(
+): Promise<Response | null> => {
+  const plan = await authorizePairedGatewayForwardPlan(
     planPairedGatewayForward(request, getTargets),
-    request,
-    gatewayForwardFetcher,
+    getPairedGuardianAccessToken,
   );
+  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
+};
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({

@@ -77,19 +77,13 @@ describe("paired selection", () => {
     expect(isGatewayAuthEnabled()).toBe(false);
   });
 
-  test("a seeded token turns gateway auth mode on without any fetch", () => {
+  test("paired auth mode is active without any renderer token", () => {
     process.env.VITE_PLATFORM_MODE = "";
     selectPaired("https://gw.example.com");
     const fetchSpy = mock(async () => {
       throw new Error("unexpected fetch");
     });
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
-
-    seedGatewayToken({
-      token: "guardian-tok",
-      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
-      source: "https://gw.example.com/auth/token",
-    });
 
     expect(isGatewayAuthMode()).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();

@@ -33,6 +33,7 @@ import {
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   runHatch,
   runRetire,
   connectImport,
@@ -44,7 +45,7 @@ import {
   resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
-  sanitizePairedForwardHeaders,
+  authorizePairedForwardHeaders,
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
@@ -767,6 +768,13 @@ async function handleLocalEndpoints(
 
     const assistantId = decodeURIComponent(guardianMatch[1]!);
 
+    if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+      return Response.json(
+        { error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR },
+        { status: 403 },
+      );
+    }
+
     let invocation: CliInvocation;
     try {
       invocation = resolveDevCliInvocation(_baseDir);
@@ -783,7 +791,7 @@ async function handleLocalEndpoints(
       invocation,
       true,
       _localEnv,
-      { paired: isPairedLockfileEntry(lockfilePaths, assistantId) },
+      { paired: false },
     );
     if (result.ok) {
       return Response.json({ accessToken: result.accessToken });
@@ -815,9 +823,9 @@ async function handleLocalEndpoints(
   // Paired-gateway proxy: same shared decision as the web (Vite middleware)
   // and Electron (`app://` handler) hosts, forwarding to the remote gateway an
   // imported pairing recorded as its `runtimeUrl`. The lockfile's paired
-  // entries are the allowlist. Browser-ambient headers (Origin, Referer,
-  // Cookie, Sec-Fetch-*) are stripped on the server-to-server hop; the
-  // guardian bearer passes through for the remote gateway to validate.
+  // entries are the allowlist. Renderer authorization and browser-ambient
+  // headers are stripped on the server-to-server hop. This CLI host reads the
+  // paired guardian bearer from disk and installs it after sanitization.
   const pairedDecision = resolvePairedGatewayProxyTarget(
     pathname + url.search,
     () => readPairedGatewayTargets(lockfilePaths),
@@ -828,8 +836,31 @@ async function handleLocalEndpoints(
     });
   }
   if (pairedDecision.kind === "forward") {
+    let invocation: CliInvocation;
+    try {
+      invocation = resolveDevCliInvocation(_baseDir);
+    } catch (err) {
+      return new Response(err instanceof Error ? err.message : String(err), {
+        status: 500,
+      });
+    }
     const headers = new Headers(req.headers);
-    sanitizePairedForwardHeaders(headers);
+    const tokenResult = await authorizePairedForwardHeaders(
+      pairedDecision.assistantId,
+      headers,
+      (assistantId) =>
+        getGuardianAccessToken(
+          assistantId,
+          configDir,
+          invocation,
+          true,
+          _localEnv,
+          { paired: true },
+        ),
+    );
+    if (!tokenResult.ok) {
+      return new Response(tokenResult.error, { status: tokenResult.status });
+    }
     headers.set("host", new URL(pairedDecision.url).host);
     return proxyGatewayFetch(
       req,

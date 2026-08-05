@@ -1,9 +1,7 @@
 /**
- * Tests for the dev-server guardian-token route: the middleware classifies the
- * assistant from the lockfile and passes {paired} to getGuardianAccessToken,
- * so expired pairings get re-pair guidance instead of hatch/wake. The exact
- * guidance copy is pinned in the package's guardian-token tests; here a
- * distinguishing marker proves the route passed the paired flag.
+ * Tests for the dev-server guardian-token route. Local assistant credentials
+ * support the renderer's loopback token exchange, while paired credentials
+ * stay inside the trusted host proxy.
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
@@ -145,18 +143,14 @@ describe("guardian-token middleware", () => {
     expect(error).not.toContain("vellum pair");
   });
 
-  test("expired refresh token for a paired entry yields re-pair guidance", async () => {
+  test("never returns a paired credential to the renderer", async () => {
     writeLockfile([{ assistantId: "paired-g", cloud: "paired" }]);
-    writeToken("paired-g", {
-      accessTokenExpiresAt: PAST,
-      refreshTokenExpiresAt: PAST,
-    });
+    writeToken("paired-g", {});
 
     const result = await dispatch("/__local/guardian-token/paired-g");
 
-    expect(result.status).toBe(401);
+    expect(result.status).toBe(403);
     const { error } = JSON.parse(result.body) as { error: string };
-    expect(error).toContain("vellum pair");
-    expect(error).not.toContain("vellum hatch");
+    expect(error).toContain("paired gateway proxy");
   });
 });

@@ -15,7 +15,6 @@ import {
   GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
-  seedGatewayToken,
 } from "@/lib/auth/gateway-session";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -782,40 +781,11 @@ export class UnresolvedPairedGatewayError extends Error {
 }
 
 /**
- * The numeric `exp` claim of a JWT, in epoch seconds, or `undefined` when the
- * token isn't a decodable JWT or carries no numeric `exp`. Never throws.
- */
-function decodeJwtExpSeconds(token: string): number | undefined {
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) {
-      return undefined;
-    }
-    const decoded: unknown = JSON.parse(
-      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    if (
-      decoded !== null &&
-      typeof decoded === "object" &&
-      "exp" in decoded &&
-      typeof decoded.exp === "number"
-    ) {
-      return decoded.exp;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Acquire a gateway token and prime the self-hosted connection for the given
- * local assistant (default: the selected one). The guardian token and gateway
- * exchange both ride the host's local-mode transport, so this stays
- * host-agnostic. Passing `target` lets connect flows prime the NEW assistant's
- * gateway before the selection write becomes observable, so the lifecycle's
- * selection subscription never publishes a connection with a token minted for
- * a different gateway.
+ * Prime the self-hosted connection for the given local or paired assistant
+ * (default: the selected one). Local assistants mint a renderer actor token;
+ * paired assistants use a same-origin proxy whose trusted host injects its
+ * guardian bearer. Passing `target` lets connect flows prime the new
+ * assistant before the selection write becomes observable.
  */
 export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
@@ -826,26 +796,22 @@ export async function primeLocalGatewayConnection(
     if (!pairedUrl) {
       throw new UnresolvedPairedGatewayError(assistant.assistantId);
     }
-    // The remote gateway's `/auth/token` mint is loopback- and Origin-gated to
-    // localhost, so a cross-machine mint is impossible: the guardian access
-    // token itself is the bearer, exactly like the CLI's `vellum client`
-    // paired path. Traffic rides the same-origin `__gateway-paired` host proxy
-    // (see getPairedGatewayUrl). The seeded source uses the same
-    // `<base>/auth/token` shape as local mode's token URL so an assistant
-    // switch trips `ensureGatewayToken`'s source-mismatch clear naturally. The
-    // 1-hour fallback expiry forces a cheap periodic re-lease when the token
-    // carries no readable `exp`.
-    const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
-    seedGatewayToken({
-      token: guardianToken,
-      expiresAtEpochSeconds:
-        decodeJwtExpSeconds(guardianToken) ??
-        Math.floor(Date.now() / 1000) + 3600,
-      source: `${pairedUrl}/auth/token`,
-    });
+    // A request through the paired proxy forces the trusted host to resolve
+    // the credential and proves the remote gateway is reachable. The renderer
+    // sends no bearer. It also clears credentials persisted by older clients
+    // that placed paired guardian tokens in the gateway-session cache.
+    clearGatewayToken();
+    const response = await fetch(`${pairedUrl}/readyz`);
+    if (!response.ok) {
+      const message = await response.text();
+      throw new GuardianTokenError(
+        response.status,
+        message || `Paired gateway request failed: ${response.status}`,
+      );
+    }
     setSelfHostedConnection({
       url: getAuthGatewayIngressUrl(assistant)!,
-      token: guardianToken,
+      token: null,
     });
     return;
   }

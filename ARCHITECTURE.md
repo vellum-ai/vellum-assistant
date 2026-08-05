@@ -90,6 +90,8 @@ The CLI routes all lockfile reads/writes through `cli/src/lib/environments/paths
 
 Platform tokens (`platform-token`), device IDs (`device-id`), and guardian tokens (`assistants/<id>/guardian-token.json`) live under the env-scoped config dir. The CLI (`cli/src/lib/platform-client.ts`, `cli/src/lib/guardian-token.ts`), the daemon (`assistant/src/util/platform.ts:getXdgPlatformTokenPath`, `getXdgVellumConfigDirName`), and the Electron app (`clients/macos/src/main/device-id.ts`) all agree on the same env-scoped path, so `vellum login`, guardian leasing, persisted device IDs, and desktop session state never bleed between environments.
 
+Paired guardian credentials stay in the trusted host. The renderer sends paired traffic to `/assistant/__gateway-paired/<assistantId>/*` without a bearer. The Electron main process, CLI web host, or Vite development host resolves the paired entry, removes any renderer-provided `Authorization` header, reads or refreshes the guardian token, and injects it only on the remote gateway hop. Renderer-facing guardian-token endpoints reject paired assistant IDs.
+
 ### Backwards compatibility
 
 Backwards compatibility lives entirely in the read path — no on-disk migration is performed.

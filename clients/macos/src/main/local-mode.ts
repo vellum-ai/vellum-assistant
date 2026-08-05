@@ -8,6 +8,7 @@ import {
   getGuardianAccessToken,
   isActiveAssistant,
   isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
@@ -212,6 +213,38 @@ async function upgrade(
   }
 }
 
+async function getHostGuardianAccessToken(
+  assistantId: string,
+  configDir: string,
+  paired: boolean,
+): Promise<TokenResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, status: 500, error: (err as Error).message };
+  }
+  return getGuardianAccessToken(
+    assistantId,
+    configDir,
+    invocation,
+    true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+    { paired },
+  );
+}
+
+/** Read a paired guardian bearer for the trusted main-process proxy. */
+export function getPairedGuardianAccessToken(
+  assistantId: string,
+): Promise<TokenResult> {
+  return getHostGuardianAccessToken(
+    assistantId,
+    resolveConfigDir(process.env),
+    true,
+  );
+}
+
 // A persisted assistant entry as it crosses the IPC boundary. The
 // package's lockfile parser owns the real field-level contract; here we
 // only assert the renderer sent an object, so unknown/forward-compat
@@ -265,13 +298,6 @@ export const installLocalMode = (): void => {
 
   const lockfilePaths = resolveLockfilePaths(process.env);
   const configDir = resolveConfigDir(process.env);
-  // Pin the environment the guardian-token CLI subprocess (refresh/lease) sees
-  // to the same one `configDir` was resolved from, so the token is always read
-  // and written under the same env dir. Overlaid on `process.env` by the host
-  // seam, so PATH etc. are preserved.
-  const guardianTokenEnv = {
-    VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env),
-  };
 
   // `species` is optional on the wire so an empty/omitted request
   // falls back to the default rather than being rejected.
@@ -396,20 +422,14 @@ export const installLocalMode = (): void => {
       if (!assistantId) {
         return { ok: false, status: 400, error: "Missing assistantId" };
       }
-      let invocation: CliInvocation;
-      try {
-        invocation = await resolveCliInvocation();
-      } catch (err) {
-        return { ok: false, status: 500, error: (err as Error).message };
+      if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+        return {
+          ok: false,
+          status: 403,
+          error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+        };
       }
-      return getGuardianAccessToken(
-        assistantId,
-        configDir,
-        invocation,
-        true,
-        guardianTokenEnv,
-        { paired: isPairedLockfileEntry(lockfilePaths, assistantId) },
-      );
+      return getHostGuardianAccessToken(assistantId, configDir, false);
     },
   );
 };

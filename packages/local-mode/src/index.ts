@@ -62,6 +62,7 @@ export type {
 export {
   getGuardianAccessToken,
   isConfidentialRefreshUrl,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   saveGuardianToken,
 } from "./guardian-token";
 export type {
@@ -70,6 +71,7 @@ export type {
   GuardianTokenOptions,
 } from "./guardian-token";
 export {
+  authorizePairedForwardHeaders,
   parseGatewayUrl,
   readAllowedGatewayPorts,
   resolveGatewayProxyTarget,
@@ -83,4 +85,6 @@ export type {
   GatewayTarget,
   GatewayParseResult,
   GatewayProxyDecision,
+  PairedForwardAuthorizationResult,
+  PairedGuardianTokenProvider,
 } from "./gateway-proxy";

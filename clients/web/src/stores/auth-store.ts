@@ -1038,8 +1038,8 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
   /**
    * Connect to a paired assistant: a remote machine's assistant imported via
-   * `vellum connect import`. Primes the connection (leasing the guardian
-   * bearer from the host), selects the assistant, and marks the session
+   * `vellum connect import`. Primes the host-authorized proxy connection,
+   * selects the assistant, and marks the session
    * logged in, mirroring {@link AuthActions.connectLocalAssistant} with two
    * deliberate differences: it primes through the plain
    * `primeLocalGatewayConnection` because `wake` cannot start or repair an
@@ -1094,13 +1094,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       try {
         const selected = getSelectedAssistant();
         if (selected && isPairedAssistant(selected)) {
-          // A paired selection has no local `/auth/token` mint: the guardian
-          // access token leased from the host is the bearer itself, and
-          // `getLocalTokenUrl()` is undefined for it, so `ensureGatewayToken`
-          // would fall back to the SPA origin's own `/auth/token` (wrong
-          // host) and clear the seeded token via the source-mismatch check.
-          // Re-leasing is cheap: the host returns its cached access token
-          // unless a refresh is due.
+          // A paired selection uses its host-authorized proxy and has no
+          // renderer gateway token. `getLocalTokenUrl()` is undefined for it,
+          // so `ensureGatewayToken` would target the SPA origin's unrelated
+          // `/auth/token` route.
           await primeLocalGatewayConnection(selected);
         } else {
           await ensureGatewayToken(getLocalTokenUrl());
