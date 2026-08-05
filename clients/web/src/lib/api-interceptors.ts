@@ -62,7 +62,6 @@ import { useAuthStore, whenPlatformSessionSettled } from "@/stores/auth-store";
 import {
   hasLivePlatformSession,
   isAuthenticated,
-  isPlatformSessionSettled,
   isSettledSessionRejection,
 } from "@/stores/session-status";
 import { routes } from "@/utils/routes";
@@ -598,6 +597,7 @@ const PLATFORM_AUTH_MAX_REDIRECTS = 3;
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAuthRecoveryFlag(): void {
   platformAuthRecoveryFired = false;
+  platformRecoveryOutstanding = false;
 }
 
 /**
@@ -634,16 +634,11 @@ function clearPlatformAuthRedirectBudget(): void {
 }
 
 /**
- * Cooldown + attempt budget for the recovery re-probe itself, mirroring the
- * local-gateway 401 pattern above. The in-memory latch only serializes
- * concurrent rejections within one cycle; against a platform that rejects
- * every request, each released latch would otherwise start the next cycle
- * immediately and without bound. The cooldown spaces cycles and the budget
- * stops them; a 2xx on the route whose rejection last consumed an attempt
- * restores both (proof the failing route healed), a re-probe that confirms
- * the session live refunds the count while keeping the cooldown (a
- * permission 403 must not starve a later real expiry), and quitting the app
- * grants a fresh budget (sessionStorage).
+ * Cooldown + attempt budget for the recovery re-probe, mirroring the
+ * local-gateway 401 pattern above. The cooldown spaces cycles and the budget
+ * stops them; with the refund below, the cap binds when re-probes repeatedly
+ * fail to settle (refreshSession throwing on a flaky network while the API
+ * keeps rejecting). Quitting the app grants a fresh budget (sessionStorage).
  */
 const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
 const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
@@ -651,12 +646,20 @@ const PLATFORM_RECOVERY_PATH_KEY = "vellum:platform:recovery-path";
 const PLATFORM_RECOVERY_COOLDOWN_MS = 600_000;
 const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
 
+// Skips the ok-branch heal check until a claim is made. Seeded from storage:
+// a claim from this page's earlier life may still be awaiting its heal.
+let platformRecoveryOutstanding = (() => {
+  try {
+    return sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY) !== null;
+  } catch {
+    return false;
+  }
+})();
+
 /**
- * Spend one recovery attempt for a rejection on `pathname`. False when the
- * budget is exhausted, when the last attempt was inside the cooldown window,
- * or when sessionStorage is unavailable so an uncountable environment fails
- * closed (no recovery). The pathname is remembered so only that route's
- * later success restores the budget.
+ * Spend one recovery attempt for a rejection on `pathname`; false when the
+ * budget or cooldown blocks it, or when sessionStorage is unavailable (fails
+ * closed). Only that pathname's later success restores the budget.
  */
 function claimPlatformRecoveryAttempt(pathname: string): boolean {
   try {
@@ -680,6 +683,7 @@ function claimPlatformRecoveryAttempt(pathname: string): boolean {
       String(attempts + 1),
     );
     sessionStorage.setItem(PLATFORM_RECOVERY_PATH_KEY, pathname);
+    platformRecoveryOutstanding = true;
     return true;
   } catch {
     return false;
@@ -687,11 +691,8 @@ function claimPlatformRecoveryAttempt(pathname: string): boolean {
 }
 
 /**
- * Restore the recovery budget when a success proves the previously rejected
- * route is healthy again. Restoring on any platform 2xx would let routes the
- * platform serves anonymously (client feature flags, for example) re-arm the
- * budget every poll while the session-sensitive route keeps rejecting, which
- * defeats the bound entirely.
+ * Restore the budget only when the last-rejected route succeeds: anonymously
+ * served routes (client feature flags) must not re-arm it every poll.
  */
 function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
   try {
@@ -701,17 +702,15 @@ function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
     sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
     sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
+    platformRecoveryOutstanding = false;
   } catch {
     // sessionStorage unavailable; the claim above already fails closed.
   }
 }
 
 /**
- * Refund the attempt count while keeping the cooldown timestamp. Used when
- * the authoritative re-probe confirms the session is live: the rejection was
- * a route-level permission denial, not session death, so it must not eat the
- * budget a later real expiry needs. The retained cooldown still paces
- * probing at one cycle per window while such a route keeps rejecting.
+ * Refund the attempt count but keep the cooldown: a permission 403 on a live
+ * session must not eat the budget a later real expiry needs.
  */
 function refundPlatformRecoveryAttempt(): void {
   try {
@@ -719,6 +718,7 @@ function refundPlatformRecoveryAttempt(): void {
   } catch {
     // sessionStorage unavailable; the claim already fails closed.
   }
+  platformRecoveryOutstanding = false;
 }
 
 /** The response URL's pathname, or null for an unparseable URL. */
@@ -739,10 +739,8 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
-    // In gateway-auth mode `refreshSession` fire-and-forgets the
-    // platform-session probe and returns while the probe's own platform
-    // requests are still in flight. Hold the latch until the probe settles
-    // so those requests' rejections cannot each start a new recovery cycle.
+    // refreshSession may fire-and-forget the platform probe; hold the latch
+    // until it settles so the probe's own rejections cannot re-enter.
     await whenPlatformSessionSettled();
     if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
       refundPlatformRecoveryAttempt();
@@ -775,9 +773,10 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * authenticated (excludes boot probes and the already-logged-out login flow,
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
- * {@link localGatewayAuthRecoveryInterceptor}. A settled-absent platform
- * session also no-ops (nothing to recover), and each re-probe cycle spends
- * from the cooldown-spaced attempt budget above.
+ * {@link localGatewayAuthRecoveryInterceptor}. Recovery claims only for a
+ * platform session currently believed live: the boot probe owns unsettled
+ * evidence, and a settled-absent session has nothing to recover. Each cycle
+ * spends from the cooldown-spaced attempt budget above.
  *
  * A success on the route whose rejection last consumed a recovery attempt
  * restores the recovery budget; a success against a confirmed session also
@@ -791,9 +790,11 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (response.ok) {
     // A working self-hosted gateway says nothing about the platform session.
     if (!fromSelfHostedGateway) {
-      const pathname = responsePathname(response);
-      if (pathname !== null) {
-        clearPlatformRecoveryBudgetIfHealed(pathname);
+      if (platformRecoveryOutstanding) {
+        const pathname = responsePathname(response);
+        if (pathname !== null) {
+          clearPlatformRecoveryBudgetIfHealed(pathname);
+        }
       }
       // The redirect budget stays gated on a confirmed session: the platform
       // serves some routes anonymously, so a 2xx alone does not prove the
@@ -820,13 +821,9 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (fromSelfHostedGateway) {
     return response;
   }
-  // A session already settled as not-live has nothing to recover; a re-probe
-  // would only repeat the answer. Keeps stray platform 403s after logout (or
-  // after the probe settled this rejection to "absent") inert.
-  if (
-    isPlatformSessionSettled(platformSession) &&
-    !hasLivePlatformSession(platformSession)
-  ) {
+  // Claim only for a session currently believed live: the boot probe owns
+  // unsettled ("unknown") evidence, and settled-absent has nothing to recover.
+  if (!hasLivePlatformSession(platformSession)) {
     return response;
   }
   const rejectedPathname = responsePathname(response);
