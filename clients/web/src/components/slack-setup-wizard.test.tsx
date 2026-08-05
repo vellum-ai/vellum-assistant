@@ -77,6 +77,17 @@ const nextButton = () => screen.getByRole("button", { name: /^Next$/i });
 const onOpenStep = () =>
   screen.queryByRole("button", { name: /Open Slack/i }) !== null;
 
+/**
+ * Walk to the token step the way a user does. The wizard exposes no way to
+ * start on a later step, so a test that needs one has to earn it: that also
+ * means these assertions run against a state the real flow can produce.
+ */
+function goToConnectStep() {
+  fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
+  fireEvent.click(screen.getByRole("button", { name: /I created the app/i }));
+}
+
 describe("SlackSetupWizard step flow", () => {
   test("copying puts the live manifest on the clipboard without navigating", async () => {
     render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
@@ -232,10 +243,11 @@ describe("SlackSetupWizard step flow", () => {
     render(
       <SlackSetupWizard
         assistantName={ASSISTANT_NAME}
-        initialStepId="connect"
         onSave={(bot, app) => saved.push([bot, app])}
       />,
     );
+
+    goToConnectStep();
 
     fireEvent.change(screen.getByLabelText(/Bot Token/i), {
       target: { value: `  ${BOT_TOKEN}  ` },
