@@ -12,8 +12,12 @@
  * - non-vision model, no vision profile, `memoryRetrospective` call site: the
  *   provider receives static placeholders with NO image blocks on the wire,
  *   and the run completes (a text-only workspace keeps forming memories)
- * - same, `mainAgent` call site: unchanged fall-through to the provider (the
- *   reactive post-model-call recovery keeps ownership)
+ * - same, `mainAgent` call site: the send-boundary enforcement placeholders
+ *   proactively instead of burning a guaranteed provider rejection
+ * - REGRESSIONS for the two hook-chain escapes: a failed/timed-out captioning
+ *   hook (the pipeline discards its mutation) and a later model-router hook
+ *   downgrading to a text-only profile. Both are caught by the loop's final
+ *   send-boundary enforcement: raw media never reaches a text-only model.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -256,7 +260,12 @@ describe("agent loop capability-aware media routing (image-fallback pre-model-ca
     expect(events.find((e) => e.type === "error")).toBeUndefined();
   });
 
-  test("mainAgent with no vision profile falls through to the provider unchanged", async () => {
+  test("mainAgent with no vision profile gets boundary placeholders instead of a guaranteed rejection", async () => {
+    // The hook itself falls through for non-memory call sites when no vision
+    // profile exists, but the loop's send-boundary enforcement now keeps the
+    // raw images off the wire: the provider receives static placeholders in
+    // a single round trip rather than rejecting the request first and
+    // relying on the reactive recovery to retry.
     mockProfiles = [];
     visionProfiles = new Set();
     const { calls, events } = await runLoop([userMessage(makeImage())], {
@@ -265,7 +274,96 @@ describe("agent loop capability-aware media routing (image-fallback pre-model-ca
     });
 
     expect(calls).toHaveLength(1);
-    expect(hasImageBlocks(calls[0])).toBe(true);
+    expect(hasImageBlocks(calls[0])).toBe(false);
+    expect(
+      calls[0].some((m) =>
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("[Image: no vision-capable model configured"),
+        ),
+      ),
+    ).toBe(true);
     expect(events.find((e) => e.type === "error")).toBeUndefined();
+  });
+
+  // ── Send-boundary regressions (review blockers) ───────────────────────────
+
+  test("REGRESSION: a failed or timed-out captioning hook cannot fail open into raw-media delivery", async () => {
+    // The pipeline time-boxes each hook and contains its throws in the SAME
+    // catch (`pipeline.ts`: "plugin hook failed" / timed-out hooks reject
+    // through `callWithTimeout` into that catch), so timeout and throw both
+    // produce the identical observable state: the hook's mutation is
+    // discarded and the chain proceeds with the prior context. Register a
+    // hook that dies in place of the real one to produce exactly that state
+    // with a vision profile available: before the boundary enforcement, the
+    // raw images sailed to the text-only provider.
+    resetPluginRegistryForTests();
+    registerPlugin({
+      manifest: { name: "image-fallback-under-test", version: "0.0.0" },
+      hooks: {
+        "pre-model-call": async () => {
+          throw new Error("caption sweep exceeded the hook budget");
+        },
+      },
+    });
+
+    const { calls, result } = await runLoop(
+      [userMessage({ type: "text", text: "see" }, makeImage())],
+      { modelProfileKey: "text-only-profile" },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(hasImageBlocks(calls[0])).toBe(false);
+    expect(
+      calls[0].some((m) =>
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("[Image: no vision-capable model configured"),
+        ),
+      ),
+    ).toBe(true);
+    // The boundary pass is deterministic: no captioning round-trip is burned
+    // recovering from the dead hook.
+    expect(captionProviderCalls).toBe(0);
+    // Wire-only: the loop's own history keeps the raw image.
+    expect(hasImageBlocks(result.history)).toBe(true);
+  });
+
+  test("REGRESSION: a later model-router hook downgrading to a text-only profile cannot re-expose raw media", async () => {
+    // The real image-fallback hook runs first, sees a vision-capable model,
+    // and passes the images through untouched. A router hook registered
+    // AFTER it then reroutes the call to a text-only profile. The settled
+    // chain previously sent the still-image-bearing payload to the
+    // downgraded model; the send boundary must judge the FINAL profile.
+    registerPlugin({
+      manifest: { name: "model-router-under-test", version: "0.0.0" },
+      hooks: {
+        "pre-model-call": async (ctx) => {
+          (ctx as { modelProfile: string | null }).modelProfile =
+            "text-only-profile";
+        },
+      },
+    });
+
+    const { calls, result } = await runLoop(
+      [userMessage({ type: "text", text: "see" }, makeImage())],
+      { modelProfileKey: "vision-profile" },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(hasImageBlocks(calls[0])).toBe(false);
+    expect(
+      calls[0].some((m) =>
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("[Image: no vision-capable model configured"),
+        ),
+      ),
+    ).toBe(true);
+    expect(captionProviderCalls).toBe(0);
+    expect(hasImageBlocks(result.history)).toBe(true);
   });
 });

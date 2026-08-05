@@ -29,6 +29,11 @@ import {
 import { HOOKS } from "../plugin-api/constants.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import {
+  captionOutboundImagesInMessages,
+  countImageBlocksInMessages,
+  needsImageFallback,
+} from "../plugins/defaults/image-fallback/src/caption-blocks.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
@@ -1713,6 +1718,51 @@ export class AgentLoop {
             "pre-model-call hook failed the model call; ending the turn without sending",
           );
           throw preModelCallFailure;
+        }
+
+        // FINAL media-capability enforcement, at the authoritative send
+        // boundary. The image-fallback `pre-model-call` hook handles this
+        // proactively (captioning via a vision profile when one exists), but
+        // two paths can defeat it: the pipeline discards a hook's mutation
+        // when it times out or throws (fail-open), and a hook registered
+        // after it can reroute the call to a text-only profile. Whatever the
+        // settled chain produced, raw image blocks must not be sent to a
+        // model that cannot accept them, so any that remain are replaced
+        // with the plugin's deterministic static placeholders here. No
+        // captioning at this boundary: the proactive pass had its chance,
+        // and this pass must be cheap, bounded, and provider-call-free.
+        // Substitution happens on a clone, so only the wire payload changes
+        // and the loop's history bookkeeping is untouched (the same
+        // wire-only contract the hook has).
+        const finalModelKey =
+          (typeof providerConfig.overrideProfile === "string"
+            ? providerConfig.overrideProfile
+            : undefined) ??
+          options.modelProfileKey ??
+          null;
+        if (finalModelKey != null && needsImageFallback(finalModelKey)) {
+          const residualMediaBlocks =
+            countImageBlocksInMessages(outboundMessages);
+          if (residualMediaBlocks > 0) {
+            const wireClone = structuredClone(outboundMessages);
+            const placeholdered = await captionOutboundImagesInMessages(
+              wireClone,
+              this.conversationId,
+              null,
+              rlog,
+            );
+            outboundMessages = wireClone;
+            rlog.warn(
+              {
+                callSite,
+                modelProfileKey: finalModelKey,
+                residualMediaBlocks,
+                placeholdered,
+                decision: "boundary_placeholdered",
+              },
+              "Outbound media survived the settled pre-model-call chain bound for a text-only model; replaced with static placeholders at the send boundary",
+            );
+          }
         }
 
         // Announce the LLM-call boundary so downstream handlers (the
