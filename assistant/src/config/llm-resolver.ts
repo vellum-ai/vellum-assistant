@@ -157,9 +157,11 @@ export function resolveCallSiteConfig(
 //
 // The request config is the base + winner + site-tweak composition:
 // code-owned schema defaults, then the single winning profile, then the call
-// site's own tuning fragment. Selection is pure either/or — no profile ever
-// contributes a field to another profile; `deepMerge` here only makes nested
-// tweaks (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
+// site's own tuning fragment (its shipped `CALL_SITE_DEFAULTS` tuning with
+// the workspace `llm.callSites` entry layered over it, field by field).
+// Selection is pure either/or: no profile ever contributes a field to
+// another profile, and `deepMerge` only makes nested tweaks
+// (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
 // `temperature`/`topP` come from the winner (or an explicit tweak);
 // `logitBias` only ever from the winner.
 // `forceOverrideProfile` is a no-op here (the override is already first).
@@ -381,15 +383,21 @@ function resolveOverrideOrDefault(
   const winnerFragment: Mergeable =
     selection.entry == null ? {} : winnerConfigFragment(selection.entry);
 
-  // The call site's own tweak fragment: the workspace override replaces the
-  // code default wholesale. `profile` is the selection discriminator and
-  // `logitBias` is winner-owned, so neither enters the merge.
-  const site = llm.callSites?.[callSite] ?? CALL_SITE_DEFAULTS[callSite];
+  // The call site's own tweak fragment: the workspace entry layers over the
+  // shipped call-site default, so an entry that only names a profile changes
+  // the selection while the tuning the call site ships with (effort, token
+  // budgets, thinking, cache posture) still applies. A field the workspace
+  // entry sets wins for that field alone. `profile` is the selection
+  // discriminator and `logitBias` is winner-owned, so neither enters the
+  // merge.
   const {
     profile: _siteProfile,
     logitBias: _siteBias,
     ...tweak
-  } = (site ?? {}) as Record<string, unknown>;
+  } = deepMerge(
+    (CALL_SITE_DEFAULTS[callSite] ?? {}) as Mergeable,
+    (llm.callSites?.[callSite] ?? {}) as Mergeable,
+  ) as Record<string, unknown>;
 
   // Direct call-site model overrides are fragments by design: when the tweak
   // pins a model the winner's provider does not serve, stamp the catalog
