@@ -122,7 +122,10 @@ export interface SubagentEntry {
    * True once a detail fetch for this entry has completed at least once:
    * success, empty, or failure. Until then, a terminal entry with no events is
    * presumed to have an unloaded timeline and renders as loading rather than
-   * "0 steps".
+   * "0 steps". Cleared by `changeStatus` when a still-eventless entry goes
+   * terminal: a mid-run fetch that settled empty says nothing about the final
+   * timeline, and leaving the flag set would stop the card's render-driven
+   * fetch (`useSubagentCardData`) from ever asking for it.
    */
   detailSettled?: boolean;
 }
@@ -357,18 +360,6 @@ export interface SubagentActions {
     assistantId: string,
     subagentId: string,
   ) => Promise<void>;
-
-  /**
-   * Fetch detail for every subagent in a spawn group, the handful the user
-   * just expanded, so their terminal cards can replace the loading state with
-   * their real timeline. Reads the active assistant from
-   * `useResolvedAssistantsStore` (same pattern as `abortSubagent` /
-   * `requestSubagentReconcile`). Fire-and-forget: `fetchDetailIfNeeded` dedups
-   * via `fetchedAt` and bails when events already exist, so calling it for
-   * already-loaded or still-active ids is a safe no-op. No-op when there's no
-   * active assistant.
-   */
-  fetchGroupDetail: (subagentIds: string[]) => void;
 
   /**
    * Rebuild this conversation's subagent rows from the daemon's live
@@ -930,11 +921,24 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       return;
     }
 
+    // A fetch that settled empty while the run was live answered "no events
+    // YET", not "no events ever". Re-arm the settled flag on the transition to
+    // terminal so the card's render-driven fetch asks again for the final
+    // timeline. Bounded: the transition fires once, and the re-fetch stamps
+    // `detailSettled` back regardless of outcome.
+    const detailSettled =
+      isActiveStatus(existing.status) &&
+      !isActiveStatus(params.status) &&
+      existing.events.length === 0
+        ? false
+        : existing.detailSettled;
+
     set({
       byId: {
         ...byId,
         [params.subagentId]: {
           ...existing,
+          detailSettled,
           status: params.status,
           error: params.error ?? existing.error,
           // Preserve the accumulated usage when a status event carries
@@ -1350,16 +1354,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentToolUseId: detail.parentToolUseId,
       conversationId: detail.conversationId,
     });
-  },
-
-  fetchGroupDetail: (subagentIds) => {
-    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!assistantId) {
-      return;
-    }
-    for (const id of subagentIds) {
-      void get().fetchDetailIfNeeded(assistantId, id);
-    }
   },
 
   reconcileFromDaemon: (

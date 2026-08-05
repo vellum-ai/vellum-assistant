@@ -316,10 +316,10 @@ describe("handleHostBashResult", () => {
   //
   // A request registered while the target's SSE record had no principal
   // persists `targetActorPrincipalId: undefined`. Once the SSE self-heal
-  // fills the hub record, the result route re-reads the live record —
+  // fills the hub record, the result route re-reads the live record,
   // but ONLY when the persisted value is missing.
 
-  describe("targeted request — missing persisted target principal fills from the live hub record", () => {
+  describe("targeted request - missing persisted target principal fills from the live hub record", () => {
     test("accepts a matching submitter when the hub record was healed after registration", async () => {
       const requestId = "req-healed-target";
       // Registered pre-heal: hub had no principal, so nothing was persisted.

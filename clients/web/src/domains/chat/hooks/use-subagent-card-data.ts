@@ -29,13 +29,14 @@
  *   step so the body doesn't show a stale loader.
  */
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   useSubagentStore,
   type SubagentEntry,
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentStatus } from "@vellumai/assistant-api";
@@ -554,6 +555,28 @@ export function computeSubagentCardData(
  * of re-walking the timeline. Reads only the last step, so it's safe to run on
  * every render.
  */
+/**
+ * A settled (terminal) entry whose timeline hasn't been fetched yet. Shared by
+ * the projection (which renders it as "Loading" rather than claiming "0
+ * steps": the subagent DID have steps, they just haven't loaded) and the
+ * demand effect in {@link useSubagentCardData} (which issues the fetch that
+ * resolves it), so the two can't drift: whatever renders as loading is exactly
+ * what gets fetched. `!isActiveStatus` so live cards keep their streaming
+ * "Working" state; `canAddressSubagentDetail` so a card on an old daemon that
+ * can never fetch falls back to steady behavior instead of spinning forever;
+ * `events.length === 0` so an already-loaded card is untouched; and
+ * `detailSettled` bounds it to one fetch attempt (set on success, empty, AND
+ * failure, so neither branch can loop).
+ */
+function isLoadingDetail(entry: SubagentEntry): boolean {
+  return (
+    !isActiveStatus(entry.status) &&
+    canAddressSubagentDetail(entry) &&
+    entry.events.length === 0 &&
+    !entry.detailSettled
+  );
+}
+
 export function deriveSubagentCardData(
   entry: SubagentEntry,
   {
@@ -561,21 +584,7 @@ export function deriveSubagentCardData(
     toolMeta,
   }: { steps: ToolCallCardStep[]; toolMeta: Array<ToolMeta | undefined> },
 ): ToolCallCardData {
-  // A settled (terminal) entry whose timeline hasn't been fetched yet: don't
-  // claim "0 steps": the subagent DID have steps, they just haven't loaded.
-  // Render a loading state until the fetch lands (see `detailSettled`), at
-  // which point the honest truth (its steps, or a resting empty state) takes
-  // over. `!isActiveStatus` so live cards keep their streaming "Working" state;
-  // `canAddressSubagentDetail` so a card on an old daemon that can never fetch
-  // falls back to today's behavior instead of spinning forever;
-  // `events.length === 0` so an already-loaded card is untouched.
-  const isLoadingDetail =
-    !isActiveStatus(entry.status) &&
-    canAddressSubagentDetail(entry) &&
-    entry.events.length === 0 &&
-    !entry.detailSettled;
-
-  if (isLoadingDetail) {
+  if (isLoadingDetail(entry)) {
     return {
       state: "loading",
       currentStepTitle: "Loading",
@@ -728,11 +737,33 @@ function deriveCurrentStep(
  * React hook: subscribe to the subagent store entry for `subagentId`
  * and project it into `ToolCallCardData`. Returns `null` when no entry
  * exists yet (spawn race) so callers can short-circuit rendering.
+ *
+ * Rendering is the demand signal for the timeline: when the projection would
+ * show the "Loading" placeholder (a terminal entry whose events were never
+ * streamed to this client, e.g. one recovered by reconcile after a reload),
+ * the hook fetches the detail itself, so every surface that renders a card
+ * (transcript spawn group, header Activity list, overlay) settles without its
+ * host remembering to kick a fetch. Same self-hydration contract as
+ * `useWorkflowCardData`. Safe by construction: `fetchDetailIfNeeded` dedups
+ * concurrent demands via `fetchedAt`, and the `isLoadingDetail` predicate goes
+ * false once the fetch settles (`detailSettled`), so the effect fires at most
+ * once per entry per attempt window.
  */
 export function useSubagentCardData(
   subagentId: string,
 ): ToolCallCardData | null {
   const entry = useSubagentStore((state) => state.byId[subagentId]);
+  const assistantId = useResolvedAssistantsStore((s) => s.activeAssistantId);
+  // A boolean dep, not `entry`: per-tick identity bumps (usage, status) must
+  // not re-run the effect; only the loading-detail state flipping should.
+  const needsDetail = entry !== undefined && isLoadingDetail(entry);
+  useEffect(() => {
+    if (needsDetail && assistantId) {
+      void useSubagentStore
+        .getState()
+        .fetchDetailIfNeeded(assistantId, subagentId);
+    }
+  }, [needsDetail, assistantId, subagentId]);
   // Project incrementally (must run unconditionally — `useSubagentSteps` holds
   // a ref). In the spawn-race window there's no entry yet, so feed the stable
   // empty array; the `null` return below preserves the existing contract.

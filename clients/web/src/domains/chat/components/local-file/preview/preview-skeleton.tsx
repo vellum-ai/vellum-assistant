@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
+
 /** Relative widths of the placeholder lines, so the block reads as prose. */
 const LINE_WIDTHS = ["w-2/5", "w-full", "w-11/12", "w-4/5", "w-3/4"];
 
@@ -12,10 +14,7 @@ export function PreviewSkeleton(): ReactNode {
       className="flex flex-col gap-3 p-1"
     >
       {LINE_WIDTHS.map((width) => (
-        <span
-          key={width}
-          className={`h-4 animate-pulse rounded bg-[var(--surface-lift)] ${width}`}
-        />
+        <Skeleton as="span" key={width} className={`h-4 ${width}`} />
       ))}
     </div>
   );

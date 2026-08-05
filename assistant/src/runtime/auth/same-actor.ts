@@ -80,7 +80,7 @@ export interface SameActorPersistedArgs {
    * target principal is absent (the request was registered before the SSE
    * self-heal filled the target client's hub record), re-read the live hub
    * record. Only consulted when `targetActorPrincipalId` is nullish AND HTTP
-   * auth is disabled — a present persisted value always wins, so a
+   * auth is disabled. A present persisted value always wins, so a
    * present-but-mismatched principal still rejects, and JWT-auth deployments
    * are unaffected. The hub value is set server-side at SSE registration (or
    * by the self-heal), never from client input.

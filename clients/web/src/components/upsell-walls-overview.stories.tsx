@@ -21,9 +21,11 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CalendarClock, KeyRound } from "lucide-react";
+import { CalendarClock, KeyRound, Sparkles } from "lucide-react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 import { DiskPressureBanner } from "@/components/disk-pressure-banner";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
@@ -32,9 +34,13 @@ import {
   UPGRADE_COPY,
 } from "@/domains/chat/components/credits-upsell-card";
 import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
-import { PlanPromoCard } from "@/domains/settings/billing/plan-promo-card";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
-import { makeSuperPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import { PlanTile } from "@/domains/settings/billing/plan-tile";
+import {
+  makeProPackage,
+  makeSuperPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import { formatDollars } from "@/domains/settings/components/tier-pricing";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
@@ -79,6 +85,16 @@ const DISK_STATUS: DiskPressureStatus = {
   blockedCapabilities: [],
   error: null,
 };
+
+/**
+ * The plan tile's CTA quotes the real price delta between the current package
+ * and the next one up, so the story derives it from the same fixtures the
+ * billing suites use rather than hardcoding a number that can drift.
+ */
+const SUPER_PACKAGE = makeSuperPackage();
+const POWER_UP_LABEL = `Power Up for +${formatDollars(
+  SUPER_PACKAGE.total_price_cents - makeProPackage().total_price_cents,
+)}/month`;
 
 interface WallCaseProps {
   wall: string;
@@ -321,32 +337,41 @@ export const ResourceAndEntitlementWalls: Story = {
 
         <Group heading="Plan management upsell">
           <WallCase
-            wall="Recommended package"
-            trigger="A higher package exists in the catalog and the relation is not a lateral switch."
-            cta="Upgrade"
+            wall="Next plan tile"
+            trigger="A higher package exists in the catalog and the relation is not a lateral switch. A Pro user at the top of the catalog, or one whose tiers match no package, gets no tile at all; the plans takeover keeps the customize path."
+            cta={POWER_UP_LABEL}
             destination="Stripe checkout (base) or package-switch confirm (pro)"
           >
             <div className="w-[360px]">
-              <PlanPromoCard
-                title="Upgrade to Super"
-                specs={packageSpecs(makeSuperPackage())}
-                ctaLabel="Upgrade"
-                onCtaClick={() => {}}
-              />
-            </div>
-          </WallCase>
-
-          <WallCase
-            wall="Top of catalog"
-            trigger="A Pro user already at the top of the catalog, or whose tiers match no package."
-            cta="Customize"
-            destination="Custom plan modal (in-place tier change)"
-          >
-            <div className="w-[360px]">
-              <PlanPromoCard
-                title="Create a custom plan"
-                ctaLabel="Customize"
-                onCtaClick={() => {}}
+              <PlanTile
+                theme="dark"
+                tierKey={SUPER_PACKAGE.key}
+                name={SUPER_PACKAGE.name}
+                tag={
+                  <Tag
+                    className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
+                    leftIcon={
+                      <Sparkles
+                        className="text-[var(--credits-accent)]"
+                        aria-hidden
+                      />
+                    }
+                  >
+                    Next Plan
+                  </Tag>
+                }
+                specs={packageSpecs(SUPER_PACKAGE)}
+                footer={
+                  <Button
+                    variant="primary"
+                    fullWidth
+                    tintColor="var(--aux-white)"
+                    className="h-10 border-transparent bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] hover:opacity-90 active:bg-[var(--system-positive-strong)]"
+                    onClick={() => {}}
+                  >
+                    {POWER_UP_LABEL}
+                  </Button>
+                }
               />
             </div>
           </WallCase>
