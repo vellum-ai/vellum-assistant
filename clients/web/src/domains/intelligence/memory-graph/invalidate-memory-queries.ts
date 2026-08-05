@@ -1,4 +1,4 @@
-import type { InvalidateQueryFilters, QueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 
 import { memoryGraphOptions } from "./get-memory-graph";
 import { memoryStatsOptions } from "./get-memory-stats";
@@ -18,24 +18,15 @@ import { memoryStatsOptions } from "./get-memory-stats";
  * Called from the `assistantConfig` sync tag (a config write on any client) and
  * on mount of the unavailable-graph surface, which is where a stale answer is
  * most actively misleading.
- *
- * `options.refetchType` is passed straight through to TanStack. Omitting it
- * keeps TanStack's `"active"` default (mounted observers refetch now); the SSE
- * reconnect sweep passes `"none"` so the entries are only marked stale and
- * refetch on next observe.
  */
 export function invalidateMemoryQueries(
   queryClient: QueryClient,
   assistantId: string,
-  options?: { refetchType?: InvalidateQueryFilters["refetchType"] },
 ): void {
-  const refetchType = options?.refetchType;
   void queryClient.invalidateQueries({
     queryKey: memoryGraphOptions(assistantId).queryKey,
-    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: memoryStatsOptions(assistantId).queryKey,
-    refetchType,
   });
 }

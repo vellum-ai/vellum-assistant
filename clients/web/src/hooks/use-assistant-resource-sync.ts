@@ -8,8 +8,8 @@
  *
  * Also handles `sse.opened` (non-fresh) to invalidate cached resources on
  * reconnect — the client may have missed `sync_changed` events during the
- * transport gap. That sweep is debounced and split into refetch tiers; see
- * `refreshAssistantResources` below.
+ * transport gap. That sweep is debounced; see `refreshAssistantResources`
+ * below.
  *
  * Focus-based refetching (tab visible, Capacitor foregrounding) is NOT
  * handled here — it's configured globally via TQ's `focusManager` in
@@ -29,11 +29,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import {
-  useQueryClient,
-  type InvalidateQueryFilters,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
@@ -55,12 +51,6 @@ import { SYNC_TAGS } from "@/lib/sync/types";
  * one trailing sweep rather than one per `sse.opened`.
  */
 const RECONNECT_SWEEP_DEBOUNCE_MS = 500;
-
-/**
- * Lazy tier marker: mark the cache entry stale without refetching it now.
- * TanStack refetches it the next time an observer mounts or the app refocuses.
- */
-const LAZY_REFETCH: InvalidateQueryFilters["refetchType"] = "none";
 
 /**
  * Subscribes to assistant-resource sync events via the event bus.
@@ -227,29 +217,14 @@ export function useAssistantResourceSync(
  * Reconnect catch-up: `sync_changed` events emitted while the transport was
  * down were never delivered, so every assistant-level cache may be stale.
  *
- * Invalidating every family at TanStack's default `refetchType: "active"`
- * fires their GETs all at once, and an iOS foreground is a reconnect. Two
- * tiers instead:
+ * Every family invalidates at TanStack's default `refetchType: "active"`,
+ * which refetches only the queries that currently have an observer. A view
+ * nobody has open is marked stale and costs no request until it next mounts;
+ * a view that is open refetches now, which is the only way it picks up the
+ * `sync_changed` events it missed while the stream was down.
  *
- *   tier      | families                                   | refetchType
- *   ----------|--------------------------------------------|------------
- *   immediate | identity, config, avatar                   | "active"
- *   lazy      | memory x2, sounds x2, schedules x3, apps,  | "none"
- *             | plugins x4, home feed, home state          |
- *
- * The immediate tier is three cheap reads backing chrome that renders whatever
- * view is open. The lazy tier is marked stale but not refetched: each family
- * refetches on the next observer mount, so a view the user never opens costs
- * nothing and a view they do open reads fresh. A lazy view already mounted at
- * reconnect refetches on the next `app.resume`, which TQ's `focusManager`
- * turns into a refetch of every stale mounted query
- * (`lib/query-focus-manager.ts`). That is the same signal that drives a
- * foreground reconnect, so on the dominant path a mounted view has already
- * refetched by the time this sweep runs.
- *
- * A mounted Home view likewise refetches the feed through its own `app.resume`
- * subscription (`domains/home/hooks/use-home-feed-query.ts`); keeping the home
- * families lazy here stops this sweep from double-paying for that refetch.
+ * A flapping reconnect would run this fan-out once per `sse.opened`, so the
+ * caller collapses a burst into a single trailing sweep.
  */
 function refreshAssistantResources(
   queryClient: QueryClient,
@@ -257,7 +232,6 @@ function refreshAssistantResources(
 ): void {
   const pathOpts = { path: { assistant_id: assistantId } };
 
-  // Immediate tier.
   void queryClient.invalidateQueries({
     queryKey: identityGetQueryKey(pathOpts),
   });
@@ -267,49 +241,35 @@ function refreshAssistantResources(
   void queryClient.invalidateQueries({
     queryKey: avatarQueryKey(assistantId),
   });
-
-  // Lazy tier.
-  invalidateMemoryQueries(queryClient, assistantId, {
-    refetchType: LAZY_REFETCH,
-  });
+  invalidateMemoryQueries(queryClient, assistantId);
   void queryClient.invalidateQueries({
     queryKey: soundsConfigGetQueryKey(pathOpts),
-    refetchType: LAZY_REFETCH,
   });
   void queryClient.invalidateQueries({
     queryKey: soundsAvailableGetQueryKey(pathOpts),
-    refetchType: LAZY_REFETCH,
   });
   void queryClient.invalidateQueries({
     queryKey: schedulesGetQueryKey(pathOpts),
-    refetchType: LAZY_REFETCH,
   });
   void queryClient.invalidateQueries({
     queryKey: [
       { _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } },
     ],
-    refetchType: LAZY_REFETCH,
   });
   void queryClient.invalidateQueries({
     queryKey: [
       { _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } },
     ],
-    refetchType: LAZY_REFETCH,
   });
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
-    refetchType: LAZY_REFETCH,
   });
-  invalidatePluginQueries(queryClient, assistantId, undefined, {
-    refetchType: LAZY_REFETCH,
-  });
+  invalidatePluginQueries(queryClient, assistantId);
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
-    refetchType: LAZY_REFETCH,
   });
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
-    refetchType: LAZY_REFETCH,
   });
 }
 

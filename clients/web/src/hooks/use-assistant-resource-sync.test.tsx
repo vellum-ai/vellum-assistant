@@ -346,54 +346,12 @@ describe("useAssistantResourceSync", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  // A reconnect is an iOS foreground. Sweeping every family at TanStack's
-  // `refetchType: "active"` default lands all their GETs at once, which is
-  // most of the measured foreground request burst.
-  test("reconnect sweep refetches only the immediate tier and marks the rest lazy", async () => {
-    const queryClient = freshQueryClient();
-    const calls: { queryKey?: readonly unknown[]; refetchType?: string }[] = [];
-    queryClient.invalidateQueries = ((arg: {
-      queryKey?: readonly unknown[];
-      refetchType?: string;
-    }) => {
-      calls.push(arg);
-      return Promise.resolve();
-    }) as never;
-    renderHook(() => useAssistantResourceSync("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-
-    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
-    await flushReconnectSweep();
-
-    const pathOpts = { path: { assistant_id: "asst-1" } };
-    const immediate = new Set(
-      [
-        assistantIdentityQueryKey("asst-1"),
-        configGetQueryKey(pathOpts),
-        avatarQueryKey("asst-1"),
-      ].map(keyId),
-    );
-    // An absent refetchType is TanStack's `"active"` default, which is what
-    // the immediate tier wants.
-    for (const id of immediate) {
-      const call = calls.find((entry) => keyId(entry.queryKey) === id);
-      expect(call).toBeDefined();
-      expect(call!.refetchType).toBeUndefined();
-    }
-    const lazy = calls.filter((call) => !immediate.has(keyId(call.queryKey)));
-    expect(lazy.length).toBeGreaterThan(0);
-    for (const call of lazy) {
-      expect(call.refetchType).toBe("none");
-    }
-  });
-
-  // The behavioral half of the tier policy: with observers actually mounted,
-  // the immediate tier issues a network read and the lazy tier does not.
-  test("reconnect refetches a mounted config observer but only stales a mounted sounds observer", async () => {
+  // The sweep is the only thing that reconciles a view that was already open
+  // when the stream dropped: it missed every `sync_changed` in the gap, and
+  // nothing else will tell it to read again while it stays mounted and fresh.
+  test("reconnect sweep refetches mounted observers across every swept family", async () => {
     const queryClient = freshQueryClient();
     const pathOpts = { path: { assistant_id: "asst-1" } };
-    const soundsKey = soundsConfigGetQueryKey(pathOpts);
     let configFetches = 0;
     let soundsFetches = 0;
     const configObserver = new QueryObserver(queryClient, {
@@ -405,7 +363,7 @@ describe("useAssistantResourceSync", () => {
       staleTime: Infinity,
     });
     const soundsObserver = new QueryObserver(queryClient, {
-      queryKey: soundsKey,
+      queryKey: soundsConfigGetQueryKey(pathOpts),
       queryFn: () => {
         soundsFetches += 1;
         return Promise.resolve({ ok: true });
@@ -428,13 +386,60 @@ describe("useAssistantResourceSync", () => {
 
       await waitFor(() => {
         expect(configFetches).toBe(2);
+        expect(soundsFetches).toBe(2);
       });
-      expect(soundsFetches).toBe(1);
-      // Stale, not forgotten: the next observer mount refetches it.
-      expect(queryClient.getQueryState(soundsKey)?.isInvalidated).toBe(true);
     } finally {
       unsubConfig();
       unsubSounds();
+    }
+  });
+
+  // The other half of that bargain: a view nobody has open costs no request.
+  // TanStack's default `refetchType` only refetches observed queries, so an
+  // unobserved family is marked stale and reads through on its next mount.
+  test("reconnect sweep stales an unobserved query without fetching it", async () => {
+    const queryClient = freshQueryClient();
+    const soundsKey = soundsConfigGetQueryKey({
+      path: { assistant_id: "asst-1" },
+    });
+    let fetches = 0;
+    const queryFn = () => {
+      fetches += 1;
+      return Promise.resolve({ ok: true });
+    };
+    const observer = new QueryObserver(queryClient, {
+      queryKey: soundsKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await waitFor(() => {
+      expect(fetches).toBe(1);
+    });
+    unsubscribe();
+
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    expect(fetches).toBe(1);
+    expect(queryClient.getQueryState(soundsKey)?.isInvalidated).toBe(true);
+
+    // Stale, not forgotten: the next observer mount reads through.
+    const remounted = new QueryObserver(queryClient, {
+      queryKey: soundsKey,
+      queryFn,
+      staleTime: Infinity,
+    });
+    const unsubRemount = remounted.subscribe(() => {});
+    try {
+      await waitFor(() => {
+        expect(fetches).toBe(2);
+      });
+    } finally {
+      unsubRemount();
     }
   });
 
