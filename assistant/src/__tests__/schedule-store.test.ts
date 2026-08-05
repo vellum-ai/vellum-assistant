@@ -17,6 +17,7 @@ import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import {
   createConversation,
   setConversationInferenceProfile,
+  setConversationInferenceProfileSession,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -1584,6 +1585,29 @@ describe("inference-profile pinning", () => {
     // turn's override, so seeding from the global default would move a pinned
     // conversation's own follow-up onto a different model.
     expect(job.inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("a defer does not freeze the source conversation's profile session", async () => {
+    const conversation = createConversation({ id: "conv-session" });
+    setConversationInferenceProfileSession(
+      conversation.id,
+      "cost-optimized",
+      "session-1",
+      Date.now() + 10 * 60_000,
+    );
+
+    const job = await createOwnerDeferredWake({
+      conversationId: conversation.id,
+      hint: "check back",
+      fireAt: Date.now() + 7 * 24 * 60 * 60_000,
+    });
+
+    // A profile session is a deliberately temporary choice. Snapshotting it
+    // into the row would keep billing that model every time the wake fires,
+    // long after the ten-minute session lapsed.
+    expect(job.inferenceProfile).toBe(
+      resolveDefaultScheduleInferenceProfile()!,
+    );
   });
 
   test("a defer from an unpinned conversation seeds the default", async () => {

@@ -2,7 +2,7 @@ import { Cron } from "croner";
 import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { getGroup } from "../persistence/group-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
@@ -18,7 +18,10 @@ import {
   LEGACY_DEFER_CREATED_BY,
   OWNER_DEFER_CREATED_BY,
 } from "./defer-provenance.js";
-import { resolveDefaultScheduleInferenceProfile } from "./inference-profile.js";
+import {
+  resolveDefaultScheduleInferenceProfile,
+  resolveWakeScheduleInferenceProfile,
+} from "./inference-profile.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -332,8 +335,9 @@ export async function createSchedule(
  * Callers must have established owner authority first; `defer/create` is the
  * only production caller and is gated accordingly.
  *
- * The pin seeds from the source conversation rather than the global default.
- * A defer resumes the very conversation it was created in, and
+ * The pin seeds from the source conversation's durable choice rather than the
+ * global default, via {@link resolveWakeScheduleInferenceProfile}. A defer
+ * resumes the very conversation it was created in, and
  * `buildWakeScheduleOptions` forces the row's pin as the woken turn's
  * override, so a defer created inside a conversation the user pinned to a
  * specific profile must fire on that profile. Seeding lives here rather than
@@ -350,8 +354,7 @@ export async function createOwnerDeferredWake(params: {
 }): Promise<ScheduleJob> {
   const inferenceProfile =
     params.inferenceProfile ??
-    getConversationOverrideProfile(params.conversationId) ??
-    null;
+    resolveWakeScheduleInferenceProfile(getConversation(params.conversationId));
   return insertSchedule({
     name: params.name ?? "Deferred wake",
     message: params.hint,

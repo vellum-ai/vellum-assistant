@@ -1,6 +1,10 @@
 import { validateInferenceProfileKey } from "../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import {
+  type DurableProfileFields,
+  resolveDurableProfile,
+} from "../persistence/conversation-crud.js";
 
 /**
  * Validate a schedule's inference-profile key against the configured
@@ -35,6 +39,32 @@ export function validateScheduleInferenceProfile(
  */
 export function resolveDefaultScheduleInferenceProfile(): string | null {
   return resolveDefaultProfileKey("mainAgent", getConfig().llm) ?? null;
+}
+
+/**
+ * The profile a wake schedule pins when its creator names none.
+ *
+ * A wake resumes an existing conversation and forces the row's pin as the
+ * woken turn's override, so the target's own choice, not the global default,
+ * is what the user expects it to fire on. Only a *durable* pin seeds the row
+ * ({@link resolveDurableProfile}): a TTL-limited profile session is a
+ * deliberately temporary choice, and freezing one into a row that fires next
+ * week would keep billing that model long after the session lapsed. A target
+ * with no durable pin falls through to the same default every other schedule
+ * snapshots.
+ *
+ * Both the create path and the backfill of rows that predate it resolve
+ * through here, so a pending wake keeps firing on the profile it would have
+ * resolved live.
+ *
+ * @param target The wake's target conversation, or null when it has none.
+ */
+export function resolveWakeScheduleInferenceProfile(
+  target: DurableProfileFields | null,
+): string | null {
+  return (
+    resolveDurableProfile(target) ?? resolveDefaultScheduleInferenceProfile()
+  );
 }
 
 /**
