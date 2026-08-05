@@ -1,21 +1,16 @@
 /**
- * Regression coverage for LUM-3062 (React error 185, "Maximum update depth
- * exceeded").
+ * `AnimatedRightDrawer` adjusts its `mounted` / `retainedRight` state during
+ * render (guarded render-phase setState) rather than in effects keyed on the
+ * `open` / `right` props. `right` is a fresh element on every parent render,
+ * so a prop-keyed effect would fire a setState in every commit's passive
+ * phase while the drawer is open, and enough such commits back to back trip
+ * React's nested-update limit under streaming load (error 185, LUM-3062).
+ * See `lib/commit-pressure.ts`.
  *
- * The drawer adjusts its `mounted` / `retainedRight` state DURING RENDER
- * (guarded render-phase setState), not in effects keyed on the `open` /
- * `right` props. `right` is a fresh element on every parent render, so an
- * effect keyed on it queues a setState into every commit's passive phase
- * while the drawer is open. Each commit then finishes with another update
- * already queued, which is what React's nested-update counter tallies, and a
- * busy stretch (streaming transcript + query invalidations) chains into one
- * 51-commit run and throws. See `lib/commit-pressure.ts`.
- *
- * The Profiler test pins the invariant directly: one parent render of an
+ * The Profiler test pins that invariant directly: one parent render of an
  * open drawer produces exactly one commit, with no cascaded effect commit.
  * The remaining tests pin the behavior the state adjustments exist for
- * (synchronous mount on open, content retention through the close wipe), so
- * the render-phase rewrite cannot silently regress them.
+ * (synchronous mount on open, content retention through the close wipe).
  *
  * `motion/react` is mocked with plain elements; the close animation's
  * `onAnimationComplete` is captured and fired manually so retention during
