@@ -93,9 +93,13 @@ export async function executeConversationMoveToGroup(
       `Moving into ${group.name} demotes it out of the Recents listing.`,
     );
   }
-  if (conversation.conversationType !== "standard") {
+  if (
+    conversation.conversationType !== "standard" &&
+    group.id !== "system:scheduled" &&
+    group.id !== "system:background"
+  ) {
     notes.push(
-      `Note: this is a ${conversation.conversationType} conversation, which stays hidden from the sidebar regardless of group.`,
+      `Note: this is a ${conversation.conversationType} conversation, so filing it here also surfaces it into the sidebar.`,
     );
   }
 

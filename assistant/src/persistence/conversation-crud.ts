@@ -4051,15 +4051,50 @@ export function batchSetDisplayOrders(
         const clearsSurfaced =
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
-        rawRun(
-          "conversation:batchSetDisplayOrders:group",
-          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
-            clearsSurfaced ? ", surfaced_at = NULL" : ""
-          } WHERE id = ?`,
+        // Filing a conversation into a section the user reads (Pinned or one
+        // of their own groups) is the mirror image: an explicit promotion, so
+        // it stamps `surfaced_at` the way the surface API does.
+        //
+        // Promotion has to be durable rather than implied by where the row
+        // currently sits. A background row was previously visible only while
+        // it satisfied the custom-group arm of the listing predicate, so
+        // taking it back out of the group made it vanish instead of falling
+        // back to Recents, and pinning never made it visible at all because
+        // `system:pinned` fails that arm's `system:` prefix check.
+        //
+        // Only background and scheduled rows need it: everything else is
+        // already visible, and stamping them would leave `surfaced_at`
+        // meaning nothing. `COALESCE` keeps the original promotion time when
+        // the row is re-filed later.
+        const promotes =
+          !clearsSurfaced &&
+          safeGroupId !== UNGROUPED_GROUP_ID &&
+          (safeGroupId === PINNED_GROUP_ID ||
+            !safeGroupId.startsWith("system:"));
+        const setClauses = [
+          "display_order = ?",
+          "is_pinned = ?",
+          "group_id = ?",
+        ];
+        const params: Array<string | number | null> = [
           update.displayOrder,
           safeGroupId === PINNED_GROUP_ID ? 1 : 0,
           safeGroupId,
-          update.id,
+        ];
+        if (clearsSurfaced) {
+          setClauses.push("surfaced_at = NULL");
+        } else if (promotes) {
+          setClauses.push(
+            "surfaced_at = CASE WHEN conversation_type IN ('background', 'scheduled')" +
+              " THEN COALESCE(surfaced_at, ?) ELSE surfaced_at END",
+          );
+          params.push(Date.now());
+        }
+        params.push(update.id);
+        rawRun(
+          "conversation:batchSetDisplayOrders:group",
+          `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
+          ...params,
         );
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
