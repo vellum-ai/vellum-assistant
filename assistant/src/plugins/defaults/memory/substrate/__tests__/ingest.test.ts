@@ -25,6 +25,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -277,6 +278,31 @@ describe("ingestPages", () => {
     expect(enqueuedJobs).toEqual([]);
     // The pre-existing lock is left in place for its holder.
     expect(existsSync(path)).toBe(true);
+  });
+
+  test("a lock retained by a timed-out consolidation excludes daemon-side ingest (LUM-3018)", async () => {
+    // Ingest runs in the daemon while consolidation runs in the jobs worker,
+    // and they share this lock precisely so their `memory/**` writes cannot
+    // interleave. When a consolidation times out and its turn refuses to
+    // stop, the handler deliberately leaves the lock held; this asserts the
+    // other writer is genuinely excluded for as long as that abandoned turn
+    // may still be writing, rather than merely being expected to be.
+    const path = lockPath();
+    mkdirSync(dirname(path), { recursive: true });
+    const retained = `${process.pid} ${Date.now()} consolidation`;
+    writeFileSync(path, `${retained}\n`);
+
+    await expect(
+      ingestPages(workspace, [
+        { slug: "people/alice", content: validPage("Alice likes hiking.") },
+      ]),
+    ).rejects.toBeInstanceOf(IngestLockedError);
+
+    expect(await listPages(workspace)).toEqual([]);
+    expect(enqueuedJobs).toEqual([]);
+    // Ingest must not reclaim the abandoned writer's lock: only the
+    // pre-existing stale path (PID death, or the stale TTL) may.
+    expect(readFileSync(path, "utf-8").trim()).toBe(retained);
   });
 
   test("batch over the cap throws RangeError before any validation", async () => {

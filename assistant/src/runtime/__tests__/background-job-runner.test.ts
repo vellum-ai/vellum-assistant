@@ -68,6 +68,22 @@ mock.module("../../daemon/process-message.js", () => ({
   },
 }));
 
+// The timeout path cancels the turn on the conversation's abort rail. The
+// stub records each signal and lets a test drive whether the turn actually
+// unwinds in response (`onAbort`), which is what separates a cooperative
+// stop from a turn that ignores the abort.
+const abortCalls: Array<{ conversationId: string; reasonKind?: string }> = [];
+let onAbort: (() => void) | undefined;
+
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (conversationId: string) => ({
+    abort: (reason?: { kind?: string }) => {
+      abortCalls.push({ conversationId, reasonKind: reason?.kind });
+      onAbort?.();
+    },
+  }),
+}));
+
 const emitCalls: Array<Record<string, unknown>> = [];
 let emitImpl: (
   params: Record<string, unknown>,
@@ -123,6 +139,8 @@ beforeEach(() => {
   processMessageCalls.length = 0;
   emitCalls.length = 0;
   addMessageCalls.length = 0;
+  abortCalls.length = 0;
+  onAbort = undefined;
   preFirstMessageGateOpen = true;
   processMessageImpl = async () => ({ messageId: "msg-1" });
   emitImpl = async () => ({
@@ -288,10 +306,14 @@ describe("runBackgroundJob", () => {
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {
-    // Never resolve — force timeout to win the race.
+    // Never resolve: force timeout to win the race. The short grace override
+    // keeps the test fast; the turn ignores the abort, so the runner waits
+    // the full window before reporting.
     processMessageImpl = () => new Promise(() => {});
 
-    const result = await runBackgroundJob(baseOpts({ timeoutMs: 50 }));
+    const result = await runBackgroundJob(
+      baseOpts({ timeoutMs: 50, timeoutAbortGraceMs: 20 }),
+    );
 
     expect(result.ok).toBe(false);
     expect(result.errorKind).toBe("timeout");
@@ -301,6 +323,57 @@ describe("runBackgroundJob", () => {
     expect(
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("timeout");
+  });
+
+  test("timeout signals the conversation's abort rail and reports workStopped=true when the turn settles", async () => {
+    // Cooperative stop: the turn observes the abort and unwinds, so its
+    // resources (the consolidation lock) are free.
+    let settle: (() => void) | undefined;
+    processMessageImpl = () =>
+      new Promise((resolve) => {
+        settle = () => resolve({ messageId: "msg-aborted" });
+      });
+    onAbort = () => settle?.();
+
+    const result = await runBackgroundJob(
+      baseOpts({ timeoutMs: 50, timeoutAbortGraceMs: 500 }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("timeout");
+    expect(result.workStopped).toBe(true);
+    // Cancellation rode the existing abort rail with a truthful reason.
+    expect(abortCalls).toHaveLength(1);
+    expect(abortCalls[0].conversationId).toBe(STUB_CONVERSATION_ID);
+    expect(abortCalls[0].reasonKind).toBe("background_job_timeout");
+  });
+
+  test("timeout: a turn that ignores the abort reports workStopped=false", async () => {
+    // The turn never settles, so after the grace window the runner reports
+    // the work as still running. Callers guarding a shared resource must
+    // fail closed on this.
+    processMessageImpl = () => new Promise(() => {});
+
+    const result = await runBackgroundJob(
+      baseOpts({ timeoutMs: 50, timeoutAbortGraceMs: 20 }),
+    );
+
+    expect(result.errorKind).toBe("timeout");
+    expect(result.workStopped).toBe(false);
+    expect(abortCalls).toHaveLength(1);
+  });
+
+  test("workStopped is absent for non-timeout outcomes", async () => {
+    processMessageImpl = async () => {
+      throw new Error("kaboom");
+    };
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("exception");
+    expect(result.workStopped).toBeUndefined();
+    expect(abortCalls).toHaveLength(0);
   });
 
   test("suppressFailureNotifications: failure returns ok=false but emits nothing", async () => {

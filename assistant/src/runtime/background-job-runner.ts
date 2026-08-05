@@ -19,6 +19,7 @@
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -27,6 +28,7 @@ import type { AttentionHints } from "../notifications/signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import type { TitleOrigin } from "../persistence/conversation-title-service.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -97,6 +99,13 @@ export interface RunBackgroundJobOptions {
   cronRunId?: string | null;
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
+  /**
+   * How long to wait, after signalling the timed-out turn's abort, for that
+   * turn to actually settle before reporting `workStopped: false`. Defaults
+   * to {@link TIMEOUT_ABORT_GRACE_MS}. Exposed for tests; production callers
+   * take the default.
+   */
+  timeoutAbortGraceMs?: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
    * Use for jobs that own their own failure UX (e.g. heartbeat's alerter)
@@ -215,6 +224,92 @@ export interface RunBackgroundJobResult {
    *   was bootstrapped; `conversationId` is the empty string.
    */
   skipReason?: "pre_first_user_message";
+  /**
+   * Timeout results only: whether the underlying turn actually stopped.
+   *
+   * A timeout used to be a pure race: the timer won, the caller reported
+   * failure, and the losing `processMessage` kept running and kept writing.
+   * The runner now cancels the turn on the conversation's abort rail and
+   * waits a bounded grace window, so callers that guard a shared resource
+   * (the memory consolidation lock) can act on what actually happened
+   * instead of assuming the abandoned turn is gone:
+   *
+   * - `true`: the turn observed the abort and settled. Its resources are
+   *   free.
+   * - `false`: the turn ignored the abort for the whole grace window and may
+   *   still be executing and writing. Callers must treat its resources as
+   *   still in use (fail closed).
+   *
+   * Absent for every non-timeout outcome.
+   */
+  workStopped?: boolean;
+}
+
+/**
+ * Default grace window between signalling a timed-out turn's abort and
+ * declaring that it did not stop. Long enough for a cooperative unwind (the
+ * agent loop observes the signal at its next await, tears down, and settles)
+ * and short enough that a caller guarding a shared resource is not blocked
+ * behind an uncooperative turn.
+ */
+export const TIMEOUT_ABORT_GRACE_MS = 5_000;
+
+/**
+ * Cancel the turn a timed-out job owns and report whether it actually
+ * stopped within `graceMs`.
+ *
+ * Cancellation rides the conversation's existing abort rail (the same
+ * controller user Stop signals), so it reaches the in-flight provider call
+ * and the tool loop rather than being a second, parallel cancellation
+ * mechanism. Failing to signal is not fatal: the caller still learns the
+ * turn did not stop and fails closed on that.
+ */
+async function cancelTimedOutWork(
+  conversationId: string | undefined,
+  work: Promise<unknown> | undefined,
+  jobName: string,
+  graceMs: number,
+): Promise<boolean> {
+  if (conversationId) {
+    try {
+      findConversation(conversationId)?.abort(
+        createAbortReason(
+          "background_job_timeout",
+          `backgroundJobTimeout:${jobName}`,
+          conversationId,
+        ),
+      );
+    } catch (abortErr) {
+      log.warn(
+        {
+          err: abortErr instanceof Error ? abortErr.message : String(abortErr),
+          jobName,
+          conversationId,
+        },
+        "Failed to signal abort for timed-out background job",
+      );
+    }
+  }
+  if (!work) {
+    return true;
+  }
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Settled either way counts as stopped: the turn is no longer executing.
+    return await Promise.race([
+      work.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        graceTimer = setTimeout(() => resolve(false), graceMs);
+      }),
+    ]);
+  } finally {
+    if (graceTimer) {
+      clearTimeout(graceTimer);
+    }
+  }
 }
 
 function classifyError(err: unknown): BackgroundJobErrorKind {
@@ -280,6 +375,9 @@ export async function runBackgroundJob(
     | Awaited<ReturnType<typeof bootstrapConversation>>
     | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // Hoisted so the timeout path in `catch` can cancel the turn still holding
+  // this promise and observe whether it settles.
+  let work: ReturnType<typeof processMessage> | undefined;
   try {
     // Bootstrap inside the try so that a `createConversation` /
     // `queueGenerateConversationTitle` failure is caught and surfaced as a
@@ -339,7 +437,7 @@ export async function runBackgroundJob(
       );
     }
 
-    const work = processMessage(conversation.id, opts.prompt, {
+    work = processMessage(conversation.id, opts.prompt, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
       ...(opts.overrideProfile
@@ -393,6 +491,26 @@ export async function runBackgroundJob(
     // so the structured failure result still flows to the caller.
     const conversationId = conversation?.id ?? "";
 
+    // A timeout must not silently abandon a still-running turn. Signal the
+    // conversation's abort rail and wait a bounded grace window, so the
+    // reported outcome describes what actually happened to the work rather
+    // than only who won the race.
+    let workStopped: boolean | undefined;
+    if (err instanceof BackgroundJobTimeoutError) {
+      workStopped = await cancelTimedOutWork(
+        conversation?.id,
+        work,
+        opts.jobName,
+        opts.timeoutAbortGraceMs ?? TIMEOUT_ABORT_GRACE_MS,
+      );
+      log.warn(
+        { jobName: opts.jobName, conversationId, workStopped },
+        workStopped
+          ? "Timed-out background job cancelled cooperatively"
+          : "Timed-out background job did NOT stop within the abort grace window; treating its resources as still in use",
+      );
+    }
+
     log.error(
       {
         err: error.message,
@@ -445,6 +563,7 @@ export async function runBackgroundJob(
       error,
       errorKind,
       ...(failureCode !== undefined ? { failureCode } : {}),
+      ...(workStopped !== undefined ? { workStopped } : {}),
     };
   } finally {
     if (timer) {

@@ -320,6 +320,15 @@ export async function memoryV2ConsolidateJob(
     return { kind: "locked", holder };
   }
 
+  // Set when the run timed out and the underlying turn did NOT stop within
+  // the abort grace window: that turn can still be writing `memory/**`, so
+  // releasing the lock would let a second bulk writer (the next scheduled
+  // consolidation, or a page ingest, which shares this lock) run
+  // concurrently with it. Fail closed and leave the lock held; the
+  // pre-existing stale-lock recovery (holder PID death, or the stale TTL)
+  // reclaims it.
+  let abandonedRunStillWriting = false;
+
   try {
     // Step 2: bail on empty buffer. Nothing for the agent to consolidate.
     // The lock is released in finally below.
@@ -458,6 +467,16 @@ export async function memoryV2ConsolidateJob(
     });
 
     if (!runResult.ok) {
+      // A timed-out run is cooperatively aborted by the runner, which reports
+      // whether the turn actually stopped. A turn that refused to stop may
+      // still be writing memory files, so the lock must outlive this handler
+      // (see `abandonedRunStillWriting` above).
+      if (
+        runResult.errorKind === "timeout" &&
+        runResult.workStopped === false
+      ) {
+        abandonedRunStillWriting = true;
+      }
       // Billing turn failures (`PROVIDER_BILLING` covers both exhausted
       // managed credits and BYOK provider-account credits) are
       // non-retryable and select the scheduler's long backoff curve;
@@ -471,6 +490,7 @@ export async function memoryV2ConsolidateJob(
           errorKind: runResult.errorKind,
           failureCode: runResult.failureCode,
           failureKind,
+          abandonedRunStillWriting,
           err: runResult.error?.message,
         },
         "consolidation run failed; follow-ups skipped",
@@ -576,7 +596,21 @@ export async function memoryV2ConsolidateJob(
       noProgress: false,
     };
   } finally {
-    releaseLock(lockPath);
+    if (abandonedRunStillWriting) {
+      // Fail closed: the timed-out turn is still executing, so keep the lock
+      // to exclude every other bulk `memory/**` writer, including the page
+      // ingest path that shares it (ingest returns 409 while held).
+      // Reclamation is the pre-existing stale-lock path: the holder PID
+      // dying, or the stale TTL elapsing. The availability cost is bounded
+      // and deliberate, and strictly safer than releasing a lock whose
+      // writer is still running.
+      log.warn(
+        { lockPath },
+        "consolidation: leaving lock held for a timed-out run that has not stopped",
+      );
+    } else {
+      releaseLock(lockPath);
+    }
   }
 }
 

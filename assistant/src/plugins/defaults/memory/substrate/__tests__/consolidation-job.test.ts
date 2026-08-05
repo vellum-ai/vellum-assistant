@@ -71,6 +71,7 @@ let runnerImpl: () => Promise<{
   errorKind?: string;
   failureCode?: string;
   skipReason?: string;
+  workStopped?: boolean;
 }> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
@@ -745,6 +746,71 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     // Lock must still be released on the failure path so the next
     // scheduled consolidation can re-attempt.
     expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("timeout whose turn stopped cooperatively releases the lock", async () => {
+    // The runner cancelled the turn and it settled, so nothing is writing
+    // `memory/**` any more and the next run may proceed normally.
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("Background job 'memory-consolidation' timed out"),
+      errorKind: "timeout",
+      workStopped: true,
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("run_failed");
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("timeout whose turn is STILL RUNNING keeps the lock held (fail closed)", async () => {
+    // The abandoned turn may still be writing memory files, so the lock must
+    // outlive this handler. Reclamation is the pre-existing stale-lock path
+    // (holder PID death, or the stale TTL), deliberately NOT a late release
+    // from here, which could unlink a lock a successor already took over.
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("Background job 'memory-consolidation' timed out"),
+      errorKind: "timeout",
+      workStopped: false,
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    // Truthful terminal outcome: the row still reports the failure, which
+    // `resolveConsolidationOutcome` dead-letters at the queue seam.
+    expect(result.kind).toBe("run_failed");
+    expect(existsSync(lockPath())).toBe(true);
+  });
+
+  test("a retained lock excludes the next consolidation while the abandoned turn is alive", async () => {
+    // The exclusion this fix exists for: no second bulk writer may start
+    // while the timed-out turn may still be writing.
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("Background job 'memory-consolidation' timed out"),
+      errorKind: "timeout",
+      workStopped: false,
+    });
+
+    expect((await memoryV2ConsolidateJob(makeJob(), CONFIG)).kind).toBe(
+      "run_failed",
+    );
+    expect(existsSync(lockPath())).toBe(true);
+
+    // A second consolidation attempt is refused by the retained lock, and
+    // never reaches the runner.
+    const runnerCallsBefore = runnerCalls;
+    const second = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(second.kind).toBe("locked");
+    expect(runnerCalls).toBe(runnerCallsBefore);
   });
 
   test("does NOT emit a notification signal when the runner fails (suppression honored)", async () => {
