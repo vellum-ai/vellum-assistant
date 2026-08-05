@@ -27,7 +27,7 @@
 import {
   assistantScopedSupports,
   useAssistantScopedSupports,
-  whenAssistantVersionKnown,
+  whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
 
 export const MIN_VERSION = "0.12.0";
@@ -58,6 +58,10 @@ export function useSupportsMultilingualSttDefault(
 export async function resolveSupportsMultilingualSttDefault(
   ownerAssistantId: string | null | undefined,
 ): Promise<boolean> {
-  await whenAssistantVersionKnown();
+  // Scoped to the same assistant the gate then reads against. An unscoped
+  // wait would be satisfied by a version still held for whichever assistant
+  // the user was viewing a moment ago, and the owner mismatch would send this
+  // write down the legacy path for an assistant that never needed it.
+  await whenAssistantVersionKnownFor(ownerAssistantId);
   return assistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }
