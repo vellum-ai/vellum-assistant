@@ -1,10 +1,4 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type DragEventHandler,
-  type ReactNode,
-} from "react";
+import { useLayoutEffect, type DragEventHandler, type ReactNode } from "react";
 
 import { Paperclip } from "lucide-react";
 
@@ -125,8 +119,8 @@ export interface ChatBodyProps {
 
   /**
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
-   * rendered alongside the scroll-to-latest button in the absolute-positioned
-   * overlay above the composer. Omitted by the app-editing side panel.
+   * rendered in flow directly above the composer, so the flex column sizes
+   * the transcript around it. Omitted by the app-editing side panel.
    * While mounted (non-empty state), visibility is mirrored into the shared
    * banner-visibility store so tip surfaces can stay mutually exclusive.
    */
@@ -222,57 +216,11 @@ export function ChatBody({
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
   const keyboardOpen = useKeyboardOpen();
-  const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
-  const [bottomBannerOverlayHeight, setBottomBannerOverlayHeight] = useState(0);
-
-  // Suppress the absolutely-positioned overlay on the empty state: its
-  // `bottom-full` positioning would overlap the greeting when the outer
-  // container centers greeting + composer + starters as a group.
-  // Banners (app-download nudge, GitHub star, Discord) show once the
-  // user sends a message and the empty state clears. `showScrollToLatest`
-  // is already false on the empty state (gated on `messages.length > 0`
-  // at the call site), so this only affects `bannerSlot`.
+  // Banners (app-download nudge, GitHub star, Discord) show once the user
+  // sends a message and the empty state clears. They stay out of the empty
+  // state, where the outer container centers greeting + composer + starters
+  // as one group and a banner above the composer would split it.
   const bannerRendered = !isEmptyState && Boolean(bannerSlot);
-
-  // Measures the banner overlay so the transcript can reserve its height.
-  //
-  // Keyed on whether a banner is mounted, never on `bannerSlot` itself: that
-  // prop is a fresh element on most parent renders, and a ReactNode-keyed
-  // effect would re-run this whole body (a synchronous `getBoundingClientRect`
-  // reflow plus a `ResizeObserver` teardown and re-observe) in every commit
-  // for as long as a banner is up, queueing a setState whose eager bailout is
-  // skipped exactly when the fiber already has pending lanes. Enough such
-  // commits back to back trip React's nested-update limit under streaming load
-  // (error 185, LUM-2927). Content swaps within a mounted banner change its
-  // height, not its identity, and the observer already reports those.
-  useLayoutEffect(() => {
-    if (!bannerRendered) {
-      setBottomBannerOverlayHeight(0);
-      return;
-    }
-
-    const el = bottomBannerOverlayRef.current;
-    if (!el) {
-      return;
-    }
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
-      setBottomBannerOverlayHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [bannerRendered]);
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
@@ -311,12 +259,6 @@ export function ChatBody({
   const nonDockedInnerClass = isEmptyState
     ? `flex min-h-full flex-col ${nonDockedAlignmentClass}`
     : "flex min-h-0 flex-1 flex-col";
-
-  const hasOverlay = bannerRendered || (!isEmptyState && showScrollToLatest);
-  const bottomOverlayReservePx =
-    bannerRendered && bottomBannerOverlayHeight > 0
-      ? bottomBannerOverlayHeight
-      : undefined;
 
   // Mirror the mounted banner — not the candidate slot — into the shared
   // store so tip surfaces stay mutually exclusive with nudge banners.
@@ -363,34 +305,36 @@ export function ChatBody({
   // `trailingStarters` lets the docked layout render the starters elsewhere
   // (its own bottom dock) instead of directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
-    <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
-      {refreshFeedback && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
-          <RefreshFeedbackPill
-            feedback={refreshFeedback}
-            onDismiss={onDismissRefreshFeedback}
-            onRetry={onRetryRefresh}
-          />
+    // The banner is a flow child of this group, not an overlay: it is an
+    // opaque full-width card that always occupies its own height, so letting
+    // the flex column size it is what reserves the transcript's space. The
+    // scroll area is the `flex-1` sibling, so it gives back exactly the
+    // banner's height at every viewport size, with nothing measured.
+    // Only the scroll-to-latest pill floats, and it anchors to the top of
+    // this group so it clears the banner.
+    <div className="relative">
+      {showScrollToLatest && !isEmptyState && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2.5">
+          <div className="pointer-events-auto">
+            <ScrollToLatestButton
+              onClick={onScrollToLatest}
+              isAssistantBusy={isAssistantBusy}
+            />
+          </div>
         </div>
       )}
-      {hasOverlay && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
-          {showScrollToLatest && (
-            <div className="pointer-events-auto pb-2.5">
-              <ScrollToLatestButton
-                onClick={onScrollToLatest}
-                isAssistantBusy={isAssistantBusy}
-              />
-            </div>
-          )}
-          {bannerSlot && (
-            <div ref={bottomBannerOverlayRef} className="w-full">
-              {bannerSlot}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="mx-auto max-w-[var(--chat-max-width)]">
+      {bannerRendered && bannerSlot}
+      <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
+        {refreshFeedback && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
+            <RefreshFeedbackPill
+              feedback={refreshFeedback}
+              onDismiss={onDismissRefreshFeedback}
+              onRetry={onRetryRefresh}
+            />
+          </div>
+        )}
+        <div className="mx-auto max-w-[var(--chat-max-width)]">
         {genericChatError && (
           <div className="mb-2">
             <Notice
@@ -412,7 +356,8 @@ export function ChatBody({
             "new-chat-plugins",
             <div className="mt-4">{pluginPillsSlot}</div>,
           )}
-        {trailingStarters}
+          {trailingStarters}
+        </div>
       </div>
     </div>
   );
@@ -451,7 +396,6 @@ export function ChatBody({
           >
             <ChatScrollArea
               {...scrollAreaProps}
-              bottomOverlayReservePx={bottomOverlayReservePx}
             />
             {renderComposerStack(null)}
           </div>
@@ -489,7 +433,6 @@ export function ChatBody({
       <div className={nonDockedInnerClass}>
         <ChatScrollArea
           {...scrollAreaProps}
-          bottomOverlayReservePx={bottomOverlayReservePx}
         />
 
         {!isEmptyState && activeProcessOverlaysSlot && (

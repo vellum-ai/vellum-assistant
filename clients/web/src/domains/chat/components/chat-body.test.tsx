@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -230,75 +230,46 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
     expect(html).toContain("BANNER_CONTENT");
   });
 
-  test("reserves the measured bottom banner height", async () => {
-    const originalGetBoundingClientRect =
-      HTMLElement.prototype.getBoundingClientRect;
-    const originalResizeObserver = globalThis.ResizeObserver;
-    let measuredHeight = 137;
-    let resizeCallback: ResizeObserverCallback | null = null;
-
-    HTMLElement.prototype.getBoundingClientRect =
-      function getBoundingClientRect() {
-        if (this.querySelector('[data-testid="banner"]')) {
-          return {
-            bottom: measuredHeight,
-            height: measuredHeight,
-            left: 0,
-            right: 0,
-            top: 0,
-            width: 0,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-          };
-        }
-        return originalGetBoundingClientRect.call(this);
-      };
-    globalThis.ResizeObserver = class {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    } as typeof ResizeObserver;
-
+  test("the banner takes its space in flow, and only the pill floats", () => {
+    // The banner is an opaque full-width card that always occupies its own
+    // height, so it belongs in the flex column: the `flex-1` scroll area
+    // gives back exactly that height at every viewport size. Positioning it
+    // absolutely removes it from flow and forces the space to be measured
+    // and reserved in JS, which is what put this component in the error-185
+    // family (LUM-2927) and cost a ResizeObserver, a state, and a prop on
+    // ChatScrollArea. The pill is the opposite: it genuinely floats over the
+    // transcript and reserves nothing.
+    const { container } = render(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+        })}
+      />,
+    );
     try {
-      const { container } = render(
-        <ChatBody
-          {...baseProps({
-            bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
-          })}
-        />,
-      );
-      await waitFor(() => {
-        expect(container.innerHTML).toContain("padding-bottom: 137px");
-      });
+      const banner = container.querySelector('[data-testid="banner"]');
+      const pill = container.querySelector('[data-testid="scroll-to-latest"]');
+      expect(banner).not.toBeNull();
+      expect(pill).not.toBeNull();
 
-      measuredHeight = 164;
-      act(() => {
-        resizeCallback?.([], {} as ResizeObserver);
-      });
-      await waitFor(() => {
-        expect(container.innerHTML).toContain("padding-bottom: 164px");
-      });
+      // In flow: no positioned ancestor between the banner and the root.
+      expect(banner?.closest(".absolute")).toBeNull();
+      // Floating: the pill still lives in a positioned, click-through layer.
+      expect(pill?.closest(".absolute")).not.toBeNull();
+      expect(pill?.closest(".pointer-events-none")).not.toBeNull();
     } finally {
-      HTMLElement.prototype.getBoundingClientRect =
-        originalGetBoundingClientRect;
-      globalThis.ResizeObserver = originalResizeObserver;
       cleanup();
     }
   });
 
-  test("re-rendering with a fresh bannerSlot element does not re-run the measuring effect", () => {
-    // The failure shape behind the error-185 family (LUM-2927): keying the
-    // measuring layout effect on `bannerSlot` re-runs it on every parent
-    // render, because the slot is a fresh element each time. That is a
-    // synchronous reflow plus an observer teardown and re-observe in every
-    // commit for the whole life of the banner, each queueing a setState into
-    // the commit stream. Counting observer constructions pins the invariant:
-    // one mounted banner, one observer, however often the parent renders.
-    // A `[bannerSlot]`-keyed effect constructs one per render and fails this.
+  test("measures nothing: no ResizeObserver, at mount or across re-renders", () => {
+    // The structural invariant. Any reintroduction of measure-to-reserve
+    // here (a ref'd node, an observer, a height in state) fails this, as
+    // does the subtler regression Codex caught on the first attempt: two
+    // unkeyed sibling divs in one overlay, where mounting the pill lets
+    // React reuse the observed banner node and leaves the observer on the
+    // wrong element.
     const originalResizeObserver = globalThis.ResizeObserver;
     let observersConstructed = 0;
 
@@ -319,22 +290,20 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
           })}
         />,
       );
-      const afterMount = observersConstructed;
 
-      const parentRenders = 3;
-      for (let i = 0; i < parentRenders; i += 1) {
-        // A fresh element each time, exactly like a re-rendering parent.
+      // Toggle the pill on and off under a live banner: the case that broke.
+      for (const showScrollToLatest of [true, false, true]) {
         rerender(
           <ChatBody
             {...baseProps({
+              showScrollToLatest,
               bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
             })}
           />,
         );
       }
 
-      expect(afterMount).toBe(1);
-      expect(observersConstructed - afterMount).toBe(0);
+      expect(observersConstructed).toBe(0);
     } finally {
       globalThis.ResizeObserver = originalResizeObserver;
       cleanup();
