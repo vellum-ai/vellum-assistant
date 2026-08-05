@@ -11,10 +11,22 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const mockExecSync = mock(() => {});
+// Emits `error` on the returned child so the dependency install's spawn
+// promise rejects with the injected failure.
+const mockSpawn = mock(() => {
+  const child = {
+    on(event: string, cb: (arg: unknown) => void) {
+      if (event === "error") {
+        queueMicrotask(() => cb(new Error("dependency install failed")));
+      }
+      return child;
+    },
+  };
+  return child;
+});
 
 mock.module("node:child_process", () => ({
-  execSync: mockExecSync,
+  spawn: mockSpawn,
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
@@ -48,10 +60,7 @@ beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "skills-install-staging-"));
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   mkdirSync(join(workspaceDir, "skills"), { recursive: true });
-  mockExecSync.mockReset();
-  mockExecSync.mockImplementation(() => {
-    throw new Error("dependency install failed");
-  });
+  mockSpawn.mockClear();
 });
 
 afterEach(() => {

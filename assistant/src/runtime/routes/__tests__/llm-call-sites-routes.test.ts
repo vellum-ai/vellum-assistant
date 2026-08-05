@@ -72,8 +72,20 @@ describe("llm-call-sites-routes", () => {
     };
     for (const site of result.callSites) {
       expect(site.shippedDefaultProfile).toBe(
-        CALL_SITE_DEFAULTS[site.id as LLMCallSite]?.profile,
+        CALL_SITE_DEFAULTS[site.id as LLMCallSite]?.profile ?? "balanced",
       );
+    }
+  });
+
+  test("profileless call sites report the balanced anchor tier", async () => {
+    const result = (await route.handler({})) as {
+      callSites: Array<{ id: string; shippedDefaultProfile?: string }>;
+    };
+    // Both omit `profile` in CALL_SITE_DEFAULTS and ride the resolver's
+    // balanced anchor, so the catalog groups them under Balanced.
+    for (const id of ["workflowLeaf", "vision"]) {
+      const site = result.callSites.find((s) => s.id === id);
+      expect(site?.shippedDefaultProfile).toBe("balanced");
     }
   });
 

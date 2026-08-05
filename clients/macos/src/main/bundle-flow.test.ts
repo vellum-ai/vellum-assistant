@@ -53,6 +53,7 @@ mock.module("@vellumai/local-mode", () => ({
   getGuardianAccessToken: getGuardianAccessTokenMock,
   replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
   upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),
+  unpairAssistant: mock(() => ({ ok: false, error: "unused" })),
   runHatch: mock(async () => ({ ok: false, error: "unused" })),
   runRetire: mock(async () => ({ ok: false, error: "unused" })),
   runSleep: mock(async () => ({ ok: false, error: "unused" })),

@@ -319,40 +319,4 @@ describe("LLMSchema", () => {
     });
     expect(result.success).toBe(true);
   });
-
-  test("defaultProfileOverrides accepts custom profiles and default keys as targets", () => {
-    const parsed = LLMSchema.parse({
-      profiles: { fast: { speed: "fast", effort: "low" } },
-      defaultProfileOverrides: {
-        balanced: "fast",
-        "cost-optimized": "quality-optimized",
-      },
-    });
-    expect(parsed.defaultProfileOverrides).toEqual({
-      balanced: "fast",
-      "cost-optimized": "quality-optimized",
-    });
-    expect(LLMSchema.parse({}).defaultProfileOverrides).toEqual({});
-  });
-
-  test("a defaultProfileOverrides target naming no profile is rejected", () => {
-    const result = LLMSchema.safeParse({
-      defaultProfileOverrides: { balanced: "no-such-profile" },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0]?.path).toEqual([
-        "defaultProfileOverrides",
-        "balanced",
-      ]);
-    }
-  });
-
-  test("a defaultProfileOverrides key outside the default-profile tiers is rejected", () => {
-    const result = LLMSchema.safeParse({
-      profiles: { fast: { speed: "fast" } },
-      defaultProfileOverrides: { turbo: "fast" },
-    });
-    expect(result.success).toBe(false);
-  });
 });

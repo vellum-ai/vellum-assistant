@@ -61,7 +61,7 @@ export const fileListTool = {
       sandboxPolicy(path, context.workingDir, opts),
     );
 
-    const result = ops.listDirSafe({ path: rawPath, glob });
+    const result = await ops.listDirSafe({ path: rawPath, glob });
 
     if (!result.ok) {
       const { error } = result;

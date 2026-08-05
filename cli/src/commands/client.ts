@@ -34,10 +34,15 @@ import {
   isActiveAssistant,
   runHatch,
   runRetire,
+  unpairAssistant,
   getGuardianAccessToken,
   parseGatewayUrl,
+  parsePairedGatewayUrl,
   resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
+  sanitizePairedForwardHeaders,
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
@@ -445,6 +450,7 @@ function findWebSourceDir(): string | null {
 const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
+const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -500,9 +506,11 @@ async function handleLocalEndpoints(
     LOCKFILE_PATTERN.test(pathname) ||
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
+    UNPAIR_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
-    parseGatewayUrl(pathname).match;
+    parseGatewayUrl(pathname).match ||
+    parsePairedGatewayUrl(pathname).match;
 
   if (!isLocalRoute) return null;
 
@@ -680,6 +688,40 @@ async function handleLocalEndpoints(
     );
   }
 
+  // Unpair: forget a paired assistant (lockfile entry + guardian token).
+  if (UNPAIR_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let assistantId: string | undefined;
+    try {
+      const body = (await req.json()) as { assistantId?: string };
+      assistantId = body.assistantId;
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    if (!assistantId) {
+      return Response.json(
+        { ok: false, error: "Missing assistantId" },
+        { status: 400 },
+      );
+    }
+
+    const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+    if (result.ok) {
+      return Response.json({ ok: true, lockfile: result.lockfile });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
   // Guardian token
   const guardianMatch = pathname.match(GUARDIAN_TOKEN_PATTERN);
   if (guardianMatch) {
@@ -728,28 +770,66 @@ async function handleLocalEndpoints(
     const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
     headers.set("host", `127.0.0.1:${gatewayTarget.port}`);
+    return proxyGatewayFetch(req, targetUrl, headers, "Gateway proxy error");
+  }
 
-    try {
-      const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const proxyRes = await loopbackSafeFetch(targetUrl, {
-        method: req.method,
-        headers,
-        body: hasBody ? req.body : undefined,
-        redirect: "manual",
-      });
-      const resHeaders = new Headers(proxyRes.headers);
-      resHeaders.delete("transfer-encoding");
-      return new Response(proxyRes.body, {
-        status: proxyRes.status,
-        statusText: proxyRes.statusText,
-        headers: resHeaders,
-      });
-    } catch {
-      return new Response("Gateway proxy error", { status: 502 });
-    }
+  // Paired-gateway proxy: same shared decision as the web (Vite middleware)
+  // and Electron (`app://` handler) hosts, forwarding to the remote gateway an
+  // imported pairing recorded as its `runtimeUrl`. The lockfile's paired
+  // entries are the allowlist. Browser-ambient headers (Origin, Referer,
+  // Cookie, Sec-Fetch-*) are stripped on the server-to-server hop; the
+  // guardian bearer passes through for the remote gateway to validate.
+  const pairedDecision = resolvePairedGatewayProxyTarget(
+    pathname + url.search,
+    () => readPairedGatewayTargets(lockfilePaths),
+  );
+  if (pairedDecision.kind === "reject") {
+    return new Response(pairedDecision.message, {
+      status: pairedDecision.status,
+    });
+  }
+  if (pairedDecision.kind === "forward") {
+    const headers = new Headers(req.headers);
+    sanitizePairedForwardHeaders(headers);
+    headers.set("host", new URL(pairedDecision.url).host);
+    return proxyGatewayFetch(
+      req,
+      pairedDecision.url,
+      headers,
+      "Paired gateway proxy error",
+    );
   }
 
   return null;
+}
+
+// One streamed hop for both gateway data-plane proxies. The upstream
+// `transfer-encoding` is dropped so re-serving the streamed body doesn't emit
+// a duplicate chunked header.
+async function proxyGatewayFetch(
+  req: Request,
+  targetUrl: string,
+  headers: Headers,
+  errorMessage: string,
+): Promise<Response> {
+  try {
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    const proxyRes = await loopbackSafeFetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: hasBody ? req.body : undefined,
+      redirect: "manual",
+    });
+    const resHeaders = new Headers(proxyRes.headers);
+    resHeaders.delete("transfer-encoding");
+    return new Response(proxyRes.body, {
+      status: proxyRes.status,
+      statusText: proxyRes.statusText,
+      headers: resHeaders,
+    });
+  } catch {
+    return new Response(errorMessage, { status: 502 });
+  }
 }
 
 function getBaseDir(): string {

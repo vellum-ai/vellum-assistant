@@ -198,10 +198,12 @@ export function ChatLayout({
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const { conversations } = useConversationListQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  // `isLoading` (first fetch actually in flight), not `isPending`: the query
+  // is gated on `isAssistantActive`, and a gated query is pending without
+  // fetching, which would leave the sidebar under placeholders for as long as
+  // the assistant took to come up (or forever, if it never did).
+  const { conversations, isLoading: isLoadingConversations } =
+    useConversationListQuery(assistantId, isAssistantActive);
   const { conversationGroups } = useConversationGroupsQuery(
     assistantId,
     isAssistantActive,
@@ -824,15 +826,9 @@ export function ChatLayout({
   // mutate the viewer store with no surface to display against. Navigate
   // to a chat route first when off-chat, then run the shared open flow.
   //
-  // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
-  // shared with the transcript / assets-pill open path.
-  const openAppFromChat = useOpenAppFromChat({
-    // When the user is off a chat route (home, library, identity, …), do
-    // not bind the stale `activeConversationId` as the editing target —
-    // the store value persists across route changes for SSE / attention
-    // consumers and doesn't reflect the user's current intent (LUM-2691).
-    bindConversation: isConversationChatPath(location.pathname),
-  });
+  // See `use-open-app-from-chat.ts` for the full-width loadApp flow shared
+  // with the transcript / assets-pill open path.
+  const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
@@ -886,6 +882,7 @@ export function ChatLayout({
       width={args.width}
       onWidthChange={args.onWidthChange}
       conversations={conversations}
+      isLoadingConversations={isLoadingConversations}
       conversationGroups={conversationGroups}
       activeConversationId={sidebarActiveConversationId}
       processingConversationIds={processingConversationIds}

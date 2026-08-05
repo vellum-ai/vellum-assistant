@@ -121,12 +121,23 @@ describe("buildNavigationState — hasPlatformHostedAssistant", () => {
   const ORG_A = "org-a";
   const ORG_B = "org-b";
 
-  const local = { id: "local-1", isLocal: true, isPlatformHosted: false };
-  const docker = { id: "docker-1", isLocal: false, isPlatformHosted: false };
+  const local = {
+    id: "local-1",
+    isLocal: true,
+    isPlatformHosted: false,
+    isPaired: false,
+  };
+  const docker = {
+    id: "docker-1",
+    isLocal: false,
+    isPlatformHosted: false,
+    isPaired: false,
+  };
   const managedInOrgA = {
     id: "managed-a",
     isLocal: false,
     isPlatformHosted: true,
+    isPaired: false,
     organizationId: ORG_A,
   };
   // API-sourced entries carry no org — the platform list is already org-scoped.
@@ -134,6 +145,7 @@ describe("buildNavigationState — hasPlatformHostedAssistant", () => {
     id: "managed-api",
     isLocal: false,
     isPlatformHosted: true,
+    isPaired: false,
   };
 
   test("false with nothing resolved", () => {

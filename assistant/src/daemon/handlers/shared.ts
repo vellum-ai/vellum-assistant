@@ -4,6 +4,7 @@ import {
 } from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
 
+import { AnsweredQuestionSchema } from "../../api/events/question-answered.js";
 import type {
   ConversationContentBlock,
   ConversationMessageAttachment,
@@ -635,6 +636,17 @@ export function renderHistoryContent(
       if (isRecord(block._activityMetadata)) {
         entry.activityMetadata =
           block._activityMetadata as HistoryToolCall["activityMetadata"];
+      }
+      // Read back the answered `ask_question` record so the answered card
+      // rehydrates from history. Validated (rather than trusted like the
+      // sibling riders) because the card renders its contents directly: a
+      // malformed rider from a hand-edited or partially-written row must
+      // degrade to no card, not to a crashing render.
+      const answeredQuestion = AnsweredQuestionSchema.safeParse(
+        block._answeredQuestion,
+      );
+      if (answeredQuestion.success) {
+        entry.answeredQuestion = answeredQuestion.data;
       }
       toolCalls.push(entry);
       if (id) {

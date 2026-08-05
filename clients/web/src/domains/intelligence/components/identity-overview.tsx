@@ -514,7 +514,7 @@ function SectionCard({
             flooded along with the rule and labels (currentColor). */}
         {gridArea && stat?.signature && (
           <span
-            className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
+            className={`absolute inset-x-5 top-14 bottom-9 flex flex-col justify-start transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
                 : photoBackdrop
@@ -529,9 +529,21 @@ function SectionCard({
                 : undefined
             }
           >
+            {/* The mark rests on the bottom inset, but only while the gap it
+                leaves under the header stays inside this spacer. The mark's
+                height follows its WIDTH, so a narrow card makes a short one —
+                and without the cap that whole surplus collected under the
+                header and pushed the mark to the floor of the card. Past the
+                cap the surplus falls below the mark instead. */}
+            <span aria-hidden className="max-h-10 flex-1" />
+            {/* Nothing ties the mark's width-derived height to a box sized by
+                the card's HEIGHT, so a wide, short window makes it the taller
+                of the two. `max-h-full` clamps the viewport there and the
+                default `xMidYMid meet` scales the whole mark down to fit,
+                rather than letting `overflow-hidden` cut the top labels off. */}
             <PersonalitySignature
               values={stat.signature}
-              className="h-auto w-full"
+              className="h-auto max-h-full w-full"
             />
           </span>
         )}

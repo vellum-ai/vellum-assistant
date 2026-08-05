@@ -37,6 +37,7 @@ import {
 } from "../daemon/conversation-registry.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { SUBAGENT_ROLE_REGISTRY } from "../subagent/types.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 
 // ── Shared helpers ──────────────────────────────────────────────────
@@ -113,18 +114,61 @@ describe("subagent_spawn fork parameter", () => {
     }
   });
 
-  test("fork: true ignores role parameter", async () => {
+  test.each(["researcher", "builder"])(
+    "fork: true honors role %s",
+    async (role) => {
+      const manager = getSubagentManager();
+      const originalSpawn = manager.spawn.bind(manager);
+
+      let capturedConfig: Record<string, unknown> | undefined;
+      manager.spawn = async (config: Record<string, unknown>) => {
+        capturedConfig = config;
+        return "fork-role-id";
+      };
+
+      clearConversations();
+      setConversation("parent-conv-role", {
+        messages: FAKE_PARENT_MESSAGES,
+        getCurrentSystemPrompt: () => "Parent prompt.",
+      } as any);
+
+      try {
+        const result = await executeSubagentSpawn(
+          {
+            label: "Fork with role",
+            objective: "Do something",
+            fork: true,
+            role,
+          },
+          makeContext("parent-conv-role", { sendToClient: () => {} }),
+        );
+
+        expect(result.isError).toBe(false);
+        expect(capturedConfig).toBeDefined();
+        // The manager applies the type's allowlist to a fork like any other
+        // spawn, so a read-only fork really is read-only.
+        expect(capturedConfig!.role).toBe(role);
+        expect(capturedConfig!.fork).toBe(true);
+        expect(JSON.parse(result.content).role).toBe(role);
+      } finally {
+        manager.spawn = originalSpawn;
+        clearConversations();
+      }
+    },
+  );
+
+  test("a fork that names no role keeps the parent's tool surface", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
 
     let capturedConfig: Record<string, unknown> | undefined;
     manager.spawn = async (config: Record<string, unknown>) => {
       capturedConfig = config;
-      return "fork-role-id";
+      return "fork-no-role-id";
     };
 
     clearConversations();
-    setConversation("parent-conv-role", {
+    setConversation("parent-conv-no-role", {
       messages: FAKE_PARENT_MESSAGES,
       getCurrentSystemPrompt: () => "Parent prompt.",
     } as any);
@@ -132,19 +176,19 @@ describe("subagent_spawn fork parameter", () => {
     try {
       const result = await executeSubagentSpawn(
         {
-          label: "Fork with role",
+          label: "Plain fork",
           objective: "Do something",
           fork: true,
-          role: "researcher", // should be ignored
         },
-        makeContext("parent-conv-role", { sendToClient: () => {} }),
+        makeContext("parent-conv-no-role", { sendToClient: () => {} }),
       );
 
       expect(result.isError).toBe(false);
-      expect(capturedConfig).toBeDefined();
-      // When fork is true, role should NOT be passed to the manager config
-      expect(capturedConfig!.role).toBeUndefined();
-      expect(capturedConfig!.fork).toBe(true);
+      // No role resolves to builder, which declares no allowlist, so the fork
+      // keeps the full surface described by the system prompt it inherits.
+      expect(capturedConfig!.role).toBe("builder");
+      expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
+      expect(JSON.parse(result.content).role).toBe("builder");
     } finally {
       manager.spawn = originalSpawn;
       clearConversations();
@@ -296,6 +340,63 @@ describe("subagent_spawn fork parameter", () => {
 
       const parsed = JSON.parse(result.content);
       expect(parsed.isFork).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  // Spawn mode is what makes delegated LLM spend separable: every variety
+  // emits under `llm_call_site = "subagentSpawn"`, so the mode declared here
+  // is the only thing distinguishing a fresh spawn from a context-inheriting
+  // fork downstream.
+  test("declares spawnMode 'fork' for a forked spawn", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "fork-mode-id";
+    };
+
+    clearConversations();
+    setConversation("spawn-mode-parent", {
+      messages: FAKE_PARENT_MESSAGES,
+      getCurrentSystemPrompt: () => "You are a helpful assistant.",
+    } as any);
+
+    try {
+      await executeSubagentSpawn(
+        { label: "Forked", objective: "Continue", fork: true },
+        makeContext("spawn-mode-parent", { sendToClient: () => {} }),
+      );
+
+      expect(capturedConfig!.spawnMode).toBe("fork");
+    } finally {
+      manager.spawn = originalSpawn;
+      clearConversations();
+    }
+  });
+
+  test("declares spawnMode 'regular' for a non-forked spawn", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "regular-mode-id";
+    };
+
+    try {
+      await executeSubagentSpawn(
+        { label: "Plain", objective: "Do work", role: "researcher" },
+        makeContext("spawn-mode-conv", { sendToClient: () => {} }),
+      );
+
+      expect(capturedConfig!.spawnMode).toBe("regular");
+      // Role and spawn mode are orthogonal dimensions, both are recorded.
+      expect(capturedConfig!.role).toBe("researcher");
     } finally {
       manager.spawn = originalSpawn;
     }

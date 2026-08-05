@@ -42,7 +42,6 @@ import {
   enforceSameActorOrErrorResult,
   pickSameUserAutoResolve,
 } from "../runtime/auth/same-actor.js";
-import type { AuthContext } from "../runtime/auth/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import type {
   InteractiveUiRequest,
@@ -58,10 +57,9 @@ import { resolveAppId } from "../tools/apps/resolve-app-id.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
+import type { Conversation } from "./conversation.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
-import type { EnqueueMessageOptions } from "./conversation-messaging.js";
-import type { ProcessMessageOptions } from "./conversation-process.js";
 import {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -69,7 +67,6 @@ import {
   type SurfaceShowPair,
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
-import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   AnySurfaceData,
@@ -99,7 +96,6 @@ export {
 } from "./conversation-surface-state.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
-import type { TrustContext } from "./trust-context-types.js";
 
 /**
  * Prefix of the synthetic user-message text this module writes when a surface
@@ -940,7 +936,7 @@ function isTaskProgressCardData(data: SurfaceData | Record<string, unknown>) {
 }
 
 function isSlackTaskProgressUiException(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   toolName: string,
   input: Record<string, unknown>,
 ): boolean {
@@ -974,89 +970,6 @@ function isSlackTaskProgressUiException(
     return isTaskProgressCardData({ ...stored.data, ...patch });
   }
   return false;
-}
-
-/**
- * Subset of Conversation state that surface helpers need access to.
- * The Conversation class implements this interface so its instances can be
- * passed directly to the extracted functions.
- */
-
-export interface SurfaceConversationContext {
-  readonly conversationId: string;
-  /** Assistant id (if known) — used when publishing launch-triggered events. */
-  readonly assistantId?: string;
-  /** Inherited to spawned conversations in the `launch_conversation` action path. */
-  readonly trustContext?: TrustContext;
-  /** Verified requester auth context for the active turn. */
-  readonly authContext?: AuthContext;
-  /** Per-turn auth snapshot, preferred for tool dispatch authorization. */
-  readonly currentTurnAuthContext?: AuthContext;
-  /** JWT-verified requester principal for the active turn. */
-  readonly currentTurnSourceActorPrincipalId?: string;
-  readonly channelCapabilities?: {
-    channel: string;
-    supportsDynamicUi: boolean;
-  };
-  sendToClient(msg: AssistantEvent): void;
-  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
-  lastSurfaceAction: Map<
-    string,
-    { actionId: string; data?: Record<string, unknown> }
-  >;
-  surfaceState: Map<string, SurfaceStateEntry>;
-  surfaceUndoStacks: Map<string, string[]>;
-  accumulatedSurfaceState: Map<string, Record<string, unknown>>;
-  /** Request IDs that originated from surface action button clicks (not regular user messages). */
-  surfaceActionRequestIds: Set<string>;
-  /**
-   * Pending standalone UI requests keyed by surfaceId.
-   * These are daemon-driven surfaces (not LLM tool invocations) that block
-   * the caller until the user submits, cancels, or the timeout elapses.
-   * Optional: only present on conversations that support standalone surfaces.
-   */
-  pendingStandaloneSurfaces?: Map<
-    string,
-    {
-      resolve: (result: InteractiveUiResult) => void;
-      timer: ReturnType<typeof setTimeout>;
-      surfaceType: SurfaceType;
-    }
-  >;
-  /**
-   * Short-lived tombstone set of recently-completed standalone surface IDs.
-   * Prevents late client actions (arriving after timeout/resolution) from
-   * falling through to the history-restored path and triggering an
-   * unintended LLM turn. Entries are auto-removed after a TTL.
-   */
-  recentlyCompletedStandaloneSurfaces?: Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >;
-  currentTurnSurfaces: CurrentTurnSurface[];
-  /** Optional proxy for delegating computer-use actions to a connected desktop client. */
-  hostCuProxy?: HostCuProxy;
-  /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
-  hostAppControlProxy?: HostAppControlProxy;
-  /**
-   * Setter that lets the resolver detach the conversation's app-control proxy
-   * after `app_control_stop`. Disposes the existing proxy when transitioning
-   * to undefined so subsequent tool calls cleanly fail with "unavailable"
-   * rather than dispatching to a torn-down proxy.
-   */
-  setHostAppControlProxy?(proxy: HostAppControlProxy | undefined): void;
-  /** True when no interactive client is connected (headless / channel-only). */
-  readonly hasNoClient?: boolean;
-  isProcessing(): boolean;
-  enqueueMessage(options: EnqueueMessageOptions): {
-    queued: boolean;
-    requestId: string;
-    rejected?: boolean;
-  };
-  getQueueDepth(): number;
-  processMessage(options: ProcessMessageOptions): Promise<string>;
-  /** Serialize operations on a given surface to prevent read-modify-write races. */
-  withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
 }
 
 export type SurfaceMutex = {
@@ -1119,7 +1032,7 @@ const STANDALONE_TOMBSTONE_TTL_MS = 30_000; // 30 seconds
  * support dynamic UI.
  */
 export function canShowInteractiveUi(
-  ctx: Pick<SurfaceConversationContext, "hasNoClient" | "channelCapabilities">,
+  ctx: Pick<Conversation, "hasNoClient" | "channelCapabilities">,
 ): boolean {
   if (ctx.hasNoClient) {
     return false;
@@ -1140,7 +1053,7 @@ export function canShowInteractiveUi(
  * so that `handleSurfaceAction` can intercept the callback.
  */
 export function showStandaloneSurface(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   request: InteractiveUiRequest,
   surfaceId: string,
 ): Promise<InteractiveUiResult> {
@@ -1310,7 +1223,7 @@ function buildStandaloneSurfaceData(
  */
 export function cleanupStandaloneSurface(
   ctx: Pick<
-    SurfaceConversationContext,
+    Conversation,
     | "pendingStandaloneSurfaces"
     | "recentlyCompletedStandaloneSurfaces"
     | "surfaceState"
@@ -1375,7 +1288,7 @@ const OPEN_PANEL_ACK_TIMEOUT_MS = 10_000;
  * removes it on every outcome.
  */
 export function openChannelSetupPanel(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   data: Record<string, unknown>,
   options?: { signal?: AbortSignal; timeoutMs?: number },
@@ -1460,7 +1373,7 @@ export function openChannelSetupPanel(
  * Auto-saves the document content to the app store.
  */
 function handleDocumentContentChanged(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   data?: Record<string, unknown>,
 ): void {
@@ -1536,7 +1449,7 @@ function handleDocumentContentChanged(
  * Accumulates state via shallow merge without triggering an LLM turn.
  */
 function handleStateUpdate(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   data?: Record<string, unknown>,
 ): void {
@@ -1580,10 +1493,7 @@ function pushUndoState(
   }
 }
 
-export function handleSurfaceUndo(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-): void {
+export function handleSurfaceUndo(ctx: Conversation, surfaceId: string): void {
   const stack = ctx.surfaceUndoStacks.get(surfaceId);
   if (!stack || stack.length === 0) {
     ctx.sendToClient({
@@ -1808,7 +1718,7 @@ function getRequestedSurfaceCompletionSummary(
  * recorded when the user commits the surface).
  */
 function recordActivationMoment(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   moment: ActivationMomentParam,
 ): void {
   try {
@@ -1842,10 +1752,7 @@ function recordActivationMoment(
  * submitted / selected-and-committed), NOT from intermediate non-terminal
  * events (`selection_changed` / `content_changed` / `state_update`).
  */
-function maybeEmitActivationMoment(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-): void {
+function maybeEmitActivationMoment(ctx: Conversation, surfaceId: string): void {
   const stored = ctx.surfaceState.get(surfaceId);
   const moment = stored?.activationMoment;
   if (!moment) {
@@ -1866,7 +1773,7 @@ function maybeEmitActivationMoment(
  * without this the only user-visible cause of a reverted card leaves no trace.
  */
 function logSurfaceActionRejected(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   actionId: string,
   surfaceType: string | undefined,
@@ -1917,7 +1824,7 @@ const ONE_SHOT_SURFACE_TYPES = [
  * action and only once the decision actually needs it.
  */
 function maybeCompleteSurfaceAfterAction(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   actionId: string,
   actionData: Record<string, unknown> | undefined,
@@ -1965,7 +1872,7 @@ function maybeCompleteSurfaceAfterAction(
 }
 
 export async function handleSurfaceAction(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
@@ -2631,7 +2538,7 @@ export async function handleSurfaceAction(
  * After an app_refresh, refresh any active surface that displays the updated app.
  */
 export function refreshSurfacesForApp(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   appId: string,
   opts?: { fileChange?: boolean; status?: string },
 ): boolean {
@@ -2938,11 +2845,55 @@ export function buildAppOpenPreview(
 }
 
 /**
+ * Explain why a `computer_use_*` call cannot be dispatched, after
+ * {@link ensureHostCuProxy} has already failed to attach one.
+ *
+ * "No desktop client connected" is only one of the reasons, and stating it
+ * unconditionally contradicts `assistant clients list` whenever a desktop is
+ * plainly connected. Only counts are reported — never client ids or actor
+ * principals — since this string reaches the model and the transcript.
+ */
+function describeComputerUseUnavailable(ctx: Conversation): string {
+  const capable = assistantEventHub.listClientsByCapability("host_cu");
+  if (capable.length === 0) {
+    return "Computer use is not available — no desktop client connected. Open the Vellum desktop app on the machine you want to control, then retry.";
+  }
+  return `Computer use is not available for this conversation — ${capable.length} desktop client(s) advertise host_cu, but none of them can be driven from this conversation's interface (${ctx.transportInterface ?? "unknown"}) as its current user.`;
+}
+
+/**
+ * Return the conversation's CU proxy, attaching one first when the
+ * conversation has none.
+ *
+ * Host-proxy attachment is decided at turn boundaries — message create and
+ * queue drain — and a `computer_use_*` call can arrive well after that
+ * decision was made. A conversation whose gate failed at turn start (the
+ * desktop had not connected yet, or the actor principal was not yet
+ * resolvable) therefore stayed permanently without a CU proxy for the rest
+ * of the turn, and every computer-use call reported "no desktop client
+ * connected" while `assistant clients list` showed the desktop connected and
+ * usable.
+ *
+ * Re-running the same gate here — `Conversation.ensureHostProxiesForTurn`,
+ * the very function both turn-boundary paths call — makes the decision track
+ * the live state instead of a stale snapshot. It grants nothing on its own:
+ * the gate is unchanged, and every dispatch below still binds to the calling
+ * actor through the same-actor checks.
+ */
+function ensureHostCuProxy(ctx: Conversation): HostCuProxy | undefined {
+  if (ctx.hostCuProxy) {
+    return ctx.hostCuProxy;
+  }
+  ctx.ensureHostProxiesForTurn?.(ctx.transportInterface);
+  return ctx.hostCuProxy;
+}
+
+/**
  * Resolve a proxy tool call that targets a UI surface.
  * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
 export async function surfaceProxyResolver(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
@@ -2950,9 +2901,10 @@ export async function surfaceProxyResolver(
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
-    if (!ctx.hostCuProxy || !ctx.hostCuProxy.isAvailable()) {
+    const hostCuProxy = ensureHostCuProxy(ctx);
+    if (!hostCuProxy || !hostCuProxy.isAvailable()) {
       return {
-        content: "Computer use is not available — no desktop client connected.",
+        content: describeComputerUseUnavailable(ctx),
         isError: true,
       };
     }
@@ -2968,7 +2920,7 @@ export async function surfaceProxyResolver(
           : typeof input.answer === "string"
             ? input.answer
             : "Task complete";
-      ctx.hostCuProxy.reset();
+      hostCuProxy.reset();
       return { content: summary, isError: false };
     }
 
@@ -3041,12 +2993,12 @@ export async function surfaceProxyResolver(
       }
     }
 
-    ctx.hostCuProxy.recordAction(toolName, input, reasoning);
-    return ctx.hostCuProxy.request(
+    hostCuProxy.recordAction(toolName, input, reasoning);
+    return hostCuProxy.request(
       toolName,
       input,
       ctx.conversationId,
-      ctx.hostCuProxy.stepCount,
+      hostCuProxy.stepCount,
       reasoning,
       signal,
       targetClientId,

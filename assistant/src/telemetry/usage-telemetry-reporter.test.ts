@@ -260,6 +260,8 @@ type UnreportedUsageEventFixture = UsageEvent & {
   turnIndex: number | null;
   parentConversationId: string | null;
   parentTurnIndex: number | null;
+  subagentRole: string | null;
+  subagentSpawnMode: string | null;
 };
 
 function makeUsageEvent(
@@ -290,6 +292,8 @@ function makeUsageEvent(
     turnIndex: 1,
     parentConversationId: null,
     parentTurnIndex: null,
+    subagentRole: null,
+    subagentSpawnMode: null,
     llmCallCount: 1,
     ...overrides,
   };

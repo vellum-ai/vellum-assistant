@@ -340,31 +340,6 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(LLMSchema.safeParse(after.llm).success).toBe(true);
   });
 
-  test("flag off clears a tier override targeting os-beta", () => {
-    process.env.IS_PLATFORM = "true";
-    seedBalancedConfig();
-    setOverridesForTesting({ "os-beta": true });
-    reconcileFlagGatedProfiles();
-
-    const raw = readConfig();
-    (raw.llm as Record<string, unknown>).defaultProfileOverrides = {
-      balanced: "os-beta",
-      "cost-optimized": "quality-optimized",
-    };
-    writeConfig(raw);
-    invalidateConfigCache();
-
-    setOverridesForTesting({ "os-beta": false });
-    expect(reconcileFlagGatedProfiles()).toBe(true);
-
-    const after = readConfig();
-    expect(
-      (after.llm as Record<string, unknown>).defaultProfileOverrides,
-    ).toEqual({ "cost-optimized": "quality-optimized" });
-
-    expect(LLMSchema.safeParse(after.llm).success).toBe(true);
-  });
-
   test("a user-owned os-beta profile is never touched", () => {
     process.env.IS_PLATFORM = "true";
     writeConfig({

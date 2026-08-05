@@ -1,9 +1,9 @@
 /**
  * Minimal capability view {@link conversationSupportsDynamicUi} reads. The live
- * `Conversation` (whose fields are the richer `ChannelCapabilities`), the tool
- * executor's `ToolSetupContext`, and partial test doubles all satisfy it
- * structurally, so the helper stays a dependency-free leaf callable from any
- * layer without importing `Conversation`.
+ * `Conversation` (whose fields are the richer `ChannelCapabilities`) and
+ * partial test doubles both satisfy it structurally, so the helper stays a
+ * dependency-free leaf callable from any layer without importing
+ * `Conversation`.
  */
 export interface DynamicUiCapabilityView {
   readonly currentTurnChannelCapabilities?: {

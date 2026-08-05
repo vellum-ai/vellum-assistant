@@ -46,6 +46,7 @@ import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { mergeSkillIds } from "../../subagent/manager.js";
+import { resolveSubagentRole } from "../../subagent/role-resolution.js";
 import {
   SUBAGENT_ROLE_REGISTRY,
   type SubagentRole,
@@ -407,10 +408,24 @@ type SchemaShape = {
   required?: string[];
 };
 
+/** How an `agent` query param was read, when one was given by role. */
+interface ResolvedAgentInfo {
+  /** The `agent` value as asked for. */
+  requested: string;
+  /** The subagent type whose surface is listed. */
+  role: SubagentRole;
+  /** The older type name that produced `role`, when one did. */
+  alias?: string;
+  /** The free text carried as a persona, when `requested` named no type. */
+  persona?: string;
+}
+
 interface ToolNamesListResponse {
   names: string[];
   schemas: Record<string, SchemaShape>;
   tools: ToolListEntry[];
+  /** Present only for an `agent` listing resolved from a role string. */
+  agent?: ResolvedAgentInfo;
 }
 
 /**
@@ -475,7 +490,11 @@ function handleToolNamesList(
 
 /**
  * Resolve the tool surface a subagent would receive, identified either by a
- * role name (e.g. "researcher") or a live subagent id.
+ * live subagent id or by any string a spawn's `role` field accepts: a type
+ * name (e.g. "researcher"), an older type name, or free text that a spawn
+ * carries as a persona. The response reports which type the string landed on
+ * and what carried it there, so a surface that came from an alias or a persona
+ * fallback is not mistaken for one that was asked for by name.
  *
  * For a role name: build a minimal {@link Conversation} stand-in matching what
  * the {@link SubagentManager} sets up at spawn time (isSubagent, allowedTools,
@@ -495,16 +514,13 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     return handleConversationToolList(state.conversationId);
   }
 
-  // Otherwise, treat as a role name.
-  const role = agent as SubagentRole;
-  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
-  if (!roleConfig) {
-    throw new NotFoundError(
-      `Unknown agent "${agent}". Expected a subagent role ` +
-        `(general, researcher, coder, planner, investigator, advisor) ` +
-        `or a live subagent id.`,
-    );
-  }
+  // Otherwise, read it the way a spawn reads its `role` field. Resolution is
+  // total: a type name passes through, an older name resolves to its successor
+  // type, and anything else is a persona that runs as a researcher. Rejecting
+  // what a spawn accepts would leave the two spawn shapes a caller most wants
+  // to preview (an alias, a persona) with no way to see their tool surface.
+  const resolved = resolveSubagentRole(agent);
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[resolved.role];
 
   // Build the same context the SubagentManager creates at spawn time. The
   // resolver reads only this subset of Conversation state, so a minimal
@@ -525,6 +541,11 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
       ? new Set(roleConfig.allowedTools)
       : undefined,
     subagentToolGateMode: undefined,
+    // Roles that refuse side effects require an allowed name to resolve to a
+    // first-party built-in, so a workspace or plugin tool claiming one is off
+    // the surface. Without this the preview would advertise a tool the live
+    // subagent refuses at dispatch.
+    subagentDenySideEffects: roleConfig.denySideEffects === true,
     toolsDisabledDepth: 0,
     diskPressureCleanupModeActive: false,
     skillProjectionState: new Map<string, string>(),
@@ -533,12 +554,19 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     preactivatedSkillIds: mergedSkillIds,
   } as unknown as Conversation;
 
+  const agentInfo: ResolvedAgentInfo = {
+    requested: agent,
+    role: resolved.role,
+    ...(resolved.alias ? { alias: resolved.alias } : {}),
+    ...(resolved.personaText ? { persona: resolved.personaText } : {}),
+  };
+
   // Run the real tool resolver — the same callback a subagent conversation
   // uses each turn. An empty message history simulates the first turn before
   // any skill activations have been recorded.
   const resolveTools = createResolveToolsCallback(toolDefs, ctx);
   if (!resolveTools) {
-    return { names: [], schemas: {}, tools: [] };
+    return { names: [], schemas: {}, tools: [], agent: agentInfo };
   }
   const resolvedDefs = resolveTools([]);
   const names = resolvedDefs
@@ -562,7 +590,7 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     tools.push(toolEntryForName(name));
   }
 
-  return { names, schemas, tools };
+  return { names, schemas, tools, agent: agentInfo };
 }
 
 /**

@@ -7,15 +7,18 @@
  * message-builder tests stay free of module mocks.
  *
  * Also pins that the rewrite send goes out hidden (see
- * `lib/side-conversation-message.ts`).
+ * `lib/side-conversation-message.ts`) and that the throwaway thread is minted
+ * `background`, which is what keeps it out of the conversation list.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const conversationsPostMock = mock(async () => ({
-  data: { id: "conv-1" },
-  response: { ok: true },
-}));
+const conversationsPostMock = mock(
+  async (_opts: { body: { conversationType?: string } }) => ({
+    data: { id: "conv-1" },
+    response: { ok: true },
+  }),
+);
 const messagesPostMock = mock(
   async (_opts: { body: { hidden?: boolean } }) => ({
     response: { ok: true },
@@ -57,17 +60,25 @@ const { applyPersonality } = await import("./apply-personality");
 beforeEach(() => {
   conversationsPostMock.mockClear();
   messagesPostMock.mockClear();
+  archivePostMock.mockClear();
   saveSlidersMock.mockClear();
 });
 
 describe("applyPersonality rewrite prompt", () => {
-  test("posts the rewrite prompt as a hidden machine signal", async () => {
-    // See `lib/side-conversation-message.ts` for why this posts hidden.
+  test("mints a background thread and posts the rewrite prompt as a hidden machine signal", async () => {
+    // The thread's only renderable content is the assistant's first-person
+    // self-description (the prompt posts hidden), so the `background` mint is
+    // what keeps it out of the user's view. See
+    // `lib/side-conversation-message.ts` for why the prompt posts hidden.
     await applyPersonality({
       awaitAssistantId: async () => "ast-1",
       values: {},
     });
 
+    expect(conversationsPostMock.mock.calls[0]?.[0].body).toMatchObject({
+      conversationType: "background",
+      title: "Updating personality",
+    });
     expect(messagesPostMock.mock.calls[0]?.[0].body.hidden).toBe(true);
   });
 });

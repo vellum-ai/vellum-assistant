@@ -193,3 +193,18 @@ export const GroupedView: Story = {
   beforeEach: () => seedViewMode("asst-grouped", "grouped"),
   args: { ...SHARED_ARGS, assistantId: "asst-grouped" },
 };
+
+/* What a cold load looks like before the conversation list resolves. The list
+   is one query that settles only once every page of it is in, so on a busy
+   assistant this state holds for seconds, and the placeholders are what keep
+   it distinguishable from an assistant with no conversations at all. */
+export const LoadingConversations: Story = {
+  name: "Loading conversations",
+  beforeEach: () => seedViewMode("asst-loading", "all"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-loading",
+    conversations: [],
+    isLoadingConversations: true,
+  },
+};

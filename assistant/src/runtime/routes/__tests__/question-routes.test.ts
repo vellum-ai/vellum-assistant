@@ -394,4 +394,68 @@ describe("POST /v1/question-response", () => {
     // Pending interaction left in place.
     expect(pendingInteractions.get("req-legacy-multi")).toBeDefined();
   });
+
+  // A gone interaction must read as 404 for every body shape. Clients treat
+  // 404 as the terminal signal that retires a stale card; a 400 leaves the
+  // card on screen and surfaces a body-validation string the user cannot act
+  // on. The legacy shapes are the ones that matter here: the web client sends
+  // them for every single-question answer, which is the common prompt.
+  test("legacy option against a gone interaction is 404, not a validation 400", async () => {
+    let thrown: unknown;
+    try {
+      await call({
+        body: { requestId: "req-gone", kind: "option", optionId: "yes" },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NotFoundError);
+  });
+
+  test("legacy free-text against a gone interaction is 404, not a validation 400", async () => {
+    let thrown: unknown;
+    try {
+      await call({
+        body: { requestId: "req-gone", kind: "free_text", text: "maybe" },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NotFoundError);
+  });
+
+  test("close against a gone interaction is 404", async () => {
+    let thrown: unknown;
+    try {
+      await call({ body: { requestId: "req-gone", kind: "close" } });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NotFoundError);
+  });
+
+  test("legacy option against a confirmation requestId is 404, not a validation 400", async () => {
+    // Cross-talk safety has to hold for the legacy shapes too: the wrong-kind
+    // interaction carries no question metadata for the shim to read.
+    pendingInteractions.register("req-confirm-legacy", {
+      conversationId: "conv-1",
+      kind: "confirmation",
+    });
+
+    let thrown: unknown;
+    try {
+      await call({
+        body: {
+          requestId: "req-confirm-legacy",
+          kind: "option",
+          optionId: "y",
+        },
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NotFoundError);
+    // The confirmation is left intact rather than consumed.
+    expect(pendingInteractions.get("req-confirm-legacy")).toBeDefined();
+  });
 });

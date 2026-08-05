@@ -74,13 +74,13 @@ const {
   handleToolResult,
 } = await import("../daemon/conversation-agent-loop-handlers.js");
 
+import type { Conversation } from "../daemon/conversation.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { CurrentTurnSurface } from "../daemon/conversation-surface-state.js";
 import type { SurfaceStateEntry } from "../daemon/conversation-surface-state.js";
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
 
 const CONVERSATION_ID = "conv-in-flight-surface-1";
@@ -99,7 +99,7 @@ const CHOICE_PAYLOAD = {
 };
 const EXPECTED_SUMMARY = 'User chose: "Clean up my inbox"';
 
-function makeContext(): SurfaceConversationContext {
+function makeContext(): Conversation {
   return {
     conversationId: CONVERSATION_ID,
     trustContext: { trustClass: "guardian", sourceChannel: "vellum" },
@@ -118,7 +118,7 @@ function makeContext(): SurfaceConversationContext {
     getQueueDepth: () => 0,
     processMessage: async () => "msg-1",
     withSurface: createSurfaceMutex(),
-  } as unknown as SurfaceConversationContext;
+  } as unknown as Conversation;
 }
 
 /**
@@ -126,7 +126,7 @@ function makeContext(): SurfaceConversationContext {
  * `await_action: false`: live state and a turn snapshot, but no
  * `pendingSurfaceActions` entry and nothing persisted yet.
  */
-function showOneShotChoice(ctx: SurfaceConversationContext): void {
+function showOneShotChoice(ctx: Conversation): void {
   ctx.surfaceState.set(SURFACE_ID, {
     surfaceType: "choice",
     title: "Pick one",
@@ -141,7 +141,7 @@ function showOneShotChoice(ctx: SurfaceConversationContext): void {
   } as CurrentTurnSurface);
 }
 
-function makeHandlerDeps(ctx: SurfaceConversationContext): EventHandlerDeps {
+function makeHandlerDeps(ctx: Conversation): EventHandlerDeps {
   return {
     ctx: {
       ...ctx,
