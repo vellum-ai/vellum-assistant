@@ -63,12 +63,9 @@ export interface LocalUpgradeOptions {
  * local id the pairing was registered under, and `accessOnly` is true when the
  * bundle carried no refresh credential (the token expires without renewal).
  */
-export interface LocalConnectImportResult {
-  ok: boolean;
-  assistantId?: string;
-  accessOnly?: boolean;
-  error?: string;
-}
+export type LocalConnectImportResult =
+  | { ok: true; assistantId: string; accessOnly: boolean }
+  | { ok: false; error: string };
 
 export interface VellumBridge {
   platform: "electron";

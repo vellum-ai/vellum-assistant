@@ -24,9 +24,9 @@ export type DeepLink =
   | { kind: "openThread"; threadId: string }
   | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
   | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
-  /** `<scheme>://connect` pairing hand-off. `code` and `bundle` are secret
-   *  material: never log or breadcrumb them. */
-  | { kind: "connect"; url?: string; code?: string; bundle?: string }
+  /** `<scheme>://connect` pairing hand-off. `bundle` is secret material:
+   *  never log or breadcrumb it. */
+  | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
 export async function drainPendingDeepLinks(): Promise<DeepLink[]> {

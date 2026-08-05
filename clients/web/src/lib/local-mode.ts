@@ -36,6 +36,7 @@ import type {
   Lockfile,
   LockfileAssistant,
   LocalAssistantResources,
+  LocalConnectImportResult,
   LocalRetireResult,
 } from "@/runtime/local-mode-host";
 
@@ -434,16 +435,16 @@ export async function removePairedAssistantFromLockfile(
 export async function importPairedAssistantBundle(
   bundle: string,
   name?: string,
-): Promise<
-  | { ok: true; assistantId: string; accessOnly: boolean }
-  | { ok: false; error: string }
-> {
+): Promise<LocalConnectImportResult> {
+  const fallbackError = "Failed to import the pairing bundle.";
   const result = await connectImportHost(bundle, name);
-  if (!result.ok || result.assistantId == null) {
-    return {
-      ok: false,
-      error: result.error || "Failed to import the pairing bundle.",
-    };
+  if (!result.ok) {
+    return { ok: false, error: result.error || fallbackError };
+  }
+  // Runtime guard: the dev-server host branch parses untyped JSON, so a
+  // malformed success degrades to a structured failure.
+  if (!result.assistantId) {
+    return { ok: false, error: fallbackError };
   }
   await loadLockfile();
   return {

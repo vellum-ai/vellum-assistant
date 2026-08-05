@@ -5,7 +5,7 @@ type DeepLink =
   | { kind: "openThread"; threadId: string }
   | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
   | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
-  | { kind: "connect"; url?: string; code?: string; bundle?: string }
+  | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
 let activeCallback: ((link: DeepLink) => void) | null = null;
@@ -95,7 +95,6 @@ describe("publishElectronDeepLinksSource", () => {
     activeCallback!({
       kind: "connect",
       url: "https://assistant.example.com",
-      code: "ABCD-1234",
     });
     activeCallback!({ kind: "unknown", url: "javascript:alert(1)" });
 
@@ -111,8 +110,6 @@ describe("publishElectronDeepLinksSource", () => {
         { status: "cancel", sessionId: null },
       ],
       ["deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" }],
-      // The device code stays behind: it has no renderer consumer and is
-      // secret material.
       ["deeplink.connect", { url: "https://assistant.example.com", bundle: null }],
       ["deeplink.unknown", { url: "javascript:alert(1)" }],
     ]);

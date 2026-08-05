@@ -6,7 +6,6 @@ import { nanoid } from "nanoid";
 import { guardianTokenPath } from "./config";
 import { saveGuardianToken } from "./guardian-token";
 import { readRawLockfile, upsertLockfileAssistant } from "./lockfile";
-import type { Lockfile } from "./lockfile-contract";
 
 /**
  * A decoded `vellum pair` bundle: base64(JSON.stringify({ gatewayUrl, token,
@@ -120,7 +119,6 @@ export interface PairOptions {
 export type PairResult =
   | {
       ok: true;
-      lockfile: Lockfile;
       /** The unique local id the pairing was registered under. */
       assistantId: string;
       /** True when an existing paired entry was updated in place. */
@@ -230,7 +228,7 @@ export function pairAssistant(
     };
   }
 
-  const result = upsertLockfileAssistant(
+  const writeResult = upsertLockfileAssistant(
     lockfilePaths,
     {
       assistantId: localId,
@@ -249,7 +247,7 @@ export function pairAssistant(
     },
     undefined,
   );
-  if (!result.ok) {
+  if (!writeResult.ok) {
     // The entry was not registered, so undo the token write (best-effort;
     // the write failure itself is what gets reported): restore the prior
     // token of a re-import, or delete the freshly written one.
@@ -263,12 +261,11 @@ export function pairAssistant(
     } catch {
       // Rollback failed; the reported write error already covers the outcome.
     }
-    return result;
+    return writeResult;
   }
 
   return {
     ok: true,
-    lockfile: result.lockfile,
     assistantId: localId,
     updated: existing !== undefined,
     accessOnly: !bundle.refreshToken,

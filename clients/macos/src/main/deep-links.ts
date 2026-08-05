@@ -103,16 +103,19 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - `vellum://thread/<id>` → `{ kind: "openThread", threadId }`.
  *     Trailing slashes / extra path segments are tolerated;
  *     `threadId` is the first non-empty path segment.
- *   - `vellum://connect?url=…&code=…` / `vellum://connect?bundle=…` →
+ *   - `vellum://connect?url=…` / `vellum://connect?bundle=…` →
  *     `{ kind: "connect", … }`. The pair page's "Open in the Vellum
  *     app" button and `vellum pair --qr --app` QR codes. `url` must
  *     parse as https (dropped otherwise); `bundle` must look like
- *     base64/base64url. Malformed variants still parse as `connect`
+ *     base64/base64url. A `code` query param (device code) is
+ *     accepted but never carried: the renderer cannot complete a
+ *     device-code exchange, so the secret stays out of the IPC
+ *     boundary entirely. Malformed variants still parse as `connect`
  *     with the fields absent rather than falling to `unknown`: the
  *     user clicked a connect link, so the renderer routes them to
- *     the connect flow with guidance. `code` and `bundle` are secret
- *     material: never logged, and never echoed on an `unknown` URL
- *     (which the renderer breadcrumbs to Sentry).
+ *     the connect flow with guidance. `bundle` is secret material:
+ *     never logged, and never echoed on an `unknown` URL (which the
+ *     renderer breadcrumbs to Sentry).
  *   - `vellum://billing/checkout-complete?status=…&session_id=…` →
  *     `{ kind: "billingCheckoutComplete", status, sessionId }`. The
  *     platform bounces a native-initiated Stripe Checkout here once
@@ -164,9 +167,10 @@ export const parseVellumUrl = (input: string): DeepLink => {
     return { kind: "unknown", url: withoutQuery };
   }
   if (url.host === "connect") {
-    // `code` and `bundle` are secret material (device code / pairing
-    // bundle): carried on the typed link only, never logged, and never
-    // routed through `unknown` (whose URL the renderer breadcrumbs).
+    // `bundle` is secret material (pairing bundle): carried on the typed
+    // link only, never logged, and never routed through `unknown` (whose
+    // URL the renderer breadcrumbs). A `code` query param is accepted but
+    // dropped here: it has no renderer consumer.
     const link: Extract<DeepLink, { kind: "connect" }> = { kind: "connect" };
     const base = url.searchParams.get("url");
     if (base) {
@@ -177,10 +181,6 @@ export const parseVellumUrl = (input: string): DeepLink => {
       } catch {
         // Unparseable server base: leave the field absent.
       }
-    }
-    const code = url.searchParams.get("code");
-    if (code) {
-      link.code = code;
     }
     const bundle = url.searchParams.get("bundle");
     if (bundle && BUNDLE_RE.test(bundle)) {
