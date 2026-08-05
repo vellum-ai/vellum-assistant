@@ -218,6 +218,15 @@ const ensurePanel = (): BrowserWindow => {
       minimizable: false,
       maximizable: false,
       hasShadow: true,
+      // **Without this, every control on this panel is dead on first press.**
+      // macOS defaults to swallowing the click that activates an inactive
+      // window, delivering only the second one to its content — a rule that
+      // exists so a stray click on a background app cannot act on it. This
+      // panel is the exception the rule was not written for: it is *only ever*
+      // on screen while the app is inactive, so every press it receives is a
+      // first press, and "click once to wake it, again to mean it" is the
+      // whole interaction. The user aimed at Mute; the click is not stray.
+      acceptFirstMouse: true,
       // The glass. `under-window` samples what is behind the panel, which for
       // a surface floating over *other apps* is the material that reads as
       // glass rather than as a tinted rectangle. `active` keeps it live while
@@ -244,20 +253,23 @@ const ensurePanel = (): BrowserWindow => {
 };
 
 /**
- * Whether Vellum is the frontmost app.
+ * Whether Vellum is the frontmost app, tracked from the two macOS events that
+ * mean exactly that.
  *
- * The panel is deliberately not counted. It is a non-activating panel, so
- * clicking it does not make Vellum frontmost in the first place — but it can
- * still take key focus, and treating that as "the app is frontmost" would hide
- * the surface the moment the user reached for it.
+ * **Not derived from `BrowserWindow.getFocusedWindow()`.** That reports which
+ * window holds *key* status, which is a different question, and for this
+ * surface it answers wrongly in the one case that matters: the panel is an
+ * always-on-top non-activating `NSPanel`, so it can keep key status while the
+ * user brings the main window to the front. A frontmost check that excluded
+ * the panel to avoid hiding on its own clicks then reported "not frontmost"
+ * for the rest of the session, and the panel never went away.
+ *
+ * `did-become-active` / `did-resign-active` describe the *application*, so
+ * they need no such exclusion — the panel being non-activating means clicking
+ * it does not activate the app, and therefore does not fire either event.
+ * The behavior the exclusion was hand-rolling is what these give for free.
  */
-const isAppFrontmost = (): boolean => {
-  const focused = BrowserWindow.getFocusedWindow();
-  if (focused === null || focused.isDestroyed()) {
-    return false;
-  }
-  return focused !== panelWindow();
-};
+let appFrontmost = BrowserWindow.getFocusedWindow() !== null;
 
 let installed = false;
 
@@ -278,28 +290,9 @@ export const installVoiceActivityWindow = (): void => {
     sendState: (state) => {
       panelWindow()?.webContents.send("vellum:voiceActivity:state", state);
     },
-    isAppFrontmost,
+    isAppFrontmost: () => appFrontmost,
     now: () => Date.now(),
   });
-
-  /**
-   * Focus changes are reconciled on the next tick rather than inline.
-   *
-   * Moving between two Vellum windows fires `browser-window-blur` for the one
-   * being left before `browser-window-focus` for the one being entered, so a
-   * synchronous read of `getFocusedWindow()` inside that gap says "no Vellum
-   * window has focus" and the panel would flash into view mid-switch.
-   */
-  let reconcileTimer: NodeJS.Timeout | null = null;
-  const scheduleReconcile = (): void => {
-    if (reconcileTimer !== null) {
-      return;
-    }
-    reconcileTimer = setTimeout(() => {
-      reconcileTimer = null;
-      controller.focusChanged();
-    }, 0);
-  };
 
   on(
     "vellum:voiceActivity:start",
@@ -354,6 +347,15 @@ export const installVoiceActivityWindow = (): void => {
     controller.currentState(),
   );
 
-  app.on("browser-window-focus", scheduleReconcile);
-  app.on("browser-window-blur", scheduleReconcile);
+  // No debounce and no deferral: unlike per-window focus events, these fire
+  // once per actual application activation, so there is no blur/focus gap to
+  // ride out and nothing to coalesce.
+  app.on("did-become-active", () => {
+    appFrontmost = true;
+    controller.focusChanged();
+  });
+  app.on("did-resign-active", () => {
+    appFrontmost = false;
+    controller.focusChanged();
+  });
 };
