@@ -55,6 +55,14 @@ interface AssistantConnection {
    * logged once rather than once per poll.
    */
   presencePostFailing?: boolean;
+  /** Set while a presence post to this assistant is awaiting its reply. */
+  presencePostInFlight?: boolean;
+  /**
+   * State reported while a post was in flight, sent once that post settles.
+   * Only the newest is kept: a state the user has already left is never worth
+   * a request of its own.
+   */
+  presencePendingState?: PresenceState;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,23 +248,76 @@ async function postPresenceTo(
 }
 
 /**
+ * Run this connection's presence posts one at a time until no newer state is
+ * waiting, so the daemon's last write is always the newest state the desktop
+ * has observed.
+ *
+ * Concurrent posts have no ordering guarantee, and a stale `active` landing
+ * after an `away` would leave the daemon holding "attended" (with a fresh
+ * timestamp) for a Mac the user has walked away from, suppressing the mobile
+ * push. That is the one outcome presence must never produce, so a report that
+ * arrives mid-flight waits its turn instead of racing.
+ *
+ * Only the newest waiting state is sent: intermediate states have already been
+ * superseded, and the daemon only ever reads the latest record. A follow-up
+ * that matches what just went out is dropped for the same reason. Nothing
+ * throws out of here, since the caller can only fire and forget.
+ */
+async function drainPresencePosts(
+  assistantId: string,
+  conn: AssistantConnection,
+  first: PresenceState,
+): Promise<void> {
+  let next: PresenceState | undefined = first;
+  try {
+    while (next !== undefined) {
+      const posting: PresenceState = next;
+      conn.presencePendingState = undefined;
+      await postPresenceTo(assistantId, conn, posting);
+      const pending = conn.presencePendingState;
+      next = pending === posting ? undefined : pending;
+    }
+  } catch (err) {
+    log.warn("[host-proxy-router] presence post loop failed", { assistantId, err });
+  } finally {
+    conn.presencePendingState = undefined;
+    conn.presencePostInFlight = false;
+  }
+}
+
+/**
+ * Send a report to one assistant, holding it back if that assistant already
+ * has a post in flight. State is per connection, so a slow daemon delays only
+ * its own reports.
+ */
+function queuePresencePost(
+  assistantId: string,
+  conn: AssistantConnection,
+  state: PresenceState,
+): void {
+  if (conn.presencePostInFlight) {
+    conn.presencePendingState = state;
+    return;
+  }
+  conn.presencePostInFlight = true;
+  void drainPresencePosts(assistantId, conn, state);
+}
+
+/**
  * Fan a presence report out to every connected assistant: the lockfile can
  * hold several (local and cloud) and the desktop is equally attended for all
  * of them.
  *
- * Each post is fire-and-forget (postJson carries its own timeout) so a slow
- * or unreachable daemon can't stall the reporter or its siblings, and
- * allSettled keeps one failure from surfacing as an unhandled rejection. A
- * dropped report is the safe direction: with no presence record on file the
- * daemon lets the mobile push through.
+ * Posting is fire-and-forget (postJson carries its own timeout) so a slow or
+ * unreachable daemon can't stall the reporter or its siblings. A dropped
+ * report is the safe direction: with no presence record on file the daemon
+ * lets the mobile push through.
  */
 function reportPresence(state: PresenceState): void {
   lastPresenceState = state;
-  void Promise.allSettled(
-    Array.from(connections, ([assistantId, conn]) =>
-      postPresenceTo(assistantId, conn, state),
-    ),
-  );
+  for (const [assistantId, conn] of connections) {
+    queuePresencePost(assistantId, conn, state);
+  }
 }
 
 /**
@@ -268,6 +329,9 @@ function reportPresence(state: PresenceState): void {
  * daemon can only attribute a report once it has this client's subscriber. The
  * same reason makes it fire on reconnects: the daemon dropped the subscriber
  * and its presence record with it.
+ *
+ * Goes through the same queue as a poll tick, so a seed landing next to one
+ * cannot reinstate the state the other has already superseded.
  */
 function seedPresence(assistantId: string): void {
   if (lastPresenceState === null) {
@@ -277,7 +341,7 @@ function seedPresence(assistantId: string): void {
   if (!conn) {
     return;
   }
-  void postPresenceTo(assistantId, conn, lastPresenceState);
+  queuePresencePost(assistantId, conn, lastPresenceState);
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +653,7 @@ export const __testing = {
   connectCloudAssistant,
   disconnectAssistant,
   handleLockfileChange,
+  seedPresence,
   reset() {
     stopPresenceMonitor?.();
     stopPresenceMonitor = null;

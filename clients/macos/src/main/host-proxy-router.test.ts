@@ -206,6 +206,43 @@ function addPresenceConnection(
 }
 
 /**
+ * Register a connection whose presence posts park until released, so a test
+ * can inspect what the router does while one is in flight. `started` records a
+ * state the moment its request is issued, so its length is the number of
+ * requests actually made.
+ */
+function addParkedPresenceConnection(assistantId: string): {
+  started: PresenceState[];
+  release: () => Promise<void>;
+} {
+  const started: PresenceState[] = [];
+  const parked: (() => void)[] = [];
+  const poster = {
+    postPresence: async ({ state }: { state: PresenceState }) => {
+      started.push(state);
+      await new Promise<void>((resolve) => {
+        parked.push(resolve);
+      });
+      return true;
+    },
+  };
+  __testing.connections.set(assistantId, {
+    sse: fakeSse(),
+    poster,
+    fingerprint: `test:${assistantId}`,
+  } as unknown as Connection);
+  return {
+    started,
+    release: async () => {
+      for (const resolve of parked.splice(0)) {
+        resolve();
+      }
+      await flush();
+    },
+  };
+}
+
+/**
  * Route presence POSTs into a captured list, leaving every other request
  * (the gateway token exchange, the event streams) on its normal mock.
  */
@@ -912,12 +949,136 @@ describe("host-proxy-router", () => {
       installHostProxyBridge(fakeCliResolver);
       const received = addPresenceConnection("a1");
 
+      // The daemon expires presence after a staleness bound, so an unchanged
+      // state still has to be said again on every tick.
       presenceReporter?.("active");
+      await flush();
       presenceReporter?.("active");
+      await flush();
       presenceReporter?.("active");
       await flush();
 
       expect(received).toEqual(["active", "active", "active"]);
+    });
+
+    test("holds a report that arrives while a post is in flight", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+      expect(daemon.started).toEqual(["active"]);
+
+      presenceReporter?.("away");
+      await flush();
+
+      // Still one request: a second would have no ordering guarantee against
+      // the first, so the newer state waits its turn instead.
+      expect(daemon.started).toEqual(["active"]);
+
+      await daemon.release();
+      expect(daemon.started).toEqual(["active", "away"]);
+    });
+
+    test("collapses reports queued behind one post down to the newest", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+
+      presenceReporter?.("idle");
+      presenceReporter?.("active");
+      presenceReporter?.("away");
+      await flush();
+      expect(daemon.started).toEqual(["active"]);
+
+      // One follow-up carrying the last state. The two the user has already
+      // left are worth no request of their own.
+      await daemon.release();
+      expect(daemon.started).toEqual(["active", "away"]);
+
+      await daemon.release();
+      expect(daemon.started).toEqual(["active", "away"]);
+    });
+
+    test("stops when the queued state matches the post that just settled", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("active");
+      await flush();
+
+      await daemon.release();
+      expect(daemon.started).toEqual(["active"]);
+    });
+
+    test("never leaves a stale active as the daemon's last write", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      // The daemon stamps a report when it lands, so landing order is what
+      // decides the record. A slow `active` overtaken by a fast `away` is
+      // just locking the screen right after a poll tick, and leaving the
+      // daemon holding a freshly stamped `active` for a machine the user has
+      // walked away from is the one outcome presence must never produce.
+      const landed: PresenceState[] = [];
+      const poster = {
+        postPresence: async ({ state }: { state: PresenceState }) => {
+          await flush(state === "active" ? 60 : 5);
+          landed.push(state);
+          return true;
+        },
+      };
+      __testing.connections.set("a1", {
+        sse: fakeSse(),
+        poster,
+        fingerprint: "test:a1",
+      } as unknown as Connection);
+
+      presenceReporter?.("active");
+      presenceReporter?.("away");
+      await flush(300);
+
+      expect(landed).toEqual(["active", "away"]);
+    });
+
+    test("a parked post on one assistant does not delay another", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const parked = addParkedPresenceConnection("a1");
+      const responsive = addPresenceConnection("a2");
+
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+
+      expect(parked.started).toEqual(["active"]);
+      expect(responsive).toEqual(["active", "away"]);
+
+      await parked.release();
+      expect(parked.started).toEqual(["active", "away"]);
+    });
+
+    test("a seed queued behind an in-flight post cannot overtake it", async () => {
+      installHostProxyBridge(fakeCliResolver);
+      const daemon = addParkedPresenceConnection("a1");
+
+      presenceReporter?.("active");
+      await flush();
+      presenceReporter?.("away");
+      await flush();
+      expect(daemon.started).toEqual(["active"]);
+
+      // A stream coming back up seeds the cached state through the same
+      // queue, so it joins the wait rather than racing the parked post.
+      __testing.seedPresence("a1");
+      await flush();
+      expect(daemon.started).toEqual(["active"]);
+
+      await daemon.release();
+      expect(daemon.started).toEqual(["active", "away"]);
     });
 
     test("warns once for a run of failing posts, not once per report", async () => {
