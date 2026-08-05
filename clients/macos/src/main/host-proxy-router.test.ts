@@ -446,6 +446,27 @@ describe("host-proxy-router", () => {
       expect(__testing.connections.has("custom-1")).toBe(false);
     });
 
+    test("cloud entry with a stale gatewayPort is classified as cloud, not loopback", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            resources: { gatewayPort: 9001, daemonPort: 9002 },
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe(
+        "cloud:https://platform.vellum.ai:",
+      );
+    });
+
     test("does not duplicate cloud connections on repeated lockfile updates", async () => {
       installHostProxyBridge(fakeCliResolver);
 
@@ -581,6 +602,69 @@ describe("host-proxy-router", () => {
       await flush();
 
       expect(__testing.connections.size).toBe(0);
+    });
+
+    test("paired entry with a stale gatewayPort still connects via the runtimeUrl", async () => {
+      const requests = recordingFetch();
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "paired-1",
+            cloud: "paired",
+            runtimeUrl: "https://tunnel.example.com",
+            resources: { gatewayPort: 9001, daemonPort: 9002 },
+          },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      expect(__testing.connections.get("paired-1")!.fingerprint).toBe(
+        "paired:https://tunnel.example.com:paired-1",
+      );
+      // No loopback token exchange or loopback SSE against the stale port.
+      expect(requests.some((r) => r.url.includes("/auth/token"))).toBe(false);
+      expect(requests.some((r) => r.url.startsWith("http://127.0.0.1:9001"))).toBe(false);
+      expect(requests.some((r) => r.url === "https://tunnel.example.com/v1/events")).toBe(true);
+    });
+
+    test("paired poster refreshes the guardian bearer and retries once on 401", async () => {
+      const posts: { headers: Record<string, string> }[] = [];
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/host-bash-result")) {
+          posts.push({ headers: { ...((init?.headers ?? {}) as Record<string, string>) } });
+          return new Response("{}", { status: posts.length === 1 ? 401 : 200 });
+        }
+        return new Response("ok");
+      }) as typeof globalThis.fetch;
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "paired-1", cloud: "paired", runtimeUrl: "https://tunnel.example.com" },
+        ],
+        activeAssistant: "paired-1",
+      });
+      await flush();
+
+      // The expired-bearer refresh path re-acquires the guardian token.
+      mockGetGuardianAccessToken.mockImplementation(
+        async () => ({ ok: true, accessToken: "fresh-token" }),
+      );
+
+      const ok = await __testing.connections
+        .get("paired-1")!
+        .poster.postBashResult({ requestId: "r1", stdout: "" });
+
+      expect(ok).toBe(true);
+      expect(posts).toHaveLength(2);
+      expect(posts[0].headers.Authorization).toBe("Bearer test-token");
+      expect(posts[1].headers.Authorization).toBe("Bearer fresh-token");
+      // The refresh keeps the paired flag so failures surface re-pair guidance.
+      expect(mockGetGuardianAccessToken.mock.calls.at(-1)?.[5]).toEqual({ paired: true });
     });
 
     test("unpairing during token acquisition aborts the stale connect", async () => {
