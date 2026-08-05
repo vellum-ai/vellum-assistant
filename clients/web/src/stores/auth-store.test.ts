@@ -152,9 +152,9 @@ const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 // unaffected; the reconciliation tests override it to a well-formed result.
 let mockListAssistantsResult: unknown = [];
 const listAssistantsMock = mock(async () => mockListAssistantsResult);
-// Controls the `OrgFetchOutcome` the probe's evidence check reads. A thrown
-// error simulates a transport failure; a never-resolving promise as the
-// outcome makes the fetch hang so the probe's sync race times out.
+// Controls the `OrgFetchOutcome` the session-rejection evidence checks read.
+// A thrown error simulates a transport failure; a never-resolving promise as
+// the outcome makes the fetch hang so the probe's sync race times out.
 let mockOrgFetchOutcome: unknown = { ok: true };
 let mockOrgFetchError: Error | null = null;
 const fetchOrganizationsMock = mock(async () => {
@@ -1575,6 +1575,9 @@ describe("auth store onboarding flag reconciliation", () => {
         },
       ],
       "org-test",
+      // The shared reconcile helper forwards its staleness predicate; the
+      // refresh path has none.
+      undefined,
     );
   });
 
@@ -1740,11 +1743,7 @@ describe("platform session probe resolution", () => {
 describe("platform probe conclusive rejection (half-dead session)", () => {
   // The half-dead state: allauth answers 200 with a user while the platform
   // API conclusively rejects the same credential. The probe consumes the
-  // org/assistants evidence it already gathers and settles the session
-  // "absent", which un-gates org-gated daemon queries on bearer-auth
-  // connections and surfaces the login affordances. The recovery
-  // interceptor's settled-absent gate then treats any residual platform 403
-  // as a no-op instead of looping.
+  // org/assistants evidence it already gathers and settles "absent".
   //
   // Every test drives the local-client init path (no gateway auth, no
   // platform assistants), where the probe runs with `setUserOnSuccess`.
@@ -1875,6 +1874,178 @@ describe("platform probe conclusive rejection (half-dead session)", () => {
       setTimeoutSpy.mockRestore();
       clearTimeoutSpy.mockRestore();
     }
+  });
+});
+
+describe("session-rejection evidence at sibling confirmation sites", () => {
+  // The same half-dead evidence rule applies wherever an allauth 200 would
+  // otherwise confirm the session: refreshSession's resume path, initSession's
+  // platform-assistants path, and connectPlatformAssistant.
+
+  test("refreshSession settles a half-dead session absent instead of re-confirming it", async () => {
+    // A gateway client whose cached token expired while backgrounded lands in
+    // the non-gateway branch (isGatewayAuthMode() is false without a token).
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    // No snapshot may be re-persisted for the rejected session.
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshSession settles absent on an assistants-list rejection", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockListAssistantsResult = { ok: false, status: 401, error: {} };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshSession ends a half-dead session whose assistants are platform-hosted", async () => {
+    // Same stands-alone exclusion as a settled getSession 401: a managed
+    // assistant is unreachable without a platform session, so login wins.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockPlatformAssistants = [{ assistantId: "managed-1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("a resume refresh does not flip a probe-settled absent session back to present", async () => {
+    // Pin the oscillation regression: the probe settles absent on rejection,
+    // then the app-resume refresh runs against the same half-dead session.
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("a transport-failed sync on refresh keeps the platform confirmation", async () => {
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchError = new TypeError("Failed to fetch");
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).not.toBeNull();
+  });
+
+  test("a non-rejection org failure on refresh keeps the platform confirmation", async () => {
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "unavailable" };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+  });
+
+  test("initSession with platform assistants routes a rejected session to login", async () => {
+    mockIsLocalClient = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    localStorage.setItem(
+      "vellum:auth:userSnapshot",
+      JSON.stringify({ id: "user-1", email: "user@example.com" }),
+    );
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("initSession with platform assistants routes an assistants-list rejection to login", async () => {
+    mockIsLocalClient = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockListAssistantsResult = { ok: false, status: 410, error: {} };
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("initSession with platform assistants keeps the session on a transport-failed sync", async () => {
+    mockIsLocalClient = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchError = new TypeError("Failed to fetch");
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("connectPlatformAssistant fails the connect on a rejected org fetch", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await expect(
+      useAuthStore.getState().connectPlatformAssistant("assistant-1"),
+    ).rejects.toThrow("Platform authentication required");
+
+    expect(useAuthStore.getState().platformSession).not.toBe("present");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("connectPlatformAssistant tolerates a non-rejection org failure", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "unavailable" };
+
+    await useAuthStore.getState().connectPlatformAssistant("assistant-1");
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 });
 

@@ -228,9 +228,9 @@ const sessionEnded = (): Partial<AuthState> => ({
  * non-auth reason (429 rate limiting, 5xx outages, the Electron proxy's
  * offline 502). Distinct from a settled "no session" answer (2xx without
  * user, or an explicit 401/403/410 rejection), which is the only thing
- * allowed to end the session. Callers check the 2xx-without-user case
- * themselves — by the time they consult this, `result.ok` means the user
- * field was missing, a settled negative.
+ * allowed to end the session. Callers handle the 2xx cases themselves;
+ * by the time they consult this, an ok result was already judged unusable
+ * (user missing, or platform-rejected evidence), a settled negative.
  */
 const isInconclusiveProbe = (
   result: Awaited<ReturnType<typeof getSession>> | null,
@@ -573,6 +573,36 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   store.setConsentHydrated(true);
 }
 
+/**
+ * Reconcile the lockfile's managed-assistant mirror and report whether the
+ * platform API conclusively rejected the session (a settled 401/403/410 from
+ * the org or assistants call). Only that settled evidence may end a platform
+ * session; transport failures and other errors prove nothing (LUM-2412) and
+ * leave cached lockfile data standing. Cloud mode loads assistants via
+ * `reloadPlatformAssistants` (platform-assistants-sync), which has no
+ * lockfile and stays outside this evidence rule.
+ */
+async function reconcilePlatformAssistants(
+  syncIsCurrent?: () => boolean,
+): Promise<{ sessionRejected: boolean }> {
+  const orgOutcome = await useOrganizationStore.getState().fetchOrganizations();
+  if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
+    return { sessionRejected: true };
+  }
+  const apiAssistants = await listAssistants();
+  if (isSettledSessionRejection(apiAssistants)) {
+    return { sessionRejected: true };
+  }
+  if ((syncIsCurrent?.() ?? true) && apiAssistants.ok) {
+    await syncPlatformAssistantsToLockfile(
+      apiAssistants.data,
+      useOrganizationStore.getState().currentOrganizationId ?? undefined,
+      syncIsCurrent,
+    );
+  }
+  return { sessionRejected: false };
+}
+
 // Monotonic id stamped on each platform-session probe. Probes can overlap
 // (an app-resume refresh firing while the initial probe is still in flight),
 // and a stale completion must not mutate session state — most importantly it
@@ -647,26 +677,8 @@ function probePlatformSession(
           try {
             await Promise.race([
               (async () => {
-                const orgOutcome = await useOrganizationStore
-                  .getState()
-                  .fetchOrganizations();
-                if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
-                  sessionRejected = true;
-                  return;
-                }
-                const apiAssistants = await listAssistants();
-                if (isSettledSessionRejection(apiAssistants)) {
-                  sessionRejected = true;
-                  return;
-                }
-                if (syncIsCurrent() && apiAssistants.ok) {
-                  await syncPlatformAssistantsToLockfile(
-                    apiAssistants.data,
-                    useOrganizationStore.getState().currentOrganizationId ??
-                      undefined,
-                    syncIsCurrent,
-                  );
-                }
+                ({ sessionRejected } =
+                  await reconcilePlatformAssistants(syncIsCurrent));
               })(),
               new Promise<never>((_, reject) => {
                 timeoutHandle = setTimeout(() => {
@@ -685,17 +697,10 @@ function probePlatformSession(
           return;
         }
         if (sessionRejected) {
-          // The allauth cookie answered, but the platform API conclusively
-          // rejected the credential (a settled 401/403/410 on the org or
-          // assistants call), so this session is unusable for every consumer:
-          // settle it as absent, install no user, and skip the platform
-          // identity bootstrap. Transport failures and the race timeout
-          // deliberately never reach this branch (LUM-2412 offline restore).
-          // The persisted snapshot must go too, or `restoreOfflineSession`
-          // could resurrect the rejected account as "present" on a later
-          // offline boot; an already-authenticated local/gateway session
-          // demotes its user to the local shape, mirroring refreshSession's
-          // stands-alone demotion.
+          // The platform API conclusively rejected the allauth-confirmed
+          // credential: settle absent, install no user, and drop the snapshot
+          // so `restoreOfflineSession` cannot resurrect the account. Transport
+          // failures and the race timeout never reach here (LUM-2412).
           clearUserSnapshot();
           const demotion = isAuthenticated(
             useAuthStore.getState().sessionStatus,
@@ -868,21 +873,18 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
             const user = toAuthUser(result.data.user);
             await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
+            let sessionRejected = false;
             try {
-              await useOrganizationStore.getState().fetchOrganizations();
-              const apiAssistants = await listAssistants();
-              if (apiAssistants.ok) {
-                await syncPlatformAssistantsToLockfile(
-                  apiAssistants.data,
-                  useOrganizationStore.getState().currentOrganizationId ??
-                    undefined,
-                );
-              }
+              ({ sessionRejected } = await reconcilePlatformAssistants());
             } catch {
-              // Sync failed — continue with cached data
+              // Sync failed; continue with cached data
             }
-            set(authenticatedPlatformUser(user));
-            return;
+            if (!sessionRejected) {
+              set(authenticatedPlatformUser(user));
+              return;
+            }
+            // A settled org/assistants rejection falls through to the
+            // settled-answer handling (login), never the offline restore.
           }
         } catch {
           // Thrown fetch — classified as a transport failure below.
@@ -1044,8 +1046,15 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     }
     const user = toAuthUser(result.data.user);
     await syncUserScopedState(user?.id ?? null);
-    // Hydrate the organizations to avoid race conditions from lazy fetch.
-    await useOrganizationStore.getState().fetchOrganizations();
+    // Hydrate the organizations to avoid race conditions from lazy fetch; a
+    // settled rejection fails the connect rather than installing a platform
+    // user the API refuses to serve.
+    const orgOutcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations();
+    if (!orgOutcome.ok && orgOutcome.kind === "rejected") {
+      throw new Error("Platform authentication required");
+    }
     set(authenticatedPlatformUser(user));
   },
 
@@ -1089,29 +1098,26 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         await syncUserScopedState(user?.id ?? null);
-        // Reconcile the lockfile mirror on refresh too — not just cold
-        // `initSession`. App resume, profile save, and the provider callback
-        // all route through here; without this the macOS tray and CLI keep a
-        // stale managed-assistant list until the next full boot. Best-effort
-        // and local-mode only (platform mode has no lockfile host); the
-        // refresh has already succeeded regardless of the sync outcome.
+        // Reconcile the lockfile mirror on refresh too, not just cold
+        // `initSession`: app resume, profile save, and the provider callback
+        // all route through here, and the macOS tray and CLI would otherwise
+        // keep a stale managed-assistant list until the next full boot.
+        // Local-mode only (platform mode has no lockfile host).
+        let sessionRejected = false;
         if (isLocalClient()) {
           try {
-            await useOrganizationStore.getState().fetchOrganizations();
-            const apiAssistants = await listAssistants();
-            if (apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(
-                apiAssistants.data,
-                useOrganizationStore.getState().currentOrganizationId ??
-                  undefined,
-              );
-            }
+            ({ sessionRejected } = await reconcilePlatformAssistants());
           } catch {
-            // Sync failed — continue with cached lockfile data.
+            // Sync failed; continue with cached lockfile data.
           }
         }
-        set(authenticatedPlatformUser(user));
-        return true;
+        if (!sessionRejected) {
+          set(authenticatedPlatformUser(user));
+          return true;
+        }
+        // A settled org/assistants rejection is a rejected session even
+        // though allauth answered 200: fall through to the settled-rejection
+        // handling below, same as a settled getSession 401.
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
