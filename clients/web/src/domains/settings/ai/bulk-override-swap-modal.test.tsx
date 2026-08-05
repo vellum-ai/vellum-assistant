@@ -48,9 +48,11 @@ const DOMAINS = [
 // - workflowLeaf:            override -> balanced
 // - subagentSpawn:           no override, default balanced -> balanced
 // - conversationTitle:       tuning-only override, default balanced -> balanced
+// - memoryRouter:            profileless site; catalog reports only the
+//                            shipped Balanced tier -> balanced
 // - heartbeatAgent:          override -> speed (default quality is shadowed)
 // - conversationCompaction:  model pin -> Custom, no profile
-// - voiceFrontDoor:          no override, no default -> no profile
+// - voiceFrontDoor:          neither field (old-daemon shape) -> no profile
 const CALL_SITES = [
   {
     id: "workflowLeaf",
@@ -72,6 +74,13 @@ const CALL_SITES = [
     description: "Creates a short title.",
     domain: "background",
     defaultProfile: "balanced",
+  },
+  {
+    id: "memoryRouter",
+    displayName: "Memory Router",
+    description: "Routes memory pages for the next turn.",
+    domain: "background",
+    shippedDefaultProfile: "balanced",
   },
   {
     id: "heartbeatAgent",
@@ -207,16 +216,18 @@ describe("BulkOverrideSwapModal - eligibility", () => {
     renderModal();
 
     // Balanced: override (workflowLeaf) + defaults (subagentSpawn,
-    // tuning-only conversationTitle). The Custom pin and the site with no
-    // default stay out; heartbeatAgent is on Speed.
-    expect(renderedText()).toContain("3 actions currently use Balanced");
+    // tuning-only conversationTitle, shipped-tier-only memoryRouter). The
+    // Custom pin and the field-less site stay out; heartbeatAgent is on
+    // Speed.
+    expect(renderedText()).toContain("4 actions currently use Balanced");
     expect(renderedText()).toContain("Workflow Leaf");
     expect(renderedText()).toContain("Subagent Spawn");
     expect(renderedText()).toContain("Conversation Title");
+    expect(renderedText()).toContain("Memory Router");
     expect(renderedText()).not.toContain("Conversation Compaction");
     expect(renderedText()).not.toContain("Voice Front Door");
     expect(renderedText()).not.toContain("Heartbeat Agent");
-    expect(renderedText()).toContain("3 actions will change");
+    expect(renderedText()).toContain("4 actions will change");
   });
 
   test("rows are marked with how they use the profile", () => {
@@ -225,6 +236,7 @@ describe("BulkOverrideSwapModal - eligibility", () => {
     expect(rowContainerText("Workflow Leaf")).toContain("Override");
     expect(rowContainerText("Subagent Spawn")).toContain("Default");
     expect(rowContainerText("Conversation Title")).toContain("Default");
+    expect(rowContainerText("Memory Router")).toContain("Default");
   });
 
   test("source options cover profiles used via defaults, not just overrides", () => {
@@ -256,7 +268,7 @@ describe("BulkOverrideSwapModal - eligibility", () => {
     renderModal();
 
     fireEvent.click(rowFor("Workflow Leaf"));
-    expect(renderedText()).toContain("2 actions will change");
+    expect(renderedText()).toContain("3 actions will change");
 
     const [sourceTrigger] = comboboxes();
     pickOption(sourceTrigger!, "Speed");
@@ -265,7 +277,7 @@ describe("BulkOverrideSwapModal - eligibility", () => {
 
     // Back to Balanced: the earlier deselection is gone.
     pickOption(comboboxes()[0]!, "Balanced");
-    expect(renderedText()).toContain("3 actions will change");
+    expect(renderedText()).toContain("4 actions will change");
   });
 });
 
@@ -273,9 +285,9 @@ describe("BulkOverrideSwapModal - apply", () => {
   test("apply stays disabled until a target profile is chosen", () => {
     renderModal();
 
-    expect(findButton("Apply to 3 actions").disabled).toBe(true);
+    expect(findButton("Apply to 4 actions").disabled).toBe(true);
     pickOption(comboboxes()[1]!, "Quality");
-    expect(findButton("Apply to 3 actions").disabled).toBe(false);
+    expect(findButton("Apply to 4 actions").disabled).toBe(false);
   });
 
   test("apply patches exactly the selected actions and nothing else", async () => {
@@ -283,6 +295,7 @@ describe("BulkOverrideSwapModal - apply", () => {
 
     pickOption(comboboxes()[1]!, "Quality");
     fireEvent.click(rowFor("Subagent Spawn"));
+    fireEvent.click(rowFor("Memory Router"));
     expect(renderedText()).toContain("2 actions will change");
 
     fireEvent.click(findButton("Apply to 2 actions"));
@@ -313,6 +326,6 @@ describe("BulkOverrideSwapModal - apply", () => {
     expect(findButton("Apply to 0 actions").disabled).toBe(true);
 
     fireEvent.click(findButton("Select all"));
-    expect(findButton("Apply to 3 actions").disabled).toBe(false);
+    expect(findButton("Apply to 4 actions").disabled).toBe(false);
   });
 });

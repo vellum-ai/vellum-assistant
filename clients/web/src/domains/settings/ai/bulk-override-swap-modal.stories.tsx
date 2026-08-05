@@ -19,10 +19,20 @@ const CALL_SITES = [
     defaultProfile: "balanced",
   },
   {
+    // Profileless call site: no resolver-winning default, but the catalog
+    // reports the shipped Balanced tier, matching its panel caption.
     id: "workflowLeaf",
     displayName: "Workflow Leaf",
     description: "Runs an ephemeral leaf agent.",
     domain: "agentLoop",
+    shippedDefaultProfile: "balanced",
+  },
+  {
+    id: "conversationCompaction",
+    displayName: "Conversation Compaction",
+    description: "Summarizes long context before continuing a turn.",
+    domain: "background",
+    defaultProfile: "balanced",
   },
   {
     id: "heartbeatAgent",
@@ -76,16 +86,17 @@ type Story = StoryObj<typeof BulkOverrideSwapModal>;
 
 /**
  * Balanced is used three ways at once: Subagent Spawn through its default,
- * Conversation Title through an explicit override, and the source dropdown
- * also offers Cost (Heartbeat Agent's default). Workflow Leaf carries a
- * model pin ("Custom" in the editor) and stays out of the list even if it
- * also named Balanced; a site with no default and no pin never appears.
+ * Conversation Title through an explicit override, and Workflow Leaf as a
+ * profileless site the catalog reports under the shipped Balanced tier.
+ * The source dropdown also offers Cost (Heartbeat Agent's default).
+ * Conversation Compaction carries a model pin ("Custom" in the editor) and
+ * stays out of the list even though its default names Balanced.
  */
 export const OverridesAndDefaults: Story = {
   args: {
     persistedOverrides: {
       conversationTitle: { profile: "balanced" },
-      workflowLeaf: { profile: "balanced", model: "glm-5.2" },
+      conversationCompaction: { profile: "balanced", model: "glm-5.2" },
     },
   },
 };

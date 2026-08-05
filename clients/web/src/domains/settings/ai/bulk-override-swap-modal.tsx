@@ -75,13 +75,16 @@ export function BulkOverrideSwapModal({
 }: BulkOverrideSwapModalProps) {
   const configMutation = useLlmConfigPatch(assistantId);
 
-  // What each action currently runs on. Sites with a provider/model
-  // ("Custom") pin or no resolvable default carry no profile and stay out.
+  // What each action currently runs on. The default key matches the row
+  // caption: `shippedDefaultProfile` first, so profileless call sites
+  // (reported as Balanced-tier by the catalog) group where the panel says
+  // they belong; `defaultProfile` covers assistants that predate the
+  // shipped field. Sites with a provider/model ("Custom") pin stay out.
   const effectiveByCallSite = useMemo(() => {
     const map = new Map<string, CallSiteEffectiveProfile>();
     for (const cs of callSites) {
       const effective = effectiveCallSiteProfile(
-        cs.defaultProfile,
+        cs.shippedDefaultProfile ?? cs.defaultProfile,
         persistedOverrides[cs.id],
       );
       if (effective) {
