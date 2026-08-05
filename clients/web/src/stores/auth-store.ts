@@ -886,10 +886,12 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
           result = await getSession();
           if (result.ok && result.data.user) {
             const user = toAuthUser(result.data.user);
-            await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
+            // The rejection evidence gates the user-scoped sync: a rejected
+            // account's consent and org state must not be (re)installed.
             const sessionRejected = await reconcilePlatformAssistants();
             if (!sessionRejected) {
+              await syncUserScopedState(user?.id ?? null);
               set(authenticatedPlatformUser(user));
               return;
             }
@@ -1107,16 +1109,18 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
-        await syncUserScopedState(user?.id ?? null);
         // Reconcile the lockfile mirror on refresh too, not just cold
         // `initSession`: app resume, profile save, and the provider callback
         // all route through here, and the macOS tray and CLI would otherwise
         // keep a stale managed-assistant list until the next full boot.
-        // Local-mode only (platform mode has no lockfile host).
+        // Local-mode only (platform mode has no lockfile host). The rejection
+        // evidence gates the user-scoped sync: a rejected account's consent
+        // and org state must not be (re)installed before the demotion below.
         const sessionRejected = isLocalClient()
           ? await reconcilePlatformAssistants()
           : false;
         if (!sessionRejected) {
+          await syncUserScopedState(user?.id ?? null);
           set(authenticatedPlatformUser(user));
           return true;
         }

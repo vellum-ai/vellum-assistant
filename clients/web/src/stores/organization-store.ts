@@ -62,9 +62,10 @@ interface OrganizationActions {
   /**
    * Load the org list and report how the fetch concluded. When `isCurrent`
    * is provided and answers false at commit time (a raced caller superseded
-   * mid-flight), the outcome is still returned but no store or storage state
-   * is written, so a stale probe's rejection cannot strip the org fallback
-   * out from under a newer session.
+   * mid-flight), a failed fetch settles status/error only: no org list, id,
+   * or storage writes, so a stale probe's rejection cannot strip the org
+   * fallback out from under a newer session, while readiness still reaches a
+   * terminal state. Successful data commits normally (fresh either way).
    */
   fetchOrganizations: (isCurrent?: () => boolean) => Promise<OrgFetchOutcome>;
   setCurrentOrganizationId: (organizationId: string) => void;
@@ -163,23 +164,27 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
           ? { ok: false, kind: "rejected", status: rejectionStatus }
           : { ok: false, kind: "unavailable" };
 
-      // A superseded caller reports its outcome but commits nothing: a stale
-      // probe's rejection must not strip the org fallback out from under a
-      // newer session.
-      if (!(isCurrent?.() ?? true)) {
-        return outcome;
-      }
-
-      if (currentOrganizationId) {
-        setStoredOrganizationId(currentOrganizationId);
-      }
-
       let error: string | null = null;
       if (!currentOrganizationId) {
         error =
           rejectionStatus !== null
             ? `Platform session was rejected (HTTP ${rejectionStatus}).`
             : "No organization available for this user.";
+      }
+
+      // A superseded caller must not strip the org fallback or the loaded
+      // list out from under a newer session, but leaving the store at
+      // "loading" would wedge org-header readiness at "resolving" when no
+      // newer fetch is coming (the probe's race timeout). Successful data is
+      // fresh regardless of the race, so it commits normally; failures
+      // settle status/error only.
+      if (!(isCurrent?.() ?? true) && !currentOrganizationId) {
+        set({ status: "error", error });
+        return outcome;
+      }
+
+      if (currentOrganizationId) {
+        setStoredOrganizationId(currentOrganizationId);
       }
 
       // A rejected session must stop stamping requests with its stale org
@@ -206,9 +211,9 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
         err instanceof Error && err.message
           ? err.message
           : "Failed to load organizations.";
-      if (isCurrent?.() ?? true) {
-        set({ status: "error", error: message });
-      }
+      // Status-only settle even for superseded callers, or readiness wedges
+      // at "resolving" when no newer fetch is coming.
+      set({ status: "error", error: message });
       return { ok: false, kind: "unavailable" };
     }
   },

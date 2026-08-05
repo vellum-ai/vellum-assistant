@@ -1943,6 +1943,8 @@ describe("session-rejection evidence at sibling confirmation sites", () => {
     // No snapshot may be re-persisted for the rejected session.
     expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
     expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+    // Nor may the rejected account's user-scoped consent state be installed.
+    expect(fetchConsentMock).not.toHaveBeenCalled();
   });
 
   test("refreshSession settles absent on an assistants-list rejection", async () => {
@@ -2040,6 +2042,8 @@ describe("session-rejection evidence at sibling confirmation sites", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent");
     expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
     expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+    // Nor may the rejected account's user-scoped consent state be installed.
+    expect(fetchConsentMock).not.toHaveBeenCalled();
   });
 
   test("initSession with platform assistants routes an assistants-list rejection to login", async () => {

@@ -98,7 +98,7 @@ describe("the organization requests are scoped to", () => {
 });
 
 describe("fetch outcome classification", () => {
-  test("a superseded fetch reports its outcome but commits nothing", async () => {
+  test("a superseded failed fetch settles status but keeps the org fallback", async () => {
     sessionStorage.setItem(STORAGE_KEY, ORG_A.id);
     useOrganizationStore.setState({
       persistedOrganizationId: ORG_A.id,
@@ -115,14 +115,46 @@ describe("fetch outcome classification", () => {
       .getState()
       .fetchOrganizations(() => false);
 
-    // The stale probe's rejection is reported to its caller, but the newer
-    // session's org fallback and store state stay untouched.
+    // The stale probe's rejection is reported to its caller and the store
+    // reaches a terminal status (never wedged at "loading"), but the newer
+    // session's org fallback stays untouched.
     expect(outcome).toEqual({ ok: false, kind: "rejected", status: 403 });
     expect(useOrganizationStore.getState().persistedOrganizationId).toBe(
       ORG_A.id,
     );
     expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
-    expect(useOrganizationStore.getState().error).toBeNull();
+    expect(useOrganizationStore.getState().status).toBe("error");
+    expect(useOrganizationStore.getState().error).toBe(
+      "Platform session was rejected (HTTP 403).",
+    );
+  });
+
+  test("a superseded successful fetch commits the fresh list", async () => {
+    listOrganizations = () =>
+      Promise.resolve({ data: { results: [ORG_A] } });
+
+    const outcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(() => false);
+
+    expect(outcome).toEqual({ ok: true });
+    const state = useOrganizationStore.getState();
+    expect(state.currentOrganizationId).toBe(ORG_A.id);
+    expect(state.status).toBe("ready");
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(ORG_A.id);
+  });
+
+  test("a superseded thrown fetch still settles status", async () => {
+    useOrganizationStore.setState({ status: "ready" });
+    listOrganizations = () => Promise.reject(new Error("network down"));
+
+    const outcome = await useOrganizationStore
+      .getState()
+      .fetchOrganizations(() => false);
+
+    expect(outcome).toEqual({ ok: false, kind: "unavailable" });
+    expect(useOrganizationStore.getState().status).toBe("error");
+    expect(useOrganizationStore.getState().error).toBe("network down");
   });
 
   test("a current predicate commits normally", async () => {
