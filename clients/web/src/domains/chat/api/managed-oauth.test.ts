@@ -10,10 +10,11 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { assistantsOauthStartCreate } from "@/generated/api/sdk.gen";
 import { oauthCompletionStorageKey } from "@/lib/auth/oauth-popup";
 
 const startCreateMock = mock(
-  async (_options: { body: { requested_scopes: string[] } }) => ({
+  async (_options: Parameters<typeof assistantsOauthStartCreate>[0]) => ({
     data: {
       connect_url:
         "https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=x&redirect_uri=y",
@@ -94,7 +95,7 @@ beforeEach(() => {
 });
 
 /**
- * Flush microtasks until the start endpoint has been invoked — the connect
+ * Flush microtasks until the start endpoint has been invoked: the connect
  * flow awaits identity resolution and a connections baseline first.
  */
 async function waitForStartCall(): Promise<void> {
@@ -175,7 +176,7 @@ describe("connectManagedOAuthProvider requested scopes", () => {
     const connect = connectManagedOAuthProvider({ ...OPTS, requestedScopes });
 
     await waitForStartCall();
-    expect(startCreateMock.mock.calls[0]?.[0].body.requested_scopes).toEqual(
+    expect(startCreateMock.mock.calls[0]?.[0].body?.requested_scopes).toEqual(
       requestedScopes,
     );
 
@@ -187,7 +188,7 @@ describe("connectManagedOAuthProvider requested scopes", () => {
     const connect = connectManagedOAuthProvider(OPTS);
 
     await waitForStartCall();
-    expect(startCreateMock.mock.calls[0]?.[0].body.requested_scopes).toEqual(
+    expect(startCreateMock.mock.calls[0]?.[0].body?.requested_scopes).toEqual(
       [],
     );
 

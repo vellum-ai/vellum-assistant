@@ -1,7 +1,9 @@
+import type { OAuthConnectSurfaceData } from "../../../api/surfaces.js";
+
 export interface OAuthConnectSurfaceNextAction {
   type: "ui_show";
   surfaceType: "oauth_connect";
-  data: { providerKey: string; requestedScopes?: string[] };
+  data: Pick<OAuthConnectSurfaceData, "providerKey" | "requestedScopes">;
 }
 
 export interface OAuthConnectSurfaceRedirect {
@@ -28,7 +30,7 @@ export function oauthConnectSurfaceHint(
   return (
     base +
     ` Include data.requestedScopes verbatim from nextAction.data in the ` +
-    `\`ui_show\` call — it is a full replacement set, so list every default ` +
+    `\`ui_show\` call: it is a full replacement set, so list every default ` +
     `scope you want to keep, not just the new ones.`
   );
 }
