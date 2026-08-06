@@ -62,6 +62,21 @@ const hydrateOriginsMock = mock(async () => {});
 const removeOriginMock = mock(async (url: string) => {
   originsValue = originsValue.filter((o) => o.url !== url);
 });
+const addOriginMock = mock(
+  async (input: {
+    url: string;
+    name?: string;
+  }): Promise<
+    { ok: true; origin: RememberedOrigin } | { ok: false }
+  > => ({
+    ok: true,
+    origin: {
+      url: input.url,
+      ...(input.name ? { name: input.name } : {}),
+      addedAt: "2026-01-01T00:00:00.000Z",
+    },
+  }),
+);
 const switchToOriginMock = mock((_origin: RememberedOrigin) => {});
 
 // Stands in for the real error class (the screen's `instanceof` check runs
@@ -124,7 +139,15 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   },
 }));
 
+// The real normalizer, captured before the module mock below replaces the
+// registry entry, so the screen's register-param validation runs with
+// production semantics.
+const { normalizeOriginUrl } = await import(
+  "@/stores/remembered-origins-store"
+);
+
 mock.module("@/stores/remembered-origins-store", () => ({
+  normalizeOriginUrl,
   useRememberedOriginsStore: {
     use: {
       origins: () => originsValue,
@@ -133,6 +156,7 @@ mock.module("@/stores/remembered-origins-store", () => ({
     getState: () => ({
       origins: originsValue,
       hydrate: hydrateOriginsMock,
+      addOrigin: addOriginMock,
       removeOrigin: removeOriginMock,
     }),
   },
@@ -173,6 +197,36 @@ mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
         <button onClick={onClose}>Close dialog</button>
         <button onClick={() => onImported("paired-new")}>
           Simulate import
+        </button>
+      </div>
+    ) : null,
+}));
+
+// A stub surfacing the open state that lets tests drive close and the
+// added callback the way real dialog interactions would.
+mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
+  AddRemoteOriginDialog: ({
+    open,
+    onClose,
+    onAdded,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onAdded: (origin: RememberedOrigin) => void;
+  }) =>
+    open ? (
+      <div>
+        Add origin dialog open
+        <button onClick={onClose}>Close add dialog</button>
+        <button
+          onClick={() =>
+            onAdded({
+              url: "https://added.example/assistant-1",
+              addedAt: "2026-01-01T00:00:00.000Z",
+            })
+          }
+        >
+          Simulate origin add
         </button>
       </div>
     ) : null,
@@ -382,6 +436,15 @@ beforeEach(() => {
   removeOriginMock.mockImplementation(async (url: string) => {
     originsValue = originsValue.filter((o) => o.url !== url);
   });
+  addOriginMock.mockClear();
+  addOriginMock.mockImplementation(async (input) => ({
+    ok: true,
+    origin: {
+      url: input.url,
+      ...(input.name ? { name: input.name } : {}),
+      addedAt: "2026-01-01T00:00:00.000Z",
+    },
+  }));
   switchToOriginMock.mockClear();
   removePairedAssistantFromLockfileMock.mockClear();
   removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
@@ -1000,6 +1063,200 @@ describe("SelectAssistantScreen remembered origins", () => {
       expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
     );
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SelectAssistantScreen add-remote-assistant affordance", () => {
+  test("renders on hostless surfaces with the flag on and opens the dialog", () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Add origin dialog open")).toBeNull();
+    // The local bundle-paste affordance needs a local-mode host.
+    expect(screen.queryByText("Connect a remote assistant")).toBeNull();
+
+    fireEvent.click(screen.getByText("Add a remote assistant"));
+
+    expect(screen.getByText("Add origin dialog open")).toBeTruthy();
+  });
+
+  test("renders on the platform hub", () => {
+    assistantSwitcherValue = true;
+    isLocalClientValue = false;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Add a remote assistant")).toBeTruthy();
+  });
+
+  test("is hidden where a local-mode host offers the bundle-paste connect instead", () => {
+    assistantSwitcherValue = true;
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Add a remote assistant")).toBeNull();
+    expect(screen.getByText("Connect a remote assistant")).toBeTruthy();
+  });
+
+  test("is hidden with the flag off", () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Add a remote assistant")).toBeNull();
+  });
+
+  test("an added origin closes the dialog and switches to it", async () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Add a remote assistant"));
+    fireEvent.click(screen.getByText("Simulate origin add"));
+
+    await waitFor(() =>
+      expect(switchToOriginMock).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "https://added.example/assistant-1" }),
+      ),
+    );
+    expect(screen.queryByText("Add origin dialog open")).toBeNull();
+  });
+
+  test("closing the dialog leaves the chooser untouched", () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Add a remote assistant"));
+    fireEvent.click(screen.getByText("Close add dialog"));
+
+    expect(screen.queryByText("Add origin dialog open")).toBeNull();
+    expect(switchToOriginMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SelectAssistantScreen register handoff", () => {
+  const replaceStateSpy = mock(
+    (_data: unknown, _unused: string, _url?: string | URL | null) => {},
+  );
+  let originalReplaceState: typeof window.history.replaceState;
+
+  beforeEach(() => {
+    replaceStateSpy.mockClear();
+    originalReplaceState = window.history.replaceState;
+    Object.defineProperty(window.history, "replaceState", {
+      configurable: true,
+      value: replaceStateSpy,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window.history, "replaceState", {
+      configurable: true,
+      value: originalReplaceState,
+    });
+  });
+
+  test("a valid register param records the origin with its label and cleans the address bar", async () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    searchParams = new URLSearchParams(
+      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
+    );
+
+    render(<SelectAssistantScreen />);
+
+    // The rename-vs-add decision lives in the store: `addOrigin` on an
+    // already-remembered url updates its name in place.
+    await waitFor(() =>
+      expect(addOriginMock).toHaveBeenCalledWith({
+        url: "https://host.example/assistant-1",
+        name: "Homelab",
+      }),
+    );
+    expect(replaceStateSpy).toHaveBeenCalled();
+    // Records only; the user stays on the chooser to see the updated list.
+    expect(switchToOriginMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("a failed add keeps the register params for a retry", async () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    searchParams = new URLSearchParams(
+      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
+    );
+    addOriginMock.mockImplementation(async () => ({ ok: false }) as const);
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() => expect(addOriginMock).toHaveBeenCalled());
+    // The handoff params are the only copy of the registration; a failed
+    // persistence keeps them so a reload retries.
+    expect(replaceStateSpy).not.toHaveBeenCalled();
+  });
+
+  test("a name-less register param records the origin without a label", async () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    searchParams = new URLSearchParams(
+      "register=https%3A%2F%2Fhost.example%2Fassistant-1",
+    );
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(addOriginMock).toHaveBeenCalledWith({
+        url: "https://host.example/assistant-1",
+        name: undefined,
+      }),
+    );
+  });
+
+  test.each([
+    "javascript:alert(1)",
+    "http://host.example/assistant-1",
+    "not a url",
+  ])(
+    "an invalid register value is ignored without error UI: %s",
+    async (value) => {
+      assistantSwitcherValue = true;
+      assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+      searchParams = new URLSearchParams([["register", value]]);
+
+      render(<SelectAssistantScreen />);
+
+      await waitFor(() =>
+        expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+      );
+      expect(addOriginMock).not.toHaveBeenCalled();
+      expect(screen.queryByText(/Failed|Please try again/)).toBeNull();
+      // The consumed params still leave the address bar.
+      expect(replaceStateSpy).toHaveBeenCalled();
+    },
+  );
+
+  test("with the flag off the register params are ignored and left untouched", async () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    searchParams = new URLSearchParams(
+      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
+    );
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(addOriginMock).not.toHaveBeenCalled();
+    expect(replaceStateSpy).not.toHaveBeenCalled();
   });
 });
 
