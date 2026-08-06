@@ -35,19 +35,23 @@ import { restoreBounds, track } from "./window-state";
  * for the length of a call rather than a few seconds, which is what earns it a
  * remembered position and a vibrancy material rather than a fixed HUD slot.
  *
- * **It shows only while Vellum is not frontmost.** The app already renders
- * exactly one control for a live session (the voice room, the composer's
- * voice bar, or the pill; see `voice-session-pill-host.tsx`), so a panel on
- * top of that would be a second control for the same session. Not-frontmost is
- * the desktop reading of the state an island exists for.
+ * **It shows for as long as the session runs, and the user decides when it
+ * goes.** An earlier build hid it whenever Vellum came forward, reasoning that
+ * the app already renders exactly one control for a live session (the voice
+ * room, the composer's voice bar, or the pill; see
+ * `voice-session-pill-host.tsx`). That rule cannot survive the window this
+ * became: a real window with live traffic lights activates the app when it is
+ * clicked, so every press on the panel was a press that hid it. A window the
+ * user placed and can close is the simpler contract, and the tray is the way
+ * back.
  */
 
 const PANEL_PATH = "/floating/voice-activity";
 const WINDOW_STATE_KEY = "voice-activity";
 
 // Wide enough for the assistant's name beside its phase, short enough to sit
-// in a screen corner without covering work. The height carries three rows:
-// identity and phase, the turn's activity line, and the controls. The canvas
+// in a screen corner without covering work. The height carries the title bar's
+// identity, the phase row, and the controls. The canvas
 // is the panel: unlike the dictation HUD there is no CSS shadow to leave room
 // for, because a window the user positions themselves is allowed the system's
 // own shadow (`hasShadow`).
@@ -291,8 +295,8 @@ const createPanel = (): BrowserWindow => {
       movable: true,
       show: false,
       hasShadow: true,
-      // Focusable, unlike the panel this replaces: traffic lights on a window
-      // that cannot take key status are drawn inert.
+      // Focusable: traffic lights on a window that cannot take key status are
+      // drawn inert.
       focusable: true,
       acceptFirstMouse: true,
       // The glass. `under-window` samples what is behind the window, which for
@@ -376,8 +380,9 @@ export const installVoiceActivityWindow = (): void => {
   const controller = createVoiceActivityController({
     showPanel: () => {
       const win = ensurePanel();
-      // `showInactive` rather than `show`: the window appears because the user
-      // left the app, so it must not pull them back into it.
+      // `showInactive` rather than `show`: the window appears because a
+      // session started, which is not a reason to take focus away from
+      // whatever the user is doing.
       if (!win.isVisible()) {
         win.showInactive();
       }
@@ -482,10 +487,10 @@ export const installVoiceActivityWindow = (): void => {
   });
 
   on("vellum:voiceActivity:activate", z.tuple([]), () => {
-    // A press on the panel is a request to go back to the app, the desktop
-    // reading of the island's tap-through. Raising the main window focuses it,
-    // which the visibility gate sees as a real window coming forward, so the
-    // panel stands down on its own without this having to hide it.
+    // The return button is a request to go back to the app, the desktop
+    // reading of the island's tap-through. The panel stays up behind it: it
+    // belongs to the session rather than to the app's backgrounded-ness, and
+    // the red button is how the user puts it away.
     void ensureMainWindowVisible();
   });
 

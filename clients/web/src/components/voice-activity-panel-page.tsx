@@ -27,8 +27,8 @@ import type {
 } from "@/runtime/is-electron";
 
 /**
- * The floating live-voice session surface, rendered inside the Electron panel
- * the main process shows while a session runs and the app is not frontmost
+ * The floating live-voice session surface, rendered inside the Electron window
+ * the main process shows for the length of a session
  * (`clients/macos/src/main/voice-activity-window.ts`).
  *
  * The desktop counterpart to the iOS Lock Screen card, and deliberately the
@@ -389,7 +389,6 @@ function ControlButton({
       aria-label={label}
       title={label}
       className={`flex h-6 items-center justify-center gap-1 rounded-md px-2 text-[var(--content-secondary)] transition-colors [-webkit-app-region:no-drag] hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)] ${className}`}
-
       onClick={() => {
         sendVoiceActivityControl(
           requestId === undefined ? { action } : { action, requestId },

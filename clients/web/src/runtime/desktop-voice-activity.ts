@@ -1,7 +1,7 @@
 /**
  * Runtime wrapper for the desktop live-voice session surface: the floating
- * panel the Electron main process shows while a session runs and the app is
- * not frontmost (`clients/macos/src/main/voice-activity-window.ts`).
+ * window the Electron main process shows for the length of a session
+ * (`clients/macos/src/main/voice-activity-window.ts`).
  *
  * The desktop counterpart to `native-live-activity.ts`. That module speaks to
  * a Capacitor plugin and an ActivityKit activity; this one speaks to an

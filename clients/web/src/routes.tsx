@@ -343,8 +343,8 @@ export const routeTree = [
   },
 
   // Voice activity panel: the floating live-voice session surface rendered
-  // inside the Electron panel that shows while a session runs and the app is
-  // not frontmost (the desktop counterpart to the iOS Dynamic Island).
+  // inside the Electron window that shows for the length of a session (the
+  // desktop counterpart to the iOS Dynamic Island).
   // Standalone like the dictation overlay: outside auth middleware and
   // RootLayout so it paints as soon as the window opens.
   {
