@@ -2,8 +2,10 @@
  * Asserts the `wake_conversation` route elevates trust from the caller's
  * verified principal type, never the request body: a `local` (CLI/IPC) caller
  * runs the woken turn as a non-interactive guardian (clientless + guardian
- * trustContext) and may attribute cost to a body-supplied `cronRunId`; a remote
- * `actor` stays `unknown`/interactive and its body `cronRunId` is ignored.
+ * trustContext) and may attribute cost to a body-supplied `cronRunId` and run
+ * on a body-supplied schedule's pinned inference profile; a remote `actor`
+ * stays `unknown`/interactive and its body `cronRunId` and `scheduleId` are
+ * ignored.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -13,6 +15,7 @@ interface CapturedWake {
   hint: string;
   trustContext?: { sourceChannel: string; trustClass: string };
   cronRunId?: string;
+  forceOverrideProfile?: string;
   clientless?: boolean;
   persistTriggerAsEvent?: boolean;
   untrustedOutput?: { content: string; source: string };
@@ -23,6 +26,14 @@ mock.module("../../agent-wake.js", () => ({
     wakeCalls.push(opts);
     return { invoked: true, producedToolCalls: false };
   },
+}));
+
+const schedules = new Map<string, { inferenceProfile: string | null }>([
+  ["sched-pinned", { inferenceProfile: "profile-cheap" }],
+  ["sched-unpinned", { inferenceProfile: null }],
+]);
+mock.module("../../../schedule/schedule-store.js", () => ({
+  getSchedule: (id: string) => schedules.get(id) ?? null,
 }));
 
 import { createConversation } from "../../../persistence/conversation-crud.js";
@@ -82,6 +93,53 @@ describe("wake_conversation principal-gated elevation", () => {
     expect(wakeCalls[0].trustContext).toBeUndefined();
     expect(wakeCalls[0].clientless).toBeUndefined();
     expect(wakeCalls[0].cronRunId).toBeUndefined();
+  });
+});
+
+describe("wake_conversation schedule profile pin", () => {
+  test("local principal → woken turn runs on the schedule's pinned profile", async () => {
+    wakeCalls.length = 0;
+    const conversationId = makeConversation();
+    await handler({
+      body: { conversationId, hint: "poll result", scheduleId: "sched-pinned" },
+      headers: { "x-vellum-principal-type": "local" },
+    });
+    expect(wakeCalls[0].forceOverrideProfile).toBe("profile-cheap");
+  });
+
+  test("schedule with no pinned profile leaves resolution unchanged", async () => {
+    wakeCalls.length = 0;
+    const conversationId = makeConversation();
+    await handler({
+      body: {
+        conversationId,
+        hint: "poll result",
+        scheduleId: "sched-unpinned",
+      },
+      headers: { "x-vellum-principal-type": "local" },
+    });
+    expect(wakeCalls[0].forceOverrideProfile).toBeUndefined();
+  });
+
+  test("unknown scheduleId resolves as an ordinary wake", async () => {
+    wakeCalls.length = 0;
+    const conversationId = makeConversation();
+    const result = await handler({
+      body: { conversationId, hint: "poll result", scheduleId: "sched-gone" },
+      headers: { "x-vellum-principal-type": "local" },
+    });
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(wakeCalls[0].forceOverrideProfile).toBeUndefined();
+  });
+
+  test("actor principal → body scheduleId is ignored", async () => {
+    wakeCalls.length = 0;
+    const conversationId = makeConversation();
+    await handler({
+      body: { conversationId, hint: "poll result", scheduleId: "sched-pinned" },
+      headers: { "x-vellum-principal-type": "actor" },
+    });
+    expect(wakeCalls[0].forceOverrideProfile).toBeUndefined();
   });
 });
 

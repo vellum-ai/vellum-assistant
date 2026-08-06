@@ -154,6 +154,20 @@ export interface InstallPluginOptions {
   readonly trustedSource?: PluginFetchSource;
 }
 
+/**
+ * Consent gate invoked after the plugin tree is fully staged and before it is
+ * finalized (dependencies installed, provenance recorded, swapped live). The
+ * caller inspects the staged tree to see what the plugin declares (e.g.
+ * schedules) and asks the user. Returning `false` aborts the install: the
+ * staging directory is removed, nothing is swapped, and
+ * {@link PluginInstallDeclinedError} is thrown.
+ */
+export type ConfirmStagedInstall = (staged: {
+  readonly name: string;
+  /** Absolute path of the fully materialized staging directory. */
+  readonly stagingDir: string;
+}) => Promise<boolean>;
+
 /** Dependencies injected by the caller. */
 export interface InstallPluginDeps {
   /** HTTP client. Production callers pass `globalThis.fetch.bind(globalThis)`. */
@@ -168,6 +182,8 @@ export interface InstallPluginDeps {
   readonly runInstallDeps?: DependencyInstaller;
   /** Forwarded to {@link finalizeStagedInstall}; see {@link FinalizeStagedInstallParams.beforeSwap}. */
   readonly beforeSwap?: () => Promise<void>;
+  /** Consent gate between staging and finalize; see {@link ConfirmStagedInstall}. */
+  readonly confirmStaged?: ConfirmStagedInstall;
 }
 
 /** Successful install result. */
@@ -211,6 +227,19 @@ export class PluginPostinstallError extends Error {
   ) {
     super(`Postinstall adapter for "${pluginName}" failed: ${detail}`);
     this.name = "PluginPostinstallError";
+  }
+}
+
+/**
+ * The caller's {@link ConfirmStagedInstall} gate declined the staged install.
+ * Nothing was installed and the staging directory was removed. The caller that
+ * supplied the gate owns the user-facing messaging, so this error signals the
+ * outcome rather than something to report as a failure.
+ */
+export class PluginInstallDeclinedError extends Error {
+  constructor(pluginName: string) {
+    super(`Install of "${pluginName}" was declined.`);
+    this.name = "PluginInstallDeclinedError";
   }
 }
 
@@ -503,6 +532,8 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(effectiveSource));
   }
 
+  await confirmStagedOrAbort(name, stagingDir, deps.confirmStaged);
+
   await finalizeStagedInstall(stagingDir, {
     name,
     source: effectiveSource,
@@ -515,6 +546,36 @@ export async function installPlugin(
   });
 
   return { name, target, fileCount, ref, commit, committedAt };
+}
+
+/**
+ * Run the caller's {@link ConfirmStagedInstall} gate over the staged tree. A
+ * decline (or a gate that throws) removes the staging directory so no partial
+ * install is left behind; a decline then surfaces as
+ * {@link PluginInstallDeclinedError}. A no-op when no gate was supplied.
+ *
+ * Shared by {@link installPlugin} and the platform-endpoint install so both
+ * abort a declined install the same way.
+ */
+export async function confirmStagedOrAbort(
+  name: string,
+  stagingDir: string,
+  confirmStaged: ConfirmStagedInstall | undefined,
+): Promise<void> {
+  if (!confirmStaged) {
+    return;
+  }
+  let confirmed = false;
+  try {
+    confirmed = await confirmStaged({ name, stagingDir });
+  } finally {
+    if (!confirmed) {
+      rmSync(stagingDir, { recursive: true, force: true });
+    }
+  }
+  if (!confirmed) {
+    throw new PluginInstallDeclinedError(name);
+  }
 }
 
 /** Inputs for {@link finalizeStagedInstall}. */

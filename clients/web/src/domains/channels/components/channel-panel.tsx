@@ -2,11 +2,10 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
-import {
-  SlackSetupWizard,
-  type MutationStatus,
-} from "@/components/slack-setup-wizard";
+import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
 import { ConnectedChannelHeader } from "@/domains/channels/components/connected-channel-header";
@@ -17,7 +16,6 @@ import {
   SlackThreadBehavior,
   type SlackThreadMode,
 } from "@/domains/channels/components/slack-thread-behavior";
-import { TelegramCredentialEntry } from "@/domains/channels/components/telegram-credential-entry";
 import { TwilioCredentialEntry } from "@/domains/channels/components/twilio-credential-entry";
 import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 import type { AssistantChannelState } from "@/types/channel-types";
@@ -38,7 +36,9 @@ interface ChannelPanelProps {
   initialManualEntry?: boolean;
   onSetup?: () => void;
   onDisconnect?: () => void;
-  onSaveTelegramToken?: (botToken: string) => Promise<void>;
+  onSaveTelegramToken?: (botToken: string) => void;
+  telegramSaveStatus?: MutationStatus;
+  telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
@@ -74,6 +74,8 @@ export function ChannelPanel({
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
+  telegramSaveStatus,
+  telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
   slackSaveError,
@@ -164,7 +166,12 @@ export function ChannelPanel({
         </>
       ) : manualEntry ? (
         channel.key === "telegram" ? (
-          <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+          <TelegramSetupWizard
+            assistantName={assistantName}
+            saveStatus={telegramSaveStatus}
+            saveError={telegramSaveError}
+            onSave={onSaveTelegramToken}
+          />
         ) : (
           <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
         )

@@ -11,7 +11,12 @@ import { Button, Skeleton } from "@vellumai/design-library";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
-import { clearAllArgs, getVisibleFeedItems, markAllReadArgs } from "./utils";
+import {
+  clearAllArgs,
+  getFeedItemScheduleId,
+  getVisibleFeedItems,
+  markAllReadArgs,
+} from "./utils";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
 
@@ -47,16 +52,6 @@ export interface HomePageProps {
    *  strip it from history state — otherwise a reload or Back to this entry
    *  would replay a drawer the user already closed. */
   onInitialFeedItemConsumed?: () => void;
-}
-
-/**
- * Scheduled-run notifications (`schedule.notify`) carry their originating
- * schedule id in `metadata.scheduleId`, letting the detail panel link to
- * the schedule. Returns null for feed items not tied to a schedule.
- */
-function getFeedItemScheduleId(item: FeedItem | null): string | null {
-  const id = item?.metadata?.scheduleId;
-  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 export function HomePage({

@@ -26,6 +26,7 @@ import {
   addMessage,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationOriginChannelIfUnset,
@@ -440,7 +441,7 @@ function visibleQueuePosition(
 ): number | undefined {
   let position = 0;
   for (const item of conversation.queue.snapshot()) {
-    if (isHiddenMessageMetadata(item.metadata)) {
+    if (isSuppressedQueuedMessage(item.metadata)) {
       continue;
     }
     position += 1;
@@ -466,8 +467,10 @@ function visibleQueuePosition(
  * `message_dequeued` and would otherwise see the row vanish until a later
  * drain. Messages requeued before the announcement (the pre-flight
  * processing-lock checks) get nothing, because clients never stopped showing
- * them as queued and an event there would be noise. Hidden sends are suppressed
- * for the same reason they get no queued ack: they have no client row.
+ * them as queued and an event there would be noise. Rows with no client-visible
+ * queued counterpart ({@link isSuppressedQueuedMessage} — hidden sends and
+ * daemon-injected subagent/ACP/wake notifications) are suppressed for the same
+ * reason they get no queued ack: they have no client row.
  */
 function requeueDrainedMessages(
   conversation: Conversation,
@@ -494,7 +497,7 @@ function requeueDrainedMessages(
       continue;
     }
     message.dequeueAnnounced = false;
-    if (isHiddenMessageMetadata(message.metadata)) {
+    if (isSuppressedQueuedMessage(message.metadata)) {
       continue;
     }
     const position = visibleQueuePosition(conversation, message.requestId);

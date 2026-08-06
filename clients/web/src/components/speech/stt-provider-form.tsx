@@ -167,7 +167,6 @@ export function SttProviderForm({
     available: languageAvailable,
     currentCode: languageCode,
     configuredProviderId: languageProviderId,
-    daemonDefaultsToMulti: languageDefaultsToMulti,
     selectLanguage,
     selecting: languageSelecting,
   } = useSttLanguageSelection(assistantId);
@@ -396,11 +395,7 @@ export function SttProviderForm({
             aria-label="Spoken language"
             aria-haspopup="dialog"
             onClick={() => setLanguagePickerOpen(true)}
-            value={sttLanguageLabelForCode(
-              languageCode,
-              languageProviderId,
-              languageDefaultsToMulti,
-            )}
+            value={sttLanguageLabelForCode(languageCode, languageProviderId)}
           />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             Applies from your next spoken turn.
@@ -411,7 +406,6 @@ export function SttProviderForm({
             title="Spoken language"
             currentCode={languageCode}
             configuredProviderId={languageProviderId}
-            daemonDefaultsToMulti={languageDefaultsToMulti}
             selectLanguage={selectLanguage}
             selecting={languageSelecting}
           />

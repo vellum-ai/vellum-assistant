@@ -89,6 +89,7 @@ import {
   type LiveVoiceTurnSeedMarks,
   type VoiceEndpointAction,
 } from "./live-voice-metrics.js";
+import { persistLiveVoicePhoto } from "./live-voice-photo.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
@@ -102,6 +103,7 @@ import type {
 } from "./live-voice-tts.js";
 import { pickProgressPhrase } from "./progress-phrases.js";
 import {
+  type LiveVoiceClientAttachImageFrame,
   type LiveVoiceClientFrame,
   type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
@@ -1258,7 +1260,42 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "update_config":
         this.applyConfigUpdate(frame);
         return;
+      case "attach_image":
+        this.persistPhoto(frame);
+        return;
     }
+  }
+
+  /**
+   * Persist a photo taken mid-call into the conversation, running no turn.
+   *
+   * Fire-and-forget on purpose: the persist waits out any in-flight turn, and
+   * the socket must keep pumping audio meanwhile. The client already showed a
+   * thumbnail from the local frame, so nothing on screen is waiting on this.
+   *
+   * The photo becomes its own user message rather than riding the next spoken
+   * turn, which is what makes shutter-then-speak and speak-then-shutter
+   * behave the same: either way the model's history has the image by the time
+   * it answers. See `live-voice-photo.ts` for the full reasoning.
+   */
+  private persistPhoto(frame: LiveVoiceClientAttachImageFrame): void {
+    void persistLiveVoicePhoto(this.conversationId, frame.attachmentId).then(
+      (result) => {
+        if (!result.ok && !this.isClosed) {
+          void this.sendFrame({
+            type: "error",
+            code: LiveVoiceProtocolErrorCode.InvalidFrame,
+            message: "Could not attach that photo to the conversation.",
+            // Names the photo as the casualty so the client can retract the
+            // thumbnail it already showed, rather than filing this with the
+            // transient transcriber and TTS blips that share `recoverable`.
+            frameType: "attach_image",
+            // The session is fine; only this photo failed.
+            recoverable: true,
+          });
+        }
+      },
+    );
   }
 
   /**
@@ -2898,8 +2935,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     turn.speculativePending = false;
     // The dispatch is being unwound, so the barge-in merge note, the finished
-    // continuation's answer, and its queued announcement all go back to the
-    // session — the turn that would have delivered them is gone.
+    // continuation's answer, its queued announcement, and any photos it claimed
+    // all go back to the session. The turn that would have delivered them is
+    // gone, and the utterance they belong to is about to be sent by another.
     this.restorePendingTurnContext(turn);
     // Latched before the handle check: when the discard beats the bridge
     // handle's resolution (startVoiceTurn still persisting), the handle's
@@ -5794,7 +5832,14 @@ async function defaultStartVoiceTurn(
   // inside `startVoiceTurn` trips `FOREIGN KEY constraint failed`. Ensure it
   // exists (idempotent) before persisting. Lives in the production wiring, not
   // the session state machine, so session unit tests stay DB-free.
-  const createdConversation = ensureConversationExists(options.conversationId);
+  // Native: this is the local live-voice session, which adopts a conversation
+  // id the app supplied. Its trust context resolves through
+  // `resolveLocalLiveVoiceTrustContext`, and a phone call reaches the assistant
+  // through the telephony path rather than here.
+  const createdConversation = ensureConversationExists(
+    options.conversationId,
+    "vellum",
+  );
   if (createdConversation) {
     // The row was created outside the normal send-message route, which is where
     // sibling clients/sidebars learn about a new conversation. Emit the same

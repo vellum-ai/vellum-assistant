@@ -3,7 +3,7 @@ import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.
 import {
   clearAll,
   getConversation,
-  isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -242,16 +242,18 @@ export async function resolveMetaSlashCommand(
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the caller behind a delete request may cancel this queued message.
+ * Whether the caller may cancel or steer to this queued message.
  *
  * A queued message records the verified requester that enqueued it
- * (`sourceActorPrincipalId`); the delete route receives the caller's verified
- * identity in the `x-vellum-actor-principal-id` header, which both adapters
- * derive from the auth context rather than from anything the caller sent. When
- * both are present they must match: `message_queued` is broadcast to every
- * subscriber of the assistant, so every requestId in a conversation is visible
- * to every connected client, and without this check one actor principal could
- * cancel another's pending message just by echoing the id back.
+ * (`sourceActorPrincipalId`); the delete and steer routes receive the caller's
+ * verified identity in the `x-vellum-actor-principal-id` header, which both
+ * adapters derive from the auth context rather than from anything the caller
+ * sent. When both are present they must match: `message_queued` is broadcast
+ * to every subscriber of the assistant, so every requestId in a conversation
+ * is visible to every connected client, and without this check one actor
+ * principal could cancel another's pending message, or abort the live
+ * generation and jump another's message to the head of the queue, just by
+ * echoing the id back.
  *
  * Two cases stay open, both deliberately:
  *
@@ -263,7 +265,7 @@ export async function resolveMetaSlashCommand(
  *   wake, subagent notifications, surface actions) have no enqueuing actor to
  *   compare against, and cancelling one from the queue UI is intended.
  */
-function mayCancelQueuedMessage(
+function mayActOnQueuedMessage(
   queued: QueuedMessage,
   callerActorPrincipalId: string | undefined,
 ): boolean {
@@ -281,7 +283,9 @@ function mayCancelQueuedMessage(
  * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
  * and the only signal that closes out a queued row that never runs: without it
  * a client that didn't originate the delete leaves the pending indicator up
- * forever, since no `message_dequeued` is ever coming. Hidden sends are
+ * forever, since no `message_dequeued` is ever coming. Rows with no
+ * client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
+ * hidden sends and daemon-injected subagent/ACP/wake notifications) are
  * suppressed for the same reason they get no ack: they have no client row to
  * close.
  */
@@ -311,7 +315,7 @@ export function deleteQueuedMessage(
     );
     return { removed: false, reason: "message_not_found" };
   }
-  if (!mayCancelQueuedMessage(queued, options.actorPrincipalId)) {
+  if (!mayActOnQueuedMessage(queued, options.actorPrincipalId)) {
     log.warn(
       {
         conversationId,
@@ -323,7 +327,7 @@ export function deleteQueuedMessage(
     return { removed: false, reason: "forbidden" };
   }
   conversation.removeQueuedMessage(requestId);
-  if (!isHiddenMessageMetadata(queued.metadata)) {
+  if (!isSuppressedQueuedMessage(queued.metadata)) {
     queued.onEvent({
       type: "message_queued_deleted",
       conversationId,
@@ -347,11 +351,16 @@ export function deleteQueuedMessage(
 export function steerToMessage(
   conversationId: string,
   requestId: string,
+  options: { actorPrincipalId?: string } = {},
 ):
   | { steered: true }
   | {
       steered: false;
-      reason: "conversation_not_found" | "message_not_found" | "not_processing";
+      reason:
+        | "conversation_not_found"
+        | "message_not_found"
+        | "not_processing"
+        | "forbidden";
     } {
   const conversation = findConversation(conversationId);
   if (!conversation) {
@@ -368,6 +377,26 @@ export function steerToMessage(
       "Cannot steer: conversation is not processing",
     );
     return { steered: false, reason: "not_processing" };
+  }
+
+  const queued = conversation.queue.findByRequestId(requestId);
+  if (!queued) {
+    log.warn(
+      { conversationId, requestId },
+      "Queued message not found for steering",
+    );
+    return { steered: false, reason: "message_not_found" };
+  }
+  if (!mayActOnQueuedMessage(queued, options.actorPrincipalId)) {
+    log.warn(
+      {
+        conversationId,
+        requestId,
+        callerActorPrincipalId: options.actorPrincipalId,
+      },
+      "Refusing to steer to a queued message enqueued by a different actor principal",
+    );
+    return { steered: false, reason: "forbidden" };
   }
 
   const promoted = conversation.queue.promoteToHead(requestId);

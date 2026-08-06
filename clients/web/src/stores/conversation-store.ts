@@ -22,6 +22,10 @@
  *   action that removes from `processingConversationIds`, so the two
  *   collections stay in sync.
  * - `attentionConversationIds` — conversations with pending interactions
+ * - `draftConversationIds`: ids minted client-side that have no server row
+ *   yet, so surfaces can tell "this conversation is empty because it is brand
+ *   new" apart from "this conversation is empty because history is still
+ *   loading" (see the field doc below)
  * - `pendingDraftProfiles` — model profiles picked in the composer for
  *   conversations whose row isn't loaded yet (drafts, or URL-opened
  *   conversations mid-load), keyed by conversation id (see field doc below)
@@ -103,6 +107,18 @@ export interface ConversationListState {
   processingSnapshots: Map<string, number | undefined>;
   attentionConversationIds: Set<string>;
   /**
+   * Conversation ids minted by `createDraftConversationId()` that have not been
+   * resolved against the server yet. A draft key is a client invention: nothing
+   * exists under it until the first message is sent, so there is no history to
+   * wait for and no transcript skeleton to show.
+   *
+   * Registered at the mint site and cleared once a send resolves the key (see
+   * `use-send-message`). Session-scoped by design: a reload starts with an
+   * empty set, so a key that survived in the URL is treated as a real
+   * conversation and loads its history normally.
+   */
+  draftConversationIds: Set<string>;
+  /**
    * Model profiles picked in the composer for conversations that have no server
    * row loaded yet, keyed by conversation id → profile name. Two situations
    * land here, both because the composer's `conversationId` prop is undefined
@@ -173,6 +189,11 @@ export interface ConversationListActions {
   addAttentionConversationId: (conversationId: string) => void;
   removeAttentionConversationId: (conversationId: string) => void;
 
+  // --- Draft conversation ids ---
+  registerDraftConversationId: (conversationId: string) => void;
+  /** Drop the draft mark once the key resolves server-side (no-op when absent). */
+  clearDraftConversationId: (conversationId: string) => void;
+
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
@@ -206,6 +227,7 @@ const INITIAL_STATE: ConversationListState = {
   processingConversationIds: new Set(),
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
+  draftConversationIds: new Set(),
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
 };
@@ -331,6 +353,26 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    // --- Draft conversation ids ---
+
+    registerDraftConversationId: (conversationId) => {
+      set({
+        draftConversationIds: addToSet(
+          get().draftConversationIds,
+          conversationId,
+        ),
+      });
+    },
+
+    clearDraftConversationId: (conversationId) => {
+      set({
+        draftConversationIds: removeFromSet(
+          get().draftConversationIds,
+          conversationId,
+        ),
+      });
+    },
+
     // --- Pending draft profiles ---
 
     setPendingDraftProfile: (conversationId, profile) => {
@@ -419,6 +461,7 @@ export const useConversationStore = createSelectors(
         processingConversationIds: new Set(),
         processingSnapshots: new Map(),
         attentionConversationIds: new Set(),
+        draftConversationIds: new Set(),
         pendingDraftProfiles: new Map(),
         pendingDraftPlugins: new Map(),
       });

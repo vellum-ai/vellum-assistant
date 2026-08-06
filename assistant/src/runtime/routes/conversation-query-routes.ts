@@ -2144,13 +2144,20 @@ async function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
   throw new NotFoundError("Queued message not found");
 }
 
-function handleSteerToMessage(args: RouteHandlerArgs) {
-  const { pathParams = {} } = args;
+async function handleSteerToMessage(args: RouteHandlerArgs) {
+  const { pathParams = {}, headers = {} } = args;
   const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
-  const result = steerToMessage(conversationId, pathParams.id ?? "");
+  // Verified caller identity, normalized exactly as the delete path above
+  // (see the comment in `handleDeleteQueuedMessage`).
+  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+  const result = steerToMessage(conversationId, pathParams.id ?? "", {
+    actorPrincipalId,
+  });
   if (result.steered) {
     return { ok: true, conversationId, requestId: pathParams.id };
   }
@@ -2160,6 +2167,11 @@ function handleSteerToMessage(args: RouteHandlerArgs) {
   if (result.reason === "not_processing") {
     throw new BadRequestError(
       "Cannot steer: conversation is not currently processing",
+    );
+  }
+  if (result.reason === "forbidden") {
+    throw new ForbiddenError(
+      "Queued message was sent by a different user and cannot be steered to here",
     );
   }
   throw new NotFoundError("Queued message not found");
@@ -2528,6 +2540,15 @@ export const ROUTES: RouteDefinition[] = [
         description: "Conversation ID (required)",
       },
     ],
+    additionalResponses: {
+      "403": {
+        description:
+          "The queued message was enqueued by a different actor principal.",
+      },
+      "404": {
+        description: "Conversation or queued message not found.",
+      },
+    },
     handler: handleSteerToMessage,
   },
 ];

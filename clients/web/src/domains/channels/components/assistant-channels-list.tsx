@@ -7,7 +7,7 @@ import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
-import type { MutationStatus } from "@/components/slack-setup-wizard";
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
@@ -85,7 +85,9 @@ export interface AssistantChannelsListProps {
   ) => void;
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
-  onSaveTelegramToken?: (botToken: string) => Promise<void>;
+  onSaveTelegramToken?: (botToken: string) => void;
+  telegramSaveStatus?: MutationStatus;
+  telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
@@ -124,6 +126,8 @@ export function AssistantChannelsList({
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
+  telegramSaveStatus,
+  telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
   slackSaveError,
@@ -210,6 +214,8 @@ export function AssistantChannelsList({
         onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
+      telegramSaveStatus={telegramSaveStatus}
+      telegramSaveError={telegramSaveError}
       onSaveSlackConfig={onSaveSlackConfig}
       slackSaveStatus={slackSaveStatus}
       slackSaveError={slackSaveError}

@@ -39,7 +39,6 @@ export function ListeningLanguageCard() {
     available,
     currentCode,
     configuredProviderId,
-    daemonDefaultsToMulti,
     selectLanguage,
     selecting,
   } = useSttLanguageSelection(assistantId);
@@ -59,11 +58,7 @@ export function ListeningLanguageCard() {
     >
       <div className="flex items-center gap-3">
         <span className="min-w-0 text-body-medium-lighter text-[var(--content-default)]">
-          {sttLanguageLabelForCode(
-            currentCode,
-            configuredProviderId,
-            daemonDefaultsToMulti,
-          )}
+          {sttLanguageLabelForCode(currentCode, configuredProviderId)}
         </span>
         <Button
           variant="outlined"
@@ -79,7 +74,6 @@ export function ListeningLanguageCard() {
         title="Listening language"
         currentCode={currentCode}
         configuredProviderId={configuredProviderId}
-        daemonDefaultsToMulti={daemonDefaultsToMulti}
         selectLanguage={selectLanguage}
         selecting={selecting}
       />

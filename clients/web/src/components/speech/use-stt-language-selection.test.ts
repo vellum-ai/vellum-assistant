@@ -30,22 +30,6 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
-// The version gate reads the identity store, which no test seeds. Mocked with
-// a mutable seed (hoisted, since CI's bun does not re-link a mid-file
-// mock.module) so both sides of the skew are reachable: the default-code and
-// read-collapse rules differ per branch.
-const versionGate = { defaultsToMulti: true };
-mock.module(
-  "@/lib/backwards-compat/use-supports-multilingual-stt-default",
-  () => ({
-    useSupportsMultilingualSttDefault: () => versionGate.defaultsToMulti,
-    // The write path resolves the gate rather than sampling it, so the mock
-    // has to carry both entry points or the module fails to link.
-    resolveSupportsMultilingualSttDefault: async () =>
-      versionGate.defaultsToMulti,
-  }),
-);
-
 const ASSISTANT_ID = "asst-test";
 
 // Controllable daemon responses the mocked query factories resolve to.
@@ -114,7 +98,6 @@ describe("useSttLanguageSelection", () => {
     patchResolvers = [];
     daemonConfigData = { services: {} };
     providerCatalogData = { providers: [] };
-    versionGate.defaultsToMulti = true;
   });
 
   test("unavailable when the daemon omits languageSelection (old daemon)", () => {
@@ -158,7 +141,9 @@ describe("useSttLanguageSelection", () => {
 
     const { result } = renderSelection();
     expect(result.current.available).toBe(true);
-    expect(result.current.currentCode).toBe("");
+    // An absent language can only come from a daemon predating the schema
+    // default, and there it meant English.
+    expect(result.current.currentCode).toBe("en");
   });
 
   test("exposes the configured provider id, mapping legacy managed mode", () => {
@@ -247,12 +232,11 @@ describe("useSttLanguageSelection", () => {
     await waitFor(() => expect(result.current.selecting).toBe(false));
   });
 
-  test("the default pick writes multi, and multi reads as the default code", async () => {
-    // The daemon resolves an unset language to "multi" on the managed relay,
-    // so that code and the default row are the same state seen from two
-    // sides: config records "multi", the picker shows the default row.
+  test("picking Multilingual writes multi, and it reads back as itself", async () => {
+    // Multilingual is a row you select, not a default you fall back to, so
+    // the code round-trips rather than collapsing into a sentinel.
     daemonConfigData = {
-      services: { stt: { provider: "vellum", language: "es" } },
+      services: { stt: { provider: "vellum", language: "en" } },
     };
     providerCatalogData = {
       providers: [
@@ -261,23 +245,19 @@ describe("useSttLanguageSelection", () => {
     };
 
     const { result } = renderSelection();
-    expect(result.current.currentCode).toBe("es");
+    expect(result.current.currentCode).toBe("en");
 
-    // config_patch cannot delete the key (a null leaf breaks schema
-    // validation on the next load), so the default pick writes the code the
-    // daemon would have filled in anyway.
     daemonConfigData = {
       services: { stt: { provider: "vellum", language: "multi" } },
     };
-    act(() => result.current.selectLanguage(""));
+    act(() => result.current.selectLanguage("multi"));
 
     await waitFor(() => expect(result.current.selecting).toBe(false));
     expect(configPatchCalls).toHaveLength(1);
     expect(configPatchCalls[0]!.body).toEqual({
       services: { stt: { language: "multi" } },
     });
-    // The refetched config holds "multi"; the hook reads it as the default.
-    await waitFor(() => expect(result.current.currentCode).toBe(""));
+    await waitFor(() => expect(result.current.currentCode).toBe("multi"));
   });
 
   test("en reads as a deliberate pin under a code-switching provider", async () => {
@@ -330,125 +310,5 @@ describe("useSttLanguageSelection", () => {
 
     const { result } = renderSelection();
     expect(result.current.currentCode).toBe("");
-  });
-});
-
-describe("useSttLanguageSelection against a pre-0.12.0 assistant", () => {
-  beforeEach(() => {
-    configPatchCalls.length = 0;
-    deferPatches = false;
-    patchResolvers = [];
-    versionGate.defaultsToMulti = false;
-    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
-    providerCatalogData = {
-      providers: [
-        {
-          id: "deepgram",
-          displayName: "Deepgram",
-          languageSelection: "manual",
-        },
-      ],
-    };
-  });
-
-  test("the default pick writes English, which is what that assistant applies", async () => {
-    // Writing "multi" here would be a lie in the other direction: the config
-    // would claim code-switching while the daemon still decodes English.
-    // Seeded on a real pin so the default row is a change rather than a
-    // same-value no-op.
-    daemonConfigData = {
-      services: { stt: { provider: "deepgram", language: "es" } },
-    };
-
-    const { result } = renderSelection();
-    act(() => result.current.selectLanguage(""));
-
-    await waitFor(() => expect(result.current.selecting).toBe(false));
-    expect(configPatchCalls).toHaveLength(1);
-    expect(configPatchCalls[0]!.body).toEqual({
-      services: { stt: { language: "en" } },
-    });
-  });
-
-  test("a persisted en still reads as the default row", async () => {
-    // The pre-0.12.0 equivalence: "en" and unset are the same state there,
-    // so collapsing them keeps the picker honest.
-    daemonConfigData = {
-      services: { stt: { provider: "deepgram", language: "en" } },
-    };
-
-    const { result } = renderSelection();
-    await waitFor(() => expect(result.current.currentCode).toBe(""));
-  });
-
-  test("a persisted multi reads as itself, not as the default", async () => {
-    // Someone who deliberately picked code-switching on an older assistant
-    // must keep seeing that, since unset there means English.
-    daemonConfigData = {
-      services: { stt: { provider: "deepgram", language: "multi" } },
-    };
-
-    const { result } = renderSelection();
-    await waitFor(() => expect(result.current.currentCode).toBe("multi"));
-  });
-
-  test("reports the gate so surfaces can frame the rows to match", () => {
-    const { result } = renderSelection();
-    expect(result.current.daemonDefaultsToMulti).toBe(false);
-  });
-});
-
-describe("the default pick waits out an unresolved assistant version", () => {
-  beforeEach(() => {
-    configPatchCalls.length = 0;
-    deferPatches = false;
-    patchResolvers = [];
-    daemonConfigData = {
-      services: { stt: { provider: "deepgram", language: "es" } },
-    };
-    providerCatalogData = {
-      providers: [
-        {
-          id: "deepgram",
-          displayName: "Deepgram",
-          languageSelection: "manual",
-        },
-      ],
-    };
-  });
-
-  test("writes multi once the version resolves, not the false-while-unknown fallback", async () => {
-    // The render-time gate reads false until identity hydrates. Sampling it
-    // in the write would persist explicit English on a 0.12.0 assistant, and
-    // config_patch cannot delete the key afterwards, so the user would be
-    // pinned to English until they noticed and picked again.
-    versionGate.defaultsToMulti = false;
-
-    const { result } = renderSelection();
-    act(() => result.current.selectLanguage(""));
-
-    // The version hydrates while the write is in flight.
-    versionGate.defaultsToMulti = true;
-
-    await waitFor(() => expect(result.current.selecting).toBe(false));
-    expect(configPatchCalls).toHaveLength(1);
-    expect(configPatchCalls[0]!.body).toEqual({
-      services: { stt: { language: "multi" } },
-    });
-  });
-
-  test("a named language never waits, since the version cannot change it", async () => {
-    // Only the default row's meaning depends on the version. Picking Tamil
-    // writes Tamil on every assistant, so it must not pay the resolution
-    // wait.
-    versionGate.defaultsToMulti = false;
-
-    const { result } = renderSelection();
-    act(() => result.current.selectLanguage("ta"));
-
-    await waitFor(() => expect(result.current.selecting).toBe(false));
-    expect(configPatchCalls[0]!.body).toEqual({
-      services: { stt: { language: "ta" } },
-    });
   });
 });

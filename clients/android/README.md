@@ -51,8 +51,12 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-Launcher and splash colors also distinguish production, staging, and dev
-installs.
+Launcher colors distinguish production, staging, and dev installs. The launch
+screen follows the saved app appearance, falling back to the Android light or
+dark setting until the web app has stored a preference. Android's app night
+mode keeps the OS splash and native overlay on the same theme. Android 11 and
+older skip the OS preview window so the themed native overlay is the first app
+frame.
 
 ## HTTPS App Links
 
@@ -203,6 +207,7 @@ clients/
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
     │       │   ├── NativeBiometricPlugin.java
+    │       │   ├── NativeLaunchScreenPlugin.java
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
     │       │   ├── VoiceAudioSessionPlugin.java
@@ -275,44 +280,66 @@ remains manual.
 When Firebase configuration is available, the workflow validates that it
 matches the selected flavor before including it in the build.
 
-Configure these environment-scoped GitHub secrets independently for `dev`,
-`staging`, and `production`:
+Configure these shared repository-level GitHub secrets once:
 
 | Secret | Format |
 |--------|--------|
-| `ANDROID_FIREBASE_CONFIG_B64` | Optional base64-encoded `google-services.json` for the environment's package |
 | `ANDROID_UPLOAD_KEYSTORE_B64` | Base64-encoded Play upload keystore |
 | `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | Upload keystore password |
 | `ANDROID_UPLOAD_KEY_ALIAS` | Upload key alias |
 | `ANDROID_UPLOAD_KEY_PASSWORD` | Upload key password |
-| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Raw Play service account JSON |
 
-Never commit Firebase configuration, the keystore, credentials, or decoded
-secret material. The workflow removes restored files even when a build fails.
+Configure the optional `ANDROID_FIREBASE_CONFIG_B64` secret independently on
+the `dev`, `staging`, and `production` GitHub environments. Each value must be
+the base64-encoded `google-services.json` for that environment's package.
+
+The publish job authenticates without a JSON key by using the existing
+environment-scoped `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`
+GitHub variables. `GCP_SERVICE_ACCOUNT` must match the environment's
+`assistant_deploy_service_account_email` Terraform output.
+
+Never commit Firebase configuration, the keystore, or decoded secret material.
+The workflow removes restored files even when a build fails.
 
 `ANDROID_FIREBASE_CONFIG_B64` remains optional so signing and internal
 distribution do not depend on push setup. When it is absent, the workflow emits
 a warning and the resulting AAB has no native push support. When it is present,
 malformed base64, invalid JSON, or a package mismatch fails the build.
 
-After all prerequisites and environment secrets are ready, set the repository
-variable `ANDROID_RELEASE_ENABLED` to `true`. Until then, both orchestrators
-skip Android distribution so existing releases remain unaffected.
+After completing the prerequisites and GitHub configuration, enable Android
+distribution independently with these repository variables:
+
+| Variable | Release workflow |
+|----------|------------------|
+| `ANDROID_DEV_RELEASE_ENABLED` | Dev releases |
+| `ANDROID_STAGING_RELEASE_ENABLED` | Staging releases |
+| `ANDROID_PRODUCTION_RELEASE_ENABLED` | Production releases |
+
+Set only `ANDROID_DEV_RELEASE_ENABLED` to `true` to test the dev app on its Play
+internal track. Leave the staging and production variables unset or set to
+`false` until those apps are ready. A missing or non-`true` variable skips the
+matching Android distribution job. Manually dispatch the **Dev Release**
+workflow to run the dev release immediately instead of waiting for its hourly
+schedule.
 
 ### Manual Play Prerequisites
 
 Complete the following setup before enabling internal-track uploads:
 
-1. Create Play Console apps for `ai.vellum.assistant`,
+1. Apply the platform Terraform stacks that enable the Android Publisher API
+   in the dev, staging, and production GCP projects.
+2. Create Play Console apps for `ai.vellum.assistant`,
    `ai.vellum.assistant.staging`, and
    `ai.vellum.assistant.dev`.
-2. Enable Play App Signing for each app and create one controlled upload key.
-3. Upload and roll out one signed AAB to each app's internal track manually.
+3. Enable Play App Signing for each app and create one controlled upload key.
+4. Upload and roll out one signed AAB to each app's internal track manually.
    Google Play requires this initial release before the Publisher API can
    upload a completed release.
-4. Grant the release service account permission to publish to each app's
-   internal track, then configure the environment-scoped secrets above.
-5. Complete each Play listing, privacy policy, Data Safety form, content rating,
+5. In Play Console, grant each environment's `GCP_SERVICE_ACCOUNT` access only
+   to its matching app, with **View app information (read-only)** and
+   **Release apps to testing tracks**. Do not grant production publishing.
+6. Configure the repository and environment secrets above.
+7. Complete each Play listing, privacy policy, Data Safety form, content rating,
    and the declarations required for microphone permissions.
 
 Before wider rollout, test the internal-track AAB on a physical device and

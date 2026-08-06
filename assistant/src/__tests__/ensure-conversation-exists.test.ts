@@ -26,7 +26,7 @@ describe("ensureConversationExists", () => {
 
     // Reports that it inserted the row so callers can emit a one-time
     // conversations-list invalidation.
-    expect(ensureConversationExists(conversationId)).toBe(true);
+    expect(ensureConversationExists(conversationId, "vellum")).toBe(true);
 
     const row = getConversation(conversationId);
     expect(row?.id).toBe(conversationId);
@@ -48,8 +48,8 @@ describe("ensureConversationExists", () => {
 
     // Two extra ensures must be no-ops — return false (did not create), no
     // throw, no title/row change.
-    expect(ensureConversationExists(created.id)).toBe(false);
-    expect(ensureConversationExists(created.id)).toBe(false);
+    expect(ensureConversationExists(created.id, "vellum")).toBe(false);
+    expect(ensureConversationExists(created.id, "vellum")).toBe(false);
 
     const row = getConversation(created.id);
     expect(row?.id).toBe(created.id);
@@ -61,7 +61,7 @@ describe("ensureConversationExists", () => {
     // traversal value from an untrusted live-voice start frame must be refused
     // before createConversation() touches disk.
     for (const unsafe of ["../../tmp/x", "a/b", "..", "with space", ""]) {
-      expect(() => ensureConversationExists(unsafe)).toThrow(
+      expect(() => ensureConversationExists(unsafe, "vellum")).toThrow(
         /unsafe conversation id/,
       );
       expect(getConversation(unsafe)).toBeNull();
@@ -69,7 +69,10 @@ describe("ensureConversationExists", () => {
 
     // A plain uuid-shaped id is still accepted.
     expect(
-      ensureConversationExists("0f9c1e2a-3b4d-5e6f-7a8b-9c0d1e2f3a4b"),
+      ensureConversationExists(
+        "0f9c1e2a-3b4d-5e6f-7a8b-9c0d1e2f3a4b",
+        "vellum",
+      ),
     ).toBe(true);
   });
 });

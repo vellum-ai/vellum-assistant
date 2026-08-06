@@ -31,6 +31,7 @@ import { selectSentryFlavor } from "@/lib/sentry/flavor";
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import { watchDeviceSetting } from "@/utils/device-settings";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
+import { disableNativeFailureReportForwarding } from "@/runtime/native-failure-reports";
 import { useAuthStore } from "@/stores/auth-store";
 
 function tryInit(options: BrowserOptions): void {
@@ -52,6 +53,7 @@ function tryClose(): void {
  */
 export function syncSentryClient(options: BrowserOptions): void {
   if (!options.dsn) {
+    void disableNativeFailureReportForwarding();
     return;
   }
   if (diagnosticsConsentGranted()) {

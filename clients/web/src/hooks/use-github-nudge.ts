@@ -10,7 +10,7 @@
  * a minimum number of user messages sent.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useNudgeStore } from "@/stores/nudge-store";
 
@@ -109,11 +109,17 @@ export function useGitHubNudgeState(): GitHubNudgeState {
     useNudgeStore.getState().dismissGitHubBanner();
   }, []);
 
-  return {
-    bannerShouldShow: !starred && !bannerDismissed && engagementMet,
-    handleStar,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      bannerShouldShow: !starred && !bannerDismissed && engagementMet,
+      handleStar,
+      handleBannerDismiss,
+    }),
+    [starred, bannerDismissed, engagementMet, handleStar, handleBannerDismiss],
+  );
 }
 
 // ---------------------------------------------------------------------------

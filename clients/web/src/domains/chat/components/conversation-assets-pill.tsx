@@ -1,6 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppWindow, FileText, Layers } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useReducedMotion } from "motion/react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   BottomSheet,
@@ -21,10 +28,20 @@ import {
   AppAssetActions,
   DocumentAssetActions,
 } from "@/domains/chat/components/conversation-asset-actions";
+import {
+  useHasUnseenDocumentChanges,
+  useUnseenDocumentChangesStore,
+} from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
+import { cn } from "@/utils/misc";
+
+export const ASSETS_PILL_UNSEEN_DOT_TESTID = "assets-pill-unseen-dot";
+
+/** Bounded attention pulse defined in `src/index.css`. */
+export const ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS = "unseen-dot-pulse";
 
 interface ConversationAsset {
   id: string;
@@ -118,7 +135,34 @@ export function ConversationAssetsPill({
   const assets = useMemo(() => toAssets(apps, docs), [apps, docs]);
 
   const [open, setOpen] = useState(false);
+
+  // The chat header swaps `conversationId` on this same mounted pill, so an
+  // open disclosure would otherwise carry over and list the incoming
+  // conversation's assets without the user asking to see them, leaving that
+  // conversation's changes marked unseen behind a sheet that is already open.
+  // Layout effect: the outgoing conversation's disclosure must never paint
+  // over the incoming conversation, not even for one frame.
+  useLayoutEffect(() => {
+    setOpen(false);
+  }, [conversationId]);
+
   const isMobile = useIsMobile();
+  const reduceMotion = useReducedMotion();
+  const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
+  const clearConversation =
+    useUnseenDocumentChangesStore.use.clearConversation();
+
+  // Opening the disclosure is the user looking at the asset list, so whatever
+  // changed is no longer unseen.
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        clearConversation(conversationId);
+      }
+    },
+    [clearConversation, conversationId],
+  );
 
   const handleSelect = useCallback(
     (asset: ConversationAsset) => {
@@ -139,7 +183,40 @@ export function ConversationAssetsPill({
   }
 
   const label = assets.length === 1 ? "1 asset" : `${assets.length} assets`;
-  const ariaLabel = `Conversation assets, ${assets.length} items`;
+  const ariaLabel = hasUnseenChanges
+    ? `Conversation assets, ${assets.length} items (unseen changes)`
+    : `Conversation assets, ${assets.length} items`;
+
+  // Same dot as the notifications bell in this header cluster: ringed in the
+  // color of the surface behind it so the ring reads as a gap carved out of
+  // the icon. The dot mounts only while changes are unseen, so the CSS pulse
+  // runs on appearance and needs no restart bookkeeping.
+  //
+  // This wrapper is the dot's positioning context and the element the Button
+  // sizes in place of the glyph. `iconOnly` sizes the glyph with its own
+  // `[&_svg]` rule, which reaches through the wrapper, so a size rule here
+  // would only compete with it. `leftIcon` sizes just the box it provides, so
+  // there the wrapper fills that box and hands the size down to the glyph.
+  const layersIcon = (
+    <span
+      className={cn(
+        "relative flex",
+        !isMobile && "size-full [&_svg]:size-full",
+      )}
+      aria-hidden
+    >
+      <Layers />
+      {hasUnseenChanges ? (
+        <span
+          data-testid={ASSETS_PILL_UNSEEN_DOT_TESTID}
+          className={cn(
+            "absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]",
+            !reduceMotion && ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS,
+          )}
+        />
+      ) : null}
+    </span>
+  );
 
   const assetItems = assets.map((asset) => (
     <PanelItem
@@ -170,12 +247,12 @@ export function ConversationAssetsPill({
   if (isMobile) {
     return (
       <>
-        <BottomSheet.Root open={open} onOpenChange={setOpen}>
+        <BottomSheet.Root open={open} onOpenChange={handleOpenChange}>
           <BottomSheet.Trigger asChild>
             <Button
               variant="ghost"
               active
-              iconOnly={<Layers />}
+              iconOnly={layersIcon}
               tintColor="var(--content-default)"
               aria-label={ariaLabel}
             />
@@ -199,12 +276,12 @@ export function ConversationAssetsPill({
 
   return (
     <>
-      <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Root open={open} onOpenChange={handleOpenChange}>
         <Popover.Trigger asChild>
           <Button
             variant="ghost"
             active
-            leftIcon={<Layers />}
+            leftIcon={layersIcon}
             className="rounded-full"
             tintColor="var(--content-default)"
             aria-label={ariaLabel}

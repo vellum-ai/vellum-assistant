@@ -91,8 +91,16 @@ export function createEvent(
   return row;
 }
 
-/** Update the dedupeKey on an existing event (e.g. when the decision engine generates one). */
-export function updateEventDedupeKey(eventId: string, dedupeKey: string): void {
+/**
+ * Write an existing event's dedupe key. A string claims that key, which is
+ * how a decision-engine-generated key lands on the row. `null` releases the
+ * claim so a later event may take it while this row stays for the audit
+ * trail.
+ */
+export function setEventDedupeKey(
+  eventId: string,
+  dedupeKey: string | null,
+): void {
   const db = getDb();
   db.update(notificationEvents)
     .set({ dedupeKey, updatedAt: Date.now() })

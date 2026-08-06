@@ -63,6 +63,17 @@ export function buildOrderedProfiles(
   return [...ordered, ...extras];
 }
 
+/**
+ * Display label for a profile name: the entry's label, falling back to the
+ * raw name when the entry is missing or unlabeled.
+ */
+export function profileDisplayLabel(
+  profiles: ReadonlyArray<ProfileWithName>,
+  name: string,
+): string {
+  return profiles.find((p) => p.name === name)?.label ?? name;
+}
+
 export function assertProvisionSuccess(result: unknown): void {
   if (
     result &&

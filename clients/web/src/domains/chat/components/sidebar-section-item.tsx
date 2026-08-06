@@ -68,7 +68,7 @@ export function SidebarSectionItem({
   return (
     <ConversationNavSection
       value={section.key}
-      icon={section.type === "pinned" ? undefined : sectionIcon(section)}
+      icon={sectionIcon(section)}
       label={section.label}
       /* The "…" button and the header's right-click menu both render from
          `groupMenu`; only the curated sections carry the button. */

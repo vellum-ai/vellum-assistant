@@ -28,6 +28,7 @@ import {
   installPlugin,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
+  PluginInstallDeclinedError,
   PluginNotFoundError,
   PluginPostinstallError,
   PluginSourceUnavailableError,
@@ -359,6 +360,84 @@ describe("installPlugin — install lifecycle", () => {
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"caveman-existing"}',
     );
+  });
+});
+
+describe("installPlugin - staged-install consent", () => {
+  let ws: string;
+  let pluginsDir: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "vellum-plugins-consent-"));
+    pluginsDir = join(ws, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  const CLONE_TREE = {
+    "package.json": '{"name":"caveman"}',
+    "schedules/daily/config.json": '{"expression": "0 9 * * *"}',
+    "schedules/daily/index.md": "Do it.\n",
+  };
+
+  test("confirmStaged sees the staged tree before anything is finalized", async () => {
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({ tree: CLONE_TREE, commit: CAVEMAN_SHA });
+    const observed: Array<{ name: string; stagingDir: string }> = [];
+
+    const result = await installPlugin(
+      { name: "caveman", ref: "main" },
+      {
+        fetch,
+        runGit,
+        workspacePluginsDir: pluginsDir,
+        confirmStaged: async (staged) => {
+          observed.push(staged);
+          // The staged tree is fully materialized, but nothing has been
+          // swapped into the served plugins dir yet.
+          expect(
+            existsSync(join(staged.stagingDir, "schedules/daily/index.md")),
+          ).toBe(true);
+          expect(existsSync(join(pluginsDir, "caveman"))).toBe(false);
+          return true;
+        },
+      },
+    );
+
+    expect(observed.length).toBe(1);
+    expect(observed[0]!.name).toBe("caveman");
+    expect(result.target).toBe(join(pluginsDir, "caveman"));
+    expect(existsSync(join(result.target, "schedules/daily/index.md"))).toBe(
+      true,
+    );
+  });
+
+  test("declining aborts cleanly: no target, staging removed", async () => {
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({ tree: CLONE_TREE, commit: CAVEMAN_SHA });
+    const stagingDirs: string[] = [];
+
+    await expect(
+      installPlugin(
+        { name: "caveman", ref: "main" },
+        {
+          fetch,
+          runGit,
+          workspacePluginsDir: pluginsDir,
+          confirmStaged: async (staged) => {
+            stagingDirs.push(staged.stagingDir);
+            return false;
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(PluginInstallDeclinedError);
+
+    expect(existsSync(join(pluginsDir, "caveman"))).toBe(false);
+    expect(stagingDirs.length).toBe(1);
+    expect(existsSync(stagingDirs[0]!)).toBe(false);
   });
 });
 

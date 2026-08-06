@@ -121,6 +121,11 @@ export function SkillsReferenceScheduleContent() {
               &ldquo;workflow&rdquo; (run a saved workflow)
             </li>
             <li>Timezone-aware</li>
+            <li>
+              Each schedule is pinned to a model profile when it is created, so
+              changing your default model later does not change what your
+              existing schedules cost
+            </li>
           </ul>
         </section>
 

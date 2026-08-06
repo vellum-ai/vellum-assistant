@@ -451,12 +451,18 @@ export function buildActiveDocuments(conversationId: string): Array<{
  * the readable handle is its `slug` (the directory stem, frozen at creation).
  * The app tools key off the id, so the line carries it for tool calls and the
  * slug for everything a human or the model would recognize.
+ *
+ * The resolved directory is not part of the returned shape. A workspace app's
+ * files are reachable by joining the workspace `Root:` from the `<workspace>`
+ * block with the app-builder skill's `data/apps/<slug>/` layout and the slug
+ * above. A plugin-bundled app's files sit outside that layout and belong to
+ * the plugin, which the provenance clause marks as not the assistant's to
+ * rewrite, so no path is offered for them either.
  */
 export function buildVisibleAppContext(appId: string | undefined): {
   appId: string;
   name: string;
   slug: string;
-  sourceDir: string;
   pluginName?: string;
 } | null {
   if (!appId) {
@@ -471,7 +477,6 @@ export function buildVisibleAppContext(appId: string | undefined): {
       appId: source.id,
       name: source.name,
       slug: source.dirName,
-      sourceDir: source.sourceDir,
       ...(source.origin.kind === "plugin"
         ? { pluginName: source.origin.pluginName }
         : {}),

@@ -57,10 +57,9 @@ export function useSerializedConfigSelection({
    * tracks real state.
    *
    * May be async, for callers whose body depends on state that has to be
-   * resolved rather than sampled, such as a backwards-compat gate read
-   * against a hydrated assistant version. The wait happens inside the write
-   * chain, so `selecting` stays true across it and callers that gate on it (a
-   * "Start" button waiting out a pick) keep working unchanged.
+   * resolved rather than sampled. The wait happens inside the write chain, so
+   * `selecting` stays true across it and callers that gate on it (a "Start"
+   * button waiting out a pick) keep working unchanged.
    */
   buildPatchBody: (value: string) => ConfigPatchBody | Promise<ConfigPatchBody>;
   /** Toast copy shown when a write fails or rejects. */

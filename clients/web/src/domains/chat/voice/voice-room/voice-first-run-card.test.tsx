@@ -64,12 +64,10 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 // the locale evidence it stubs on `navigator.language`.
 const STT_LANGUAGE_SELECTION_DEFAULTS = {
   available: false,
-  currentCode: "",
+  // New assistants carry an explicit "multi": the schema defaults it, so
+  // there is no unset state to stand in for.
+  currentCode: "multi",
   configuredProviderId: "vellum",
-  // The assistant under test resolves an unset language to code-switching.
-  // The pre-0.12.0 shape is covered in the language-catalog suite, which owns
-  // the gate's branching.
-  daemonDefaultsToMulti: true,
   selectLanguage: (_code: string) => {},
   selecting: false,
 };
@@ -226,7 +224,7 @@ describe("VoiceFirstRunCard", () => {
 
       fireEvent.click(getByText(SETTINGS_LINK));
 
-      expect(dialogTitle()).toBe("Voices");
+      expect(dialogTitle()).toBe("Voice settings");
       // The view is just the voice picker plus a pointer to Models & Services,
       // where advanced/BYO provider and API-key config lives.
       expect(getByTestId("voice-list")).toBeTruthy();
@@ -265,9 +263,102 @@ describe("VoiceFirstRunCard", () => {
       );
 
       fireEvent.click(getByText(SETTINGS_LINK));
-      expect(dialogTitle()).toBe("Voices");
+      expect(dialogTitle()).toBe("Voice settings");
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
+    });
+  });
+
+  describe("listening language from the voice settings view", () => {
+    // The setting is reachable for everyone entering voice mode, not only
+    // for the locale-matched users the intro row serves.
+
+    test("it appears for an English locale, which has no suggestion", () => {
+      // The hook is gated on locale evidence so the intro stays query-free,
+      // but the settings view serves everyone: an English speaker gets no
+      // suggestion row and must still be able to find the setting.
+      stubLocale("en-US");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        currentCode: "multi",
+      };
+      const { getByText, getByLabelText, queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      // No suggestion row on the intro.
+      expect(queryByLabelText("Listening language")).toBeNull();
+
+      fireEvent.click(getByText(SETTINGS_LINK));
+      expect(getByLabelText("Listening language")).toBeTruthy();
+    });
+
+    test("the settings view carries the language alongside the voice", () => {
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        currentCode: "multi",
+      };
+      const { getByText, getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(SETTINGS_LINK));
+      expect(dialogTitle()).toBe("Voice settings");
+      expect(getByLabelText("Listening language")).toBeTruthy();
+    });
+
+    test("it is absent for a provider that detects natively", () => {
+      // Same rule the other surfaces follow: no control rather than one the
+      // daemon would ignore.
+      sttLanguageSelection = { ...sttLanguageSelection, available: false };
+      const { getByText, queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(SETTINGS_LINK));
+      expect(queryByLabelText("Listening language")).toBeNull();
+    });
+
+    test("leaving the picker returns to the view it was opened from", () => {
+      // Opened from settings, Back goes to settings. Returning to the intro
+      // would strand the user a view away from what they were doing.
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        currentCode: "multi",
+      };
+      const { getByText, getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(SETTINGS_LINK));
+      fireEvent.click(getByLabelText("Listening language"));
+      expect(dialogTitle()).toBe("Listening language");
+
+      fireEvent.click(getByLabelText("Back"));
+      expect(dialogTitle()).toBe("Voice settings");
+    });
+
+    test("Escape from the picker also returns to the opening view", () => {
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        currentCode: "multi",
+      };
+      const { getByText, getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByText(SETTINGS_LINK));
+      fireEvent.click(getByLabelText("Listening language"));
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      fireEvent.keyDown(search!, { key: "Escape" });
+
+      expect(dialogTitle()).toBe("Voice settings");
     });
   });
 
@@ -304,10 +395,10 @@ describe("VoiceFirstRunCard", () => {
       expect(queryByLabelText(ROW_LABEL)).toBeNull();
     });
 
-    test("a code-switching-roster locale sees no row: the default already covers it", () => {
-      // Hindi is one of the ten languages the multilingual default follows,
-      // so this speaker is understood without touching anything. A row
-      // proposing what is already in effect reads as an unfinished task.
+    test("a code-switching-roster locale sees no row while on Multilingual", () => {
+      // Hindi is one of the ten languages code-switching follows, so this
+      // speaker is understood already. A row proposing what is in effect
+      // reads as an unfinished task.
       stubLocale("hi-IN");
       sttLanguageSelection = { ...sttLanguageSelection, available: true };
       const { queryByLabelText } = render(
@@ -335,8 +426,8 @@ describe("VoiceFirstRunCard", () => {
       const suggested = options.find((o) =>
         o.textContent?.includes("Suggested"),
       );
-      // The multilingual default row is what grants code-switching here.
-      expect(suggested?.textContent).toContain("Multilingual (default)");
+      // The Multilingual row is what grants code-switching here.
+      expect(suggested?.textContent).toContain("Multilingual");
     });
 
     test("a locale the default cannot follow shows the row with that language suggested", () => {
@@ -349,9 +440,9 @@ describe("VoiceFirstRunCard", () => {
       );
 
       const options = languageOptions(getByLabelText);
-      // The Featured group pins the current (default) value first, then the
-      // English pin, then the annotated suggestion.
-      expect(options[0]?.textContent).toContain("Multilingual (default)");
+      // The Featured group pins the current value first, then the English
+      // row, then the annotated suggestion.
+      expect(options[0]?.textContent).toContain("Multilingual");
       expect(options[1]?.textContent).toContain("English");
       expect(options[2]?.textContent).toContain("Tamil");
       expect(options[2]?.textContent).toContain("Suggested");

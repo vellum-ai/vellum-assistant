@@ -198,14 +198,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "queue-steering",
-      "scope": "assistant",
-      "key": "queue-steering",
-      "label": "Queue Steering",
-      "description": "Enable the 'Push to agent' button on queued messages, allowing users to steer the assistant to a specific queued message by aborting the current generation and promoting the message to the head of the queue.",
-      "defaultEnabled": false
-    },
-    {
       "id": "chat-pull-to-refresh-enabled",
       "scope": "client",
       "key": "chat-pull-to-refresh-enabled",
@@ -364,6 +356,14 @@
       "label": "Desktop Presence Suppression",
       "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
       "defaultEnabled": true
+    },
+    {
+      "id": "plugin-schedules",
+      "scope": "assistant",
+      "key": "plugin-schedules",
+      "label": "Plugin Schedules",
+      "description": "Plugins declare recurring schedules as files that register and run automatically",
+      "defaultEnabled": false
     }
   ]
 }

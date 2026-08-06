@@ -106,6 +106,59 @@ describe("reachability burst-limiter", () => {
     expect(publishSpy).not.toHaveBeenCalled();
   });
 
+  test("runReadyCleanup clears turn + error without publishing", () => {
+    const { deps, onReady, onClearError, onExhausted, onReset } = makeDeps();
+    const limiter = createReachabilityBurstLimiter(deps);
+
+    limiter.runReadyCleanup();
+
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(onClearError).toHaveBeenCalledTimes(1);
+    expect(publishSpy).not.toHaveBeenCalled();
+    expect(onExhausted).not.toHaveBeenCalled();
+    expect(onReset).not.toHaveBeenCalled();
+  });
+
+  test("runReadyCleanup spends no retry budget", () => {
+    let t = 0;
+    const { deps, onExhausted } = makeDeps({ now: () => t });
+    const limiter = createReachabilityBurstLimiter(deps);
+
+    for (let i = 0; i < 5; i += 1) {
+      limiter.runReadyCleanup();
+    }
+
+    t = 1_000;
+    limiter.handleReachabilityPhase("ready");
+    t = 2_000;
+    limiter.handleReachabilityPhase("ready");
+    t = 3_000;
+    limiter.handleReachabilityPhase("ready");
+
+    expect(publishSpy).toHaveBeenCalledTimes(3);
+    expect(onExhausted).not.toHaveBeenCalled();
+  });
+
+  test("runReadyCleanup does not slide the burst window", () => {
+    let t = 0;
+    const { deps, onExhausted } = makeDeps({ now: () => t });
+    const limiter = createReachabilityBurstLimiter(deps);
+
+    // Burn the budget inside one window.
+    limiter.handleReachabilityPhase("ready");
+    t = 1_000;
+    limiter.handleReachabilityPhase("ready");
+    t = 2_000;
+    limiter.handleReachabilityPhase("ready");
+
+    // A cleanup-only confirmation must not hand back fresh budget.
+    t = 3_000;
+    limiter.runReadyCleanup();
+    limiter.handleReachabilityPhase("ready");
+
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+  });
+
   test("burst counter resets after the 10s window elapses", () => {
     let t = 0;
     const { deps, onExhausted } = makeDeps({ now: () => t });

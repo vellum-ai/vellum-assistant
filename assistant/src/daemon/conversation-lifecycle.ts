@@ -12,7 +12,7 @@ import { getConfig } from "../config/loader.js";
 import { usesConceptPageMemory } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { isHiddenMessageMetadata } from "../persistence/conversation-types.js";
+import { isSuppressedQueuedMessage } from "../persistence/conversation-types.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -197,9 +197,11 @@ function preserveQueueAcrossInterrupt(
  * closes out the turn the message was waiting on; `message_queued_deleted` is
  * the terminal event for the queued row itself, the same one a user-issued
  * DELETE emits (`deleteQueuedMessage`). Without the second, a client holds the
- * pending indicator forever, since no `message_dequeued` is coming. Hidden
- * sends are suppressed for the same reason they get no queued ack: they have
- * no client row to close.
+ * pending indicator forever, since no `message_dequeued` is coming. Rows with
+ * no client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
+ * hidden sends and daemon-injected subagent/ACP/wake notifications) are
+ * suppressed for the same reason they get no queued ack: they have no client
+ * row to close.
  */
 function discardQueueOnAbort(ctx: AbortContext): void {
   for (const queued of ctx.queue) {
@@ -207,7 +209,7 @@ function discardQueueOnAbort(ctx: AbortContext): void {
       type: "generation_cancelled",
       conversationId: ctx.conversationId,
     });
-    if (isHiddenMessageMetadata(queued.metadata)) {
+    if (isSuppressedQueuedMessage(queued.metadata)) {
       continue;
     }
     queued.onEvent({

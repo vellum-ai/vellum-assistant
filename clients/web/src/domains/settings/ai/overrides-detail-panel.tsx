@@ -1,16 +1,22 @@
-import { Loader2, Search } from "lucide-react";
+import { AlertCircle, Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import {
+  profilePickerIssue,
   profilePickerLabel,
   selectSeedProfileForOverride,
+  undispatchableProfileReason,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
 import { AdvisorProfileRow } from "@/domains/settings/ai/advisor-profile-row";
-import { CUSTOM_SENTINEL } from "@/domains/settings/ai/call-site-helpers";
+import { BulkOverrideSwapModal } from "@/domains/settings/ai/bulk-override-swap-modal";
+import {
+  CUSTOM_SENTINEL,
+  effectiveCallSiteProfile,
+} from "@/domains/settings/ai/call-site-helpers";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import {
   type CallSiteGroup,
@@ -18,13 +24,16 @@ import {
 } from "@/domains/settings/ai/overrides-call-site-list";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 import { useOverrideDrafts } from "@/domains/settings/ai/use-override-drafts";
-import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
+import {
+  buildOrderedProfiles,
+  profileDisplayLabel,
+} from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
-  configGetSetQueryData,
   configLlmCallsitesGetOptions,
-  useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
@@ -48,8 +57,6 @@ export function OverridesDetailPanel({
   assistantId,
   onClose,
 }: OverridesDetailPanelProps) {
-  const queryClient = useQueryClient();
-
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -72,20 +79,20 @@ export function OverridesDetailPanel({
     [profiles, profileOrder],
   );
   const selectableInferenceProviders = useSelectableInferenceProviders();
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile dispatches there and must not be judged incomplete.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
+  const dispatchOptions = useMemo(
+    () => ({ requireOwnProviderAndModel }),
+    [requireOwnProviderAndModel],
+  );
 
-  const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
-      configGetSetQueryData(
-        queryClient,
-        { path: { assistant_id: assistantId } },
-        data,
-      );
-    },
-  });
+  const configMutation = useLlmConfigPatch(assistantId);
 
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
+  const [showBulkSwap, setShowBulkSwap] = useState(false);
 
   const {
     data: catalog,
@@ -129,6 +136,7 @@ export function OverridesDetailPanel({
     hasValidationError,
     setDraft,
     setAdvisor,
+    clearEdits,
     buildSavePatch,
     buildResetPatch,
   } = useOverrideDrafts({
@@ -148,20 +156,38 @@ export function OverridesDetailPanel({
   );
 
   const profileLabelFor = useCallback(
-    (name: string) =>
-      orderedProfiles.find((p) => p.name === name)?.label ?? name,
+    (name: string) => profileDisplayLabel(orderedProfiles, name),
     [orderedProfiles],
+  );
+
+  // An entry only reaches a picker while undispatchable when it is the
+  // current selection. It carries the same warning affordance the Profiles
+  // row uses, rather than a word appended to its name.
+  const toProfileOption = useCallback(
+    (p: (typeof orderedProfiles)[number]) => ({
+      value: p.name,
+      label: profilePickerLabel(p),
+      ...(profilePickerIssue(p, orderedProfiles, dispatchOptions) ===
+      "undispatchable"
+        ? {
+            icon: (
+              <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
+            ),
+            tooltip: undispatchableProfileReason(p),
+          }
+        : {}),
+    }),
+    [orderedProfiles, dispatchOptions],
   );
 
   const advisorOptions = useMemo(
     () =>
-      visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map(
-        (p) => ({
-          value: p.name,
-          label: profilePickerLabel(p),
-        }),
-      ),
-    [orderedProfiles, persistedAdvisor],
+      visibleProfilesForPicker(
+        orderedProfiles,
+        [persistedAdvisor],
+        dispatchOptions,
+      ).map(toProfileOption),
+    [orderedProfiles, persistedAdvisor, toProfileOption, dispatchOptions],
   );
 
   // "advisor" isn't in the call-site catalog, so its row filters on its own
@@ -170,6 +196,18 @@ export function OverridesDetailPanel({
     const q = search.trim().toLowerCase();
     return q === "" || "advisor".includes(q) || "second opinion".includes(q);
   }, [search]);
+
+  // The bulk swap needs at least one action currently running on a named
+  // profile, via an override or its default. Provider/model ("Custom") pins
+  // and sites with no resolvable default are out of its reach.
+  const hasBulkSwapCandidates = useMemo(
+    () =>
+      gatedCallSites.some(
+        (cs) =>
+          effectiveCallSiteProfile(cs, persistedOverrides[cs.id]) !== null,
+      ),
+    [gatedCallSites, persistedOverrides],
+  );
 
   const hasAnyPersistedOverride = useMemo(
     () =>
@@ -183,18 +221,17 @@ export function OverridesDetailPanel({
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = visibleProfilesForPicker(orderedProfiles, [
-        selectedProfile,
-      ]);
+      const visible = visibleProfilesForPicker(
+        orderedProfiles,
+        [selectedProfile],
+        dispatchOptions,
+      );
       return [
-        ...visible.map((p) => ({
-          value: p.name,
-          label: profilePickerLabel(p),
-        })),
+        ...visible.map(toProfileOption),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles],
+    [orderedProfiles, toProfileOption, dispatchOptions],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -250,6 +287,7 @@ export function OverridesDetailPanel({
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
+        dispatchOptions,
       );
       if (seedProfile) {
         setDraft(id, { profile: seedProfile });
@@ -260,7 +298,13 @@ export function OverridesDetailPanel({
         setDraft(id, { provider: defaultProvider, model: defaultModel });
       }
     },
-    [gatedCallSites, orderedProfiles, selectableInferenceProviders, setDraft],
+    [
+      gatedCallSites,
+      orderedProfiles,
+      selectableInferenceProviders,
+      setDraft,
+      dispatchOptions,
+    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -363,16 +407,38 @@ export function OverridesDetailPanel({
       </p>
 
       <div>
-        {/* Search */}
-        <div className="mb-4">
-          <Input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search actions…"
-            leftIcon={<Search className="h-4 w-4" />}
-            fullWidth
-          />
+        {/* Search + bulk change. The swap acts on persisted overrides, so it
+            stays disabled while the editor holds unsaved drafts: applying it
+            under a dirty draft would show stale rows and let a later Save
+            silently undo the swap. */}
+        <div className="mb-4 flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search actions…"
+              leftIcon={<Search className="h-4 w-4" />}
+              fullWidth
+            />
+          </div>
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() => setShowBulkSwap(true)}
+            disabled={
+              !isSeeded || saving || hasUnsavedDrafts || !hasBulkSwapCandidates
+            }
+            title={
+              hasUnsavedDrafts
+                ? "Save or reset your changes first"
+                : !hasBulkSwapCandidates
+                  ? "No actions currently use a profile"
+                  : undefined
+            }
+          >
+            Bulk change
+          </Button>
         </div>
 
         {/* Advisor: a top-level selection, not a catalog call site, so it
@@ -432,6 +498,21 @@ export function OverridesDetailPanel({
           />
         )}
       </div>
+
+      {/* Mounted per open so source/target/selection state resets. Clears
+          draft edits on apply: a stale touched-then-reverted edit would pin
+          the pre-swap value over the freshly persisted one. */}
+      {showBulkSwap && catalog && (
+        <BulkOverrideSwapModal
+          assistantId={assistantId}
+          callSites={gatedCallSites}
+          domains={catalog.domains}
+          persistedOverrides={persistedOverrides}
+          orderedProfiles={orderedProfiles}
+          onClose={() => setShowBulkSwap(false)}
+          onApplied={clearEdits}
+        />
+      )}
 
       <ConfirmDialog
         open={showResetConfirmation}

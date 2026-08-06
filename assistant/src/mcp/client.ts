@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 
 import { getIsPlatform } from "../config/env-registry.js";
 import type { McpTransport } from "../config/schemas/mcp.js";
@@ -33,10 +34,18 @@ function normalizeInputSchema(
   return { type: "object", properties: {} };
 }
 
+/**
+ * Behavioral hints a server may attach to a tool (MCP `ToolAnnotations`).
+ * Self-reported by the server, so consumers treat them as hints rather than
+ * guarantees.
+ */
+export type McpToolAnnotations = ToolAnnotations;
+
 export interface McpToolInfo {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
 }
 
 export interface McpCallResult {
@@ -197,6 +206,7 @@ export class McpClient {
       name: tool.name,
       description: tool.description ?? "",
       inputSchema: normalizeInputSchema(tool.inputSchema, tool.name),
+      annotations: tool.annotations,
     }));
   }
 

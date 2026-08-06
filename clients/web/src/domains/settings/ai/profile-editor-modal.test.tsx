@@ -86,8 +86,9 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } =
-  await import("@/domains/settings/ai/profile-editor-modal");
+const { ProfileEditorModal } = await import(
+  "@/domains/settings/ai/profile-editor-modal"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -296,6 +297,7 @@ function renderEdit(
   initialValues: Record<string, unknown>,
   onSave: (name: string, entry: unknown) => Promise<void> = () =>
     Promise.resolve(),
+  connections: ProviderConnection[] = [makeConnection("anthropic-personal")],
 ) {
   return render(
     <Wrapper>
@@ -305,7 +307,7 @@ function renderEdit(
         profileName={(initialValues.name as string) ?? "balanced"}
         initialValues={initialValues as never}
         existingNames={[(initialValues.name as string) ?? "balanced"]}
-        connections={[makeConnection("anthropic-personal")]}
+        connections={connections}
         assistantId={ASSISTANT_ID}
         onSave={onSave}
         onCancel={() => {}}
@@ -400,15 +402,17 @@ beforeEach(async () => {
   // Seed a hydrated pre-gate version: the save path awaits
   // whenAssistantVersionKnown(), and an unhydrated store would stall each
   // save until that helper's timeout. Gate-on tests override per-test.
-  const { useAssistantIdentityStore } =
-    await import("@/stores/assistant-identity-store");
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
   useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
 afterEach(async () => {
   cleanup();
-  const { useAssistantIdentityStore } =
-    await import("@/stores/assistant-identity-store");
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -639,8 +643,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
-    const { useAssistantIdentityStore } =
-      await import("@/stores/assistant-identity-store");
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
@@ -672,8 +677,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("an older assistant keeps the legacy payload byte-identical", async () => {
-    const { useAssistantIdentityStore } =
-      await import("@/stores/assistant-identity-store");
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
     try {
       const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
@@ -1833,5 +1839,72 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
     expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
     expect(findSwitchByLabel("Active")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Why Save is disabled (LUM-3076)
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal: explains why Save is blocked", () => {
+  /**
+   * Field errors are announced, so assert on the alert rather than on page
+   * text: "Select a provider" is also the picker's placeholder, and matching
+   * that would pass with no error rendered at all.
+   */
+  function fieldErrors(): string[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('[role="alert"]'),
+    ).map((el) => el.textContent?.trim() ?? "");
+  }
+
+  test("a profile missing its provider says so on open", () => {
+    // The Profiles row for an unusable profile links here saying "Click to
+    // fix", so the reason has to be on screen before the user touches
+    // anything. A disabled Save with no message is the bug.
+    renderEdit({ name: "half-built", provider: "", model: "" });
+
+    expect(fieldErrors()).toContain("Select a provider");
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a complete profile raises no field error", () => {
+    renderEdit({
+      name: "balanced",
+      provider: "anthropic",
+      model: "claude-opus-5",
+    });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("with no connections at all, the error is the way out", () => {
+    // The blocking reason and the fix are the same fact here. Passing the
+    // hint as helper text would hide it, since the field shows one message
+    // and the error wins, leaving the user staring at "Select a provider"
+    // above an empty list.
+    renderEdit({ name: "half-built" }, undefined, []);
+
+    expect(fieldErrors()).toContain(
+      "No provider connections. Open Providers to add one.",
+    );
+    expect(fieldErrors()).not.toContain("Select a provider");
+  });
+
+  test("a locked profile is not told to fix a field it cannot edit", () => {
+    // `invariant` forces read-only even in edit mode, so `effectiveMode` is
+    // still "edit" and the error would otherwise render above a disabled
+    // picker. Matches how `keyError` is already suppressed for these.
+    renderEdit({ name: "my-managed", invariant: true });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("an untouched create form does not scold the user for empty fields", () => {
+    // Everything is empty because the user just opened it, not because they
+    // did anything wrong.
+    renderCreate([makeConnection("anthropic")]);
+
+    expect(fieldErrors()).toEqual([]);
   });
 });

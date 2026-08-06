@@ -270,3 +270,31 @@ describe("useConversationStore", () => {
     });
   });
 });
+
+describe("draft conversation ids", () => {
+  it("registers and clears a draft key", () => {
+    getState().registerDraftConversationId("draft-1");
+    expect(getState().draftConversationIds.has("draft-1")).toBe(true);
+
+    getState().clearDraftConversationId("draft-1");
+    expect(getState().draftConversationIds.has("draft-1")).toBe(false);
+  });
+
+  it("keeps the same set reference when clearing an unknown key", () => {
+    getState().registerDraftConversationId("draft-1");
+    const before = getState().draftConversationIds;
+
+    getState().clearDraftConversationId("never-registered");
+
+    expect(getState().draftConversationIds).toBe(before);
+  });
+
+  it("drops every draft on reset", () => {
+    getState().registerDraftConversationId("draft-1");
+    getState().registerDraftConversationId("draft-2");
+
+    getState().reset();
+
+    expect(getState().draftConversationIds.size).toBe(0);
+  });
+});

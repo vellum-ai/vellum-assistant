@@ -77,6 +77,8 @@ function getInjectedConfig(): {
   disablePlatform?: boolean;
   mode?: string;
   platformUrl?: string;
+  assistantName?: string;
+  hubUrl?: string;
 } {
   return (
     (
@@ -85,6 +87,8 @@ function getInjectedConfig(): {
           disablePlatform?: boolean;
           mode?: string;
           platformUrl?: string;
+          assistantName?: string;
+          hubUrl?: string;
         };
       }
     ).__VELLUM_CONFIG__ ?? {}
@@ -93,6 +97,16 @@ function getInjectedConfig(): {
 
 export function isRemoteGatewayMode(): boolean {
   return getInjectedConfig().mode === "remote-gateway";
+}
+
+/**
+ * Display name of the serving assistant, when the served remote-gateway config
+ * carries one. Older served configs omit it, so callers must tolerate
+ * `undefined`.
+ */
+export function getRemoteGatewayAssistantName(): string | undefined {
+  const name = getInjectedConfig().assistantName;
+  return typeof name === "string" && name.trim() !== "" ? name : undefined;
 }
 
 function getRemoteGatewayLockfile(): Lockfile {

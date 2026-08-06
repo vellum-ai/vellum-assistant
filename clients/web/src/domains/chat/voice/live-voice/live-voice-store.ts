@@ -167,6 +167,19 @@ export interface LiveVoiceSessionControls {
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
   }) => void;
+  /**
+   * Tell the session about a photo the user took mid-call, by the id its
+   * upload already returned. The daemon persists it into the conversation
+   * straight away, running no turn, so whatever the user says next sees it.
+   *
+   * Returns whether it reached the session. False during a reconnect gap,
+   * which the caller must surface: the photo is already uploaded and the
+   * shutter has already fired, so silence would read as success.
+   *
+   * Callers must gate on `useSupportsVoiceCamera`. See that hook for why an
+   * older assistant's rejection cannot be told apart from `update_config`'s.
+   */
+  attachImage: (attachmentId: string) => boolean;
 }
 
 /**
@@ -244,6 +257,16 @@ export interface LiveVoiceState {
    * (see {@link isLiveVoiceSessionOwnedBy}).
    */
   startedConversationId: string | null;
+  /**
+   * Bumped each time the assistant refuses a photo that the transport had
+   * already accepted. A counter rather than a flag or a payload because the
+   * room's only use is "another one just failed": consecutive rejections must
+   * each register, and there is nothing about a rejection worth carrying
+   * beyond the fact of it.
+   */
+  photoRejectedSeq: number;
+  /** Why the last photo was refused, for the room's wording. */
+  photoRejectedReason: "unsupported" | "failed" | null;
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
@@ -394,6 +417,8 @@ export interface LiveVoiceActions {
    * frame. Leaves `startedConversationId` at its start-time value.
    */
   setConversationId: (conversationId: string) => void;
+  /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
+  notePhotoRejected: (reason: "unsupported" | "failed") => void;
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -539,6 +564,8 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   assistantId: null,
   conversationId: null,
   startedConversationId: null,
+  photoRejectedSeq: 0,
+  photoRejectedReason: null,
   controls: null,
   partialTranscript: "",
   finalTranscript: "",
@@ -576,6 +603,11 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       outputMuted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
+  notePhotoRejected: (reason) =>
+    set((state) => ({
+      photoRejectedSeq: state.photoRejectedSeq + 1,
+      photoRejectedReason: reason,
+    })),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
@@ -778,6 +810,19 @@ export function updateLiveVoiceSessionConfig(config: {
   bargeInMinSpeechMs?: number;
 }): void {
   useLiveVoiceStore.getState().controls?.updateConfig(config);
+}
+
+/**
+ * Hand the active session a photo the user took mid-call, by attachment id.
+ * Returns whether it reached the session: false when no session exists or the
+ * transport is mid-reconnect, which the caller must surface rather than treat
+ * as sent. Module-level for the same stable-identity reasons as
+ * {@link endLiveVoiceSession}.
+ */
+export function attachLiveVoiceImage(attachmentId: string): boolean {
+  return (
+    useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false
+  );
 }
 
 /**

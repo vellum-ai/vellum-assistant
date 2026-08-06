@@ -109,10 +109,16 @@ describe("140-repair-seed-pinned-memory-v3-live migration", () => {
       "memory.v3.live",
     );
     // getLastWorkspaceMigrationId() reports the final entry as the registry
-    // ceiling, so the highest id must stay last.
-    expect(WORKSPACE_MIGRATIONS[WORKSPACE_MIGRATIONS.length - 1]?.id).toBe(
-      "140-repair-seed-pinned-memory-v3-live",
+    // ceiling, so ordering matters: this must be registered, and everything
+    // after it must carry a higher id. Asserting it stays literally last
+    // would break on every migration appended after it.
+    const index = WORKSPACE_MIGRATIONS.findIndex(
+      (migration) => migration.id === "140-repair-seed-pinned-memory-v3-live",
     );
+    expect(index).toBeGreaterThan(-1);
+    for (const later of WORKSPACE_MIGRATIONS.slice(index + 1)) {
+      expect(later.id > "140").toBe(true);
+    }
   });
 
   test("flips a seed-race victim: born in the 105 era, live=false, v3 never ran", () => {

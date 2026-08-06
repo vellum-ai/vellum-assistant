@@ -113,7 +113,10 @@ export function assistantSupports(minVersion: string): boolean {
  *
  * Inherits {@link assistantSupports}'s conservative `false` while the version
  * is unhydrated, so callers that may run before the identity fetch lands must
- * await {@link whenAssistantVersionKnown} first.
+ * await {@link whenAssistantVersionKnownFor} first, passing the same owner.
+ * The unscoped {@link whenAssistantVersionKnown} is NOT enough here: it is
+ * satisfied by a version still held for another assistant, and the owner
+ * mismatch then answers `false` as if the feature were unsupported.
  */
 export function assistantScopedSupports(
   minVersion: string,

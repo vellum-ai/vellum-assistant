@@ -190,6 +190,89 @@ describe("resolveComposerBillingBanner", () => {
       }),
     ).toBeNull();
   });
+
+  test("the summary's daily-limit flag renders the banner with no error at all", () => {
+    // The proactive case: background turns exhausted the cap while the user
+    // was away, so nothing in this session has failed yet.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: false,
+        dismissed: false,
+        dailyLimitReached: true,
+      }),
+    ).toBe("daily_limit");
+  });
+
+  test("the summary's daily-limit flag outranks the low-balance warning", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        ...lowBalanceInputs,
+        dailyLimitReached: true,
+      }),
+    ).toBe("daily_limit");
+  });
+
+  test("the daily-limit banner ignores the low-balance session dismissal", () => {
+    // Dismissal is the low-balance banner's affordance; the daily-limit
+    // banner has none, so a latched dismissal must not hide it.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: true,
+        dismissed: true,
+        dailyLimitReached: true,
+      }),
+    ).toBe("daily_limit");
+  });
+
+  test("a provider-billing error still wins over the summary's daily-limit flag", () => {
+    // The error describes the send the user just watched fail, so it owns the
+    // slot even when the summary independently reports the cap.
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "provider_billing",
+        isLowBalance: false,
+        dismissed: false,
+        dailyLimitReached: true,
+      }),
+    ).toBe("provider_billing");
+  });
+
+  test("managed_credits still suppresses the slot, summary daily-limit flag included", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: "managed_credits",
+        ...lowBalanceInputs,
+        dailyLimitReached: true,
+      }),
+    ).toBeNull();
+  });
+
+  test.each([
+    ["false", false],
+    ["undefined", undefined],
+  ] as const)(
+    "a %s daily-limit flag falls through to the low-balance leg",
+    (_label, dailyLimitReached) => {
+      expect(
+        resolveComposerBillingBanner({
+          billingBannerDecision: null,
+          ...lowBalanceInputs,
+          dailyLimitReached,
+        }),
+      ).toBe("low_balance");
+      expect(
+        resolveComposerBillingBanner({
+          billingBannerDecision: null,
+          isLowBalance: false,
+          dismissed: false,
+          dailyLimitReached,
+        }),
+      ).toBeNull();
+    },
+  );
 });
 
 describe("isCreditsExhaustedProviderError", () => {

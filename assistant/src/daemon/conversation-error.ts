@@ -6,6 +6,7 @@ import type {
   ConversationErrorCode,
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,
@@ -361,6 +362,12 @@ function connectionResolutionUserMessage(
       // doesn't.
       return `${connection}${usedBy} has no stored credential. Add an API key or reconnect it in ${fixPath}.`;
     case "platform_unauthenticated":
+      // A platform-managed assistant cannot log in or switch providers, and
+      // this classifier only sees the reason code, so one honest wording covers
+      // both the transient and the re-provision cases.
+      if (getIsPlatform()) {
+        return `${connection}${usedBy} is unavailable. If this persists, the platform credential may need to be re-provisioned on the Vellum platform.`;
+      }
       return `${connection}${usedBy} requires a Vellum platform login. Log in, or pick a different provider in ${fixPath}.`;
     case "model_incompatible":
       return `${error.model ? `Model "${error.model}"` : "The requested model"} isn't available on ${connectionName ? `connection "${connectionName}"` : "the configured connection"}${usedBy}. Pick a different model or connection in ${fixPath}.`;

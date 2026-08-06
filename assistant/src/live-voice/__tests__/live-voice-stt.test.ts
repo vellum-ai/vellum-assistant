@@ -203,7 +203,12 @@ describe("LiveVoiceSession STT", () => {
 
     await session.start();
 
-    expect(resolver).toHaveBeenCalledWith({ sampleRate: 24_000 });
+    // The config default is "multi", so the session carries a language into
+    // the resolver rather than leaving it to be inferred downstream.
+    expect(resolver).toHaveBeenCalledWith({
+      sampleRate: 24_000,
+      language: "multi",
+    });
     expect(transcriber.started).toBe(true);
     expect(frames).toEqual([
       {
