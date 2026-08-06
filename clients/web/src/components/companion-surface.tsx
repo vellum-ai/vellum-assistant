@@ -80,6 +80,23 @@ const DEFAULT_ACCENT = "#5eead4";
 const AVATAR_BOX = 44;
 
 /**
+ * The clearance every round thing inside the pill keeps from its edge.
+ *
+ * One number, because the geometry only works at one value. Nested rounded
+ * shapes read as concentric when the inner radius equals the outer radius minus
+ * the gap between them: the pill is 44pt tall so its radius is 22, and the
+ * controls are 28pt tall so theirs is 14, which leaves exactly 8. That is
+ * already the vertical gap, and it is already the avatar image's inset in its
+ * own 44pt box, so the trailing control wants the same 8 at the right and every
+ * curve stays parallel.
+ *
+ * Anything else crowds: at 4 the corners converge, and at 0 a control's hover
+ * background runs flush into the pill's border and its corner gets clipped,
+ * which reads as the surface being cut off.
+ */
+const INNER_GAP = 8;
+
+/**
  * Widths to use until the content has been measured.
  *
  * The real width is the avatar plus whatever the body actually needs, measured
@@ -177,13 +194,14 @@ export function CompanionSurface({
     };
   }, [phase]);
 
-  // No trailing padding of its own: the last control carries 8pt inside itself,
-  // which is exactly the avatar's inset at the other end.
-  const width = !expanded
-    ? AVATAR_BOX
-    : contentWidth === null
-      ? FALLBACK_WIDTHS[phase]
-      : AVATAR_BOX + contentWidth;
+  // The avatar's 44pt box sits flush, because its image is already inset by
+  // `INNER_GAP` inside it. Only the trailing end needs the gap added, since the
+  // last control's own box ends where the body does.
+  const width =
+    AVATAR_BOX +
+    (!expanded
+      ? 0
+      : (contentWidth ?? FALLBACK_WIDTHS[phase] - AVATAR_BOX) + INNER_GAP);
 
   // Positioned against the avatar's resting footprint, so `left`/`right` pin
   // that edge and the body grows away from it, while `center` splits the growth
