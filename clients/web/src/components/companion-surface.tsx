@@ -276,10 +276,14 @@ export function CompanionSurface({
   const style: CSSProperties = {
     width,
     ...placement,
-    // The card grows downward from the row the pill occupied rather than around
-    // its own middle, so the avatar stays on the line the user last saw it on
-    // instead of jumping half a card's height the moment they press Type.
-    transform: typing ? "translateY(-22px)" : "translateY(-50%)",
+    // The composer row holds the line the pill occupied and the conversation
+    // stacks upward off it, so the avatar never moves when Type is pressed and
+    // never moves again as turns arrive. It is also the only direction that
+    // works where this surface lives: parked by the Dock, a card growing down
+    // grows off the bottom of the screen.
+    transform: typing
+      ? `translateY(calc(-100% + ${AVATAR_BOX / 2}px))`
+      : "translateY(-50%)",
     // Settles rather than overshoots. A surface on screen all day should not
     // bounce every time the pointer crosses it.
     transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
@@ -323,6 +327,7 @@ export function CompanionSurface({
         style={{ opacity: expanded ? 1 : 0 }}
         aria-hidden
       />
+      {typing && turns.length > 0 && <RecentTurns turns={turns} />}
       <div className="relative flex h-11 shrink-0 items-center">
         <Avatar
           glow={glow && !expanded}
@@ -330,95 +335,112 @@ export function CompanionSurface({
           avatarSrc={avatarSrc}
           onMouseEnter={onHoverStart}
         />
-        <div
-          className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
-          ref={contentRef}
-          // Faded out is not gone: the body stays mounted while collapsed so
-          // it can be measured, which would otherwise leave its controls
-          // focusable and announced while nothing is drawn. `inert` takes them
-          // out of the tab order and the accessibility tree without taking them
-          // out of the DOM, so the measurement still works.
-          inert={!expanded}
-          style={{
-            opacity: expanded ? 1 : 0,
-            // Contents fade after the body has somewhere to put them, so
-            // nothing is ever drawn wider than the pill carrying it.
-            transitionDelay: expanded ? "120ms" : "0ms",
-          }}
-        >
-          {phase === "call" ? <CallBody /> : <IdleBody active={typing} />}
-        </div>
+        {typing ? (
+          <Composer assistantName={assistantName} />
+        ) : (
+          <div
+            className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+            ref={contentRef}
+            // Faded out is not gone: the body stays mounted while collapsed so
+            // it can be measured, which would otherwise leave its controls
+            // focusable and announced while nothing is drawn. `inert` takes
+            // them out of the tab order and the accessibility tree without
+            // taking them out of the DOM, so the measurement still works.
+            inert={!expanded}
+            style={{
+              opacity: expanded ? 1 : 0,
+              // Contents fade after the body has somewhere to put them, so
+              // nothing is ever drawn wider than the pill carrying it.
+              transitionDelay: expanded ? "120ms" : "0ms",
+            }}
+          >
+            {phase === "call" ? <CallBody /> : <IdleBody />}
+          </div>
+        )}
       </div>
-      {typing && <ConversationCard turns={turns} assistantName={assistantName} />}
     </div>
   );
 }
 
 /**
- * The condensed conversation, and somewhere to answer it.
+ * The tail of the conversation, stacked above the composer.
  *
  * Deliberately not a transcript. Two turns at most and a few lines each,
  * because a surface floating over someone else's work is a glance at where the
  * conversation got to, and the app is where the thread actually lives. Anything
  * longer would be a chat window that happens to be always on top.
  */
-function ConversationCard({
-  turns,
-  assistantName,
-}: {
-  turns: CompanionTurn[];
-  assistantName: string;
-}) {
-  // The tail, oldest first, so the newest sits nearest the composer the way it
-  // does in the app.
+function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
+  // Oldest first, so the newest sits nearest the composer as it does in the app.
   const recent = turns.slice(-2);
   return (
-    <div className="relative flex flex-col gap-2 px-2 pb-2">
-      {recent.length > 0 && (
-        <div className="flex flex-col gap-1.5 px-1">
-          {recent.map((turn, index) => (
+    <div className="relative flex flex-col gap-1.5 px-3 pt-3 pb-1">
+      {/* Sides, as the transcript does it: the user's turn is a bubble pushed
+          right and capped at 80%, the assistant's is plain text filling the
+          width. Matching `transcript-message-body.tsx` matters more than it
+          looks, because this is a condensed read of the same conversation and a
+          reader should not have to work out who said what a second time in a
+          second idiom. */}
+      {recent.map((turn, index) => {
+        const isUser = turn.role === "user";
+        return (
+          <div
+            key={`${turn.role}-${index}`}
+            className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+          >
             <p
-              key={`${turn.role}-${index}`}
               className={`text-[12px] leading-[1.45] ${
-                turn.role === "user"
-                  ? "text-white/55"
+                isUser
+                  ? "max-w-[80%] rounded-lg bg-white/[0.08] px-2.5 py-1.5 text-white/75"
                   : "text-white/85"
               }`}
               style={{
                 display: "-webkit-box",
                 WebkitBoxOrient: "vertical",
-                WebkitLineClamp:
-                  turn.role === "user" ? USER_LINE_CLAMP : ASSISTANT_LINE_CLAMP,
+                WebkitLineClamp: isUser ? USER_LINE_CLAMP : ASSISTANT_LINE_CLAMP,
                 overflow: "hidden",
               }}
             >
               {turn.text}
             </p>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] py-1 pr-1 pl-3">
-        <input
-          type="text"
-          placeholder={`Message ${assistantName}`}
-          // A press in the field is not a drag, and the field wants the caret
-          // the press would otherwise be stolen from.
-          onMouseDown={(event) => {
-            event.stopPropagation();
-          }}
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/35 focus:outline-none"
-        />
-        <button
-          type="button"
-          aria-label="Send"
-          onMouseDown={(event) => {
-            event.stopPropagation();
-          }}
-          className="grid size-7 shrink-0 place-items-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20"
-        >
-          <ArrowUp className="size-3.5" aria-hidden />
-        </button>
-      </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Where you type, on the row the avatar is already on.
+ *
+ * It takes the place of Talk and Type rather than sitting under them, so
+ * pressing Type changes what the pill contains without changing what the pill
+ * is: empty, focused, or full of text, it is the same elongated single line as
+ * the voice states. Growth happens above it, never to it.
+ */
+function Composer({ assistantName }: { assistantName: string }) {
+  return (
+    <div className="relative flex min-w-0 flex-1 items-center gap-1 pr-2">
+      <input
+        type="text"
+        placeholder={`Message ${assistantName}`}
+        // A press in the field is not a drag, and the field wants the caret
+        // that press would otherwise be stolen from.
+        onMouseDown={(event) => {
+          event.stopPropagation();
+        }}
+        className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 placeholder:text-white/40 focus:outline-none"
+      />
+      <button
+        type="button"
+        aria-label="Send"
+        onMouseDown={(event) => {
+          event.stopPropagation();
+        }}
+        className="grid size-7 shrink-0 place-items-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20"
+      >
+        <ArrowUp className="size-3.5" aria-hidden />
+      </button>
     </div>
   );
 }
@@ -480,7 +502,7 @@ function Avatar({
  * of one choice about how to say something, and a verb pair reads as that where
  * a verb and a question word do not.
  */
-function IdleBody({ active }: { active?: boolean }) {
+function IdleBody() {
   return (
     <>
       <PillButton icon={<AudioLines className="size-4" />} label="Talk" showLabel />
@@ -488,7 +510,6 @@ function IdleBody({ active }: { active?: boolean }) {
         icon={<Keyboard className="size-4" />}
         label="Type"
         showLabel
-        active={active}
       />
     </>
   );
