@@ -9,7 +9,7 @@
 
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -65,10 +65,12 @@ mock.module("../persistence/external-conversation-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import * as configLoader from "../config/loader.js";
+import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createToolExecutor,
   resolveConversationAttribution,
 } from "../daemon/conversation-tool-setup.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
@@ -91,12 +93,13 @@ function makeGetConfigThrow(): ReturnType<typeof spyOn> {
   });
 }
 
-/** Build a minimal ToolSetupContext stub. */
-function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
-  return {
+/** Build a minimal Conversation stub. */
+function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
+  return asConversation({
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
+    getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
@@ -110,9 +113,9 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     enqueueMessage: () => ({ queued: false, requestId: "r" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
+    withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
 /** Fake ToolExecutor that captures the context of each execute() call. */
@@ -138,7 +141,7 @@ const noopSecretPrompter = {
   prompt: mock(async () => ({ cancelled: true })),
 } as unknown as SecretPrompter;
 
-function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
+function makeToolFn(executor: ToolExecutor, ctx: Conversation) {
   return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
@@ -398,5 +401,65 @@ describe("createToolExecutor channel-permission coordinate threading", () => {
 
     expect(calls[0].context.channelPermissionChannelId).toBeUndefined();
     expect(bindingLookups).toEqual([]);
+  });
+});
+
+describe("createToolExecutor source-actor threading", () => {
+  test("submits the turn's actor principal, not the trust context's guardian", async () => {
+    // `ToolContext.sourceActorPrincipalId` is compared against the principal a
+    // client registered with on its SSE stream, so it has to be the turn's
+    // actor. Reading `trustContext.guardianPrincipalId` instead meant any turn
+    // whose trust resolution degraded submitted nothing, and the same-actor
+    // gate rejected it as a user mismatch.
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => "actor-1",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+          guardianPrincipalId: "guardian-1",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBe("actor-1");
+  });
+
+  test("carries the actor through even when trust resolved without a guardian principal", async () => {
+    // The regression: degraded trust resolution (unreachable gateway, binding
+    // drift) or a service-principal turn leaves `guardianPrincipalId` unset
+    // while the turn's actor is perfectly well known.
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => "actor-1",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "unknown",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBe("actor-1");
+  });
+
+  test("submits nothing when the turn has no actor identity at all", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => undefined,
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+          guardianPrincipalId: "guardian-1",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBeUndefined();
   });
 });

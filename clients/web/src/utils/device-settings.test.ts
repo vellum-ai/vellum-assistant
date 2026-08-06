@@ -101,7 +101,9 @@ describe("migrateDeviceSettings", () => {
     expect(localStorage.getItem("device:llm_log_retention")).toBe("dontRetain");
     expect(localStorage.getItem("device:timezone")).toBe("America/New_York");
     expect(localStorage.getItem("device:media_embeds_enabled")).toBe("true");
-    expect(localStorage.getItem("device:media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("device:media_embed_domains")).toBe(
+      '["youtube.com"]',
+    );
     expect(localStorage.getItem("device:dock_badges_enabled")).toBe("false");
     expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
   });

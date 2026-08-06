@@ -87,10 +87,9 @@ function parseTool(raw: unknown): ParsedToolDefinition | null {
   };
 }
 
-function extractSchema(record: Record<string, unknown>): Record<
-  string,
-  unknown
-> | null {
+function extractSchema(
+  record: Record<string, unknown>,
+): Record<string, unknown> | null {
   for (const key of SCHEMA_KEYS) {
     if (isRecord(record[key])) {
       return record[key];

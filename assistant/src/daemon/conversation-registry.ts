@@ -26,7 +26,9 @@ const conversations = new Map<string, Conversation>();
 export function findConversation(
   conversationId: string | undefined,
 ): Conversation | undefined {
-  if (!conversationId) return undefined;
+  if (!conversationId) {
+    return undefined;
+  }
   return conversations.get(conversationId);
 }
 
@@ -35,7 +37,9 @@ export function findConversationBySurfaceId(
 ): Conversation | undefined {
   // Fast path: exact surfaceId match in surfaceState
   for (const c of conversations.values()) {
-    if (c.surfaceState.has(surfaceId)) return c;
+    if (c.surfaceState.has(surfaceId)) {
+      return c;
+    }
   }
 
   // Fallback: standalone app surfaces use "app-open-{appId}" IDs that
@@ -164,7 +168,9 @@ export function removeSubagentConversation(
 export function findConversationOrSubagent(
   conversationId: string | undefined,
 ): Conversation | undefined {
-  if (!conversationId) return undefined;
+  if (!conversationId) {
+    return undefined;
+  }
   return (
     conversations.get(conversationId) ??
     subagentConversations.get(conversationId)

@@ -2124,6 +2124,9 @@ jobs:
     needs: [extract-version]
     runs-on: macos-26
     timeout-minutes: 30
+    # Resolves the environment-scoped STRIPE_PUBLISHABLE_KEY secret baked into
+    # the renderer below (same environment expression as upload-electron-updates).
+    environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
     strategy:
       # Let both arches finish so a failure reports which arch(es) broke; any
       # failed leg fails the job (and therefore the release).
@@ -2209,6 +2212,11 @@ jobs:
           VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          # Environment-scoped secret (pk_test_ on staging, pk_live_ on prod);
+          # requires the job's `environment:` above, else it resolves empty and
+          # the payment-method modal can't mount Stripe Elements. Publishable
+          # keys are public, so embedding them is expected.
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           # Sentry release tracking for the Electron renderer. VITE_APP_VERSION
           # tags renderer events with the release (read in
           # clients/web/src/lib/sentry/sentry-init.ts) and names the registered
@@ -2687,6 +2695,35 @@ jobs:
       notify_slack: false
     secrets: inherit
 
+  release-android:
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
+    if: >-
+      ${{
+        (
+          (needs.extract-version.outputs.is_staging == 'true' && vars.ANDROID_STAGING_RELEASE_ENABLED == 'true')
+          || (needs.extract-version.outputs.is_staging != 'true' && vars.ANDROID_PRODUCTION_RELEASE_ENABLED == 'true')
+        )
+        && always() && !cancelled()
+        && needs.extract-version.result == 'success'
+        && needs.push-assistant-manifest.result == 'success'
+        && needs.push-gateway-manifest.result == 'success'
+        && needs.push-credential-executor-manifest.result == 'success'
+        && (needs.build-chrome-extension.result == 'success' || needs.build-chrome-extension.result == 'skipped')
+        && (needs.publish-npm-prod.result == 'success' || needs.publish-npm-prod.result == 'skipped')
+        && (needs.publish-web-prod.result == 'success' || needs.publish-web-prod.result == 'skipped')
+        && (needs.publish-meta-prod.result == 'success' || needs.publish-meta-prod.result == 'skipped')
+        && (needs.publish-plugin-api-prod.result == 'success' || needs.publish-plugin-api-prod.result == 'skipped')
+        && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
+      }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-android.yaml
+    with:
+      environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+      version: ${{ needs.extract-version.outputs.version }}
+    secrets: inherit
+
   # ci-assistant runs lint/typecheck/test for the assistant service. It also
   # transitively gates the release pipeline because push-assistant-image and
   # push-dockerhub-image depend on it — a failure here blocks Docker image
@@ -2845,7 +2882,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, release-android, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2882,7 +2919,9 @@ jobs:
             || [ "${{ needs.publish-npm-prod.result }}" != "success" ] \
             || [ "${{ needs.publish-web-prod.result }}" != "success" ] \
             || [ "${{ needs.publish-meta-prod.result }}" != "success" ] \
-            || [ "${{ needs.publish-plugin-api-prod.result }}" != "success" ]; }; then
+            || [ "${{ needs.publish-plugin-api-prod.result }}" != "success" ] \
+            || { [ "${{ needs.release-android.result }}" != "success" ] \
+              && [ "${{ needs.release-android.result }}" != "skipped" ]; }; }; then
             RELEASE_FAILED="true"
           fi
 
@@ -2921,6 +2960,10 @@ jobs:
             if [ "${{ needs.publish-plugin-api-staging.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
+            if [ "${{ needs.release-android.result }}" != "success" ] \
+              && [ "${{ needs.release-android.result }}" != "skipped" ]; then
+              STAGING_READY="false"
+            fi
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
@@ -2956,6 +2999,7 @@ jobs:
           PC=$(ci_icon "${{ needs.pack-cli.result }}")
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
           DI=$(ci_icon "${{ needs.release-ios.result }}")
+          DA=$(ci_icon "${{ needs.release-android.result }}")
           CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
           CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
           MERGE_OUTCOME="${{ needs.merge-release-branch.outputs.outcome || needs.merge-release-branch.result }}"
@@ -2963,7 +3007,7 @@ jobs:
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s web\n• %s desktop-electron\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$W" "$DE" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s web\n• %s desktop-electron\n• %s release-ios\n• %s release-android\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$W" "$DE" "$DI" "$DA" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"

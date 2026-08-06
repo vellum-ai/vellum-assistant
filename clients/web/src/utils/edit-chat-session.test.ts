@@ -25,12 +25,16 @@ describe("edit-chat-session", () => {
 
   it("round-trips a stored id within the TTL", () => {
     setEditChatConversationId(ASSISTANT, APP, "conv-abc", 1_000_000);
-    expect(getEditChatConversationId(ASSISTANT, APP, 1_000_500)).toBe("conv-abc");
+    expect(getEditChatConversationId(ASSISTANT, APP, 1_000_500)).toBe(
+      "conv-abc",
+    );
   });
 
   it("expires the entry after the TTL", () => {
     setEditChatConversationId(ASSISTANT, APP, "conv-abc", 0);
-    expect(getEditChatConversationId(ASSISTANT, APP, __TEST_ONLY__.TTL_MS + 1)).toBeNull();
+    expect(
+      getEditChatConversationId(ASSISTANT, APP, __TEST_ONLY__.TTL_MS + 1),
+    ).toBeNull();
   });
 
   it("scopes entries per (assistantId, appId)", () => {
@@ -44,10 +48,17 @@ describe("edit-chat-session", () => {
 
   it("refreshes lastUsedAt on every set", () => {
     setEditChatConversationId(ASSISTANT, APP, "conv-abc", 0);
-    setEditChatConversationId(ASSISTANT, APP, "conv-abc", __TEST_ONLY__.TTL_MS - 1);
+    setEditChatConversationId(
+      ASSISTANT,
+      APP,
+      "conv-abc",
+      __TEST_ONLY__.TTL_MS - 1,
+    );
     // Reading at TTL+1ms past the first write would expire, but the second
     // write refreshed the timestamp so the entry is still live.
-    expect(getEditChatConversationId(ASSISTANT, APP, __TEST_ONLY__.TTL_MS + 100)).toBe("conv-abc");
+    expect(
+      getEditChatConversationId(ASSISTANT, APP, __TEST_ONLY__.TTL_MS + 100),
+    ).toBe("conv-abc");
   });
 
   it("resolves draft ids across all stored apps", () => {

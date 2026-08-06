@@ -136,7 +136,9 @@ describe("watcher IPC routes", () => {
 
     // Remove from cleanup tracking since we already deleted it.
     const idx = createdWatcherIds.indexOf(watcher.id);
-    if (idx >= 0) createdWatcherIds.splice(idx, 1);
+    if (idx >= 0) {
+      createdWatcherIds.splice(idx, 1);
+    }
 
     // Confirm gone
     const afterDelete = await cliIpcCall<Watcher[]>("watcher_list", {
@@ -271,7 +273,9 @@ describe("watcher IPC routes", () => {
 
     // Remove from cleanup tracking.
     const idx = createdWatcherIds.indexOf(watcher.id);
-    if (idx >= 0) createdWatcherIds.splice(idx, 1);
+    if (idx >= 0) {
+      createdWatcherIds.splice(idx, 1);
+    }
   });
 
   test("watcher_digest alias works identically to watcher/digest", async () => {

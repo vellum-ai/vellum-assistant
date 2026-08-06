@@ -10,11 +10,15 @@ export async function run(
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const id = input.id as string;
-  if (!id) return err("id is required.");
+  if (!id) {
+    return err("id is required.");
+  }
 
   try {
     const seq = getSequence(id);
-    if (!seq) return err(`Sequence not found: ${id}`);
+    if (!seq) {
+      return err(`Sequence not found: ${id}`);
+    }
 
     deleteSequence(id);
     return ok(

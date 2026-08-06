@@ -264,7 +264,9 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     while (sections.join("\n").length < 35000) {
       for (const g of guidelines) {
         sections.push(`- ${g}`);
-        if (sections.join("\n").length >= 35000) break;
+        if (sections.join("\n").length >= 35000) {
+          break;
+        }
       }
     }
   }
@@ -1054,7 +1056,9 @@ function generateBundledSkillTools(
           `The ${pName} parameter for ${cat} ${action} operation. ` +
           `Used to ${action} ${cat} items matching the specified criteria.`,
       };
-      if (p < 2) required.push(pName); // First 2 params are required
+      if (p < 2) {
+        required.push(pName);
+      } // First 2 params are required
     }
 
     tools.push({

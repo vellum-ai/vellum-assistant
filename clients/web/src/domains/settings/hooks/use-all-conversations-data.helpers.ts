@@ -146,7 +146,10 @@ export function isBucketLoading(
  */
 export function isFatalError(
   filter: ConversationFilter,
-  { activeError, archivedError }: { activeError: boolean; archivedError: boolean },
+  {
+    activeError,
+    archivedError,
+  }: { activeError: boolean; archivedError: boolean },
 ): boolean {
   if (filter === "active") {
     return activeError;

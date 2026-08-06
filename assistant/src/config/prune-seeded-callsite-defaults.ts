@@ -52,10 +52,14 @@ export function pruneSeededCallsiteDefaultsFromConfig(
   config: Record<string, unknown>,
 ): boolean {
   const llm = readObject(config.llm);
-  if (llm === null) return false;
+  if (llm === null) {
+    return false;
+  }
 
   const callSites = readObject(llm.callSites);
-  if (callSites === null) return false;
+  if (callSites === null) {
+    return false;
+  }
 
   let changed = false;
   for (const [callSite, seed] of Object.entries(SEEDED_CALL_SITES)) {
@@ -64,7 +68,9 @@ export function pruneSeededCallsiteDefaultsFromConfig(
       changed = true;
     }
   }
-  if (!changed) return false;
+  if (!changed) {
+    return false;
+  }
 
   if (Object.keys(callSites).length === 0) {
     delete llm.callSites;
@@ -91,20 +97,34 @@ function readObject(value: unknown): Record<string, unknown> | null {
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== "object" || typeof b !== "object") return false;
-  if (Array.isArray(a) || Array.isArray(b)) return false;
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  if (typeof a !== "object" || typeof b !== "object") {
+    return false;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return false;
+  }
 
   const aRecord = a as Record<string, unknown>;
   const bRecord = b as Record<string, unknown>;
   const aKeys = Object.keys(aRecord);
   const bKeys = Object.keys(bRecord);
-  if (aKeys.length !== bKeys.length) return false;
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
 
   for (const key of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(bRecord, key)) return false;
-    if (!deepEqual(aRecord[key], bRecord[key])) return false;
+    if (!Object.prototype.hasOwnProperty.call(bRecord, key)) {
+      return false;
+    }
+    if (!deepEqual(aRecord[key], bRecord[key])) {
+      return false;
+    }
   }
   return true;
 }

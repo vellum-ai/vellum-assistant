@@ -4,12 +4,6 @@
 // single-sourced from their canonical `api/events` wire schemas; the shared
 // `RecordingOptions` shape is re-exported from there for barrel consumers.
 
-import type {
-  RecordingPauseEvent,
-  RecordingResumeEvent,
-  RecordingStartEvent,
-  RecordingStopEvent,
-} from "../../api/events/recording.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
 export type { RecordingOptions } from "../../api/events/recording.js";
@@ -49,9 +43,3 @@ export interface RecordingStatus {
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ComputerUseClientMessages = TaskSubmit | RecordingStatus;
-
-export type _ComputerUseServerMessages =
-  | RecordingStartEvent
-  | RecordingStopEvent
-  | RecordingPauseEvent
-  | RecordingResumeEvent;

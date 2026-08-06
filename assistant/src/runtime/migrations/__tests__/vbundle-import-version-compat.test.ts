@@ -58,7 +58,9 @@ function cleanupWorkspaceParent(workspaceDir: string): void {
 
 /** Recursively yields every regular file under `root` as a relative path. */
 function* walkFiles(root: string): Generator<string> {
-  if (!existsSync(root)) return;
+  if (!existsSync(root)) {
+    return;
+  }
   const stack: string[] = [root];
   while (stack.length > 0) {
     const dir = stack.pop()!;
@@ -70,8 +72,11 @@ function* walkFiles(root: string): Generator<string> {
     }
     for (const entry of entries) {
       const abs = join(dir, entry.name);
-      if (entry.isDirectory()) stack.push(abs);
-      else if (entry.isFile()) yield relative(root, abs);
+      if (entry.isDirectory()) {
+        stack.push(abs);
+      } else if (entry.isFile()) {
+        yield relative(root, abs);
+      }
     }
   }
 }
@@ -180,7 +185,9 @@ describe("commitImport runtime-version compat gate", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe("version_incompatible");
+    if (!result.ok) {
+      expect(result.reason).toBe("version_incompatible");
+    }
 
     expect(readFileSync(sentinelPath, "utf-8")).toBe(sentinelContent);
     // Only the seeded sentinel remains — no bundle files, no `*.backup-*`.

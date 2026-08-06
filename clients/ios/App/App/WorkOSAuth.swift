@@ -118,6 +118,73 @@ enum WorkOSAuth {
         return nonEmpty(meta["session_token"] as? String)
     }
 
+    /// Classify a non-200 from `/_allauth/app/v1/auth/provider/token` into a
+    /// machine-readable code the web layer maps to user-facing copy.
+    ///
+    /// Without this every failure of the final exchange — the step that runs
+    /// after the AuthKit sheet closes, so the one the user experiences as
+    /// "it errored the moment I finished signing in with Google" — collapsed
+    /// into a codeless rejection and surfaced as "Something went wrong."
+    /// The login screen already knows how to explain `signup_closed`; it just
+    /// never received it.
+    ///
+    /// The three statuses are the ones the headless OpenAPI schema documents
+    /// for this endpoint (see `clients/web/src/generated/auth/types.gen.ts`,
+    /// `PostAllauthByClientV1AuthProviderTokenErrors`):
+    ///
+    /// - `403 ForbiddenResponse` — signup is closed. The body carries only
+    ///   `status`, so the status itself is the whole signal.
+    /// - `401 AuthenticationResponse` — authentication did not complete and
+    ///   `data.flows` names what is still pending. A pending `provider_signup`
+    ///   is the first-time-social-login case the browser flow sends to
+    ///   `/account/provider-signup`; anything else is a step this shell cannot
+    ///   run (email verification, MFA), reported as `login_incomplete`.
+    /// - `400 ErrorResponse` — an input error, with allauth's own code in
+    ///   `errors[0].code`.
+    ///
+    /// Returns `nil` for any other status so the caller reports the raw
+    /// status instead of inventing a cause.
+    static func sessionExchangeErrorCode(status: Int, body: Data?) -> String? {
+        switch status {
+        case 403:
+            return "signup_closed"
+        case 401:
+            return pendingFlowCode(body)
+        case 400:
+            return inputErrorCode(body)
+        default:
+            return nil
+        }
+    }
+
+    /// `provider_signup` when that flow is the pending one, else the generic
+    /// "more steps are required" code. Matching on `is_pending` keeps this in
+    /// step with `classifyCallbackFlows()` on the browser side, which reads
+    /// the same field off the same response.
+    private static func pendingFlowCode(_ body: Data?) -> String {
+        guard let body = body,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let data = json["data"] as? [String: Any],
+              let flows = data["flows"] as? [[String: Any]]
+        else { return "login_incomplete" }
+
+        let isPendingProviderSignup = flows.contains { flow in
+            flow["id"] as? String == "provider_signup" && flow["is_pending"] as? Bool == true
+        }
+        return isPendingProviderSignup ? "provider_signup" : "login_incomplete"
+    }
+
+    /// allauth's own error code for a 400, or a generic stand-in when the body
+    /// is missing or shaped unexpectedly.
+    private static func inputErrorCode(_ body: Data?) -> String {
+        guard let body = body,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let errors = json["errors"] as? [[String: Any]],
+              let code = nonEmpty(errors.first?["code"] as? String)
+        else { return "invalid_request" }
+        return code
+    }
+
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value = value, !value.isEmpty else { return nil }
         return value

@@ -6,14 +6,21 @@ import { MemoryRouter } from "react-router";
 
 import { routes } from "@/utils/routes";
 
+let nativeAndroid = false;
+
 mock.module("@/runtime/browser", () => ({
   openUrl: () => Promise.resolve(),
   openUrlFinishedListener: () => () => {},
 }));
 
+mock.module("@/runtime/platform-detection", () => ({
+  useIsNativeAndroid: () => nativeAndroid,
+}));
+
 const { AddCreditsModal } = await import("@/components/add-credits-modal");
 
 afterEach(() => {
+  nativeAndroid = false;
   cleanup();
 });
 
@@ -29,6 +36,17 @@ function renderModal() {
 }
 
 describe("AddCreditsModal", () => {
+  test("native Android renders website guidance without checkout links", () => {
+    nativeAndroid = true;
+    renderModal();
+
+    expect(
+      screen.getByText("Manage your subscription on our website."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
   test("renders the updated copy and labels", () => {
     renderModal();
 
@@ -47,6 +65,8 @@ describe("AddCreditsModal", () => {
     const link = screen.getByRole("link", {
       name: /Configure Automatic Top-Ups/,
     });
-    expect(link.getAttribute("href")).toBe(routes.settings.usageBilling);
+    expect(link.getAttribute("href")).toBe(
+      routes.settings.usageBillingConfigureTopUps,
+    );
   });
 });

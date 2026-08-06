@@ -3,10 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
@@ -16,7 +13,6 @@ function renderEventStream(
 ) {
   return renderHook(
     ({ key }: { key: string }) => {
-
       useEventStream({
         assistantStateKind: "active",
         assistantId: "asst-1",

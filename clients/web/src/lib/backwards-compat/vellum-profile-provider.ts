@@ -34,8 +34,7 @@ export async function assistantSupportsVellumProviderProfiles(
   versionWaitTimeoutMs?: number,
 ): Promise<boolean> {
   await whenAssistantVersionKnown(versionWaitTimeoutMs);
-  const hydratedAssistantId =
-    useAssistantIdentityStore.getState().assistantId;
+  const hydratedAssistantId = useAssistantIdentityStore.getState().assistantId;
   if (ownerAssistantId != null && hydratedAssistantId !== ownerAssistantId) {
     return false;
   }

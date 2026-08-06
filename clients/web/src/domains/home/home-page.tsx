@@ -7,25 +7,27 @@ import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button } from "@vellumai/design-library";
+import { Button, Skeleton } from "@vellumai/design-library";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
-import { clearAllArgs, getVisibleFeedItems, markAllReadArgs } from "./utils";
+import {
+  clearAllArgs,
+  getFeedItemScheduleId,
+  getVisibleFeedItems,
+  markAllReadArgs,
+} from "./utils";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
 
 function HomePageSkeleton() {
   return (
     <div className="flex flex-col gap-[var(--app-spacing-xl)]">
-      <div className="h-7 w-64 animate-pulse rounded-md bg-[var(--surface-lift)]" />
+      <Skeleton className="h-7 w-64 rounded-md" />
 
       <div className="flex flex-col gap-[var(--app-spacing-sm)]">
         {Array.from({ length: 4 }, (_, i) => (
-          <div
-            key={i}
-            className="h-16 animate-pulse rounded-md bg-[var(--surface-lift)]"
-          />
+          <Skeleton key={i} className="h-16 rounded-md" />
         ))}
       </div>
     </div>
@@ -50,16 +52,6 @@ export interface HomePageProps {
    *  strip it from history state — otherwise a reload or Back to this entry
    *  would replay a drawer the user already closed. */
   onInitialFeedItemConsumed?: () => void;
-}
-
-/**
- * Scheduled-run notifications (`schedule.notify`) carry their originating
- * schedule id in `metadata.scheduleId`, letting the detail panel link to
- * the schedule. Returns null for feed items not tied to a schedule.
- */
-function getFeedItemScheduleId(item: FeedItem | null): string | null {
-  const id = item?.metadata?.scheduleId;
-  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 export function HomePage({
@@ -164,7 +156,9 @@ export function HomePage({
     setConsumedNavigationKey(navigationKey ?? null);
     const item = feedItems.find((i) => i.id === initialFeedItemId);
     // A since-dismissed item's drawer must not pop open unprompted.
-    if (item && item.status !== "dismissed") handleSelectItem(item);
+    if (item && item.status !== "dismissed") {
+      handleSelectItem(item);
+    }
     onInitialFeedItemConsumed?.();
   }, [
     initialFeedItemId,

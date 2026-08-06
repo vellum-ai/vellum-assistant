@@ -23,7 +23,7 @@ import { memorySqliteOrNull } from "../../memory-db.js";
 import type {
   MemoryV2ConceptRowRecord,
   MemoryV2ConfigSnapshot,
-} from "../../memory-v2-activation-log-store.js";
+} from "../activation-log-store.js";
 
 export interface OracleTurn {
   conversationId: string;

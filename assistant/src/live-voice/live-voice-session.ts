@@ -7,7 +7,7 @@ import {
 } from "../calls/media-turn-detector.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
-  couldBeControlMarker,
+  isIncompleteControlMarkerTail,
   stripInternalSpeechMarkers,
 } from "../calls/voice-control-protocol.js";
 import type {
@@ -30,22 +30,26 @@ import {
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import type { AssistantConfig } from "../config/schema.js";
 import {
   type LiveVoiceFrontModelConfig,
   LiveVoiceFrontModelConfigSchema,
 } from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
-import { findConversation } from "../daemon/conversation-registry.js";
+import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  recordLiveVoiceSessionEnded,
+  recordLiveVoiceSessionStarted,
+} from "../onboarding/onboarding-events-store.js";
+import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
@@ -54,16 +58,23 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
+import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
-import { pickAckPhrase, pickProgressPhrase } from "./ack-phrases.js";
+import {
+  activityLabelForTool,
+  approvalActivityLabel,
+  dismissesUiSurface,
+  revealsUiSurface,
+} from "./activity-label.js";
 import {
   createVoiceFrontDecider,
-  type VoiceEndpointAction,
   type VoiceFrontDecider,
   type VoiceProgressTextInput,
 } from "./front-decision.js";
+import { LiveActivityReporter } from "./live-activity-reporter.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -76,7 +87,9 @@ import {
   type LiveVoiceMetricsEvent,
   type LiveVoiceSpokenAckKind,
   type LiveVoiceTurnSeedMarks,
+  type VoiceEndpointAction,
 } from "./live-voice-metrics.js";
+import { persistLiveVoicePhoto } from "./live-voice-photo.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
@@ -88,7 +101,9 @@ import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "./live-voice-tts.js";
+import { pickProgressPhrase } from "./progress-phrases.js";
 import {
+  type LiveVoiceClientAttachImageFrame,
   type LiveVoiceClientFrame,
   type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
@@ -151,6 +166,22 @@ const BARGE_IN_MAX_TOLERATED_SILENCE_RATIO = 4;
 // a segment is at most ~180 chars of speech (~10 s of 24 kHz mono PCM
 // ≈ 480 KB), so one buffered segment is an acceptable bound.
 const TTS_MAX_OPEN_SYNTHESIS_JOBS = 2;
+// Audible silence required before a finished background continuation's result
+// is spoken into a live call. Long enough that the announcement lands in a real
+// lull rather than on the heels of the turn that just ended; short enough that
+// the user is not left wondering whether the work survived.
+const CONTINUATION_ANNOUNCE_SILENCE_MS = 1_500;
+// How many times a pending announcement re-arms itself against a client
+// playback tail that outlasted its timer. Each re-arm waits out the whole
+// remaining tail, so one covers a reply of any length; the rest cover a fresh
+// reply's audio landing between two checks. Beyond the cap the announcement
+// falls back to the stash rather than chasing a call that keeps talking.
+const CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS = 3;
+// `content` of an announcement turn. The answer never rides here — it goes in
+// the model-facing control prompt (buildLiveDeliveryNote), so the only thing
+// persisted on the user side is this marker, and it persists hidden.
+export const CONTINUATION_DELIVERY_CONTENT =
+  "(background work finished — deliver it now)";
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -167,12 +198,13 @@ export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
 
-// Runs an interrupted live-voice turn to completion on a background subagent
-// (true-duplex handoff, gated behind voice-duplex-handoff). The run stays silent
-// (no parent notification, never spoken unprompted); it RESOLVES with the
-// continuation's final answer text, which the session folds into the next turn
-// the user starts as context. Aborts when `signal` fires (rejecting). Injected
-// for testability; the factory wires the real SubagentManager-backed impl.
+// Runs an interrupted live-voice turn to completion on a background subagent.
+// The run itself is silent (no parent notification); it RESOLVES with the
+// continuation's final answer text, and the session decides where that goes —
+// the next turn the user starts, an announcement into audible silence, or the
+// conversation once the call has ended. Aborts when `signal` fires (rejecting).
+// Injected for testability; the factory wires the real SubagentManager-backed
+// impl.
 export type LiveVoiceBackgroundContinuationSpawner = (args: {
   parentConversationId: string;
   objective: string;
@@ -211,6 +243,11 @@ export interface LiveVoiceSessionOptions {
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
+  /**
+   * Mirrors phase changes to the iOS Live Activity. Injectable so tests can
+   * assert what a session reports without reaching the platform.
+   */
+  liveActivityReporter?: LiveActivityReporter;
   createTurnId?: () => string;
   /**
    * Overrides the server-VAD turn detector thresholds. The production
@@ -244,17 +281,15 @@ export interface LiveVoiceSessionOptions {
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   /**
-   * Front-model decision/phrasing service: semantic endpointing on
-   * silence-fired turn-ends (a "hold" keeps the utterance open through a
-   * bounded extension window) and LLM-phrased acks. The production factory
-   * constructs it from `liveVoice.frontModel` config when unset; `null`
-   * disables front-model LLM calls (energy endpointing + static ack phrasing).
+   * Front-model phrasing service: spoken acks and progress narration. The
+   * production factory constructs it from `liveVoice.frontModel` config when
+   * unset; `null` disables front-model LLM calls, so no ack is ever spoken
+   * and narration falls back to its static phrases.
    */
   frontDecider?: VoiceFrontDecider | null;
   /**
-   * Spawns the background continuation for a barged-in turn when the
-   * `voice-duplex-handoff` flag is on. The factory wires the real
-   * SubagentManager-backed implementation; tests inject a stub.
+   * Spawns the background continuation for a barged-in turn. The factory wires
+   * the real SubagentManager-backed implementation; tests inject a stub.
    */
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
   /**
@@ -272,6 +307,12 @@ export interface LiveVoiceSessionOptions {
    * teardown budget (`resolveProcessingWaitMs`).
    */
   detachTeardownSettleTimeoutMs?: number;
+  /**
+   * Overrides the audible silence a finished continuation waits out before its
+   * result is announced into a live, idle call (test hook). Defaults to
+   * `CONTINUATION_ANNOUNCE_SILENCE_MS`.
+   */
+  continuationAnnounceSilenceMs?: number;
 }
 
 type LiveVoiceUtterancePhase =
@@ -300,6 +341,20 @@ interface UtteranceCycle {
   // this set at a time — see pumpFinalizeQueue.
   finalizeRequested: boolean;
   transcriber: StreamingTranscriber | null;
+  // Manual (push-to-talk) capture routed at least one chunk into this cycle.
+  // It is the only evidence the user is mid-utterance before STT emits
+  // anything: the pending buffers empty out as soon as the transcriber is
+  // streaming, and the archival buffer only fills when audio archiving is on.
+  // server_vad has the turn detector for the same question, and never sets
+  // this — its ingress is handleServerVadAudio.
+  manualAudioCaptured: boolean;
+  // server_vad capture routed speech (not just pre-roll silence) into this
+  // cycle. Distinguishes an eagerly re-armed cycle holding only leading
+  // silence from one already carrying the user's utterance: the
+  // stale-language interception in handleServerVadAudio may retire the
+  // former, never the latter. turnId cannot answer this, because a
+  // silence-only pre-roll flush assigns it too.
+  speechRouted: boolean;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
@@ -380,6 +435,13 @@ interface TurnProgressState {
   // op, on start (not completion), so a burst of slow tools still trips the
   // threshold while they run.
   opsSinceNarration: number;
+  // Bumped by every observable change to the turn's tool activity — an op
+  // starting or finishing. The idle trigger compares it against
+  // `narratedEpoch` so a tick with nothing new to report stays silent.
+  stateEpoch: number;
+  // The `stateEpoch` the last spoken narration described: the activity the
+  // user has already been told about.
+  narratedEpoch: number;
   // Narrations actually spoken this turn — the metrics count and the
   // decider's 1-based updateIndex. Rate, not count, bounds narration:
   // idleIntervalMs/minGapMs cap the cadence and the session duration cap
@@ -428,6 +490,38 @@ interface ActiveAssistantTurn {
   progress: TurnProgressState;
   assistantCompleted: boolean;
   ttsDone: boolean;
+  // Latched when the turn puts something on screen (a ui tool ran); consumed
+  // once at TTS drain, where the minimize_room frame goes out after tts_done.
+  // Never set from anything the model says: the reveal is a consequence of
+  // showing a surface, not a token the model has to remember.
+  minimizeRequested: boolean;
+  // The activity label the client was last told about, so a run of tools that
+  // map to the same line sends one frame rather than one per call. Empty means
+  // the client believes nothing is running, which is also where a turn ends.
+  activityLabel: string;
+  // The approval id that went out with it, so the de-duplication covers the
+  // whole frame rather than its wording. What the CLIENT believes, as against
+  // `pendingApproval`, which is what is true.
+  publishedApprovalRequestId: string | null;
+  // Set while the turn is blocked on a decision the user has to make, and null
+  // when it is not. Suppresses progress narration, whose entire vocabulary
+  // ("still on it", "almost there") describes work in flight and would be
+  // false here.
+  //
+  // Carries the request id so a surface that is not the app — the Live
+  // Activity's buttons — can answer *that* request rather than whatever is
+  // pending by the time the tap arrives, and the wording that named it, which
+  // is captured once at the reveal rather than recomputed: a parallel op
+  // starting mid-wait moves `currentActivityLabel` on, and the line beside an
+  // Approve button must keep naming the thing being approved.
+  //
+  // The FIRST one, on a turn that leaves two decisions pending at once: the
+  // wait is announced once (see `revealRoomForPendingApproval`) and the pair
+  // resolves as one. A tap answering the first after it has already been
+  // decided is dropped client-side by the id check, which is the safe end of
+  // a rare case — the island never silently answers a request other than the
+  // one it named.
+  pendingApproval: { requestId: string; label: string } | null;
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
@@ -468,11 +562,29 @@ interface ActiveAssistantTurn {
   // merges it with this turn's utterance instead of treating that utterance as
   // a fresh follow-up. Null for an ordinary (non-barge-in) turn.
   interruptedRequest: string | null;
-  // The completed background continuation's answer (voice-duplex-handoff),
-  // folded into this turn's control prompt as context so the model can deliver
-  // or reference it in reply to the user, without ever speaking it unprompted.
-  // Null when no continuation result is pending for this turn.
+  // The completed background continuation's answer, folded into this turn's
+  // control prompt as context so the model can deliver or reference it in reply
+  // to the user's own utterance. Null when no continuation result is pending.
   continuationResult: string | null;
+  // Set only on an announcement turn: the interrupted request and the
+  // continuation's answer, which the turn exists solely to deliver. The turn has
+  // no user utterance behind it — `content` is CONTINUATION_DELIVERY_CONTENT and
+  // the answer rides the control prompt (buildLiveDeliveryNote).
+  continuationDelivery: ContinuationDelivery | null;
+  // Set when a barge-in handed the interrupted work to a background subagent:
+  // that request's transcript, so the model can tell the user the work is
+  // still running instead of appearing to have dropped it.
+  handedOffRequest: string | null;
+  // The queued announcement this turn consumed alongside `continuationResult`
+  // — the two are routes for one answer, so launching consumes both. Held here
+  // so a rolled-back speculative dispatch can re-arm it (see
+  // restorePendingTurnContext). Null on the announcement turn itself, which
+  // owns its delivery outright.
+  consumedAnnouncement: ContinuationDelivery | null;
+  // `detachStopGeneration` at the moment this turn consumed the pending
+  // context. A bump since then means a stop/interrupt/supersede deliberately
+  // dropped the continuation, so a rollback must not resurrect it.
+  pendingContextStopGeneration: number;
   // The agent run started a definitive tool use this turn — tool use implies
   // a guaranteed-slow turn, so acknowledgment logic can key off this.
   toolUseStarted: boolean;
@@ -487,9 +599,9 @@ interface ActiveAssistantTurn {
   // A spoken ack was enqueued this turn. Every ack trigger shares this
   // one-per-turn budget so a slow turn never stacks fillers.
   ackSpoken: boolean;
-  // An LLM-phrased ack generation is awaiting the decider (llmAckText).
-  // While true, the ack has not yet stamped `lastFloorHolderAtMs`, so
-  // narration must treat it as a floor-holder-in-waiting and stand down —
+  // An ack generation is awaiting the decider. While true, the ack has not
+  // yet stamped `lastFloorHolderAtMs`, so narration must treat it as a
+  // floor-holder-in-waiting and stand down —
   // otherwise a progress phrase could land back-to-back with the ack.
   ackGenerationPending: boolean;
   // Pending slow-first-delta ack timer; null once cleared or fired.
@@ -516,13 +628,83 @@ interface ActiveAssistantTurn {
   assistantAudioSampleRate?: number;
 }
 
+/**
+ * Control-marker hygiene for one model leg's delta stream, shared by the
+ * front-door answer stage and the default/escalated leg. The returned flush
+ * forwards the stripped (stripInternalSpeechMarkers) prefix of `raw` that has
+ * not been emitted yet and cannot contain a still-streaming control marker:
+ * the flush stops at the first "[" whose tail is an incomplete marker
+ * (isIncompleteControlMarkerTail) and holds from there until a later delta
+ * completes or disproves it; `force` (leg completion) emits the held tail so
+ * real text that merely resembles a marker prefix is not dropped. The scan
+ * runs forward from the emitted boundary — not from the last "[" — so
+ * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
+ * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
+ * its terminator.
+ *
+ * **Markers are stripped, never acted on.** Nothing the model can say
+ * minimizes the room any more: that is decided by whether a ui tool ran (see
+ * the `tool_use_start` handler), so the reveal cannot depend on the model
+ * remembering a token, and a reply whose content happens to contain "[-1]" (an
+ * array literal, a temperature) cannot move the room either. No prompt teaches
+ * a marker, so this stripping is defense against a model that emits one
+ * regardless: an unspoken, unpersisted "[-1]" is the correct handling of a
+ * token that now means nothing.
+ */
+function createControlMarkerHoldback(
+  turn: ActiveAssistantTurn,
+  emit: (chunk: string) => void,
+): (raw: string, opts?: { force?: boolean }) => void {
+  let emitted = 0;
+  return (raw, opts) => {
+    let safeEnd = raw.length;
+    if (opts?.force !== true) {
+      for (
+        let i = raw.indexOf("[", emitted);
+        i !== -1;
+        i = raw.indexOf("[", i + 1)
+      ) {
+        if (isIncompleteControlMarkerTail(raw.slice(i))) {
+          safeEnd = i;
+          break;
+        }
+      }
+    }
+    if (safeEnd > emitted) {
+      emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
+      emitted = safeEnd;
+    }
+  };
+}
+
 // Base control prompt for every live-voice turn. When a turn starts from a
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
-const LIVE_VOICE_CONTROL_PROMPT =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
-  VOICE_NO_SETUP_FLOWS_RULE;
+// Spoken once when a turn starts waiting on the user's decision. Fixed rather
+// than generated: this is a statement about the system's state, not about the
+// work, and it has to be true every time. Kept in the shape of the progress
+// phrases it displaces (short, neutral, no claim about tools).
+const APPROVAL_PENDING_PHRASE = "I need your okay for that one. Take a look.";
+
+const LIVE_VOICE_CONTROL_PROMPT_BASE =
+  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. ";
+
+// Appended for the legs that can actually put something on screen: the main
+// leg and the escalated leg. The front-door (fast) leg never receives it, for
+// the same reason it never received the marker this replaces: that leg is
+// toolless, so it has nothing to show.
+//
+// **The model no longer asks for the minimize; it is told one is coming.**
+// Revealing the screen used to be a marker the model emitted at the end of a
+// reply, which made "did the user see it" depend on the model remembering a
+// token. It is now a consequence of showing a surface at all: the session
+// latches the minimize when a ui tool runs, and the room opens after the
+// reply's speech drains. What is left for the prompt is the part only the
+// model can get right, which is speaking as though the thing is already in
+// front of the user, because by the time it stops talking it is.
+const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
+  "The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
@@ -533,28 +715,142 @@ function buildInterruptionMergeNote(interruptedRequest: string): string {
 }
 
 // System-level guidance appended to the NEXT turn's control prompt after a
-// background continuation (voice-duplex-handoff) finished the reply the user
-// interrupted. Folds the completed answer in as context so the model can
-// deliver or reference it in reply to the user; it must never be spoken
-// unprompted (live-voice is non-interactive, JARVIS-1291). Reaches the model
-// only; it is not a user message and never renders as a transcript bubble.
+// background continuation finished the reply the user interrupted. Folds the
+// completed answer in as context so the model can deliver or reference it in
+// its reply to whatever the user just said — this turn answers the user, so the
+// result is offered only if it fits. Reaches the model only; it is not a user
+// message and never renders as a transcript bubble.
 function buildResurfaceContextNote(continuationResult: string): string {
   return `Earlier the user interrupted you, and in the background you finished the reply they cut off. What you worked out was: "${continuationResult}". If their current message relates to it, use it to answer; otherwise you may briefly offer it or leave it aside, and do not repeat it verbatim if it no longer fits.`;
 }
 
-// Assemble a turn's model-facing control prompt: the base live-voice rules plus
-// any pending barge-in merge context and/or completed-continuation context. A
-// turn can carry both (a barge-in follow-up that also has a continuation result
-// waiting); the notes are model-only and never render as user bubbles.
-function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
-  let prompt = LIVE_VOICE_CONTROL_PROMPT;
+// Appended to the turn that follows a barge-in whose interrupted work was
+// handed to a background subagent. Without this the assistant simply stops
+// talking about the request it was mid-way through, and the user has no way to
+// know the work survived — it reads as dropped. The model decides whether to
+// mention it, because only it can tell "keep working on that" (the foreground
+// turn continues the same work, so announcing a background copy would be
+// confusing) from a genuine topic change (where "I'm still working on that in
+// the background" is exactly what the user needs to hear).
+function buildHandoffAnnouncementNote(handedOffRequest: string): string {
+  return `You handed your unfinished work on "${handedOffRequest}" to a background task, which is still running. If the user has moved to a different topic, briefly let them know you are still working on it in the background before answering them. If they are asking you to continue that same work, just continue and do not mention the background task.`;
+}
+
+// Names the interrupted request inside a delivery prompt. A barge-in can fire
+// before any transcript landed, so the request may be empty.
+function describeInterruptedRequest(request: string): string {
+  return request.length > 0
+    ? `their earlier request ("${request}")`
+    : "their earlier request";
+}
+
+// A finished background continuation waiting to be delivered: the request it
+// took over and the answer it produced.
+interface ContinuationDelivery {
+  request: string;
+  answer: string;
+}
+
+// Appended to an announcement turn's control prompt: the turn the session
+// starts on its own when a background continuation finishes while the call is
+// live and nobody is speaking. There is no user utterance behind it, so this
+// note is the whole instruction and the answer rides here rather than in the
+// turn's `content`. Reaches the model only; it is not a user message and never
+// renders as a transcript bubble.
+function buildLiveDeliveryNote(request: string, answer: string): string {
+  const what = describeInterruptedRequest(request);
+  return `The user interrupted you earlier, and in the background you finished ${what}. The call is still live and nobody is speaking, so tell them briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete, and do not repeat it verbatim if it no longer fits. What you produced was:\n\n${answer}`;
+}
+
+// Assemble a leg's model-facing control prompt: the base live-voice rules,
+// the screen-reveal teaching (withheld from the front-door leg, see
+// LIVE_VOICE_SCREEN_REVEAL_TEACHING), the shared no-setup-flows rule, plus
+// any pending barge-in merge context, completed-continuation context, and/or
+// the announcement instruction. A turn can carry several (a barge-in follow-up
+// that also has a continuation result waiting); the notes are model-only and
+// never render as user bubbles.
+function buildVoiceControlPrompt(
+  turn: ActiveAssistantTurn,
+  leg: { frontDoor?: boolean },
+): string {
+  let prompt =
+    LIVE_VOICE_CONTROL_PROMPT_BASE +
+    (leg.frontDoor === true ? "" : LIVE_VOICE_SCREEN_REVEAL_TEACHING) +
+    VOICE_NO_SETUP_FLOWS_RULE;
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
   }
   if (turn.continuationResult) {
     prompt = `${prompt}\n\n${buildResurfaceContextNote(turn.continuationResult)}`;
   }
+  if (turn.handedOffRequest) {
+    prompt = `${prompt}\n\n${buildHandoffAnnouncementNote(turn.handedOffRequest)}`;
+  }
+  if (turn.continuationDelivery) {
+    prompt = `${prompt}\n\n${buildLiveDeliveryNote(
+      turn.continuationDelivery.request,
+      turn.continuationDelivery.answer,
+    )}`;
+  }
   return prompt;
+}
+
+// Delivered into the conversation when a continuation finishes AFTER the voice
+// session ended. There is no next voice turn to fold into, so this lands as a
+// normal turn in the thread — where the user actually goes looking for the
+// work. Framed as a system-style report rather than a user request so the
+// reply reads as "here is what I finished", not a fresh instruction.
+function buildClosedSessionDeliveryPrompt(
+  interruptedRequest: string,
+  answer: string,
+): string {
+  const what = describeInterruptedRequest(interruptedRequest);
+  return `[Background work finished] The voice call ended before the completed result for ${what} could be delivered. Tell the user briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete. What you produced was:\n\n${answer}`;
+}
+
+// A fresh cycle: nothing captured, nothing released, no metrics turn open.
+function createUtteranceCycle(): UtteranceCycle {
+  return {
+    phase: "pending",
+    released: false,
+    assistantTurnStarted: false,
+    completed: false,
+    finalizeRequested: false,
+    transcriber: null,
+    manualAudioCaptured: false,
+    speechRouted: false,
+    pendingAudioChunks: [],
+    pendingAudioBytes: 0,
+    finalTranscriptSegments: [],
+    latestPartialText: null,
+    endpointExtensionCount: 0,
+    heldSpeculativeContent: null,
+    turnId: null,
+    userMessageId: null,
+    userAudioChunks: [],
+    metricsTurnStarted: false,
+    metricsTurnFinished: false,
+    stashedMetricsMarks: {
+      firstAudioAtMs: null,
+      firstPartialAtMs: null,
+      speechStartAtMs: null,
+      utteranceEndAtMs: null,
+      finalTranscriptAtMs: null,
+    },
+  };
+}
+
+// Carrier cycle for an assistant-initiated turn: the turn machinery is
+// utterance-shaped (metrics marks, audio archival, turn ids all hang off a
+// cycle), but an announcement has no capture behind it. The record starts fully
+// released with an empty transcript so nothing routes audio into it, and it is
+// never installed as `currentUtterance` — that field belongs to the VAD cycle.
+function createSyntheticUtterance(): UtteranceCycle {
+  return {
+    ...createUtteranceCycle(),
+    phase: "transcriber_closed",
+    released: true,
+  };
 }
 
 // Objective handed to the background subagent that continues a barged-in turn.
@@ -565,10 +861,61 @@ function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
 // the forked history.
 function buildDuplexContinuationObjective(interruptedRequest: string): string {
   const base =
-    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background with a read-only toolset: you cannot send, write, delete, purchase, or otherwise change anything, and most tools (including memory writes and any that take an action) are unavailable here. Do the read-only work you can. If finishing the request needs an action or a tool you do not have, do not attempt it; instead say plainly what you would do, so the user can approve it on their next turn.";
+    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background: permission policy may auto-deny higher-risk actions with no one to approve them. If an action you need is denied, do not retry it; finish what you can and say plainly what remains, so the user can trigger it on their next turn.";
   return interruptedRequest.length > 0
     ? `${base} Their request was: "${interruptedRequest}".`
     : base;
+}
+
+// Built-ins beyond the strict read-only allowlist that cannot contend with a
+// background continuation's writes, whatever their input: they touch no
+// workspace, host, or extension state. `web_fetch` sits on the core
+// SIDE_EFFECT_TOOLS list because an UNATTENDED run firing off external requests
+// is a permission concern — a different question from this gate's, which is
+// only "can these two writers corrupt the same local state?". A network read
+// cannot, so it does not contend.
+//
+// `skill_load` is exempt per-invocation rather than by name. Re-entering an
+// already-installed static skill is the first call of nearly every barge-in
+// follow-up, and killing the continuation there would defeat the feature at the
+// moment it matters most — but a load that auto-installs a missing skill or
+// renders an inline command expansion writes local state and executes shell, so
+// it contends like anything else.
+const FOREGROUND_NON_CONTENDING_TOOLS: ReadonlySet<string> = new Set([
+  "web_fetch",
+]);
+
+// Foreground-wins classification: does this foreground tool start force the
+// running continuations to be aborted? The question is LOCAL-STATE
+// CONTENTION ("could these two writers corrupt the same workspace, host, or
+// extension state?"), NOT permission — this gate never affects what a tool is
+// allowed to do. Fail closed anyway: anything that is not a provably
+// non-contending BUILT-IN contends, because skill/plugin/MCP/workspace tools
+// carry no "writes local state" metadata and some of them (app_*, document_*)
+// very much do. `skill_execute` always contends: it is a dispatcher whose
+// resolved inner tool can mutate.
+function foregroundToolContendsWithContinuation(
+  toolName: string,
+  input?: Record<string, unknown>,
+): boolean {
+  if (toolName === "skill_execute") {
+    return true;
+  }
+  const ownerKind = getToolOwner(toolName)?.kind;
+  if (ownerKind === "default") {
+    if (FOREGROUND_NON_CONTENDING_TOOLS.has(toolName)) {
+      return false;
+    }
+    // Last, and behind the name checks above: `isInstalledStaticSkillLoad`
+    // re-reads the skill catalog from disk, so only a `skill_load` pays for it.
+    // Absent input fails closed — an unknown target could be an auto-install.
+    if (toolName === "skill_load") {
+      return (
+        input === undefined || !isInstalledStaticSkillLoad(toolName, input)
+      );
+    }
+  }
+  return isRefusedInReadOnlyPass(toolName, ownerKind);
 }
 
 // Upper bound on how long a barge-in waits for the interrupted turn's teardown
@@ -595,19 +942,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
   // Reads the interrupted turn's teardown promise so the barge-in path can wait
-  // for it to settle before forking the continuation (voice-duplex-handoff).
+  // for it to settle before forking the continuation.
   private readonly getTurnTeardown:
     | ((conversationId: string) => Promise<void> | undefined)
     | null;
   private readonly detachTeardownSettleTimeoutMs: number;
+  private readonly continuationAnnounceSilenceMs: number;
   // Abort handles for background continuations started when a barge-in detached
-  // an interrupted turn (voice-duplex-handoff). Each controller is registered
-  // synchronously before its spawn, so interrupt()/close() abort a continuation
-  // even if a stop lands while it is still spawning.
+  // an interrupted turn. Each controller is registered synchronously before
+  // its spawn, so interrupt()/close() abort a continuation even if a stop lands
+  // while it is still spawning.
   private readonly detachControllers = new Set<AbortController>();
-  // Bumped whenever a stop (interrupt/close) fires. A barge-in captures this
-  // before its async teardown; if it has changed by the time the detach would
-  // spawn, a stop landed during the gap and the continuation is not started.
+  // Bumped whenever detached runs are invalidated: a stop (interrupt/close),
+  // a newer barge-in superseding them, or a foreground-wins abort. A barge-in
+  // captures this (after its own bump) before its async teardown; if it has
+  // changed by the time the detach would spawn, an invalidation landed during
+  // the gap and the continuation is not started.
   private detachStopGeneration = 0;
   // Bumped SYNCHRONOUSLY at each barge-in (in barge order), before the async
   // detach runs. Only the latest-started detach (detachSeq === detachSequence)
@@ -618,11 +968,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
+  /**
+   * Mirrors phase changes to the iOS Live Activity through the platform, for
+   * the case the client cannot cover: an app backgrounded long enough for iOS
+   * to suspend the web layer that would otherwise push them.
+   */
+  private readonly liveActivityReporter: LiveActivityReporter;
   private state: LiveVoiceSessionState = "initializing";
   private currentUtterance: UtteranceCycle | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
   private sessionEndMetricsEmitted = false;
+  /**
+   * Protocol error code of the failure that killed the session, latched by
+   * {@link sendFrame} when an error frame goes out on an already-`failed`
+   * session. Both fatal paths (`failStartup` before `ready`, a failed
+   * utterance arm after it) set `state = "failed"` before sending, and no
+   * other error frame does, so this catches exactly the session-ending
+   * failures and ignores the recoverable mid-session ones. `null` on a
+   * session that never failed.
+   */
+  private failureCode: LiveVoiceProtocolErrorCode | null = null;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
   // Energy gate for server-VAD speech classification; undefined defers to
@@ -665,11 +1031,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Consumed (and cleared) when that turn launches; cleared if the barge-in
   // utterance is discarded, so it can never attach to a later, unrelated turn.
   private pendingInterruptedRequest: string | null = null;
-  // Set when a background continuation (voice-duplex-handoff) finishes the reply
-  // a barge-in cut off: its final answer, folded into the next turn the user
-  // starts as context. Consumed (and cleared) when that turn launches; cleared
-  // on a hard stop (abortDetachedRuns) so a stale result never surfaces later.
+  // Set when a background continuation finishes the reply a barge-in cut off:
+  // its final answer, folded into the next turn the user starts as context.
+  // Consumed (and cleared) when that turn launches; cleared on a hard stop
+  // (abortDetachedRuns) so a stale result never surfaces later, and cleared by
+  // an announcement that delivers the same answer itself — an announcement the
+  // user cuts short hands it straight back.
   private pendingContinuationResult: string | null = null;
+  // The same finished continuation, queued for an announcement turn: the
+  // session speaks the result on its own once the call has been quiet for
+  // `continuationAnnounceSilenceMs`. This and `pendingContinuationResult` are
+  // armed together and are two routes for ONE answer — whichever fires first
+  // clears the other, so the user hears it exactly once. An announcement whose
+  // turn fails to start, or whose turn a barge-in cuts short, hands the answer
+  // back to the stash, so a lost delivery costs the announcement, not the
+  // answer.
+  private pendingAnnouncement: ContinuationDelivery | null = null;
+  private announcementTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set when a continuation actually spawns: the request it took over, so the
+  // NEXT turn can tell the user the work is still running. Consumed by that
+  // turn; cleared when the continuation finishes (by then the result note
+  // takes over and "still running" would be stale).
+  private pendingHandoffRequest: string | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -691,6 +1074,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // providers without finalizeUtterance, and after an unexpected stream
   // close (the next arm resolves a fresh transcriber).
   private sharedTranscriber: StreamingTranscriber | null = null;
+  // The `services.stt.language` value the shared stream was dialed with.
+  // Providers pin the language per connection, so the persistent re-arm
+  // compares this against the current config and re-dials on a change
+  // instead of reusing a stream locked to the old language. Cleared
+  // whenever sharedTranscriber is cleared.
+  private sharedTranscriberLanguage: string | undefined;
   /**
    * FIFO of released cycles awaiting finalize settlement on the shared
    * stream, oldest first. Flush finals and `finalized` signals carry no
@@ -706,13 +1095,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
-  // Rotates through the ack phrase list across the session's turns.
-  private ackPhraseCounter = 0;
   // Rotates through the progress fallback phrases across the session's turns.
   private progressPhraseCounter = 0;
-  // Front-model service: semantic endpointing on
-  // silence-fired turn-ends and LLM-phrased acks; null disables both LLM
-  // capabilities (energy endpointing + static ack phrasing remain).
+  // Front-model service: phrases spoken acks and progress narration; null
+  // disables both (the turn then holds the floor with silence).
   private readonly frontDecider: VoiceFrontDecider | null;
   // Complete front-model tunables: the constructor schema-parses the partial
   // option once, so every field carries its `liveVoice.frontModel` schema
@@ -757,10 +1143,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.detachTeardownSettleTimeoutMs =
       options.detachTeardownSettleTimeoutMs ??
       defaultDetachTeardownSettleTimeoutMs();
+    this.continuationAnnounceSilenceMs =
+      options.continuationAnnounceSilenceMs ?? CONTINUATION_ANNOUNCE_SILENCE_MS;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.liveActivityReporter =
+      options.liveActivityReporter ??
+      new LiveActivityReporter(this.conversationId);
     this.metricsClock = options.metricsClock ?? Date.now;
     this.metrics = new LiveVoiceMetricsCollector({
       sessionId: context.sessionId,
@@ -809,6 +1200,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.state !== "initializing") {
       return;
     }
+
+    // Before the preflight, not after: a session rejected for missing
+    // credentials is precisely the one the failure rate needs to count, and
+    // recording the start only once `ready` goes out would hide every such
+    // session from both the numerator and the denominator.
+    recordLiveVoiceSessionStarted(this.context.sessionId);
 
     if (this.resolveCredentialReadiness) {
       const readiness = await this.resolveCredentialReadiness();
@@ -863,7 +1260,42 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "update_config":
         this.applyConfigUpdate(frame);
         return;
+      case "attach_image":
+        this.persistPhoto(frame);
+        return;
     }
+  }
+
+  /**
+   * Persist a photo taken mid-call into the conversation, running no turn.
+   *
+   * Fire-and-forget on purpose: the persist waits out any in-flight turn, and
+   * the socket must keep pumping audio meanwhile. The client already showed a
+   * thumbnail from the local frame, so nothing on screen is waiting on this.
+   *
+   * The photo becomes its own user message rather than riding the next spoken
+   * turn, which is what makes shutter-then-speak and speak-then-shutter
+   * behave the same: either way the model's history has the image by the time
+   * it answers. See `live-voice-photo.ts` for the full reasoning.
+   */
+  private persistPhoto(frame: LiveVoiceClientAttachImageFrame): void {
+    void persistLiveVoicePhoto(this.conversationId, frame.attachmentId).then(
+      (result) => {
+        if (!result.ok && !this.isClosed) {
+          void this.sendFrame({
+            type: "error",
+            code: LiveVoiceProtocolErrorCode.InvalidFrame,
+            message: "Could not attach that photo to the conversation.",
+            // Names the photo as the casualty so the client can retract the
+            // thumbnail it already showed, rather than filing this with the
+            // transient transcriber and TTS blips that share `recoverable`.
+            frameType: "attach_image",
+            // The session is fine; only this photo failed.
+            recoverable: true,
+          });
+        }
+      },
+    );
   }
 
   /**
@@ -887,17 +1319,45 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.handleAudio(Buffer.from(chunk));
   }
 
-  async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
+  async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) {
       return;
     }
 
+    // Recorded first, and independently of `shouldEmitSessionEndMetrics`
+    // below: that flag governs the client-facing `metrics` frame, and a
+    // failed session (which suppresses the frame) is the one whose end
+    // telemetry matters most. Session duration downstream is this row's
+    // `recorded_at` minus the started row's, so it must be written before the
+    // teardown below, which awaits a pending continuation and can run long.
+    const failed = this.state === "failed";
+    recordLiveVoiceSessionEnded({
+      sessionId: this.context.sessionId,
+      screen: liveVoiceEndScreen(reason, failed ? this.failureCode : null),
+      outcome: failed ? "failed" : "completed",
+    });
+
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    // Retire the island before the teardown below starts awaiting things. A
+    // close can take a while (a pending continuation is delivered first), and
+    // an activity left asserting "Speaking…" through it is exactly the stale
+    // claim this reporter exists to prevent.
+    this.liveActivityReporter.end();
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
+    // There is no longer anyone on the call to speak to, so a queued
+    // announcement cannot be spoken — but the answer behind it is finished
+    // work the user asked for, so it takes the same conversation route a
+    // continuation finishing after this point takes. Then the queue is
+    // cleared: the announcement is dead either way.
+    await this.deliverPendingContinuationToConversation();
+    this.clearContinuationAnnouncement();
     this.stopSessionTranscriber();
-    this.abortDetachedRuns();
+    // Detached continuations outlive the call. A deliberate `interrupt()`
+    // aborts them; ending the session leaves them running. With no next voice
+    // turn to fold into, a continuation that finishes after this point delivers
+    // into the conversation instead (see detachInterruptedTurn).
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -912,32 +1372,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // mode, again after every finalized turn (per-utterance phase tracks the
   // cycle).
   private async beginUtterance(): Promise<UtteranceStartResult> {
-    const utterance: UtteranceCycle = {
-      phase: "pending",
-      released: false,
-      assistantTurnStarted: false,
-      completed: false,
-      finalizeRequested: false,
-      transcriber: null,
-      pendingAudioChunks: [],
-      pendingAudioBytes: 0,
-      finalTranscriptSegments: [],
-      latestPartialText: null,
-      endpointExtensionCount: 0,
-      heldSpeculativeContent: null,
-      turnId: null,
-      userMessageId: null,
-      userAudioChunks: [],
-      metricsTurnStarted: false,
-      metricsTurnFinished: false,
-      stashedMetricsMarks: {
-        firstAudioAtMs: null,
-        firstPartialAtMs: null,
-        speechStartAtMs: null,
-        utteranceEndAtMs: null,
-        finalTranscriptAtMs: null,
-      },
-    };
+    const utterance = createUtteranceCycle();
     this.currentUtterance = utterance;
     // Speech parked while the previous cycle wound down belongs to this
     // cycle: buffer it before the transcriber arms, and capture the detector
@@ -948,15 +1383,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shared = this.sharedTranscriber;
     if (shared) {
-      // Persistent re-arm: the shared stream is already open, so the cycle
-      // goes straight to streaming with no resolve/start round-trip.
-      utterance.transcriber = shared;
-      return await this.activateUtterance(utterance, replayTurnEnd);
+      if (!this.sharedStreamLanguageIsStale()) {
+        // Persistent re-arm: the shared stream is already open, so the cycle
+        // goes straight to streaming with no resolve/start round-trip.
+        utterance.transcriber = shared;
+        return await this.activateUtterance(utterance, replayTurnEnd);
+      }
+      // The shared stream is pinned to the old language, so retire it and
+      // fall through to the fresh resolve, which reads the language from
+      // config at resolve time.
+      this.retireSharedTranscriberForRedial(shared);
     }
 
     try {
+      // One language snapshot serves both the dial and the re-arm
+      // comparison: passing it to the resolver keeps the stream's actual
+      // language and the recorded sharedTranscriberLanguage identical even
+      // when config changes while the resolver awaits credentials.
+      const sttLanguage = getConfig().services.stt.language;
       const transcriber = await this.resolveTranscriber({
         sampleRate: this.context.startFrame.audio.sampleRate,
+        ...(sttLanguage ? { language: sttLanguage } : {}),
       });
 
       if (this.isUtteranceStale(utterance)) {
@@ -980,6 +1427,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // its events route by cycle ownership instead of binding to this
         // one cycle.
         this.sharedTranscriber = transcriber;
+        this.sharedTranscriberLanguage = sttLanguage;
         await transcriber.start((event) => {
           void this.handleSharedTranscriberEvent(transcriber, event);
         });
@@ -1041,7 +1489,51 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     if (transcriber && this.sharedTranscriber === transcriber) {
       this.sharedTranscriber = null;
+      this.sharedTranscriberLanguage = undefined;
     }
+  }
+
+  // Config-driven language change detection: the web client's language
+  // picker patches services.stt.language and the daemon's config cache
+  // invalidation surfaces the new value on the next getConfig() read, with
+  // no session protocol message involved.
+  private sharedStreamLanguageIsStale(): boolean {
+    return this.sharedTranscriberLanguage !== getConfig().services.stt.language;
+  }
+
+  // Retires the shared stream so the next arm dials a fresh one (used when
+  // the configured language changes between utterances). Any cycle still in
+  // the finalize queue here has already dispatched its assistant turn:
+  // arming a new cycle requires assistantTurnStarted or completed, and only
+  // an arm reaches this path. Draining the queue is therefore bookkeeping
+  // that matches the unexpected-close drain: the drained cycles' late flush
+  // tails die with the old stream, and their sealed transcripts stand.
+  private retireSharedTranscriberForRedial(shared: StreamingTranscriber): void {
+    this.releaseSharedTranscriber(shared);
+    this.drainFinalizeQueueFor(shared);
+    stopTranscriberBestEffort(shared);
+  }
+
+  // Shared teardown bookkeeping for a stream that is going away (retire for
+  // redial or unexpected close): the grace timer dies with the stream, queued
+  // cycles drop their reference to it, and any released cycle's transcript is
+  // sealed. Returns the drained cycles so callers can distinguish queued
+  // cycles from the current utterance.
+  private drainFinalizeQueueFor(
+    transcriber: StreamingTranscriber,
+  ): UtteranceCycle[] {
+    this.clearFinalizeGraceTimer();
+    const drained = this.finalizeQueue;
+    this.finalizeQueue = [];
+    for (const finalizing of drained) {
+      if (finalizing.transcriber === transcriber) {
+        finalizing.transcriber = null;
+      }
+      if (finalizing.phase === "released") {
+        finalizing.phase = "transcriber_closed";
+      }
+    }
+    return drained;
   }
 
   private isUtteranceStale(utterance: UtteranceCycle): boolean {
@@ -1118,6 +1610,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    // The chunk belongs to an utterance the user is still holding the button
+    // for, whether or not the transcriber has produced any text for it yet.
+    utterance.manualAudioCaptured = true;
     this.collectUserAudio(utterance, chunk);
     if (utterance.phase === "pending") {
       // The transcriber is still arming (session start overlaps the STT
@@ -1163,6 +1658,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!utterance) {
       return;
     }
+    // Language change made while the session idles: the post-turn re-arm
+    // binds the next cycle to the shared stream eagerly, before the picker
+    // patches services.stt.language, so the stale binding surfaces when
+    // speech first reaches the armed cycle. A cycle that has routed no
+    // speech (pre-roll silence flushed at arm time does not count, see
+    // speechRouted) retires together with the old-language stream and
+    // falls through to the lazy arm below, which dials a fresh stream
+    // with the configured language.
+    const sharedForLanguage = this.sharedTranscriber;
+    if (
+      sharedForLanguage &&
+      utterance.transcriber === sharedForLanguage &&
+      !utterance.released &&
+      !utterance.completed &&
+      !utterance.speechRouted &&
+      // A cycle carrying committed or partial transcript text is not
+      // silence-only bookkeeping: in persistent mode a late tail final from
+      // the previous utterance's audio can route here before any speech
+      // does, and its stt_final frame already reached the client.
+      // Finalizing such a cycle would silently drop displayed text, so it
+      // keeps its old-language stream and the language change applies from
+      // the following utterance.
+      utterance.finalTranscriptSegments.length === 0 &&
+      utterance.latestPartialText === null &&
+      this.sharedStreamLanguageIsStale()
+    ) {
+      this.retireSharedTranscriberForRedial(sharedForLanguage);
+      utterance.transcriber = null;
+      utterance.phase = "transcriber_closed";
+      await this.finalizePendingUtterance(utterance, "stt_language_changed");
+    }
     if (utterance.released || utterance.completed) {
       // Parked speech makes silent chunks arm-worthy too: the parked
       // utterance must flush without requiring more speech.
@@ -1184,6 +1710,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
+    // Speech is now reaching the cycle, either in this chunk or parked in
+    // the pre-roll about to flush; read the flag before takeVadPreRoll
+    // resets it.
+    if (hasSpeech || this.vadPreRollHasSpeech) {
+      utterance.speechRouted = true;
+    }
     for (const preRollChunk of this.takeVadPreRoll()) {
       await this.routeVadAudio(utterance, preRollChunk);
     }
@@ -1240,9 +1772,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Arm-time flush: parked release-window audio joins the new cycle's
   // pending buffer so a completed parked utterance needs no further speech.
   private flushVadPreRollIntoPending(utterance: UtteranceCycle): void {
+    // Read before takeVadPreRoll resets it: a ring holding parked speech
+    // makes this cycle speech-bearing, a silence-only ring does not.
+    const preRollHadSpeech = this.vadPreRollHasSpeech;
     for (const chunk of this.takeVadPreRoll()) {
       this.collectUserAudio(utterance, chunk);
       this.bufferPendingUtteranceAudio(utterance, chunk);
+    }
+    if (preRollHadSpeech) {
+      utterance.speechRouted = true;
     }
   }
 
@@ -1415,11 +1953,32 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .trim();
     this.pendingInterruptedRequest =
       interruptedRequest.length > 0 ? interruptedRequest : null;
-    // A fresh interruption supersedes any already-stashed continuation result:
-    // drop it synchronously here so the barge-in follow-up (or any later) turn
-    // can't consume an older answer before this barge-in's own continuation
-    // completes. Cleared even when no continuation ultimately detaches.
-    this.pendingContinuationResult = null;
+    // A fresh interruption supersedes every earlier detached run, not just its
+    // stashed result: abort still-running continuations (and skip pending
+    // detaches) before this barge-in's own continuation can launch, so two
+    // full-ability background writers never share the workspace. The stashed
+    // result is dropped with them so the barge-in follow-up (or any later)
+    // turn can't consume an older answer before this barge-in's own
+    // continuation completes. This barge-in's detach snapshots the stop
+    // generation AFTER this bump (below), so it is unaffected. The abort is
+    // signal-level, with the same accepted residual as the foreground-wins
+    // gate (see the tool_use_start handler): a tool call already executing in
+    // the superseded run is not awaited. The replacement's detach still waits
+    // out the interrupted TURN's teardown before forking, which bounds the
+    // overlap to that one abandoned call.
+    this.abortDetachedRuns({ reason: "superseded_by_new_barge_in" });
+    // An announcement turn is the one interruption with nothing to continue:
+    // the work is already finished, which is why detachInterruptedTurn skips it
+    // as `announcement_turn`. The analog of "the interrupted work survives" is
+    // therefore the stash — the answer goes back into it so the user's next real
+    // turn still carries it, and the announcement (cut short, at best partly
+    // spoken) is not the delivery it was supposed to be. The restore sits after
+    // the abort above, which clears the stash, so nothing in this sequence
+    // re-drops it. Only a barge-in restores: interrupt/close/a superseding new
+    // continuation are resets the user asked for, and their answer stays gone.
+    if (turn.continuationDelivery !== null) {
+      this.pendingContinuationResult = turn.continuationDelivery.answer;
+    }
     // Order this barge-in among concurrent detaches SYNCHRONOUSLY, in barge
     // order — the actual detach runs after an async teardown chain, and those
     // chains can interleave, so bumping there could assign sequences out of
@@ -1429,8 +1988,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.clearFillerTimers(turn);
     // Tagged reason: provider catch-sites classify untagged caller aborts as
     // retryable transport failures (ERROR log + futile retry against the
-    // aborted signal). This signal reaches the brain leg and, with llmAckText
-    // on, in-flight ack generation.
+    // aborted signal). This signal reaches the brain leg and any in-flight
+    // ack generation.
     turn.abortController.abort(
       createAbortReason("voice_session_aborted", "live-voice-barge-in"),
     );
@@ -1445,6 +2004,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Snapshot the stop generation before the async teardown: a stop that lands
     // during it must cancel the pending detach (checked in detachInterruptedTurn).
     const stopGeneration = this.detachStopGeneration;
+    log.debug(
+      {
+        turnId: turn.turnId,
+        detachSeq,
+        // The two facts that decide whether a continuation is even eligible.
+        assistantCompleted: turn.assistantCompleted,
+        hasTeardownWait: teardownWait !== undefined,
+      },
+      "Voice barge-in cancelled a turn",
+    );
     void (async () => {
       await this.finishMetricsTurn(
         turn.utterance,
@@ -1452,23 +2021,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         "barge_in",
         turn.turnId,
       );
+      // A cancelled turn's tools are abandoned, not finished, so nothing will
+      // arrive to clear the line it left behind.
+      this.publishActivity(turn, "");
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
-      // Keep the interrupted turn's work alive on a background subagent
-      // (voice-duplex-handoff); the detach waits for its teardown to settle the
-      // partial into history before forking.
+      // Keep the interrupted turn's work alive on a background subagent; the
+      // detach waits for its teardown to settle the partial into history before
+      // forking.
       this.detachInterruptedTurn(turn, stopGeneration, teardownWait, detachSeq);
     })().catch(() => {});
   }
 
-  // True-duplex handoff (voice-duplex-handoff): keep a barged-in turn's work
-  // alive by continuing it on a background subagent instead of discarding it.
+  // Keep a barged-in turn's work alive by continuing it on a background
+  // subagent instead of discarding it.
   // Waits for the interrupted turn's bridge teardown (captured at barge-in) to
   // settle before forking, so its partial — including any completed tool calls —
   // is already in the conversation the subagent forks from and a side-effecting
   // continuation cannot repeat a call the interrupted turn already ran.
-  // Resurfacing the subagent's result is a follow-up; for now it runs silently
-  // and a later stop/interrupt aborts it.
+  // The continuation runs with full subagent abilities under the standard
+  // non-interactive permission policy; if a foreground turn starts its own
+  // side-effecting tool, the foreground-wins abort in the tool_use_start
+  // handler kills the continuation before the two can race on the workspace.
+  // The run itself makes no sound; its result reaches the user through the next
+  // turn they start, an announcement into audible silence, or the conversation
+  // once the call ends. A later stop/interrupt aborts it.
   private detachInterruptedTurn(
     turn: ActiveAssistantTurn,
     stopGeneration: number,
@@ -1476,18 +2053,39 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     detachSeq: number,
   ): void {
     const spawn = this.spawnBackgroundContinuation;
-    if (
-      !spawn ||
-      this.isClosed ||
-      // The model already finished generating (barge-in during TTS playback of a
-      // complete reply): there is nothing to continue, so a continuation would
-      // just re-do a finished answer.
-      turn.assistantCompleted ||
-      // A stop (interrupt/close) landed during the barge-in teardown: honor it
-      // and do not start the continuation.
-      this.detachStopGeneration !== stopGeneration ||
-      !isAssistantFeatureFlagEnabled("voice-duplex-handoff", getConfig())
-    ) {
+    // Every skip is logged with its reason — the handoff is silent by design,
+    // so without this a dropped continuation is indistinguishable from a
+    // never-attempted one (tail with: grep -i "voice duplex").
+    if (!spawn) {
+      log.debug(
+        { turnId: turn.turnId, skipReason: "no_spawner" },
+        "Voice duplex continuation skipped",
+      );
+      return;
+    }
+    const skipReason = this.isClosed
+      ? "session_closed"
+      : // Barging in over an announcement means the user is answering it, not
+        // asking for it to be finished in the background — there is no pending
+        // request behind an announcement turn to continue. Its answer is
+        // already finished, so bargeIn returns it to the stash instead.
+        turn.continuationDelivery !== null
+        ? "announcement_turn"
+        : // The model already finished generating (barge-in during TTS playback
+          // of a complete reply): there is nothing to continue, so a
+          // continuation would just re-do a finished answer.
+          turn.assistantCompleted
+          ? "assistant_already_completed"
+          : // A stop (interrupt/close) or a superseding invalidation landed
+            // during the barge-in teardown: honor it.
+            this.detachStopGeneration !== stopGeneration
+            ? "invalidated_during_barge_teardown"
+            : null;
+    if (skipReason !== null) {
+      log.info(
+        { turnId: turn.turnId, skipReason },
+        "Voice duplex continuation skipped",
+      );
       return;
     }
     // Embed the interrupted request in the objective so the continuation knows
@@ -1501,6 +2099,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // controller.abort(), which the spawn's signal wiring honors).
     const controller = new AbortController();
     this.detachControllers.add(controller);
+    const detachStartedAtMs = Date.now();
     void (async () => {
       try {
         // Wait for the interrupted turn's teardown to settle its partial into
@@ -1528,39 +2127,119 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // The continuation is best-effort, so a rare dropped one is the safe
           // trade.
           if (!settled) {
+            log.info(
+              {
+                turnId: turn.turnId,
+                skipReason: controller.signal.aborted
+                  ? "invalidated_during_teardown_wait"
+                  : "teardown_settle_timeout",
+                waitedMs: Date.now() - detachStartedAtMs,
+                timeoutMs: this.detachTeardownSettleTimeoutMs,
+              },
+              "Voice duplex continuation skipped",
+            );
             return;
           }
         }
-        if (controller.signal.aborted || this.isClosed) {
+        // A closed session is NOT a reason to skip: the work outlives the
+        // call, and its result is delivered into the conversation below.
+        // Only an explicit invalidation (stop/interrupt/supersede) stops it.
+        if (controller.signal.aborted) {
+          log.info(
+            {
+              turnId: turn.turnId,
+              skipReason: "invalidated_before_spawn",
+              waitedMs: Date.now() - detachStartedAtMs,
+            },
+            "Voice duplex continuation skipped",
+          );
           return;
         }
+        log.debug(
+          {
+            turnId: turn.turnId,
+            teardownWaitMs: Date.now() - detachStartedAtMs,
+            interruptedRequest,
+          },
+          "Voice duplex continuation starting",
+        );
+        // The next turn tells the user this is still running. Set before the
+        // await so a follow-up turn launching during the run picks it up.
+        this.pendingHandoffRequest =
+          interruptedRequest.length > 0 ? interruptedRequest : null;
         const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
           label: `voice-continue-${turn.turnId}`,
           signal: controller.signal,
         });
-        // Fold the completed continuation's answer into the next turn the user
-        // starts (never spoken unprompted). Re-check the stop guards after the
-        // await: an interrupt/close during the run must suppress it. Only the
-        // latest-started detach may populate the result, so once a newer
-        // barge-in has started, an older continuation completing (before or
-        // after it, empty or not) can't surface a stale answer. Only non-empty
-        // text is actually surfaced.
-        if (
+        // Route the completed continuation's answer. Re-check the stop guards
+        // after the await: an interrupt/close during the run must suppress it.
+        // Only the latest-started detach may populate the result, so once a
+        // newer barge-in has started, an older continuation completing (before
+        // or after it, empty or not) can't surface a stale answer. Only
+        // non-empty text is actually surfaced.
+        this.pendingHandoffRequest = null;
+        const answer = resultText.trim();
+        const notInvalidated =
           !controller.signal.aborted &&
-          !this.isClosed &&
           this.detachStopGeneration === stopGeneration &&
-          detachSeq === this.detachSequence
-        ) {
-          const answer = resultText.trim();
+          detachSeq === this.detachSequence;
+        // Two destinations, decided by whether a next voice turn still exists.
+        // Live session: stash for the next turn the user starts, AND queue an
+        // announcement that speaks it into audible silence if the user says
+        // nothing — the two are routes for one answer and cancel each other,
+        // so it is delivered exactly once. Session closed: there is no next
+        // turn and nobody to speak to, so deliver into the conversation — the
+        // thread is exactly where the user goes looking for the work.
+        const deliverToConversation =
+          notInvalidated && this.isClosed && answer.length > 0;
+        if (notInvalidated && !this.isClosed) {
           this.pendingContinuationResult = answer.length > 0 ? answer : null;
+          if (answer.length > 0) {
+            this.pendingAnnouncement = { request: interruptedRequest, answer };
+            this.scheduleContinuationAnnouncement();
+          }
         }
+        if (deliverToConversation) {
+          const { injectMessageIntoParent } =
+            await import("../subagent/notify.js");
+          injectMessageIntoParent(
+            this.conversationId,
+            buildClosedSessionDeliveryPrompt(interruptedRequest, answer),
+          );
+        }
+        log.info(
+          {
+            turnId: turn.turnId,
+            ranMs: Date.now() - detachStartedAtMs,
+            resultChars: answer.length,
+            // Where the answer went. "stashed" = queued for the next voice
+            // turn and for an announcement into silence, whichever comes first
+            // (the announcement logs "announced" when it wins);
+            // "conversation" = the call had ended, so it was delivered into the
+            // thread; "dropped" = a stop/interrupt or a newer barge-in landed
+            // while it ran.
+            resultDestination: !notInvalidated
+              ? "dropped"
+              : answer.length === 0
+                ? "empty"
+                : this.isClosed
+                  ? "conversation"
+                  : "stashed",
+          },
+          "Voice duplex continuation finished",
+        );
       } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
-        if (!controller.signal.aborted) {
+        if (controller.signal.aborted) {
+          log.debug(
+            { turnId: turn.turnId, ranMs: Date.now() - detachStartedAtMs },
+            "Voice duplex continuation aborted mid-run",
+          );
+        } else {
           log.warn(
-            { err, turnId: turn.turnId },
+            { err, turnId: turn.turnId, ranMs: Date.now() - detachStartedAtMs },
             "Voice duplex handoff continuation failed",
           );
         }
@@ -1571,9 +2250,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Abort every background continuation this session started and drop its
-  // handle. A client interrupt or session close is a hard stop for detached
-  // work; the continuation's own `.finally` removes it from the set too.
-  private abortDetachedRuns(): void {
+  // handle. Called on a hard stop (client interrupt / session close), when a
+  // newer barge-in supersedes the detached runs, and on a foreground-wins
+  // abort; the continuation's own `.finally` removes it from the set too.
+  // `keepPendingResult` is the foreground-wins variant: the foreground turn is
+  // claiming the workspace, so running continuations must die (and pending
+  // detaches must be skipped), but an already-completed continuation's stashed
+  // answer stays — it cannot race anything, and the next turn's "use only if
+  // relevant" framing makes a stale one harmless.
+  private abortDetachedRuns(opts?: {
+    keepPendingResult?: boolean;
+    // Why the runs are being invalidated, for the log line below. Every
+    // caller passes one: an unexplained dead continuation is the single
+    // hardest thing to debug about this feature.
+    reason?: string;
+    // The foreground tool whose start tripped the contention gate, if any.
+    toolName?: string;
+  }): void {
+    const aborted = this.detachControllers.size;
+    const hadPendingResult = this.pendingContinuationResult !== null;
+    if (aborted > 0 || hadPendingResult) {
+      log.debug(
+        {
+          conversationId: this.conversationId,
+          reason: opts?.reason ?? "unspecified",
+          ...(opts?.toolName ? { toolName: opts.toolName } : {}),
+          abortedRuns: aborted,
+          droppedPendingResult: hadPendingResult && !opts?.keepPendingResult,
+        },
+        "Voice duplex continuations invalidated",
+      );
+    }
     // Bump the generation so a barge-in whose async teardown is still in flight
     // (its detach not yet spawned) sees the stop and skips the continuation.
     this.detachStopGeneration += 1;
@@ -1583,7 +2290,432 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.detachControllers.clear();
     // A hard stop also drops any completed continuation's result still waiting
     // to fold into the next turn, so it can't surface after the user reset.
+    if (!opts?.keepPendingResult) {
+      this.pendingContinuationResult = null;
+    }
+    // The announcement dies either way: even the foreground-wins variant (which
+    // keeps the stash) has a foreground turn claiming the floor, so speaking up
+    // on our own is exactly what must not happen.
+    this.clearContinuationAnnouncement();
+  }
+
+  private clearContinuationAnnouncement(): void {
+    this.pendingAnnouncement = null;
+    if (this.announcementTimer) {
+      clearTimeout(this.announcementTimer);
+      this.announcementTimer = null;
+    }
+  }
+
+  /**
+   * Hang-up delivery for a continuation that already finished: the call is
+   * ending, so neither route that was armed for its answer can still run — the
+   * announcement has nobody to speak to and the stash has no next voice turn to
+   * fold into. Deliver it into the conversation instead, exactly as a
+   * continuation finishing after the close does, because that thread is where
+   * the user goes looking for the work ("barge in, hear the answer, close the
+   * room, go look for the result").
+   *
+   * Best-effort and consume-once: the fields are emptied whether or not the
+   * injection lands, so a close cannot deliver twice.
+   */
+  private async deliverPendingContinuationToConversation(): Promise<void> {
+    const activeTurn = this.activeAssistantTurn;
+    const activeAnnouncement = activeTurn?.continuationDelivery ?? null;
+    const announcement = this.pendingAnnouncement ?? activeAnnouncement;
+    const answer = announcement?.answer ?? this.pendingContinuationResult;
+    const request = announcement?.request ?? "";
+    this.pendingAnnouncement = null;
     this.pendingContinuationResult = null;
+    if (activeTurn !== null) {
+      activeTurn.continuationDelivery = null;
+    }
+    if (answer === null || answer.length === 0) {
+      return;
+    }
+    try {
+      const { injectMessageIntoParent } = await import("../subagent/notify.js");
+      injectMessageIntoParent(
+        this.conversationId,
+        buildClosedSessionDeliveryPrompt(request, answer),
+      );
+      log.info(
+        {
+          conversationId: this.conversationId,
+          resultChars: answer.length,
+          resultDestination: "conversation",
+        },
+        "Voice duplex continuation delivered on session close",
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Voice duplex continuation delivery on session close failed",
+      );
+    }
+  }
+
+  /**
+   * Live-voice is non-interactive (JARVIS-1291) and the session never starts a
+   * turn on its own — with one narrow exception, this: a background
+   * continuation the user asked for has finished, the call is still live, and
+   * nobody is speaking. Arms the silence timer that decides whether that
+   * exception applies. Re-arming resets the wait, so a run of arms collapses
+   * into one announcement.
+   *
+   * The silence the timer waits out starts when the audio the client already
+   * has queued runs out, so a continuation finishing at the tail end of a long
+   * spoken reply waits for that reply to actually finish playing.
+   *
+   * `retry` marks the single re-arm a user-speech blocker gets. An active
+   * assistant turn keeps the announcement queued without polling; releasing
+   * the turn re-arms the timer against the actual playback tail.
+   */
+  private scheduleContinuationAnnouncement(
+    retry = false,
+    drainRearms = 0,
+  ): void {
+    if (this.announcementTimer) {
+      clearTimeout(this.announcementTimer);
+    }
+    // Queued client-side audio is the previous reply still being audible, so
+    // the silence window only begins once it has drained.
+    const drainMs = Math.max(0, this.assistantPlaybackTailUntilMs - Date.now());
+    this.announcementTimer = setTimeout(() => {
+      this.announcementTimer = null;
+      const blockedBy = this.continuationAnnouncementBlocker();
+      if (blockedBy === null) {
+        void this.announceContinuation().catch((err: unknown) => {
+          log.warn({ err }, "Voice duplex continuation announcement failed");
+        });
+        return;
+      }
+      log.debug(
+        { conversationId: this.conversationId, blockedBy, retry, drainRearms },
+        "Voice duplex continuation announcement deferred",
+      );
+      // A tail that grew while the timer ran (the reply was still streaming
+      // TTS when it was armed) is a wait of known length rather than a busy
+      // call, so it re-arms against the new deadline without spending the
+      // single retry the busy-call blockers get — otherwise a long reply's
+      // playback alone outlasts the budget and the announcement is dropped
+      // even though the call goes idle right after. The tail only extends
+      // while a turn is active, which blocks earlier, so the re-arms converge;
+      // the cap bounds the interleaving where a fresh turn's audio lands
+      // between two checks.
+      if (
+        blockedBy === "playback_draining" &&
+        drainRearms < CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS
+      ) {
+        this.scheduleContinuationAnnouncement(retry, drainRearms + 1);
+        return;
+      }
+      if (blockedBy === "turn_active") {
+        return;
+      }
+      if (retry || this.pendingAnnouncement === null) {
+        this.pendingAnnouncement = null;
+        return;
+      }
+      this.scheduleContinuationAnnouncement(true, drainRearms);
+    }, drainMs + this.continuationAnnounceSilenceMs);
+  }
+
+  /**
+   * The line describing what this turn is doing right now: the newest tool
+   * still running, or nothing when none is.
+   *
+   * Newest-first because parallel ops are the interesting case. A turn that
+   * starts a search and a file read, then finishes the search, is still
+   * reading a file, and a surface that went blank there would claim the turn
+   * had gone idle while it plainly has not.
+   */
+  private currentActivityLabel(turn: ActiveAssistantTurn): string {
+    for (let i = turn.progress.ops.length - 1; i >= 0; i -= 1) {
+      const op = turn.progress.ops[i];
+      if (op !== undefined && op.completedAtMs === undefined) {
+        return activityLabelForTool(op.toolName);
+      }
+    }
+    return "";
+  }
+
+  /**
+   * The line for a turn that is waiting on a decision about its newest running
+   * op.
+   *
+   * The approval gate sits behind `tool_use_start`, so the tool being waited on
+   * is the one the turn last said it was running — which is precisely why the
+   * wait has to be published at all: without it the surfaces keep showing that
+   * tool as *running* for the whole time it is doing nothing of the kind.
+   * Falls back to the tool-less phrase when no op is open, which is the case
+   * for a confirmation raised by a prompter outside the tool pipeline.
+   *
+   * Read once, at the reveal — see `pendingApproval` for why it is then held
+   * rather than recomputed.
+   */
+  private pendingApprovalLabel(turn: ActiveAssistantTurn): string {
+    for (let i = turn.progress.ops.length - 1; i >= 0; i -= 1) {
+      const op = turn.progress.ops[i];
+      if (op !== undefined && op.completedAtMs === undefined) {
+        return approvalActivityLabel(op.toolName);
+      }
+    }
+    return approvalActivityLabel("");
+  }
+
+  /**
+   * Publish whatever the turn's activity line should be right now: the
+   * decision it is waiting on if it is waiting, and its newest running tool if
+   * it is not.
+   *
+   * The single entry point for every caller that would otherwise reach for
+   * `currentActivityLabel` directly. A turn can start and finish other ops
+   * while it is blocked on an approval — a parallel `tool_use_start` or
+   * `tool_result` lands mid-wait — and each of those would otherwise publish a
+   * line composed as if nothing were pending, taking the request id down with
+   * it and retiring the island's buttons while the turn was still waiting.
+   */
+  private refreshActivity(turn: ActiveAssistantTurn): void {
+    if (turn.pendingApproval !== null) {
+      this.publishActivity(
+        turn,
+        turn.pendingApproval.label,
+        turn.pendingApproval.requestId,
+      );
+      return;
+    }
+    this.publishActivity(turn, this.currentActivityLabel(turn));
+  }
+
+  /**
+   * Open the room because a decision is waiting behind it.
+   *
+   * The approval card renders in the app, and the room covers the app, so
+   * without this the turn simply goes quiet: nothing is spoken, nothing is
+   * visible, and the only cue is a call that stopped talking. Sent
+   * immediately rather than latched for the drain the way a shown surface is,
+   * because there is no drain coming. The turn is blocked on this decision,
+   * and the whole point is that the user can make it now.
+   *
+   * The latch is cleared as well, so a turn that also showed a surface does
+   * not send a second minimize once its speech ends; the room is already open.
+   */
+  private revealRoomForPendingApproval(
+    turn: ActiveAssistantTurn,
+    requestId: string,
+  ): void {
+    if (turn.pendingApproval !== null) {
+      return;
+    }
+    turn.pendingApproval = {
+      requestId,
+      label: this.pendingApprovalLabel(turn),
+    };
+    turn.minimizeRequested = false;
+    // Say what the turn is actually doing on the surfaces that are not the
+    // app. Without this the island keeps showing the tool as running for the
+    // whole wait — and it is the surface most likely to be the only one the
+    // user can see, since the case this exists for is a phone put down.
+    // Carrying the request id is what makes the line answerable there rather
+    // than merely accurate.
+    this.refreshActivity(turn);
+    void this.sendFrame(
+      { type: "minimize_room", turnId: turn.turnId },
+      () => !this.isClosed,
+    );
+    // Spoken, because opening the room is only a cue for someone looking at
+    // the screen, and the case this exists for is a phone the user has put
+    // down. One line, not narration: the turn is not working, it is waiting,
+    // and it says which.
+    this.enqueueFillerPhrase(turn, APPROVAL_PENDING_PHRASE);
+  }
+
+  /** Clear the wait once a decision lands, so the turn narrates normally again. */
+  private clearAwaitingApproval(turn: ActiveAssistantTurn): void {
+    turn.pendingApproval = null;
+    // Put the activity line back to whatever the turn resumed doing, and
+    // retire the request id with it, so the island's Approve/Deny buttons go
+    // away the moment the decision is no longer the user's to make — including
+    // when it was made somewhere else entirely (the card in the app, the
+    // 45-second fallback, a superseding message).
+    this.refreshActivity(turn);
+  }
+
+  /**
+   * Tell the client what the turn is doing, if it changed.
+   *
+   * De-duplicated for the same reason the Live Activity reporter de-duplicates
+   * phases: this frame reaches ActivityKit, whose update budget is finite and
+   * whose overflow is dropped silently, and a turn that runs four file reads in
+   * a row would otherwise spend that budget restating one line.
+   *
+   * Fire-and-forget. An activity label is a flourish, and nothing about the
+   * conversation may wait on one.
+   *
+   * Callers whose line depends on turn state go through
+   * {@link refreshActivity}; this is called directly only to clear the line
+   * outright, which a cancelled or finished turn does regardless of what it
+   * was waiting on.
+   */
+  private publishActivity(
+    turn: ActiveAssistantTurn,
+    label: string,
+    approvalRequestId?: string,
+  ): void {
+    // De-duplicated on the request id as well as the wording. The two move
+    // independently: a wait can be entered and left without the tool line
+    // changing at all, and a label-only check would swallow the frame that
+    // retires the approval — leaving the island's buttons up with nothing
+    // behind them.
+    if (
+      turn.activityLabel === label &&
+      turn.publishedApprovalRequestId === (approvalRequestId ?? null)
+    ) {
+      return;
+    }
+    turn.activityLabel = label;
+    turn.publishedApprovalRequestId = approvalRequestId ?? null;
+    void this.sendFrame(
+      {
+        type: "activity",
+        turnId: turn.turnId,
+        label,
+        ...(approvalRequestId !== undefined ? { approvalRequestId } : {}),
+      },
+      () => !this.isClosed,
+    );
+  }
+
+  private clearActiveAssistantTurn(token: symbol): void {
+    if (this.activeAssistantTurn?.token !== token) {
+      return;
+    }
+    this.activeAssistantTurn = null;
+    if (
+      this.pendingAnnouncement !== null &&
+      !this.isClosed &&
+      this.state !== "failed"
+    ) {
+      this.scheduleContinuationAnnouncement();
+    }
+  }
+
+  // Why the session must not speak up right now, or null when the call is
+  // genuinely idle: live, no turn running, and no user speech anywhere in
+  // flight (onset latch, barge-in guard, detector, or a cycle that has already
+  // captured something). The server-VAD re-arm keeps an empty cycle armed
+  // between turns, so an untouched `currentUtterance` IS the idle state.
+  private continuationAnnouncementBlocker(): string | null {
+    if (this.pendingAnnouncement === null) {
+      return "nothing_pending";
+    }
+    if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
+      return "session_unavailable";
+    }
+    if (this.activeAssistantTurn !== null) {
+      return "turn_active";
+    }
+    // The turn can be cleared server-side (tts_done sent) while the client is
+    // still playing the audio it queued: that tail is the previous reply still
+    // being audible, so announcing over it is announcing over the assistant.
+    if (Date.now() < this.assistantPlaybackTailUntilMs) {
+      return "playback_draining";
+    }
+    if (this.vadSpeechStartPending || this.pendingBargeIn !== null) {
+      return "speech_onset";
+    }
+    if (this.turnDetector?.isActive === true) {
+      return "user_speaking";
+    }
+    const utterance = this.currentUtterance;
+    // Every transcript-derived signal here trails the STT provider, so on its
+    // own it leaves manual mode blind to a user who is talking right now and
+    // has no text yet — hence the captured-audio flag, which manual ingress
+    // sets from the first chunk.
+    if (
+      utterance !== null &&
+      !utterance.completed &&
+      (utterance.released ||
+        utterance.assistantTurnStarted ||
+        utterance.manualAudioCaptured ||
+        utterance.finalTranscriptSegments.length > 0 ||
+        utterance.latestPartialText !== null)
+    ) {
+      return "utterance_in_flight";
+    }
+    return null;
+  }
+
+  // Speak the finished continuation's result on a turn the session starts
+  // itself. The turn rides a synthetic cycle rather than the armed VAD one —
+  // `currentUtterance` belongs to the capture loop, and overwriting it would
+  // collide with the user's next real utterance.
+  private async announceContinuation(): Promise<void> {
+    const pending = this.pendingAnnouncement;
+    if (!pending) {
+      return;
+    }
+    this.pendingAnnouncement = null;
+    // The two routes for one answer are mutually exclusive: while this turn is
+    // in flight the stash must not deliver the same answer again. It comes back
+    // only if this turn provably never started (below) or a barge-in cuts it
+    // short before it delivers (see bargeIn).
+    this.pendingContinuationResult = null;
+    // Pins the invalidation state this hand-off was decided in: a hard stop
+    // landing while the turn starts owns the drop, and must not be undone by
+    // the restore below.
+    const stopGeneration = this.detachStopGeneration;
+    let started: boolean;
+    try {
+      started = await this.launchAssistantTurn(
+        createSyntheticUtterance(),
+        CONTINUATION_DELIVERY_CONTENT,
+        { continuationDelivery: pending },
+      );
+    } catch (err) {
+      // A throw before the leg's own error handling (an outbound frame write
+      // rejecting, say) leaves the same state a false return does: nothing
+      // persisted, nothing spoken, and the stash already emptied above. Take
+      // the identical fallback rather than letting the answer die with the
+      // rejection.
+      started = false;
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Voice duplex continuation announcement threw while starting",
+      );
+    }
+    if (started) {
+      log.info(
+        {
+          conversationId: this.conversationId,
+          resultChars: pending.answer.length,
+          resultDestination: "announced",
+        },
+        "Voice duplex continuation announced",
+      );
+      return;
+    }
+    // The turn never reached the bridge (the conversation is busy from another
+    // surface, or the bridge threw), so nothing was persisted or spoken. Hand
+    // the answer back to the stash — the user's next turn is the fallback route
+    // that exists for exactly this. A newer continuation's answer already in
+    // the stash wins over this older one rather than being overwritten.
+    const restashed =
+      !this.isClosed &&
+      this.detachStopGeneration === stopGeneration &&
+      this.pendingContinuationResult === null;
+    if (restashed) {
+      this.pendingContinuationResult = pending.answer;
+    }
+    log.warn(
+      {
+        conversationId: this.conversationId,
+        resultChars: pending.answer.length,
+        resultDestination: restashed ? "stashed" : "dropped",
+      },
+      "Voice duplex continuation announcement could not start",
+    );
   }
 
   // VAD closed the utterance — the analog of ptt_release: emit
@@ -1618,30 +2750,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         return;
       }
-      // Semantic endpointing: a silence boundary may be a thinking pause —
-      // let the front decider hold the utterance open. Only detector-timer
+      // Semantic endpointing: a silence boundary may be a thinking pause, so
+      // the unified front-door leg itself is the endpoint decision. When it
+      // launches, the boundary is deferred to the verdict — commit releases
+      // the utterance, hold replays the boundary via the extension timer.
+      // When speculation is inapplicable (no text, cap reached, a turn
+      // already active) fall through and release. Only detector-timer
       // silences qualify; max-duration always releases, and a manual client
       // release (ptt_release forced the boundary) is the user saying "answer
-      // now" — never second-guess it. The gate is synchronous (null) whenever
-      // the decider is not consulted, so that release path keeps its exact
-      // event ordering — an extra await here would shift utterance release
-      // across the persistent-transcriber flush attribution.
+      // now" — never second-guess it.
       if (reason === "silence" && !manualRelease) {
-        if (this.frontDoorRoutingActive()) {
-          // Unified front-door: the leg itself is the endpoint decision.
-          // When it launches, the boundary is deferred to the verdict —
-          // commit releases the utterance, hold replays the boundary via
-          // the extension timer. When speculation is inapplicable (no
-          // text, cap reached, a turn already active) fall through and
-          // release exactly as before.
-          if (await this.launchSpeculativeAssistantTurn(utterance)) {
-            return;
-          }
-        } else {
-          const holdDecision = this.maybeHoldUtteranceOpen(utterance);
-          if (holdDecision && (await holdDecision)) {
-            return;
-          }
+        if (await this.launchSpeculativeAssistantTurn(utterance)) {
+          return;
         }
       }
       await this.sendFrame({ type: "utterance_end", reason });
@@ -1649,96 +2769,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     })().catch(() => {});
   }
 
-  /**
-   * Semantic-endpointing gate for a silence-fired turn-end. Returns `null`
-   * synchronously when the decider is not consulted (no decider,
-   * extension cap reached, nothing transcribed) — the boundary then releases
-   * exactly as before. Otherwise resolves `true` when the boundary must NOT
-   * release the utterance now: either the decider held it open (the extension
-   * timer replays the boundary), or the world moved on during the decision
-   * (speech resumed, utterance superseded) and a fresh boundary owns the
-   * release. Every decider failure resolves as "release" within
-   * `endpointDecisionTimeoutMs` (fail-open), so consulting it adds at most
-   * that much end-of-turn latency.
-   */
-  private maybeHoldUtteranceOpen(
-    utterance: UtteranceCycle,
-  ): Promise<boolean> | null {
-    const decider = this.frontDecider;
-    if (!decider) {
-      return null;
-    }
-    if (
-      utterance.endpointExtensionCount >=
-      this.frontModelConfig.endpointMaxExtensions
-    ) {
-      return null;
-    }
-    const transcriptSoFar = utterance.finalTranscriptSegments.join(" ").trim();
-    const latestPartial = utterance.latestPartialText;
-    if (transcriptSoFar.length === 0 && !latestPartial) {
-      // Nothing transcribed yet: there is no text to judge.
-      return null;
-    }
-    return this.decideUtteranceHold(
-      decider,
-      utterance,
-      transcriptSoFar,
-      latestPartial,
-    );
-  }
-
-  private async decideUtteranceHold(
-    decider: VoiceFrontDecider,
-    utterance: UtteranceCycle,
-    transcriptSoFar: string,
-    latestPartial: string | null,
-  ): Promise<boolean> {
-    const generation = this.vadSpeechGeneration;
-    const decisionStartedAtMs = this.metricsClock();
-    const decision = await decider
-      .decideEndpoint({
-        transcriptSoFar,
-        latestPartial,
-        silenceThresholdMs: this.silenceThresholdMs,
-        extensionCount: utterance.endpointExtensionCount,
-      })
-      // The decider contract never rejects, but the enclosing boundary flow
-      // swallows rejections — a rejecting decider (a buggy stub, a future
-      // regression) would silently drop the silence boundary. Belt and
-      // braces: rejection degrades to release, mirroring speakGeneratedAck.
-      .catch(() => ({ action: "release" as const }));
-    const decisionLatencyMs = Math.max(
-      0,
-      this.metricsClock() - decisionStartedAtMs,
-    );
-    // Re-check the world after the await: the decision window is bounded but
-    // real, and a release based on a stale snapshot could cut off speech.
-    if (
-      this.isUtteranceStale(utterance) ||
-      utterance.released ||
-      utterance.completed
-    ) {
-      return true;
-    }
-    if (generation !== this.vadSpeechGeneration) {
-      // Speech resumed during the decision: the utterance keeps accumulating
-      // and the detector's next turn-end re-runs the whole decision. The
-      // discarded decision is not recorded — only acted-on outcomes count.
-      return true;
-    }
-    this.markEndpointDecision(utterance, decision.action, decisionLatencyMs);
-    if (decision.action !== "hold") {
-      return false;
-    }
-    utterance.endpointExtensionCount += 1;
-    this.armEndpointExtensionTimer(utterance);
-    return true;
-  }
-
   // Arms the hold-extension replay: after `endpointExtensionMs` of continued
-  // silence the deferred silence boundary re-fires (and the decider is
-  // consulted again, bounded by `endpointMaxExtensions`).
+  // silence the deferred silence boundary re-fires (and a fresh front-door
+  // leg judges it again, bounded by `endpointMaxExtensions`).
   private armEndpointExtensionTimer(utterance: UtteranceCycle): void {
     this.clearEndpointExtensionTimer();
     this.endpointExtensionTimer = setTimeout(() => {
@@ -1755,18 +2788,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       this.handleVadUtteranceEnd("silence");
     }, this.frontModelConfig.endpointExtensionMs);
-  }
-
-  /**
-   * Whether front-door routing is active: the single `voice-mode` flag.
-   * Governs both halves of the unified front door — the speculative leg that
-   * decides the endpoint, and the escalation hand-off — so the two can never
-   * disagree. The decider-based hold path (`decideEndpoint`) runs as the
-   * flag-off fallback, so endpointing stays model-decided either way.
-   */
-  private frontDoorRoutingActive(config?: AssistantConfig): boolean {
-    const cfg = config ?? getConfig();
-    return isAssistantFeatureFlagEnabled("voice-mode", cfg);
   }
 
   /**
@@ -1903,15 +2924,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /**
    * Abort a speculative leg and roll back everything it touched: the
    * persisted user message (via the handle's discard), the active-turn
-   * slot, and the utterance's turn-started latch, so the utterance can be
-   * re-dispatched (hold replay) or keep accumulating (speech resumed).
-   * Nothing was ever user-visible — no frames were sent for this turn.
+   * slot, the pending context it consumed, and the utterance's turn-started
+   * latch, so the utterance can be re-dispatched (hold replay) or keep
+   * accumulating (speech resumed). Nothing was ever user-visible — no frames
+   * were sent for this turn.
    */
   private discardSpeculativeTurn(
     turn: ActiveAssistantTurn,
     reason: string,
   ): void {
     turn.speculativePending = false;
+    // The dispatch is being unwound, so the barge-in merge note, the finished
+    // continuation's answer, its queued announcement, and any photos it claimed
+    // all go back to the session. The turn that would have delivered them is
+    // gone, and the utterance they belong to is about to be sent by another.
+    this.restorePendingTurnContext(turn);
     // Latched before the handle check: when the discard beats the bridge
     // handle's resolution (startVoiceTurn still persisting), the handle's
     // arrival in startAssistantLeg completes the rollback via discard().
@@ -2295,20 +3322,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.sendTranscriberErrorFrame(event);
         return;
       case "closed": {
+        if (this.sharedTranscriber !== transcriber) {
+          // A retired stream's stop() emits closed asynchronously, possibly
+          // after a replacement stream is installed. The retire path already
+          // drained the finalize queue and nulled the stream refs, so this
+          // close is stale bookkeeping; mutating here would clear the
+          // replacement's state and seal its in-flight utterance early.
+          return;
+        }
         // The shared stream closed under the session: fall back to the
         // per-cycle path — the next arm resolves a fresh transcriber.
         this.sharedTranscriber = null;
-        this.clearFinalizeGraceTimer();
-        const drained = this.finalizeQueue;
-        this.finalizeQueue = [];
-        for (const finalizing of drained) {
-          if (finalizing.transcriber === transcriber) {
-            finalizing.transcriber = null;
-          }
-          if (finalizing.phase === "released") {
-            finalizing.phase = "transcriber_closed";
-          }
-        }
+        this.sharedTranscriberLanguage = undefined;
+        const drained = this.drainFinalizeQueueFor(transcriber);
         const current = this.currentUtterance;
         if (
           current &&
@@ -2414,7 +3440,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // without ever reaching finalizePendingUtterance).
     this.pendingInterruptedRequest = null;
     // ...and it hard-stops any detached background continuations.
-    this.abortDetachedRuns();
+    this.abortDetachedRuns({ reason: "client_interrupt" });
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -2438,6 +3464,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.finalizeQueue = [];
     const shared = this.sharedTranscriber;
     this.sharedTranscriber = null;
+    this.sharedTranscriberLanguage = undefined;
     const utterance = this.currentUtterance;
     const transcriber = utterance?.transcriber ?? null;
     if (utterance) {
@@ -2514,38 +3541,116 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    // Consume any pending barge-in merge context and completed-continuation
-    // context for this turn (each feeds exactly the next launched turn).
-    const interruptedRequest = this.pendingInterruptedRequest;
+    await this.launchAssistantTurn(utterance, content);
+  }
+
+  /**
+   * Take the barge-in merge context, the completed-continuation context, and
+   * the handoff note for the turn being launched — each feeds exactly the next
+   * launched turn — and cancel the queued announcement, because the turn this
+   * context rides delivers the same answer and would otherwise say it twice.
+   *
+   * Every real user turn consumes here, speculative or not: a speculative
+   * dispatch latches `assistantTurnStarted`, so a turn that skipped this would
+   * never pick the context up on any later pass. A rolled-back dispatch hands
+   * it all back (restorePendingTurnContext).
+   */
+  private consumePendingTurnContext(): {
+    interruptedRequest: string | null;
+    continuationResult: string | null;
+    handedOffRequest: string | null;
+    announcement: ContinuationDelivery | null;
+  } {
+    const consumed = {
+      interruptedRequest: this.pendingInterruptedRequest,
+      continuationResult: this.pendingContinuationResult,
+      handedOffRequest: this.pendingHandoffRequest,
+      announcement: this.pendingAnnouncement,
+    };
     this.pendingInterruptedRequest = null;
-    const continuationResult = this.pendingContinuationResult;
     this.pendingContinuationResult = null;
-    await this.launchAssistantTurn(utterance, content, {
-      interruptedRequest,
-      continuationResult,
-    });
+    this.pendingHandoffRequest = null;
+    this.clearContinuationAnnouncement();
+    return consumed;
+  }
+
+  /**
+   * Hand a turn's consumed pending context back to the session because the
+   * turn never happened: a speculative dispatch was discarded or held, or the
+   * launch never reached the bridge. Without this a hold verdict would destroy
+   * a finished continuation's answer outright — the stash was already emptied
+   * and no later turn would ever see it.
+   *
+   * Restores are conservative. A hard stop (interrupt/close/supersede) bumps
+   * `detachStopGeneration`, and that drop is deliberate — never undone here.
+   * Anything newer already sitting in a slot wins over the older value being
+   * returned to it.
+   */
+  private restorePendingTurnContext(turn: ActiveAssistantTurn): void {
+    const interruptedRequest = turn.interruptedRequest;
+    const continuationResult = turn.continuationResult;
+    const handedOffRequest = turn.handedOffRequest;
+    const announcement = turn.consumedAnnouncement;
+    // One restore per turn: the rollback paths overlap (a discarded turn whose
+    // leg start also fails), and the second pass must be a no-op.
+    turn.interruptedRequest = null;
+    turn.continuationResult = null;
+    turn.handedOffRequest = null;
+    turn.consumedAnnouncement = null;
+    if (
+      this.isClosed ||
+      this.detachStopGeneration !== turn.pendingContextStopGeneration
+    ) {
+      return;
+    }
+    if (this.pendingInterruptedRequest === null) {
+      this.pendingInterruptedRequest = interruptedRequest;
+    }
+    if (this.pendingContinuationResult === null) {
+      this.pendingContinuationResult = continuationResult;
+    }
+    // "Still running" is stale the moment a result exists, which is why the
+    // detach clears the handoff note when it finishes — don't reinstate it
+    // against a continuation that has since completed.
+    if (
+      this.pendingHandoffRequest === null &&
+      this.pendingContinuationResult === null
+    ) {
+      this.pendingHandoffRequest = handedOffRequest;
+    }
+    if (announcement !== null && this.pendingAnnouncement === null) {
+      this.pendingAnnouncement = announcement;
+      this.scheduleContinuationAnnouncement();
+    }
   }
 
   // Build the ActiveAssistantTurn for a released utterance and drive its model
-  // leg.
+  // leg. Resolves true once the leg has a live turn handle, false when the
+  // dispatch never reached the bridge — the signal a caller with a fallback
+  // route (announceContinuation) needs, since a failed start is otherwise
+  // handled entirely inside startAssistantLeg.
   private async launchAssistantTurn(
     utterance: UtteranceCycle,
     content: string,
     opts?: {
-      // Set on a barge-in follow-up turn: the interrupted request's transcript,
-      // appended to the turn's control prompt so the model merges the two.
-      interruptedRequest?: string | null;
-      // Set when a background continuation finished the interrupted reply: its
-      // answer, appended to the turn's control prompt as context.
-      continuationResult?: string | null;
+      // Set on an announcement turn: the finished continuation this turn exists
+      // to deliver. Its answer goes in the control prompt, not in `content`.
+      continuationDelivery?: ContinuationDelivery | null;
       // Unified front-door: dispatch without releasing the utterance. The
       // thinking frame and floor-holding timers are deferred until the leg's
       // leading verdict commits the turn (see commitSpeculativeTurn); a hold
       // verdict rolls everything back instead.
       speculative?: boolean;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     utterance.assistantTurnStarted = true;
+    // The announcement turn IS the delivery of the pending continuation, so it
+    // must not also consume the stash — feeding it both would deliver the same
+    // answer twice. Every other turn is a real user turn and takes the context.
+    const pending =
+      opts?.continuationDelivery == null
+        ? this.consumePendingTurnContext()
+        : null;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
     this.startMetricsTurnIfNeeded(utterance, turnId);
@@ -2561,6 +3666,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       progress: {
         ops: [],
         opsSinceNarration: 0,
+        // Equal epochs at launch: a turn that has done nothing observable yet
+        // has nothing to narrate, so the idle trigger waits for tool activity
+        // or the maxSilenceMs heartbeat.
+        stateEpoch: 0,
+        narratedEpoch: 0,
         updatesSpoken: 0,
         lastFloorHolderAtMs: null,
         lastAudibleAtMs: Date.now(),
@@ -2569,6 +3679,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       },
       assistantCompleted: false,
       ttsDone: false,
+      minimizeRequested: false,
+      activityLabel: "",
+      publishedApprovalRequestId: null,
+      pendingApproval: null,
       ttsAudioStarted: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
@@ -2580,8 +3694,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       verdictDeadlineTimer: null,
       discardRequested: false,
       speculativeBuffer: "",
-      interruptedRequest: opts?.interruptedRequest ?? null,
-      continuationResult: opts?.continuationResult ?? null,
+      interruptedRequest: pending?.interruptedRequest ?? null,
+      continuationResult: pending?.continuationResult ?? null,
+      handedOffRequest: pending?.handedOffRequest ?? null,
+      consumedAnnouncement: pending?.announcement ?? null,
+      pendingContextStopGeneration: this.detachStopGeneration,
+      continuationDelivery: opts?.continuationDelivery ?? null,
       toolUseStarted: false,
       firstDeltaSeen: false,
       deltaEpoch: 0,
@@ -2605,7 +3723,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!opts?.speculative) {
       await this.sendFrame({ type: "thinking", turnId });
       if (!this.isActiveAssistantTurn(token)) {
-        return;
+        this.restorePendingTurnContext(activeTurn);
+        return false;
       }
     } else {
       // Verdict-deadline fail-open: the deferred-everything window is only
@@ -2635,11 +3754,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }, this.frontModelConfig.endpointDecisionTimeoutMs);
     }
 
-    const cfg = getConfig();
-
     // Slow-first-delta spoken ack: if the model produces no delta within the
-    // budget, a short static phrase holds the floor. Only meaningful on TTS
-    // sessions — a text-only session has no audio gap to bridge.
+    // budget, a short front-model-phrased sentence holds the floor. Only
+    // meaningful on TTS sessions — a text-only session has no audio gap to
+    // bridge.
     if (this.streamTtsAudio && !opts?.speculative) {
       this.armAckTimer(activeTurn);
     }
@@ -2657,33 +3775,30 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.armProgressIdleTimer(activeTurn);
     }
 
-    // Triage-and-escalate (Voice Mode): active whenever the `voice-mode` flag
-    // is on. A live-voice session already implies voice-mode client-side; the
-    // explicit server-side check keeps the gate honest when the daemon's flag
-    // copy lags (it falls back to the decider-based hold path until it lands).
-    const escalateEnabled = this.frontDoorRoutingActive(cfg);
-
-    // Front-door leg: with routing on, a fast model fronts the turn (the
-    // `voiceFrontDoor` call site pins it) and may hand off on the escalate
-    // verdict; with it off, a single leg runs on the call-site default —
-    // byte-for-byte the prior behavior.
-    await this.startAssistantLeg(
-      activeTurn,
-      escalateEnabled
-        ? {
-            content,
-            routingLeg: "front-door",
-            frontDoor: true,
-          }
-        : { content },
-    );
+    // Front-door leg: a fast model fronts every turn (the `voiceFrontDoor`
+    // call site pins it) and may hand off to a quality leg on the escalate
+    // verdict.
+    const started = await this.startAssistantLeg(activeTurn, {
+      content,
+      routingLeg: "front-door",
+      frontDoor: true,
+    });
+    if (!started) {
+      // Nothing was persisted or spoken, so the context this turn consumed goes
+      // back to the session rather than dying with the failed dispatch.
+      this.restorePendingTurnContext(activeTurn);
+    }
+    return started;
   }
 
   /**
    * Drive one model leg of an assistant turn through the session bridge,
    * streaming its deltas to the live-voice client and TTS. Returns once the
    * leg's turn handle is acquired (or the start fails) — turn completion stays
-   * callback-driven via message_complete, exactly as the single-leg path did.
+   * callback-driven via message_complete. The resolved boolean is whether the
+   * bridge actually handed back a turn handle: false means the leg never
+   * started (no bridge wired, or the start threw and was reported as an error
+   * frame), so nothing of this turn was persisted or spoken.
    *
    * A turn runs one leg normally. Under triage-and-escalate the front-door leg
    * (`frontDoor: true`) runs the verdict-first protocol: its leading tokens
@@ -2704,35 +3819,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       frontDoor?: boolean;
       spokenEscalationBridge?: string;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.startVoiceTurn) {
-      return;
+      return false;
     }
     const { token, utterance, turnId } = activeTurn;
 
-    // Front-door verdict gate (verdict-first protocol — see
-    // voice-triage-escalate.ts). `rawText` accumulates this leg's full
-    // stream; the leg starts in `deciding` until its leading tokens
-    // classify as hold / escalate / answer. An answer flushes through
-    // `flushFrontDoor` (with `frontDoorEmitted` tracking what has been
-    // forwarded); an escalation buffers the post-verdict stream into
-    // `bridgeRaw` until the bridge is complete, then hands off.
+    // `rawText` accumulates this leg's full stream. A front-door leg starts
+    // in `deciding` until its leading tokens classify as hold / escalate /
+    // answer: an answer flushes through the shared marker holdback, while an
+    // escalation buffers the post-verdict stream into `bridgeRaw` until the
+    // bridge is complete, then hands off. A default/escalated leg flushes
+    // every delta through the same holdback, so a stray control marker from
+    // the main model is stripped instead of spoken.
     let rawText = "";
-    let frontDoorEmitted = 0;
     let frontDoorStage: "deciding" | "answer" | "bridging" | "handedOff" =
       "deciding";
     let bridgeRaw = "";
 
-    const emitFrontDoor = (chunk: string): void => {
+    const emitLegText = (chunk: string): void => {
       if (chunk.length === 0) {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
       this.markFirstDeltaForAck(activeTurn);
-      // Same send-time abort gate as the default-leg delta path: a front-door
-      // delta queued behind a backed-up outbound frame must not be written
-      // once barge-in aborts the turn. Escalation aborts the front-door handle,
-      // not this turn's controller, so legitimate front-door text still sends.
+      // Send-time abort gate: a delta queued behind a backed-up outbound
+      // frame must not be written once barge-in aborts the turn, or the
+      // cancelled reply's text leaks ahead of turn_cancelled. Key off this
+      // turn's own abort signal — a normal message_complete finalizes and
+      // clears activeAssistantTurn while trailing deltas may still be
+      // draining, so an activeAssistantTurn-based guard would drop them.
+      // Escalation aborts the front-door handle, not this turn's controller,
+      // so legitimate front-door text still sends.
       void this.sendFrame(
         { type: "assistant_text_delta", text: chunk },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
@@ -2740,26 +3858,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.bufferAssistantTextForTts(token, chunk);
     };
 
-    // Forward the stripped, non-partial-marker prefix that has not been
-    // emitted yet (answer stage only). A trailing "[…" that could still
-    // become a control marker is held back until a later delta disproves
-    // it; a real partial that never completes is simply never spoken.
-    const flushFrontDoor = (): void => {
-      let safeEnd = rawText.length;
-      const lastOpen = rawText.lastIndexOf("[");
-      if (lastOpen >= frontDoorEmitted) {
-        const tail = rawText.slice(lastOpen);
-        if (!tail.includes("]") && couldBeControlMarker(tail)) {
-          safeEnd = lastOpen;
-        }
-      }
-      if (safeEnd > frontDoorEmitted) {
-        emitFrontDoor(
-          stripInternalSpeechMarkers(rawText.slice(frontDoorEmitted, safeEnd)),
-        );
-        frontDoorEmitted = safeEnd;
-      }
-    };
+    const flushLegText = createControlMarkerHoldback(activeTurn, emitLegText);
 
     // Hand off once enough of the post-verdict stream has arrived to cap
     // the bridge (sentence terminator or hard cap). Until then nothing is
@@ -2780,13 +3879,39 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceSessionId: this.context.sessionId,
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
+        // Fixed, and NOT the originating client: this pair resolves the turn's
+        // channel capabilities, where `macos` is what grants a live-voice turn
+        // desktop UI and dynamic surfaces. Reporting the true client here would
+        // strip `supportsDynamicUi` from every iOS session: a behavior change
+        // wearing an attribution fix's clothes. The originating client travels
+        // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
-        voiceControlPrompt: buildVoiceControlPrompt(activeTurn),
+        voiceTelemetry: {
+          sessionId: this.context.sessionId,
+          ...(this.context.startFrame.client
+            ? { client: this.context.startFrame.client }
+            : {}),
+        },
+        voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
+          ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
+        }),
+        onApprovalPending: (requestId) => {
+          this.revealRoomForPendingApproval(activeTurn, requestId);
+        },
+        onApprovalsResolved: () => {
+          this.clearAwaitingApproval(activeTurn);
+        },
         content: leg.content,
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,
         signal: activeTurn.abortController.signal,
+        // An announcement turn's content is a fixed marker, not user speech:
+        // persist it hidden and suppress its echo so nothing renders as a user
+        // bubble for a turn the user never started.
+        ...(activeTurn.continuationDelivery !== null
+          ? { hiddenSyntheticPrompt: true }
+          : {}),
         ...(leg.overrideProfile != null
           ? { overrideProfile: leg.overrideProfile }
           : {}),
@@ -2856,7 +3981,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 }
                 frontDoorStage = "answer";
               }
-              flushFrontDoor();
+              flushLegText(rawText);
               return;
             }
             // Defensive: speculative legs are always front-door today, but a
@@ -2871,24 +3996,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 return;
               }
             }
-            this.markFirstAssistantDelta(utterance, turnId);
-            this.markFirstDeltaForAck(activeTurn);
-            void this.sendFrame(
-              {
-                type: "assistant_text_delta",
-                text: msg.text,
-              },
-              // Re-check at send time (mirrors the tts_audio path): a delta
-              // already queued behind a backed-up outbound frame must not be
-              // written once barge-in has aborted the turn, or the cancelled
-              // reply's text leaks ahead of turn_cancelled. Key off this turn's
-              // own abort signal — a normal message_complete finalizes and
-              // clears activeAssistantTurn while trailing deltas may still be
-              // draining, so an activeAssistantTurn-based guard would drop them.
-              () =>
-                !activeTurn.abortController.signal.aborted && !this.isClosed,
-            );
-            this.bufferAssistantTextForTts(token, msg.text);
+            rawText += msg.text;
+            flushLegText(rawText);
           },
           message_complete: (msg) => {
             const current = this.activeAssistantTurn;
@@ -2930,6 +4039,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (leg.frontDoor && current.escalationHandedOff) {
               return;
             }
+            // A held "[…"-tail that never completed a marker is real text —
+            // force-flush it before assistantCompleted closes the TTS buffer
+            // and completeTtsForTurn signals the drain, so it is spoken and
+            // emitted rather than dropped.
+            if (!leg.frontDoor && msg.type === "message_complete") {
+              flushLegText(rawText, { force: true });
+            }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
               void this.finalizeAssistantTurn(
@@ -2940,6 +4056,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.assistantMessageId = msg.messageId ?? null;
+            current.continuationDelivery = null;
             this.completeTtsForTurn(token);
           },
           persisted_user_message_id: (messageId) => {
@@ -2964,6 +4081,40 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.toolUseStarted = true;
+            // Foreground wins the workspace: the continuation runs with full
+            // subagent abilities (it can write files, run commands), so the
+            // moment a live turn starts a consequential tool the two could
+            // race on the same workspace, host, or extension state. Kill
+            // running continuations and skip pending detaches; a continuation
+            // only survives while foreground turns stay provably read-only
+            // (the topic-change case it exists for). Fail closed: only
+            // provably non-contending built-ins keep a continuation alive
+            // (see foregroundToolContendsWithContinuation) — a name-based
+            // side-effect denylist misses mutators like plugin/MCP/skill
+            // tools. Over-aborting only drops a best-effort salvage;
+            // under-aborting risks a write race.
+            // An already-completed continuation's stashed answer is kept — it
+            // cannot race anything.
+            //
+            // Accepted residual: the abort is signal-level. A tool call
+            // already executing inside the continuation is not awaited (the
+            // agent loop abandons the in-flight promise on cancellation), so
+            // that one call can briefly overlap the foreground tool. Closing
+            // it would take a cross-conversation execution lock that the
+            // subagent model deliberately does not have — parallel subagents
+            // share the workspace with the parent everywhere — and awaiting
+            // background teardown here would stall the live call's turn.
+            // This gate already makes voice stricter than that baseline; the
+            // residual is bounded to one in-flight call at barge-over time.
+            if (
+              foregroundToolContendsWithContinuation(toolName, detail?.input)
+            ) {
+              this.abortDetachedRuns({
+                keepPendingResult: true,
+                reason: "foreground_tool_contends",
+                toolName,
+              });
+            }
             // The op counts toward the narration threshold on start (not
             // completion) so a burst of slow tools still trips the ops
             // trigger while they run.
@@ -2975,6 +4126,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               startedAtMs: Date.now(),
             });
             current.progress.opsSinceNarration += 1;
+            current.progress.stateEpoch += 1;
+            this.refreshActivity(current);
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
             // Definitive tool use means the turn is guaranteed slow: speak
             // the floor-holding ack now instead of waiting out the
@@ -3008,14 +4161,49 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                   )
                 : undefined) ??
               findLastIncompleteOp(current.progress.ops, event.toolName);
+            // A long-running op finishing is the beat the user has been
+            // waiting through: it narrates immediately rather than waiting for
+            // `opsThreshold` more ops, which on a one-slow-tool turn never
+            // arrive. Short ops stay on the ops trigger — narrating every
+            // quick lookup is the chatter this cadence exists to avoid.
+            let trigger: "ops" | "op_complete" = "ops";
             if (op) {
               op.completedAtMs = Date.now();
               if (event.isError !== undefined) {
                 op.isError = event.isError;
               }
               op.resultPreview = event.resultPreview;
+              if (
+                op.completedAtMs - op.startedAtMs >=
+                this.frontModelConfig.progress.longOpMs
+              ) {
+                trigger = "op_complete";
+              }
             }
-            this.maybeNarrateProgress(current, "ops");
+            current.progress.stateEpoch += 1;
+            // Showing a surface implies revealing it: the room is a
+            // full-screen overlay, so a surface rendered behind it is a
+            // surface nobody sees.
+            //
+            // **Latched on the result, not the tool start.** A ui call can be
+            // rejected (no `surface_type`, an empty card, a client that never
+            // acks), and a reveal driven by the attempt would minimize the room
+            // to show nothing at all. Only a call that came back without an
+            // error actually put something on screen.
+            //
+            // A dismissal clears it again, so a turn that shows a surface and
+            // then takes it away does not reveal an empty screen. Last write
+            // wins, which is the right reading of "what did this turn leave up"
+            // without tracking surfaces individually.
+            if (event.isError !== true) {
+              if (revealsUiSurface(event.toolName)) {
+                current.minimizeRequested = true;
+              } else if (dismissesUiSurface(event.toolName)) {
+                current.minimizeRequested = false;
+              }
+            }
+            this.refreshActivity(current);
+            this.maybeNarrateProgress(current, trigger);
           },
         },
         onError: (message) => {
@@ -3056,27 +4244,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         } else {
           handle.abort();
         }
-        return;
+        // The bridge ran: the leg's user row was persisted (or explicitly
+        // rolled back by the discard above), so this counts as started even
+        // though a newer turn owns the session.
+        return true;
       }
       if (current.finalized) {
-        this.activeAssistantTurn = null;
-        return;
+        this.clearActiveAssistantTurn(token);
+        return true;
       }
       // The front-door leg may have handed off before its handle resolved;
       // abort it rather than exposing it as the turn's live handle.
       if (leg.frontDoor && current.escalationHandedOff) {
         handle.abort();
-        return;
+        return true;
       }
 
       current.handle = handle;
+      return true;
     } catch (err) {
       if (!this.isActiveAssistantTurn(token)) {
-        return;
+        return false;
       }
 
       this.clearFillerTimers(activeTurn);
-      this.activeAssistantTurn = null;
+      this.clearActiveAssistantTurn(token);
       await this.sendFrame({
         type: "error",
         code: LiveVoiceProtocolErrorCode.InvalidField,
@@ -3086,6 +4278,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       });
       await this.finalizePendingUtterance(utterance, "assistant_start_error");
       this.scheduleRearmAfterTurn();
+      return false;
     }
   }
 
@@ -3271,10 +4464,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // the user's ears — not time since launch, so it covers mid-turn silences
   // for the whole turn. On expiry with audio still pending, or with the
   // silence not yet a full interval old, it re-arms for the remainder; only a
-  // full interval of audible silence narrates. The cadence is deliberately
-  // flat and uncapped: long pauses feel longest, so updates keep coming at
-  // the same interval (minGapMs is the spacing floor) for as long as the
-  // turn stays silent.
+  // full interval of audible silence reaches the narration gatekeeper. The
+  // interval is a polling cadence, not a speaking cadence: most ticks find
+  // nothing new to report and stay quiet, so what the user hears follows the
+  // turn's tool activity (with `maxSilenceMs` as the heartbeat ceiling).
   private armProgressIdleTimer(
     turn: ActiveAssistantTurn,
     delayMs?: number,
@@ -3302,16 +4495,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }, delayMs ?? this.frontModelConfig.progress.idleIntervalMs);
   }
 
-  // Wall-clock instant the current audible silence turns a full interval old:
-  // measured from the latest of the last emitted segment, the estimated
-  // client playback end, and the last enqueued filler.
+  // Wall-clock instant the current audible silence turns a full interval old.
   private progressIdleDeadlineMs(turn: ActiveAssistantTurn): number {
     return (
-      Math.max(
-        turn.progress.lastAudibleAtMs,
-        this.assistantPlaybackTailUntilMs,
-        turn.progress.lastFloorHolderAtMs ?? 0,
-      ) + this.frontModelConfig.progress.idleIntervalMs
+      this.progressSilenceSinceMs(turn) +
+      this.frontModelConfig.progress.idleIntervalMs
+    );
+  }
+
+  // When the turn's current audible silence began: the latest of the last
+  // emitted segment, the estimated client playback end, and the last enqueued
+  // filler.
+  private progressSilenceSinceMs(turn: ActiveAssistantTurn): number {
+    return Math.max(
+      turn.progress.lastAudibleAtMs,
+      this.assistantPlaybackTailUntilMs,
+      turn.progress.lastFloorHolderAtMs ?? 0,
     );
   }
 
@@ -3375,21 +4574,47 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return (
       this.isActiveAssistantTurn(turn.token) &&
       !turn.assistantCompleted &&
+      // Nothing is in flight while a decision is pending, so every phrase
+      // narration has would be a lie about who the call is waiting on. The
+      // turn says so once, when it starts waiting, and is quiet after that.
+      turn.pendingApproval === null &&
       this.turnAudioIdle(turn)
     );
   }
 
+  // The idle tick has something worth saying when the turn's tool activity has
+  // moved since the last narration described it, or when the silence has run
+  // past `maxSilenceMs` — the heartbeat ceiling that proves the assistant is
+  // still alive on a turn with no observable activity at all. Every other tick
+  // stays quiet, so the cadence follows the work rather than the clock.
+  private progressIdleHasSomethingToSay(turn: ActiveAssistantTurn): boolean {
+    const { progress } = turn;
+    if (progress.stateEpoch !== progress.narratedEpoch) {
+      return true;
+    }
+    const silentForMs = Date.now() - this.progressSilenceSinceMs(turn);
+    if (silentForMs >= this.frontModelConfig.progress.maxSilenceMs) {
+      return true;
+    }
+    log.debug(
+      { turnId: turn.turnId, silentForMs },
+      "Live voice progress narration held — nothing new since the last update",
+    );
+    return false;
+  }
+
   // Gatekeeper for spoken progress narration: it speaks only while the turn
   // is audibly silent, spaced `minGapMs` from any spoken floor-holder (ack or
-  // narration), one generation at a time, and — on the ops trigger — only
-  // once `opsThreshold` ops accumulated. No per-turn count cap: the cadence
-  // guards bound the rate, and going quiet deep into a long turn is the
-  // failure mode narration exists to prevent. Every failing guard
-  // short-circuits silently; a skipped ops trigger keeps its accumulated
-  // count, so the next tool event or idle tick retries.
+  // narration), one generation at a time, and — per trigger — only once the
+  // ops trigger has `opsThreshold` ops accumulated or the idle trigger has
+  // something new to report. No per-turn count cap: the cadence guards bound
+  // the rate, and going quiet deep into a long turn is the failure mode
+  // narration exists to prevent. Every failing guard short-circuits silently;
+  // a skipped ops trigger keeps its accumulated count, so the next tool event
+  // or idle tick retries.
   private maybeNarrateProgress(
     turn: ActiveAssistantTurn,
-    trigger: "ops" | "idle",
+    trigger: "ops" | "idle" | "op_complete",
   ): void {
     const cfg = this.frontModelConfig.progress;
     const { progress } = turn;
@@ -3406,7 +4631,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       progress.narrationInFlight ||
       (progress.lastFloorHolderAtMs !== null &&
         Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs) ||
-      (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold)
+      (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||
+      (trigger === "idle" && !this.progressIdleHasSomethingToSay(turn))
     ) {
       return;
     }
@@ -3418,18 +4644,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // on the turn's ordered TTS queue. The decider internally bounds the call
   // by `progress.generationTimeoutMs` and resolves null on every failure
   // mode; on null the idle trigger falls back to a static phrase (silence is
-  // actively harmful there) while the ops trigger stays silent — a generic
-  // filler is not worth it when narration was merely opportunistic.
+  // actively harmful there) while the tool-activity triggers stay silent — a
+  // generic filler is not worth it when narration was merely opportunistic.
   private async speakProgressUpdate(
     turn: ActiveAssistantTurn,
     frontDecider: VoiceFrontDecider,
-    trigger: "ops" | "idle",
+    trigger: "ops" | "idle" | "op_complete",
   ): Promise<void> {
     const { progress } = turn;
     progress.narrationInFlight = true;
     // Any delta that lands while the decider call is in flight makes the
     // generated text stale — and proves the model is speaking again.
     const deltaEpochAtLaunch = turn.deltaEpoch;
+    // The activity this update describes. Tool events that land mid-generation
+    // are news the generated text cannot carry, so they must leave the idle
+    // trigger armed rather than count as already narrated.
+    const stateEpochAtLaunch = progress.stateEpoch;
     try {
       const now = Date.now();
       const currentOp = findLastIncompleteOp(progress.ops);
@@ -3469,7 +4699,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // condition may have flipped while generating, and a delta that landed
       // mid-generation (deltaEpoch moved) makes the text stale even when the
       // resulting audio has already drained by now. The ack-generation and
-      // floor re-checks close the race with a generated ack (llmAckText) that
+      // floor re-checks close the race with a generated ack that
       // STARTED after this generation did — the entry guard rejects a
       // narration while an ack generation is already pending, but cannot see
       // one that begins mid-generation: while that ack is pending it has not
@@ -3489,7 +4719,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       let raw = generated;
       if (raw === null) {
-        if (trigger === "ops") {
+        if (trigger !== "idle") {
           return;
         }
         raw = pickProgressPhrase(this.progressPhraseCounter++);
@@ -3498,6 +4728,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       progress.opsSinceNarration = 0;
+      progress.narratedEpoch = stateEpochAtLaunch;
       progress.updatesSpoken += 1;
       // Like the ack mark, recorded only when narration audio actually
       // enqueued (decider text or static fallback alike).
@@ -3521,30 +4752,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     kind: LiveVoiceSpokenAckKind,
     toolName?: string,
   ): void {
-    activeTurn.ackSpoken = true;
-    if (this.frontModelConfig.llmAckText && this.frontDecider) {
-      // Optimistic ackSpoken above keeps the one-per-turn budget honest for
-      // any other ack trigger while the generation is in flight; the async
-      // path undoes it if the ack turns out moot.
-      void this.speakGeneratedAck(
-        activeTurn,
-        this.frontDecider,
-        kind,
-        toolName,
-      );
+    if (!this.frontDecider) {
+      // No decider, no ack: a canned line is worse than the silence, which
+      // progress narration already covers once the turn runs long.
       return;
     }
-    this.enqueueAckPhrase(activeTurn, this.pickStaticAckPhrase(kind), kind);
+    activeTurn.ackSpoken = true;
+    // Optimistic ackSpoken above keeps the one-per-turn budget honest for
+    // any other ack trigger while the generation is in flight; the async
+    // path undoes it if the ack turns out moot.
+    void this.speakGeneratedAck(activeTurn, this.frontDecider, kind, toolName);
   }
 
-  private pickStaticAckPhrase(kind: LiveVoiceSpokenAckKind): string {
-    return pickAckPhrase(kind, this.ackPhraseCounter++);
-  }
-
-  // LLM-phrased ack (liveVoice.frontModel.llmAckText): ask the front model
-  // for one short contextual sentence, static phrase on null. The decider
+  // Ask the front model for one short contextual sentence. The decider
   // internally bounds the call by `ackGenerationTimeoutMs` and resolves null
-  // on every failure mode, so the enqueue never waits beyond that budget.
+  // on every failure mode, so the enqueue never waits beyond that budget; a
+  // null generation speaks nothing.
   private async speakGeneratedAck(
     activeTurn: ActiveAssistantTurn,
     frontDecider: VoiceFrontDecider,
@@ -3567,23 +4790,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // The decider contract never rejects; belt-and-braces for a stub.
         .catch(() => null);
       // Liveness re-check after the await: any turnCanSpeakFiller condition
-      // may have flipped while generating, mooting the ack. Undo the
-      // optimistic ackSpoken so the flag reflects reality.
-      if (!this.turnCanSpeakFiller(activeTurn)) {
+      // may have flipped while generating, mooting the ack. A null generation
+      // (no provider, timeout, unusable output) speaks nothing. Either way,
+      // undo the optimistic ackSpoken so the flag reflects reality and a
+      // later trigger this turn can still hold the floor.
+      if (generated === null || !this.turnCanSpeakFiller(activeTurn)) {
         activeTurn.ackSpoken = false;
         return;
       }
-      this.enqueueAckPhrase(
-        activeTurn,
-        generated ?? this.pickStaticAckPhrase(kind),
-        kind,
-      );
+      this.enqueueAckPhrase(activeTurn, generated, kind);
     } finally {
       activeTurn.ackGenerationPending = false;
     }
   }
 
-  // Records the ack-spoken metric only when a phrase actually enqueues.
+  // Records the ack-spoken metric only when a phrase actually enqueues; a
+  // phrase that sanitizes away releases the turn's ack budget again.
   private enqueueAckPhrase(
     activeTurn: ActiveAssistantTurn,
     raw: string,
@@ -3591,7 +4813,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     if (this.enqueueFillerPhrase(activeTurn, raw)) {
       this.markAckSpoken(activeTurn, kind);
+      return;
     }
+    activeTurn.ackSpoken = false;
   }
 
   // Sanitize and enqueue one filler sentence (spoken ack or progress
@@ -3664,10 +4888,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             !this.isClosed,
         );
 
-        if (this.activeAssistantTurn?.token === token) {
-          if (currentTurn.handle && currentTurn.finalized) {
-            this.activeAssistantTurn = null;
-          }
+        // The turn is over, so nothing is running. Ordinarily the line is
+        // already clear (the last tool_result cleared it); this is the net
+        // for a turn that ends with an op still open, which would otherwise
+        // leave the last tool it touched on screen through the next silence.
+        this.publishActivity(currentTurn, "");
+
+        // Drain-scoped minimize: the latched marker is consumed here, after
+        // the turn's speech has fully drained — never mid-speech, never for
+        // a barged-in turn, at most once per turn.
+        if (
+          currentTurn.minimizeRequested &&
+          !currentTurn.abortController.signal.aborted
+        ) {
+          currentTurn.minimizeRequested = false;
+          await this.sendFrame(
+            { type: "minimize_room", turnId: currentTurn.turnId },
+            () => !this.isClosed,
+          );
+        }
+
+        if (currentTurn.handle && currentTurn.finalized) {
+          this.clearActiveAssistantTurn(token);
         }
 
         // Re-arm only after the terminal tts_done frame so a slow or failing
@@ -4147,7 +5389,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.activeAssistantTurn?.token === turn.token &&
       turn.handle
     ) {
-      this.activeAssistantTurn = null;
+      this.clearActiveAssistantTurn(turn.token);
     }
 
     if (options.rearm ?? true) {
@@ -4343,6 +5585,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     frame: LiveVoiceServerFramePayload,
     shouldSend: () => boolean = () => true,
   ): Promise<boolean> {
+    // Mirrored to the iOS Live Activity from here rather than from each call
+    // site: every frame that moves the session's phase passes through this one
+    // method, and a per-call-site hook would drift from it on the first frame
+    // anyone added. Fire-and-forget by contract — see the reporter.
+    this.liveActivityReporter.report(frame);
+    // Latched here for the same reason: both fatal paths mark the session
+    // `failed` and then send their error frame through this method, so the
+    // code that ended the session is readable at close without either path
+    // having to remember to stash it.
+    if (frame.type === "error" && this.state === "failed") {
+      this.failureCode ??= frame.code;
+    }
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})
@@ -4440,21 +5694,70 @@ export function createLiveVoiceSession(
 // the interrupted turn. The fork inherits the conversation's current messages
 // (which include the interrupted turn's completed tool calls after teardown),
 // so it resumes without repeating them. Uses spawnAndAwait (synchronous mode)
-// so the terminal parent-notification is skipped — the continuation stays
-// silent (never spoken unprompted); its final answer is RETURNED so the session
-// can fold it into the next turn the user starts. The `signal` aborts the child
-// on a stop/interrupt (spawnAndAwait then rejects).
-async function defaultSpawnBackgroundContinuation(args: {
+// so the terminal parent-notification is skipped — the run itself says nothing;
+// its final answer is RETURNED so the session decides how it reaches the user.
+// The `signal` aborts the child on a stop/interrupt (spawnAndAwait then
+// rejects).
+//
+// Exported for tests only: every production caller reaches it through the
+// `spawnBackgroundContinuation` option default in `createLiveVoiceSession`.
+export async function defaultSpawnBackgroundContinuation(args: {
   parentConversationId: string;
   objective: string;
   label: string;
   signal: AbortSignal;
 }): Promise<string> {
-  const parentConversation = findConversation(args.parentConversationId);
-  if (!parentConversation) {
-    throw new Error(
-      `Cannot detach interrupted voice turn: conversation ${args.parentConversationId} is not resident.`,
-    );
+  // Trust first, before anything can hydrate: the bridge stamps trust per-turn
+  // and clears it at teardown, which has settled by now — inheriting from the
+  // parent would read the cleared window and run the continuation fail-closed
+  // as `unknown`, denying every consequential tool. Resolve the same guardian
+  // trust the foreground turn ran under and pass it explicitly (resolution
+  // itself stays fail-closed: on a miss the continuation runs as `unknown`,
+  // exactly as an unstamped turn does).
+  const trustContext = await resolveLocalLiveVoiceTrustContext(
+    args.parentConversationId,
+  );
+  // getOrCreateConversation (not a raw registry read): it rebuilds a stale
+  // instance and awaits loadFromDb, so the snapshot below sees the persisted
+  // history. A raw findConversation can return a cold instance whose in-memory
+  // `messages` is empty, which silently forks a continuation with no context.
+  const { getOrCreateConversation } =
+    await import("../daemon/conversation-store.js");
+  const parentConversation = await getOrCreateConversation(
+    args.parentConversationId,
+  );
+  // Hydration runs under the resolved trust: `loadFromDb` filters history by
+  // the instance's own trust class, so a load with no trust context drops
+  // memory blocks and forces the compaction summary to null — the fork would
+  // inherit a lobotomized snapshot. Stamp for the duration of the load and
+  // restore the prior value, the same set-load-restore idiom
+  // `elevatePointerConversationToGuardian` uses to un-filter a cold pointer
+  // turn. The restore matters: the bridge owns this conversation's trust
+  // per-turn and expects the window between turns to be empty.
+  //
+  // `ensureActorScopedHistory` reloads exactly when the resident history was
+  // loaded under a different trust class — covering both the never-loaded cold
+  // instance and the untrusted load `getOrCreateConversation` may have just
+  // run — and no-ops when the history is already guardian-scoped. Without a
+  // guardian to stamp there is nothing to re-scope, so an unhydrated instance
+  // falls back to a plain load; a genuinely new conversation reads zero rows,
+  // harmless.
+  const priorTrustContext = parentConversation.trustContext;
+  if (trustContext) {
+    const stampedTrustContext = { ...trustContext };
+    parentConversation.setTrustContext(stampedTrustContext);
+    try {
+      await parentConversation.ensureActorScopedHistory();
+    } finally {
+      // Only undo the stamp this block installed: the user's next foreground
+      // turn can start during the load and stamp its own trust, and clearing
+      // that would run the live turn fail-closed.
+      if (parentConversation.trustContext === stampedTrustContext) {
+        parentConversation.setTrustContext(priorTrustContext ?? null);
+      }
+    }
+  } else if (parentConversation.getMessages().length === 0) {
+    await parentConversation.loadFromDb();
   }
   return await getSubagentManager().spawnAndAwait(
     {
@@ -4463,18 +5766,41 @@ async function defaultSpawnBackgroundContinuation(args: {
       objective: args.objective,
       fork: true,
       sendResultToUser: false,
-      // Read-only: the continuation runs unattended while the user talks to the
-      // live session, so it must never take an unapproved side effect. Any
-      // side-effecting tool is refused; the continuation surfaces the intended
-      // action for the user to approve on their next turn (via the resurface
-      // context) instead.
-      denySideEffectTools: true,
-      parentMessages: [...parentConversation.messages],
+      // Distinct spawn mode so this unattended continuation is separable in
+      // cost telemetry from a tool-initiated fork. Mechanically both are
+      // forks, but they come from different call sites with different cost
+      // profiles, and lumping them together is what made delegated spend
+      // opaque in the first place.
+      spawnMode: "voice_continuation",
+      // Full subagent abilities: the continuation runs like any other
+      // background subagent, so it can genuinely finish build-shaped work
+      // (JARVIS-1354). Side effects are governed by the standard
+      // non-interactive permission path under the explicit trust context
+      // resolved above — auto-approved up to the background risk threshold,
+      // auto-denied above it — the same policy the foreground voice turn it
+      // continues ran under. Workspace write races with the user's next
+      // foreground turn are prevented by the session's foreground-wins abort
+      // (a side-effecting tool start on a live turn aborts running
+      // continuations; see the tool_use_start handler).
+      ...(trustContext ? { trustContext } : {}),
+      parentMessages: [...parentConversation.getMessages()],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },
-    // No client-facing events: the continuation is silent; its result is folded
-    // into the next user turn as context, never spoken on its own.
-    () => {},
+    // Broadcast subagent events to clients attached to this conversation so
+    // the continuation appears in the UI like any other handoff — a background
+    // run the user cannot see reads as the assistant silently dropping their
+    // work. "Silent" means the RUN makes no sound of its own — its result is
+    // spoken by a session turn, on the session's terms; it was never meant to
+    // mean invisible.
+    //
+    // NOT the conversation's own sender: the voice bridge resets that to a
+    // no-op at turn teardown (see voice-session-bridge's clientCallbackInstalled
+    // reset), and the detach deliberately waits for that teardown before
+    // spawning — so a sender-based route is guaranteed to be dead by the time
+    // these events fire. `broadcastMessage` is the same path the bridge itself
+    // uses to reach an attached web client. The subagent events carry
+    // `parentConversationId`, not `conversationId`, so scope explicitly.
+    (msg) => broadcastMessage(msg, args.parentConversationId),
     { signal: args.signal },
   );
 }
@@ -4506,7 +5832,14 @@ async function defaultStartVoiceTurn(
   // inside `startVoiceTurn` trips `FOREIGN KEY constraint failed`. Ensure it
   // exists (idempotent) before persisting. Lives in the production wiring, not
   // the session state machine, so session unit tests stay DB-free.
-  const createdConversation = ensureConversationExists(options.conversationId);
+  // Native: this is the local live-voice session, which adopts a conversation
+  // id the app supplied. Its trust context resolves through
+  // `resolveLocalLiveVoiceTrustContext`, and a phone call reaches the assistant
+  // through the telephony path rather than here.
+  const createdConversation = ensureConversationExists(
+    options.conversationId,
+    "vellum",
+  );
   if (createdConversation) {
     // The row was created outside the normal send-message route, which is where
     // sibling clients/sidebars learn about a new conversation. Emit the same

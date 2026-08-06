@@ -17,6 +17,7 @@ interface MockProfileEntry {
 let mockProfiles: Record<string, MockProfileEntry> = {};
 let mockActiveProfile: string | undefined;
 let mockProfileOrder: string[] | undefined;
+let mockDefaultProvider: { provider: string } | undefined;
 
 const { getModelProfiles } = await import("./model-profiles.js");
 
@@ -34,6 +35,7 @@ function listProfiles(): ReturnType<typeof getModelProfiles> {
     profiles: mockProfiles,
     activeProfile: mockActiveProfile,
     profileOrder: mockProfileOrder,
+    defaultProvider: mockDefaultProvider,
   };
   return getModelProfiles();
 }
@@ -44,6 +46,7 @@ beforeEach(() => {
   mockProfiles = {};
   mockActiveProfile = undefined;
   mockProfileOrder = undefined;
+  mockDefaultProvider = undefined;
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -64,6 +67,7 @@ describe("getModelProfiles", () => {
       "balanced",
       "quality-optimized",
       "cost-optimized",
+      "latency-optimized",
     ]);
   });
 
@@ -82,6 +86,7 @@ describe("getModelProfiles", () => {
       "balanced",
       "cost-optimized",
       "disabled",
+      "latency-optimized",
       "quality-optimized",
     ]);
     const disabled = result.find((p) => p.key === "disabled");
@@ -119,6 +124,7 @@ describe("getModelProfiles", () => {
       "mix",
       "balanced",
       "cost-optimized",
+      "latency-optimized",
       "quality-optimized",
     ]);
   });
@@ -128,12 +134,40 @@ describe("getModelProfiles", () => {
     expect(result.map((p) => p.key).sort()).toEqual([
       "balanced",
       "cost-optimized",
+      "latency-optimized",
       "quality-optimized",
     ]);
     for (const profile of result) {
       expect(profile.isDisabled).toBe(false);
       expect(profile.isMix).toBe(false);
     }
+  });
+
+  test("default profile descriptions follow the default provider's column", () => {
+    // The BYOK and vellum columns of the profile matrix carry different
+    // description strings for quality-optimized and cost-optimized; the
+    // listed description must come from the column that actually dispatches.
+    mockDefaultProvider = { provider: "anthropic" };
+
+    const result = listProfiles();
+    expect(result.find((p) => p.key === "quality-optimized")?.description).toBe(
+      "Best results with the most capable model",
+    );
+    expect(result.find((p) => p.key === "cost-optimized")?.description).toBe(
+      "Cheapest responses, for high-volume work",
+    );
+  });
+
+  test("default profile descriptions use the managed column without a default provider", () => {
+    const result = listProfiles();
+    expect(result.find((p) => p.key === "quality-optimized")?.description).toBe(
+      "High-quality results with the most capable model",
+    );
+    // Tier descriptions are intent-only (no model names - LUM-2881), so the
+    // managed and BYOK columns read the same for this tier.
+    expect(result.find((p) => p.key === "cost-optimized")?.description).toBe(
+      "Cheapest responses, for high-volume work",
+    );
   });
 
   test("marks the active profile with isActive", () => {

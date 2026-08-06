@@ -17,7 +17,9 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const journalDir = join(workspaceDir, "journal");
-    if (!existsSync(journalDir)) return;
+    if (!existsSync(journalDir)) {
+      return;
+    }
 
     // Find .md files in the root journal directory (not in subdirs)
     let entries: string[];
@@ -27,14 +29,18 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
       return;
     }
     const mdFiles = entries.filter((f) => {
-      if (!f.endsWith(".md") || f.toLowerCase() === "readme.md") return false;
+      if (!f.endsWith(".md") || f.toLowerCase() === "readme.md") {
+        return false;
+      }
       try {
         return statSync(join(journalDir, f)).isFile();
       } catch {
         return false;
       }
     });
-    if (mdFiles.length === 0) return;
+    if (mdFiles.length === 0) {
+      return;
+    }
 
     // Scope under the canonical `guardian` slug — the runtime resolver falls
     // back to it, so no assistant-DB lookup is needed.
@@ -51,7 +57,9 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const journalDir = join(workspaceDir, "journal");
-    if (!existsSync(journalDir)) return;
+    if (!existsSync(journalDir)) {
+      return;
+    }
     let entries: string[];
     try {
       entries = readdirSync(journalDir);
@@ -61,12 +69,16 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
     for (const entry of entries) {
       const subdir = join(journalDir, entry);
       try {
-        if (!statSync(subdir).isDirectory()) continue;
+        if (!statSync(subdir).isDirectory()) {
+          continue;
+        }
       } catch {
         continue;
       }
       for (const f of readdirSync(subdir)) {
-        if (!f.endsWith(".md")) continue;
+        if (!f.endsWith(".md")) {
+          continue;
+        }
         const dest = join(journalDir, f);
         if (!existsSync(dest)) {
           renameSync(join(subdir, f), dest);

@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
@@ -23,8 +23,14 @@ import {
   setConversationInferenceProfileSession,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
+import type { ConnectionAvailability } from "../../providers/inference/connection-availability.js";
+import {
+  computeProfileAvailability,
+  isUnavailable,
+} from "../../providers/inference/connection-availability.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { describeUnavailableProfile } from "./inference-profile-availability-guard.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,8 +58,9 @@ export interface InferenceProfileSessionResult {
  * conversation.
  *
  * - `profile === null`: clears any existing override (session or non-session).
- * - `profile` is a string: validates it against `llm.profiles`, then applies
- *   it.  TTL handling:
+ * - `profile` is a string: validates it against `llm.profiles` and against the
+ *   dispatch-availability guard (a profile that cannot serve requests is
+ *   refused rather than pinned), then applies it.  TTL handling:
  *   - `ttlSeconds` is a positive number → clamp to
  *     `[1, llm.profileSession.maxTtlSeconds]`, mint a sessionId, compute
  *     expiresAt.
@@ -145,10 +152,31 @@ export async function setInferenceProfileSession({
   }
 
   // --- Validate profile ---
-  const profiles = getEffectiveProfiles(loadConfig().llm?.profiles);
+  const { llm } = loadConfig();
+  const profiles = getEffectiveProfilesForProvider(
+    llm?.profiles,
+    llm?.defaultProvider ?? null,
+  );
   if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
     throw new BadRequestError(
       `Profile "${profile}" is not defined in llm.profiles`,
+    );
+  }
+
+  // Pinning a profile that provably cannot dispatch turns the next turn in
+  // this conversation into a hard failure, so refuse the pin the same way the
+  // active-profile setter does.
+  const entry = profiles[profile] as Record<string, unknown>;
+  const availability = await computeProfileAvailability(entry);
+  if (isUnavailable(availability)) {
+    throw new BadRequestError(
+      await describeUnavailableProfile({
+        availability: availability as ConnectionAvailability,
+        provider: String(entry.provider),
+        model: typeof entry.model === "string" ? entry.model : undefined,
+        repair: { kind: "repoint", profileName: profile },
+        escapeHatch: false,
+      }),
     );
   }
 

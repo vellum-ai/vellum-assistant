@@ -11,10 +11,17 @@ interface BrowserViewSurfaceData {
 
 interface BrowserViewSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
 }
 
-export function BrowserViewSurface({ surface, onAction }: BrowserViewSurfaceProps) {
+export function BrowserViewSurface({
+  surface,
+  onAction,
+}: BrowserViewSurfaceProps) {
   const data = surface.data as unknown as BrowserViewSurfaceData;
 
   return (

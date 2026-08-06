@@ -87,7 +87,9 @@ async function runNew(args: string[]): Promise<number> {
 function jsonOutput(): Record<string, unknown> {
   const info = loggerCalls.filter((c) => c.level === "info");
   const last = info[info.length - 1];
-  if (!last) throw new Error("no info output captured");
+  if (!last) {
+    throw new Error("no info output captured");
+  }
   return JSON.parse(last.msg) as Record<string, unknown>;
 }
 
@@ -135,7 +137,9 @@ describe("conversations new --json", () => {
     };
     const code = await runNew(["new", "Notes"]);
     expect(code).toBe(0);
-    const info = loggerCalls.filter((c) => c.level === "info").map((c) => c.msg);
+    const info = loggerCalls
+      .filter((c) => c.level === "info")
+      .map((c) => c.msg);
     expect(
       info.some((m) => m.includes("Created conversation: Notes (conv-new-2)")),
     ).toBe(true);
@@ -181,6 +185,8 @@ describe("conversations new --json", () => {
 });
 
 afterEach(() => {
-  if (savedRunId !== undefined) process.env.__SCHEDULE_RUN_ID = savedRunId;
+  if (savedRunId !== undefined) {
+    process.env.__SCHEDULE_RUN_ID = savedRunId;
+  }
   process.exitCode = 0;
 });

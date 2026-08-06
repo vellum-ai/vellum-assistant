@@ -44,8 +44,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
   beforeEach(() => {
     const db = getDb();
-    db.run("DELETE FROM memory_graph_nodes");
-    // memory_jobs lives in the dedicated memory connection.
+    // memory_graph_nodes and memory_jobs live in the dedicated memory connection.
+    getMemoryDb()!.run("DELETE FROM memory_graph_nodes");
     getMemoryDb()!.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM cron_runs");
@@ -103,7 +103,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   }
 
   function seedMemoryGraphNodes() {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.insert(memoryGraphNodes)
       .values([
         {
@@ -195,7 +195,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     expect(affected).toBe(1);
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const inferredItem = db
       .select()
       .from(memoryGraphNodes)
@@ -218,7 +218,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     invalidateAssistantInferredItemsForConversation(convId);
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const otherItem = db
       .select()
       .from(memoryGraphNodes)
@@ -232,7 +232,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     seedMessages();
 
     // Insert a node sourced from both conversations (corroboration).
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.insert(memoryGraphNodes)
       .values({
         id: "item-corroborated",
@@ -275,7 +275,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     invalidateAssistantInferredItemsForConversation(convId);
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const goneItem = db
       .select()
       .from(memoryGraphNodes)
@@ -379,7 +379,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(memoryGraphNodes)
+    getMemoryDb()!
+      .insert(memoryGraphNodes)
       .values({
         id: "item-cross-sched",
         content:
@@ -405,7 +406,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     const affected = invalidateAssistantInferredItemsForConversation(convA);
     expect(affected).toBe(1);
 
-    const item = db
+    const item = getMemoryDb()!
       .select()
       .from(memoryGraphNodes)
       .where(eq(memoryGraphNodes.id, "item-cross-sched"))
@@ -488,7 +489,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(memoryGraphNodes)
+    getMemoryDb()!
+      .insert(memoryGraphNodes)
       .values({
         id: "item-with-good-corroboration",
         content: "corroborated claim\nClaim corroborated by successful task.",
@@ -515,7 +517,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       invalidateAssistantInferredItemsForConversation(convFailed);
     expect(affected).toBe(0);
 
-    const item = db
+    const item = getMemoryDb()!
       .select()
       .from(memoryGraphNodes)
       .where(eq(memoryGraphNodes.id, "item-with-good-corroboration"))

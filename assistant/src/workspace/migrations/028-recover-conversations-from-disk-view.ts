@@ -54,7 +54,9 @@ interface DiskMessageRecord {
 }
 
 function parseEpochMs(isoString: string | undefined): number | null {
-  if (!isoString) return null;
+  if (!isoString) {
+    return null;
+  }
   const ms = new Date(isoString).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
@@ -105,7 +107,9 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const conversationsDir = join(workspaceDir, "conversations");
-    if (!existsSync(conversationsDir)) return;
+    if (!existsSync(conversationsDir)) {
+      return;
+    }
 
     const db = getDb();
 
@@ -177,7 +181,9 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
           const raw = readFileSync(messagesPath, "utf-8");
           for (const line of raw.split("\n")) {
             const trimmed = line.trim();
-            if (!trimmed) continue;
+            if (!trimmed) {
+              continue;
+            }
             try {
               messageRecords.push(JSON.parse(trimmed) as DiskMessageRecord);
             } catch {

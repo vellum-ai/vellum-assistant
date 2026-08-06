@@ -75,7 +75,9 @@ function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
  */
 function killStaleDaemon(): void {
   const pid = readPid();
-  if (pid == null) return;
+  if (pid == null) {
+    return;
+  }
   if (!isProcessRunning(pid)) {
     cleanupPidFile();
     return;
@@ -139,9 +141,15 @@ function isVellumDaemonProcess(pid: number): boolean {
  *  connectable on all platforms — substitute loopback. IPv6 literals
  *  need brackets in URLs. */
 function healthCheckHost(host: string): string {
-  if (host === "0.0.0.0") return "127.0.0.1";
-  if (host === "::") return "[::1]";
-  if (host.includes(":")) return `[${host}]`;
+  if (host === "0.0.0.0") {
+    return "127.0.0.1";
+  }
+  if (host === "::") {
+    return "[::1]";
+  }
+  if (host.includes(":")) {
+    return `[${host}]`;
+  }
   return host;
 }
 
@@ -162,9 +170,13 @@ async function isHttpHealthy(): Promise<boolean> {
 }
 
 function readPid(): number | null {
-  if (getIsContainerized()) return null; // Docker manages process lifecycle
+  if (getIsContainerized()) {
+    return null;
+  } // Docker manages process lifecycle
   const pidPath = getPidPath();
-  if (!existsSync(pidPath)) return null;
+  if (!existsSync(pidPath)) {
+    return null;
+  }
   try {
     const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
     return isNaN(pid) ? null : pid;
@@ -174,12 +186,16 @@ function readPid(): number | null {
 }
 
 export function writePid(pid: number): void {
-  if (getIsContainerized()) return; // Docker manages process lifecycle
+  if (getIsContainerized()) {
+    return;
+  } // Docker manages process lifecycle
   writeFileSync(getPidPath(), String(pid));
 }
 
 export function cleanupPidFile(): void {
-  if (getIsContainerized()) return; // Docker manages process lifecycle
+  if (getIsContainerized()) {
+    return;
+  } // Docker manages process lifecycle
   const pidPath = getPidPath();
   if (existsSync(pidPath)) {
     unlinkSync(pidPath);
@@ -189,7 +205,9 @@ export function cleanupPidFile(): void {
 /** Only remove the PID file if it belongs to the given process. Prevents a
  *  failing second startup from deleting the PID of an already-running daemon. */
 export function cleanupPidFileIfOwner(ownerPid: number): void {
-  if (getIsContainerized()) return; // Docker manages process lifecycle
+  if (getIsContainerized()) {
+    return;
+  } // Docker manages process lifecycle
   const currentPid = readPid();
   if (currentPid === ownerPid) {
     cleanupPidFile();
@@ -197,9 +215,13 @@ export function cleanupPidFileIfOwner(ownerPid: number): void {
 }
 
 export function isDaemonRunning(): boolean {
-  if (getIsContainerized()) return true; // Container orchestrator manages lifecycle
+  if (getIsContainerized()) {
+    return true;
+  } // Container orchestrator manages lifecycle
   const pid = readPid();
-  if (pid == null) return false;
+  if (pid == null) {
+    return false;
+  }
   if (!isProcessRunning(pid)) {
     cleanupPidFile();
     return false;
@@ -211,9 +233,13 @@ async function getDaemonStatus(): Promise<{
   running: boolean;
   pid?: number;
 }> {
-  if (getIsContainerized()) return { running: true, pid: process.pid }; // Container orchestrator manages lifecycle
+  if (getIsContainerized()) {
+    return { running: true, pid: process.pid };
+  } // Container orchestrator manages lifecycle
   const pid = readPid();
-  if (pid == null) return { running: false };
+  if (pid == null) {
+    return { running: false };
+  }
   if (!isProcessRunning(pid)) {
     cleanupPidFile();
     return { running: false };
@@ -449,6 +475,8 @@ export type StopResult =
 
 export async function ensureDaemonRunning(): Promise<void> {
   const status = await getDaemonStatus();
-  if (status.running) return;
+  if (status.running) {
+    return;
+  }
   await startDaemon();
 }

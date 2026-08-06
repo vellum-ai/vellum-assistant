@@ -32,9 +32,13 @@ const activeDocumentsInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.activeDocuments,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
+    if (mode !== "full") {
+      return null;
+    }
     const docs = ctx.activeDocuments;
-    if (!docs || docs.length === 0) return null;
+    if (!docs || docs.length === 0) {
+      return null;
+    }
     const lines = docs.map(
       (d) =>
         `- surface_id: "${d.surfaceId}", title: "${d.title}", words: ${d.wordCount}`,
@@ -79,9 +83,13 @@ const documentCommentsInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.documentComments,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
+    if (mode !== "full") {
+      return null;
+    }
     const docs = ctx.activeDocuments;
-    if (!docs || docs.length === 0) return null;
+    if (!docs || docs.length === 0) {
+      return null;
+    }
 
     const sections: string[] = [];
     for (const doc of docs) {
@@ -89,7 +97,9 @@ const documentCommentsInjector: Injector = {
         status: "open",
         topLevelOnly: true,
       }).slice(-DOCUMENT_COMMENTS_CAP);
-      if (comments.length === 0) continue;
+      if (comments.length === 0) {
+        continue;
+      }
 
       const lines = comments.map((c) => {
         const anchor =
@@ -103,7 +113,9 @@ const documentCommentsInjector: Injector = {
       );
     }
 
-    if (sections.length === 0) return null;
+    if (sections.length === 0) {
+      return null;
+    }
 
     const text = `<document_comments>
 Open comments on your documents. Address these by editing the document, then use comment_resolve to mark each resolved.

@@ -73,7 +73,9 @@ mock.module("../../acp/index.js", () => ({
         return Array.from(inMemoryStates.values());
       }
       const state = inMemoryStates.get(id);
-      if (!state) throw new Error(`ACP session "${id}" not found`);
+      if (!state) {
+        throw new Error(`ACP session "${id}" not found`);
+      }
       return state;
     },
     getActiveAndPendingIds: () => [
@@ -106,7 +108,9 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return {
       credentialId: `cred-${key}`,
       service,
@@ -184,7 +188,9 @@ const confirmationRequests: Array<Record<string, unknown>> = [];
 
 mock.module("../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
-    if (msg?.type !== "confirmation_request") return;
+    if (msg?.type !== "confirmation_request") {
+      return;
+    }
     confirmationRequests.push(msg as Record<string, unknown>);
     const decision = approvalBehavior;
     const interaction = pendingInteractions.resolve(
@@ -208,7 +214,9 @@ function getSpawnHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/spawn" && r.method === "POST",
   );
-  if (!route) throw new Error("acp/spawn route not registered");
+  if (!route) {
+    throw new Error("acp/spawn route not registered");
+  }
   return route.handler;
 }
 
@@ -498,7 +506,9 @@ function getBulkDeleteHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions" && r.method === "DELETE",
   );
-  if (!route) throw new Error("DELETE acp/sessions route not registered");
+  if (!route) {
+    throw new Error("DELETE acp/sessions route not registered");
+  }
   return route.handler;
 }
 
@@ -660,7 +670,9 @@ function getDeleteSessionHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions/:id" && r.method === "DELETE",
   );
-  if (!route) throw new Error("acp/sessions/:id DELETE route not registered");
+  if (!route) {
+    throw new Error("acp/sessions/:id DELETE route not registered");
+  }
   return route.handler;
 }
 

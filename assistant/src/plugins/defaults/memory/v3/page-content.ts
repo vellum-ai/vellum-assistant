@@ -1,8 +1,8 @@
 import { getWorkspaceDir } from "../paths.js";
+import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
 import { renderCapabilityContent } from "./capabilities.js";
 import { renderCard } from "./card.js";
-import { injectedConceptHeader } from "./substrate/injected-block-slugs.js";
-import { readPage, renderPageContent } from "./substrate/page-store.js";
 import type { Section, Slug } from "./types.js";
 
 /**
@@ -35,12 +35,18 @@ function withConceptHeader(slug: Slug, body: string): string {
  */
 export async function renderV3PageContent(slug: Slug): Promise<string> {
   const capability = renderCapabilityContent(slug);
-  if (capability !== null) return capability;
+  if (capability !== null) {
+    return capability;
+  }
   try {
     const page = await readPage(getWorkspaceDir(), slug);
-    if (!page) return "";
+    if (!page) {
+      return "";
+    }
     const content = renderPageContent(page).trim();
-    if (content.length === 0) return "";
+    if (content.length === 0) {
+      return "";
+    }
     return withConceptHeader(slug, content);
   } catch {
     return "";
@@ -62,10 +68,14 @@ export async function renderV3PageContent(slug: Slug): Promise<string> {
  */
 export async function renderV3CardContent(slug: Slug): Promise<string> {
   const capability = renderCapabilityContent(slug);
-  if (capability !== null) return capability;
+  if (capability !== null) {
+    return capability;
+  }
   try {
     const page = await readPage(getWorkspaceDir(), slug);
-    if (!page) return "";
+    if (!page) {
+      return "";
+    }
     return renderCard(slug, renderPageContent(page));
   } catch {
     return "";
@@ -93,10 +103,16 @@ export async function renderV3SectionContent(
   section: Section | undefined,
 ): Promise<string> {
   const capability = renderCapabilityContent(slug);
-  if (capability !== null) return capability;
-  if (!section) return renderV3PageContent(slug);
+  if (capability !== null) {
+    return capability;
+  }
+  if (!section) {
+    return renderV3PageContent(slug);
+  }
 
   const text = section.text.trim();
-  if (text.length === 0) return "";
+  if (text.length === 0) {
+    return "";
+  }
   return withConceptHeader(slug, text);
 }

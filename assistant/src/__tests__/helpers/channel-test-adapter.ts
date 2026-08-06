@@ -50,7 +50,9 @@ mock.module("../../daemon/process-message.js", () => ({
 
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
-    if (_adapterProcessMessage) return _adapterProcessMessage(...args);
+    if (_adapterProcessMessage) {
+      return _adapterProcessMessage(...args);
+    }
     return Promise.resolve({ messageId: `mock-msg-adapter-${Date.now()}` });
   },
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),
@@ -143,12 +145,16 @@ export async function handleChannelInbound(
  */
 function stampTrustVerdict(body: Record<string, unknown>): void {
   const meta = body.sourceMetadata as Record<string, unknown> | undefined;
-  if (meta && "trustVerdict" in meta) return;
+  if (meta && "trustVerdict" in meta) {
+    return;
+  }
 
   const channelType = String(body.sourceChannel ?? "");
   const actorExternalId =
     typeof body.actorExternalId === "string" ? body.actorExternalId : undefined;
-  if (!channelType) return;
+  if (!channelType) {
+    return;
+  }
 
   const verdict = resolveLocalTrustVerdict({
     channelType,
@@ -190,10 +196,13 @@ export function resolveLocalTrustVerdict(input: {
     trustClass = "guardian";
   } else if (memberAcl) {
     const status = memberAcl.status;
-    if (status === "active") trustClass = "trusted_contact";
-    else if (status === "unverified" || status === "pending")
+    if (status === "active") {
+      trustClass = "trusted_contact";
+    } else if (status === "unverified" || status === "pending") {
       trustClass = "unverified_contact";
-    else trustClass = "unknown";
+    } else {
+      trustClass = "unknown";
+    }
   } else {
     trustClass = "unknown";
   }
@@ -203,8 +212,9 @@ export function resolveLocalTrustVerdict(input: {
   if (guardian) {
     verdict.guardianExternalUserId = guardian.address;
     verdict.guardianDeliveryChatId = guardian.externalChatId ?? null;
-    if (guardian.principalId)
+    if (guardian.principalId) {
       verdict.guardianPrincipalId = guardian.principalId;
+    }
     verdict.guardianDisplayName = guardian.displayName ?? undefined;
   }
 

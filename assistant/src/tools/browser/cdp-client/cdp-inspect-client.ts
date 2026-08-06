@@ -164,7 +164,9 @@ export class CdpInspectClient implements ScopedCdpClient {
     if (this.disposed) {
       throw new CdpError("disposed", "CdpInspectClient already disposed");
     }
-    if (this.session) return this.session;
+    if (this.session) {
+      return this.session;
+    }
 
     const pending = this.pending ?? this.startAttach();
     pending.waiters += 1;
@@ -176,7 +178,9 @@ export class CdpInspectClient implements ScopedCdpClient {
     // promptly instead of leaking into the background.
     let released = false;
     const onAbort = () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       pending.waiters -= 1;
       if (pending.waiters <= 0 && this.pending === pending) {
@@ -711,19 +715,30 @@ export class CdpInspectClient implements ScopedCdpClient {
   }
 
   async listTabs(): Promise<never> {
-    throw new CdpError("transport_error", "listTabs is not supported by the cdp-inspect backend (extension backend required)");
+    throw new CdpError(
+      "transport_error",
+      "listTabs is not supported by the cdp-inspect backend (extension backend required)",
+    );
   }
 
   async selectTab(_tabId: number): Promise<never> {
-    throw new CdpError("transport_error", "selectTab is not supported by the cdp-inspect backend (extension backend required)");
+    throw new CdpError(
+      "transport_error",
+      "selectTab is not supported by the cdp-inspect backend (extension backend required)",
+    );
   }
 
   async closeTab(_tabId: number): Promise<never> {
-    throw new CdpError("transport_error", "closeTab is not supported by the cdp-inspect backend (extension backend required)");
+    throw new CdpError(
+      "transport_error",
+      "closeTab is not supported by the cdp-inspect backend (extension backend required)",
+    );
   }
 
   dispose(): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
 
     // Cancel any in-flight attach so discovery / ws / Target.attach
@@ -821,7 +836,9 @@ function raceAbort<T>(
   signal: AbortSignal | undefined,
   onAbort: () => void,
 ): Promise<T> {
-  if (!signal) return inner;
+  if (!signal) {
+    return inner;
+  }
   if (signal.aborted) {
     try {
       onAbort();
@@ -833,7 +850,9 @@ function raceAbort<T>(
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     const handleAbort = () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       try {
         onAbort();
@@ -845,13 +864,17 @@ function raceAbort<T>(
     signal.addEventListener("abort", handleAbort, { once: true });
     inner.then(
       (value) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         signal.removeEventListener("abort", handleAbort);
         resolve(value);
       },
       (err) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         signal.removeEventListener("abort", handleAbort);
         reject(err);
@@ -867,7 +890,9 @@ function raceAbort<T>(
  * fork cannot silently send us into an un-typed send loop.
  */
 function extractSessionId(result: unknown): string | null {
-  if (!result || typeof result !== "object") return null;
+  if (!result || typeof result !== "object") {
+    return null;
+  }
   const record = result as Record<string, unknown>;
   const sessionId = record.sessionId;
   if (typeof sessionId === "string" && sessionId.length > 0) {

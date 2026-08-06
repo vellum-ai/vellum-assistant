@@ -37,7 +37,10 @@ describe("oauth-connect-state", () => {
   });
 
   test("setOAuthConnectComplete with grantedScopes → returns complete with grantedScopes", () => {
-    setOAuthConnectComplete("state-1", "google", "user@example.com", ["scope:read", "scope:write"]);
+    setOAuthConnectComplete("state-1", "google", "user@example.com", [
+      "scope:read",
+      "scope:write",
+    ]);
     const result = getOAuthConnectState("state-1");
     expect(result).toMatchObject({
       status: "complete",

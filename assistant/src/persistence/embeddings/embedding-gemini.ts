@@ -85,8 +85,12 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     // already set. Cannot set 'model'". This holds for both the direct API
     // and the managed proxy, which forwards the body unchanged; the platform
     // billing layer parses the model from the URL path instead.
-    if (this.taskType) body.taskType = this.taskType;
-    if (this.dimensions) body.outputDimensionality = this.dimensions;
+    if (this.taskType) {
+      body.taskType = this.taskType;
+    }
+    if (this.dimensions) {
+      body.outputDimensionality = this.dimensions;
+    }
 
     const url = this.managedBaseUrl
       ? `${this.managedBaseUrl}/v1beta/models/${encodeURIComponent(this.model)}:embedContent`

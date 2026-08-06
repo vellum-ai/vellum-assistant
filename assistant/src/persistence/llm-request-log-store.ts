@@ -158,12 +158,21 @@ export function buildProviderErrorResponsePayload(err: Error): {
     if (err.retryAfterMs !== undefined) {
       payload.retryAfterMs = err.retryAfterMs;
     }
-    if (err.apiErrorCode !== undefined) payload.apiErrorCode = err.apiErrorCode;
-    if (err.apiErrorType !== undefined) payload.apiErrorType = err.apiErrorType;
-    if (err.apiErrorParam !== undefined)
+    if (err.apiErrorCode !== undefined) {
+      payload.apiErrorCode = err.apiErrorCode;
+    }
+    if (err.apiErrorType !== undefined) {
+      payload.apiErrorType = err.apiErrorType;
+    }
+    if (err.apiErrorParam !== undefined) {
       payload.apiErrorParam = err.apiErrorParam;
-    if (err.requestId !== undefined) payload.requestId = err.requestId;
-    if (err.rawBody !== undefined) rawResponse = parseRawBody(err.rawBody);
+    }
+    if (err.requestId !== undefined) {
+      payload.requestId = err.requestId;
+    }
+    if (err.rawBody !== undefined) {
+      rawResponse = parseRawBody(err.rawBody);
+    }
   } else if (err instanceof AssistantError) {
     payload.code = err.code;
   }
@@ -480,7 +489,9 @@ export function relinkLlmRequestLogs(
  * `idx_llm_request_logs_message_id` index via `inArray`.
  */
 function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
-  if (messageIds.length === 0) return [];
+  if (messageIds.length === 0) {
+    return [];
+  }
   const db = logsDb();
   return db
     .select({
@@ -542,7 +553,9 @@ function selectOrphanedLogsInRange(
   startTime: number,
   endTime: number,
 ): LogRow[] {
-  if (endTime <= startTime) return [];
+  if (endTime <= startTime) {
+    return [];
+  }
   // `llm_request_logs` and `messages` live in separate connections now, so the
   // old LEFT JOIN can't span them. Resolve it in three steps:
   //   (a) logs conn → candidate rows in [start,end] for the conversation with a
@@ -573,7 +586,9 @@ function selectOrphanedLogsInRange(
     )
     .orderBy(llmRequestLogs.createdAt)
     .all();
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) {
+    return [];
+  }
 
   const candidateMessageIds = [
     ...new Set(candidates.map((c) => c.messageId as string)),
@@ -604,7 +619,9 @@ function selectUnlinkedLogsInRange(
   startTime: number,
   endTime: number,
 ): LogRow[] {
-  if (endTime <= startTime) return [];
+  if (endTime <= startTime) {
+    return [];
+  }
   const db = logsDb();
   return db
     .select({

@@ -1,6 +1,6 @@
 /**
  * Sanitize an inherited parent transcript before it is injected into a
- * tool-less advisor consult subagent.
+ * advisor consult subagent.
  *
  * `Conversation.injectInheritedContext` injects the parent's messages VERBATIM
  * with no sanitization, so the advisor path must run this over the parent
@@ -42,7 +42,9 @@ function sanitize(block: ContentBlock): ContentBlock | null {
     case "web_search_tool_result":
       return null;
     case "tool_result": {
-      if (!block.contentBlocks) return block;
+      if (!block.contentBlocks) {
+        return block;
+      }
       // Keep images (and other allowed blocks) nested in the tool result; drop
       // the disallowed ones.
       const contentBlocks = block.contentBlocks
@@ -79,7 +81,9 @@ export function sanitizeConsultTranscript(
       );
     }
 
-    if (content.length > 0) out.push({ role: message.role, content });
+    if (content.length > 0) {
+      out.push({ role: message.role, content });
+    }
   });
 
   return out;

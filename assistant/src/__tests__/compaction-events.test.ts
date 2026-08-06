@@ -7,12 +7,16 @@
  * turn. The `context_compacted` event is the single source of truth for the
  * indicator — the paired `usage_update` intentionally omits
  * `contextWindowTokens` to avoid a redundant SwiftUI invalidation.
+ *
+ * Also covers the `context_window_usage` push, which carries the provider
+ * tokenizer's post-compaction count so the web indicator matches the numbers
+ * on the `/compact` result card.
  */
 import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -218,7 +222,8 @@ import { Conversation } from "../daemon/conversation.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeProvider() {
+function makeProvider(counts?: number[]) {
+  const pending = counts ? [...counts] : null;
   return {
     name: "mock-provider",
     async sendMessage(): Promise<ProviderResponse> {
@@ -229,16 +234,20 @@ function makeProvider() {
         stopReason: "end_turn",
       };
     },
+    // Present only when the test supplies counts, so the other cases keep
+    // exercising the local-estimate fallback.
+    ...(pending ? { countInputTokens: async () => pending.shift() ?? 0 } : {}),
   };
 }
 
 function makeConversation(
-  collected: ServerMessage[],
+  collected: AssistantEvent[],
   id = "conv-compact-events",
+  counts?: number[],
 ): Conversation {
   return new Conversation(
     id,
-    makeProvider(),
+    makeProvider(counts),
     "system prompt",
     (msg) => {
       collected.push(msg);
@@ -254,7 +263,7 @@ function makeConversation(
 
 describe("forceCompact event emission", () => {
   test("emits context_compacted and a usage_update without contextWindow when compacted", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: true,
@@ -279,7 +288,7 @@ describe("forceCompact event emission", () => {
     );
     expect(compactedEvents.length).toBe(1);
     const compactedEvent = compactedEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "context_compacted" }
     >;
     expect(compactedEvent.conversationId).toBe("conv-compact-events");
@@ -298,7 +307,7 @@ describe("forceCompact event emission", () => {
     const usageEvents = collected.filter((m) => m.type === "usage_update");
     expect(usageEvents.length).toBe(1);
     const usageEvent = usageEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "usage_update" }
     >;
     // `context_compacted` is now the single source of truth for the UI
@@ -312,7 +321,7 @@ describe("forceCompact event emission", () => {
   });
 
   test("emits context_compacted even when summary LLM was skipped (truncation-only path)", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: true,
@@ -342,7 +351,7 @@ describe("forceCompact event emission", () => {
     );
     expect(compactedEvents.length).toBe(1);
     const compactedEvent = compactedEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "context_compacted" }
     >;
     expect(compactedEvent.conversationId).toBe("conv-compact-trunc");
@@ -356,7 +365,7 @@ describe("forceCompact event emission", () => {
   });
 
   test("skips emission when compacted is false", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: false,
@@ -380,6 +389,134 @@ describe("forceCompact event emission", () => {
       0,
     );
     expect(collected.filter((m) => m.type === "usage_update").length).toBe(0);
+  });
+});
+
+describe("forceCompact context-window usage push", () => {
+  test("pushes the post-compaction tokenizer count the result card reports", async () => {
+    const collected: AssistantEvent[] = [];
+    mockCompactResult = {
+      messages: [],
+      compacted: true,
+      // Estimate-based figures the compaction pipeline records internally.
+      // The user-facing numbers come from the provider tokenizer instead.
+      previousEstimatedInputTokens: 43_000,
+      estimatedInputTokens: 12_000,
+      maxInputTokens: 200_000,
+      thresholdTokens: 160_000,
+      compactedMessages: 10,
+      compactedPersistedMessages: 5,
+      summaryCalls: 1,
+      summaryInputTokens: 500,
+      summaryOutputTokens: 200,
+      summaryModel: "test-model",
+      summaryText: "summary text",
+    };
+
+    const conversation = makeConversation(
+      collected,
+      "conv-compact-usage",
+      [56_000, 18_000],
+    );
+    const result = await conversation.forceCompact();
+
+    expect(result.previousEstimatedInputTokens).toBe(56_000);
+    expect(result.estimatedInputTokens).toBe(18_000);
+
+    const usage = collected.filter((m) => m.type === "context_window_usage");
+    expect(usage.length).toBe(1);
+    const usageEvent = usage[0] as Extract<
+      AssistantEvent,
+      { type: "context_window_usage" }
+    >;
+    expect(usageEvent.conversationId).toBe("conv-compact-usage");
+    // Same figures the `/compact` card renders, so the indicator and the card
+    // cannot disagree.
+    expect(usageEvent.tokens).toBe(result.estimatedInputTokens);
+    expect(usageEvent.maxTokens).toBe(200_000);
+  });
+
+  test("pushes to the caller's sink when the conversation's own sender is dead", async () => {
+    // A `/compact` draining behind an interactive turn: `process-message.ts`
+    // resets `sendToClient` to a no-op in its `finally`, while the queued item
+    // still carries the live sink its result card streams on. The push has to
+    // follow the card, not the dead sender.
+    const stranded: AssistantEvent[] = [];
+    const cardSink: AssistantEvent[] = [];
+    mockCompactResult = {
+      messages: [],
+      compacted: true,
+      previousEstimatedInputTokens: 43_000,
+      estimatedInputTokens: 12_000,
+      maxInputTokens: 200_000,
+      thresholdTokens: 160_000,
+      compactedMessages: 10,
+      compactedPersistedMessages: 5,
+      summaryCalls: 1,
+      summaryInputTokens: 500,
+      summaryOutputTokens: 200,
+      summaryModel: "test-model",
+      summaryText: "summary text",
+    };
+
+    const conversation = makeConversation(
+      stranded,
+      "conv-compact-dead-sender",
+      [56_000, 18_000],
+    );
+    conversation.updateClient(() => {}, true);
+
+    const result = await conversation.forceCompact((msg) => cardSink.push(msg));
+
+    const usage = cardSink.filter((m) => m.type === "context_window_usage");
+    expect(usage.length).toBe(1);
+    expect(
+      (usage[0] as Extract<AssistantEvent, { type: "context_window_usage" }>)
+        .tokens,
+    ).toBe(result.estimatedInputTokens);
+    expect(
+      stranded.filter((m) => m.type === "context_window_usage").length,
+    ).toBe(0);
+  });
+
+  test("pushes the current count when there was nothing to compact", async () => {
+    const collected: AssistantEvent[] = [];
+    mockCompactResult = {
+      messages: [],
+      compacted: false,
+      previousEstimatedInputTokens: 0,
+      estimatedInputTokens: 0,
+      maxInputTokens: 200_000,
+      thresholdTokens: 160_000,
+      compactedMessages: 0,
+      compactedPersistedMessages: 0,
+      summaryCalls: 0,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryModel: "",
+      summaryText: "",
+    };
+
+    const conversation = makeConversation(
+      collected,
+      "conv-compact-usage-noop",
+      // A no-op re-counts nothing, so the single count stands as before and
+      // after.
+      [56_000],
+    );
+    const result = await conversation.forceCompact();
+
+    expect(result.previousEstimatedInputTokens).toBe(56_000);
+    expect(result.estimatedInputTokens).toBe(56_000);
+
+    const usage = collected.filter((m) => m.type === "context_window_usage");
+    expect(usage.length).toBe(1);
+    const usageEvent = usage[0] as Extract<
+      AssistantEvent,
+      { type: "context_window_usage" }
+    >;
+    expect(usageEvent.tokens).toBe(56_000);
+    expect(usageEvent.maxTokens).toBe(200_000);
   });
 });
 

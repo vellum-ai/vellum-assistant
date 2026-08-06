@@ -150,6 +150,7 @@ export const INTERFACE_IDS = [
   "email",
   "chrome-extension",
   "a2a",
+  "discord",
   // Turns injected by workspace custom routes (webhook receivers, cron jobs,
   // device/service callbacks). Non-interactive — permission prompts route
   // through the guardian system, not an interactive client — and non-host-proxy.
@@ -182,11 +183,16 @@ export function isInterfaceId(value: unknown): value is InterfaceId {
 }
 
 export function parseInterfaceId(value: unknown): InterfaceId | null {
-  if (typeof value !== "string") return null;
-  if ((INTERFACE_IDS as readonly string[]).includes(value))
+  if (typeof value !== "string") {
+    return null;
+  }
+  if ((INTERFACE_IDS as readonly string[]).includes(value)) {
     return value as InterfaceId;
+  }
   const alias = LEGACY_INTERFACE_ALIASES[value];
-  if (alias) return alias;
+  if (alias) {
+    return alias;
+  }
   return null;
 }
 
@@ -207,7 +213,9 @@ export type ClientOs = (typeof CLIENT_OS_VALUES)[number];
 
 /** Parse/validate a reported `clientOs`. Returns `null` for unknown values. */
 export function parseClientOs(value: unknown): ClientOs | null {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
   return (CLIENT_OS_VALUES as readonly string[]).includes(value)
     ? (value as ClientOs)
     : null;
@@ -284,8 +292,12 @@ export function supportsHostProxy(
   // and host_app_control. The host_browser proxy is provisioned via the
   // assistant event hub. When no extension is connected, browser tools fall
   // through to cdp-inspect/local via the CDP factory's candidate chain.
-  if (id === "macos") return true;
-  if (id === "chrome-extension" && capability === "host_browser") return true;
+  if (id === "macos") {
+    return true;
+  }
+  if (id === "chrome-extension" && capability === "host_browser") {
+    return true;
+  }
   return false;
 }
 

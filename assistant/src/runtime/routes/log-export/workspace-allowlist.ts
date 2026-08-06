@@ -147,18 +147,28 @@ function lineMatchesWindow(
   startTime: number | undefined,
   endTime: number | undefined,
 ): boolean {
-  if (!line) return false;
+  if (!line) {
+    return false;
+  }
   let record: { ts?: unknown };
   try {
     record = JSON.parse(line) as { ts?: unknown };
   } catch {
     return false;
   }
-  if (typeof record.ts !== "string") return false;
+  if (typeof record.ts !== "string") {
+    return false;
+  }
   const ms = Date.parse(record.ts);
-  if (Number.isNaN(ms)) return false;
-  if (startTime !== undefined && ms < startTime) return false;
-  if (endTime !== undefined && ms > endTime) return false;
+  if (Number.isNaN(ms)) {
+    return false;
+  }
+  if (startTime !== undefined && ms < startTime) {
+    return false;
+  }
+  if (endTime !== undefined && ms > endTime) {
+    return false;
+  }
   return true;
 }
 
@@ -194,7 +204,9 @@ function conversationHasMessageInWindow(
   // caller (`collectConversations`) already short-circuits in that case
   // and never invokes this helper. Defensive check kept so the helper is
   // safe to reuse.
-  if (startTime === undefined && endTime === undefined) return true;
+  if (startTime === undefined && endTime === undefined) {
+    return true;
+  }
 
   const messagesPath = join(conversationDir, "messages.jsonl");
   let fd: number;
@@ -211,21 +223,27 @@ function conversationHasMessageInWindow(
   try {
     while (true) {
       const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
-      if (bytesRead === 0) break;
+      if (bytesRead === 0) {
+        break;
+      }
       const text = leftover + decoder.write(buffer.subarray(0, bytesRead));
       const lines = text.split("\n");
       // The last segment may be a partial line — hold it back for the
       // next chunk to complete.
       leftover = lines.pop() ?? "";
       for (const line of lines) {
-        if (lineMatchesWindow(line, startTime, endTime)) return true;
+        if (lineMatchesWindow(line, startTime, endTime)) {
+          return true;
+        }
       }
     }
     // Drain any partial UTF-8 sequence the decoder is still holding,
     // then check the final unterminated line (the file may not end with
     // a newline).
     const tail = leftover + decoder.end();
-    if (lineMatchesWindow(tail, startTime, endTime)) return true;
+    if (lineMatchesWindow(tail, startTime, endTime)) {
+      return true;
+    }
   } finally {
     try {
       closeSync(fd);
@@ -298,7 +316,9 @@ function collectConversations(
       );
       continue;
     }
-    if (!parsed) continue; // Rule 3 — default deny non-canonical names.
+    if (!parsed) {
+      continue;
+    } // Rule 3 — default deny non-canonical names.
 
     if (
       opts.conversationId !== undefined &&
@@ -369,7 +389,9 @@ function collectConversations(
           );
           continue;
         }
-        if (!hasMessageInWindow) continue;
+        if (!hasMessageInWindow) {
+          continue;
+        }
       }
     }
 

@@ -5,7 +5,11 @@
  * previously scattered across the component tree.
  */
 
-import { type TurnPhase, isSending, isThinking } from "@/domains/chat/turn-store";
+import {
+  type TurnPhase,
+  isSending,
+  isThinking,
+} from "@/domains/chat/turn-store";
 
 // ---------------------------------------------------------------------------
 // UI context — values provided by the component that are NOT part of the
@@ -101,7 +105,9 @@ export function shouldShowThinkingIndicator(
     !ctx.hasPendingQuestion &&
     !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
-    (isThinking(phase) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
+    (isThinking(phase) ||
+      restoredProcessing ||
+      !ctx.hasStreamingAssistantMessage) &&
     // Inline SingleActivity owns the loading state once reasoning is present.
     !ctx.hasStreamingAssistantThinking &&
     activeToolCallCount === 0
@@ -130,10 +136,7 @@ export function shouldShowThinkingIndicator(
  * `hasPendingAssistantResponse` guard keeps the window right after a send
  * (before the first token) covered.
  */
-export function isAssistantBusy(
-  phase: TurnPhase,
-  ctx: UIContext,
-): boolean {
+export function isAssistantBusy(phase: TurnPhase, ctx: UIContext): boolean {
   if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
     return false;
   }

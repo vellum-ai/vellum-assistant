@@ -143,7 +143,9 @@ export async function runRepairSteps(
 
 /** Convenience: format a duration as `12.3s` or `450ms`. */
 export function formatDurationMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 1000) {
+    return `${Math.round(ms)}ms`;
+  }
   return `${(ms / 1000).toFixed(1)}s`;
 }
 

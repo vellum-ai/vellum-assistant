@@ -58,9 +58,27 @@ mock.module("../../../security/credential-key.js", () => ({
 
 let mockVellumAvailable = false;
 
+/**
+ * Arguments the managed batch adapter was called with. The managed path has
+ * no constructor to spy on (the platform connection is the credential), so
+ * the language it forwards is observable only at the transcribe call.
+ */
+const vellumManagedTranscribeCalls: Array<{
+  mimeType: string;
+  language: string | undefined;
+}> = [];
+
 mock.module("../vellum-managed.js", () => ({
   vellumManagedSpeechAvailable: async () => mockVellumAvailable,
-  vellumManagedTranscribe: async () => ({ text: "" }),
+  vellumManagedTranscribe: async (
+    _audio: Buffer,
+    mimeType: string,
+    _signal?: AbortSignal,
+    language?: string,
+  ) => {
+    vellumManagedTranscribeCalls.push({ mimeType, language });
+    return { text: "" };
+  },
   sttErrorFromManagedSpeech: (failure: unknown) => new Error(String(failure)),
 }));
 
@@ -128,6 +146,30 @@ mock.module("../openai-whisper-stream.js", () => ({
   },
 }));
 
+/**
+ * Captured constructor calls for the Deepgram BATCH provider, used to verify
+ * that `resolveBatchTranscriber` threads `services.stt.language` through the
+ * batch factory to the provider.
+ */
+const deepgramBatchCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+
+// Real module captured before the mock replaces it, so pure exports
+// (deepgramLanguageOptions) stay real while the provider class
+// alone is stubbed.
+const actualDeepgram = await import("../deepgram.js");
+
+mock.module("../deepgram.js", () => ({
+  ...actualDeepgram,
+  DeepgramProvider: class {
+    constructor(apiKey: string, options?: unknown) {
+      deepgramBatchCtorCalls.push({ apiKey, options });
+    }
+    async transcribe() {
+      return { text: "" };
+    }
+  },
+}));
+
 mock.module("../xai-realtime.js", () => ({
   XAIRealtimeTranscriber: class {
     readonly providerId = "xai" as const;
@@ -148,6 +190,7 @@ mock.module("../xai-realtime.js", () => ({
 // ---------------------------------------------------------------------------
 
 const {
+  effectiveSttLanguage,
   resolveBatchTranscriber,
   sttCredentialGapReason,
   resolveConversationStreamingSttCapability,
@@ -159,7 +202,10 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function applyConfig(overrides: { provider?: string }): void {
+function applyConfig(overrides: {
+  provider?: string;
+  language?: string;
+}): void {
   const provider = overrides.provider ?? "openai-whisper";
   // Seed a schema-valid base so the loader caches a fresh config object, then
   // set the provider under test on that live cached object. `services.stt.
@@ -177,6 +223,12 @@ function applyConfig(overrides: { provider?: string }): void {
     },
   });
   (getConfig().services.stt as { provider: string }).provider = provider;
+  // `language` is optional and absent from the seed above, so assign it only
+  // when a test asks for one, leaving the unset path genuinely unset.
+  if (overrides.language !== undefined) {
+    (getConfig().services.stt as { language?: string }).language =
+      overrides.language;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,7 +1063,9 @@ describe("vellum managed resolution", () => {
     expect(vellumStreamCtorCalls).toEqual([
       {
         connection: mockVelayConnection,
-        options: { sampleRate: 24000 },
+        // No language is configured here, so the managed default rides along
+        // with the connection plumbing this test is about.
+        options: { sampleRate: 24000, language: "multi" },
       },
     ]);
   });
@@ -1053,10 +1107,331 @@ describe("vellum managed resolution", () => {
   });
 });
 
+describe("resolveStreamingTranscriber language plumbing", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = {};
+    deepgramCtorCalls.length = 0;
+    geminiCtorCalls.length = 0;
+    whisperCtorCalls.length = 0;
+    xaiCtorCalls.length = 0;
+    vellumStreamCtorCalls.length = 0;
+  });
+
+  test("managed sessions forward services.stt.language to the relay adapter", async () => {
+    // The managed path is why this plumbing exists: velay allowlists
+    // `language` and pins nova-3, so "multi" reaches Deepgram's
+    // code-switching mode without any platform-side change.
+    mockVellumAvailable = true;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    applyConfig({ provider: "vellum", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 24000 });
+
+    expect(vellumStreamCtorCalls).toEqual([
+      {
+        connection: mockVelayConnection,
+        options: { sampleRate: 24000, language: "multi" },
+      },
+    ]);
+  });
+
+  test("BYOK Deepgram sessions with 'multi' pin nova-3 alongside the language", async () => {
+    // multi is a nova-3-only feature; the adapter default (nova-2) rejects it.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+
+  test("BYOK Deepgram sessions with a specific language pin nova-3 too", async () => {
+    // The roster is verified against nova-3; the adapter default (nova-2)
+    // supports only a subset of it, so any configured language pins nova-3.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "hi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({
+      language: "hi",
+      model: "nova-3",
+    });
+  });
+
+  test("xAI sessions never receive 'multi' (a Deepgram-specific value, not BCP-47)", async () => {
+    mockProviderKeys = { xai: "xai-key" };
+    applyConfig({ provider: "xai", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(xaiCtorCalls).toHaveLength(1);
+    expect(xaiCtorCalls[0]?.options).not.toHaveProperty("language");
+  });
+
+  test("xAI sessions forward the configured language", async () => {
+    mockProviderKeys = { xai: "xai-key" };
+    applyConfig({ provider: "xai", language: "hi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(xaiCtorCalls).toHaveLength(1);
+    expect(xaiCtorCalls[0]?.options).toMatchObject({ language: "hi" });
+  });
+
+  test("an explicit option overrides the configured language", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000, language: "hi" });
+
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "hi" });
+  });
+
+  test("no configured language falls to multilingual on BYOK Deepgram", async () => {
+    // Unset is not a neutral state on Deepgram: sending no language decodes
+    // as English, so an unconfigured Hindi speaker gets English-sounding
+    // nonsense. The default fills that gap with code-switching, which also
+    // pins nova-3 the way any explicit language does.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+
+  test("no configured language falls to multilingual on the managed relay", async () => {
+    // The relay dials Deepgram server-side, so it inherits the same English
+    // default and needs the same fill-in.
+    mockVellumAvailable = true;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    applyConfig({ provider: "vellum" });
+
+    await resolveStreamingTranscriber({ sampleRate: 24000 });
+
+    expect(vellumStreamCtorCalls).toEqual([
+      {
+        connection: mockVelayConnection,
+        options: { sampleRate: 24000, language: "multi" },
+      },
+    ]);
+  });
+
+  test("an explicitly configured language still wins over the default", async () => {
+    // The default only fills the unset case: someone who picked Tamil (off
+    // the code-switching roster entirely) must keep it.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "ta" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "ta" });
+  });
+
+  test("an explicit English pin is honored rather than treated as unset", async () => {
+    // "en" is what the settings picker writes for a deliberate English pin,
+    // so it must not collapse back into the multilingual default.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "en" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "en" });
+  });
+
+  test("providers that detect natively keep receiving no language when unset", async () => {
+    // xAI reads unset as native auto-detection, so the multilingual default
+    // would replace a broader capability with a ten-language one.
+    mockProviderKeys = { xai: "xai-key" };
+    applyConfig({ provider: "xai" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(xaiCtorCalls).toHaveLength(1);
+    expect(xaiCtorCalls[0]?.options).not.toHaveProperty("language");
+  });
+
+  test("providers that auto-detect natively never receive a language", async () => {
+    // Gemini and Whisper take no language option: omitting it IS
+    // auto-detection for them, unlike Deepgram.
+    mockProviderKeys = {
+      gemini: "gem-key",
+      openai: "oa-key",
+    };
+
+    applyConfig({ provider: "google-gemini", language: "multi" });
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    applyConfig({ provider: "openai-whisper", language: "multi" });
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(geminiCtorCalls).toHaveLength(1);
+    expect(whisperCtorCalls).toHaveLength(1);
+    expect(geminiCtorCalls[0]?.options).not.toHaveProperty("language");
+    expect(whisperCtorCalls[0]?.options).not.toHaveProperty("language");
+  });
+
+  test("batch resolution threads the configured language to the Deepgram provider", async () => {
+    deepgramBatchCtorCalls.length = 0;
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "hi" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramBatchCtorCalls).toHaveLength(1);
+    expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
+      language: "hi",
+      model: "nova-3",
+    });
+  });
+
+  test("batch resolution with 'multi' pins nova-3 on the Deepgram provider", async () => {
+    deepgramBatchCtorCalls.length = 0;
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "multi" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramBatchCtorCalls).toHaveLength(1);
+    expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+
+  test("managed batch forwards the configured language to the platform", async () => {
+    // The platform proxy passes it to Deepgram server-side, so a managed
+    // voice note decodes in the same language the live session does.
+    vellumManagedTranscribeCalls.length = 0;
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum", language: "ta" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(vellumManagedTranscribeCalls).toHaveLength(1);
+    expect(vellumManagedTranscribeCalls[0]?.language).toBe("ta");
+  });
+
+  test("managed batch falls to multilingual when no language is configured", async () => {
+    // The gap this closes: managed voice notes used to decode as English no
+    // matter what the user had chosen, because nothing was forwarded.
+    vellumManagedTranscribeCalls.length = 0;
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(vellumManagedTranscribeCalls).toHaveLength(1);
+    expect(vellumManagedTranscribeCalls[0]?.language).toBe("multi");
+  });
+
+  test("batch resolution falls to multilingual when no language is configured", async () => {
+    // Dictation and voice notes ride the batch path, and they read the same
+    // config the live session does. A user whose spoken language works in
+    // voice mode must not find it broken in a voice note.
+    deepgramBatchCtorCalls.length = 0;
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramBatchCtorCalls).toHaveLength(1);
+    expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+});
+
 describe("sttCredentialGapReason", () => {
   test("vellum gets connection copy; API-key providers keep key copy", () => {
     expect(sttCredentialGapReason("vellum")).toContain("platform connect");
     expect(sttCredentialGapReason("vellum")).not.toContain("API key");
     expect(sttCredentialGapReason("deepgram")).toContain("API key");
+  });
+});
+
+describe("effectiveSttLanguage", () => {
+  test("fills the unset case only where unset would mean English", () => {
+    // Deepgram and the managed relay decode language-less audio as English,
+    // so leaving them unset is a silent pin rather than a neutral state.
+    expect(effectiveSttLanguage("deepgram", undefined)).toBe("multi");
+    expect(effectiveSttLanguage("vellum", undefined)).toBe("multi");
+    // Everyone else detects natively from the audio; filling in a ten-language
+    // roster would narrow what they can already do.
+    expect(effectiveSttLanguage("xai", undefined)).toBeUndefined();
+    expect(effectiveSttLanguage("google-gemini", undefined)).toBeUndefined();
+    expect(effectiveSttLanguage("openai-whisper", undefined)).toBeUndefined();
+  });
+
+  test("a configured language always wins, including English", () => {
+    // The default decides what happens when nobody has chosen, nothing more.
+    expect(effectiveSttLanguage("deepgram", "ta")).toBe("ta");
+    expect(effectiveSttLanguage("deepgram", "en")).toBe("en");
+    expect(effectiveSttLanguage("vellum", "multi")).toBe("multi");
+    expect(effectiveSttLanguage("xai", "hi")).toBe("hi");
+  });
+});
+
+describe("the multilingual default reaches configs with no stt block", () => {
+  test("a config that omits services.stt entirely still resolves multilingual", () => {
+    // The services-level default supplies the stt block for a fresh
+    // workspace. Handing that default a literal would short-circuit the
+    // inner parse and leave `language` undefined, so the block is parsed
+    // through its own schema and the field default materializes.
+    setConfig("services", {});
+    expect(getConfig().services.stt.language).toBe("multi");
+  });
+
+  test("a config that omits only the language gets it filled", () => {
+    setConfig("services", { stt: { provider: "deepgram", providers: {} } });
+    expect(getConfig().services.stt.language).toBe("multi");
+  });
+
+  test("an explicit language is never overwritten by the default", () => {
+    setConfig("services", {
+      stt: { provider: "deepgram", language: "ta", providers: {} },
+    });
+    expect(getConfig().services.stt.language).toBe("ta");
   });
 });

@@ -27,16 +27,24 @@ function writeToMainProcess(): void {
 
   for (const storeKey of Object.keys(ASSISTANT_FLAG_DEFAULTS)) {
     const value = assistantState[storeKey];
-    if (typeof value !== "boolean") continue;
+    if (typeof value !== "boolean") {
+      continue;
+    }
     const flagKey = storeKeyToFlagKey(storeKey);
-    if (flagKey) flags[flagKey] = value;
+    if (flagKey) {
+      flags[flagKey] = value;
+    }
   }
 
   for (const storeKey of Object.keys(CLIENT_FLAG_DEFAULTS)) {
     const value = clientState[storeKey];
-    if (typeof value !== "boolean") continue;
+    if (typeof value !== "boolean") {
+      continue;
+    }
     const flagKey = storeKeyToFlagKey(storeKey);
-    if (flagKey) flags[flagKey] = value;
+    if (flagKey) {
+      flags[flagKey] = value;
+    }
   }
 
   window.vellum?.featureFlags?.set(flags);
@@ -59,7 +67,8 @@ export function useElectronFeatureFlagBridge(): void {
     writeToMainProcess();
 
     // Re-sync on every store update.
-    const unsubAssistant = useAssistantFeatureFlagStore.subscribe(writeToMainProcess);
+    const unsubAssistant =
+      useAssistantFeatureFlagStore.subscribe(writeToMainProcess);
     const unsubClient = useClientFeatureFlagStore.subscribe(writeToMainProcess);
     return () => {
       unsubAssistant();

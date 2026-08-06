@@ -43,7 +43,9 @@ export function clearIpcMocks(): void {
 
 function handleCall(method: string): unknown {
   const response = responses.get(method);
-  if (response !== undefined) return response;
+  if (response !== undefined) {
+    return response;
+  }
   return undefined;
 }
 

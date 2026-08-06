@@ -21,9 +21,15 @@ function buildAllASnapshot(snapWins: number, stageWins: number, tieN: number) {
     key.push({ turn, a: "snapshot", b: "staging" });
     verdicts.push({ turn, winner, scoreA: sa, scoreB: sb });
   };
-  for (let n = 0; n < snapWins; n++) push("A", 7, 6); // snapshot (A) wins by 1
-  for (let n = 0; n < stageWins; n++) push("B", 6, 7); // staging (B) wins by 1
-  for (let n = 0; n < tieN; n++) push("tie", 5, 5);
+  for (let n = 0; n < snapWins; n++) {
+    push("A", 7, 6);
+  } // snapshot (A) wins by 1
+  for (let n = 0; n < stageWins; n++) {
+    push("B", 6, 7);
+  } // staging (B) wins by 1
+  for (let n = 0; n < tieN; n++) {
+    push("tie", 5, 5);
+  }
   return { verdicts, key };
 }
 

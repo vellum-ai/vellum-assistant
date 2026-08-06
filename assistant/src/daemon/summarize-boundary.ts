@@ -16,7 +16,9 @@ import { UserError } from "../util/errors.js";
  * these reconstructs `turnCount` on load.
  */
 export function startsNewTurn(msg: MessageRow): boolean {
-  if (msg.role !== "user") return false;
+  if (msg.role !== "user") {
+    return false;
+  }
   return !isToolResultOnlyUserMessage(msg);
 }
 

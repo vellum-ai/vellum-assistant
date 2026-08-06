@@ -15,8 +15,17 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Dices, Loader2, Pencil, Volume2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Dices,
+  Loader2,
+  Pencil,
+  Square,
+  Volume2,
+} from "lucide-react";
 
+import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import {
@@ -24,15 +33,22 @@ import {
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { synthesizeManagedVoiceSample } from "@/domains/onboarding/onboarding-voice-sample";
+import { resolveAvatarVoice } from "@/domains/onboarding/onboarding-avatar-voices";
+import { useUnscopedManagedVoices } from "@/lib/tts/use-managed-voices";
+import { randomCharacterTraits } from "@/utils/avatar-random";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
 import { Button } from "@vellumai/design-library/components/button";
-import { toast } from "@vellumai/design-library/components/toast";
 
 export interface GiveMeAFaceValues {
   traits: CharacterTraits;
   name: string;
+  /**
+   * The managed voice belonging to the chosen avatar: what the user auditioned,
+   * so the assistant has to speak in it. Null when the catalog never loaded, in
+   * which case the assistant keeps the platform default.
+   */
+  voiceModel: string | null;
 }
 
 interface GiveMeAFaceScreenProps {
@@ -41,16 +57,11 @@ interface GiveMeAFaceScreenProps {
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * When true (the `voice-mode` flag), show a "Hear my voice" audition — every
-   * assistant gets the default Vellum managed voice. This is the only place voice
-   * is surfaced in onboarding.
+   * Whether to offer the voice audition. False for onboarding flows that adopt
+   * a locally-hosted assistant: those can hold no platform session, so the
+   * voice catalog is unreachable and the control could only ever sit inert.
    */
-  voiceEnabled?: boolean;
-  /**
-   * The background-hatched assistant, needed to synthesize the managed-voice
-   * sample. Null until the hatch is ready — the audition warns and no-ops.
-   */
-  assistantId?: string | null;
+  canAuditionVoice?: boolean;
 }
 
 /** Prefill names, cycled across the pool and swapped in as you change avatars. */
@@ -65,7 +76,9 @@ interface Arrangement {
 function initialArrangement(count: number, centerChar: number): Arrangement {
   const edgeOrder: number[] = [];
   for (let i = 0; i < count; i++) {
-    if (i !== centerChar) edgeOrder.push(i);
+    if (i !== centerChar) {
+      edgeOrder.push(i);
+    }
   }
   return { centerChar, edgeOrder };
 }
@@ -74,17 +87,20 @@ export function GiveMeAFaceScreen({
   onContinue,
   onBack,
   onForward,
-  voiceEnabled = false,
-  assistantId = null,
+  canAuditionVoice = true,
 }: GiveMeAFaceScreenProps) {
   const components = useBundledAvatarComponents();
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const ensureGenerated = useOnboardingAvatarPoolStore.use.ensureGenerated();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const setSelectedIndex = useOnboardingAvatarPoolStore.use.setSelectedIndex();
+  const setCharacterTraits =
+    useOnboardingAvatarPoolStore.use.setCharacterTraits();
 
   useEffect(() => {
-    if (components) ensureGenerated(components);
+    if (components) {
+      ensureGenerated(components);
+    }
   }, [components, ensureGenerated]);
 
   const count = characters.length;
@@ -115,7 +131,9 @@ export function GiveMeAFaceScreen({
 
   // Keep the store's selection in sync so the chosen avatar survives navigation.
   useEffect(() => {
-    if (arrangement) setSelectedIndex(arrangement.centerChar);
+    if (arrangement) {
+      setSelectedIndex(arrangement.centerChar);
+    }
   }, [arrangement, setSelectedIndex]);
 
   // Prefill the name for the centered avatar, swapping it as you cycle — but
@@ -135,13 +153,54 @@ export function GiveMeAFaceScreen({
     }
   }, [editingName]);
 
+  // Each avatar has its own voice (see onboarding-avatar-voices), auditioned
+  // from the catalog's hosted sample. Samples are static provider-side assets,
+  // so an audition costs no synthesis and no credits. The catalog comes
+  // straight from the platform, so the audition is live as soon as this step
+  // is, independent of the assistant hatching in the background.
+  const { voices, loading: voicesLoading } = useUnscopedManagedVoices({
+    enabled: canAuditionVoice,
+  });
+  const centeredVoice = useMemo(
+    () => (centerChar == null ? null : resolveAvatarVoice(centerChar, voices)),
+    [centerChar, voices],
+  );
+  const {
+    previewingModel,
+    play: playVoice,
+    stop: stopVoice,
+  } = useVoiceSamplePreview();
+  const auditioning =
+    centeredVoice !== null && previewingModel === centeredVoice.model;
+  // Disabled-and-still-coming, as opposed to disabled because the catalog
+  // failed. Those want different affordances.
+  const voicePending = !centeredVoice && voicesLoading;
+
+  function toggleVoice() {
+    if (!centeredVoice) {
+      return;
+    }
+    if (auditioning) {
+      stopVoice();
+      return;
+    }
+    playVoice(centeredVoice);
+  }
+
   // Swap `targetChar` into the center; the old center takes its vacated slot.
   // The incoming avatar flies off-screen then pops into the center; the old
   // center shrinks away then reappears at `slot` (both tracked via `swap`).
   function moveTo(targetChar: number) {
-    if (!arrangement || targetChar === arrangement.centerChar) return;
+    if (!arrangement || targetChar === arrangement.centerChar) {
+      return;
+    }
     const slot = arrangement.edgeOrder.indexOf(targetChar);
-    if (slot < 0) return;
+    if (slot < 0) {
+      return;
+    }
+    // The audition belongs to the avatar leaving the center; letting it run on
+    // would pair a voice with a face it isn't.
+    stopVoice();
     const edgeOrder = [...arrangement.edgeOrder];
     edgeOrder[slot] = arrangement.centerChar;
     setSwap({
@@ -164,83 +223,39 @@ export function GiveMeAFaceScreen({
   const ready = !!components && !!arrangement && !!centeredTraits;
 
   function handleContinue() {
-    if (centeredTraits) onContinue({ traits: centeredTraits, name: name.trim() });
-  }
-
-  // Audition the assistant's voice (the default Vellum managed voice) on demand.
-  // Synthesis is a network round-trip, so a loading state covers the wait; the
-  // audio + its object URL are torn down on a repeat tap, when it ends, or on
-  // unmount so nothing leaks or double-plays.
-  const [voiceLoading, setVoiceLoading] = useState(false);
-  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
-  const voiceUrlRef = useRef<string | null>(null);
-  // Bumped on every request AND on unmount, so an in-flight synthesis that
-  // resolves after the user has left the step (or after a newer click) bails
-  // instead of starting playback on the next screen with no later cleanup.
-  const voiceRequestRef = useRef(0);
-  function stopVoice() {
-    voiceAudioRef.current?.pause();
-    voiceAudioRef.current = null;
-    if (voiceUrlRef.current) {
-      URL.revokeObjectURL(voiceUrlRef.current);
-      voiceUrlRef.current = null;
-    }
-  }
-  useEffect(
-    () => () => {
-      voiceRequestRef.current++;
-      stopVoice();
-    },
-    [],
-  );
-
-  async function hearVoice() {
-    if (!assistantId) {
-      toast.error("Your assistant is still warming up — try again in a moment.");
-      return;
-    }
-    stopVoice();
-    const requestId = ++voiceRequestRef.current;
-    const isCurrent = () => voiceRequestRef.current === requestId;
-    setVoiceLoading(true);
-    try {
-      const trimmed = name.trim();
-      const sampleText = trimmed
-        ? `Hi! It's ${trimmed}. This is how I sound.`
-        : "Hi there! This is how I sound.";
-      const blob = await synthesizeManagedVoiceSample(assistantId, sampleText);
-      // Unmounted or superseded by a newer click while synthesizing — don't
-      // start playback on a step the user has already left.
-      if (!isCurrent()) return;
-      if (!blob) {
-        toast.error("Couldn't play a sample just now — give it another try.");
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      voiceUrlRef.current = url;
-      const audio = new Audio(url);
-      voiceAudioRef.current = audio;
-      audio.onended = () => stopVoice();
-      await audio.play();
-    } catch {
-      if (isCurrent()) {
-        toast.error("Couldn't play a sample just now — give it another try.");
-      }
-    } finally {
-      if (isCurrent()) setVoiceLoading(false);
+    if (centeredTraits) {
+      onContinue({
+        traits: centeredTraits,
+        name: name.trim(),
+        voiceModel: centeredVoice?.model ?? null,
+      });
     }
   }
 
-  // Roll a random name from the pool (different from the current one). Counts as
-  // a deliberate pick, so — like editing — it sticks across avatar cycling
-  // instead of being re-prefilled from the centered avatar.
-  function randomizeName() {
+  // Reroll both the name and the centered avatar's traits, each guaranteed to
+  // differ from the current one. The name counts as a deliberate pick, so
+  // (like editing) it sticks across avatar cycling instead of being
+  // re-prefilled from the centered avatar.
+  function randomizeCharacter() {
     nameCustomized.current = true;
     setName((current) => {
-      const options = ASSISTANT_NAMES.filter((candidate) => candidate !== current);
+      const options = ASSISTANT_NAMES.filter(
+        (candidate) => candidate !== current,
+      );
       const pool = options.length > 0 ? options : ASSISTANT_NAMES;
       return pool[Math.floor(Math.random() * pool.length)]!;
     });
+    if (components && arrangement && centeredTraits) {
+      let traits = randomCharacterTraits(components);
+      while (
+        traits.bodyShape === centeredTraits.bodyShape &&
+        traits.eyeStyle === centeredTraits.eyeStyle &&
+        traits.color === centeredTraits.color
+      ) {
+        traits = randomCharacterTraits(components);
+      }
+      setCharacterTraits(arrangement.centerChar, traits);
+    }
   }
 
   const arrowClass =
@@ -255,141 +270,150 @@ export function GiveMeAFaceScreen({
       className="relative h-full overflow-hidden bg-[var(--surface-base)] text-[var(--content-default)]"
     >
       <OnboardingStageSizeProvider size={stageSize}>
-      {ready && (
-        <OnboardingCharacterStage
-          components={components}
-          characters={characters}
-          centerChar={arrangement.centerChar}
-          edgeOrder={arrangement.edgeOrder}
-          entering={swap?.entering ?? null}
-          exiting={swap?.exiting ?? null}
-          onEnterComplete={(char) =>
-            setSwap((curr) => (curr?.entering.char === char ? null : curr))
-          }
-          onSelectChar={moveTo}
-        />
-      )}
+        {ready && (
+          <OnboardingCharacterStage
+            components={components}
+            characters={characters}
+            centerChar={arrangement.centerChar}
+            edgeOrder={arrangement.edgeOrder}
+            entering={swap?.entering ?? null}
+            exiting={swap?.exiting ?? null}
+            onEnterComplete={(char) =>
+              setSwap((curr) => (curr?.entering.char === char ? null : curr))
+            }
+            onSelectChar={moveTo}
+          />
+        )}
 
-      {/* Redo routes through Continue (not the generic step redo) so any avatar
+        {/* Redo routes through Continue (not the generic step redo) so any avatar
           or name edits made after stepping back are captured before advancing —
           otherwise the redo would re-stage the previous selection. */}
-      <OnboardingTopBar
-        tone="light"
-        onBack={onBack}
-        onNext={onForward ? handleContinue : undefined}
-      />
+        <OnboardingTopBar
+          tone="light"
+          onBack={onBack}
+          onNext={onForward ? handleContinue : undefined}
+        />
 
-      {/* Title */}
-      <h1
-        className="absolute left-1/2 top-[22%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none max-md:w-[90vw] max-md:whitespace-normal max-md:text-[2.08rem]"
-        style={{
-          fontFamily: "var(--font-serif)",
-          animation: "fadeInUp 0.4s ease-out both",
-        }}
-      >
-        Give me a face and a name
-      </h1>
-
-      {/* Cycle arrows, flanking the centered avatar */}
-      <button
-        type="button"
-        aria-label="Previous character"
-        onClick={goPrev}
-        className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
-      >
-        <ArrowLeft className="h-4 w-4" />
-      </button>
-      <button
-        type="button"
-        aria-label="Next character"
-        onClick={goNext}
-        className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
-      >
-        <ArrowRight className="h-4 w-4" />
-      </button>
-
-      {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
-      <div className="absolute left-1/2 top-[58%] z-10 flex -translate-x-1/2 flex-col items-center gap-10 max-md:top-[54%]">
-        <div className="flex flex-col items-center gap-4">
-        {editingName ? (
-          <input
-            ref={nameInputRef}
-            value={name}
-            onChange={(e) => {
-              nameCustomized.current = true;
-              setName(e.target.value);
-            }}
-            onBlur={() => setEditingName(false)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                setEditingName(false);
-              }
-            }}
-            placeholder="Name your assistant"
-            aria-label="Assistant name"
-            className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
-          />
-        ) : (
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setEditingName(true)}
-              aria-label="Edit name"
-              className="flex cursor-pointer items-center gap-2.5"
-            >
-              <span
-                className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
-              >
-                {name || "Name your assistant"}
-              </span>
-              <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
-            </button>
-            <button
-              type="button"
-              onClick={randomizeName}
-              aria-label="Shuffle name"
-              title="Shuffle name"
-              className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
-            >
-              <Dices className="h-5 w-5" />
-            </button>
-          </div>
-        )}
-
-        {/* The only place voice is surfaced in onboarding: an audition of the
-            assistant's (managed) voice. Its presence implies "I can speak". */}
-        {voiceEnabled && (
-          <button
-            type="button"
-            onClick={hearVoice}
-            disabled={voiceLoading}
-            title="Hear my voice"
-            aria-label="Hear my voice"
-            className="flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default disabled:opacity-70"
-          >
-            {voiceLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Volume2 className="h-4 w-4" />
-            )}
-            Hear my voice
-          </button>
-        )}
-        </div>
-
-        <Button
-          type="button"
-          variant="primary"
-          size="regular"
-          rightIcon={<ArrowRight size={16} />}
-          disabled={!ready}
-          onClick={handleContinue}
-          className="h-11 w-[234px] text-base"
+        {/* Title */}
+        <h1
+          className="absolute left-1/2 top-[22%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none max-md:w-[90vw] max-md:whitespace-normal max-md:text-[2.08rem]"
+          style={{
+            fontFamily: "var(--font-serif)",
+            animation: "fadeInUp 0.4s ease-out both",
+          }}
         >
-          Continue
-        </Button>
-      </div>
+          Give me a face and a name
+        </h1>
+
+        {/* Cycle arrows, flanking the centered avatar */}
+        <button
+          type="button"
+          aria-label="Previous character"
+          onClick={goPrev}
+          className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Next character"
+          onClick={goNext}
+          className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
+        >
+          <ArrowRight className="h-4 w-4" />
+        </button>
+
+        {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
+        <div className="absolute left-1/2 top-[58%] z-10 flex -translate-x-1/2 flex-col items-center gap-10 max-md:top-[54%]">
+          <div className="flex flex-col items-center gap-4">
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                value={name}
+                onChange={(e) => {
+                  nameCustomized.current = true;
+                  setName(e.target.value);
+                }}
+                onBlur={() => setEditingName(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    setEditingName(false);
+                  }
+                }}
+                placeholder="Name your assistant"
+                aria-label="Assistant name"
+                className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
+              />
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingName(true)}
+                  aria-label="Edit name"
+                  className="flex cursor-pointer items-center gap-2.5"
+                >
+                  <span
+                    className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
+                  >
+                    {name || "Name your assistant"}
+                  </span>
+                  <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={randomizeCharacter}
+                  aria-label="Shuffle name and appearance"
+                  title="Shuffle name and appearance"
+                  className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
+                >
+                  <Dices className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+
+            {/* The only place voice is surfaced in onboarding. It auditions the
+                CENTERED avatar's own voice, so cycling the carousel is also how
+                you shop for a voice. While the catalog is in flight the button
+                spins rather than sitting dead: a slow fetch has to read as
+                "coming", not "broken". Absent entirely where the catalog is out
+                of reach, rather than offered and permanently inert. */}
+            {canAuditionVoice && (
+              <button
+                type="button"
+                onClick={toggleVoice}
+                disabled={!centeredVoice}
+                title="Hear my voice"
+                aria-label={
+                  auditioning ? "Stop the voice sample" : "Hear my voice"
+                }
+                aria-busy={voicePending}
+                className={`flex cursor-pointer items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--content-default)_22%,transparent)] px-4 py-2 text-sm text-[var(--content-default)] transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] disabled:cursor-default ${voicePending ? "disabled:opacity-70" : "disabled:opacity-40"}`}
+              >
+                {voicePending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : auditioning ? (
+                  <Square className="h-4 w-4" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+                Hear my voice
+              </button>
+            )}
+          </div>
+
+          <Button
+            type="button"
+            variant="primary"
+            size="regular"
+            rightIcon={<ArrowRight size={16} />}
+            disabled={!ready}
+            onClick={handleContinue}
+            className="h-11 w-[234px] text-base"
+          >
+            Continue
+          </Button>
+        </div>
       </OnboardingStageSizeProvider>
     </div>
   );

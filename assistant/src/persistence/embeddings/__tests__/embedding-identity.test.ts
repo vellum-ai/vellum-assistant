@@ -16,7 +16,9 @@ let breakerOpen = false;
 let selectBackendThrows = false;
 
 const selectEmbeddingBackendMock = mock(async () => {
-  if (selectBackendThrows) throw new Error("credential store unavailable");
+  if (selectBackendThrows) {
+    throw new Error("credential store unavailable");
+  }
   return {
     backend: backendToReturn,
     reason: backendToReturn ? null : "no backend",
@@ -53,11 +55,15 @@ let collectionExistsThrows = false;
 let getCollectionThrows = false;
 
 const collectionExistsMock = mock(async () => {
-  if (collectionExistsThrows) throw new Error("qdrant down");
+  if (collectionExistsThrows) {
+    throw new Error("qdrant down");
+  }
   return collectionExistsResult;
 });
 const getCollectionMock = mock(async () => {
-  if (getCollectionThrows) throw new Error("qdrant probe failed");
+  if (getCollectionThrows) {
+    throw new Error("qdrant probe failed");
+  }
   return getCollectionResult;
 });
 mock.module("@qdrant/js-client-rest", () => ({

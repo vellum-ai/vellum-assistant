@@ -23,12 +23,12 @@ afterAll(() => {
 });
 
 describe("readAudioFile", () => {
-  test("reads an mp3 into a base64 file block with audio/mpeg", () => {
+  test("reads an mp3 into a base64 file block with audio/mpeg", async () => {
     const p = join(dir, "clip.mp3");
     const bytes = Buffer.from("fake-audio-bytes");
     writeFileSync(p, bytes);
 
-    const result = readAudioFile(p);
+    const result = await readAudioFile(p);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Audio loaded");
@@ -45,7 +45,7 @@ describe("readAudioFile", () => {
     ]);
   });
 
-  test("maps each extension to the canonical MIME (matches migration 191)", () => {
+  test("maps each extension to the canonical MIME (matches migration 191)", async () => {
     const cases: Record<string, string> = {
       "a.mp3": "audio/mpeg",
       "a.wav": "audio/wav",
@@ -58,7 +58,7 @@ describe("readAudioFile", () => {
     for (const [name, mime] of Object.entries(cases)) {
       const p = join(dir, name);
       writeFileSync(p, Buffer.from("x"));
-      const result = readAudioFile(p);
+      const result = await readAudioFile(p);
       expect(result.isError).toBe(false);
       const block = result.contentBlocks?.[0] as {
         source: { media_type: string };
@@ -67,28 +67,28 @@ describe("readAudioFile", () => {
     }
   });
 
-  test("rejects audio larger than the 12 MB inline cap", () => {
+  test("rejects audio larger than the 12 MB inline cap", async () => {
     const p = join(dir, "big.mp3");
     writeFileSync(p, "");
     truncateSync(p, 13 * 1024 * 1024); // sparse — no 13 MB allocation
 
-    const result = readAudioFile(p);
+    const result = await readAudioFile(p);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("too large");
     expect(result.contentBlocks).toBeUndefined();
   });
 
-  test("errors on a missing file", () => {
-    const result = readAudioFile(join(dir, "nope.mp3"));
+  test("errors on a missing file", async () => {
+    const result = await readAudioFile(join(dir, "nope.mp3"));
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not found");
   });
 
-  test("errors when the path is a directory", () => {
+  test("errors when the path is a directory", async () => {
     const p = join(dir, "adir.mp3");
     mkdirSync(p);
-    const result = readAudioFile(p);
+    const result = await readAudioFile(p);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not a file");
   });

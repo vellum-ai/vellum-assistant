@@ -36,13 +36,17 @@ export function downDropAssistantIdColumns(database: DrizzleDb): void {
     const tableExists = raw
       .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
       .get(table);
-    if (!tableExists) continue;
+    if (!tableExists) {
+      continue;
+    }
 
     // Skip if column already exists (idempotent)
     const colExists = raw
       .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = 'assistant_id'`)
       .get(table);
-    if (colExists) continue;
+    if (colExists) {
+      continue;
+    }
 
     try {
       raw.exec(
@@ -196,7 +200,9 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
       ).map((c) => c.name),
     );
 
-    if (!cols.has("assistant_id")) continue;
+    if (!cols.has("assistant_id")) {
+      continue;
+    }
 
     // Re-verify safety before each drop
     const unexpected = raw
@@ -227,7 +233,9 @@ export function migrateDropAssistantIdColumns(database: DrizzleDb): void {
   // already existing — it still throws "no such table" when the underlying
   // table is gone — so recreate each index only when its table is present.
   const recreateIndex = (table: string, sql: string): void => {
-    if (!tableExists(database, table)) return;
+    if (!tableExists(database, table)) {
+      return;
+    }
     raw.exec(sql);
   };
 

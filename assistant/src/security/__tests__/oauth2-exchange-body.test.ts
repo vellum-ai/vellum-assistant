@@ -8,10 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  exchangeCodeForTokens,
-  type OAuth2Config,
-} from "../oauth2.js";
+import { exchangeCodeForTokens, type OAuth2Config } from "../oauth2.js";
 
 const BASE_CONFIG: OAuth2Config = {
   authorizeUrl: "https://example.com/authorize",

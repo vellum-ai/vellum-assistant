@@ -74,6 +74,8 @@ describe("SSE actor principal resolves from the same guardian source as send/res
     // the same cache key, not the unfiltered "ALL" entry.
     await getGuardianDelivery({ channelTypes: ["vellum"] });
 
-    expect(findLocalGuardianPrincipalIdFromStore()).toBe("guardian-from-gateway");
+    expect(findLocalGuardianPrincipalIdFromStore()).toBe(
+      "guardian-from-gateway",
+    );
   });
 });

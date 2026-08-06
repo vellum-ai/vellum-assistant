@@ -21,8 +21,12 @@ interface ObjectSchemaLike {
 }
 
 function isObjectTyped(prop: { type?: unknown }): boolean {
-  if (prop?.type === "object") return true;
-  if (Array.isArray(prop?.type) && prop.type.includes("object")) return true;
+  if (prop?.type === "object") {
+    return true;
+  }
+  if (Array.isArray(prop?.type) && prop.type.includes("object")) {
+    return true;
+  }
   return false;
 }
 
@@ -83,12 +87,16 @@ export function decodeCoercedObjectArgs(
   input: Record<string, unknown>,
   objectKeys: string[],
 ): { input: Record<string, unknown>; failedKey?: string } {
-  if (objectKeys.length === 0) return { input };
+  if (objectKeys.length === 0) {
+    return { input };
+  }
 
   const result: Record<string, unknown> = { ...input };
   for (const key of objectKeys) {
     const value = result[key];
-    if (typeof value !== "string") continue;
+    if (typeof value !== "string") {
+      continue;
+    }
     const trimmed = value.trim();
     if (trimmed === "") {
       result[key] = {};

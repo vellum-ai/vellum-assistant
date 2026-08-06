@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launch_screen_background">@color/launch_screen_background_dark</color>
+    <color name="launch_screen_foreground">@color/launch_screen_foreground_dark</color>
+</resources>

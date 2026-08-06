@@ -37,7 +37,9 @@ export const seedReplySuggestionCallsiteMigration: WorkspaceMigration = {
   description:
     "Seed latency-optimized default for replySuggestion LLM call site",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -46,7 +48,9 @@ export const seedReplySuggestionCallsiteMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -55,7 +59,9 @@ export const seedReplySuggestionCallsiteMigration: WorkspaceMigration = {
 
     const llm = readObject(config.llm) ?? {};
     const callSites = readObject(llm.callSites) ?? {};
-    if (readObject(callSites.replySuggestion) !== null) return;
+    if (readObject(callSites.replySuggestion) !== null) {
+      return;
+    }
 
     const conversationStarters = readObject(callSites.conversationStarters);
     let seed: Record<string, unknown>;
@@ -73,7 +79,9 @@ export const seedReplySuggestionCallsiteMigration: WorkspaceMigration = {
       }
       const provider = explicitProvider ?? "anthropic";
       const fastModel = resolveLatencyModel(provider);
-      if (fastModel === undefined) return;
+      if (fastModel === undefined) {
+        return;
+      }
       seed = {
         model: fastModel,
         effort: "low",

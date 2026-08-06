@@ -238,10 +238,16 @@ export class ExtensionCdpClient implements ScopedCdpClient {
  * errors that should propagate without failover.
  */
 function classifyHostBrowserError(parsed: unknown): CdpErrorCode {
-  if (typeof parsed !== "object" || parsed === null) return "cdp_error";
-  if (!("code" in parsed)) return "cdp_error";
+  if (typeof parsed !== "object" || parsed === null) {
+    return "cdp_error";
+  }
+  if (!("code" in parsed)) {
+    return "cdp_error";
+  }
   const code = (parsed as { code: unknown }).code;
-  if (typeof code !== "string") return "cdp_error";
+  if (typeof code !== "string") {
+    return "cdp_error";
+  }
   return TRANSPORT_ERROR_CODES.has(code) ? "transport_error" : "cdp_error";
 }
 

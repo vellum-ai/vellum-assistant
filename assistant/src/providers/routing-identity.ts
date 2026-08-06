@@ -15,6 +15,7 @@ import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 import {
   getManagedUpstream,
   VELLUM_MANAGED_CONNECTION_NAME,
+  VELLUM_MANAGED_PROVIDER,
 } from "./vellum-model-routing.js";
 
 /**
@@ -63,7 +64,7 @@ export function resolveRoutingIdentity(
   provider: string | undefined,
   model: string | undefined,
 ): { connectionName: string; expectedProvider: string } | null {
-  if (provider === "vellum") {
+  if (provider === VELLUM_MANAGED_PROVIDER) {
     const upstream = model ? getManagedUpstream(model) : null;
     if (!upstream) {
       throw new ConnectionResolutionError(

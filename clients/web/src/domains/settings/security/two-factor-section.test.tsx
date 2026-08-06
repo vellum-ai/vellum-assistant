@@ -71,7 +71,9 @@ describe("TwoFactorSection", () => {
     renderSection();
 
     await waitFor(() =>
-      expect(screen.getByText(/No authenticator app is set up/i)).not.toBeNull(),
+      expect(
+        screen.getByText(/No authenticator app is set up/i),
+      ).not.toBeNull(),
     );
     expect(
       screen.getByRole("button", { name: "Add authenticator app" }),

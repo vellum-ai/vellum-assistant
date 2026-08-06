@@ -64,11 +64,11 @@ export const MemoryV3HotSetSchema = z
   .describe("Memory v3 hot-set lane (decayed selection frequency) tuning.");
 
 /**
- * Fresh-set lane tuning: the top-K pages by most-recent on-disk modification
- * folded into the candidate pool as a stable-prefix lane. Recency covers the
- * window before the other lanes can reach a just-written page (no selection
- * history for the hot set; nothing lexical for the finders on summary-shaped
- * messages).
+ * Fresh-set lane tuning: the top-K pages by effective recency (the declared
+ * `origin_date` frontmatter when present, else file mtime) folded into the
+ * candidate pool as a stable-prefix lane. Recency covers the window before
+ * the other lanes can reach a just-written page (no selection history for
+ * the hot set; nothing lexical for the finders on summary-shaped messages).
  */
 export const MemoryV3FreshSetSchema = z
   .object({
@@ -78,10 +78,10 @@ export const MemoryV3FreshSetSchema = z
       .nonnegative("memory.v3.freshSet.k must be a non-negative integer")
       .default(100)
       .describe(
-        "Number of most-recently-modified pages included in the fresh-set lane (0 disables the lane). Sized to cover roughly the last day or two of page writes — the recency window conversations reference most.",
+        "Number of pages included in the fresh-set lane, ranked by effective recency: the declared origin_date frontmatter when present, else file mtime (0 disables the lane). Sized to cover roughly the last day or two of page activity, the recency window conversations reference most.",
       ),
   })
-  .describe("Memory v3 fresh-set lane (page-modification recency) tuning.");
+  .describe("Memory v3 fresh-set lane (effective page recency) tuning.");
 
 /**
  * Learned-edge lane tuning: a co-selection NPMI association graph over the
@@ -252,8 +252,7 @@ export const MemoryV3EntitySchema = z
 /**
  * Per-turn injection-gate tuning: thresholds the retrieval signals must clear
  * for the gate to open and run the selector. The gate runs only when the
- * `memory-v3-injection-gate` feature flag (the rollout switch) AND the
- * `enabled` kill-switch below are both on.
+ * `enabled` kill-switch below is on.
  */
 export const MemoryV3GateSchema = z
   .object({
@@ -261,7 +260,7 @@ export const MemoryV3GateSchema = z
       .boolean({ error: "memory.v3.gate.enabled must be a boolean" })
       .default(true)
       .describe(
-        "Whether the injection gate may run at all. false forces the full selection process every turn regardless of the `memory-v3-injection-gate` feature flag; true (default) defers to the flag.",
+        "Whether the injection gate may run at all. false forces the full selection process every turn; true (default) lets the gate run when the thresholds are met.",
       ),
     denseThreshold: z
       .number({ error: "memory.v3.gate.denseThreshold must be a number" })
@@ -327,7 +326,7 @@ export const MemoryV3GateSchema = z
       ),
   })
   .describe(
-    "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when the `memory-v3-injection-gate` feature flag AND `enabled` are both on).",
+    "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when `enabled` is on).",
   );
 
 // NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
@@ -382,6 +381,14 @@ export const MemoryV3ConfigSchema = z
       .default(12)
       .describe(
         "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
+      ),
+    spanQueryK: z
+      .number({ error: "memory.v3.spanQueryK must be a number" })
+      .int("memory.v3.spanQueryK must be an integer")
+      .nonnegative("memory.v3.spanQueryK must be a non-negative integer")
+      .default(0)
+      .describe(
+        "Per-chunk article budget for the span-query dense pass: the current message's clause spans (merged into at most 8 contiguous chunks) re-run through the dense lane as separate queries, union-additive into the candidate pool. 0 disables the pass; it is also inert when denseK is 0 or the message yields fewer than two chunks. Deliberately small next to denseK — the pass rescues motifs a long message's single query vector averages away, not a second full sweep.",
       ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })

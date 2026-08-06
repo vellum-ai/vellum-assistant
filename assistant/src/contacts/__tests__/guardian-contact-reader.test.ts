@@ -12,7 +12,9 @@ let ipcResult: unknown = { ok: true, guardianIds: [] };
 let ipcError: Error | undefined;
 
 const ipcCallPersistentMock = mock(async () => {
-  if (ipcError) throw ipcError;
+  if (ipcError) {
+    throw ipcError;
+  }
   return ipcResult;
 });
 

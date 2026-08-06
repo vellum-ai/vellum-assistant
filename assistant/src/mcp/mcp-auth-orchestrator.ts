@@ -158,7 +158,9 @@ export async function orchestrateMcpOAuthConnect(args: {
             CALLBACK_TIMEOUT_MS,
           );
           // Don't keep the event loop alive solely for this timer
-          if (typeof t.unref === "function") t.unref();
+          if (typeof t.unref === "function") {
+            t.unref();
+          }
         }),
       ]);
       await mcpTransport.finishAuth(code);

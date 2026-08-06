@@ -16,6 +16,14 @@ export const MANAGED_VOICE_SOURCE_LABELS: Record<string, string> = {
 };
 
 /**
+ * Subtitle for managed-voice pickers: managed TTS bills Vellum credits while
+ * being served by upstream providers. Shared so the Voice-page card and the
+ * live-voice first-run picker can't drift.
+ */
+export const MANAGED_VOICE_CREDITS_NOTE =
+  "Uses Vellum credits, through providers like ElevenLabs and Deepgram.";
+
+/**
  * Split a voice `description` ("American · calm, smooth, professional") into its
  * character traits and its accent. The traits are the distinguishing part, so
  * UIs lead with them and de-emphasize the accent; `traits` is also the natural
@@ -28,7 +36,9 @@ export function splitVoiceDescription(description: string): {
 } {
   const separator = " · ";
   const index = description.indexOf(separator);
-  if (index === -1) return { traits: description, accent: "" };
+  if (index === -1) {
+    return { traits: description, accent: "" };
+  }
   return {
     accent: description.slice(0, index),
     traits: description.slice(index + separator.length),
@@ -59,8 +69,11 @@ export function groupVoicesByAccent<T extends { description: string }>(
     const { accent } = splitVoiceDescription(voice.description);
     const key = accent || "Other";
     const list = byAccent.get(key);
-    if (list) list.push(voice);
-    else byAccent.set(key, [voice]);
+    if (list) {
+      list.push(voice);
+    } else {
+      byAccent.set(key, [voice]);
+    }
   }
   return [...byAccent.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))

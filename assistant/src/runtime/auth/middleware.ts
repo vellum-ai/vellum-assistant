@@ -186,5 +186,3 @@ export function authenticateRequest(req: Request): AuthenticateResult {
 
   return { ok: true, context: contextResult.context };
 }
-
-

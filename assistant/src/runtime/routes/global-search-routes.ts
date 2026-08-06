@@ -13,12 +13,14 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { getMemorySqlite } from "../../persistence/db-connection.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
-import { rawAll } from "../../persistence/raw-query.js";
-import { semanticSearch } from "../../plugins/defaults/memory/search/semantic.js";
+import { tokenize } from "../../persistence/embeddings/sparse-tokenize.js";
+import { rawMemoryAll } from "../../persistence/raw-query.js";
+import { semanticSearch } from "../../plugins/defaults/memory/v1/semantic-search.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -67,6 +69,11 @@ const globalSearchContactSchema = z.object({
 
 const globalSearchResponseSchema = z.object({
   query: z.string(),
+  /**
+   * Lexical tokens of `query`, from the same tokenizer the sparse index
+   * uses. Clients highlight these instead of re-tokenizing client-side.
+   */
+  queryTokens: z.array(z.string()),
   results: z.object({
     conversations: z.array(globalSearchConversationSchema),
     memories: z.array(globalSearchMemorySchema),
@@ -92,7 +99,9 @@ const ALL_CATEGORIES = [
 type Category = (typeof ALL_CATEGORIES)[number];
 
 function parseCategories(raw: string | undefined): Set<Category> {
-  if (!raw) return new Set(ALL_CATEGORIES);
+  if (!raw) {
+    return new Set(ALL_CATEGORIES);
+  }
   const requested = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
@@ -125,7 +134,9 @@ function parseSearchQuery(rawQ: string | undefined): {
   term: string;
   archived: boolean;
 } {
-  if (!rawQ) return { term: "", archived: false };
+  if (!rawQ) {
+    return { term: "", archived: false };
+  }
   const tokens = rawQ.split(/\s+/).filter((t) => t.length > 0);
   const termTokens: string[] = [];
   let archived = false;
@@ -151,6 +162,13 @@ function parseSearchQuery(rawQ: string | undefined): {
 }
 
 function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
+  // The memory graph lives in the dedicated memory database. If it cannot be
+  // opened, degrade this category to empty rather than failing the whole
+  // federated search — conversations, schedules, and contacts still return.
+  if (!getMemorySqlite()) {
+    return [];
+  }
+
   const likePattern = `%${query.replace(/%/g, "").replace(/_/g, "")}%`;
 
   interface MemoryRow {
@@ -161,7 +179,7 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
     last_accessed: number;
   }
 
-  const rows = rawAll<MemoryRow>(
+  const rows = rawMemoryAll<MemoryRow>(
     "globalSearch:searchMemoryItems",
     `SELECT id, type, content, confidence, last_accessed
      FROM memory_graph_nodes
@@ -195,12 +213,16 @@ async function searchMemoriesSemantic(
 ): Promise<GlobalSearchMemory[]> {
   const config = getConfig();
   const backendStatus = await getMemoryBackendStatus(config);
-  if (!backendStatus.provider) return [];
+  if (!backendStatus.provider) {
+    return [];
+  }
 
   try {
     const embedded = await embedWithBackend(config, [query]);
     const queryVector = embedded.vectors[0];
-    if (!queryVector) return [];
+    if (!queryVector) {
+      return [];
+    }
 
     const candidates = await semanticSearch(
       queryVector,
@@ -211,8 +233,12 @@ async function searchMemoriesSemantic(
 
     const results: GlobalSearchMemory[] = [];
     for (const c of candidates) {
-      if (c.type !== "item") continue;
-      if (existingIds.has(c.id)) continue;
+      if (c.type !== "item") {
+        continue;
+      }
+      if (existingIds.has(c.id)) {
+        continue;
+      }
       results.push({
         id: c.id,
         kind: c.kind,
@@ -330,7 +356,7 @@ async function handleGlobalSearch({
     }));
   }
 
-  return { query: term, results };
+  return { query: term, queryTokens: tokenize(term), results };
 }
 
 // ---------------------------------------------------------------------------

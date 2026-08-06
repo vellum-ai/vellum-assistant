@@ -90,8 +90,12 @@ export function extractAndSanitize(content: string): SanitizeResult {
     const kind = match[1];
     const value = match[2];
 
-    if (!value || value.trim().length === 0) continue;
-    if (!VALID_KINDS.has(kind)) continue;
+    if (!value || value.trim().length === 0) {
+      continue;
+    }
+    if (!VALID_KINDS.has(kind)) {
+      continue;
+    }
 
     const typedKind = kind as SensitiveOutputKind;
     if (!seenValues.has(value)) {
@@ -129,7 +133,9 @@ export function applySubstitutions(
   text: string,
   substitutionMap: ReadonlyMap<string, string>,
 ): string {
-  if (substitutionMap.size === 0) return text;
+  if (substitutionMap.size === 0) {
+    return text;
+  }
 
   let result = text;
   for (const [placeholder, value] of substitutionMap) {
@@ -192,7 +198,9 @@ export function applyStreamingSubstitution(
         break;
       }
     }
-    if (pendingStart !== resolved.length) break;
+    if (pendingStart !== resolved.length) {
+      break;
+    }
   }
 
   return {
@@ -204,7 +212,9 @@ export function applyStreamingSubstitution(
 function getMaxPlaceholderLength(map: ReadonlyMap<string, string>): number {
   let max = 0;
   for (const key of map.keys()) {
-    if (key.length > max) max = key.length;
+    if (key.length > max) {
+      max = key.length;
+    }
   }
   return max;
 }

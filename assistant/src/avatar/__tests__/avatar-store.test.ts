@@ -80,7 +80,9 @@ describe("avatar-store", () => {
   /** Reads and parses the on-disk manifest, or returns null when absent. */
   const readManifestFile = (): ManifestShape | null => {
     const manifestPath = path(MANIFEST_FILENAME);
-    if (!existsSync(manifestPath)) return null;
+    if (!existsSync(manifestPath)) {
+      return null;
+    }
     return JSON.parse(readFileSync(manifestPath, "utf-8")) as ManifestShape;
   };
 
@@ -122,7 +124,9 @@ describe("avatar-store", () => {
     test("propagates invalid_traits without writing a manifest", () => {
       const result = setCharacter({ bodyShape: "", eyeStyle: "", color: "" });
       expect(result.ok).toBe(false);
-      if (result.ok) return;
+      if (result.ok) {
+        return;
+      }
       expect(result.reason).toBe("invalid_traits");
       expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);

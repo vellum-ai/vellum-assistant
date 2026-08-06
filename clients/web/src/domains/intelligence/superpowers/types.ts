@@ -8,9 +8,4 @@ import type { SkillOrigin } from "@/domains/intelligence/skills/types";
  * is active).
  */
 export type SuperpowerFilter =
-  | "all"
-  | "installed"
-  | "available"
-  | "skills"
-  | "plugins"
-  | SkillOrigin;
+  "all" | "installed" | "available" | "skills" | "plugins" | SkillOrigin;

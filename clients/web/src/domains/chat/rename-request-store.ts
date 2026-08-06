@@ -3,7 +3,7 @@
  *
  * Both `ChatLayout` (sidebar right-click) and `ChatConversationHeader`
  * (top-bar chevron menu) can trigger a rename. A single Zustand store
- * ensures only one `RenameConversationDialog` instance exists and both
+ * ensures only one `NameInputDialog` instance exists and both
  * triggers converge on the same state.
  *
  * `ChatLayout` owns the dialog; callers write to the store to request
@@ -32,6 +32,4 @@ const useRenameRequestStoreBase = create<RenameRequestStore>((set) => ({
   clearRename: () => set({ renameRequest: null }),
 }));
 
-export const useRenameRequestStore = createSelectors(
-  useRenameRequestStoreBase,
-);
+export const useRenameRequestStore = createSelectors(useRenameRequestStoreBase);

@@ -21,6 +21,12 @@
  * `Date#toISOString()`.
  */
 
+/**
+ * Pairing-challenge TTL in milliseconds (10 minutes): the gateway's challenge
+ * store enforces it and the `vellum pair` CLI renders it in user-facing copy.
+ */
+export const REMOTE_WEB_PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
+
 /** `POST /v1/remote-web/pairing-challenge` request body. */
 export interface RemoteWebPairingChallengeRequest {
   /** Public https base URL the scanning device can reach the assistant at. */
@@ -109,11 +115,76 @@ export type RemoteWebPairingTokenResponse =
 // only) so both Node and browser callers share one implementation.
 
 /** Why a public base URL can't be advertised in a pairing challenge. */
-export type PublicBaseUrlRejection = "unparseable" | "loopback" | "non-https";
+export type PublicBaseUrlRejection =
+  | "unparseable"
+  | "loopback"
+  | "non-https"
+  | "service-website";
 
 export type PublicBaseUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: PublicBaseUrlRejection };
+
+/**
+ * Hosts that are a tunnel/ingress vendor's own website, not a user's assistant
+ * endpoint. These are the tunnel vendors our docs mention, and their sites are
+ * exactly where a lost user grabs a URL from — e.g. a Tailscale admin invite
+ * link (`login.tailscale.com/admin/invite/…`), which is https and non-loopback
+ * and so clears every other check. Pairing refuses them with a targeted message
+ * rather than minting a challenge the scanning device can never reach.
+ */
+export const TUNNEL_PROVIDER_WEBSITE_HOSTS = [
+  "login.tailscale.com",
+  "tailscale.com",
+  "www.tailscale.com",
+  "ngrok.com",
+  "dashboard.ngrok.com",
+  "dash.cloudflare.com",
+  "cloudflare.com",
+  "www.cloudflare.com",
+] as const;
+
+/**
+ * A URL whose exact host is a tunnel/ingress vendor's own website (see
+ * {@link TUNNEL_PROVIDER_WEBSITE_HOSTS}). Exact-host only: a user's real
+ * Tailscale endpoint (`*.ts.net`) or Cloudflare-fronted domain is never a
+ * listed host, so a legitimate address is never mistaken for a vendor site.
+ */
+export function isTunnelProviderWebsiteUrl(url: string): boolean {
+  let hostname: string;
+  try {
+    // WHATWG URL lowercases the hostname during parsing.
+    hostname = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (TUNNEL_PROVIDER_WEBSITE_HOSTS as readonly string[]).includes(
+    hostname,
+  );
+}
+
+/**
+ * The display name of the tunnel/ingress vendor a service-website URL points
+ * at (`"Tailscale"` / `"ngrok"` / `"Cloudflare"`), or null when the host is not
+ * a known vendor site. Drives the "This is <Name>'s website" pairing guidance.
+ */
+export function tunnelProviderWebsiteName(url: string): string | null {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  if (
+    !(TUNNEL_PROVIDER_WEBSITE_HOSTS as readonly string[]).includes(hostname)
+  ) {
+    return null;
+  }
+  if (hostname.includes("tailscale")) return "Tailscale";
+  if (hostname.includes("ngrok")) return "ngrok";
+  if (hostname.includes("cloudflare")) return "Cloudflare";
+  return null;
+}
 
 /**
  * A loopback URL — `localhost`, `[::1]`, or `127.x.x.x`. A pairing link that
@@ -139,7 +210,7 @@ export function isLoopbackPublicUrl(url: string): boolean {
  * removed so a pasted pair-page URL collapses to its base, and trailing
  * slashes trimmed. Throws if the value is not a parseable URL.
  */
-export function normalizePublicBaseUrl(value: string): string {
+export function normalizePairingBaseUrl(value: string): string {
   const url = new URL(value);
   url.search = "";
   url.hash = "";
@@ -160,12 +231,15 @@ export function normalizePublicBaseUrl(value: string): string {
 export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
   let normalized: string;
   try {
-    normalized = normalizePublicBaseUrl(raw);
+    normalized = normalizePairingBaseUrl(raw);
   } catch {
     return { ok: false, reason: "unparseable" };
   }
   if (isLoopbackPublicUrl(normalized)) {
     return { ok: false, reason: "loopback" };
+  }
+  if (isTunnelProviderWebsiteUrl(normalized)) {
+    return { ok: false, reason: "service-website" };
   }
   if (new URL(normalized).protocol !== "https:") {
     return { ok: false, reason: "non-https" };

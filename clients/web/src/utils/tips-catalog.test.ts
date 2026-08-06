@@ -63,10 +63,6 @@ describe("TIPS_CATALOG", () => {
     for (const tip of TIPS_CATALOG) {
       const checks = [
         { storeKey: tip.gates?.requiresClientFlag, scope: "client" as const },
-        {
-          storeKey: tip.gates?.requiresAssistantFlag,
-          scope: "assistant" as const,
-        },
       ];
       for (const { storeKey, scope } of checks) {
         if (!storeKey) {

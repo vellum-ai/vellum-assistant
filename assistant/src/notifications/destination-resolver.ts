@@ -33,10 +33,10 @@ function resolveGuardian(
   guardians: GuardianDelivery[] | null,
   channelType: string,
 ): ResolvedGuardian | undefined {
-  const g = guardians
-    ? guardianForChannel(guardians, channelType)
-    : undefined;
-  if (!g) return undefined;
+  const g = guardians ? guardianForChannel(guardians, channelType) : undefined;
+  if (!g) {
+    return undefined;
+  }
   return {
     principalId: g.principalId ?? undefined,
     address: g.address,
@@ -62,7 +62,9 @@ export function resolveDestinations(
   const result = new Map<NotificationChannel, ChannelDestination>();
 
   for (const channel of channels) {
-    if (!isNotificationDeliverable(channel)) continue;
+    if (!isNotificationDeliverable(channel)) {
+      continue;
+    }
 
     // After the deliverability check, `channel` is guaranteed to be a
     // NotificationChannel — TypeScript cannot infer this from the runtime
@@ -168,7 +170,11 @@ export function resolveDestinations(
             Object.keys(platformMeta).length > 0 ? platformMeta : undefined,
         });
         log.debug(
-          { channel: "platform", source: "guardian-delivery", hasEndpoint: false },
+          {
+            channel: "platform",
+            source: "guardian-delivery",
+            hasEndpoint: false,
+          },
           "destination resolved",
         );
         break;

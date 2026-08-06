@@ -22,9 +22,8 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { MobileAcpRunDetailOverlay } = await import(
-  "@/domains/chat/components/mobile-acp-run-detail-overlay"
-);
+const { MobileAcpRunDetailOverlay } =
+  await import("@/domains/chat/components/mobile-acp-run-detail-overlay");
 import type { AcpRunEntry } from "@/domains/chat/acp-run-store";
 
 const noop = () => {};
@@ -61,7 +60,9 @@ describe("MobileAcpRunDetailOverlay", () => {
 
   test("renders the panel when given an entry", async () => {
     render(<MobileAcpRunDetailOverlay entry={makeEntry()} onClose={noop} />);
-    expect(await screen.findByText("claude", undefined, LAZY_WAIT)).toBeDefined();
+    expect(
+      await screen.findByText("claude", undefined, LAZY_WAIT),
+    ).toBeDefined();
   });
 
   test("close button fires onClose", async () => {

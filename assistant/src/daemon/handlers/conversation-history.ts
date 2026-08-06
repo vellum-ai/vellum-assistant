@@ -22,7 +22,7 @@ export async function performConversationSearch(
 ) {
   // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
   if (params.query.trim() === "*") {
-    const rows = listConversations(params.limit);
+    const rows = listConversations({ limit: params.limit });
     return rows.map((r) => ({
       conversationId: r.id,
       conversationTitle: r.title,

@@ -38,9 +38,12 @@ export type Bookmark = NonNullable<BookmarksGetResponse>["bookmarks"][number];
 const EMPTY_BOOKMARKS: Bookmark[] = [];
 
 /** Active assistant id + whether the shared bookmark query should run. */
-function useBookmarkQueryGate(): { assistantId: string | null; enabled: boolean } {
+function useBookmarkQueryGate(): {
+  assistantId: string | null;
+  enabled: boolean;
+} {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const supportsBookmarks = useSupportsBookmarks();
+  const supportsBookmarks = useSupportsBookmarks(assistantId);
   const enabled = supportsBookmarks && Boolean(assistantId);
   return { assistantId, enabled };
 }
@@ -84,16 +87,18 @@ export function useIsBookmarked(messageId: string | undefined): boolean {
 }
 
 /**
- * Whether `message` can be bookmarked. Requires an assistant new enough to
- * expose the bookmark routes (see `useSupportsBookmarks`) and a persisted row
- * the daemon can resolve — optimistic/streaming messages carry a
- * client-generated id, and a bookmark keys on (messageId, conversationId).
+ * Whether `message` can be bookmarked. Requires the active assistant to be new
+ * enough to expose the bookmark routes (see `useSupportsBookmarks`, scoped to
+ * that assistant) and a persisted row the daemon can resolve —
+ * optimistic/streaming messages carry a client-generated id, and a bookmark
+ * keys on (messageId, conversationId).
  */
 export function useCanBookmark(
   message: { id?: string; isOptimistic?: boolean },
   conversationId: string | null | undefined,
 ): boolean {
-  const supportsBookmarks = useSupportsBookmarks();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const supportsBookmarks = useSupportsBookmarks(assistantId);
   return (
     supportsBookmarks &&
     Boolean(conversationId) &&
@@ -118,7 +123,9 @@ export function useBookmarkToggle(): (
 
   return useCallback(
     async (messageId, conversationId, currentlyBookmarked) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       const queryKey = bookmarksGetQueryKey({
         path: { assistant_id: assistantId },
       });
@@ -131,7 +138,9 @@ export function useBookmarkToggle(): (
         if (currentlyBookmarked) {
           return { bookmarks: list.filter((b) => b.messageId !== messageId) };
         }
-        if (list.some((b) => b.messageId === messageId)) return old;
+        if (list.some((b) => b.messageId === messageId)) {
+          return old;
+        }
         const now = Date.now();
         const optimistic: Bookmark = {
           id: `optimistic-${messageId}`,

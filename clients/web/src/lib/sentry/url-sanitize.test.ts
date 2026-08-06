@@ -36,7 +36,7 @@ describe("sanitizeUrl", () => {
     );
   });
 
-  it("scrubs OAuth deep-link codes on custom schemes (iOS Capacitor)", () => {
+  it("scrubs OAuth deep-link codes on custom schemes (native mobile)", () => {
     expect(
       sanitizeUrl(
         "vellum-assistant://oauth-complete?oauth_code=xyz&oauth_provider=google",
@@ -47,9 +47,9 @@ describe("sanitizeUrl", () => {
   });
 
   it("redacts parametric hash fragments (OAuth implicit flow)", () => {
-    expect(
-      sanitizeUrl("https://app/#access_token=abc&token_type=Bearer"),
-    ).toBe("https://app/#[REDACTED]");
+    expect(sanitizeUrl("https://app/#access_token=abc&token_type=Bearer")).toBe(
+      "https://app/#[REDACTED]",
+    );
   });
 
   it("preserves anchor-style hashes without `=`", () => {

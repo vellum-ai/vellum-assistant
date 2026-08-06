@@ -1,4 +1,4 @@
-import { getDb } from "../db-connection.js";
+import { getMemoryDb } from "../db-connection.js";
 import { memoryGraphNodes } from "../schema/index.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 
@@ -69,9 +69,15 @@ export async function sweepOrphanedGraphNodePoints(
 
   // A node row of any fidelity (including soft-deleted `gone`) keeps its point;
   // only a fully absent row marks an orphan. Load the id column once and diff in
-  // memory rather than issuing one membership query per indexed point.
+  // memory rather than issuing one membership query per indexed point. The graph
+  // lives on the memory connection; if it cannot be opened, bail without deleting
+  // — an empty membership set would treat every point as an orphan.
+  const memoryDb = getMemoryDb();
+  if (!memoryDb) {
+    return { scanned: indexedTargetIds.size, deleted: 0 };
+  }
   const liveNodeIds = new Set(
-    getDb()
+    memoryDb
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)
       .all()

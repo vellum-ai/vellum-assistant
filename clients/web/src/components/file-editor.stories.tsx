@@ -40,7 +40,10 @@ export const ActionBarReadOnly: StoryObj = {
         fileName="SKILL.md"
         isEditing={false}
       />
-      <pre className="p-4 text-body-small-default" style={{ color: "var(--content-default)" }}>
+      <pre
+        className="p-4 text-body-small-default"
+        style={{ color: "var(--content-default)" }}
+      >
         {SAMPLE_CONTENT.slice(0, 80)}…
       </pre>
     </div>
@@ -58,7 +61,10 @@ export const ActionBarEditable: StoryObj = {
         isEditing={false}
         onToggleEdit={() => {}}
       />
-      <pre className="p-4 text-body-small-default" style={{ color: "var(--content-default)" }}>
+      <pre
+        className="p-4 text-body-small-default"
+        style={{ color: "var(--content-default)" }}
+      >
         {SAMPLE_CONTENT.slice(0, 80)}…
       </pre>
     </div>
@@ -85,7 +91,10 @@ export const ActionBarWithExtraActions: StoryObj = {
           />
         }
       />
-      <pre className="p-4 text-body-small-default" style={{ color: "var(--content-default)" }}>
+      <pre
+        className="p-4 text-body-small-default"
+        style={{ color: "var(--content-default)" }}
+      >
         {SAMPLE_CONTENT.slice(0, 80)}…
       </pre>
     </div>
@@ -103,7 +112,10 @@ export const ActionBarHiddenWhileEditing: StoryObj = {
         isEditing={true}
         onToggleEdit={() => {}}
       />
-      <p className="p-4 text-body-small-default" style={{ color: "var(--content-tertiary)" }}>
+      <p
+        className="p-4 text-body-small-default"
+        style={{ color: "var(--content-tertiary)" }}
+      >
         Action bar is hidden during editing (renders null).
       </p>
     </div>

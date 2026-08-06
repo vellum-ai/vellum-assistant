@@ -35,17 +35,27 @@ export function pathBBox(d: string): BBox {
   let cy = 0;
 
   const extend = (x: number, y: number) => {
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
+    if (x < minX) {
+      minX = x;
+    }
+    if (y < minY) {
+      minY = y;
+    }
+    if (x > maxX) {
+      maxX = x;
+    }
+    if (y > maxY) {
+      maxY = y;
+    }
   };
 
   const segments = d.match(SEGMENTS) ?? [];
   for (const seg of segments) {
     const code = seg[0]!;
     const upper = code.toUpperCase();
-    if (upper === "Z") continue;
+    if (upper === "Z") {
+      continue;
+    }
     const relative = code !== upper;
     const nums = (seg.slice(1).match(NUM) ?? []).map(Number);
 
@@ -87,7 +97,9 @@ export function pathBBox(d: string): BBox {
     }
   }
 
-  if (minX === Infinity) return { x: 0, y: 0, w: 0, h: 0 };
+  if (minX === Infinity) {
+    return { x: 0, y: 0, w: 0, h: 0 };
+  }
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 

@@ -1,22 +1,38 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
-import { DarkLoginShell, LoginCard, LoginErrorText, LoginHeading } from "@/domains/account/components/login-shell";
-import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
-import { startAuthFlow, startNativeLogin, useIsNativePlatform } from "@/runtime/native-auth";
+import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
+import {
+  DarkLoginShell,
+  LoginCard,
+  LoginErrorText,
+  LoginHeading,
+} from "@/domains/account/components/login-shell";
+import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
+import {
+  PROVIDER_ID,
+  buildProviderCallbackUrl,
+} from "@/domains/account/login-flow";
+import {
+  isUserCancelledAuthError,
+  nativeAuthErrorDetail,
+  nativeAuthErrorMessage,
+} from "@/domains/account/native-auth-error";
+import { withPreservedAttribution } from "@/domains/account/social-auth";
+import { captureError } from "@/lib/sentry/capture-error";
+import {
+  startAuthFlow,
+  startNativeLogin,
+  useIsNativePlatform,
+} from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
-const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  signup_closed:
-    "Sign-ups are currently closed. Visit vellum.ai/community to request access.",
-};
-
 /**
- * Capacitor iOS login: single "Sign in" button inside NativeSplash.
- * Opens a Safari sheet via `/accounts/native/start` with no provider
- * hint — WorkOS AuthKit handles Apple / Google / email selection.
+ * Capacitor native login: single "Sign in" button inside NativeSplash.
+ * Opens the platform browser auth surface with no provider hint; WorkOS
+ * AuthKit handles Apple / Google / email selection.
  */
 function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -28,30 +44,19 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     try {
       await startNativeLogin({ returnTo: returnTo ?? null });
     } catch (err) {
-      const errorCode =
-        err && typeof err === "object" && "code" in err ? err.code : undefined;
-      if (errorCode === "USER_CANCELLED") {
+      if (isUserCancelledAuthError(err)) {
         setLoading(false);
         return;
       }
-      if (errorCode === "AUTH_ERROR") {
-        const errorKey =
-          err &&
-          typeof err === "object" &&
-          "data" in err &&
-          err.data &&
-          typeof err.data === "object" &&
-          "authError" in err.data &&
-          typeof err.data.authError === "string"
-            ? err.data.authError
-            : undefined;
-        setErrorMessage(
-          (errorKey && AUTH_ERROR_MESSAGES[errorKey]) ?? "Something went wrong. Please try again.",
-        );
-      } else {
-        console.error("[native-auth] auth flow failed:", err);
-        setErrorMessage("Something went wrong. Please try again.");
-      }
+      // Report every real failure, classified or not. This is the screen the
+      // "I tried to log in and it errored right away" reports come from, and
+      // until now the classified branch logged nothing at all — so the reports
+      // arrived with no trace of which refusal the platform issued.
+      captureError(err, {
+        context: "native_login",
+        tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
+      });
+      setErrorMessage(nativeAuthErrorMessage(err));
       setLoading(false);
     }
   };
@@ -64,7 +69,9 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     <NativeSplash>
       <div className="z-10 mt-8 flex w-full max-w-[320px] flex-col items-center gap-3">
         {errorMessage && (
-          <LoginErrorText className="max-w-[280px]">{errorMessage}</LoginErrorText>
+          <LoginErrorText className="max-w-[280px]">
+            {errorMessage}
+          </LoginErrorText>
         )}
         <Button
           type="button"
@@ -90,9 +97,14 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const callbackUrl = buildProviderCallbackUrl(returnTo);
-  const signUpHref = returnTo
-    ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
-    : routes.account.signup;
+  // Keep URL-borne attribution alive across the pivot to signup.
+  const { search } = useLocation();
+  const signUpHref = withPreservedAttribution(
+    returnTo
+      ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
+      : routes.account.signup,
+    search,
+  );
 
   const handleContinue = async () => {
     setErrorMessage(null);
@@ -100,8 +112,11 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
     try {
       await startAuthFlow(PROVIDER_ID, callbackUrl, { returnTo });
     } catch (err) {
-      console.error("[web-login] auth flow failed:", err);
-      setErrorMessage("Something went wrong. Please try again.");
+      captureError(err, {
+        context: "web_login",
+        tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
+      });
+      setErrorMessage(nativeAuthErrorMessage(err));
       setLoading(false);
     }
   };
@@ -142,14 +157,32 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 /**
  * Branded sign-in screen for `/account/login`.
  *
- * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
+ * Delegates to `NativeLoginForm` (Capacitor native) or `WebLoginForm`
  * (standard browser / Electron) based on platform detection.
+ *
+ * `useReturnToShortCircuit` owns whether an existing session skips OAuth and
+ * lands on the `returnTo` destination directly — the same decision
+ * `SignupPage` makes. Only the loading shell differs.
  */
 export function LoginPage() {
-  const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
-  const returnTo = searchParams.get("returnTo");
+  const shortCircuit = useReturnToShortCircuit();
 
-  if (isNative) return <NativeLoginForm returnTo={returnTo} />;
-  return <WebLoginForm returnTo={returnTo} />;
+  if (shortCircuit.kind === "wait") {
+    return isNative ? (
+      <NativeSplash />
+    ) : (
+      <DarkLoginShell>
+        <AuthWaitSpinner />
+      </DarkLoginShell>
+    );
+  }
+  if (shortCircuit.kind === "redirect") {
+    return shortCircuit.node;
+  }
+
+  if (isNative) {
+    return <NativeLoginForm returnTo={shortCircuit.returnTo} />;
+  }
+  return <WebLoginForm returnTo={shortCircuit.returnTo} />;
 }

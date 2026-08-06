@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
-const isLocalModeMock = mock(() => false);
+const isLocalClientMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   isPlatformDisabled: isPlatformDisabledMock,
 }));
 
@@ -15,6 +15,7 @@ import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
+  usePlatformGateWithPending,
 } from "@/hooks/use-platform-gate";
 
 const initialAuthState = useAuthStore.getState();
@@ -25,7 +26,7 @@ function setLifecycle(assistantState: AssistantState) {
 }
 
 beforeEach(() => {
-  isLocalModeMock.mockImplementation(() => false);
+  isLocalClientMock.mockImplementation(() => false);
   isPlatformDisabledMock.mockImplementation(() => false);
   useAuthStore.setState(initialAuthState, true);
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
@@ -49,7 +50,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
   });
 
   test('returns "full" in local mode when logged in and platform not disabled', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "present" });
     isPlatformDisabledMock.mockImplementation(() => false);
     const { result } = renderHook(() => usePlatformGate());
@@ -57,7 +58,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
   });
 
   test('returns "gated" in local mode when VELLUM_DISABLE_PLATFORM is set', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "present" });
     isPlatformDisabledMock.mockImplementation(() => true);
     const { result } = renderHook(() => usePlatformGate());
@@ -70,7 +71,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   // five user states the platform gating contract documents (CONVENTIONS.md).
 
   test('1. platform-hosted + logged in → "full"', () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() => usePlatformGate());
@@ -78,7 +79,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('2. platform-hosted + NOT logged in → "disabled"', () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() => usePlatformGate());
@@ -86,7 +87,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('3. self-hosted + platform ON + logged in → "full"', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() => usePlatformGate());
@@ -94,7 +95,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('4. self-hosted + platform ON + NOT logged in → "disabled"', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() => usePlatformGate());
@@ -102,7 +103,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('5. self-hosted + platform OFF (VELLUM_DISABLE_PLATFORM) → "gated"', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => true);
     // Session value is irrelevant once platform features are off; assert both.
     for (const platformSession of ["present", "absent"] as const) {
@@ -116,11 +117,112 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   test('pre-settle "unknown" session gates the surface as "disabled"', () => {
     // The optimistic tri-state: "unknown" is not a live session, so the
     // default branch treats it like "absent" until the probe settles.
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "unknown" });
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("disabled");
+  });
+});
+
+describe("usePlatformGateWithPending", () => {
+  // A deadline short enough to elapse inside a test, exercising the same code
+  // path the shipped 5s default takes.
+  const SETTLE_TIMEOUT_MS = 25;
+
+  /** Let the deadline fire, with its state update inside `act`. */
+  const passDeadline = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, SETTLE_TIMEOUT_MS * 2);
+        }),
+    );
+
+  test('reports "pending" while the probe has not settled', () => {
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("pending");
+  });
+
+  test('reports "disabled" once the probe settles absent', () => {
+    useAuthStore.setState({ platformSession: "absent" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("disabled");
+  });
+
+  test('reports "full" once the probe settles present', () => {
+    useAuthStore.setState({ platformSession: "present" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("full");
+  });
+
+  test('an unsettled probe that lands present transitions "pending" → "full"', () => {
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("pending");
+
+    act(() => {
+      useAuthStore.setState({ platformSession: "present" });
+    });
+    expect(result.current).toBe("full");
+  });
+
+  test('a probe that never settles decides on "disabled" at the deadline', async () => {
+    // The termination guarantee: `getSession()` carries no timeout, so a
+    // request that never completes leaves `platformSession` at `"unknown"`
+    // forever. The bound turns that into the same settled-absent answer the
+    // route guard falls back to, instead of an unbounded hold.
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() =>
+      usePlatformGateWithPending({ settleTimeoutMs: SETTLE_TIMEOUT_MS }),
+    );
+    expect(result.current).toBe("pending");
+
+    await passDeadline();
+    expect(result.current).toBe("disabled");
+  });
+
+  test('the deadline never overrides a settled "present"', async () => {
+    // An expired deadline must not survive into the settled window: the
+    // decision belongs to the probe whenever the probe has one.
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() =>
+      usePlatformGateWithPending({ settleTimeoutMs: SETTLE_TIMEOUT_MS }),
+    );
+    await passDeadline();
+    expect(result.current).toBe("disabled");
+
+    act(() => {
+      useAuthStore.setState({ platformSession: "present" });
+    });
+    expect(result.current).toBe("full");
+  });
+
+  test('"gated" wins over the unsettled window in both branches', () => {
+    // Nothing the probe can answer changes a gated surface, so it must not
+    // report a wait no caller should honor.
+    isLocalClientMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result, unmount } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("gated");
+    unmount();
+
+    setLifecycle({ kind: "self_hosted" });
+    const hostedOnly = renderHook(() =>
+      usePlatformGateWithPending({ platformHostedOnly: true }),
+    );
+    expect(hostedOnly.result.current).toBe("gated");
+  });
+
+  test('{ platformHostedOnly: true } reports "pending" in the unsettled window', () => {
+    setLifecycle({ kind: "active", isLocal: false });
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() =>
+      usePlatformGateWithPending({ platformHostedOnly: true }),
+    );
+    expect(result.current).toBe("pending");
   });
 });
 
@@ -158,7 +260,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // The local-mode gateway-auth short-circuit path:
     // lifecycle-service.applyGatewayAuthShortCircuit transitions to
     // { kind: "active", isLocal: true }.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: true });
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
@@ -171,7 +273,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // A local-mode app can be managing a platform-hosted assistant.
     // The lifecycle service projects { kind: "active", isLocal: false }
     // in that case — platform-hosted-only UI IS meaningful here.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
@@ -180,10 +282,10 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     expect(result.current).toBe("full");
   });
 
-  test('ignores VELLUM_DISABLE_PLATFORM when active assistant is platform-hosted', () => {
+  test("ignores VELLUM_DISABLE_PLATFORM when active assistant is platform-hosted", () => {
     // The env var gates the daemon-side API interceptor in local mode —
     // it has no bearing on UI that targets a platform-hosted assistant.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
     useAuthStore.setState({ platformSession: "present" });
     isPlatformDisabledMock.mockImplementation(() => true);
@@ -287,25 +389,19 @@ describe("useActiveAssistantIsPlatformHosted", () => {
 describe("useActiveAssistantLifecycleIsLoading", () => {
   test("returns true for kind: loading", () => {
     setLifecycle({ kind: "loading" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(true);
   });
 
   test("returns false for kind: self_hosted (resolved)", () => {
     setLifecycle({ kind: "self_hosted" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(false);
   });
 
   test("returns false for kind: active (resolved)", () => {
     setLifecycle({ kind: "active", isLocal: false });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(false);
   });
 
@@ -315,9 +411,7 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
     // `!isPlatformHosted` as the race-window signal would treat them as
     // resolving forever and stick on a spinner / disabled button.
     setLifecycle({ kind: "error", message: "boom" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(false);
   });
 

@@ -54,7 +54,8 @@ export function parseWebFetchResult(
   const text = result ?? "";
   const markerIdx = text.indexOf(CONTENT_MARKER);
   const header = markerIdx >= 0 ? text.slice(0, markerIdx) : "";
-  let body = markerIdx >= 0 ? text.slice(markerIdx + CONTENT_MARKER.length) : text;
+  let body =
+    markerIdx >= 0 ? text.slice(markerIdx + CONTENT_MARKER.length) : text;
 
   const field = (label: string): string | null => {
     const m = header.match(new RegExp(`^${label}:[ \\t]*(.+)$`, "m"));
@@ -67,7 +68,9 @@ export function parseWebFetchResult(
   if (noticesIdx >= 0) {
     for (const line of header.slice(noticesIdx).split("\n")) {
       const m = line.match(/^\s*-\s+(.*)$/);
-      if (m && m[1].trim()) notices.push(m[1].trim());
+      if (m && m[1].trim()) {
+        notices.push(m[1].trim());
+      }
     }
   }
 
@@ -78,14 +81,21 @@ export function parseWebFetchResult(
   const open = body.match(/^<external_content\b([^>]*)>\s*/);
   if (open) {
     const originMatch = open[1].match(/origin="([^"]+)"/);
-    if (originMatch) originUrl = originMatch[1];
+    if (originMatch) {
+      originUrl = originMatch[1];
+    }
     body = body
       .slice(open[0].length)
       .replace(/\s*<\/external_content>\s*$/, "");
   }
 
   return {
-    url: field("Final URL") || field("Requested URL") || originUrl || fallbackUrl || null,
+    url:
+      field("Final URL") ||
+      field("Requested URL") ||
+      originUrl ||
+      fallbackUrl ||
+      null,
     status: field("Status"),
     notices,
     content: body.trim(),
@@ -191,13 +201,22 @@ export function WebFetchDetailView({ detail }: { detail: ToolDetailPayload }) {
         {showRaw ? (
           <CodeBlock text={detail.result ?? ""} />
         ) : parsed.content ? (
+          // Deliberately NO `assistantId`: this is text extracted from a
+          // remote page, the least-trusted content in the app. Passing one
+          // would let a fetched page's `![](vellum://workspace/…)` reference
+          // pull local workspace bytes into the panel and render them as if
+          // the page had supplied them. Local-file references keep degrading
+          // to an inert card here; a remote page has no business naming a
+          // file in the user's workspace.
           <ChatMarkdownMessage content={parsed.content} />
         ) : (
           <Typography
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            {detail.status === "running" ? "Fetching…" : "No content extracted."}
+            {detail.status === "running"
+              ? "Fetching…"
+              : "No content extracted."}
           </Typography>
         )}
       </div>

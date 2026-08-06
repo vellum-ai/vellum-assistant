@@ -28,6 +28,7 @@ Examples:
   $ assistant tools list --json
   $ assistant tools list --conversation conv_abc123
   $ assistant tools list --agent researcher
+  $ assistant tools list --agent "a staff security engineer"
   $ assistant tools list --agent subagent_abc123 --json
   $ assistant tools run web_fetch --input '{"url":"https://example.com"}'
   $ assistant tools run file_read --input-file args.json
@@ -39,7 +40,8 @@ Examples:
       options: [
         {
           flags: "--json",
-          description: "Emit machine-readable JSON instead of a table",
+          description:
+            "Emit the tool array as machine-readable JSON instead of a table; a note about how --agent resolved goes to stderr so stdout stays pipeable",
         },
         {
           flags: "--conversation <id>",
@@ -49,7 +51,7 @@ Examples:
         {
           flags: "--agent <role|subagent-id>",
           description:
-            "Show tools available to a subagent role (general, researcher, coder, planner, investigator, advisor) or a live subagent by its id. Simulates the subagent tool projection: role allowlist + subagent-only gating.",
+            "Show tools available to a subagent role (researcher, builder, advisor) or a live subagent by its id. Reads the value the way a spawn reads its role: an older name (planner, investigator, coder, general) lists its successor's toolset, and any other text is a persona that lists the researcher toolset. The output names what the value resolved to. Simulates the subagent tool projection: role allowlist + subagent-only gating.",
         },
       ],
     },

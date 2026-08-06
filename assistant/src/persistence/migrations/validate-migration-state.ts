@@ -98,10 +98,14 @@ export function validateMigrationState(
 
   for (const step of steps) {
     const obj = normalizeStep(step);
-    if (!obj.dependsOn || obj.dependsOn.length === 0) continue;
+    if (!obj.dependsOn || obj.dependsOn.length === 0) {
+      continue;
+    }
     // Only check steps that have been completed — unapplied or in-progress
     // migrations have not had a chance to violate their prerequisites yet.
-    if (!completedStepNames.has(obj.name)) continue;
+    if (!completedStepNames.has(obj.name)) {
+      continue;
+    }
 
     for (const dep of obj.dependsOn) {
       if (!completedStepNames.has(dep)) {
@@ -222,8 +226,12 @@ export function rollbackMemoryMigration(
   const toRollback: RollbackItem[] = [];
   for (const step of steps) {
     const obj = normalizeStep(step);
-    if (!obj.rollback) continue;
-    if (!completedStepNames.has(obj.name)) continue;
+    if (!obj.rollback) {
+      continue;
+    }
+    if (!completedStepNames.has(obj.name)) {
+      continue;
+    }
 
     for (const entry of obj.rollback) {
       if (entry.version > targetVersion) {

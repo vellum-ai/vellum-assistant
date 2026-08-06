@@ -99,8 +99,7 @@ function buildMetadata(identifier: string): TimezoneEntry | null {
       timeZoneName: "shortOffset",
     });
     const tzParts = formatter.formatToParts(new Date());
-    const tz =
-      tzParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+    const tz = tzParts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
     offsetLabel =
       tz.startsWith("GMT") || tz.startsWith("UTC") ? tz : `GMT ${tz}`;
     const match = tz.match(/([+-])(\d{1,2})(?::(\d{2}))?/);
@@ -239,6 +238,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
             onFocus={() => setIsOpen(true)}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
+                event.preventDefault();
                 setSearchText("");
                 setIsOpen(false);
                 inputRef.current?.blur();

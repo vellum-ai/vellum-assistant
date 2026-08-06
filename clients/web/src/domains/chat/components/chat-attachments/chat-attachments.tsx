@@ -242,7 +242,11 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
         disabled={disabled}
         aria-label="Attach file"
         title={title}
-        className="[--vbtn-fg:var(--content-secondary)]"
+        // Tertiary resting tone, matching the composer action row's icons
+        // (Figma: New-App 7471-25234). The touch-mobile override beats the
+        // ghost icon-only variant's default-tone mobile chrome so mobile
+        // matches desktop.
+        className="[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]"
       />
     </div>
   );

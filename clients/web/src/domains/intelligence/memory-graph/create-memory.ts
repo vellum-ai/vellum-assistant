@@ -14,6 +14,10 @@ import { memoryRememberPost } from "@/generated/daemon/sdk.gen";
 export interface CreateMemoryResult {
   message: string;
   success: boolean;
+  /** Graph node id (`buffer:<hash>`) of the pending entry this create
+   * appended, for fly-to-node navigation. Absent on daemons predating the
+   * field or when the server couldn't re-read the buffer. */
+  pendingNodeId?: string;
 }
 
 export async function createMemory(

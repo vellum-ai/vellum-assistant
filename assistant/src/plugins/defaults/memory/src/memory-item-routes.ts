@@ -32,12 +32,12 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
+import { type MemoryTier, memoryTier } from "../../../../config/memory-tier.js";
 import {
-  isMemoryGraphSupported,
+  isV3TierActive,
   usesConceptPageMemory,
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import {
   generateSparseEmbedding,
   getMemoryBackendStatus,
@@ -74,10 +74,16 @@ import type {
   MemoryType,
   NewNode,
 } from "../graph/types.js";
+import {
+  findPendingEntryForContent,
+  readPendingBufferEntries,
+} from "../graph-topology/pending-buffer.js";
 import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -207,13 +213,19 @@ async function searchNodesSemantic(
     // search (the caller's `null` branch) instead of querying the v1
     // collection, which is in active retirement and a corrupted sparse
     // segment can OOM-crash the shared Qdrant process.
-    if (usesConceptPageMemory(config.memory)) return null;
+    if (usesConceptPageMemory(config.memory)) {
+      return null;
+    }
     const backendStatus = await getMemoryBackendStatus(config);
-    if (!backendStatus.provider) return null;
+    if (!backendStatus.provider) {
+      return null;
+    }
 
     const embedded = await embedWithBackend(config, [query]);
     const queryVector = embedded.vectors[0];
-    if (!queryVector) return null;
+    if (!queryVector) {
+      return null;
+    }
 
     const sparse = generateSparseEmbedding(query);
     const sparseVector = { indices: sparse.indices, values: sparse.values };
@@ -315,7 +327,10 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
     );
   }
 
-  const db = getDb();
+  const db = memoryDbOrNull("listMemoryItems");
+  if (!db) {
+    throw new Error("memory database unavailable");
+  }
 
   // Build fidelity filter based on status param
   const fidelityFilter =
@@ -338,7 +353,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
       const kindCountConditions = [
         inArray(memoryGraphNodes.id, semanticResult.ids),
       ];
-      if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+      if (fidelityFilter) {
+        kindCountConditions.push(fidelityFilter);
+      }
 
       const kindCountRows = db
         .select({ kind: memoryGraphNodes.type, count: count() })
@@ -360,7 +377,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
         if (kindParam) {
           filterConditions.push(eq(memoryGraphNodes.type, kindParam));
         }
-        if (fidelityFilter) filterConditions.push(fidelityFilter);
+        if (fidelityFilter) {
+          filterConditions.push(fidelityFilter);
+        }
 
         if (filterConditions.length > 1) {
           const validIdSet = new Set(
@@ -388,9 +407,12 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
       // Hydrate nodes from DB
       const hydrationConditions = [inArray(memoryGraphNodes.id, pageIds)];
-      if (fidelityFilter) hydrationConditions.push(fidelityFilter);
-      if (kindParam)
+      if (fidelityFilter) {
+        hydrationConditions.push(fidelityFilter);
+      }
+      if (kindParam) {
         hydrationConditions.push(eq(memoryGraphNodes.type, kindParam));
+      }
 
       const rows = db
         .select()
@@ -414,7 +436,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   // ── Kind counts for SQL path ───────────────────────────────────────
   const kindCountConditions = [];
-  if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+  if (fidelityFilter) {
+    kindCountConditions.push(fidelityFilter);
+  }
   if (searchParam) {
     kindCountConditions.push(
       like(memoryGraphNodes.content, `%${searchParam}%`),
@@ -436,8 +460,12 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   // ── SQL path (default or fallback) ──────────────────────────────────
   const conditions = [];
-  if (fidelityFilter) conditions.push(fidelityFilter);
-  if (kindParam) conditions.push(eq(memoryGraphNodes.type, kindParam));
+  if (fidelityFilter) {
+    conditions.push(fidelityFilter);
+  }
+  if (kindParam) {
+    conditions.push(eq(memoryGraphNodes.type, kindParam));
+  }
   if (searchParam) {
     conditions.push(like(memoryGraphNodes.content, `%${searchParam}%`));
   }
@@ -492,17 +520,28 @@ function handleGetMemoryItem(id: string) {
  * concept graph is deliberately kept off identity-page load.
  *
  * `graph_supported` reports whether the memory-concept graph is available for
- * this assistant — the same `isMemoryGraphSupported` condition under which
+ * this assistant — the same `isV3TierActive` condition under which
  * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
  * is a cheap config read (no page I/O), so glanceable surfaces can gate the
  * graph entry point on real availability without triggering the graph build.
+ *
+ * `tier` reports WHY the graph is or isn't available, so a client can say
+ * something true instead of a bare "not available": `"off"` is the user's own
+ * Memory opt-out (fixed in Settings), while `"v1"`/`"v2"` are legacy engines
+ * (fixed by migrating to v3). Both bits derive from the same gate predicates —
+ * `graph_supported` is exactly `tier === "v3"` (see `memory-tier.ts`) — so the
+ * capability and its explanation can never disagree.
  */
 async function handleGetMemoryStats(
   config: AssistantConfig,
-): Promise<{ concepts: number; graph_supported: boolean }> {
+): Promise<{ concepts: number; graph_supported: boolean; tier: MemoryTier }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts, graph_supported: isMemoryGraphSupported(config) };
+  return {
+    concepts,
+    graph_supported: isV3TierActive(config),
+    tier: memoryTier(config),
+  };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -532,7 +571,10 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
     : trimmedStatement;
 
   // Check for duplicate content
-  const db = getDb();
+  const db = memoryDbOrNull("createMemoryItem");
+  if (!db) {
+    throw new Error("memory database unavailable");
+  }
   const existing = db
     .select({ id: memoryGraphNodes.id })
     .from(memoryGraphNodes)
@@ -651,7 +693,10 @@ async function handleUpdateMemoryItem(
     changes.fidelity === "vivid" && existing.fidelity === "gone";
   if (contentChanged || reactivating) {
     const contentToCheck = changes.content ?? existing.content;
-    const db = getDb();
+    const db = memoryDbOrNull("updateMemoryItem");
+    if (!db) {
+      throw new Error("memory database unavailable");
+    }
     const collision = db
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)
@@ -698,14 +743,20 @@ async function handleUpdateMemoryItem(
  */
 function maybeEnqueueConsolidationForCreate(config: AssistantConfig): void {
   try {
-    if (!usesConceptPageMemory(config.memory) || !isMemoryEnabled()) {
+    // `usesConceptPageMemory` already covers the memory-off case (an explicit
+    // `memory.enabled === false` makes it false), so a second
+    // `isMemoryEnabled()` clause would be unreachable.
+    if (!usesConceptPageMemory(config.memory)) {
       return;
     }
     if (hasActiveJobOfType("memory_v2_consolidate")) {
       return;
     }
     const intervalMs =
-      config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000;
+      resolveSubstrateTuning(config.memory).consolidation_interval_hours *
+      60 *
+      60 *
+      1000;
     if (consolidationBackoffRemainingMs(intervalMs, Date.now()) > 0) {
       return;
     }
@@ -825,7 +876,9 @@ export const ROUTES: RouteDefinition[] = [
       "concept pages only and never builds the memory-concept graph. Also " +
       "reports graph_supported: whether the memory-concept graph is available " +
       "for this assistant (memory enabled and v3 live), so callers can gate " +
-      "the graph entry point without building the graph.",
+      "the graph entry point without building the graph, plus tier: the coarse " +
+      "memory tier explaining why the graph is unavailable (off = the user's " +
+      "Memory opt-out, v1/v2 = a legacy engine that has not migrated to v3).",
     tags: ["memory"],
     responseBody: z.object({
       concepts: z.number().describe("Number of concept pages in memory"),
@@ -833,6 +886,11 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe(
           "Whether the memory-concept graph is available (memory enabled and v3 live)",
+        ),
+      tier: z
+        .enum(["off", "v1", "v2", "v3"])
+        .describe(
+          "Coarse memory tier for this assistant; graph_supported is exactly tier === 'v3'",
         ),
     }),
     handler: () => handleGetMemoryStats(getConfig()),
@@ -1073,11 +1131,20 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a memory by remembering a fact",
     description:
-      "Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph immediately as a pending node, and a consolidation run is nudged (deduped, backoff-respecting) so it files into concept pages promptly.",
+      "Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph immediately as a pending node (its id is returned so clients can navigate to it), and a consolidation run is nudged (deduped, backoff-respecting) so it files into concept pages promptly.",
     tags: ["memory"],
     requestBody: z.object({ content: z.string() }),
-    responseBody: z.object({ message: z.string(), success: z.boolean() }),
-    handler: ({ body }) => {
+    responseBody: z.object({
+      message: z.string(),
+      success: z.boolean(),
+      pendingNodeId: z
+        .string()
+        .optional()
+        .describe(
+          "Graph node id (`buffer:<hash>`) of the pending entry this create appended, for fly-to-node navigation. Absent when the buffer can't be re-read.",
+        ),
+    }),
+    handler: async ({ body }) => {
       const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
       if (!parsed.success) {
         throw new BadRequestError("content (string) is required");
@@ -1091,10 +1158,28 @@ export const ROUTES: RouteDefinition[] = [
         "web",
         config,
       );
-      if (result.success) {
-        maybeEnqueueConsolidationForCreate(config);
+      if (!result.success) {
+        return result;
       }
-      return result;
+      maybeEnqueueConsolidationForCreate(config);
+
+      // Resolve the pending graph-node id of the entry just appended so the
+      // client can fly the map to it. Matched by this request's content
+      // (normalized through the same buffer parse) rather than the buffer
+      // tail, so a concurrently interleaved remember from another writer is
+      // never reported as this one's entry. Best-effort — the create already
+      // succeeded, so a read failure returns no id rather than an error.
+      let pendingNodeId: string | undefined;
+      try {
+        const entries = await readPendingBufferEntries(getWorkspaceDir());
+        pendingNodeId = findPendingEntryForContent(
+          entries,
+          parsed.data.content,
+        )?.id;
+      } catch (err) {
+        log.warn({ err }, "Failed to resolve pending node id after create");
+      }
+      return pendingNodeId ? { ...result, pendingNodeId } : result;
     },
   },
 ];

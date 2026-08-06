@@ -1,8 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  Mail,
-  MonitorCog,
-} from "lucide-react";
+import { Mail, MonitorCog } from "lucide-react";
 
 import { routes } from "@/utils/routes";
 

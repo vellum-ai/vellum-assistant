@@ -162,7 +162,9 @@ export function toWireRun(run: WorkflowRun): WorkflowRunWire {
  * JSON-stringified so a structured result still produces a readable summary.
  */
 function summarize(value: unknown, max = 200): string | undefined {
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
   let text: string;
   if (typeof value === "string") {
     text = value;
@@ -215,16 +217,22 @@ export function toWireLeaf(
 }
 
 function parseLimit(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   const n = Number(raw);
-  if (!Number.isFinite(n)) return undefined;
+  if (!Number.isFinite(n)) {
+    return undefined;
+  }
   return Math.min(Math.max(Math.floor(n), 1), 200);
 }
 
 function parseStatus(
   raw: string | undefined,
 ): WorkflowRun["status"] | undefined {
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   return (VALID_RUN_STATUSES as readonly string[]).includes(raw)
     ? (raw as WorkflowRun["status"])
     : undefined;

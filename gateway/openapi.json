@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.10.7",
+    "version": "0.10.12",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -340,6 +340,91 @@
                     }
                   },
                   "required": ["policy"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-ingress/{source}/approve": {
+      "post": {
+        "operationId": "channelIngressApprove",
+        "summary": "Approve an ingress declaration",
+        "tags": ["channel-ingress"],
+        "description": "Records the guardian's approval of the declaration identified by the body's digest, after which the gateway serves its routes. Returns 409 when the digest is not what the source currently declares, and 404 when it declares nothing servable.",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The declaring ingress source (today, a plugin name)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "digest": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+                },
+                "required": ["digest"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "source": { "type": "string" },
+                    "digest": { "type": "string" },
+                    "approvedAt": { "type": "number" }
+                  },
+                  "required": ["source", "digest", "approvedAt"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-ingress/{source}/revoke": {
+      "post": {
+        "operationId": "channelIngressRevoke",
+        "summary": "Revoke an ingress approval",
+        "tags": ["channel-ingress"],
+        "description": "Withdraws the source's grant, after which its routes stop being served. Reports whether there was a grant to withdraw. Succeeds even when the declaration itself has become unreadable.",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The declaring ingress source (today, a plugin name)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "source": { "type": "string" },
+                    "revoked": { "type": "boolean" }
+                  },
+                  "required": ["source", "revoked"],
                   "additionalProperties": false
                 }
               }

@@ -14,7 +14,10 @@ import {
   hostPolicy,
   resolveRealPath,
   sandboxPolicy,
+  sandboxPolicyWithHostFallback,
+  sandboxReadPolicy,
 } from "../tools/shared/filesystem/path-policy.js";
+import { getDotEnvPath } from "../util/platform.js";
 
 // ── Mock setup for skill path classifier ────────────────────────────────────
 // The classifier imports getWorkspaceSkillsDir and getBundledSkillsDir, which
@@ -91,6 +94,30 @@ describe("sandboxPolicy", () => {
     if (!result.ok) {
       expect(result.reason).toBe("out_of_bounds");
       expect(result.error).toContain("outside the working directory");
+    }
+  });
+
+  test("resolveRealPath follows a trailing dangling symlink to its destination", () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    const destination = join(outside, "not-yet.txt");
+    symlinkSync(destination, join(dir, "dangle"));
+
+    expect(resolveRealPath(join(dir, "dangle"))).toBe(destination);
+  });
+
+  test("rejects a dangling symlink whose destination escapes the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+
+    // A dangling link inside the boundary pointing at a nonexistent outside
+    // file: a write through it would create the outside destination.
+    symlinkSync(join(outside, "not-yet.txt"), join(boundary, "dangle"));
+
+    const result = sandboxPolicy("dangle", boundary, { mustExist: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
     }
   });
 
@@ -192,6 +219,451 @@ describe("sandboxPolicy", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Sandbox policy with host fallback
+// ---------------------------------------------------------------------------
+
+describe("sandboxPolicyWithHostFallback", () => {
+  afterEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+    delete process.env.GATEWAY_SECURITY_DIR;
+    delete process.env.CREDENTIAL_SECURITY_DIR;
+  });
+
+  test("matches sandboxPolicy for in-bounds paths", () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, "sub"));
+
+    const result = sandboxPolicyWithHostFallback("sub/file.txt", boundary);
+    expect(result).toEqual(sandboxPolicy("sub/file.txt", boundary));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, "sub", "file.txt"));
+    }
+  });
+
+  test("allows an absolute path outside the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "file.txt");
+    writeFileSync(target, "x");
+
+    const result = sandboxPolicyWithHostFallback(target, boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(target);
+    }
+  });
+
+  test("allows a relative traversal escape", () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback("../escape.txt", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, "..", "escape.txt"));
+    }
+  });
+
+  test("allows a symlink that escapes the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    symlinkSync(outside, join(boundary, "escape-link"));
+
+    const result = sandboxPolicyWithHostFallback("escape-link", boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, "escape-link"));
+    }
+  });
+
+  test("denies out-of-bounds denylisted basenames", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "backup.key"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies paths inside the gateway security dir (env override)", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+    const result = sandboxPolicyWithHostFallback(
+      join(securityDir, "trust.json"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+      expect(result.error).toContain("service security directory");
+    }
+  });
+
+  test("denies paths inside the CES security dir (env override)", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.CREDENTIAL_SECURITY_DIR = securityDir;
+
+    for (const basename of ["keys.enc", "store.key"]) {
+      const result = sandboxPolicyWithHostFallback(
+        join(securityDir, basename),
+        boundary,
+        { mustExist: false },
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("denied");
+      }
+    }
+  });
+
+  test("a root-configured security dir denies every absolute target", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = "/";
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "trust.json"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies the daemon dotenv", () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback(getDotEnvPath(), boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies the default gateway security dir when the env is unset", () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback(
+      join(
+        process.env.HOME!,
+        ".vellum",
+        "protected",
+        "actor-token-signing-key",
+      ),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies the gateway security dir even when it sits inside the boundary", () => {
+    const boundary = makeTempDir();
+    const securityDir = join(boundary, "protected");
+    mkdirSync(securityDir);
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+    for (const policy of [sandboxPolicy, sandboxPolicyWithHostFallback]) {
+      const result = policy("protected/trust.json", boundary, {
+        mustExist: false,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("denied");
+      }
+    }
+  });
+
+  test("denies a dangling symlink pointing into the gateway security dir", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    // The destination does NOT exist — a write through the link would create
+    // it inside the security dir.
+    symlinkSync(
+      join(securityDir, "new-signing-key"),
+      join(outside, "innocent.txt"),
+    );
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "innocent.txt"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a long dangling symlink chain into the gateway security dir", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+    // A 33-link chain exceeds macOS's own 32-link traversal limit but stays
+    // within Linux's 40 — the policy must resolve past it either way.
+    let target = join(securityDir, "new-signing-key");
+    for (let i = 32; i >= 0; i--) {
+      const link = join(outside, `link-${i}`);
+      symlinkSync(target, link);
+      target = link;
+    }
+
+    const result = sandboxPolicyWithHostFallback(target, boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a symlink that resolves into the gateway security dir", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    writeFileSync(join(securityDir, "trust.json"), "{}");
+    symlinkSync(
+      join(securityDir, "trust.json"),
+      join(outside, "innocent.json"),
+    );
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "innocent.json"),
+      boundary,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("fails closed to the hard boundary when a security-dir override is relative", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    // A relative override resolves against the owning service's cwd, which
+    // the daemon cannot know — the deny set is unmirrorable, so no escape
+    // is permitted at all.
+    process.env.GATEWAY_SECURITY_DIR = "relative/security-dir";
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "file.txt"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+    }
+  });
+
+  test("keeps the hard boundary when containerized", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "file.txt"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+      expect(result.error).toContain("outside the working directory");
+    }
+  });
+
+  test("still accepts in-bounds paths when containerized", () => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxPolicyWithHostFallback("file.txt", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sandbox read policy
+// ---------------------------------------------------------------------------
+
+describe("sandboxReadPolicy", () => {
+  afterEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+    delete process.env.GATEWAY_SECURITY_DIR;
+    delete process.env.CREDENTIAL_SECURITY_DIR;
+  });
+
+  test("matches sandboxPolicy for in-bounds paths", () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, "sub"));
+
+    const result = sandboxReadPolicy("sub/file.txt", boundary);
+    expect(result).toEqual(sandboxPolicy("sub/file.txt", boundary));
+    expect(result.ok).toBe(true);
+  });
+
+  test("reads outside the boundary when containerized", () => {
+    const boundary = makeTempDir();
+    const installTree = makeTempDir();
+    const target = join(installTree, "SKILL.md");
+    writeFileSync(target, "# skill");
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(target, boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(target);
+    }
+  });
+
+  test("follows an in-boundary symlink that points outside", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "reference.md");
+    writeFileSync(target, "reference body");
+    symlinkSync(target, join(boundary, "link.md"));
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "link.md"), boundary);
+    expect(result.ok).toBe(true);
+  });
+
+  test("denies the gateway security dir when containerized", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    writeFileSync(join(securityDir, "trust.json"), "{}");
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(securityDir, "trust.json"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a symlink that resolves into the credential security dir", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    writeFileSync(join(securityDir, "keys.enc"), "cipher");
+    symlinkSync(join(securityDir, "keys.enc"), join(boundary, "innocent.txt"));
+    process.env.CREDENTIAL_SECURITY_DIR = securityDir;
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "innocent.txt"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a denylisted basename outside the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "backup.key"), "key");
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(outside, "backup.key"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("fails closed to the hard boundary when a security-dir override is relative", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "file.txt"), "x");
+    // Unmirrorable deny set: the real security dir could be anywhere, so the
+    // read allowance must not widen past the boundary.
+    process.env.GATEWAY_SECURITY_DIR = "relative/security-dir";
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(outside, "file.txt"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+    }
+  });
+
+  // The daemon's own environment carries the actor token signing key, the CES
+  // service token, the guardian bootstrap secret, and forwarded provider API
+  // keys, so no policy may serve a process environment block.
+  test.each([
+    "/proc/self/environ",
+    "/proc/thread-self/environ",
+    "/proc/1/environ",
+    "/proc/4242/environ",
+  ])("denies %s", (path) => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(path, boundary, { mustExist: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a process environ path reached through a symlink", () => {
+    const boundary = makeTempDir();
+    symlinkSync("/proc/self/environ", join(boundary, "innocent.txt"));
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "innocent.txt"), boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("still allows other /proc entries", () => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy("/proc/self/status", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("does not deny an unrelated file named environ", () => {
+    const boundary = makeTempDir();
+    writeFileSync(join(boundary, "environ"), "notes");
+
+    const result = sandboxReadPolicy("environ", boundary);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Host policy
 // ---------------------------------------------------------------------------
 
@@ -260,7 +732,13 @@ describe("resolveRealPath", () => {
   });
 
   test("falls back to the lexical path when nothing on it exists", () => {
-    const phantom = join(tmpdir(), "definitely-not-here-12345", "nope.txt");
+    // realpath the temp root so a symlinked prefix (macOS /var -> /private/var)
+    // is not mistaken for the resolution under test.
+    const phantom = join(
+      realpathSync(tmpdir()),
+      "definitely-not-here-12345",
+      "nope.txt",
+    );
     expect(resolveRealPath(phantom)).toBe(phantom);
   });
 });

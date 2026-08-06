@@ -72,12 +72,8 @@ export function SystemTaskRow({
             </div>
           ) : null}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
-            {nextRunAt ? (
-              <span>Next: {formatTimestamp(nextRunAt)}</span>
-            ) : null}
-            {lastRunAt ? (
-              <span>Last: {formatTimestamp(lastRunAt)}</span>
-            ) : null}
+            {nextRunAt ? <span>Next: {formatTimestamp(nextRunAt)}</span> : null}
+            {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
@@ -213,7 +209,10 @@ export function SystemTasksSection({
           helperText={
             retrospectiveConfig.enabled
               ? undefined
-              : "Memory is off, so retrospectives are paused."
+              : // The row only renders when `available` is true (memory is on),
+                // so a false `enabled` here means the retrospective's own
+                // switch is off, not memory itself.
+                "Retrospectives are turned off in Memory settings."
           }
           // Always null — retrospectives are event-driven, not scheduled;
           // the row simply omits the "Next:" timestamp.

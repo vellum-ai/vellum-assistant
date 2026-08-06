@@ -12,9 +12,13 @@ import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const log = getLogger("embedding-identity");
 
-// Inlined rather than imported from `memory/v2/qdrant.ts`: the persistence
-// layer must not import from the memory feature layer (enforced by
-// persistence-layering-guard). The dependency direction is memory → persistence.
+// FROZEN: `memory_v2_concept_pages` is a Qdrant collection name on disk, and it
+// belongs to the concept-page SUBSTRATE (which outlives the v2 engine) despite
+// the `v2` spelling — see `plugins/defaults/memory/AGENTS.md`. Inlined rather
+// than imported from `memory/substrate/qdrant.ts`'s `MEMORY_V2_COLLECTION`: the
+// persistence layer must not import from the memory feature layer (enforced by
+// persistence-layering-guard). The dependency direction is memory →
+// persistence. This copy and the substrate's must change together or never.
 const MEMORY_V2_COLLECTION = "memory_v2_concept_pages";
 
 export interface BackendDimensionProbe {
@@ -42,14 +46,20 @@ export interface BackendDimensionProbe {
 export async function probeBackendDimension(
   config: AssistantConfig,
 ): Promise<BackendDimensionProbe | null> {
-  if (isEmbeddingBillingBreakerOpen()) return null;
+  if (isEmbeddingBillingBreakerOpen()) {
+    return null;
+  }
 
   try {
     const { backend } = await selectEmbeddingBackend(config);
-    if (!backend) return null;
+    if (!backend) {
+      return null;
+    }
 
     const dim = await resolveBackendDimension(backend);
-    if (dim == null) return null;
+    if (dim == null) {
+      return null;
+    }
     return { provider: backend.provider, model: backend.model, dim };
   } catch (err) {
     // `selectEmbeddingBackend` resolves provider credentials and can reject on a
@@ -84,7 +94,9 @@ export async function readConceptPageCollectionDim(
     checkCompatibility: false,
   });
   const exists = await client.collectionExists(MEMORY_V2_COLLECTION);
-  if (!exists.exists) return null;
+  if (!exists.exists) {
+    return null;
+  }
 
   const info = await client.getCollection(MEMORY_V2_COLLECTION);
   const vectors = info.config?.params?.vectors as

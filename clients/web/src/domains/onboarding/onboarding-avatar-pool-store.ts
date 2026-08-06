@@ -53,6 +53,8 @@ interface OnboardingAvatarPoolState {
   selectedIndex: number;
   /** Populate the pool once (no-op if already done). */
   ensureGenerated: (components: CharacterComponents) => void;
+  /** Replace one character's traits (e.g. the picker's shuffle-dice reroll). */
+  setCharacterTraits: (index: number, traits: CharacterTraits) => void;
   setSelectedIndex: (index: number) => void;
   selectNext: () => void;
   selectPrev: () => void;
@@ -63,9 +65,15 @@ const useOnboardingAvatarPoolStoreBase = create<OnboardingAvatarPoolState>(
     characters: [],
     selectedIndex: 0,
     ensureGenerated: () => {
-      if (get().characters.length > 0) return;
+      if (get().characters.length > 0) {
+        return;
+      }
       set({ characters: HARDCODED_POOL, selectedIndex: 0 });
     },
+    setCharacterTraits: (index, traits) =>
+      set((s) => ({
+        characters: s.characters.map((c, i) => (i === index ? traits : c)),
+      })),
     setSelectedIndex: (index) => set({ selectedIndex: index }),
     selectNext: () =>
       set((s) => ({

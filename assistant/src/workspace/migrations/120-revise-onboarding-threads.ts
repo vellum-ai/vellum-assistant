@@ -28,16 +28,22 @@ export const reviseOnboardingThreadsMigration: WorkspaceMigration = {
     // rewritten on upgrade. When invoked without a context (e.g. from older
     // callers), default to the safe path and skip — the runner always supplies
     // one in production.
-    if (!ctx?.isNewWorkspace) return;
+    if (!ctx?.isNewWorkspace) {
+      return;
+    }
     const filePath = join(workspaceDir, "memory", "threads.md");
-    if (!existsSync(filePath)) return;
+    if (!existsSync(filePath)) {
+      return;
+    }
     const original = readFileSync(filePath, "utf-8");
     const updated = original
       .replace(PERSONALITY_BULLET, "")
       .replace(OLD_AVATAR_BULLET, NEW_AVATAR_BULLET);
     // Idempotent: if neither known bullet is present (already revised, or the
     // user edited them away), there is nothing to do.
-    if (updated === original) return;
+    if (updated === original) {
+      return;
+    }
     writeFileSync(filePath, updated, "utf-8");
   },
 

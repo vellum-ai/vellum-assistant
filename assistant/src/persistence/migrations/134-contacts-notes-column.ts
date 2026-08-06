@@ -67,12 +67,18 @@ export function migrateContactsNotesColumn(database: DrizzleDb): void {
 
     for (const row of rows) {
       const parts: string[] = [];
-      if (row.relationship) parts.push(`Relationship: ${row.relationship}`);
-      if (row.importance !== 0.5) parts.push(`Importance: ${row.importance}`);
-      if (row.response_expectation)
+      if (row.relationship) {
+        parts.push(`Relationship: ${row.relationship}`);
+      }
+      if (row.importance !== 0.5) {
+        parts.push(`Importance: ${row.importance}`);
+      }
+      if (row.response_expectation) {
         parts.push(`Response expectation: ${row.response_expectation}`);
-      if (row.preferred_tone)
+      }
+      if (row.preferred_tone) {
         parts.push(`Preferred tone: ${row.preferred_tone}`);
+      }
       if (parts.length > 0) {
         update.run(parts.join("\n"), row.id);
       }

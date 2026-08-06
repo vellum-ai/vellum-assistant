@@ -163,6 +163,26 @@ describe("createLiveVoiceConnection", () => {
     });
   });
 
+  test("names the rejected frame on an unknown_type error", async () => {
+    // A client that sends more than one optional frame gets the same
+    // `unknown_type` for any of them. Without the name it has to guess which,
+    // and guessing wrong is silent: a photo is dropped with nothing said, or
+    // the voice-room settings quietly stop applying for the session.
+    installFakeManager();
+    const { connection, frames } = createConnection();
+
+    await connection.handleMessage(START_MESSAGE);
+    await connection.handleMessage(
+      JSON.stringify({ type: "attach_image_from_the_future" }),
+    );
+
+    expect(frames.at(-1)).toMatchObject({
+      type: "error",
+      code: "unknown_type",
+      frameType: "attach_image_from_the_future",
+    });
+  });
+
   test("errors on a non-start frame before start", async () => {
     installFakeManager();
     const { connection, frames } = createConnection();

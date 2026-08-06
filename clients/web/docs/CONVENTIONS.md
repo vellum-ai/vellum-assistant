@@ -668,6 +668,105 @@ References:
 - [React — useRef caveats: "Do not write or read ref.current during rendering"](https://react.dev/reference/react/useRef#caveats)
 - [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
 
+### Keep decorative animation out of the commit stream
+
+A timer or `requestAnimationFrame` loop that only changes how something
+*looks* — a wobble, a pulse, a shimmer, a cursor blink — must not drive
+React state. Prefer CSS, and when the value has to be computed in JS,
+write it to the node through a ref instead:
+
+```ts
+// Good — the DOM changes, React does not re-render
+const pathRef = useRef<SVGPathElement | null>(null);
+useEffect(() => {
+  const timer = setInterval(() => {
+    pathRef.current?.setAttribute("d", nextFrame());
+  }, 150);
+  return () => clearInterval(timer);
+}, []);
+
+// Avoid — a decorative frame counter in state
+const [frame, setFrame] = useState(0);
+useEffect(() => {
+  const timer = setInterval(() => setFrame((f) => f + 1), 150);
+  return () => clearInterval(timer);
+}, []);
+```
+
+This is not micro-optimization. React increments an internal counter on
+every commit that finishes with an ordinary update already queued, and
+throws `Maximum update depth exceeded` once fifty-one land back to back —
+no render loop required, just enough independent updaters overlapping. A
+streaming conversation already runs several (the transcript snapshot, the
+smooth-text reveal, scroll classification, query notifications); a
+decorative animation that adds one more per visible instance, for the
+whole length of a turn, is what tipped that over in production
+(LUM-2859).
+
+When a component drives `d`/`transform`/`style` imperatively, the value
+it renders must stay constant across re-renders — React only patches
+attributes whose props changed, and a changing prop would clobber the
+imperative write.
+
+Reference: `lib/commit-pressure.ts` — the probe that measures this
+traffic and attaches it to error-185 Sentry events.
+
+### Don't measure an element to give back the space you took from it
+
+If you position something absolutely and then reserve its measured height
+as padding somewhere else, the absolute positioning bought nothing: the
+element ends up occupying exactly the space normal flow would have given
+it. What you have built is flow layout, reimplemented in JavaScript, at
+the cost of a `ResizeObserver`, a piece of state, an effect, and usually
+a prop threaded through someone else's component. `ChatBody`'s nudge
+banner did this for six weeks and put the component in the error-185
+family (LUM-2927).
+
+Ask which of the two things you actually want:
+
+- **It needs space.** Make it a flow sibling and let flexbox size it. A
+  `flex-1` neighbour gives back exactly the right height at every
+  viewport, for free, with nothing to keep in sync.
+- **It floats over content.** Reserve nothing, like the scroll-to-latest
+  pill. Measure only when content must scroll _behind_ it and the
+  scrollport's own padding is what keeps the tail reachable, which is the
+  one case that genuinely needs a number
+  (`side-menu-overlay-bottom-column.tsx`).
+
+Putting both kinds in one positioned container is what forces the
+measurement, because the container can only have one layout behavior.
+
+When you do need a live box, `hooks/use-element-size.ts` already exists.
+
+### Never key an effect on a `ReactNode` prop
+
+An element is a fresh object on every render of whoever created it, so
+`useEffect(fn, [someNode])` re-runs `fn` in _every_ commit for as long as
+that node is mounted. When `fn` measures the DOM, swaps an observer, or
+calls `setState`, that is per-commit work landing in the commit stream,
+and it feeds the same counter described above (LUM-3062, LUM-2927).
+
+Key on what actually changed instead: a boolean for "is it mounted", an
+id for "which one is it". Note that re-keying alone is not a fix if the
+node can be swapped underneath you: sibling slots in one parent are
+matched by index and element type, so mounting an unkeyed sibling can
+hand your observed node to a different subtree while the effect sleeps.
+
+The same reasoning applies one level up, to any hook returning an object:
+
+```ts
+// Avoid: a fresh object every render busts every downstream useMemo,
+// which remints the elements built from it, which re-runs any effect
+// keyed on those elements.
+return { bannerShouldShow, handleDismiss };
+
+// Good
+return useMemo(
+  () => ({ bannerShouldShow, handleDismiss }),
+  [bannerShouldShow, handleDismiss],
+);
+```
+
 ---
 
 ## Framework strategy
@@ -830,10 +929,15 @@ bun run openapi-ts
 Generated output lives in `src/generated/api/` (gitignored). Codegen runs
 automatically via [npm lifecycle hooks](https://docs.npmjs.com/cli/v10/using-npm/scripts#life-cycle-scripts):
 
-- **`postinstall`** — runs after every `bun install`; generates the client
-  when `src/generated/` doesn't exist yet (first-time bootstrap).
-- **`predev`** — runs before every `bun run dev`; always regenerates so
-  the client stays in sync with the committed specs.
+- **`postinstall`**: runs after every `bun install`; always regenerates
+  (~2s, idempotent) so a stale `src/generated/` from an older checkout or
+  worktree can't survive an install and cause phantom `tsc` errors that
+  never reproduce in CI.
+- **`predev`**: runs before every `bun run dev`; regenerates so the
+  client stays in sync with the committed specs.
+- **`pretypecheck`**: runs before every `bun run typecheck`; regenerates
+  for the same reason. A bare `bunx tsc --noEmit` bypasses this hook, so
+  prefer `bun run typecheck`.
 
 No manual codegen step is needed — `bun install` + `bun run dev` triggers
 these hooks automatically. Vellum maintainers using the internal `vel`
@@ -1050,7 +1154,7 @@ which UI surfaces are available:
 
 | Signal | Where | What it means |
 |--------|-------|---------------|
-| `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `isLocalClient()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
 | `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
 | `isPlatformDisabled()` | `src/lib/local-mode.ts` | Env var / config setting (`VITE_VELLUM_DISABLE_PLATFORM` or `__VELLUM_CONFIG__.disablePlatform`). When `true` in local mode, the API interceptor no-ops all platform client requests |
 
@@ -1347,8 +1451,36 @@ renders correctly given the data it actually receives in production.
   helpers that transform a different input format into the prop shape —
   that adds a layer of indirection that hides what the component
   actually receives.
+- **Render the real components; never a story-local lookalike.** A story
+  that draws its own children with its own padding, type token, or hover
+  state documents a layout the app doesn't ship, and it can't catch a
+  regression in the thing it claims to document. If a story needs a
+  layout the shipped primitives can't express, that's the signal a
+  primitive is missing, not a licence to hand-roll one in the story.
+- **Wrappers go in decorators, styling goes in the component.** A story
+  may frame its subject (a width, a backdrop, a provider); it may not
+  restyle it. When a story and a call site need the same treatment,
+  extract it and import it from both, the way
+  `NATIVE_IOS_BARE_ICON_BUTTON` and `VOICE_ASSISTANT_CAPTION_CLASS` are.
+- **No raw hex or off-scale sizes in story _styling_.** The token rules
+  apply to story files exactly as they do to product code. A `#17191C`
+  backdrop or a `text-[15px]` caption is the same defect in a story as in
+  the app, and harder to spot. Hex in sample _data_ is fine (an avatar
+  color the component receives as a prop): the line is whether the value
+  styles the story or is the fixture.
+- **Pin a viewport when the component is responsive.** Components with
+  `max-md:` variants key off the *viewport*, so at a narrow window a
+  story silently renders the mobile treatment while still passing a
+  desktop variant. Set `globals: { viewport: { value: ... } }` on the
+  meta (viewport is built into Storybook core, no addon needed). Note
+  this holds the **Canvas** only: every story on a docs page shares one
+  iframe, so no per-story viewport applies in **Docs**, and that iframe
+  runs roughly 300px narrower than the browser window.
 
-Reference: [Storybook — Writing stories](https://storybook.js.org/docs/writing-stories)
+References:
+- [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)
+- [Storybook - Decorators](https://storybook.js.org/docs/writing-stories/decorators)
+- [Storybook - Viewport](https://storybook.js.org/docs/essentials/viewport)
 
 ---
 

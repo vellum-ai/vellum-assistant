@@ -147,7 +147,9 @@ export class MediaTurnDetector {
    *   do not perform energy analysis.
    */
   onMediaChunk(hasSpeech = true): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
 
     if (hasSpeech) {
       if (!this.active) {
@@ -181,7 +183,9 @@ export class MediaTurnDetector {
    * in-flight turn is properly finalized rather than left dangling.
    */
   forceEnd(): void {
-    if (!this.active || this.disposed) return;
+    if (!this.active || this.disposed) {
+      return;
+    }
     this.endTurn("silence");
   }
 
@@ -214,7 +218,9 @@ export class MediaTurnDetector {
   }
 
   private endTurn(reason: "silence" | "max-duration"): void {
-    if (!this.active) return;
+    if (!this.active) {
+      return;
+    }
 
     const durationMs = Date.now() - this.turnStartedAt;
 

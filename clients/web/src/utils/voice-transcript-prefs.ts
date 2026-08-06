@@ -11,8 +11,7 @@
 
 /** Fields on `useVoicePrefsStore` that the transcript toggles read/write. */
 export type VoiceTranscriptPrefKey =
-  | "showUserTranscript"
-  | "showAssistantTranscript";
+  "showUserTranscript" | "showAssistantTranscript";
 
 export interface VoiceTranscriptToggleDef {
   /** Store field this toggle reads/writes on `useVoicePrefsStore`. */

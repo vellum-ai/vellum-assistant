@@ -22,7 +22,9 @@ export const enableMemoryV3LiveForNewWorkspacesMigration: WorkspaceMigration = {
     // Only switch new assistants on. Existing workspaces fall through to the
     // schema default (false) and keep running v2 until enabled explicitly.
     // Without a context (older callers) treat the workspace as existing.
-    if (!ctx?.isNewWorkspace) return;
+    if (!ctx?.isNewWorkspace) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
 
@@ -32,26 +34,38 @@ export const enableMemoryV3LiveForNewWorkspacesMigration: WorkspaceMigration = {
     if (existsSync(configPath)) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
       }
     }
 
-    if (config.memory === undefined) config.memory = {};
+    if (config.memory === undefined) {
+      config.memory = {};
+    }
     const memory = config.memory;
-    if (!memory || typeof memory !== "object" || Array.isArray(memory)) return;
+    if (!memory || typeof memory !== "object" || Array.isArray(memory)) {
+      return;
+    }
     const memoryConfig = memory as Record<string, unknown>;
 
-    if (memoryConfig.v3 === undefined) memoryConfig.v3 = {};
+    if (memoryConfig.v3 === undefined) {
+      memoryConfig.v3 = {};
+    }
     const v3 = memoryConfig.v3;
-    if (!v3 || typeof v3 !== "object" || Array.isArray(v3)) return;
+    if (!v3 || typeof v3 !== "object" || Array.isArray(v3)) {
+      return;
+    }
     const v3Config = v3 as Record<string, unknown>;
 
     // Respect an explicit value already present (idempotent re-runs, or a
     // hatch-time override that set it deliberately).
-    if ("live" in v3Config) return;
+    if ("live" in v3Config) {
+      return;
+    }
 
     v3Config.live = true;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

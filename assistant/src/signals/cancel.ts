@@ -27,7 +27,9 @@ const log = getLogger("signal:cancel");
  * Called by ConfigWatcher when the signal file is written or modified.
  */
 export function handleCancelSignal(): void {
-  if (getIsContainerized()) return;
+  if (getIsContainerized()) {
+    return;
+  }
 
   try {
     const content = readFileSync(join(getSignalsDir(), "cancel"), "utf-8");

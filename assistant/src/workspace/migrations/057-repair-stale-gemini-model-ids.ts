@@ -17,19 +17,25 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
   description: "Repair stale gemini-3-flash model IDs in workspace LLM config",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     let changed = false;
 
@@ -51,7 +57,9 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
     if (callSites !== null) {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const callSiteConfig = readObject(rawConfig);
-        if (callSiteConfig === null) continue;
+        if (callSiteConfig === null) {
+          continue;
+        }
         const effective = resolveCallSiteEffectiveProvider({
           callSite: site,
           callSiteConfig,
@@ -59,7 +67,9 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
           activeProfileProvider,
           defaultProvider,
         });
-        if (!isGeminiProvider(effective)) continue;
+        if (!isGeminiProvider(effective)) {
+          continue;
+        }
         const replacement = LATENCY_CALL_SITES.has(site)
           ? LATENCY_REPLACEMENT_MODEL
           : DEFAULT_REPLACEMENT_MODEL;
@@ -70,14 +80,20 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
     if (profiles !== null) {
       for (const rawProfile of Object.values(profiles)) {
         const profile = readObject(rawProfile);
-        if (profile === null) continue;
+        if (profile === null) {
+          continue;
+        }
         const effective = inferProvider(profile) ?? defaultProvider;
-        if (!isGeminiProvider(effective)) continue;
+        if (!isGeminiProvider(effective)) {
+          continue;
+        }
         changed = repairModel(profile, DEFAULT_REPLACEMENT_MODEL) || changed;
       }
     }
 
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
@@ -104,7 +120,9 @@ function repairModel(
   config: Record<string, unknown>,
   replacement: string,
 ): boolean {
-  if (config.model !== STALE_MODEL) return false;
+  if (config.model !== STALE_MODEL) {
+    return false;
+  }
   config.model = replacement;
   return true;
 }
@@ -119,7 +137,9 @@ function readObject(value: unknown): Record<string, unknown> | null {
 function readProvider(
   block: Record<string, unknown> | null,
 ): string | undefined {
-  if (block === null) return undefined;
+  if (block === null) {
+    return undefined;
+  }
   return typeof block.provider === "string" ? block.provider : undefined;
 }
 
@@ -130,10 +150,16 @@ function readProvider(
 function inferProvider(
   block: Record<string, unknown> | null,
 ): string | undefined {
-  if (block === null) return undefined;
+  if (block === null) {
+    return undefined;
+  }
   const explicit = readProvider(block);
-  if (explicit !== undefined) return explicit;
-  if (block.model === STALE_MODEL) return "gemini";
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  if (block.model === STALE_MODEL) {
+    return "gemini";
+  }
   return undefined;
 }
 

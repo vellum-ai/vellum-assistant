@@ -5,9 +5,10 @@
  * Continue stays disabled until all three dropdowns (machine size, storage,
  * credits) have an explicit choice, then fires the Stripe upgrade with the
  * selected tiers. An eligible Pro subscriber reaches the same modal seeded to
- * its current tiers, and Continue dispatches the change-machine/storage/
- * credit-tier endpoints (not checkout, which no-ops for an active Pro sub) and
- * opens the resize takeover. Configure opens the modal for a Pro sub the
+ * its current tiers; Continue stays disabled until a dimension changes, then
+ * dispatches the change-machine/storage/credit-tier endpoints (not checkout,
+ * which no-ops for an active Pro sub) and opens the resize takeover. Configure
+ * opens the modal for a Pro sub the
  * catalog can't fully represent too — e.g. a deprecated credit bundle — with
  * the seed holding the tier and any un-representable apply surfacing as a toast.
  *
@@ -23,8 +24,15 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
+import { BASELINE_MACHINE_LABEL } from "@/domains/settings/billing/plans/custom-plan-diff";
+import {
+  CREDIT_DOCS_URL,
+  MACHINE_DOCS_URL,
+  STORAGE_DOCS_URL,
+} from "@/domains/settings/billing/plans/docs-links";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
+import * as nativeAuth from "@/runtime/native-auth";
 import * as platformGate from "@/hooks/use-platform-gate";
 import {
   organizationsBillingPlansRetrieveQueryKey,
@@ -37,6 +45,7 @@ import type {
   ProPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -46,6 +55,8 @@ let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
+// True puts the app in the iOS Capacitor shell for the anchor-routing tests.
+let nativePlatform = false;
 // When non-null, the change-machine-tier call rejects with this — drives the
 // error path (the hook toasts and the caller keeps the modal open).
 let machineTierError: unknown = null;
@@ -100,6 +111,13 @@ mock.module("@/runtime/browser", () => ({
   },
 }));
 
+// Drives `handleNativeAnchorClick`: on iOS the docs anchors must route through
+// the native opener, since the WKWebView shell cannot open a `target="_blank"`.
+mock.module("@/runtime/native-auth", () => ({
+  ...nativeAuth,
+  isNativePlatform: () => nativePlatform,
+}));
+
 // Force the platform-hosted gate open so the page mounts its pricing body
 // instead of firing the self-hosted / not-ready redirect effect.
 mock.module("@/hooks/use-platform-gate", () => ({
@@ -137,24 +155,7 @@ mock.module(
 
 const { PlansPage } = await import("./plans-page");
 
-const MIGHTY: ProPackage = {
-  key: "mighty",
-  name: "Mighty",
-  description: "",
-  version: 1,
-  machine_tier: null,
-  storage_tier: "xs",
-  credit_tier: "credits_25",
-  machine_size: null,
-  storage_gib: 10,
-  credits_usd: 25,
-  include_platform_fee: false,
-  base_price_cents: 0,
-  machine_price_cents: 0,
-  storage_price_cents: 0,
-  credit_price_cents: 0,
-  total_price_cents: 3000,
-};
+const MIGHTY: ProPackage = makeProPackage();
 
 function fullCatalog(): PlanListResponse {
   return {
@@ -226,6 +227,18 @@ function fullCatalog(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50",
+            legacy: false,
+          },
+          {
+            // A grandfathered bundle: no longer offered, present in the catalog
+            // only because a current Pro sub still holds it. Matches MIGHTY's
+            // credit tier so a sub on it seeds the modal to a held legacy pick.
+            tier: "credits_25",
+            label: "25 credits",
+            credits_usd: 25,
+            price_cents: 2500,
+            lookup_key: "credits_25",
+            legacy: true,
           },
         ],
         packages: [MIGHTY],
@@ -326,14 +339,18 @@ function renderPage(
   );
 }
 
-function openDropdown(ariaLabel: string): void {
+function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
   if (!trigger) {
     throw new Error(`expected a "${ariaLabel}" dropdown trigger`);
   }
-  fireEvent.click(trigger);
+  return trigger;
+}
+
+function openDropdown(ariaLabel: string): void {
+  fireEvent.click(dropdownTrigger(ariaLabel));
 }
 
 function optionLabels(): string[] {
@@ -379,6 +396,7 @@ beforeEach(() => {
   storageTierCall = null;
   creditTierCall = null;
   openedUrl = null;
+  nativePlatform = false;
   machineTierError = null;
   onboardingHangs = false;
   subscriptionFixture = null;
@@ -399,6 +417,52 @@ function findOption(label: string): HTMLElement {
     throw new Error(`expected option "${label}"`);
   }
   return option;
+}
+
+/** The recap's "…compared to previous (…)" delta span, or null when absent. */
+function deltaLine(): HTMLElement | null {
+  const dialog = document.querySelector('[role="dialog"]');
+  return (
+    Array.from(dialog?.querySelectorAll<HTMLElement>("span") ?? []).find((s) =>
+      (s.textContent ?? "").includes("compared to previous"),
+    ) ?? null
+  );
+}
+
+/** The recap's `<li>` texts (each row's full concatenated text). Only valid
+ * with the dropdown menus closed — their options render as `li` too. */
+function recapRows(): string[] {
+  const dialog = document.querySelector('[role="dialog"]');
+  return Array.from(dialog?.querySelectorAll("li") ?? []).map(
+    (li) => li.textContent?.trim() ?? "",
+  );
+}
+
+function docsLink(href: string): HTMLAnchorElement {
+  const link = document.querySelector<HTMLAnchorElement>(
+    `[role="dialog"] a[href="${href}"]`,
+  );
+  if (!link) {
+    throw new Error(`expected a docs link to ${href}`);
+  }
+  return link;
+}
+
+/** Struck-through (previous-value) recap labels. */
+function strikethroughs(): string[] {
+  const dialog = document.querySelector('[role="dialog"]');
+  return Array.from(dialog?.querySelectorAll("s") ?? []).map(
+    (el) => el.textContent?.trim() ?? "",
+  );
+}
+
+/** Each recap row's check-icon classes, in row order. */
+function checkIconClasses(): string[] {
+  const dialog = document.querySelector('[role="dialog"]');
+  return Array.from(dialog?.querySelectorAll("li") ?? []).map(
+    (li) =>
+      li.querySelector("div:last-child > svg")?.getAttribute("class") ?? "",
+  );
 }
 
 describe("CustomPlanModal — base subscriber", () => {
@@ -431,15 +495,15 @@ describe("CustomPlanModal — base subscriber", () => {
     expect(labels.some((l) => l.startsWith("250 GB"))).toBe(false);
   });
 
-  test("recap opens with just the labeled base fee", () => {
+  test("recap opens with just the labeled platform fee", () => {
     const { getByRole, getByText } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
-    // Nothing selected yet — the total is the bare base fee, and the recap's
-    // permanent first row labels where it comes from.
+    // Nothing selected yet, so the total is the bare platform fee, and the
+    // recap's permanent first row labels where it comes from.
     getByText("$20/mo");
-    getByText("Pro base plan — $20/mo");
+    getByText("Platform fee: $20/mo");
   });
 
   test("recap totals the base price plus the selected tiers", () => {
@@ -454,19 +518,29 @@ describe("CustomPlanModal — base subscriber", () => {
     // $20 base + $60 machine + $10 storage + $50 credits.
     getByText("$140/mo");
 
-    // The recap check-list is the only <ul> in the dialog once the dropdown
-    // menus are closed. (The machine text also appears in its trigger, so a
-    // plain getByText would double-match.)
-    const dialog = document.querySelector('[role="dialog"]');
-    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
-      (li) => li.textContent?.trim() ?? "",
-    );
-    expect(rows).toEqual([
-      "Pro base plan — $20/mo",
+    // Read the recap rows rather than getByText — the machine text also appears
+    // in its dropdown trigger and would double-match.
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GB storage",
       "$50 of bundled credits",
     ]);
+  });
+
+  test("base checkout shows no delta line and no strikethrough", () => {
+    // No seed (a base subscriber), so there is no previous plan to compare
+    // against — the recap stays the plain grey-check list.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    selectOption("Storage", "30 GB");
+    selectOption("Credit bundle", "50 credits");
+
+    expect(deltaLine()).toBeNull();
+    expect(strikethroughs()).toEqual([]);
   });
 
   test("Continue starts a Stripe checkout with the selected tiers", async () => {
@@ -538,7 +612,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
-  test("opens seeded to the current plan so Continue needs no re-pick", () => {
+  test("opens seeded to the current plan, Continue disabled until a change", () => {
     // Current config: medium machine / 10 GB (xs) storage / no credits. The
     // configurator opens with all three pre-filled, so an unrelated edit can't
     // strand the user into re-picking — and dropping — a tier they still hold.
@@ -547,43 +621,114 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     fireEvent.click(getByRole("button", { name: "Configure" }));
 
     getByText("Create a custom plan");
-    // Seeded, so Continue is enabled with no interaction.
-    expect(continueButton().disabled).toBe(false);
+    // Seeded to the current plan (a no-op), so Continue starts disabled.
+    expect(continueButton().disabled).toBe(true);
 
     // The recap reflects the seeded current tiers.
-    const dialog = document.querySelector('[role="dialog"]');
-    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
-      (li) => li.textContent?.trim() ?? "",
-    );
-    expect(rows).toEqual([
-      "Pro base plan — $20/mo",
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
       "No extra credits",
     ]);
+
+    // Changing any dimension diverges from the seed and enables Continue.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    expect(continueButton().disabled).toBe(false);
   });
 
-  test("continuing with the seeded config is a no-op with no dispatch", async () => {
-    const { getByRole, queryByText, queryByTestId } = renderPage(
+  test("a seeded no-op shows the plain grey-check recap with no delta line", () => {
+    // Opening seeded to the current plan with no interaction: every dimension
+    // matches the seed, so no row is struck through and the delta line is hidden.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "No extra credits",
+    ]);
+    expect(deltaLine()).toBeNull();
+    expect(strikethroughs()).toEqual([]);
+  });
+
+  test("a machine upgrade struck-throughs the previous value with a green up delta", () => {
+    // Seed: medium machine / 10 GB (xs) storage / no credits.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+
+    // The changed machine row shows the previous value struck through above
+    // the new value; every other row keeps its single seeded label.
+    expect(strikethroughs()).toEqual(["Medium machine (2.5 vCPU, 5 GiB)"]);
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)Large machine (4 vCPU, 8 GiB)",
+      "10 GB storage",
+      "No extra credits",
+    ]);
+
+    // Only the changed row's check goes green; the rest stay grey.
+    const checks = checkIconClasses();
+    expect(checks).toHaveLength(4);
+    expect(checks[1]).toContain("text-[var(--system-positive-strong)]");
+    for (const unchanged of [checks[0], checks[2], checks[3]]) {
+      expect(unchanged).toContain("text-[var(--content-secondary)]");
+    }
+
+    // previous = base 2000 + medium 3500 + xs 500 = 6000 ($60);
+    // new = base 2000 + large 6000 + xs 500 = 8500 ($85); delta = +$25/mo.
+    const delta = deltaLine();
+    expect(delta).not.toBeNull();
+    expect(delta!.textContent).toBe("+$25/mo compared to previous ($60)");
+    expect(delta!.className).toContain("text-[var(--system-positive-strong)]");
+  });
+
+  test("a cheaper reconfigure shows a red down delta with the U+2212 minus", () => {
+    // Seed machine to large; lowering to medium is cheaper.
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: "large" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+
+    // previous = base 2000 + large 6000 + xs 500 = 8500 ($85);
+    // new = base 2000 + medium 3500 + xs 500 = 6000 ($60); delta = −$25/mo.
+    const delta = deltaLine();
+    expect(delta).not.toBeNull();
+    expect(delta!.textContent).toBe("−$25/mo compared to previous ($85)");
+    expect(delta!.className).toContain("text-[var(--system-negative-strong)]");
+  });
+
+  test("the untouched seeded config holds Continue disabled and dispatches nothing", () => {
+    const { getByRole, getByText, queryByTestId } = renderPage(
       proMightySubscription(),
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // Nothing diverged from the current plan, so Continue is disabled — a click
+    // can't submit a no-op change-tier request and the modal stays open.
+    expect(continueButton().disabled).toBe(true);
     fireEvent.click(continueButton());
 
-    // Nothing diverged from the current plan, so no change-tier request fires
-    // and the resize takeover stays closed.
-    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
+    getByText("Create a custom plan");
     expect(machineTierCall).toBeNull();
     expect(storageTierCall).toBeNull();
     expect(creditTierCall).toBeNull();
     expect(queryByTestId("resize-takeover")).toBeNull();
   });
 
-  test("a baseline (null machine) Pro sub can still open and reconfigure", () => {
+  test("a baseline (null machine) Pro sub opens seeded to the baseline machine", () => {
     // A package with no paid machine tier reports max_machine_tier: null. That
-    // sub must still reach the modal (not route to manage); storage/credit seed
-    // and the machine picker starts empty, so Continue waits for a machine pick.
+    // sub must still reach the modal (not route to manage), and every dimension
+    // seeds, the baseline included, so the picker names the machine they run on
+    // rather than showing its placeholder.
     const { getByRole, getByText } = renderPage(
       proMightySubscription(),
       onboarding({ max_machine_tier: null }),
@@ -591,15 +736,83 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
     getByText("Create a custom plan");
+    // The seeded config is a no-op, so Continue waits for a real change.
     expect(continueButton().disabled).toBe(true);
 
-    const dialog = document.querySelector('[role="dialog"]');
-    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
-      (li) => li.textContent?.trim() ?? "",
-    );
-    // Storage and credit are seeded even though the machine is unset.
+    const rows = recapRows();
+    expect(rows).toContain(BASELINE_MACHINE_LABEL);
     expect(rows).toContain("10 GB storage");
     expect(rows).toContain("No extra credits");
+  });
+
+  test("the baseline machine is offered to nobody else", () => {
+    // A sub on a paid tier must not be able to drop to the baseline from here:
+    // the change-tier scoring would read a to-null move as an upgrade and open
+    // the resize takeover for what is really a downgrade.
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Machine size");
+
+    expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
+  });
+
+  test("the baseline machine is withheld from a base checkout", () => {
+    // No seed at all, so there is no held baseline to preserve.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Machine size");
+
+    expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
+  });
+
+  test("the recap states the billing cadence", () => {
+    // The recap owns the cadence, so it reads beside the total it describes.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Billed monthly");
+  });
+
+  test("each picker links to its own pricing docs section", () => {
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    const hrefs = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('[role="dialog"] a'),
+    ).map((a) => a.getAttribute("href"));
+    expect(hrefs).toContain(MACHINE_DOCS_URL);
+    expect(hrefs).toContain(STORAGE_DOCS_URL);
+    expect(hrefs).toContain(CREDIT_DOCS_URL);
+  });
+
+  test("on iOS the docs links open through the native opener", () => {
+    // The WKWebView shell cannot open a target="_blank" anchor, so an
+    // unhandled click would silently do nothing.
+    nativePlatform = true;
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    const link = docsLink(STORAGE_DOCS_URL);
+    const dispatched = fireEvent.click(link);
+
+    expect(openedUrl).toBe(STORAGE_DOCS_URL);
+    // Default prevented, so the shell never gets the dead new-tab navigation.
+    expect(dispatched).toBe(false);
+  });
+
+  test("off native the docs links keep their plain new-tab behavior", () => {
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    const dispatched = fireEvent.click(docsLink(STORAGE_DOCS_URL));
+
+    expect(openedUrl).toBeNull();
+    expect(dispatched).toBe(true);
   });
 
   test("a baseline Pro sub picking a machine dispatches the upgrade", async () => {
@@ -610,6 +823,8 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
     selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    // The baseline it is leaving is struck through, like any other seed value.
+    expect(strikethroughs()).toContain(BASELINE_MACHINE_LABEL);
     fireEvent.click(continueButton());
 
     await waitFor(() => expect(machineTierCall).not.toBeNull());
@@ -678,7 +893,9 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     openDropdown("Storage");
 
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
-    expect(findOption("30 GB").getAttribute("aria-disabled")).toBe("false");
+    // Enabled options carry no `aria-disabled` at all, so assert the absence
+    // of the disabled state rather than a literal "false".
+    expect(findOption("30 GB").getAttribute("aria-disabled")).not.toBe("true");
   });
 
   test("a failed dispatch keeps the modal open and skips the takeover", async () => {
@@ -701,12 +918,12 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   });
 });
 
-describe("CustomPlanModal — Pro plan the catalog can't fully represent", () => {
-  test("a deprecated credit bundle Pro sub's Configure opens the custom-plan modal", () => {
-    // The configurator only offers live credit tiers; the sub's `credits_25`
-    // bundle is absent from the catalog. Configure still opens the modal — the
-    // seed keeps the held credit, and an apply the backend can't honor surfaces
-    // as a toast instead of the takeover pre-empting the modal.
+describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bundle", () => {
+  // The catalog surfaces the held bundle as a `legacy: true` tier
+  // (`credits_25`) so the modal can price it. Configure opens seeded to the
+  // held credit; the recap totals it, and the dropdown shows it as the current
+  // (disabled) selection without offering it to a new configuration.
+  test("prices the held legacy bundle in the recap total and selection row", () => {
     const { getByRole, getByTestId, getByText } = renderPage(
       proMightySubscription({ selected_credit_tier: "credits_25" }),
     );
@@ -715,6 +932,145 @@ describe("CustomPlanModal — Pro plan the catalog can't fully represent", () =>
 
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
-    expect(machineTierCall).toBeNull();
+
+    // $20 base + $35 medium machine + $5 (10 GB) storage + $25 held credits.
+    getByText("$85/mo");
+
+    const dialog = document.querySelector('[role="dialog"]');
+    const rows = Array.from(dialog?.querySelectorAll("li") ?? []).map(
+      (li) => li.textContent?.trim() ?? "",
+    );
+    expect(rows).toEqual([
+      "Platform fee: $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "$25 of bundled credits",
+    ]);
+  });
+
+  test("shows the held bundle in the dropdown as the current, disabled choice", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Credit bundle");
+
+    // The held legacy bundle appears so the current selection is visible, but
+    // it's disabled — a new config can never pick it.
+    expect(findOption("25 credits").getAttribute("aria-disabled")).toBe("true");
+    // The live tier stays selectable. Enabled options carry no
+    // `aria-disabled`, so assert the absence of the disabled state.
+    expect(findOption("50 credits").getAttribute("aria-disabled")).not.toBe(
+      "true",
+    );
+  });
+
+  test("Continue preserves the held credit when another dimension changes", async () => {
+    const { getByRole, findByTestId } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    // Raise the machine but leave the held credit as seeded.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
+    // The held credit is unchanged, so it's neither re-sent nor dropped.
+    expect(creditTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+  });
+
+  test("a config not holding the legacy bundle is never offered it", () => {
+    // A base subscriber configuring from scratch only sees the live tiers — the
+    // legacy `credits_25` bundle is filtered out of the selectable options.
+    const { getByRole } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Credit bundle");
+
+    const labels = optionLabels();
+    expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
+    expect(labels.some((l) => l.startsWith("25 credits"))).toBe(false);
+  });
+
+  test("an untouched deprecated credit bundle is not recapped as 'No extra credits'", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription({ selected_credit_tier: "credits_25" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // The held bundle labels its own row rather than claiming the paying
+    // subscriber has no credits, and nothing reads as changed on open.
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "$25 of bundled credits",
+    ]);
+    expect(strikethroughs()).toEqual([]);
+    expect(deltaLine()).toBeNull();
+  });
+
+  test("a legacy-storage Pro sub sees the held tier and can reconfigure", () => {
+    // 250 GB (xl) is legacy: no longer offered, but still what this sub pays
+    // for. The picker shows it and the recap agrees with the total; an unrelated
+    // edit isn't blocked by the held legacy tier.
+    const { getByRole, getByText } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // Seeded to the held tier (a no-op), so Continue starts disabled.
+    expect(continueButton().disabled).toBe(true);
+    expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "250 GB storage",
+      "No extra credits",
+    ]);
+    // base $20 + medium $35 + legacy 250 GB $60.
+    getByText("$115/mo");
+
+    // The held legacy storage doesn't block an unrelated edit.
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    expect(continueButton().disabled).toBe(false);
+  });
+
+  test("the held legacy storage tier stays re-selectable", () => {
+    // Every other tier is a downgrade off 250 GB, so disabling the held tier
+    // too would leave a dead dropdown the holder can never return to.
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ selected_storage_tier: "xl", selected_storage_gib: 250 }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    openDropdown("Storage");
+
+    expect(findOption("250 GB").getAttribute("aria-disabled")).not.toBe("true");
+    expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  test("a seed machine the catalog dropped hides the delta rather than inverting it", () => {
+    // `xl` is a valid machine tier the fixture catalog no longer lists. Pricing
+    // it at $0 would report this downgrade to Medium as a $35 increase.
+    const { getByRole } = renderPage(
+      proMightySubscription(),
+      onboarding({ max_machine_tier: "xl" }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+
+    expect(deltaLine()).toBeNull();
   });
 });

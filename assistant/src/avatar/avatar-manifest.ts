@@ -50,7 +50,9 @@ const AVATAR_KINDS: ReadonlySet<string> = new Set<AvatarKind>([
 
 /** Narrows an unknown value to valid CharacterTraits (presence check only). */
 function isValidTraits(value: unknown): value is CharacterTraits {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
   const t = value as Record<string, unknown>;
   return (
     typeof t.bodyShape === "string" &&
@@ -64,7 +66,9 @@ function isValidTraits(value: unknown): value is CharacterTraits {
 
 /** Narrows an unknown value to valid AvatarImageMeta (presence check only). */
 function isValidImageMeta(value: unknown): value is AvatarImageMeta {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
   const m = value as Record<string, unknown>;
   return (
     typeof m.updatedAt === "string" &&
@@ -84,11 +88,15 @@ export function readManifest(
   avatarDir: string = getAvatarDir(),
 ): AvatarState | null {
   const manifestPath = join(avatarDir, AVATAR_MANIFEST_FILENAME);
-  if (!existsSync(manifestPath)) return null;
+  if (!existsSync(manifestPath)) {
+    return null;
+  }
 
   try {
     const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as unknown;
-    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.kind !== "string" || !AVATAR_KINDS.has(obj.kind)) {
       return null;
@@ -98,8 +106,12 @@ export function readManifest(
     // Reject partial manifests: a valid `kind` with a missing/malformed payload
     // would otherwise short-circuit the legacy fallback and surface an avatar
     // with null traits/image.
-    if (kind === "character" && !isValidTraits(obj.traits)) return null;
-    if (kind === "image" && !isValidImageMeta(obj.image)) return null;
+    if (kind === "character" && !isValidTraits(obj.traits)) {
+      return null;
+    }
+    if (kind === "image" && !isValidImageMeta(obj.image)) {
+      return null;
+    }
 
     return {
       kind,

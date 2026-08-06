@@ -1,6 +1,3 @@
-import type { NotificationConversationCreatedEvent } from "../../api/events/notification-conversation-created.js";
-import type { NotificationIntentEvent } from "../../api/events/notification-intent.js";
-
 /** Client ack sent after UNUserNotificationCenter.add() completes (or fails). */
 export interface NotificationIntentResult {
   type: "notification_intent_result";
@@ -42,7 +39,3 @@ export type _NotificationsClientMessages =
   | NotificationIntentResult
   | ConversationSeenSignal
   | ConversationUnreadSignal;
-
-export type _NotificationsServerMessages =
-  | NotificationIntentEvent
-  | NotificationConversationCreatedEvent;

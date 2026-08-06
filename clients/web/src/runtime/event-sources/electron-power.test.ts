@@ -5,12 +5,10 @@ let activeCallback: ((event: PowerEvent) => void) | null = null;
 const unsubscribeMock = mock(() => {
   activeCallback = null;
 });
-const subscribeToPowerEventsMock = mock(
-  (cb: (event: PowerEvent) => void) => {
-    activeCallback = cb;
-    return unsubscribeMock;
-  },
-);
+const subscribeToPowerEventsMock = mock((cb: (event: PowerEvent) => void) => {
+  activeCallback = cb;
+  return unsubscribeMock;
+});
 
 mock.module("@/runtime/power-events", () => ({
   subscribeToPowerEvents: subscribeToPowerEventsMock,
@@ -19,9 +17,8 @@ mock.module("@/runtime/power-events", () => ({
 const eventBus = await import("@/lib/event-bus");
 const publishSpy = spyOn(eventBus, "publish");
 
-const { publishElectronPowerSource } = await import(
-  "@/runtime/event-sources/electron-power"
-);
+const { publishElectronPowerSource } =
+  await import("@/runtime/event-sources/electron-power");
 
 beforeEach(() => {
   activeCallback = null;

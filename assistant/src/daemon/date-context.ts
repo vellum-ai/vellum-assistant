@@ -229,7 +229,9 @@ const TIMEZONE_TOKEN_RE = new RegExp(
 export function extractUserTimeZoneFromRecall(
   injectedText: string,
 ): string | null {
-  if (!injectedText || injectedText.trim().length === 0) return null;
+  if (!injectedText || injectedText.trim().length === 0) {
+    return null;
+  }
 
   // Prefer identity items: <item ... kind="identity" ...>content</item>
   const identityItemRe = /<item\s[^>]*kind="identity"[^>]*>([\s\S]*?)<\/item>/g;
@@ -245,7 +247,9 @@ export function extractUserTimeZoneFromRecall(
       if (/time\s*zone/i.test(text)) {
         for (const token of extractTimeZoneCandidates(text)) {
           const canonical = canonicalizeTimeZone(token);
-          if (canonical) return canonical;
+          if (canonical) {
+            return canonical;
+          }
         }
       }
     }
@@ -253,7 +257,9 @@ export function extractUserTimeZoneFromRecall(
     for (const text of identityTexts) {
       for (const token of extractTimeZoneCandidates(text)) {
         const canonical = canonicalizeTimeZone(token);
-        if (canonical) return canonical;
+        if (canonical) {
+          return canonical;
+        }
       }
     }
   }
@@ -264,7 +270,9 @@ export function extractUserTimeZoneFromRecall(
     if (/time\s*zone/i.test(line)) {
       for (const token of extractTimeZoneCandidates(line)) {
         const canonical = canonicalizeTimeZone(token);
-        if (canonical) return canonical;
+        if (canonical) {
+          return canonical;
+        }
       }
     }
   }
@@ -362,7 +370,9 @@ export function formatLocalTimestamp(ms: number, timeZone?: string): string {
     new Date(ms),
   );
   const v: Record<string, string> = {};
-  for (const p of parts) v[p.type] = p.value;
+  for (const p of parts) {
+    v[p.type] = p.value;
+  }
   return `${v.year}-${v.month}-${v.day} ${v.hour}:${v.minute}:${v.second}`;
 }
 

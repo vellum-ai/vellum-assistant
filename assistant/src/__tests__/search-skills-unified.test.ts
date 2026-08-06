@@ -209,7 +209,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("e");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(3);
 
@@ -269,7 +271,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("shared");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     // Catalog deduplicates clawhub (same slug "shared-skill"), but skills.sh
     // now uses the full id "org/repo/shared-skill" so it's a distinct entry.
@@ -311,7 +315,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("overlap");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     // Full id slug means no collision — both entries survive
     expect(result.skills).toHaveLength(2);
@@ -342,7 +348,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("clawhub");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(1);
     expect(result.skills[0]!.id).toBe("clawhub-only");
@@ -364,7 +372,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("skillssh");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(1);
     expect(result.skills[0]!.id).toBe("org/repo/skillssh-only");
@@ -385,7 +395,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("my");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(1);
     expect(result.skills[0]!.id).toBe("my-skill");
@@ -407,7 +419,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("test");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(1);
 
@@ -459,7 +473,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("lint");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(2);
 
@@ -511,7 +527,9 @@ describe("searchSkills (unified)", () => {
 
     const result = await searchSkills("my-skill");
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("Expected success");
+    if (!result.success) {
+      throw new Error("Expected success");
+    }
 
     expect(result.skills).toHaveLength(1);
     const skill = result.skills[0]!;

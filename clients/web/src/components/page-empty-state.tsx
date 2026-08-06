@@ -23,7 +23,9 @@ export function PageEmptyState({
       <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-[var(--surface-base)]">
         <Icon size={32} className="text-[var(--content-tertiary)]" />
       </div>
-      <h2 className="text-title-medium text-[var(--content-default)]">{title}</h2>
+      <h2 className="text-title-medium text-[var(--content-default)]">
+        {title}
+      </h2>
       <p className="max-w-md text-body-medium-lighter text-[var(--content-tertiary)]">
         {description}
       </p>

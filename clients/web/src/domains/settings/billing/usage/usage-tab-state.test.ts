@@ -120,9 +120,9 @@ describe("resolveRangeWindow", () => {
     expect(east.from).not.toBe(west.from);
 
     // Sanity-check the actual calendar dates the boundaries land on.
-    expect(toTimezoneDateString(new Date(east.from), "Pacific/Kiritimati")).toBe(
-      "2026-06-02",
-    );
+    expect(
+      toTimezoneDateString(new Date(east.from), "Pacific/Kiritimati"),
+    ).toBe("2026-06-02");
     expect(toTimezoneDateString(new Date(west.from), "Pacific/Niue")).toBe(
       "2026-06-01",
     );

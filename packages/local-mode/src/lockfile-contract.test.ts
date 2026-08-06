@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   KNOWN_CLOUDS,
+  pairedHostLabel,
   parseLockfile,
   resolveCloud,
   SENSITIVE_KEYS,
@@ -24,6 +25,7 @@ describe("parseLockfile", () => {
           platformAssistantId: "platform-assistant-1",
           platformBaseUrl: "https://platform.example.com",
           platformOrganizationId: "org_1",
+          ingressUrl: "https://tunnel.example.ts.net",
           resources: { gatewayPort: 7777, daemonPort: 7778 },
         },
       ],
@@ -186,6 +188,30 @@ describe("parseLockfile", () => {
     ]);
   });
 
+  test("keeps a well-typed ingressUrl and drops it when mistyped", () => {
+    // The tunnel-recorded public URL rides the entry so remote-web pairing
+    // surfaces can prefill it; a mistyped value is dropped, entry preserved.
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          ingressUrl: "https://tunnel.example.ts.net",
+        },
+        { assistantId: "asst_2", cloud: "local", ingressUrl: 7 }, // mistyped
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      {
+        assistantId: "asst_1",
+        cloud: "local",
+        ingressUrl: "https://tunnel.example.ts.net",
+      },
+      { assistantId: "asst_2", cloud: "local" },
+    ]);
+  });
+
   test("drops a resources object missing its numeric ports", () => {
     const raw = {
       assistants: [
@@ -310,6 +336,23 @@ describe("resolveCloud", () => {
     expect(resolveCloud({ sshUser: "u" })).toBe("custom");
     expect(resolveCloud({})).toBe("local");
     expect(resolveCloud({ cloud: "" })).toBe("local");
+  });
+});
+
+describe("pairedHostLabel", () => {
+  test("names the remote host from a parseable runtimeUrl", () => {
+    expect(pairedHostLabel("https://tunnel.example.com")).toBe(
+      "Paired · tunnel.example.com",
+    );
+    expect(pairedHostLabel("https://remote-host.example:8443")).toBe(
+      "Paired · remote-host.example",
+    );
+  });
+
+  test("falls back to plain Paired for a missing or unparseable runtimeUrl", () => {
+    expect(pairedHostLabel(undefined)).toBe("Paired");
+    expect(pairedHostLabel("")).toBe("Paired");
+    expect(pairedHostLabel("not a url")).toBe("Paired");
   });
 });
 

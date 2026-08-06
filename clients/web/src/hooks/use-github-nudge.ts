@@ -10,7 +10,7 @@
  * a minimum number of user messages sent.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useNudgeStore } from "@/stores/nudge-store";
 
@@ -19,8 +19,7 @@ import { useNudgeStore } from "@/stores/nudge-store";
 // ---------------------------------------------------------------------------
 
 /** Public GitHub repository for Vellum Assistant. */
-export const GITHUB_REPO_URL =
-  "https://github.com/vellum-ai/vellum-assistant";
+export const GITHUB_REPO_URL = "https://github.com/vellum-ai/vellum-assistant";
 
 /** Minimum account age (ms since first observation) before the nudge is eligible. */
 export const GITHUB_MIN_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -77,12 +76,16 @@ export function useGitHubNudgeState(): GitHubNudgeState {
 
   // --- Age eligibility with timer -------------------------------------------
   const [ageEligible, setAgeEligible] = useState(() => {
-    if (firstSeenAt === 0) return false;
+    if (firstSeenAt === 0) {
+      return false;
+    }
     return Date.now() - firstSeenAt >= GITHUB_MIN_AGE_MS;
   });
 
   useEffect(() => {
-    if (firstSeenAt === 0 || ageEligible) return;
+    if (firstSeenAt === 0 || ageEligible) {
+      return;
+    }
 
     const remaining = GITHUB_MIN_AGE_MS - (Date.now() - firstSeenAt);
     if (remaining <= 0) {
@@ -106,11 +109,17 @@ export function useGitHubNudgeState(): GitHubNudgeState {
     useNudgeStore.getState().dismissGitHubBanner();
   }, []);
 
-  return {
-    bannerShouldShow: !starred && !bannerDismissed && engagementMet,
-    handleStar,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      bannerShouldShow: !starred && !bannerDismissed && engagementMet,
+      handleStar,
+      handleBannerDismiss,
+    }),
+    [starred, bannerDismissed, engagementMet, handleStar, handleBannerDismiss],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +127,8 @@ export function useGitHubNudgeState(): GitHubNudgeState {
 // ---------------------------------------------------------------------------
 
 export function openGitHubRepo(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   window.open(GITHUB_REPO_URL, "_blank", "noopener,noreferrer");
 }

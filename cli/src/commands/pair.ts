@@ -17,8 +17,9 @@ import qrcodeTerminal from "qrcode-terminal";
 
 import {
   buildRemoteWebPairingUrl,
-  normalizePublicBaseUrl,
+  normalizePairingBaseUrl,
   resolvePublicBaseUrl,
+  tunnelProviderWebsiteName,
   type PublicBaseUrlRejection,
   type RemoteWebPairingChallengeRequest,
   type RemoteWebPairingChallengeResponse,
@@ -30,6 +31,7 @@ import { extractFlag } from "../lib/arg-utils.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   formatAssistantLookupError,
+  formatAssistantReference,
   lookupAssistantByIdentifier,
   resolveAssistant,
   type AssistantEntry,
@@ -39,6 +41,7 @@ import {
   getClientRegistrationHeaders,
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
+import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 import {
   formatFeatureFlagGateMessage,
   isAssistantFeatureFlagEnabled,
@@ -46,6 +49,8 @@ import {
 } from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { formatWebApproveFailure, parseGatewayErrorCode } from "../lib/pair.js";
+import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 
 function assistantDisplayName(entry: AssistantEntry): string {
   return entry.name || entry.assistantName || entry.assistantId;
@@ -87,7 +92,8 @@ ARGUMENTS:
 OPTIONS:
     --url <url>      Reachable gateway URL to advertise in the bundle
                     (default: the assistant's runtime URL, not loopback)
-    --label <name>   Human label for this pairing (echoed in the output)
+    --label <name>   Human label for this pairing (echoed in the output; with
+                    --qr --app it also names the assistant in the connect link)
     --web            Create a browser pairing URL for remote web access
     --web-approve <code>
                     Approve a browser pairing code shown by /assistant/pair
@@ -98,8 +104,10 @@ OPTIONS:
                     loopback or non-https URLs.
     --app            With --qr: encode the QR as a vellum-assistant://connect
                     link that opens the Vellum iOS app directly (the plain
-                    https pairing URL is printed as a fallback). Requires an
-                    app build with the connect handler installed on the phone.
+                    https pairing URL is printed as a fallback). The link
+                    carries the assistant's name (--label overrides it) so the
+                    app can label the pairing. Requires an app build with the
+                    connect handler installed on the phone.
     --app-scheme <scheme>
                     URL scheme for --app links (default: vellum-assistant;
                     dev/staging app builds use vellum-assistant-dev /
@@ -136,33 +144,37 @@ const DEFAULT_APP_CONNECT_SCHEME = "vellum-assistant";
 
 /**
  * Compose the custom-scheme link the iOS app's connect handler accepts:
- * `<scheme>://connect?url=<base>&code=<device code>`. The app persists the
- * base as its self-hosted server and opens the pair page with the code.
+ * `<scheme>://connect?url=<base>&code=<device code>[&name=<label>]`. The app
+ * persists the base (and the label, when present) as its self-hosted server
+ * and opens the pair page with the code.
  */
 export function buildAppConnectUrl(
   scheme: string,
   baseUrl: string,
   deviceCode: string,
+  name?: string,
 ): string {
   const params = new URLSearchParams({ url: baseUrl, code: deviceCode });
+  if (name) {
+    params.set("name", name);
+  }
   return `${scheme}://connect?${params.toString()}`;
 }
 
 /**
  * POST a JSON body to a loopback gateway route, exiting with a clear message
- * when the gateway is unreachable or answers non-2xx. Every pairing subcommand
- * talks to the gateway this way, so the reachability + HTTP-error handling has
- * a single home.
+ * when the gateway is unreachable. Non-2xx responses are returned to the
+ * caller; use {@link gatewayPostOrExit} unless the call site prints its own
+ * HTTP-error diagnostics.
  */
-async function gatewayPostOrExit(
+async function gatewayPost(
   gatewayUrl: string,
   path: string,
   body: unknown,
   headers?: Record<string, string>,
 ): Promise<Response> {
-  let response: Response;
   try {
-    response = await loopbackSafeFetch(`${gatewayUrl}${path}`, {
+    return await loopbackSafeFetch(`${gatewayUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
@@ -175,7 +187,24 @@ async function gatewayPostOrExit(
     console.error("Is the assistant running? Try `vellum wake`.");
     process.exit(1);
   }
+}
 
+/**
+ * {@link gatewayPost}, but also exiting with a generic message on non-2xx.
+ * Every pairing subcommand talks to the gateway this way, so the reachability
+ * + HTTP-error handling has a single home.
+ */
+async function gatewayPostOrExit(
+  gatewayUrl: string,
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  return exitOnHttpError(await gatewayPost(gatewayUrl, path, body, headers));
+}
+
+/** Exit with a generic HTTP-error message on non-2xx; pass 2xx through. */
+async function exitOnHttpError(response: Response): Promise<Response> {
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
     console.error(
@@ -183,7 +212,6 @@ async function gatewayPostOrExit(
     );
     process.exit(1);
   }
-
   return response;
 }
 
@@ -204,18 +232,32 @@ async function createRemoteWebPairingChallenge(
 }
 
 /**
- * Approve a pending pairing challenge by its user code — the local-presence
- * proof for the device-code flow. Shared by `--web-approve` and `--qr` (which
- * approves the challenge it just minted so one scan completes pairing).
+ * Approve a pending pairing challenge by its user code, the local-presence
+ * proof for the device-code flow. Single owner of the pairing-verification
+ * route and request body: `--qr` approves via {@link approveRemoteWebPairing}
+ * (generic exit on non-2xx), while `--web-approve` calls this directly to
+ * inspect rejections and print mismatch diagnostics (see
+ * {@link formatWebApproveFailure}).
+ */
+async function postPairingVerification(
+  gatewayUrl: string,
+  userCode: string,
+): Promise<Response> {
+  return gatewayPost(gatewayUrl, "/v1/remote-web/pairing-verification", {
+    userCode,
+  } satisfies RemoteWebPairingVerificationRequest);
+}
+
+/**
+ * Approve the challenge `--qr` just minted so one scan completes pairing,
+ * exiting with a generic message on non-2xx.
  */
 async function approveRemoteWebPairing(
   gatewayUrl: string,
   userCode: string,
 ): Promise<RemoteWebPairingVerificationResponse> {
-  const response = await gatewayPostOrExit(
-    gatewayUrl,
-    "/v1/remote-web/pairing-verification",
-    { userCode } satisfies RemoteWebPairingVerificationRequest,
+  const response = await exitOnHttpError(
+    await postPairingVerification(gatewayUrl, userCode),
   );
   return (await response.json()) as RemoteWebPairingVerificationResponse;
 }
@@ -276,6 +318,22 @@ export async function pair(): Promise<void> {
     "--app-scheme",
   );
   args = afterAppScheme;
+
+  // Any `--`-prefixed token left after known-flag extraction is an option this
+  // CLI version doesn't support. Fail loud before any network call rather than
+  // letting it fall through: an unknown flag would otherwise be silently
+  // dropped and the command would run the wrong flow (e.g. `--qr` on an older
+  // CLI minting a copy-paste bundle instead of a QR). Positional names never
+  // start with `--`, so multi-word assistant targets are unaffected.
+  const unknownFlag = args.find((a) => a.startsWith("--"));
+  if (unknownFlag) {
+    console.error(`Error: unknown option '${unknownFlag}'.`);
+    console.error("Run `vellum pair --help` to see available options.");
+    console.error(
+      `If this option is from newer docs, ${STALE_CLI_UPDATE_HINT}`,
+    );
+    process.exit(1);
+  }
 
   if (webPairing && webApproveCode) {
     console.error("Error: use either --web or --web-approve, not both.");
@@ -371,13 +429,36 @@ export async function pair(): Promise<void> {
     console.error(
       `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
     );
+    console.error(
+      "Pairing another device by QR instead? Use: vellum pair --qr " +
+        "(needs an https URL — run `vellum tunnel --provider tailscale` first).",
+    );
     process.exit(1);
   }
 
   if (webApproveCode) {
     await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
 
-    const result = await approveRemoteWebPairing(mintUrl, webApproveCode);
+    // Rejections are diagnosed here rather than by exitOnHttpError: a
+    // rejected code must name the gateway that was asked, or an
+    // assistant/environment mismatch is indistinguishable from a typo.
+    const response = await postPairingVerification(mintUrl, webApproveCode);
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      const diagnostic = formatWebApproveFailure(
+        mintUrl,
+        formatAssistantReference(entry),
+        getCurrentEnvironment().name,
+        parseGatewayErrorCode(errorBody),
+      );
+      console.error(
+        diagnostic ??
+          `Error: HTTP ${response.status}: ${errorBody || response.statusText}`,
+      );
+      process.exit(1);
+    }
+    const result =
+      (await response.json()) as RemoteWebPairingVerificationResponse;
     if (jsonOutput) {
       console.log(JSON.stringify(result, null, 2));
       return;
@@ -392,7 +473,7 @@ export async function pair(): Promise<void> {
 
     let publicBaseUrl: string;
     try {
-      publicBaseUrl = normalizePublicBaseUrl(advertisedUrl);
+      publicBaseUrl = normalizePairingBaseUrl(advertisedUrl);
     } catch {
       console.error(`Error: invalid --url value '${advertisedUrl}'.`);
       process.exit(1);
@@ -451,9 +532,12 @@ export async function pair(): Promise<void> {
         unparseable: `${advertisedUrl} isn't a valid URL`,
         loopback: `${advertisedUrl} is a loopback address`,
         "non-https": `${advertisedUrl} is not https`,
+        "service-website": `${advertisedUrl} is ${
+          tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"
+        }'s website, not your assistant's address`,
       };
       console.error(
-        "Error: --qr needs a public https URL the phone can open — " +
+        "Error: --qr needs a public https URL the scanning device can open — " +
           `${detailByReason[qrResult.reason]}.`,
       );
       console.error(
@@ -477,6 +561,7 @@ export async function pair(): Promise<void> {
           appSchemeOverride ?? DEFAULT_APP_CONNECT_SCHEME,
           qrBaseUrl,
           challenge.deviceCode,
+          label || assistantDisplayName(entry),
         )
       : null;
 

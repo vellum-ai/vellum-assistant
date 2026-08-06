@@ -9,21 +9,22 @@ import { formatResourceMb } from "@/domains/settings/components/assistant-status
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveOptions,
-    useAssistantsResizeMutation,
+  organizationsBillingSubscriptionOnboardingRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveOptions,
+  useAssistantsResizeMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import {
-    allowedMachineSizesForTier,
-    buildMachineSizeOptions,
-    machineSizeRank,
-    SIZE_LABEL,
+  allowedMachineSizesForTier,
+  buildMachineSizeOptions,
+  machineSizeRank,
+  SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -51,6 +52,7 @@ export function ResizeCard({
   refetchUntilResized,
 }: ResizeCardProps) {
   const navigate = useNavigate();
+  const isNativeAndroid = useIsNativeAndroid();
   const subscriptionQuery = useQuery(
     organizationsBillingSubscriptionRetrieveOptions(),
   );
@@ -98,9 +100,7 @@ export function ResizeCard({
     null,
   );
   const displaySize = selectedSize ?? largestSize ?? currentSize;
-  const [upgradeModalOpen, setUpgradeModalOpen] = useState<
-    "storage" | "machine" | null
-  >(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useAssistantsResizeMutation({
@@ -198,6 +198,16 @@ export function ResizeCard({
       }
     : null;
 
+  const basePlanResizeAction = isNativeAndroid ? null : (
+    <Button
+      variant="ghost"
+      size="compact"
+      onClick={() => setUpgradeModalOpen(true)}
+    >
+      Resize
+    </Button>
+  );
+
   const diskAction = !isPlatform ? null : isPro ? (
     canGrowStorage ? (
       <button
@@ -220,13 +230,7 @@ export function ResizeCard({
       </Button>
     )
   ) : (
-    <Button
-      variant="ghost"
-      size="compact"
-      onClick={() => setUpgradeModalOpen("storage")}
-    >
-      Resize
-    </Button>
+    basePlanResizeAction
   );
 
   const machineAction = !isPlatform ? null : isPro ? (
@@ -251,13 +255,7 @@ export function ResizeCard({
       </Button>
     )
   ) : (
-    <Button
-      variant="ghost"
-      size="compact"
-      onClick={() => setUpgradeModalOpen("machine")}
-    >
-      Resize
-    </Button>
+    basePlanResizeAction
   );
 
   return (
@@ -385,28 +383,29 @@ export function ResizeCard({
 
       {/* Upgrade modal (free plan) */}
       <Modal.Root
-        open={upgradeModalOpen != null}
+        open={upgradeModalOpen}
         onOpenChange={(o) => {
-          if (!o) setUpgradeModalOpen(null);
+          if (!o) {
+            setUpgradeModalOpen(false);
+          }
         }}
       >
         <Modal.Content size="sm">
           <Modal.Header>
-            <Modal.Title>Upgrade to Pro</Modal.Title>
+            <Modal.Title>Upgrade your plan</Modal.Title>
             <Modal.Description>
-              {upgradeModalOpen === "storage"
-                ? "Upgrade to the Pro plan to increase your storage allocation and get more space for your assistant."
-                : "Upgrade to the Pro plan to unlock larger machine sizes with more CPU and memory for your assistant."}
+              Move to a higher plan for more power, more storage, and a larger
+              credit bundle.
             </Modal.Description>
           </Modal.Header>
           <Modal.Footer>
-            <Button variant="ghost" onClick={() => setUpgradeModalOpen(null)}>
+            <Button variant="ghost" onClick={() => setUpgradeModalOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={() => {
-                setUpgradeModalOpen(null);
-                void navigate(`${routes.settings.usage}?tab=billing&adjust_plan=1`);
+                setUpgradeModalOpen(false);
+                void navigate(routes.plans);
               }}
             >
               Upgrade
@@ -445,7 +444,7 @@ export function ResizeCard({
                   <span className="text-label-medium-default text-[var(--content-secondary)]">
                     Machine Size
                   </span>
-                  <Dropdown
+                  <Select
                     options={machineSizeOptions}
                     value={displaySize}
                     onChange={setSelectedSize}
@@ -471,17 +470,23 @@ export function ResizeCard({
               {resizeError && <Notice tone="error">{resizeError}</Notice>}
             </div>
           </Modal.Body>
-          <Modal.Footer className="items-center justify-between">
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
-              Need more?{" "}
-              <Link
-                to={`${routes.settings.usage}?tab=billing&adjust_plan=1`}
-                className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
-                onClick={() => setResizeModalOpen(false)}
-              >
-                Upgrade plan
-              </Link>
-            </span>
+          <Modal.Footer
+            className={
+              isNativeAndroid ? "justify-end" : "items-center justify-between"
+            }
+          >
+            {!isNativeAndroid ? (
+              <span className="text-label-small-default text-[var(--content-tertiary)]">
+                Need more?{" "}
+                <Link
+                  to={routes.plans}
+                  className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+                  onClick={() => setResizeModalOpen(false)}
+                >
+                  Upgrade plan
+                </Link>
+              </span>
+            ) : null}
             <div className="flex gap-2">
               <Button
                 variant="ghost"

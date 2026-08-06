@@ -21,7 +21,9 @@ export const seedHeartbeatCallsiteCostDefaultMigration: WorkspaceMigration = {
   description:
     "Seed cost-optimized defaults for the heartbeatAgent LLM call site",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -30,7 +32,9 @@ export const seedHeartbeatCallsiteCostDefaultMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -41,11 +45,15 @@ export const seedHeartbeatCallsiteCostDefaultMigration: WorkspaceMigration = {
     const defaultBlock = readObject(llm.default);
     const provider = readString(defaultBlock?.provider) ?? "anthropic";
     const cheapModel = resolveCheapModel(provider);
-    if (cheapModel === undefined) return;
+    if (cheapModel === undefined) {
+      return;
+    }
 
     const callSites = readObject(llm.callSites) ?? {};
     const existing = readObject(callSites.heartbeatAgent) ?? {};
-    if (hasExplicitModelSelection(existing)) return;
+    if (hasExplicitModelSelection(existing)) {
+      return;
+    }
 
     const seeded: Record<string, unknown> = { ...existing };
     let changed = false;
@@ -90,7 +98,9 @@ export const seedHeartbeatCallsiteCostDefaultMigration: WorkspaceMigration = {
       changed = true;
     }
 
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     callSites.heartbeatAgent = seeded;
     llm.callSites = callSites;
@@ -129,7 +139,9 @@ function seedMissingLeaf(
   key: string,
   value: unknown,
 ): boolean {
-  if (key in target) return false;
+  if (key in target) {
+    return false;
+  }
   target[key] = value;
   return true;
 }

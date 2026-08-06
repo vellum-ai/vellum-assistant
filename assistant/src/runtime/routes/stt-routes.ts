@@ -89,7 +89,9 @@ async function getAudioDuration(audioPath: string): Promise<number> {
     ],
     FFPROBE_TIMEOUT_MS,
   );
-  if (result.exitCode !== 0) return 0;
+  if (result.exitCode !== 0) {
+    return 0;
+  }
   return parseFloat(result.stdout.trim()) || 0;
 }
 
@@ -133,7 +135,9 @@ async function splitAudio(
 async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
   const wavPath = join(tmpdir(), `vellum-transcribe-${randomUUID()}.wav`);
   const args = ["ffmpeg", "-y", "-i", inputPath];
-  if (isVideo) args.push("-vn");
+  if (isVideo) {
+    args.push("-vn");
+  }
   args.push("-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wavPath);
   const result = await spawnWithTimeout(args, FFMPEG_TRANSCODE_TIMEOUT_MS);
   if (result.exitCode !== 0) {
@@ -193,7 +197,9 @@ async function transcribeWithProvider(
       );
       const audioBuffer = await readFile(chunks[i]);
       const text = await transcribeChunk(transcriber, audioBuffer);
-      if (text) parts.push(text);
+      if (text) {
+        parts.push(text);
+      }
     }
 
     return parts.join(" ");
@@ -231,6 +237,7 @@ function handleListProviders() {
     setupHint: e.setupHint,
     apiKeyProviderName: e.credentialProvider,
     conversationStreamingMode: e.conversationStreamingMode,
+    languageSelection: e.languageSelection,
     credentialsGuide: e.credentialsGuide,
   }));
   return { providers };
@@ -434,6 +441,8 @@ export const ROUTES: RouteDefinition[] = [
           setupHint: z.string().optional(),
           apiKeyProviderName: z.string().optional(),
           conversationStreamingMode: z.string().optional(),
+          // Optional on the wire so older generated clients keep validating.
+          languageSelection: z.enum(["manual", "auto"]).optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),

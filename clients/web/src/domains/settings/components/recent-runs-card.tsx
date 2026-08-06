@@ -40,6 +40,28 @@ export function RecentRunsCard({
   const navigate = useNavigate();
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
+  // Rendered in the empty state too: a page can filter down to nothing
+  // (e.g. bookkeeping-only pages from daemons that still send them) while
+  // older pages hold real runs, so pagination must stay reachable.
+  const loadMoreControl =
+    hasMore && onLoadMore ? (
+      <div className="flex justify-center pt-3">
+        <Button
+          variant="outlined"
+          size="compact"
+          onClick={onLoadMore}
+          disabled={isLoadingMore}
+          leftIcon={
+            isLoadingMore ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : undefined
+          }
+        >
+          {isLoadingMore ? "Loading…" : "Load more"}
+        </Button>
+      </div>
+    ) : null;
+
   return (
     <DetailCard title="Recent runs">
       {isLoading ? (
@@ -47,16 +69,25 @@ export function RecentRunsCard({
           <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
         </div>
       ) : !runs || runs.length === 0 ? (
-        <p className="py-4 text-center text-body-medium-lighter text-[var(--content-tertiary)] italic">
-          {emptyMessage}
-        </p>
+        <>
+          <p className="py-4 text-center text-body-medium-lighter text-[var(--content-tertiary)] italic">
+            {emptyMessage}
+          </p>
+          {loadMoreControl}
+        </>
       ) : (
         <div className="divide-y divide-[var(--border-base)]">
           {runs.map((run, index) => {
             const conversationId = getOpenableScheduleRunConversationId(run);
             const hasOutput = hasRunText(run.output);
             const hasError = hasRunText(run.error);
-            const hasLocalDetails = !conversationId && (hasOutput || hasError);
+            // Runs that never executed (skipped by a guard, missed while the
+            // daemon was down) have no duration or cost; their detail line is
+            // the reason text instead, so no expandable details either.
+            const isUnexecuted =
+              run.status === "skipped" || run.status === "missed";
+            const hasLocalDetails =
+              !conversationId && !isUnexecuted && (hasOutput || hasError);
             const isExpanded = expandedRunId === run.id;
             const detailsId = `schedule-run-details-${index}`;
             return (
@@ -78,8 +109,20 @@ export function RecentRunsCard({
                           {hasRunText(run.title)
                             ? `${formatTimestamp(run.startedAt)} · `
                             : ""}
-                          {formatDuration(run.durationMs)} ·{" "}
-                          {formatScheduleCost(run.estimatedCostUsd)}
+                          {isUnexecuted ? (
+                            <>
+                              {hasOutput
+                                ? run.output
+                                : run.status === "missed"
+                                  ? "Missed"
+                                  : "Skipped"}
+                            </>
+                          ) : (
+                            <>
+                              {formatDuration(run.durationMs)} ·{" "}
+                              {formatScheduleCost(run.estimatedCostUsd)}
+                            </>
+                          )}
                           {run.status === "error" && run.error && (
                             <span className="ml-2 text-[var(--system-negative-strong)]">
                               {run.error.slice(0, 80)}
@@ -101,8 +144,7 @@ export function RecentRunsCard({
                     conversationId
                       ? () => navigateToConversation(navigate, conversationId)
                       : hasLocalDetails
-                        ? () =>
-                            setExpandedRunId(isExpanded ? null : run.id)
+                        ? () => setExpandedRunId(isExpanded ? null : run.id)
                         : undefined
                   }
                   aria-label={`Run at ${formatTimestamp(run.startedAt)}`}
@@ -139,23 +181,7 @@ export function RecentRunsCard({
               </div>
             );
           })}
-          {hasMore && onLoadMore ? (
-            <div className="flex justify-center pt-3">
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={onLoadMore}
-                disabled={isLoadingMore}
-                leftIcon={
-                  isLoadingMore ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : undefined
-                }
-              >
-                {isLoadingMore ? "Loading…" : "Load more"}
-              </Button>
-            </div>
-          ) : null}
+          {loadMoreControl}
         </div>
       )}
     </DetailCard>

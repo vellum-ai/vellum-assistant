@@ -2,7 +2,7 @@
  * Guard tests for assistant feature flag conventions:
  *
  * 1. Key format: all feature flag keys used in production code must use
- *    simple kebab-case format (e.g., "browser", "voice-mode"). Any remaining
+ *    simple kebab-case format (e.g., "browser", "contacts"). Any remaining
  *    `skills.<id>.enabled` usage outside of migration/backward-compat code is
  *    flagged — including template literal forms like `skills.${skillId}.enabled`.
  *
@@ -100,8 +100,12 @@ describe("assistant feature flag key format guard", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (LEGACY_KEY_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (LEGACY_KEY_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
@@ -154,7 +158,9 @@ describe("assistant feature flag declaration coverage guard", () => {
         { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
-      if ((err as { status?: number }).status !== 1) throw err;
+      if ((err as { status?: number }).status !== 1) {
+        throw err;
+      }
     }
 
     if (matchingFiles) {
@@ -163,7 +169,9 @@ describe("assistant feature flag declaration coverage guard", () => {
       const multilinePattern =
         /isAssistantFeatureFlagEnabled\(\s*['"]([^'"]+)['"]/g;
       for (const relPath of matchingFiles.split("\n")) {
-        if (!relPath) continue;
+        if (!relPath) {
+          continue;
+        }
         const absPath = join(repoRoot, relPath);
         const content = readFileSync(absPath, "utf-8");
         for (const match of content.matchAll(multilinePattern)) {

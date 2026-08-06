@@ -14,6 +14,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { parsePluginIcon } from "./plugin-artifact.js";
@@ -27,7 +28,7 @@ import { readValidatedPluginIcon } from "./plugin-icon-file.js";
  * dependencies in test environments).
  */
 const DEFAULT_PLUGINS_DIR = join(
-  dirname(new URL(import.meta.url).pathname),
+  dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
   "plugins",
@@ -93,13 +94,19 @@ export function listInstalledPlugins(
   opts: ListInstalledPluginsOptions = {},
 ): InstalledPluginInfo[] {
   const pluginsDir = opts.workspacePluginsDir ?? getWorkspacePluginsDir();
-  if (!existsSync(pluginsDir)) return [];
+  if (!existsSync(pluginsDir)) {
+    return [];
+  }
 
   const entries = readdirSync(pluginsDir, { withFileTypes: true })
     .filter((e) => !e.name.startsWith("."))
     .filter((e) => {
-      if (e.isDirectory()) return true;
-      if (!e.isSymbolicLink()) return false;
+      if (e.isDirectory()) {
+        return true;
+      }
+      if (!e.isSymbolicLink()) {
+        return false;
+      }
       // Resolve the symlink and only keep it if it points to a directory.
       try {
         return statSync(join(pluginsDir, e.name)).isDirectory();
@@ -125,7 +132,9 @@ export function readInstalledPlugin(
 ): InstalledPluginInfo | null {
   const pluginsDir = opts.workspacePluginsDir ?? getWorkspacePluginsDir();
   const target = join(pluginsDir, name);
-  if (!existsSync(target) || !statSync(target).isDirectory()) return null;
+  if (!existsSync(target) || !statSync(target).isDirectory()) {
+    return null;
+  }
   return readPluginEntry(pluginsDir, name);
 }
 
@@ -308,7 +317,9 @@ interface DefaultPluginManifest {
  * dependencies in test environments).
  */
 function readDefaultPluginManifests(): readonly DefaultPluginManifest[] {
-  if (!existsSync(DEFAULT_PLUGINS_DIR)) return [];
+  if (!existsSync(DEFAULT_PLUGINS_DIR)) {
+    return [];
+  }
 
   const entries = readdirSync(DEFAULT_PLUGINS_DIR, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -318,7 +329,9 @@ function readDefaultPluginManifests(): readonly DefaultPluginManifest[] {
   const manifests: DefaultPluginManifest[] = [];
   for (const name of entries) {
     const pkgJsonPath = join(DEFAULT_PLUGINS_DIR, name, "package.json");
-    if (!existsSync(pkgJsonPath)) continue;
+    if (!existsSync(pkgJsonPath)) {
+      continue;
+    }
     try {
       const raw = readFileSync(pkgJsonPath, "utf8");
       const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -352,7 +365,9 @@ function getPluginInstallDate(plugin: AllPluginInfo): number {
       >;
       if (typeof raw.installedAt === "string") {
         const ms = Date.parse(raw.installedAt);
-        if (Number.isFinite(ms)) return ms;
+        if (Number.isFinite(ms)) {
+          return ms;
+        }
       }
     }
   } catch {

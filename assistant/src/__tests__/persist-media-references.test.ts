@@ -49,7 +49,7 @@ describe("referenceMediaBlocksForPersist", () => {
       },
     ];
 
-    const referenced = referenceMediaBlocksForPersist(
+    const referenced = await referenceMediaBlocksForPersist(
       conv.id,
       conv.createdAt,
       msg.id,
@@ -70,7 +70,9 @@ describe("referenceMediaBlocksForPersist", () => {
 
     // The attachment row is linked to the message (GC anchor) and its bytes
     // resolve back to the original image.
-    if (nested.source.type !== "workspace_ref") throw new Error("expected ref");
+    if (nested.source.type !== "workspace_ref") {
+      throw new Error("expected ref");
+    }
     const linked = getAttachmentsForMessage(msg.id);
     expect(linked.map((a) => a.id)).toEqual([nested.source.attachmentId]);
     expect(mediaSourceBytes(nested.source)?.toString()).toBe("hello");
@@ -99,7 +101,7 @@ describe("referenceMediaBlocksForPersist", () => {
       },
     ];
 
-    const referenced = referenceMediaBlocksForPersist(
+    const referenced = await referenceMediaBlocksForPersist(
       conv.id,
       conv.createdAt,
       msg.id,

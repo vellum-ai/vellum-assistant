@@ -5,8 +5,9 @@ import { describe, expect, test } from "bun:test";
 
 /**
  * Guard for skill ↔ public-docs drift. A bundled skill's SKILL.md is the
- * behavioral source of truth; its public reference page lives in a separate
- * repo (vellum-assistant-platform, https://www.vellum.ai/docs/skills-reference).
+ * behavioral source of truth; its public reference page lives in this repo at
+ * clients/docs/src/app/docs/_components/skills-reference-<slug>-content.tsx
+ * (served at https://www.vellum.ai/docs/skills-reference/<slug>).
  * `scripts/check-skill-docs-sync.ts` fingerprints each documented SKILL.md so a
  * behavior change can't land without the author reconciling the docs page and
  * re-recording the fingerprint.

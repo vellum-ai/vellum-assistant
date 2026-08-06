@@ -12,6 +12,15 @@
  * before this is kicked off — so the memory handlers are guaranteed to be in the
  * dispatch table before the jobs worker started near the end of this function
  * claims its first job.
+ *
+ * This is a multi-tier composition point, so the body carries `// ---- ... ----`
+ * section labels naming which tier owns each group of steps. The v1 labels also
+ * carry the `delete with v1` banner the deletion runbook greps for (see
+ * `../AGENTS.md`), so none of the three v1 blocks here can be missed at
+ * deletion time. The labels do not form a single contiguous run per tier: the
+ * v1 Qdrant collection ensure has to precede the shared embedding-identity
+ * reconcile, and the v1 graph bootstrap belongs to the post-worker seeding
+ * tail. Steps only move when the move is provably unobservable.
  */
 
 import { join } from "node:path";
@@ -38,15 +47,20 @@ import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getWorkspaceDir } from "./paths.js";
-import { sweepConceptPageFrontmatter } from "./v3/substrate/frontmatter-sweep.js";
+// ---- substrate (v2+v3) ---- the only tier-owned static import group here;
+// the v1 steps reach their modules through dynamic `./v1/*` imports so the
+// legacy engine loads only on the tier that runs it.
 import {
-  maybeRebuildMemoryV2Concepts,
+  maybeRebuildConceptCollection,
   rebuildBm25CorpusStatsAndReseedSkills,
-} from "./v3/substrate/memory-v2-startup.js";
+} from "./substrate/boot-maintenance.js";
+import { sweepConceptPageFrontmatter } from "./substrate/frontmatter-sweep.js";
 
 const log = getLogger("memory-startup");
 
 export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
+  // ---- shared infra ----
+  // Boot the Qdrant process every tier's vector work sits on.
   const qdrantUrl = resolveQdrantUrl();
   log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
   const manager = createQdrantManager({ url: qdrantUrl });
@@ -80,6 +94,13 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   }
 
   if (qdrantStarted) {
+    // ---- v1 (legacy engine) — delete with v1 ----
+    // Stays ahead of the shared embedding-identity reconcile below: that
+    // reconcile persists a new `memory.qdrant.vectorSize` on a commit-fresh or
+    // migrate action, and the v1 client must have been constructed at the
+    // dimension it owns before that happens (see `daemon/embedding-reconcile.ts`,
+    // which skips itself entirely on a v2-disabled install for the same reason).
+    //
     // Skip the v1 Qdrant collection lifecycle when concept-page memory is
     // active — the v1 collection has no writers or readers (graph search is
     // bypassed) in that state, so ensuring/migrating it just maintains a
@@ -128,6 +149,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       }
     }
 
+    // ---- shared infra ----
     // Initialize the messages lexical index — a dedicated sparse-only Qdrant
     // collection that is the lexical (BM25-style) replacement for SQLite FTS5
     // over message content. Independent of the v1 dense collection lifecycle
@@ -161,31 +183,24 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       );
     }
 
-    // Detect schema drift on the v2 concept-page collection (e.g.
-    // pre-#29823 collections lacking summary_dense / summary_sparse) and
-    // recreate + enqueue a reembed when needed. Awaited inline so the
-    // reembed enqueue happens before the memory worker drains its first
-    // batch; the call's own try/catch keeps any v2-side failure from
-    // blocking the v1 PKB reconcile or BM25 build below.
-    try {
-      await maybeRebuildMemoryV2Concepts(config);
-    } catch (err) {
-      log.warn(
-        { err },
-        "Memory v2 collection schema check threw — continuing startup",
-      );
-    }
-
+    // ---- v1 (legacy engine) — delete with v1 ----
     // Reconcile the PKB Qdrant index against the on-disk tree. Gated off
     // while concept-page memory is active because PKB is the v1 storage
     // layer; in that state the v1 collection is not initialized, so calling
     // `getQdrantClient()` here would throw. Fire-and-forget so enqueued
     // re-index jobs drain in the background and first-turn latency stays
     // unaffected.
+    //
+    // Sits ahead of the substrate block purely so each tier's steps are
+    // contiguous: the two are mutually exclusive on `usesConceptPageMemory`
+    // — every substrate step below re-checks the same predicate and returns
+    // immediately when v1 is the live tier — so their relative order is
+    // unobservable.
     if (!usesConceptPageMemory(config.memory)) {
       void (async () => {
         try {
-          const { reconcilePkbIndex } = await import("./pkb/pkb-reconcile.js");
+          const { reconcilePkbIndex } =
+            await import("./v1/pkb/pkb-reconcile.js");
           const pkbRoot = join(getWorkspaceDir(), "pkb");
           await reconcilePkbIndex(pkbRoot);
         } catch (err) {
@@ -195,6 +210,22 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
           );
         }
       })();
+    }
+
+    // ---- substrate (v2+v3) ----
+    // Detect schema drift on the v2 concept-page collection (e.g.
+    // pre-#29823 collections lacking summary_dense / summary_sparse) and
+    // recreate + enqueue a reembed when needed. Awaited inline so the
+    // reembed enqueue happens before the memory worker drains its first
+    // batch; the call's own try/catch keeps any v2-side failure from
+    // blocking the BM25 build or the frontmatter sweep below.
+    try {
+      await maybeRebuildConceptCollection(config);
+    } catch (err) {
+      log.warn(
+        { err },
+        "Memory v2 collection schema check threw — continuing startup",
+      );
     }
 
     void rebuildBm25CorpusStatsAndReseedSkills(config);
@@ -209,6 +240,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     }
   }
 
+  // ---- shared infra ----
   // `startMemoryJobsWorker` spawns the out-of-process memory worker as a child
   // of the daemon; it is the sole drainer of the memory job queue. Shutdown
   // stops it — see shutdown-handlers.ts and the memory plugin's `shutdown`
@@ -218,7 +250,11 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   log.info("Daemon startup: starting memory worker");
   startMemoryJobsWorker();
 
-  // Seed capability graph nodes (new memory graph system)
+  // Seed capability graph nodes (new memory graph system). All-tier, not v1:
+  // `refreshSkillCapabilityMemories` seeds both the graph nodes the
+  // `list_memory` surface reads on every tier and the substrate's skill /
+  // CLI-command cards, and `capability-seed.ts` self-skips the v1-only
+  // `embed_graph_node` enqueues when v1 is not the live tier.
   try {
     const { seedCliGraphNodes } = await import("./graph/capability-seed.js");
     refreshSkillCapabilityMemories(config);
@@ -227,12 +263,13 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     log.warn({ err }, "Graph capability seeding failed — continuing");
   }
 
+  // ---- v1 (legacy engine) — delete with v1 ----
   // Auto-bootstrap: if the graph has no non-procedural nodes but historical
   // segments exist, enqueue a one-time graph_bootstrap job to populate the
   // graph from conversation history and journal files.
   try {
     const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-      await import("./graph/bootstrap.js");
+      await import("./v1/graph/bootstrap.js");
     maybeEnqueueGraphBootstrap();
     // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
     void cleanupStaleItemVectors().catch((err) =>

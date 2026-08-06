@@ -5,7 +5,9 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 function readWorkspaceFile(name: string): string {
   try {
     const path = getWorkspacePromptPath(name);
-    if (!existsSync(path)) return "";
+    if (!existsSync(path)) {
+      return "";
+    }
     return readFileSync(path, "utf-8");
   } catch {
     return "";
@@ -28,7 +30,9 @@ export function parseGreetingsSection(content: string): string[] | null {
       const level = heading[1]!.length;
       const title = heading[2]!.trim();
       if (inSection) {
-        if (sectionLevel !== null && level <= sectionLevel) break;
+        if (sectionLevel !== null && level <= sectionLevel) {
+          break;
+        }
         continue;
       }
       if (level === 2 && /^greetings$/i.test(title)) {
@@ -37,7 +41,9 @@ export function parseGreetingsSection(content: string): string[] | null {
       }
       continue;
     }
-    if (!inSection) continue;
+    if (!inSection) {
+      continue;
+    }
     const bullet = /^(?:[-*+]\s+|\d+[.)]\s+)(.+)$/.exec(trimmed);
     const greeting = bullet?.[1]?.trim();
     if (greeting) {
@@ -50,6 +56,8 @@ export function parseGreetingsSection(content: string): string[] | null {
 
 export function readWorkspaceGreetings(): string[] | null {
   const soulContent = readWorkspaceFile("SOUL.md");
-  if (!soulContent) return null;
+  if (!soulContent) {
+    return null;
+  }
   return parseGreetingsSection(soulContent);
 }

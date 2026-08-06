@@ -1,20 +1,41 @@
 import { Capacitor } from "@capacitor/core";
 
+import { isElectron } from "@/runtime/is-electron";
+import { shareFileViaMacSheet } from "@/runtime/native-share";
+
 /**
- * Cross-platform file save/share utility.
+ * Cross-platform file save / share utility.
  *
- * On Capacitor iOS, the standard web pattern (`<a download>` with a blob URL)
- * is broken — WKWebView does not support the `download` attribute on anchors
- * with `blob:` URLs (WebKit bug 216918). Instead, this module writes the blob
- * to a temporary file via `@capacitor/filesystem` and presents the native iOS
- * Share Sheet via `@capacitor/share`, which wraps `UIActivityViewController`.
- * The Share Sheet gives the user "Save to Files", AirDrop, Mail, Messages,
- * and every other system sharing target — the standard iOS UX for exporting
- * content from an app.
+ * Two *intents* live here as deliberately separate entry points:
  *
- * On web (non-Capacitor), the existing `<a download>` pattern is used.
+ * - **`saveFile` ("Download").** The user asked for the file on their device.
+ *   It lands somewhere without further choices: `~/Downloads` on the desktop,
+ *   the browser's download location on web. It never presents a share sheet on
+ *   a host that can download, because a list of apps to send the file to is not
+ *   a saved file.
+ * - **`shareFile` ("Share", send elsewhere).** The user asked to hand the file
+ *   to another app (Messages, Mail, AirDrop, Slack), so the native Share Sheet
+ *   is the point.
  *
- * Both plugins are lazy-imported so they are never loaded in SSR or
+ * Per-host behavior:
+ *
+ * - **Electron (macOS):** `saveFile` uses the standard `<a download>` path
+ *   against a blob URL (see the note in `saveFile`); Chromium's download
+ *   manager fires `will-download` in the main process, which files the download
+ *   into `~/Downloads` (`clients/macos/src/main/downloads.ts`). `shareFile`
+ *   presents the native Share Sheet over the `window.vellum.share` bridge,
+ *   falling through to a download when the desktop bridge is unavailable
+ *   (older preload).
+ * - **Capacitor iOS/Android:** the one host where a *download* also goes
+ *   through the share sheet. WKWebView does not support the `download`
+ *   attribute on anchors with `blob:` URLs (WebKit bug 216918), so the blob is
+ *   written to a temp file via `@capacitor/filesystem` and presented via
+ *   `@capacitor/share` (`UIActivityViewController`), where "Save to Files" is
+ *   the download. That is a platform limitation, not the intent split above.
+ * - **Web (plain browser):** the `<a download>` pattern for both intents, since
+ *   no reliable cross-browser file-share surface exists to prefer.
+ *
+ * The Capacitor plugins are lazy-imported so they are never loaded in SSR or
  * plain-browser contexts.
  *
  * References:
@@ -25,42 +46,91 @@ import { Capacitor } from "@capacitor/core";
  */
 
 /**
- * Save or share a file. On iOS, presents the native Share Sheet. On web,
- * triggers a browser download via the `<a download>` pattern.
+ * Download a file to the user's device: the "Download" intent.
  *
- * Accepts either a `Blob` or a URL string. When a URL is provided on iOS,
- * the file is fetched first, then written to a temp location for sharing.
+ * Never presents the macOS Share Sheet. On Electron this is a real download
+ * that the main process files into `~/Downloads`. On Capacitor the iOS share
+ * sheet is the only way to hand a blob to the filesystem (see the module
+ * docstring), so that host uses the sheet.
+ *
+ * Accepts either a `Blob` or a URL string.
  */
 export async function saveFile(
   source: Blob | string,
   filename: string,
 ): Promise<void> {
   if (Capacitor.isNativePlatform()) {
-    await saveFileNative(source, filename);
-  } else {
-    saveFileWeb(source, filename);
+    await shareFileNative(source, filename);
+    return;
   }
+  // Electron: resolve a URL source to a blob before the anchor click. Chromium
+  // ignores the `download` attribute on a cross-origin URL and treats the click
+  // as a navigation, which the shell's deny-all navigation policy
+  // (`clients/macos/src/main/windows.ts`) blocks, so the file never arrives. A
+  // blob URL is same-origin, so both the download and the filename survive.
+  if (isElectron() && typeof source === "string") {
+    try {
+      saveFileWeb(await toBlob(source), filename);
+      return;
+    } catch {
+      // Unreachable for same-origin sources. Fall through to the plain anchor
+      // rather than dropping the download entirely.
+    }
+  }
+  saveFileWeb(source, filename);
 }
 
-async function saveFileNative(
+/**
+ * Share a file with another app: the "Share" intent (Messages, Mail, AirDrop,
+ * Slack, Save to Files).
+ *
+ * Presents the native Share Sheet where one exists (Electron/macOS, Capacitor)
+ * and falls back to a plain download on hosts that have none, so the user still
+ * ends up with the file.
+ *
+ * Accepts either a `Blob` or a URL string; a URL is fetched first on the
+ * share-sheet paths (see `toBlob`).
+ */
+export async function shareFile(
+  source: Blob | string,
+  filename: string,
+): Promise<void> {
+  // Electron (macOS): native Share Sheet. The blob is resolved lazily so a URL
+  // source is only fetched once the desktop bridge is confirmed present;
+  // otherwise we fall through to the browser download (older preload).
+  if (await shareFileViaMacSheet(() => toBlob(source), filename)) {
+    return;
+  }
+  if (Capacitor.isNativePlatform()) {
+    await shareFileNative(source, filename);
+    return;
+  }
+  saveFileWeb(source, filename);
+}
+
+/**
+ * Resolve a `Blob | string` source to a `Blob`, fetching when given a URL.
+ * Shared by the iOS (Capacitor) and Electron share-sheet paths.
+ */
+async function toBlob(source: Blob | string): Promise<Blob> {
+  if (typeof source !== "string") {
+    return source;
+  }
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.statusText}`);
+  }
+  return response.blob();
+}
+
+async function shareFileNative(
   source: Blob | string,
   filename: string,
 ): Promise<void> {
   const { Filesystem, Directory } = await import("@capacitor/filesystem");
   const { Share } = await import("@capacitor/share");
 
-  let blob: Blob;
-  if (typeof source === "string") {
-    const response = await fetch(source);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch file: ${response.statusText}`);
-    }
-    blob = await response.blob();
-  } else {
-    blob = source;
-  }
-
-  const base64 = await blobToBase64(blob);
+  const base64 = await blobToBase64(await toBlob(source));
 
   const result = await Filesystem.writeFile({
     path: filename,

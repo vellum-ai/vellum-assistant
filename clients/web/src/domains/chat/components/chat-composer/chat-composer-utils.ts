@@ -96,11 +96,17 @@ interface GhostSuffixPolicy {
  * gets clipped on narrow viewports.
  */
 export function computeGhostSuffix(policy: GhostSuffixPolicy): string | null {
-  if (policy.pointerCoarse) return null;
-  if (!policy.suggestion || policy.hasAttachments) return null;
+  if (policy.pointerCoarse) {
+    return null;
+  }
+  if (!policy.suggestion || policy.hasAttachments) {
+    return null;
+  }
   if (policy.suggestion.startsWith(policy.input)) {
     return policy.suggestion.slice(policy.input.length) || null;
   }
-  if (!policy.input) return policy.suggestion;
+  if (!policy.input) {
+    return policy.suggestion;
+  }
   return null;
 }

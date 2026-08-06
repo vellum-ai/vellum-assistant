@@ -22,8 +22,12 @@ function statusResponse() {
 function transitionErrorCode(
   reason: "not_locked" | "already_acknowledged" | "already_overridden",
 ): string {
-  if (reason === "not_locked") return "NOT_LOCKED";
-  if (reason === "already_acknowledged") return "ALREADY_ACKNOWLEDGED";
+  if (reason === "not_locked") {
+    return "NOT_LOCKED";
+  }
+  if (reason === "already_acknowledged") {
+    return "ALREADY_ACKNOWLEDGED";
+  }
   return "ALREADY_OVERRIDDEN";
 }
 
@@ -61,7 +65,9 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: () => {
       const result = acknowledgeDiskPressureLock();
-      if (result.ok) return { status: result.status };
+      if (result.ok) {
+        return { status: result.status };
+      }
       if (result.reason === "invalid_confirmation") {
         throw new RouteError(result.message, "INVALID_CONFIRMATION", 400);
       }
@@ -93,7 +99,9 @@ export const ROUTES: RouteDefinition[] = [
       const parsed = OverrideRequestSchema.safeParse(body);
       const confirmation = parsed.success ? parsed.data.confirmation : "";
       const result = overrideDiskPressureLock(confirmation);
-      if (result.ok) return { status: result.status };
+      if (result.ok) {
+        return { status: result.status };
+      }
       if (result.reason === "invalid_confirmation") {
         throw new RouteError(result.message, "INVALID_CONFIRMATION", 400);
       }

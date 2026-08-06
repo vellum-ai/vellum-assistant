@@ -50,9 +50,13 @@ const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 function toolNamesById(messages: ReadonlyArray<Message>): Map<string, string> {
   const names = new Map<string, string>();
   for (const message of messages) {
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     for (const block of message.content) {
-      if (block.type === "tool_use") names.set(block.id, block.name);
+      if (block.type === "tool_use") {
+        names.set(block.id, block.name);
+      }
     }
   }
   return names;
@@ -71,24 +75,34 @@ function priorConsecutiveErrors(
 ): number {
   const isErrorByOrder: boolean[] = [];
   for (const message of messages) {
-    if (message.role !== "user") continue;
+    if (message.role !== "user") {
+      continue;
+    }
     for (const block of message.content) {
-      if (block.type !== "tool_result") continue;
-      if (namesById.get(block.tool_use_id) !== toolName) continue;
+      if (block.type !== "tool_result") {
+        continue;
+      }
+      if (namesById.get(block.tool_use_id) !== toolName) {
+        continue;
+      }
       isErrorByOrder.push(block.is_error === true);
     }
   }
 
   let streak = 0;
   for (let i = isErrorByOrder.length - 1; i >= 0; i--) {
-    if (!isErrorByOrder[i]) break;
+    if (!isErrorByOrder[i]) {
+      break;
+    }
     streak++;
   }
   return streak;
 }
 
 const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
-  if (ctx.toolResponse.is_error !== true) return;
+  if (ctx.toolResponse.is_error !== true) {
+    return;
+  }
 
   const namesById = toolNamesById(ctx.messages);
   const toolName = namesById.get(ctx.toolResponse.tool_use_id);

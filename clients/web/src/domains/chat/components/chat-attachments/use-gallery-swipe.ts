@@ -91,7 +91,9 @@ export function useGallerySwipe({
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
-      if (!enabled) return;
+      if (!enabled) {
+        return;
+      }
       // A second finger landing while a gesture is armed cancels the swipe —
       // otherwise a release with no intervening touchmove would let touchend
       // commit from the stale horizontal gesture. Mirrors the multi-touch
@@ -115,7 +117,9 @@ export function useGallerySwipe({
   const onTouchMove = useCallback(
     (e: ReactTouchEvent) => {
       const g = gesture.current;
-      if (!g) return;
+      if (!g) {
+        return;
+      }
       // A second finger landing mid-gesture (e.g. a pinch) cancels the swipe
       // outright — otherwise the stale dragOffset could still commit on the
       // following touchend. Full reset, not an early return.
@@ -125,13 +129,18 @@ export function useGallerySwipe({
       }
       const t = e.touches[0]!;
       // Ignore moves from a different finger than the one that armed the gesture.
-      if (t.identifier !== g.touchId) return;
+      if (t.identifier !== g.touchId) {
+        return;
+      }
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
       g.lastDx = dx;
 
       if (g.axis === "undecided") {
-        if (Math.abs(dx) < DIRECTION_DEADZONE_PX && Math.abs(dy) < DIRECTION_DEADZONE_PX) {
+        if (
+          Math.abs(dx) < DIRECTION_DEADZONE_PX &&
+          Math.abs(dy) < DIRECTION_DEADZONE_PX
+        ) {
           return;
         }
         // Vertical-dominant → let the gesture be a scroll/pan; stop tracking.
@@ -143,7 +152,9 @@ export function useGallerySwipe({
         setIsDragging(true);
       }
 
-      if (g.axis !== "horizontal") return;
+      if (g.axis !== "horizontal") {
+        return;
+      }
 
       // Re-check vertical escape after arming: a gesture locked to horizontal at
       // the deadzone can later turn mostly vertical (e.g. scrolling a tall PDF or
@@ -164,7 +175,8 @@ export function useGallerySwipe({
       const damped =
         abs <= COMMIT_THRESHOLD_PX
           ? abs
-          : COMMIT_THRESHOLD_PX + (abs - COMMIT_THRESHOLD_PX) * OVERDRAG_DAMPING;
+          : COMMIT_THRESHOLD_PX +
+            (abs - COMMIT_THRESHOLD_PX) * OVERDRAG_DAMPING;
       setDragOffset(sign * damped);
     },
     [reset],

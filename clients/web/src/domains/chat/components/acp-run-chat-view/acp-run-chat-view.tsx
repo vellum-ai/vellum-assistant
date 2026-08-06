@@ -86,13 +86,24 @@ type ActiveDetail =
 export interface AcpRunChatViewProps {
   entry: AcpRunEntry;
   onClose: () => void;
+  /**
+   * Assistant that owns the run's parent conversation. `entry` carries no id
+   * of its own: the ACP run store is populated from that conversation's
+   * stream. Threaded to every markdown block so workspace file references
+   * resolve against the right workspace.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
+export function AcpRunChatView({
+  entry,
+  onClose,
+  assistantId,
+}: AcpRunChatViewProps) {
   const isRunning = isActiveAcpStatus(entry.status);
 
   const events = useAcpRunStore(
@@ -128,7 +139,9 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   // The open detail's live tool block, re-found from current blocks so the panel
   // tracks streaming `tool_call_update` content.
   const activeToolBlock = useMemo(() => {
-    if (!activeDetail) return null;
+    if (!activeDetail) {
+      return null;
+    }
     return (
       blocks.find(
         (b): b is Extract<AcpChatBlock, { kind: "tool" }> =>
@@ -140,7 +153,9 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
   // Live diff for an open diff detail. `null` once its block is gone or the path
   // no longer resolves (the header then falls back so the view stays open).
   const activeDiff = useMemo<AcpFileChange | null>(() => {
-    if (activeDetail?.kind !== "diff" || !activeToolBlock) return null;
+    if (activeDetail?.kind !== "diff" || !activeToolBlock) {
+      return null;
+    }
     const changes = getAcpFileChanges(
       parseAcpToolContent(activeToolBlock.content),
       activeToolBlock.locations,
@@ -223,7 +238,10 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
               newText={activeDiff?.newText}
             />
           ) : (
-            <CommandOutputView content={activeToolBlock?.content} />
+            <CommandOutputView
+              content={activeToolBlock?.content}
+              assistantId={assistantId}
+            />
           )}
         </div>
       ) : (
@@ -260,6 +278,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
                     isTerminal={isTerminal}
                     onOpenDiff={handleOpenDiff}
                     onOpenOutput={handleOpenOutput}
+                    assistantId={assistantId}
                   />
                 </AcpChatTimelineBlock>
               ))}
@@ -384,7 +403,9 @@ function ChatViewHeader({
 // ---------------------------------------------------------------------------
 
 function ObjectiveSection({ task }: { task: string | undefined }) {
-  if (!task) return null;
+  if (!task) {
+    return null;
+  }
   return (
     <div data-testid="acp-chat-objective">
       <Typography
@@ -415,12 +436,15 @@ function ChatBlock({
   isTerminal,
   onOpenDiff,
   onOpenOutput,
+  assistantId,
 }: {
   block: AcpChatBlock;
   /** When the run is terminal, force trailing live agent/thinking blocks complete. */
   isTerminal: boolean;
   onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
   onOpenOutput: (toolCallId: string) => void;
+  /** Assistant that owns the run's parent conversation. */
+  assistantId?: string | null;
 }) {
   switch (block.kind) {
     case "user":
@@ -430,6 +454,7 @@ function ChatBlock({
         <AcpChatAgentMessage
           content={block.content}
           isComplete={block.isComplete || isTerminal}
+          assistantId={assistantId}
         />
       );
     case "thinking":
@@ -437,6 +462,7 @@ function ChatBlock({
         <AcpChatThinkingBlock
           content={block.content}
           isComplete={block.isComplete || isTerminal}
+          assistantId={assistantId}
         />
       );
     case "tool":
@@ -465,7 +491,9 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
     (e: FormEvent) => {
       e.preventDefault();
       const instruction = input.trim();
-      if (!instruction || pending) return;
+      if (!instruction || pending) {
+        return;
+      }
       setPending(true);
 
       // Optimistic user turn so the steer shows immediately ahead of the

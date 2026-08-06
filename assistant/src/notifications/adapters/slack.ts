@@ -15,6 +15,7 @@
 import type { Button, CardBlock, ContextBlock, KnownBlock } from "@slack/types";
 
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import { APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX } from "../../messaging/providers/slack/withdraw.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -261,8 +262,12 @@ function buildAccessRequestCardBlocks(
     blocks.push(idBlock);
   }
 
+  // Instruction / CTA blocks below are tagged so card withdrawal can strip
+  // them once a decision is recorded — the guardian has nothing left to do,
+  // so the "open invite flow" prompt and verification nudge must disappear.
   blocks.push({
     type: "context",
+    block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:invite`,
     elements: [{ type: "mrkdwn", text: buildAccessRequestInviteDirective() }],
   });
 
@@ -273,6 +278,7 @@ function buildAccessRequestCardBlocks(
   ) {
     blocks.push({
       type: "context",
+      block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:verify`,
       elements: [
         {
           type: "mrkdwn",

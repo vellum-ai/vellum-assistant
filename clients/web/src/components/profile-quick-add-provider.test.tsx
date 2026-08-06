@@ -11,7 +11,13 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, useEffect } from "react";
 
@@ -33,7 +39,13 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 // --- ProfileEditorModal stub -------------------------------------------------
 // Renders a Save button (only when open) that invokes onSave with a fixed entry.
 mock.module("@/domains/settings/ai/profile-editor-modal", () => ({
-  ProfileEditorModal: ({ isOpen, onSave }: { isOpen: boolean; onSave: (n: string, e: unknown) => Promise<void> }) =>
+  ProfileEditorModal: ({
+    isOpen,
+    onSave,
+  }: {
+    isOpen: boolean;
+    onSave: (n: string, e: unknown) => Promise<void>;
+  }) =>
     isOpen
       ? createElement(
           "button",
@@ -43,14 +55,18 @@ mock.module("@/domains/settings/ai/profile-editor-modal", () => ({
             // open (showing saveError) on rejection. Swallow here so a failing
             // save surfaces via assertions, not an unhandled rejection.
             onClick: () =>
-              void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }).catch(() => {}),
+              void onSave(NEW_PROFILE_NAME, { label: "Fast & Cheap" }).catch(
+                () => {},
+              ),
           },
           "Save",
         )
       : null,
 }));
 
-const configGetSetQueryDataMock = mock((_client: unknown, _opts: unknown, _data: unknown) => {});
+const configGetSetQueryDataMock = mock(
+  (_client: unknown, _opts: unknown, _data: unknown) => {},
+);
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   inferenceProviderconnectionsGetOptions: () => ({
     queryKey: [{ _id: "inferenceProviderconnectionsGet" }],
@@ -67,7 +83,9 @@ const configPatchMock = mock(
 // pre-existing profile; individual tests override per-call as needed.
 const configGetMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({
-    data: { llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } } } },
+    data: {
+      llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } } },
+    },
   }),
 );
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -76,8 +94,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 import {
-    ProfileQuickAddProvider,
-    useProfileQuickAdd,
+  ProfileQuickAddProvider,
+  useProfileQuickAdd,
 } from "@/components/profile-quick-add-provider";
 
 // Test consumer: opens the quick-add on mount and records the onCreated args.
@@ -98,7 +116,11 @@ function renderProvider(existingNames: string[]) {
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(ProfileQuickAddProvider, null, createElement(Opener, { existingNames })),
+      createElement(
+        ProfileQuickAddProvider,
+        null,
+        createElement(Opener, { existingNames }),
+      ),
     ),
   );
   return { ...result, queryClient };
@@ -133,8 +155,14 @@ describe("ProfileQuickAddProvider", () => {
     await waitFor(() => {
       expect(configPatchMock).toHaveBeenCalledTimes(1);
     });
-    const patchBody = (configPatchMock.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
-    expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
+    const patchBody = (
+      configPatchMock.mock.calls[0]![0] as {
+        body: { llm: Record<string, unknown> };
+      }
+    ).body.llm;
+    expect(
+      (patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME],
+    ).toBeTruthy();
     expect(patchBody.profileOrder).toEqual(["smart", NEW_PROFILE_NAME]);
 
     // Hands the new key and its display-name label back to the caller so the
@@ -145,7 +173,9 @@ describe("ProfileQuickAddProvider", () => {
 
     // Surfaces the success toast (by display name) and closes the modal.
     await waitFor(() => {
-      expect(toastSuccess).toHaveBeenCalledWith(`Profile "Fast & Cheap" created`);
+      expect(toastSuccess).toHaveBeenCalledWith(
+        `Profile "Fast & Cheap" created`,
+      );
     });
     expect(screen.queryByTestId("modal-save-btn")).toBeNull();
   });
@@ -159,7 +189,10 @@ describe("ProfileQuickAddProvider", () => {
       data: {
         llm: {
           profileOrder: ["smart", "creative"],
-          profiles: { smart: { label: "Smart" }, creative: { label: "Creative" } },
+          profiles: {
+            smart: { label: "Smart" },
+            creative: { label: "Creative" },
+          },
         },
       },
     }));
@@ -173,8 +206,16 @@ describe("ProfileQuickAddProvider", () => {
     });
     // Re-read the freshest config before persisting.
     expect(configGetMock).toHaveBeenCalledTimes(1);
-    const patchBody = (configPatchMock.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
-    expect(patchBody.profileOrder).toEqual(["smart", "creative", NEW_PROFILE_NAME]);
+    const patchBody = (
+      configPatchMock.mock.calls[0]![0] as {
+        body: { llm: Record<string, unknown> };
+      }
+    ).body.llm;
+    expect(patchBody.profileOrder).toEqual([
+      "smart",
+      "creative",
+      NEW_PROFILE_NAME,
+    ]);
   });
 
   test("the save path ABORTS when the name already exists on fresh server state — never overwrites an existing profile", async () => {
@@ -185,7 +226,10 @@ describe("ProfileQuickAddProvider", () => {
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" }, [NEW_PROFILE_NAME]: { label: "Existing" } },
+          profiles: {
+            smart: { label: "Smart" },
+            [NEW_PROFILE_NAME]: { label: "Existing" },
+          },
         },
       },
     }));

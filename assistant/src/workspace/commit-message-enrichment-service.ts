@@ -175,9 +175,15 @@ export class CommitEnrichmentService {
   }
 
   private processNext(): void {
-    if (this.shuttingDown) return;
-    if (this.activeWorkers >= this.maxConcurrency) return;
-    if (this.queue.length === 0) return;
+    if (this.shuttingDown) {
+      return;
+    }
+    if (this.activeWorkers >= this.maxConcurrency) {
+      return;
+    }
+    if (this.queue.length === 0) {
+      return;
+    }
 
     const job = this.queue.shift()!;
     this.activeWorkers++;
@@ -286,7 +292,9 @@ export class CommitEnrichmentService {
     job: InternalJob,
     signal?: AbortSignal,
   ): Promise<void> {
-    if (signal?.aborted) return;
+    if (signal?.aborted) {
+      return;
+    }
 
     const note = JSON.stringify({
       enriched: true,
@@ -297,7 +305,9 @@ export class CommitEnrichmentService {
       turnNumber: job.context.turnNumber,
     });
 
-    if (signal?.aborted) return;
+    if (signal?.aborted) {
+      return;
+    }
     await job.gitService.writeNote(job.commitHash, note, signal);
   }
 }

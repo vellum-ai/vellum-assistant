@@ -9,10 +9,7 @@ interface NormalizeThemeOptions {
 
 function normalizeThemePreference(
   value: string | null | undefined,
-  {
-    velvetEnabled,
-    disabledVelvetFallback = "dark",
-  }: NormalizeThemeOptions,
+  { velvetEnabled, disabledVelvetFallback = "dark" }: NormalizeThemeOptions,
 ): ThemePreference {
   if (value === "light" || value === "dark" || value === "system") {
     return value;
@@ -26,7 +23,9 @@ function normalizeThemePreference(
 export function readStoredThemePreference(
   options: NormalizeThemeOptions,
 ): ThemePreference {
-  if (typeof window === "undefined") return "system";
+  if (typeof window === "undefined") {
+    return "system";
+  }
   const raw = getDeviceSetting("theme", "");
   return normalizeThemePreference(raw || null, options);
 }
@@ -36,7 +35,9 @@ export function writeStoredThemePreference(theme: ThemePreference): void {
 }
 
 export function applyThemePreference(theme: ThemePreference): void {
-  if (typeof document === "undefined") return;
+  if (typeof document === "undefined") {
+    return;
+  }
 
   const prefersDark =
     typeof window !== "undefined" &&
@@ -57,8 +58,12 @@ export function applyThemePreference(theme: ThemePreference): void {
 export function getEffectiveThemePreference(
   theme: ThemePreference,
 ): "light" | "dark" | "velvet" {
-  if (theme === "velvet") return "velvet";
-  if (theme === "dark") return "dark";
+  if (theme === "velvet") {
+    return "velvet";
+  }
+  if (theme === "dark") {
+    return "dark";
+  }
   if (
     theme === "system" &&
     typeof window !== "undefined" &&

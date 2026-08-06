@@ -25,25 +25,24 @@ export interface PlanTierCopy {
 
 export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
   free: {
-    tagline: "Get to know your assistant",
+    tagline: "Get to know your assistant.",
     cta: "Start Free",
     priceCaption: "Forever",
   },
   mighty: {
-    tagline: "Empower your assistant to level you up.",
+    tagline: "More capacity for consistent use.",
     cta: "Power Up",
     priceCaption: "Billed monthly",
     recommended: true,
   },
   super: {
-    tagline: "Give your assistant real muscle to help you grow",
+    tagline: "Do more, think less about the how.",
     cta: "Go Super",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],
   },
   ultra: {
-    tagline:
-      "Our most powerful assistant. There's nothing you can't tackle together",
+    tagline: "Your second brain, running full speed.",
     cta: "Unleash Ultra",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   clearConversations,
   findConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentConfig, SubagentState } from "../subagent/types.js";
@@ -16,7 +16,7 @@ interface FakeManagedSubagent {
     abort: () => void;
     dispose: () => void;
     messages: Message[];
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
@@ -29,9 +29,14 @@ interface FakeManagedSubagent {
       estimatedCost: number;
     };
     subagentDeniedToolNames: Set<string>;
+    subagentToolStats: {
+      calls: number;
+      succeeded: number;
+      filesWritten: Set<string>;
+    };
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
   hadEnqueuedMessages?: boolean;
 }
@@ -59,6 +64,11 @@ function makeFakeConversation(): NonNullable<
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
     subagentDeniedToolNames: new Set<string>(),
+    subagentToolStats: {
+      calls: 0,
+      succeeded: 0,
+      filesWritten: new Set<string>(),
+    },
   };
 }
 
@@ -66,7 +76,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
   conversation?: FakeManagedSubagent["conversation"],
 ): void {
   const internals = asInternals(manager);
@@ -238,7 +248,7 @@ describe("SubagentManager fork spawn", () => {
     expect(resolvedSendResultToUser).toBeUndefined();
   });
 
-  test("fork defaults to general role (which has no tool allowlist)", async () => {
+  test("a fork that names no role carries none (no tool allowlist)", async () => {
     const manager = new SubagentManager();
     const subagentId = "sub-fork-role";
 
@@ -251,16 +261,14 @@ describe("SubagentManager fork spawn", () => {
     fakeConversation.injectInheritedContext = () => {};
     fakeConversation.setSubagentAllowedTools = () => {};
 
-    // A fork that does not request a role defaults to "general", which has
-    // `allowedTools: undefined` — so no tool filter is applied. (An explicit
-    // non-general role on a fork IS honored; that path is covered in
-    // subagent-fork-prompt-role.test.ts.)
+    // A fork that names no role has none to apply, so no tool filter is
+    // applied and it keeps the parent's surface. (A named role on a fork IS
+    // honored; that path is covered in subagent-fork-prompt-role.test.ts.)
     const state = makeState(
       subagentId,
       { isFork: true },
       {
         fork: true,
-        role: "general",
         parentMessages: FAKE_PARENT_MESSAGES,
         parentSystemPrompt: "Parent system prompt.",
       },
@@ -270,7 +278,7 @@ describe("SubagentManager fork spawn", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
-    expect(state.config.role).toBe("general");
+    expect(state.config.role).toBeUndefined();
 
     asInternals(manager).stopSweep();
   });

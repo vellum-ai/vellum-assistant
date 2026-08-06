@@ -43,7 +43,9 @@ const CAPTION_USER_PROMPT =
  */
 export function findVisionProfile(): string | null {
   for (const profile of getModelProfiles()) {
-    if (profile.isDisabled) continue;
+    if (profile.isDisabled) {
+      continue;
+    }
     if (doesSupportVision(profile)) {
       return profile.key;
     }
@@ -71,7 +73,9 @@ export async function captionImage(
   // Hash the image's content (resolving a reference source to its bytes, a
   // no-op for inline base64) so the caption cache keys on the image itself.
   const resolved = resolveMediaSourceData(image.source);
-  if (!resolved) return null;
+  if (!resolved) {
+    return null;
+  }
   const hash = imageHash(resolved.data);
   const cached = getCachedCaption(hash, conversationId);
   if (cached !== undefined) {

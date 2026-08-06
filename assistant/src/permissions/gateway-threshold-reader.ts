@@ -18,6 +18,10 @@ import type {
   AutoApproveThreshold,
   ExecutionContext,
 } from "./approval-policy.js";
+import {
+  collapseChannelThresholdForContact,
+  effectiveChannelCellThreshold,
+} from "./channel-permission-query.js";
 
 const log = getLogger("gateway-threshold-reader");
 
@@ -222,8 +226,11 @@ export type ChannelPermissionCellResult =
 
 /**
  * Resolve the permission-matrix cell for a channel/actor coordinate via the
- * gateway (`resolve_channel_permission_threshold` IPC): the winning cell
+ * gateway (`resolve_channel_permission_threshold` IPC): the raw winning cell
  * threshold + scope, or a null resolution when no cascade level has a cell.
+ * What a resolution authorizes for the actor — the two-level collapse and
+ * the room default — is `effectiveChannelCellThreshold`'s single rule;
+ * consumers go through it rather than reading the threshold directly.
  *
  * Transport failures are not cached, so a transient IPC failure cannot
  * suppress a real cell for the TTL window.
@@ -267,6 +274,47 @@ export async function resolveChannelPermissionCell(
       : null;
   channelPermissionCellCache.set(key, { resolved, timestamp: Date.now() });
   return { ok: true, resolved };
+}
+
+/**
+ * The room default a cell-less coordinate inherits for non-guardian contact
+ * types: the owner's global interactive threshold, collapsed to the two
+ * levels a channel distinguishes. This is the level the picker's "· default"
+ * marker and the legend advertise, so resolving it here is what keeps the
+ * displayed default and the enforced one the same value. Returns `undefined`
+ * when the global thresholds cannot be read — callers fail safe, and the
+ * shared fetch's own failure accounting covers the logging.
+ */
+async function resolveContactRoomDefaultThreshold(options?: {
+  bypassCache?: boolean;
+}): Promise<AutoApproveThreshold | undefined> {
+  try {
+    const global = await fetchGlobalThresholds(options);
+    if (!isValidThreshold(global.interactive)) {
+      return undefined;
+    }
+    return collapseChannelThresholdForContact(global.interactive);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The `noCellDefault` argument for {@link effectiveChannelCellThreshold}:
+ * derived only when it can matter — a successful walk that found no cell,
+ * for a non-guardian contact type. One guard for every cell consumer, so
+ * none of them can apply the room default to a guardian query or pay the
+ * global read on a path where the rule would discard it.
+ */
+export async function channelNoCellDefault(
+  cell: ChannelPermissionCellResult,
+  contactType: ResolveChannelPermissionRequest["contactType"],
+  options?: { bypassCache?: boolean },
+): Promise<AutoApproveThreshold | undefined> {
+  if (!cell.ok || cell.resolved || contactType === "guardian") {
+    return undefined;
+  }
+  return resolveContactRoomDefaultThreshold(options);
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -338,14 +386,25 @@ export async function getAutoApproveThreshold(
     }
   }
 
-  // Channel-permission matrix cell: sits between the conversation override
-  // (most specific) and the global defaults in the threshold cascade. A
-  // transport failure falls through to global — same direction as a failed
-  // conversation-override read.
+  // Channel-permission matrix cell: for non-guardian actors this layer is
+  // total in every direction — a successful walk that finds no cell resolves
+  // the room default (the collapsed global), and a failed read resolves
+  // Strict, so a contact's turn never consumes a raw global threshold. An
+  // unreadable cell may be a Strict cell (this module's header rule: an
+  // unreachable gateway auto-approves nothing). Guardian queries fall
+  // through to the global block below in both cases — their lane.
   if (cellQuery) {
     const cell = await resolveChannelPermissionCell(cellQuery);
-    if (cell.ok && cell.resolved) {
-      return cell.resolved.threshold;
+    if (!cell.ok && cellQuery.contactType !== "guardian") {
+      return "none";
+    }
+    const effective = effectiveChannelCellThreshold(
+      cell,
+      cellQuery.contactType,
+      await channelNoCellDefault(cell, cellQuery.contactType),
+    );
+    if (effective !== undefined) {
+      return effective;
     }
   }
 
@@ -375,9 +434,12 @@ export async function getAutoApproveThreshold(
   }
 }
 
-async function fetchGlobalThresholds(): Promise<GlobalThresholds> {
+async function fetchGlobalThresholds(options?: {
+  bypassCache?: boolean;
+}): Promise<GlobalThresholds> {
   const now = Date.now();
   if (
+    !options?.bypassCache &&
     cachedGlobalThresholds &&
     now - cachedGlobalTimestamp < GLOBAL_CACHE_TTL_MS
   ) {
@@ -479,8 +541,18 @@ export async function refreshAutoApproveThreshold(
     if (!cell.ok) {
       return null;
     }
-    if (cell.resolved) {
-      return cell.resolved.threshold;
+    // The refresh exists to see writes the caches hide, so the derived
+    // default reads the globals fresh (and primes the cache) exactly like
+    // the cell read above bypasses the cell cache.
+    const effective = effectiveChannelCellThreshold(
+      cell,
+      cellQuery.contactType,
+      await channelNoCellDefault(cell, cellQuery.contactType, {
+        bypassCache: true,
+      }),
+    );
+    if (effective !== undefined) {
+      return effective;
     }
   }
 

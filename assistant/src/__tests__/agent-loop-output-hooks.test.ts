@@ -46,13 +46,19 @@ function streamedText(events: AgentEvent[]): string {
 
 function textOf(content: ReadonlyArray<ContentBlock>): string {
   let out = "";
-  for (const block of content) if (block.type === "text") out += block.text;
+  for (const block of content) {
+    if (block.type === "text") {
+      out += block.text;
+    }
+  }
   return out;
 }
 
 function lastAssistant(history: Message[]): Message {
   for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].role === "assistant") return history[i];
+    if (history[i].role === "assistant") {
+      return history[i];
+    }
   }
   throw new Error("no assistant message in history");
 }
@@ -227,7 +233,9 @@ describe("agent loop output hooks", () => {
     const executed: Array<{ name: string; input: unknown; id?: string }> = [];
     registerOutputHookPlugin({
       postModelCall: (ctx) => {
-        if (injected) return;
+        if (injected) {
+          return;
+        }
         injected = true;
         ctx.content = [
           ...ctx.content,
@@ -369,7 +377,9 @@ describe("agent loop output hooks", () => {
     // GIVEN a hook that selects an inference profile for the user-facing call
     registerOutputHookPlugin({
       preModelCall: (ctx) => {
-        if (ctx.callSite !== "mainAgent") return;
+        if (ctx.callSite !== "mainAgent") {
+          return;
+        }
         ctx.modelProfile = "fast-profile";
       },
     });
@@ -646,8 +656,12 @@ describe("agent loop post-model-call retry decision", () => {
         ctx.deferAssistantOutput = true;
       },
       postModelCall: (ctx) => {
-        if (ctx.error) return;
-        if (continued) return;
+        if (ctx.error) {
+          return;
+        }
+        if (continued) {
+          return;
+        }
         continued = true;
         ctx.messages = [...ctx.messages, nudge];
         ctx.decision = "continue";
@@ -688,7 +702,9 @@ describe("agent loop post-model-call retry decision", () => {
         ctx.deferAssistantOutput = true;
       },
       postModelCall: (ctx) => {
-        if (ctx.error) return;
+        if (ctx.error) {
+          return;
+        }
         ctx.decision = "continue";
       },
     });
@@ -724,7 +740,9 @@ describe("agent loop post-model-call retry decision", () => {
     let asked = false;
     registerOutputHookPlugin({
       postModelCall: (ctx) => {
-        if (ctx.error) return;
+        if (ctx.error) {
+          return;
+        }
         asked = true;
         ctx.decision = "continue";
       },
@@ -763,10 +781,14 @@ describe("agent loop post-model-call retry decision", () => {
     let recovered = false;
     registerOutputHookPlugin({
       postModelCall: (ctx) => {
-        if (!ctx.error) return;
+        if (!ctx.error) {
+          return;
+        }
         seen.error = ctx.error;
         seen.contentLength = ctx.content.length;
-        if (recovered) return;
+        if (recovered) {
+          return;
+        }
         recovered = true;
         ctx.decision = "continue";
       },
@@ -805,7 +827,9 @@ describe("agent loop post-model-call retry decision", () => {
     // GIVEN a hook that inspects but never continues on a rejection
     registerOutputHookPlugin({
       postModelCall: (ctx) => {
-        if (!ctx.error) return;
+        if (!ctx.error) {
+          return;
+        }
       },
     });
     // AND a provider that always throws

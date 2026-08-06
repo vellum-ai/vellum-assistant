@@ -37,7 +37,11 @@ describe("ToolStepPill", () => {
 
   test("renders a <button> with an aria-label when onClick is provided", () => {
     const html = renderToStaticMarkup(
-      <ToolStepPill iconName="plug" label="linear.createIssue" onClick={() => {}} />,
+      <ToolStepPill
+        iconName="plug"
+        label="linear.createIssue"
+        onClick={() => {}}
+      />,
     );
     expect(html).toContain("<button");
     expect(html).toContain('aria-label="View details: linear.createIssue"');

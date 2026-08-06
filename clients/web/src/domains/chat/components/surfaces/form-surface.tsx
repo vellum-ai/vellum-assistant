@@ -33,6 +33,12 @@ interface FormSurfaceProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Lets
+   * workspace file references in the form description resolve against its
+   * workspace instead of degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +161,11 @@ function renderField(
 // Main component
 // ---------------------------------------------------------------------------
 
-export function FormSurface({ surface, onAction }: FormSurfaceProps) {
+export function FormSurface({
+  surface,
+  onAction,
+  assistantId,
+}: FormSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -334,6 +344,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
               : formData.description) ?? ""
           }
           className="mb-3 text-body-medium-lighter text-[var(--content-quiet)]"
+          assistantId={assistantId}
         />
       )}
 

@@ -53,12 +53,13 @@ export interface ScrollClassification {
  */
 export function classifyScrollPosition(
   metrics: ScrollMetrics,
-  flags: { hasMore: boolean; isLoadingOlder: boolean; hasConversation: boolean },
+  flags: {
+    hasMore: boolean;
+    isLoadingOlder: boolean;
+    hasConversation: boolean;
+  },
 ): ScrollClassification {
-  const maxScrollTop = Math.max(
-    0,
-    metrics.scrollHeight - metrics.clientHeight,
-  );
+  const maxScrollTop = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
   const distanceFromBottom = Math.max(0, maxScrollTop - metrics.scrollTop);
   const distanceFromTop = Math.max(0, metrics.scrollTop);
   const isPinned = distanceFromBottom <= PINNED_THRESHOLD_PX;
@@ -80,7 +81,9 @@ export function findAnchorIndex(
 ): number {
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
-    if (item && item.key === anchorKey) return i;
+    if (item && item.key === anchorKey) {
+      return i;
+    }
   }
   return -1;
 }
@@ -148,7 +151,9 @@ export interface ItemsChangeContext {
 export function decideItemsChangeAction(
   ctx: ItemsChangeContext,
 ): ItemsChangeAction {
-  if (ctx.conversationId === null) return { kind: "none" };
+  if (ctx.conversationId === null) {
+    return { kind: "none" };
+  }
 
   if (ctx.savedAnchor && ctx.items.length > 0) {
     const newIndex = findAnchorIndex(ctx.items, ctx.savedAnchor.key);

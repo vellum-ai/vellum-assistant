@@ -88,9 +88,13 @@ describe("parseMediaStreamFrame — happy paths", () => {
   test("parses a valid start event", () => {
     const result = parseMediaStreamFrame(makeStartFrame());
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
     expect(result.event.event).toBe("start");
-    if (result.event.event !== "start") throw new Error("Expected start");
+    if (result.event.event !== "start") {
+      throw new Error("Expected start");
+    }
     expect(result.event.streamSid).toBe("MZ00000000000000000000000000000000");
     expect(result.event.start.callSid).toBe(
       "CA00000000000000000000000000000000",
@@ -109,17 +113,25 @@ describe("parseMediaStreamFrame — happy paths", () => {
     delete raw.start.customParameters;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
-    if (result.event.event !== "start") throw new Error("Expected start");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
+    if (result.event.event !== "start") {
+      throw new Error("Expected start");
+    }
     expect(result.event.start.customParameters).toEqual({});
   });
 
   test("parses a valid media event", () => {
     const result = parseMediaStreamFrame(makeMediaFrame());
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
     expect(result.event.event).toBe("media");
-    if (result.event.event !== "media") throw new Error("Expected media");
+    if (result.event.event !== "media") {
+      throw new Error("Expected media");
+    }
     expect(result.event.media.track).toBe("inbound");
     expect(result.event.media.chunk).toBe("1");
     expect(result.event.media.timestamp).toBe("100");
@@ -129,9 +141,13 @@ describe("parseMediaStreamFrame — happy paths", () => {
   test("parses a valid dtmf event", () => {
     const result = parseMediaStreamFrame(makeDtmfFrame());
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
     expect(result.event.event).toBe("dtmf");
-    if (result.event.event !== "dtmf") throw new Error("Expected dtmf");
+    if (result.event.event !== "dtmf") {
+      throw new Error("Expected dtmf");
+    }
     expect(result.event.dtmf.digit).toBe("5");
     expect(result.event.dtmf.duration).toBe("100");
   });
@@ -141,26 +157,38 @@ describe("parseMediaStreamFrame — happy paths", () => {
     delete raw.dtmf.duration;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
-    if (result.event.event !== "dtmf") throw new Error("Expected dtmf");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
+    if (result.event.event !== "dtmf") {
+      throw new Error("Expected dtmf");
+    }
     expect(result.event.dtmf.duration).toBeUndefined();
   });
 
   test("parses a valid mark event", () => {
     const result = parseMediaStreamFrame(makeMarkFrame());
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
     expect(result.event.event).toBe("mark");
-    if (result.event.event !== "mark") throw new Error("Expected mark");
+    if (result.event.event !== "mark") {
+      throw new Error("Expected mark");
+    }
     expect(result.event.mark.name).toBe("end-of-speech");
   });
 
   test("parses a valid stop event", () => {
     const result = parseMediaStreamFrame(makeStopFrame());
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("Expected ok");
+    if (!result.ok) {
+      throw new Error("Expected ok");
+    }
     expect(result.event.event).toBe("stop");
-    if (result.event.event !== "stop") throw new Error("Expected stop");
+    if (result.event.event !== "stop") {
+      throw new Error("Expected stop");
+    }
     expect(result.event.stop.accountSid).toBe(
       "AC00000000000000000000000000000000",
     );
@@ -178,35 +206,45 @@ describe("parseMediaStreamFrame — malformed frames", () => {
   test("rejects non-JSON input", () => {
     const result = parseMediaStreamFrame("not json");
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toBe("Invalid JSON");
   });
 
   test("rejects non-object JSON (array)", () => {
     const result = parseMediaStreamFrame("[1, 2, 3]");
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toBe("Frame is not a JSON object");
   });
 
   test("rejects non-object JSON (string)", () => {
     const result = parseMediaStreamFrame('"hello"');
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toBe("Frame is not a JSON object");
   });
 
   test("rejects non-object JSON (null)", () => {
     const result = parseMediaStreamFrame("null");
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toBe("Frame is not a JSON object");
   });
 
   test("rejects frame without event field", () => {
     const result = parseMediaStreamFrame(JSON.stringify({ streamSid: "abc" }));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toBe("Missing or non-string 'event' field");
   });
 
@@ -215,7 +253,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
       JSON.stringify({ event: 42, streamSid: "abc" }),
     );
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toBe("Missing or non-string 'event' field");
   });
 
@@ -224,7 +264,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
       JSON.stringify({ event: "connected", streamSid: "abc" }),
     );
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("Unrecognised event type");
   });
 
@@ -233,7 +275,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.streamSid;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("streamSid");
   });
 
@@ -242,7 +286,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.start;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("start object");
   });
 
@@ -251,7 +297,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.start.callSid;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("callSid");
   });
 
@@ -260,7 +308,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.start.mediaFormat;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("mediaFormat");
   });
 
@@ -269,7 +319,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     raw.start.mediaFormat.sampleRate = "8000";
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("sampleRate");
   });
 
@@ -278,7 +330,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     raw.start.tracks = "inbound";
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("tracks");
   });
 
@@ -287,7 +341,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.media;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("media object");
   });
 
@@ -296,7 +352,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.media.payload;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("payload");
   });
 
@@ -305,7 +363,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.media.track;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("track");
   });
 
@@ -314,7 +374,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.dtmf;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("dtmf object");
   });
 
@@ -323,7 +385,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.dtmf.digit;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("digit");
   });
 
@@ -332,7 +396,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.mark;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("mark object");
   });
 
@@ -341,7 +407,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.mark.name;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("mark.name");
   });
 
@@ -350,7 +418,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.stop;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("stop object");
   });
 
@@ -359,7 +429,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.stop.callSid;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("callSid");
   });
 
@@ -368,7 +440,9 @@ describe("parseMediaStreamFrame — malformed frames", () => {
     delete raw.stop.accountSid;
     const result = parseMediaStreamFrame(JSON.stringify(raw));
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("Expected failure");
+    if (result.ok) {
+      throw new Error("Expected failure");
+    }
     expect(result.error).toContain("accountSid");
   });
 });

@@ -55,7 +55,9 @@ export function DictationOverlayPage() {
   }, []);
 
   useEffect(() => {
-    if (state?.kind === "recording" || !interactiveRef.current) return;
+    if (state?.kind === "recording" || !interactiveRef.current) {
+      return;
+    }
     interactiveRef.current = false;
     setDictationOverlayInteractive(false);
   }, [state?.kind]);
@@ -68,13 +70,13 @@ export function DictationOverlayPage() {
     state.kind === "recording" ? state.transcription.trim() : "";
   const audioLevel = state.kind === "recording" ? (state.audioLevel ?? 0) : 0;
   const setInteractive = (interactive: boolean) => {
-    if (interactiveRef.current === interactive) return;
+    if (interactiveRef.current === interactive) {
+      return;
+    }
     interactiveRef.current = interactive;
     setDictationOverlayInteractive(interactive);
   };
-  const updateInteractionFromPointer = (
-    event: MouseEvent<HTMLDivElement>,
-  ) => {
+  const updateInteractionFromPointer = (event: MouseEvent<HTMLDivElement>) => {
     if (state.kind !== "recording") {
       setInteractive(false);
       return;
@@ -103,7 +105,7 @@ export function DictationOverlayPage() {
       onMouseMove={updateInteractionFromPointer}
       onMouseLeave={() => setInteractive(false)}
     >
-      <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
+      <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-element)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
         <div className="flex min-w-0 items-center gap-2">
           <StateIcon state={state} />
           <span className="truncate text-[11px] font-medium text-[var(--content-secondary)]">
@@ -169,10 +171,7 @@ function AudioMeter({ level }: { level: number }) {
   const clamped = Math.max(0, Math.min(1, level));
 
   return (
-    <div
-      className="flex h-4 w-16 shrink-0 items-end gap-0.5"
-      aria-hidden
-    >
+    <div className="flex h-4 w-16 shrink-0 items-end gap-0.5" aria-hidden>
       {[0.16, 0.32, 0.48, 0.64, 0.8, 0.96].map((threshold, index) => (
         <span
           key={threshold}

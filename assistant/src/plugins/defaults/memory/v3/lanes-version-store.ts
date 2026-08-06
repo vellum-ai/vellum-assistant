@@ -9,12 +9,12 @@
  * the value captured at its last build and rebuilds on any change. The value
  * is opaque — only inequality matters.
  *
- * The token is plugin-owned state: it lives in the memory plugin's workspace
- * state directory (`<workspace>/memory/.v2-state/lanes-version`), beside the
- * consolidation lock, NOT in the main database. Both processes reach it because
- * they share the workspace volume — the same basis the consolidation lock relies
- * on. Callers pass the workspace dir (resolved via `getWorkspaceDir()`), so the
- * daemon and the worker address the same file.
+ * The token is plugin-owned state: it lives in the memory plugin's own storage
+ * directory (`<workspace>/plugins-data/default-memory/lanes-version`, the
+ * default-plugin `pluginStorageDir`), NOT in the main database. Both processes
+ * reach it because they share the workspace volume. Callers pass the workspace
+ * dir (resolved via `getWorkspaceDir()`), so the daemon and the worker address
+ * the same file.
  */
 
 import { randomUUID } from "node:crypto";
@@ -28,12 +28,12 @@ import {
 import { dirname, join } from "node:path";
 
 /**
- * `<workspace>/memory/.v2-state/lanes-version` — the memory plugin's
- * established cross-process state directory (the consolidation lock lives in
- * the same folder).
+ * `<workspace>/plugins-data/default-memory/lanes-version` — inside the memory
+ * plugin's own storage directory (`<workspaceDir>/plugins-data/<manifest-name>/`,
+ * the `pluginStorageDir` bootstrap derives for default plugins).
  */
 function lanesVersionPath(workspaceDir: string): string {
-  return join(workspaceDir, "memory", ".v2-state", "lanes-version");
+  return join(workspaceDir, "plugins-data", "default-memory", "lanes-version");
 }
 
 /**

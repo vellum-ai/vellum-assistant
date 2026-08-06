@@ -31,33 +31,43 @@ export function supportsSystemPermissions(): boolean {
 }
 
 export async function getSystemPermissionsState(): Promise<SystemPermissionsState | null> {
-  if (!supportsSystemPermissions()) return null;
+  if (!supportsSystemPermissions()) {
+    return null;
+  }
   return await window.vellum!.permissions!.getState();
 }
 
 export async function requestSystemPermission(
   kind: SystemPermissionKind,
 ): Promise<SystemPermissionStateItem | null> {
-  if (!supportsSystemPermissions()) return null;
+  if (!supportsSystemPermissions()) {
+    return null;
+  }
   return await window.vellum!.permissions!.request(kind);
 }
 
 export async function openSystemPermissionSettings(
   kind: SystemPermissionKind,
 ): Promise<SystemPermissionStateItem | null> {
-  if (!supportsSystemPermissions()) return null;
+  if (!supportsSystemPermissions()) {
+    return null;
+  }
   return await window.vellum!.permissions!.openSettings(kind);
 }
 
 export async function quitAndReopenForPermissions(): Promise<void> {
-  if (!supportsSystemPermissions()) return;
+  if (!supportsSystemPermissions()) {
+    return;
+  }
   await window.vellum!.permissions!.quitAndReopen();
 }
 
 export function subscribeToSystemPermissions(
   callback: (state: SystemPermissionsState) => void,
 ): () => void {
-  if (!supportsSystemPermissions()) return () => undefined;
+  if (!supportsSystemPermissions()) {
+    return () => undefined;
+  }
   return window.vellum!.permissions!.onState(callback);
 }
 
@@ -97,19 +107,27 @@ export function useSystemPermissionsState() {
     setLoading(true);
     setError(null);
     const unsubscribe = subscribeToSystemPermissions((next) => {
-      if (active) setState(next);
+      if (active) {
+        setState(next);
+      }
     });
 
     void getSystemPermissionsState()
       .then((next) => {
-        if (active) setState(next);
+        if (active) {
+          setState(next);
+        }
       })
       .catch((err) => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       });
 
     return () => {

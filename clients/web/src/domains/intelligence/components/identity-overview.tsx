@@ -36,13 +36,16 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
 
 import { applyRename } from "../identity-actions/apply-rename";
-import { memoryStatsOptions } from "../memory-graph/get-memory-stats";
+import {
+  conceptPageCount,
+  memoryStatsOptions,
+} from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -59,8 +62,11 @@ import {
 } from "./amoeba-avatar";
 import { AssistantNameEditor } from "./assistant-name-editor";
 import { resolveAvatarHex } from "./assistant-stage";
-import { buildIdentitySections, type IdentitySection } from "./identity-sections";
-import { PersonalityRadar } from "./personality-radar";
+import {
+  buildIdentitySections,
+  type IdentitySection,
+} from "./identity-sections";
+import { PersonalitySignature } from "./personality-signature";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
@@ -107,7 +113,7 @@ const MINI_SECTION_KEYS = [
  * the greeting becomes his commentary on whatever you're pointing at.
  */
 const CARD_HOVER_LINES: Record<string, string> = {
-  personality: "Go ahead — tweak my soul",
+  personality: "Go ahead, tweak my soul",
   superpowers: "Everything I know how to do",
   memory: "Everything I remember",
   library: "The apps and docs I've made for you",
@@ -116,7 +122,6 @@ const CARD_HOVER_LINES: Record<string, string> = {
   contacts: "The people I know and trust",
   channels: "All the places you can reach me",
 };
-
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
 function formatNextRun(nextRunAt: number): string {
@@ -176,8 +181,6 @@ const PHOTO_OVERLAY_STYLE = {
   // value = the theme's hover wash pre-composited over the dark card.
   "--card-hover": "#2d3339",
   "--card-accent": "#bd4900",
-  "--radar-fill": "#fea973",
-  "--radar-fill-opacity": "0.1",
   "--card-flood-fg": "#fdfdfc",
   "--content-default": "#fdfdfc",
   "--content-strong": "#fdfdfc",
@@ -201,33 +204,35 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   } = useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
-  const showChannels = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  // The native mobile shells drop the Memory, Workspace, Contacts and
+  // Channels cards, so their measurements are dead reads there.
+  const isNativeMobile = useIsNativeMobile();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
-    showChannels,
+    isNativeMobile,
   });
   // The Memory card's measurement is the cheap page-index concept count
-  // (get-memory-stats) — NOT the concept-graph build, which is kept off
-  // identity-page load. Fetched unconditionally: the card's visibility now
-  // follows the same call's `graphSupported` capability bit, so the Memory
-  // concept graph is only offered where the backend can build it (memory v3
-  // live) rather than dead-ending on a "not available" graph.
-  const memoryStats = useQuery(memoryStatsOptions(assistantId));
-  const showMemory =
-    memoryStats.data?.kind === "ready" && memoryStats.data.graphSupported;
+  // (get-memory-stats), NOT the concept-graph build, which is kept off
+  // identity-page load. Wherever the card shows it is never gated on backend
+  // capability; only its count is, so an assistant whose backend can't draw
+  // the graph still has a way into the Memory tab (which explains why, and
+  // offers the fix).
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: !isNativeMobile,
+  });
+  // Only measured where concept pages are actually the substrate (memory tier
+  // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
+  // assistant (memory lives in the legacy graph) and a memory-off one all read
+  // `undefined` and leave the measurement off, rather than render a "0
+  // memories" that says "I remember nothing about you".
+  const memories = conceptPageCount(memoryStats.data);
   const sectionStats: Record<string, IdentitySectionStat | undefined> = {
     ...stats,
-    // Only show a count when the daemon actually answered one (`ready`). An
-    // older daemon predating `/memory/stats` reads `unsupported`, and a loading
-    // query is `undefined` — both leave the measurement off (as the card was
-    // before this feature) rather than render a wrong "0 memories".
     memory:
-      memoryStats.data?.kind === "ready"
-        ? {
-            value: memoryStats.data.concepts,
-            label: memoryStats.data.concepts === 1 ? "memory" : "memories",
-          }
-        : undefined,
+      memories === undefined
+        ? undefined
+        : { value: memories, label: memories === 1 ? "memory" : "memories" },
   };
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -242,8 +247,11 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           void queryClient.invalidateQueries({
             queryKey: assistantIdentityDetailsQueryKey(assistantId),
           });
-          const { version, assistantId: hydratedAssistantId, setIdentity } =
-            useAssistantIdentityStore.getState();
+          const {
+            version,
+            assistantId: hydratedAssistantId,
+            setIdentity,
+          } = useAssistantIdentityStore.getState();
           // Preserve the owner tag: a rename changes the name, not which
           // assistant the hydrated identity belongs to.
           setIdentity(newName, version, hydratedAssistantId);
@@ -260,10 +268,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections({
-    showChannels,
-    showMemory,
-  });
+  const sections = buildIdentitySections({ isNativeMobile });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
   // Custom image (no character color): the page background becomes the
@@ -272,6 +277,9 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
 
   return (
     <PageShell
+      // The photo backdrop is an image, not a flat color, so there is nothing
+      // the shell could paint into the safe areas that would continue it.
+      bleed={!photoBackdrop}
       className={photoBackdrop ? "relative overflow-hidden" : undefined}
       style={
         avatarHex
@@ -282,7 +290,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       }
     >
       {photoBackdrop && customImageUrl && (
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+        >
           {/* Scaled up so the blur never bleeds transparent edges in.
               Dimmed via brightness (not a flat scrim) so bright photos
               darken naturally — highlights keep their hue, like the dark
@@ -509,17 +520,17 @@ function SectionCard({
         }`}
       >
         {floodOverlay}
-        {/* The Personality card fills with the radar of the persisted
-            slider values; bento only (`gridArea`). The blob reads the
+        {/* The Personality card fills with the signature of the persisted
+            slider values; bento only (`gridArea`). The mark reads the
             `--card-accent` var, so it flips to the contrast tone while
-            flooded along with the grid/labels (currentColor). */}
-        {gridArea && stat?.radar && (
+            flooded along with the rule and labels (currentColor). */}
+        {gridArea && stat?.signature && (
           <span
-            className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
+            className={`absolute inset-x-5 top-14 bottom-9 flex flex-col justify-start transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
                 : photoBackdrop
-                  ? // On the photo backdrop the radar grid/labels read in
+                  ? // On the photo backdrop the rule and labels read in
                     // white (Figma 7219-160964), not the muted secondary.
                     "text-[var(--content-default)]"
                   : "text-[var(--content-secondary)]"
@@ -530,7 +541,22 @@ function SectionCard({
                 : undefined
             }
           >
-            <PersonalityRadar values={stat.radar} className="h-auto w-full" />
+            {/* The mark rests on the bottom inset, but only while the gap it
+                leaves under the header stays inside this spacer. The mark's
+                height follows its WIDTH, so a narrow card makes a short one —
+                and without the cap that whole surplus collected under the
+                header and pushed the mark to the floor of the card. Past the
+                cap the surplus falls below the mark instead. */}
+            <span aria-hidden className="max-h-10 flex-1" />
+            {/* Nothing ties the mark's width-derived height to a box sized by
+                the card's HEIGHT, so a wide, short window makes it the taller
+                of the two. `max-h-full` clamps the viewport there and the
+                default `xMidYMid meet` scales the whole mark down to fit,
+                rather than letting `overflow-hidden` cut the top labels off. */}
+            <PersonalitySignature
+              values={stat.signature}
+              className="h-auto max-h-full w-full"
+            />
           </span>
         )}
         {isFeatureCard ? (
@@ -864,7 +890,7 @@ function OverviewBento({
   if (!useBento) {
     // Stacked (mobile) layout per Figma 7259-169032: greeting + avatar,
     // a compact Schedules row (title · count › ), the Personality card
-    // with the full radar, then the remaining sections as a two-column
+    // with the full signature, then the remaining sections as a two-column
     // grid of mini tiles.
     const schedulesSection = sections.find((s) => s.key === "schedules");
     const personalitySection = sections.find((s) => s.key === "personality");
@@ -875,7 +901,7 @@ function OverviewBento({
     const scheduleCount = schedulesStat
       ? schedulesStat.items.length + schedulesStat.more
       : undefined;
-    const radar = stats["personality"]?.radar;
+    const signature = stats["personality"]?.signature;
     // Same feature-card chrome as the bento's Personality/Schedules
     // cards: translucent glass on the photo backdrop, themed otherwise.
     const featureCardClass = `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
@@ -958,7 +984,7 @@ function OverviewBento({
                     {personalitySection.label}
                   </span>
                 </span>
-                {radar && (
+                {signature && (
                   <span
                     className={`flex items-center justify-center ${
                       photoBackdrop
@@ -966,7 +992,10 @@ function OverviewBento({
                         : "text-[var(--content-secondary)]"
                     }`}
                   >
-                    <PersonalityRadar values={radar} className="h-auto w-full" />
+                    <PersonalitySignature
+                      values={signature}
+                      className="h-auto w-full"
+                    />
                   </span>
                 )}
               </Link>
@@ -988,12 +1017,16 @@ function OverviewBento({
     );
   }
 
-  // Priority layout: Personality owns the left column (radar centered in
+  // Priority layout: Personality owns the left column (signature centered in
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
-  const mainSections = sections.filter((s) => !MINI_SECTION_KEYS.includes(s.key));
-  const miniSections = sections.filter((s) => MINI_SECTION_KEYS.includes(s.key));
+  const mainSections = sections.filter(
+    (s) => !MINI_SECTION_KEYS.includes(s.key),
+  );
+  const miniSections = sections.filter((s) =>
+    MINI_SECTION_KEYS.includes(s.key),
+  );
 
   // Top row is a centered trio — Personality, the greeting, Schedules —
   // and the rows below stay open so the page-anchored avatar shows

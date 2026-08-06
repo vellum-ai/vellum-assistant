@@ -17,9 +17,9 @@ describe("exitFromIpcResult", () => {
   let stderrSpy: ReturnType<typeof spyOn>;
 
   const setupSpies = () => {
-    exitSpy = spyOn(process, "exit").mockImplementation(
-      (code?: number) => { throw new Error(`exit:${code}`); },
-    );
+    exitSpy = spyOn(process, "exit").mockImplementation((code?: number) => {
+      throw new Error(`exit:${code}`);
+    });
     stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
   };
 
@@ -73,16 +73,18 @@ describe("exitFromIpcResult", () => {
   test("writes error message to stderr", () => {
     setupSpies();
     expect(() =>
-      exitFromIpcResult({ ok: false, error: "Something went wrong", statusCode: 404 }),
+      exitFromIpcResult({
+        ok: false,
+        error: "Something went wrong",
+        statusCode: 404,
+      }),
     ).toThrow();
     expect(stderrSpy).toHaveBeenCalledWith("Something went wrong\n");
   });
 
   test("falls back to 'Unknown error' when error is undefined", () => {
     setupSpies();
-    expect(() =>
-      exitFromIpcResult({ ok: false }),
-    ).toThrow("exit:10");
+    expect(() => exitFromIpcResult({ ok: false })).toThrow("exit:10");
     expect(stderrSpy).toHaveBeenCalledWith("Unknown error\n");
   });
 });
@@ -97,7 +99,9 @@ describe("daemon-down message", () => {
     const { cliIpcCall } = await import("../cli-client.js");
     const r = await cliIpcCall("any_method", {}, { timeoutMs: 100 });
     expect(r.ok).toBe(false);
-    if (r.ok) return;
+    if (r.ok) {
+      return;
+    }
     expect(r.error).toContain("connect to the assistant at ");
     expect(r.error).toContain("assistant status");
   });

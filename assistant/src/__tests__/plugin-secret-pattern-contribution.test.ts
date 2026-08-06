@@ -13,8 +13,8 @@
  * (`mtime-cache.test.ts`):
  *
  *  1. User plugins — synthetic plugin directories driven through boot
- *     discovery and the source-versions reconcile (install, disable,
- *     uninstall published exactly the way production publishes them).
+ *     discovery and the imperative source-versions reconcile (install,
+ *     disable, uninstall applied exactly the way production applies them).
  *  2. Default/registered plugins — `bootstrapPlugins()` registering the
  *     manifest declaration and rolling it back when `init()` fails.
  *
@@ -35,13 +35,9 @@ import {
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import {
-  createSourceWatchState,
-  runSourceWatchPass,
-  type SourceWatchState,
-} from "../monitoring/plugin-source-watch.js";
-import {
   getUserHooksFor,
   populateCacheAtBoot,
+  reconcilePluginSourcesNow,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
 import {
@@ -116,21 +112,11 @@ function findRegistered(label: string, pluginName: string) {
 }
 
 /**
- * Watcher state shared by a test's publishes, reset per test so each test's
- * first publish takes a fresh baseline.
- */
-let watchState: SourceWatchState | null = null;
-
-/**
- * Publish pending source changes the way production does — one watcher pass —
- * then dispatch a hook read so the daemon-side sentinel gate applies the diff.
+ * Apply pending source changes the way production does: the imperative
+ * reconcile the install/uninstall/enable/disable routes call.
  */
 async function publishAndDispatch(): Promise<void> {
-  if (watchState === null) {
-    watchState = createSourceWatchState();
-  }
-  runSourceWatchPass(watchState);
-  await getUserHooksFor("user-prompt-submit");
+  await reconcilePluginSourcesNow();
 }
 
 // ─── Setup / teardown ────────────────────────────────────────────────────────
@@ -142,7 +128,6 @@ beforeAll(() => {
 beforeEach(() => {
   ensurePluginsDir();
   rmSync(getSourceVersionsPath(), { force: true });
-  watchState = null;
   // Also clears the secret-pattern registry via resetPluginSecretPatternsForTests.
   resetPluginCacheForTests();
   resetPluginRegistryForTests();
@@ -231,6 +216,41 @@ describe("user plugin credential key pattern lifecycle", () => {
     await publishAndDispatch();
 
     expect(getPluginSecretPatterns()).toHaveLength(0);
+  });
+
+  test("patterns stay active through the shutdown hook on disable", async () => {
+    // Mirror of the init-ordering guarantee: shutdown-time logging must still
+    // be covered by the plugin's declared redaction patterns, so unregister
+    // happens only after the shutdown hook returns.
+    const g = globalThis as {
+      __patternProbe?: () => number;
+      __shutdownPatternCount?: number;
+    };
+    g.__patternProbe = () => getPluginSecretPatterns().length;
+    delete g.__shutdownPatternCount;
+    try {
+      const dir = writePluginDir("shutdown-order-plugin", [VIRLO_PATTERN]);
+      writeHook(
+        dir,
+        "shutdown",
+        `export default () => { const g = globalThis; g.__shutdownPatternCount = g.__patternProbe ? g.__patternProbe() : -1; };`,
+      );
+      await populateCacheAtBoot();
+      expect(
+        findRegistered("Virlo API Key", "shutdown-order-plugin"),
+      ).toBeDefined();
+
+      writeFileSync(join(dir, ".disabled"), "");
+      await publishAndDispatch();
+
+      const observed = (globalThis as { __shutdownPatternCount?: number })
+        .__shutdownPatternCount;
+      expect(observed).toBe(1);
+      expect(getPluginSecretPatterns()).toHaveLength(0);
+    } finally {
+      delete g.__patternProbe;
+      delete g.__shutdownPatternCount;
+    }
   });
 
   test("an invalid declaration never blocks activation; the valid one still registers", async () => {

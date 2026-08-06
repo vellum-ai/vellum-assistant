@@ -254,7 +254,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(true);
 
       // Verify prepareOAuth2Flow received loopback options
@@ -277,7 +279,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(true);
 
       expect(lastPrepareArgs).not.toBeNull();
@@ -297,7 +301,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(true);
 
       expect(lastPrepareArgs).not.toBeNull();
@@ -319,7 +325,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(false);
-      if (result.success) return;
+      if (result.success) {
+        return;
+      }
       expect(result.error).toContain("public ingress URL");
     });
 
@@ -335,7 +343,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(true);
     });
   });
@@ -357,7 +367,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(false);
 
       expect(lastStartArgs).not.toBeNull();
@@ -379,7 +391,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(false);
 
       expect(lastStartArgs).not.toBeNull();
@@ -400,7 +414,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.deferred).toBe(false);
 
       expect(lastStartArgs).not.toBeNull();
@@ -636,7 +652,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(false);
-      if (result.success) return;
+      if (result.success) {
+        return;
+      }
       expect(result.error).toContain("public ingress URL");
       // prepareOAuth2Flow should NOT have been called
       expect(lastPrepareArgs).toBeNull();
@@ -654,7 +672,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(false);
-      if (result.success) return;
+      if (result.success) {
+        return;
+      }
       expect(result.error).toContain("public ingress URL");
       expect(lastPrepareArgs).toBeNull();
     });
@@ -670,7 +690,9 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       });
 
       expect(result.success).toBe(false);
-      if (result.success) return;
+      if (result.success) {
+        return;
+      }
       expect(result.error).toContain("No OAuth provider registered");
       expect(result.error).toContain("unknown-provider");
     });

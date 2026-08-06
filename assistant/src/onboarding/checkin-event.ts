@@ -51,9 +51,15 @@ export function buildCheckinTitle({
 }: CheckinNames): string {
   const me = userName?.trim();
   const you = assistantName?.trim();
-  if (me && you) return `${me} <> ${you}: Day 2 Check-in`;
-  if (me) return `${me}: Day 2 Check-in`;
-  if (you) return `${you}: Day 2 Check-in`;
+  if (me && you) {
+    return `${me} <> ${you}: Day 2 Check-in`;
+  }
+  if (me) {
+    return `${me}: Day 2 Check-in`;
+  }
+  if (you) {
+    return `${you}: Day 2 Check-in`;
+  }
   return "Day 2 Check-in";
 }
 
@@ -106,11 +112,15 @@ function tzOffsetMs(utcMs: number, timeZone: string): number {
   });
   const map: Record<string, string> = {};
   for (const part of dtf.formatToParts(new Date(utcMs))) {
-    if (part.type !== "literal") map[part.type] = part.value;
+    if (part.type !== "literal") {
+      map[part.type] = part.value;
+    }
   }
   // `hourCycle: h23` can emit "24" for midnight on some runtimes — normalize.
   let hour = Number(map.hour);
-  if (hour === 24) hour = 0;
+  if (hour === 24) {
+    hour = 0;
+  }
   const asUtc = Date.UTC(
     Number(map.year),
     Number(map.month) - 1,
@@ -139,7 +149,9 @@ export function zonedWallTimeToUtcMs(
   const off1 = tzOffsetMs(guess, timeZone);
   let utc = guess - off1;
   const off2 = tzOffsetMs(utc, timeZone);
-  if (off2 !== off1) utc = guess - off2;
+  if (off2 !== off1) {
+    utc = guess - off2;
+  }
   return utc;
 }
 
@@ -156,7 +168,9 @@ export function tomorrowInTimeZone(
   });
   const map: Record<string, string> = {};
   for (const part of dtf.formatToParts(new Date(nowMs))) {
-    if (part.type !== "literal") map[part.type] = part.value;
+    if (part.type !== "literal") {
+      map[part.type] = part.value;
+    }
   }
   // Add a day via UTC arithmetic (handles month/year rollover), then read the
   // wall-clock date back out — we only care about Y/M/D, not the instant.
@@ -200,12 +214,20 @@ export interface GcalEvent {
 export function extractBusyFromEvents(events: GcalEvent[]): BusyInterval[] {
   const intervals: BusyInterval[] = [];
   for (const event of events) {
-    if (event.status === "cancelled") continue;
-    if (event.transparency === "transparent") continue;
+    if (event.status === "cancelled") {
+      continue;
+    }
+    if (event.transparency === "transparent") {
+      continue;
+    }
     // All-day events (date-only) don't block a 15-minute afternoon slot.
-    if (!event.start?.dateTime || !event.end?.dateTime) continue;
+    if (!event.start?.dateTime || !event.end?.dateTime) {
+      continue;
+    }
     const self = event.attendees?.find((a) => a.self);
-    if (self?.responseStatus === "declined") continue;
+    if (self?.responseStatus === "declined") {
+      continue;
+    }
 
     const start = Date.parse(event.start.dateTime);
     const end = Date.parse(event.end.dateTime);

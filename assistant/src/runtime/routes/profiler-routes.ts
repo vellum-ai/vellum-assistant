@@ -56,7 +56,9 @@ function readProfileSummary(runDir: string): string | undefined {
   try {
     const entries = readdirSync(runDir);
     const mdFile = entries.find((e) => e.endsWith(".md"));
-    if (!mdFile) return undefined;
+    if (!mdFile) {
+      return undefined;
+    }
     return readFileSync(join(runDir, mdFile), "utf-8");
   } catch {
     return undefined;
@@ -64,7 +66,9 @@ function readProfileSummary(runDir: string): string | undefined {
 }
 
 function validateRunId(runId: string | undefined): string {
-  if (!runId) throw new BadRequestError("runId is required");
+  if (!runId) {
+    throw new BadRequestError("runId is required");
+  }
   if (runId.includes("..") || runId.includes("/") || runId.includes("\\")) {
     throw new BadRequestError("Invalid run ID");
   }
@@ -123,7 +127,9 @@ function handleGetRun({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function handleExportRun({ pathParams = {} }: RouteHandlerArgs): Uint8Array {
+async function handleExportRun({
+  pathParams = {},
+}: RouteHandlerArgs): Promise<Uint8Array> {
   const runId = validateRunId(pathParams.runId);
 
   const runDir = getProfilerRunDir(runId);
@@ -136,7 +142,7 @@ function handleExportRun({ pathParams = {} }: RouteHandlerArgs): Uint8Array {
   try {
     copyDirContents(runDir, staging);
 
-    const archiveBuf = createTarGz(staging);
+    const archiveBuf = await createTarGz(staging);
     if (!archiveBuf) {
       log.error(
         { runId },
@@ -149,7 +155,9 @@ function handleExportRun({ pathParams = {} }: RouteHandlerArgs): Uint8Array {
 
     return new Uint8Array(archiveBuf);
   } catch (err) {
-    if (err instanceof RouteError) throw err;
+    if (err instanceof RouteError) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, runId }, "Failed to export profiler run");
     throw new InternalError(`Failed to export profiler run: ${message}`);
@@ -209,7 +217,9 @@ function copyDirContents(src: string, dest: string): void {
     const destPath = join(dest, entry);
     try {
       const stat = lstatSync(srcPath);
-      if (stat.isSymbolicLink()) continue;
+      if (stat.isSymbolicLink()) {
+        continue;
+      }
       if (stat.isDirectory()) {
         mkdirSync(destPath, { recursive: true });
         copyDirContents(srcPath, destPath);

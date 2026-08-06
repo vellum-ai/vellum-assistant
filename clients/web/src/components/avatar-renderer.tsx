@@ -1,4 +1,3 @@
-
 import { useMemo } from "react";
 
 import { composeSvg } from "@/utils/avatar-svg-compositor";
@@ -7,7 +6,8 @@ import type { CharacterComponents } from "@/types/avatar";
 export interface AvatarRendererProps {
   components: CharacterComponents;
   bodyShapeId: string;
-  eyeStyleId: string;
+  /** Omit (or pass null) to render a body-only, eyeless avatar. */
+  eyeStyleId?: string | null;
   colorId: string;
   size?: number;
   className?: string;

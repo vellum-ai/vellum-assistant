@@ -41,22 +41,13 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     /// on the plugin instance for the duration of the flow.
     private var authSession: ASWebAuthenticationSession?
 
-    /// Read the URL scheme from the bundle's CFBundleURLTypes rather than
-    /// hardcoding it. Each build target (App, App Dev, App Staging) sets
-    /// BUNDLE_URL_SCHEME in its xcconfig, which is baked into Info.plist's
-    /// CFBundleURLSchemes at build time. Falls back to "vellum-assistant"
-    /// if the plist entry is missing or un-substituted.
-    private static let callbackScheme: String = {
-        guard let urlTypes = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]],
-              let schemes = urlTypes.first?["CFBundleURLSchemes"] as? [String],
-              let scheme = schemes.first,
-              !scheme.isEmpty,
-              !scheme.contains("$")
-        else {
-            return "vellum-assistant"
-        }
-        return scheme
-    }()
+    /// The OAuth callback scheme, read from this build's own bundle rather
+    /// than hardcoded — see ``BundleURLScheme``, which the widget extension
+    /// shares. Falls back to the production scheme when the bundle declares
+    /// none, so a misconfigured build still reaches a working callback rather
+    /// than failing sign-in; unlike a voice deep link, this is not a cross-app
+    /// launch.
+    private static let callbackScheme: String = BundleURLScheme.current ?? "vellum-assistant"
 
     /// The host this build target is allowed to authenticate against,
     /// read from the `VellumAssociatedDomain` Info.plist key (set per
@@ -129,7 +120,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             case .success(let id):
                 clientId = id
             case .failure(let error):
-                call.reject(error.message)
+                self.reject(call, error)
                 return
             }
 
@@ -235,7 +226,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 case .success(let token):
                     accessToken = token
                 case .failure(let error):
-                    call.reject(error.message)
+                    self.reject(call, error)
                     return
                 }
                 self.exchangeForSession(baseURL: baseURL, clientId: clientId, accessToken: accessToken) { result in
@@ -243,7 +234,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     case .success(let sessionToken):
                         call.resolve(["sessionToken": sessionToken])
                     case .failure(let error):
-                        call.reject(error.message)
+                        self.reject(call, error)
                     }
                 }
             }
@@ -279,6 +270,22 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private struct AuthFlowError: Error {
         let message: String
+        /// Machine-readable cause for the web layer's message map, when the
+        /// failure has one. `nil` means "unclassified" and surfaces as the
+        /// generic retry copy.
+        var authError: String?
+    }
+
+    /// Reject `call` with an `AuthFlowError`, promoting a classified failure to
+    /// the `AUTH_ERROR` code + `data.authError` shape the login screen already
+    /// reads for WorkOS callback errors. Unclassified failures reject with the
+    /// message alone, exactly as before.
+    private func reject(_ call: CAPPluginCall, _ error: AuthFlowError) {
+        guard let authError = error.authError else {
+            call.reject(error.message)
+            return
+        }
+        call.reject(error.message, "AUTH_ERROR", nil, ["authError": authError])
     }
 
     /// GET the headless config and pick the token-auth WorkOS client id.
@@ -336,7 +343,14 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data,
                   let accessToken = WorkOSAuth.accessToken(fromAuthenticate: data) else {
-                completion(.failure(AuthFlowError(message: "WorkOS code exchange returned no access token")))
+                // Name the status: this and the session exchange both used to
+                // report one indistinguishable string, so a report could not
+                // even say which of the two exchanges failed.
+                let status = (response as? HTTPURLResponse)?.statusCode
+                completion(.failure(AuthFlowError(
+                    message: "WorkOS code exchange returned no access token"
+                        + (status.map { " (HTTP \($0))" } ?? "")
+                )))
                 return
             }
             completion(.success(accessToken))
@@ -370,9 +384,25 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 completion(.failure(AuthFlowError(message: "Session exchange failed: \(error.localizedDescription)")))
                 return
             }
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data,
+            guard let http = response as? HTTPURLResponse else {
+                completion(.failure(AuthFlowError(message: "Session exchange returned no response")))
+                return
+            }
+            // A non-200 here is the platform refusing the sign-in — signups
+            // closed, an unlinked provider account, a step this shell cannot
+            // run. Carry its cause across so the login screen can say which,
+            // and name the status in the message either way so a failure we
+            // have not classified is still diagnosable from a report.
+            guard http.statusCode == 200 else {
+                completion(.failure(AuthFlowError(
+                    message: "Session exchange failed (HTTP \(http.statusCode))",
+                    authError: WorkOSAuth.sessionExchangeErrorCode(status: http.statusCode, body: data)
+                )))
+                return
+            }
+            guard let data = data,
                   let sessionToken = WorkOSAuth.sessionToken(fromProviderToken: data) else {
-                completion(.failure(AuthFlowError(message: "Session exchange returned invalid response")))
+                completion(.failure(AuthFlowError(message: "Session exchange returned no session token")))
                 return
             }
             completion(.success(sessionToken))

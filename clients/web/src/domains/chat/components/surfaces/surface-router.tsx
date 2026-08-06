@@ -1,4 +1,5 @@
-import { CheckCircle, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import * as Sentry from "@sentry/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { INHERENTLY_INTERACTIVE_SURFACE_TYPES } from "@/domains/chat/types/types";
@@ -20,6 +21,7 @@ import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-creat
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
+import { VisualSurface } from "@/domains/chat/components/surfaces/visual-surface";
 import { WorkResultSurface } from "@/domains/chat/components/surfaces/work-result-surface";
 
 export interface SurfaceRouterProps {
@@ -29,6 +31,12 @@ export interface SurfaceRouterProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void | Promise<void>;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Threaded to
+   * every surface that renders markdown so workspace file references in the
+   * surface's copy resolve against the right workspace (inline media, file
+   * cards, download), not the globally-active assistant.
+   */
   assistantId?: string | null;
   assistantDisplayName?: string | null;
   onOpenApp?: (appId: string) => void;
@@ -42,7 +50,7 @@ export interface SurfaceRouterProps {
   onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
-export function SurfaceRouter({
+function SurfaceRouterInner({
   surface,
   onAction,
   assistantId,
@@ -52,7 +60,10 @@ export function SurfaceRouter({
   toolCalls,
   onVellumLinkClick,
 }: SurfaceRouterProps) {
-  if (surface.completed && INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)) {
+  if (
+    surface.completed &&
+    INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)
+  ) {
     const isCancelled = surface.completionSummary === "Cancelled";
     if (isCancelled) {
       return (
@@ -63,7 +74,7 @@ export function SurfaceRouter({
       );
     }
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-lighter text-[var(--system-positive-strong)]">
+      <div className="flex items-center gap-2 rounded-lg bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-lighter text-[var(--system-positive-strong)]">
         <CheckCircle className="h-4 w-4 shrink-0" />
         {surface.completionSummary ?? surface.title ?? "Done"}
       </div>
@@ -72,19 +83,49 @@ export function SurfaceRouter({
 
   switch (surface.surfaceType) {
     case "form":
-      return <FormSurface surface={surface} onAction={onAction} />;
+      return (
+        <FormSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "confirmation":
-      return <ConfirmationSurface surface={surface} onAction={onAction} />;
+      return (
+        <ConfirmationSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "file_upload":
-      return <FileUploadSurface surface={surface} onAction={onAction} />;
+      return (
+        <FileUploadSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "card":
-      return <CardSurface surface={surface} onAction={onAction} />;
+      return (
+        <CardSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "choice":
-      return <ChoiceSurface surface={surface} onAction={onAction} />;
+      return (
+        <ChoiceSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "copy_block":
       return <CopyBlockSurface surface={surface} onAction={onAction} />;
@@ -116,6 +157,9 @@ export function SurfaceRouter({
           onVellumLinkClick={onVellumLinkClick}
         />
       );
+
+    case "visual":
+      return <VisualSurface surface={surface} />;
 
     case "call_summary":
       return <CallSummarySurface surface={surface} onAction={onAction} />;
@@ -153,4 +197,43 @@ export function SurfaceRouter({
         </SurfaceContainer>
       );
   }
+}
+
+/**
+ * Renders one transcript surface, isolated behind an error boundary so a render
+ * failure inside a single surface — most consequentially the `dynamic_page`
+ * app viewer, whose sandboxed iframe drives async layout changes that can
+ * cascade into a render loop when the surface arrives mid-stream — degrades to
+ * an inline fallback instead of unwinding the whole transcript and
+ * white-screening the assistant.
+ *
+ * The boundary is keyed on `surfaceId`: a surface that crashes stays in the
+ * fallback until it is replaced by a different surface at the same position,
+ * so a surface caught in a render loop is not immediately re-mounted (and
+ * re-looped) by the next stream update to its own data.
+ */
+export function SurfaceRouter(props: SurfaceRouterProps) {
+  const { surface } = props;
+  return (
+    <Sentry.ErrorBoundary
+      key={surface.surfaceId}
+      beforeCapture={(scope) => {
+        scope.setTag("boundary", "chat-surface");
+        scope.setTag("surfaceType", surface.surfaceType ?? "unknown");
+      }}
+      fallback={
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3 py-2 text-body-small-default text-[var(--content-quiet)]"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {surface.title
+            ? `"${surface.title}" couldn't be displayed.`
+            : "This content couldn't be displayed."}
+        </div>
+      }
+    >
+      <SurfaceRouterInner {...props} />
+    </Sentry.ErrorBoundary>
+  );
 }

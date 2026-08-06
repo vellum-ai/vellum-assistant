@@ -10,7 +10,9 @@ describe("consent-changelog", () => {
   test("the current privacy version has change notes", () => {
     const notes = privacyChangeNotes(PRIVACY_CONSENT_VERSION);
     expect(notes.length).toBeGreaterThan(0);
-    expect(notes).toContain("Introduces Together AI as a new managed model provider");
+    expect(notes).toContain(
+      "Introduces Together AI as a new managed model provider",
+    );
   });
 
   test("an unknown version yields no notes", () => {

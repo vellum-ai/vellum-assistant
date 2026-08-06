@@ -11,15 +11,19 @@
  */
 
 import { memoizePluginPatternDerivation } from "../security/plugin-secret-patterns.js";
-import { PREFIX_PATTERNS } from "../security/secret-patterns.js";
+import { REDACTION_PREFIX_PATTERNS } from "../security/secret-patterns.js";
 
 // ---------------------------------------------------------------------------
-// Sensitive-value patterns (derived from shared PREFIX_PATTERNS)
+// Sensitive-value patterns (derived from shared REDACTION_PREFIX_PATTERNS)
 // ---------------------------------------------------------------------------
 
 const BEARER_RE = /Bearer [A-Za-z0-9._\-]+/g;
 
-const STATIC_API_KEY_PATTERNS: RegExp[] = PREFIX_PATTERNS.map(
+// This serializer redacts by replacing the matched span in place, so it uses
+// the bounded whole-block private-key matcher (via REDACTION_PREFIX_PATTERNS):
+// the match must cover header → body → footer or the key body would survive
+// redaction. The body bound keeps it O(n) on large serialized strings.
+const STATIC_API_KEY_PATTERNS: RegExp[] = REDACTION_PREFIX_PATTERNS.map(
   (p) => new RegExp(p.regex.source, "g"),
 );
 
@@ -66,7 +70,9 @@ export function redactLogString(value: string): string {
 // ---------------------------------------------------------------------------
 
 function redactValue(value: unknown, depth: number): unknown {
-  if (depth > 8) return value;
+  if (depth > 8) {
+    return value;
+  }
 
   if (typeof value === "string") {
     return redactLogString(value);
@@ -98,7 +104,9 @@ function redactValue(value: unknown, depth: number): unknown {
 // ---------------------------------------------------------------------------
 
 function serializeError(err: unknown, depth: number): unknown {
-  if (depth > 8 || err == null) return err;
+  if (depth > 8 || err == null) {
+    return err;
+  }
 
   if (!(err instanceof Error)) {
     return err;

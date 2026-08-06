@@ -65,7 +65,9 @@ export function optimisticCancel<Entry, Status>(
   entry: Entry | undefined,
   config: OptimisticLifecycleConfig<Entry, Status>,
 ): Entry | null {
-  if (!entry || !config.isActive(config.getStatus(entry))) return null;
+  if (!entry || !config.isActive(config.getStatus(entry))) {
+    return null;
+  }
   return config.applyCancel(entry);
 }
 
@@ -99,6 +101,8 @@ export function optimisticRetire<Entry, Status>(
   entry: Entry | undefined,
   config: OptimisticLifecycleConfig<Entry, Status>,
 ): Entry | null {
-  if (!entry || !config.isActive(config.getStatus(entry))) return null;
+  if (!entry || !config.isActive(config.getStatus(entry))) {
+    return null;
+  }
   return config.applyRetire(entry);
 }

@@ -1,23 +1,23 @@
-
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import {
-    type MutableRefObject,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
 } from "react";
 
 import {
-    createDraftConversationId,
-    resolveBootstrappedConversationId,
+  createDraftConversationId,
+  resolveBootstrappedConversationId,
+  shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
 import {
-    loadLastViewedConversationId,
-    saveLastViewedConversationId,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
 import { toast } from "@vellumai/design-library";
 
@@ -25,6 +25,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -36,6 +37,7 @@ import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
@@ -80,8 +82,8 @@ interface UseConversationLoaderParams {
  * polling for new messages.
  *
  * Owns the primary data-fetching lifecycle for the chat sidebar and
- * transcript. Returns `switchConversation`, `startNewConversation`,
- * and `refreshConversations` for use by sibling hooks.
+ * transcript. Returns `startNewConversation` and `refreshConversations` for
+ * use by sibling hooks.
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
@@ -120,7 +122,9 @@ export function useConversationLoader({
   // refetch through the same `listConversations` queryFn used at boot.
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     try {
       await invalidateConversationQueries(queryClient, assistantId);
     } catch (err) {
@@ -185,7 +189,9 @@ export function useConversationLoader({
       firstRefreshTickRef.current = false;
       return;
     }
-    if (assistantStateKind !== "active" || !assistantId) return;
+    if (assistantStateKind !== "active" || !assistantId) {
+      return;
+    }
     void invalidateConversationQueries(queryClient, assistantId);
   }, [
     refreshEpoch,
@@ -203,7 +209,10 @@ export function useConversationLoader({
   // because this toast already surfaces the right message.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (conversationListError instanceof ApiError && conversationListError.status === 401) {
+    if (
+      conversationListError instanceof ApiError &&
+      conversationListError.status === 401
+    ) {
       toast.error("Failed to authenticate user.");
     }
   }, [conversationListError]);
@@ -219,11 +228,20 @@ export function useConversationLoader({
   //
   // When the query recovers (data arrives), clear any prior load-failed
   // banner. Other error codes are left untouched.
+  //
+  // A failure inside the resume grace window is held back: the refetch that
+  // fires when the client returns from the background often fails transiently
+  // against a still-waking pod. The banner surfaces once the window expires
+  // and the query is still in error with nothing cached.
   // -------------------------------------------------------------------------
+  const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
-    if (assistantStateKind !== "active") return;
+    if (assistantStateKind !== "active") {
+      return;
+    }
     const isAuthFail =
-      conversationListError instanceof ApiError && conversationListError.status === 401;
+      conversationListError instanceof ApiError &&
+      conversationListError.status === 401;
     const hasUsableData = queryConversations.length > 0;
 
     if (conversationListIsError && !hasUsableData && !isAuthFail) {
@@ -231,10 +249,17 @@ export function useConversationLoader({
         context: "conversationList.bootstrap",
         level: "warning",
       });
+      if (isResumeGraceActive) {
+        return;
+      }
       useChatSessionStore.getState().setError((prev) => {
-        if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
+        if (shouldSuppressGenericChatErrorNotice(prev)) {
+          return prev;
+        }
         const status =
-          conversationListError instanceof ApiError ? conversationListError.status : 0;
+          conversationListError instanceof ApiError
+            ? conversationListError.status
+            : 0;
         return {
           code: CONVERSATION_LIST_LOAD_FAILED_CODE,
           message:
@@ -246,15 +271,18 @@ export function useConversationLoader({
       return;
     }
     if (hasUsableData) {
-      useChatSessionStore.getState().setError((prev) =>
-        prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
-      );
+      useChatSessionStore
+        .getState()
+        .setError((prev) =>
+          prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
+        );
     }
   }, [
     assistantStateKind,
     queryConversations,
     conversationListError,
     conversationListIsError,
+    isResumeGraceActive,
     shouldSuppressGenericChatErrorNotice,
   ]);
 
@@ -276,21 +304,40 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (assistantStateKind !== "active") return;
-    if (!assistantId) return;
+    if (assistantStateKind !== "active") {
+      return;
+    }
+    if (!assistantId) {
+      return;
+    }
 
     const explicitConversationId = urlConversationId;
+    const currentConversationId =
+      useConversationStore.getState().activeConversationId;
+
+    // Native mobile shells cold-launch into a fresh draft instead of
+    // resuming a conversation. A draft is minted only while nothing is selected
+    // in the URL or the store, and the minting pass writes the key to the store
+    // in the same body, so the gate closes for the rest of the session.
+    const newChatDraftConversationId = shouldMintNewChatDraft({
+      platformStartsInNewChat: isNativeMobile(),
+      urlConversationId: explicitConversationId,
+      currentConversationId,
+    })
+      ? createDraftConversationId()
+      : null;
 
     // Only the "resume last-viewed" / "land on latest foreground" fallbacks
-    // read the fetched list. An explicit URL key, an onboarding draft, or the
-    // existing in-memory selection all resolve without it — so the chat
-    // transcript the user opened renders immediately instead of blocking on
-    // the sidebar's conversation-list API.
+    // read the fetched list. An explicit URL key, an onboarding draft, the
+    // existing in-memory selection, or a new-chat draft all resolve without
+    // it, so the chat transcript the user opened renders immediately instead
+    // of blocking on the sidebar's conversation-list API.
     const needsConversationList = !(
       explicitConversationId != null ||
       searchParams.get("onboarding") === "1" ||
       (assistantIdRef.current === assistantId &&
-        useConversationStore.getState().activeConversationId != null)
+        currentConversationId != null) ||
+      newChatDraftConversationId != null
     );
     if (needsConversationList && conversationListIsPending) {
       return;
@@ -327,7 +374,8 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationId({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
-      currentConversationId: useConversationStore.getState().activeConversationId,
+      newChatDraftConversationId,
+      currentConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
       storedConversationId: loadLastViewedConversationId(assistantId),
@@ -363,7 +411,9 @@ export function useConversationLoader({
   // Save last-viewed conversation per assistant
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!assistantId || !activeConversationId) return;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     saveLastViewedConversationId(assistantId, activeConversationId);
   }, [assistantId, activeConversationId]);
 
@@ -377,30 +427,21 @@ export function useConversationLoader({
   });
 
   // -------------------------------------------------------------------------
-  // switchConversation
-  // -------------------------------------------------------------------------
-  const switchConversation = useCallback(
-    (key: string) => {
-      useSubagentStore.getState().reset();
-      useWorkflowStore.getState().reset();
-      useViewerStore.getState().setMainView("chat");
-      if (key === useConversationStore.getState().activeConversationId) return;
-      void navigate(routes.conversation(key));
-    },
-    [navigate],
-  );
-
-  // -------------------------------------------------------------------------
   // startNewConversation
   // -------------------------------------------------------------------------
   const startNewConversation = useCallback(
     ({ silent }: { silent?: boolean } = {}) => {
-      if (!silent) haptic.light();
+      if (!silent) {
+        haptic.light();
+      }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
+      useViewerStore.getState().clearTranscriptPanelPayloads();
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      useConversationStore
+        .getState()
+        .setActiveConversationId(draftConversationId);
       void navigate(routes.conversation(draftConversationId));
       requestComposerFocus();
     },
@@ -409,7 +450,6 @@ export function useConversationLoader({
 
   return {
     refreshConversations,
-    switchConversation,
     startNewConversation,
     conversationExistsOnServer,
     historyResult,

@@ -72,9 +72,13 @@ export function recordEstimate(
   estimated: number,
   actual: number,
 ): void {
-  if (estimated < MIN_SAMPLE_MAGNITUDE || actual < MIN_SAMPLE_MAGNITUDE) return;
+  if (estimated < MIN_SAMPLE_MAGNITUDE || actual < MIN_SAMPLE_MAGNITUDE) {
+    return;
+  }
   const ratio = actual / estimated;
-  if (ratio < MIN_ACCEPTABLE_RATIO || ratio > MAX_ACCEPTABLE_RATIO) return;
+  if (ratio < MIN_ACCEPTABLE_RATIO || ratio > MAX_ACCEPTABLE_RATIO) {
+    return;
+  }
 
   // A provider can echo back a usage report with no model field (some
   // OpenAI-compatible providers omit it), leaving `model` null/undefined at
@@ -105,7 +109,9 @@ export function recordEstimate(
  */
 export function getCorrection(provider: string, model: string): number {
   const specific = CALIBRATIONS.get(key(provider, model));
-  if (specific) return specific.ratio;
+  if (specific) {
+    return specific.ratio;
+  }
   if (model.length > 0) {
     return CALIBRATIONS.get(key(provider, ""))?.ratio ?? 1.0;
   }

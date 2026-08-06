@@ -19,6 +19,7 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import type { ConversationOrigin } from "../persistence/conversation-types.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -50,6 +51,61 @@ import { buildTransportHints } from "./transport-hints.js";
 // ── Per-conversation persistent options ────────────────────────────
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();
+
+/**
+ * The channel a conversation created here belongs to.
+ *
+ * A trust context is stamped per inbound message from the gateway verdict,
+ * so `sourceChannel` names the channel the message creating this
+ * conversation actually arrived on. This is the moment that fact is known,
+ * and the caller is the only party that holds it.
+ *
+ * Returns `undefined` when there is no trust context, which does NOT mean
+ * native. `handleSendMessage` materializes a conversation before the route
+ * resolves trust, so a Slack or phone send reaches here with no
+ * `sourceChannel` yet. Assuming native there would stamp a remote
+ * conversation as the guardian's own, and nothing could repair it:
+ * `setConversationOriginChannelIfUnset` only writes over NULL, and
+ * `recoverRestingTrustContext` grants INTERNAL_GUARDIAN_TRUST_CONTEXT to the
+ * native channel on every later wake and boot-resume.
+ *
+ * `transport.channelId` is not a substitute. It is the external Slack
+ * conversation id, not a {@link ChannelId}.
+ *
+ * So this states the origin only where it is genuinely known, and leaves the
+ * rest to attribution exactly as before. The remaining callers get their
+ * origin when they are migrated with real knowledge of it, not by guessing
+ * here.
+ */
+function originFromStoredOptions(
+  storedOptions: ConversationCreateOptions | undefined,
+): ConversationOrigin | undefined {
+  return storedOptions?.trustContext?.sourceChannel;
+}
+
+/**
+ * Drops the transport fields that describe what the client had on screen for a
+ * single message rather than for the conversation as a whole.
+ *
+ * `conversationOptions` is a durable map: a rebuilt conversation (evicted or
+ * gone stale) re-applies whatever transport was stored the last time anyone
+ * touched it. View state must not survive that, or a scheduled wake hours
+ * later would resurrect an app the user has since closed and assert it is on
+ * screen. The current call still applies the full transport to the live
+ * conversation, so only the persisted copy is trimmed.
+ */
+export function withoutTurnScopedTransport(
+  options: ConversationCreateOptions,
+): ConversationCreateOptions {
+  const transport = options.transport;
+  if (!transport || transport.visibleAppId === undefined) {
+    return options;
+  }
+  return {
+    ...options,
+    transport: { ...transport, visibleAppId: undefined },
+  };
+}
 
 export function mergeConversationOptions(
   conversationId: string,
@@ -86,6 +142,7 @@ function applyTransportMetadata(
   conversation.applyHostEnvFromTransport(transport);
   conversation.applyClientTimezoneFromTransport(transport);
   conversation.applyClientOsFromTransport(transport);
+  conversation.applyVisibleAppFromTransport(transport);
 }
 
 /**
@@ -110,7 +167,10 @@ export async function getOrCreateConversation(
     ...persistentOptions
   } = options ?? {};
   if (Object.values(persistentOptions).some((v) => v !== undefined)) {
-    mergeConversationOptions(conversationId, persistentOptions);
+    mergeConversationOptions(
+      conversationId,
+      withoutTurnScopedTransport(persistentOptions),
+    );
   }
 
   if (
@@ -118,6 +178,9 @@ export async function getOrCreateConversation(
     (conversation.isStale() && !conversation.isProcessing())
   ) {
     if (conversation) {
+      // Stale rebuild: the conversation id lives on, so abort in-flight
+      // children but keep terminal subagent results readable for the
+      // retention window.
       getSubagentManager().abortAllForParent(conversationId);
       conversation.dispose();
     }
@@ -198,9 +261,13 @@ export async function getOrCreateConversation(
           createConversation({
             id: conversationId,
             conversationType: storedOptions.conversationType,
+            origin: originFromStoredOptions(storedOptions),
           });
         } else {
-          ensureConversationExists(conversationId);
+          ensureConversationExists(
+            conversationId,
+            originFromStoredOptions(storedOptions),
+          );
         }
       }
 
@@ -218,6 +285,13 @@ export async function getOrCreateConversation(
         await newConversation.ensureActorScopedHistory();
       }
       applyTransportMetadata(newConversation, storedOptions);
+      // The stored transport is stripped of view state, so a rebuild driven by
+      // a live send takes the app on screen from THIS call. A rebuild with no
+      // inbound transport (a scheduled wake, a background follow-up) correctly
+      // leaves it unset rather than inheriting whatever was open last time.
+      if (options?.transport) {
+        newConversation.applyVisibleAppFromTransport(options.transport);
+      }
       setConversation(conversationId, newConversation);
       return newConversation;
     })();
@@ -245,14 +319,26 @@ export async function getOrCreateConversation(
  * Abort, dispose, and remove a single in-memory conversation.
  * Use before deleting the DB row so the agent loop can't write to a
  * deleted conversation and trip FK constraints.
+ *
+ * `keepSubagentRecords` leaves the children's durable rows behind for the
+ * caller to delete once its own destructive work has committed, see
+ * `SubagentManager.disposeAllForParent`.
  */
-export function destroyActiveConversation(conversationId: string): void {
+export function destroyActiveConversation(
+  conversationId: string,
+  opts?: { keepSubagentRecords?: boolean },
+): void {
+  // Subagent teardown is keyed by parent id, not the live instance — an
+  // evicted parent still retains its terminal children, and deleting the
+  // conversation must take their records with it.
+  getSubagentManager().disposeAllForParent(conversationId, undefined, {
+    keepRecords: opts?.keepSubagentRecords === true,
+  });
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return;
   }
   removeFromEvictor(conversationId);
-  getSubagentManager().abortAllForParent(conversationId);
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
@@ -277,10 +363,14 @@ export function stopConversations(): void {
  */
 export function clearAllActiveConversations(): number {
   const count = conversationCount();
-  const subagentManager = getSubagentManager();
+  // Tear down subagents across ALL parents, not just the in-memory ones: an
+  // evicted parent still retains its terminal children, and clear-all must
+  // reach them. Pass `keepRecords` so the rows themselves are deleted by the
+  // following `clearAll()` DB wipe in retry-safe order (conversations first,
+  // then subagents); an eager delete here would lose them if that wipe throws.
+  getSubagentManager().disposeAllForAllParents({ keepRecords: true });
   for (const id of conversationIds()) {
     removeFromEvictor(id);
-    subagentManager.abortAllForParent(id);
   }
   for (const conversation of allConversations()) {
     conversation.dispose();

@@ -27,8 +27,12 @@ let initialized = false;
  * Ported from vellum-assistant-platform's SafeAreaBridge.tsx.
  */
 export async function initSafeAreaBridge(): Promise<void> {
-  if (initialized) return;
-  if (typeof window === "undefined" || !Capacitor.isNativePlatform()) return;
+  if (initialized) {
+    return;
+  }
+  if (typeof window === "undefined" || !Capacitor.isNativePlatform()) {
+    return;
+  }
   initialized = true;
 
   try {

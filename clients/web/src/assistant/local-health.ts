@@ -22,7 +22,9 @@ export interface HealthzProbeResult {
 export function deriveLocalAssistantHealth(
   result: HealthzProbeResult,
 ): LocalAssistantHealth {
-  if (!result.ok) return "unreachable";
+  if (!result.ok) {
+    return "unreachable";
+  }
   const status = result.data?.status;
   // The daemon reports MIGRATING while its DB migrations run at startup — an
   // expected, self-resolving phase that must render as in-progress, not as an

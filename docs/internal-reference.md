@@ -325,7 +325,7 @@ The assistant can attach files and images to its replies. Attachments flow throu
 
 #### Desktop (HTTP+SSE)
 
-Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` SSE events. The macOS app renders thumbnails for images and displays file metadata for documents.
+Attachments are sent inline (base64) in `message_complete` and `generation_handoff` SSE events; historical attachments are returned by the HTTP conversation-history route. The macOS app renders thumbnails for images and displays file metadata for documents.
 
 #### Runtime HTTP API
 

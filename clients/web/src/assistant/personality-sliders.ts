@@ -8,10 +8,13 @@
  * moment the page unmounts. They're kept as a JSON sidecar in the
  * assistant's workspace (like the avatar's `character-traits.json`), so
  * the sliders reopen where the user left them — on any device — and the
- * overview's Personality card can plot them as a radar.
+ * overview's Personality card can draw them as its signature mark.
  */
 
-import { workspaceFileGet, workspaceWritePost } from "@/generated/daemon/sdk.gen";
+import {
+  workspaceFileGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
 import { PERSONALITY_AXIS_IDS } from "./personality-rewrite";
@@ -55,7 +58,7 @@ export function completeSliderValues(
  * other failure — non-OK response, network error, malformed JSON — throws.
  * Callers rely on that split: a missing sidecar falls back to neutral
  * defaults, but a transient read error must degrade to no-stat rather than
- * overwrite a user's saved dials with an all-centered radar.
+ * overwrite a user's saved dials with an all-centered flat line.
  */
 export async function fetchPersonalitySliders(
   assistantId: string,

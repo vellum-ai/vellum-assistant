@@ -108,7 +108,9 @@ async function main(): Promise<void> {
       }
       console.log(`${rel} is up to date.`);
     }
-    if (anyStale) process.exit(1);
+    if (anyStale) {
+      process.exit(1);
+    }
     return;
   }
 

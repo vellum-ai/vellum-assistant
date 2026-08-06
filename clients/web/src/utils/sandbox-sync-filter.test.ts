@@ -23,6 +23,7 @@ describe("forwardableSyncTags", () => {
       "conversation:conv-1:messages",
       "conversations:list",
       "apps:list",
+      "documents:list",
       "plugins:list",
       "feature-flags:client",
     ];
@@ -37,6 +38,15 @@ describe("forwardableSyncTags", () => {
       forwardableSyncTags(
         ["show:state", "apps:list"],
         ["show:state", "apps:list"],
+      ),
+    ).toEqual(["show:state"]);
+  });
+
+  test("drops the documents list tag while keeping a custom tag alongside it", () => {
+    expect(
+      forwardableSyncTags(
+        ["show:state", "documents:list"],
+        ["show:state", "documents:list"],
       ),
     ).toEqual(["show:state"]);
   });

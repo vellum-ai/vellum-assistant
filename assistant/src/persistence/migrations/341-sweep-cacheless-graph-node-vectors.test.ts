@@ -11,8 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const { getDb, getMemorySqlite, getSqliteFrom } =
-  await import("../db-connection.js");
+const { getDb, getMemorySqlite } = await import("../db-connection.js");
 const { initializeDb } = await import("../db-init.js");
 const { migrateSweepCachelessGraphNodeVectors } =
   await import("./341-sweep-cacheless-graph-node-vectors.js");
@@ -28,13 +27,9 @@ const BREAKER_FAILURE_THRESHOLD = 5;
 
 const SWEEP_JOB_ID = "migration-341-sweep-cacheless-graph-node-vectors";
 
-function mainRaw() {
-  return getSqliteFrom(getDb());
-}
-
 /** Insert a memory_graph_nodes row (fidelity `gone` models a soft delete). */
 function seedNode(id: string, fidelity = "vivid"): void {
-  mainRaw()
+  getMemorySqlite()!
     .query(
       `INSERT INTO memory_graph_nodes (
         id, content, type, created, last_accessed, last_consolidated,
@@ -83,7 +78,9 @@ function fakeQdrant(indexedTargetIds: string[]) {
 }
 
 beforeEach(() => {
-  mainRaw().run("DELETE FROM memory_graph_nodes");
+  // sweepOrphanedGraphNodePoints reads graph nodes on the memory connection, so
+  // seed and reset them there (memory_jobs also lives on the memory DB).
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
   _resetQdrantBreaker();
 });

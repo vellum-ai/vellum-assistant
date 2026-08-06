@@ -115,7 +115,10 @@ export async function importLocalBundle(
       `Import failed (HTTP ${response.status}).`,
     );
   }
-  const json = (await safeJson(response)) as { success?: boolean; error?: string } | null;
+  const json = (await safeJson(response)) as {
+    success?: boolean;
+    error?: string;
+  } | null;
   if (json && json.success === false) {
     throw new TeleportError(
       "import_failed",
@@ -169,7 +172,9 @@ export async function pollManagedExportJob(
     throwOnError: false,
   });
   const status = response?.status ?? 0;
-  if (status >= 500) return "processing"; // transient — caller retries
+  if (status >= 500) {
+    return "processing";
+  } // transient — caller retries
   if (!(response?.ok ?? false)) {
     throw new TeleportError(
       "export_job_failed",

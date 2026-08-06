@@ -13,8 +13,8 @@
  * context management.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
 
@@ -66,6 +66,17 @@ export interface RunConversationTurnResult {
   /** True when the message was queued because the conversation was busy. */
   queued?: boolean;
 }
+
+/**
+ * Metadata stamped on the row that opens a plugin-driven turn. A plugin drives
+ * the turn on its own schedule, so the row is machine-initiated even when it
+ * lands in an ordinary standard conversation the user also types into: the
+ * `automated` marker is what keeps the reply out of the `chat.assistant_reply`
+ * push (see `isReplyPushIneligibleUserMessage`) and out of the memory
+ * extraction pass, alongside every other machine-authored prompt. It is not an
+ * echo-suppression marker, so the row still renders in the transcript.
+ */
+const PLUGIN_TURN_MESSAGE_METADATA = { automated: true } as const;
 
 // ---------------------------------------------------------------------------
 // Content conversion
@@ -144,9 +155,9 @@ export async function runConversationTurn(
   const { resolveMediaSourceData } =
     await import("../providers/media-resolve.js");
   const { getConversation, getMessageById, getMessages } =
-      await import("../persistence/conversation-crud.js");
+    await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
-      await import("../runtime/sync/resource-sync-events.js");
+    await import("../runtime/sync/resource-sync-events.js");
 
   // Plugin-driven turns run as the guardian: plugins are installed by the
   // guardian, so their conversations inherit guardian trust. This lets the
@@ -193,7 +204,7 @@ export async function runConversationTurn(
   // buildEventEmitter pattern from process-message.ts so plugin-driven
   // turns reach the same subscribers as HTTP-driven turns.
   let assistantMessageId: string | undefined;
-  const onEvent = (msg: ServerMessage): void => {
+  const onEvent = (msg: AssistantEvent): void => {
     broadcastMessage(msg, conversationId);
     if (msg.type === "message_complete" && msg.messageId) {
       assistantMessageId = msg.messageId;
@@ -210,6 +221,7 @@ export async function runConversationTurn(
       onEvent,
       requestId,
       isInteractive: false,
+      metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
     });
     if (enqueueResult.rejected) {
       throw new Error(
@@ -229,6 +241,7 @@ export async function runConversationTurn(
     attachments,
     onEvent,
     isInteractive: false,
+    metadata: { ...PLUGIN_TURN_MESSAGE_METADATA },
     ...(options.callSite ? { callSite: options.callSite } : {}),
   });
 

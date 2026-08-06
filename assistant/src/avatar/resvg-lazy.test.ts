@@ -114,7 +114,9 @@ describe("writeTraitsAndRenderAvatar — native module missing", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) return; // narrow for TypeScript
+    if (result.ok) {
+      return;
+    } // narrow for TypeScript
     expect(result.reason).toBe("native_unavailable");
     expect(result.message).toContain("@resvg/resvg-js");
   });
@@ -130,7 +132,9 @@ describe("writeTraitsAndRenderAvatar — native module missing", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("invalid_traits");
   });
 });

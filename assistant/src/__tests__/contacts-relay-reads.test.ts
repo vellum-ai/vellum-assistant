@@ -23,7 +23,9 @@ mock.module("../util/logger.js", () => ({
         (...args: unknown[]) => {
           if (prop === "debug") {
             const msg = args.find((a) => typeof a === "string");
-            if (typeof msg === "string") debugLogs.push(msg);
+            if (typeof msg === "string") {
+              debugLogs.push(msg);
+            }
           }
         },
     }),
@@ -92,7 +94,9 @@ mock.module("../contacts/contact-store.js", () => ({
   },
   getContact: (id: string) => {
     localCalls.push("getContact");
-    if (id === "missing") return null;
+    if (id === "missing") {
+      return null;
+    }
     return {
       id,
       displayName: "Local Contact",
@@ -123,26 +127,27 @@ mock.module("../contacts/contact-store.js", () => ({
   },
 }));
 
-const { handleListContacts, handleGetContact, ROUTES } = (await import(
-  "../runtime/routes/contact-routes.js"
-)) as typeof import("../runtime/routes/contact-routes.js") & {
-  handleListContacts: (q: Record<string, string>) => Promise<{
-    ok: boolean;
-    contacts: Array<{ id: string; displayName: string; role: string }>;
-  }>;
-  handleGetContact: (id: string) => Promise<{
-    ok: boolean;
-    contact: { id: string; displayName: string; role: string };
-    assistantMetadata?: unknown;
-  }>;
-};
+const { handleListContacts, handleGetContact, ROUTES } =
+  (await import("../runtime/routes/contact-routes.js")) as typeof import("../runtime/routes/contact-routes.js") & {
+    handleListContacts: (q: Record<string, string>) => Promise<{
+      ok: boolean;
+      contacts: Array<{ id: string; displayName: string; role: string }>;
+    }>;
+    handleGetContact: (id: string) => Promise<{
+      ok: boolean;
+      contact: { id: string; displayName: string; role: string };
+      assistantMetadata?: unknown;
+    }>;
+  };
 
 /** Invoke the inline `search_contacts` POST route handler with a request body. */
 function searchContactsRoute(
   body: Record<string, unknown>,
 ): Promise<Array<{ id: string; displayName: string; role: string }>> {
   const route = ROUTES.find((r) => r.operationId === "search_contacts");
-  if (!route) throw new Error("search_contacts route not found");
+  if (!route) {
+    throw new Error("search_contacts route not found");
+  }
   return route.handler({ body }) as Promise<
     Array<{ id: string; displayName: string; role: string }>
   >;
@@ -235,8 +240,11 @@ describe("handleListContacts relay", () => {
     expect(result.contacts[0].id).toBe("gw-1");
     // The daemon's withChannelCompat re-derives externalUserId = address even
     // though the gateway emits null — the client-facing guarantee holds.
-    const ch = (result.contacts[0] as { channels: { address: string; externalUserId: string | null }[] })
-      .channels[0];
+    const ch = (
+      result.contacts[0] as {
+        channels: { address: string; externalUserId: string | null }[];
+      }
+    ).channels[0];
     expect(ch.externalUserId).toBe(ch.address);
   });
 
@@ -298,9 +306,7 @@ describe("handleListContacts relay", () => {
     expect(localCalls).toEqual(["listContacts"]);
     // contactType + limit are pushed into the SQL-filtered daemon read (the
     // daemon-native listContacts filters contactType BEFORE applying limit).
-    expect(listContactsArgs).toEqual([
-      { limit: 50, contactType: "assistant" },
-    ]);
+    expect(listContactsArgs).toEqual([{ limit: 50, contactType: "assistant" }]);
     expectOnlyIdsScopedTelemetryHydration(["local-1"]);
     expect(result.contacts[0].id).toBe("local-1");
     expect(result.contacts[0].contactType).toBe("assistant");
@@ -518,7 +524,10 @@ describe("handleGetContact relay", () => {
     // Relayed reads must carry contact-level timestamps — the CLI's detail
     // formatter calls new Date(createdAt/updatedAt) unconditionally, so dropping
     // them surfaces as a RangeError ("Invalid time value").
-    const contact = result.contact as { createdAt?: number; updatedAt?: number };
+    const contact = result.contact as {
+      createdAt?: number;
+      updatedAt?: number;
+    };
     expect(contact.createdAt).toBe(1699000000);
     expect(contact.updatedAt).toBe(1700000000);
   });

@@ -16,12 +16,8 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../persistence/checkpoints.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { getLogger } from "../util/logger.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { SuggestedPrompt } from "./feed-types.js";
-
-const log = getLogger("suggested-prompts-cache");
 
 const LLM_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
@@ -74,18 +70,9 @@ export function invalidateAssistantSuggestedPromptsCache(): void {
   } catch {
     // Invalidation failure is non-fatal — the TTL still bounds staleness.
   }
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "home_feed_updated",
-        updatedAt: new Date().toISOString(),
-        newItemCount: 0,
-      }),
-    )
-    .catch((err) => {
-      log.warn(
-        { err },
-        "Failed to publish home_feed_updated after prompt cache invalidation",
-      );
-    });
+  broadcastMessage({
+    type: "home_feed_updated",
+    updatedAt: new Date().toISOString(),
+    newItemCount: 0,
+  });
 }

@@ -48,10 +48,18 @@ describe("webhooks register", () => {
 
   it("calls webhooks_register with type", async () => {
     const program = buildProgram();
-    await program.parseAsync(["node", "assistant", "webhooks", "register", "telegram"]);
+    await program.parseAsync([
+      "node",
+      "assistant",
+      "webhooks",
+      "register",
+      "telegram",
+    ]);
     expect(mockCalls.length).toBe(1);
     expect(mockCalls[0][0]).toBe("webhooks_register");
-    expect((mockCalls[0][1].body as Record<string, unknown>).type).toBe("telegram");
+    expect((mockCalls[0][1].body as Record<string, unknown>).type).toBe(
+      "telegram",
+    );
   });
 
   it("passes path override", async () => {
@@ -65,7 +73,9 @@ describe("webhooks register", () => {
       "--path",
       "webhooks/twilio/voice",
     ]);
-    expect((mockCalls[0][1].body as Record<string, unknown>).path).toBe("webhooks/twilio/voice");
+    expect((mockCalls[0][1].body as Record<string, unknown>).path).toBe(
+      "webhooks/twilio/voice",
+    );
   });
 
   it("passes source label", async () => {
@@ -79,14 +89,22 @@ describe("webhooks register", () => {
       "--source",
       "@bot",
     ]);
-    expect((mockCalls[0][1].body as Record<string, unknown>).source).toBe("@bot");
+    expect((mockCalls[0][1].body as Record<string, unknown>).source).toBe(
+      "@bot",
+    );
   });
 
   it("calls exitFromIpcResult on error", async () => {
     mockResponse = { ok: false, error: "not configured", statusCode: 422 };
     const program = buildProgram();
     await expect(
-      program.parseAsync(["node", "assistant", "webhooks", "register", "telegram"]),
+      program.parseAsync([
+        "node",
+        "assistant",
+        "webhooks",
+        "register",
+        "telegram",
+      ]),
     ).rejects.toThrow("exitFromIpcResult called");
   });
 });

@@ -25,6 +25,7 @@ import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
+import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Input, toast } from "@vellumai/design-library";
 
 export interface LibraryViewProps {
@@ -70,13 +71,24 @@ export function LibraryView({
   } = useAppDelete(assistantId);
 
   // --- Import state ---
+  // iOS Safari/WKWebView (including iOS Chrome) doesn't implement `accept`
+  // with filename extensions, so a `.vellum` filter makes the custom-extension
+  // bundle non-selectable in the file picker there. Constrain the picker to
+  // `.vellum` only on fine-pointer (desktop) devices; touch devices get an
+  // unrestricted picker and rely on the server's bundle validation.
+  // https://github.com/mdn/browser-compat-data/issues/26043
+  const [bundleAccept] = useState<string | undefined>(() =>
+    isPointerCoarse() ? undefined : ".vellum",
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
   const handleImportBundle = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file || isImporting) return;
+      if (!file || isImporting) {
+        return;
+      }
       setIsImporting(true);
       try {
         const result = await importBundle(assistantId, file);
@@ -91,7 +103,9 @@ export function LibraryView({
         );
       } finally {
         setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
       }
     },
     [assistantId, isImporting, queryClient, onOpenApp],
@@ -100,7 +114,9 @@ export function LibraryView({
   // --- Deploy ---
   const handleDeploy = useCallback(
     async (appId: string) => {
-      if (isDeploying) return;
+      if (isDeploying) {
+        return;
+      }
       const app = apps.find((a) => a.id === appId);
       const appName = app?.name ?? "this app";
       try {
@@ -157,6 +173,7 @@ export function LibraryView({
   if (apps.length === 0 && documents.length === 0) {
     return (
       <LibraryEmptyState
+        accept={bundleAccept}
         fileInputRef={fileInputRef}
         isImporting={isImporting}
         onImportBundle={handleImportBundle}
@@ -175,7 +192,7 @@ export function LibraryView({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".vellum"
+            accept={bundleAccept}
             className="hidden"
             onChange={handleImportBundle}
           />

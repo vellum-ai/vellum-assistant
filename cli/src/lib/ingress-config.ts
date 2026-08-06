@@ -85,6 +85,31 @@ export function saveIngressUrl(
   }
 }
 
+/** Persist a reserved ngrok domain under `ingress.ngrok.domain`; null clears it. */
+export function saveNgrokDomain(
+  workspaceDir: string,
+  domain: string | null,
+): void {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
+  if (domain) {
+    ingress.ngrok = { domain };
+  } else {
+    delete ingress.ngrok;
+  }
+  config.ingress = ingress;
+  saveRawConfig(workspaceDir, config);
+}
+
+/** Read the reserved ngrok domain from the workspace config, if saved. */
+export function loadNgrokDomain(workspaceDir: string): string | null {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = config.ingress as Record<string, unknown> | undefined;
+  const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
+  const domain = ngrok?.domain;
+  return typeof domain === "string" && domain.trim() ? domain : null;
+}
+
 /** Clear the ingress public base URL from the workspace config. */
 export function clearIngressUrl(
   workspaceDir: string,

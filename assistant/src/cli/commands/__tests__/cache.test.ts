@@ -12,6 +12,7 @@
  */
 
 import * as nodeFs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
@@ -160,7 +161,9 @@ async function runCommand(
     registerCacheCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -413,8 +416,9 @@ describe("cache set --value", () => {
 describe("cache set --file", () => {
   test("reads JSON from a file", async () => {
     mockIpcResult = { ok: true, result: { key: "file-key" } };
-    const pkgPath = new URL("../../../../package.json", import.meta.url)
-      .pathname;
+    const pkgPath = fileURLToPath(
+      new URL("../../../../package.json", import.meta.url),
+    );
 
     const { exitCode } = await runCommand(["cache", "set", "--file", pkgPath]);
 
@@ -440,8 +444,9 @@ describe("cache set --file", () => {
   test("works in TTY mode (no stdin required)", async () => {
     mockStdinIsTTY = true;
     mockIpcResult = { ok: true, result: { key: "file-tty-key" } };
-    const pkgPath = new URL("../../../../package.json", import.meta.url)
-      .pathname;
+    const pkgPath = fileURLToPath(
+      new URL("../../../../package.json", import.meta.url),
+    );
 
     const { exitCode } = await runCommand(["cache", "set", "--file", pkgPath]);
 

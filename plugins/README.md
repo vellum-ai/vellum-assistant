@@ -17,6 +17,7 @@ wired surface.
 - [Public API surface](#public-api-surface--vellumaiplugin-api)
 - [Hooks](#hooks)
 - [Tools](#tools)
+- [Schedules](#schedules)
 - [Marketplace — whitelisting external plugins](#marketplace--whitelisting-external-plugins)
 - [Conventions](#conventions)
 
@@ -36,12 +37,13 @@ wired surface.
 
 The external plugin loader extends the assistant by wiring these contribution surfaces.
 
-| Surface             | Directory                | Discovery                                                       |
-| ------------------- | ------------------------ | --------------------------------------------------------------- |
-| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                               |
-| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                   |
-| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                   |
-| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools)) |
+| Surface             | Directory                | Discovery                                                                      |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                                              |
+| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                                  |
+| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                                  |
+| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools))                |
+| Schedules           | `schedules/<name>/`      | reconciled into schedule rows on install/upgrade (see [Schedules](#schedules)) |
 
 ---
 
@@ -64,6 +66,9 @@ my-plugin/
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
 │   └── ...
+├── schedules/
+│   ├── digest/                # config.json + index.md (prompt body)
+│   └── nightly-sync/          # config.json + index.sh (shell script)
 └── src/                       # Internal modules (NOT walked by the loader)
     └── state.ts               # Shared state, helpers
 ```
@@ -180,9 +185,7 @@ explicit unload, etc.).
 // hooks/shutdown.ts
 import type { ShutdownContext } from "@vellumai/plugin-api";
 
-export default async function shutdown(
-  ctx: ShutdownContext,
-): Promise<void> {
+export default async function shutdown(ctx: ShutdownContext): Promise<void> {
   // ctx.assistantVersion  — host semver string
 }
 ```
@@ -304,7 +307,10 @@ export default function init(ctx: InitContext): void {
   );
   for (const [category, key] of Object.entries(CATEGORY_PROFILE)) {
     if (!routable.has(key)) {
-      ctx.logger.warn({ category, key }, "configured profile missing or disabled");
+      ctx.logger.warn(
+        { category, key },
+        "configured profile missing or disabled",
+      );
     }
   }
 }
@@ -571,6 +577,57 @@ call time.
 
 ---
 
+## Schedules
+
+A plugin declares recurring scheduled tasks as directories under
+`schedules/`. A reconciler converges each declaration into an ordinary
+schedule row, so declared schedules run through the same engine, run
+history, and UI as user-created ones.
+
+A declaration is `schedules/<name>/`: a `config.json` plus exactly one
+entrypoint. `index.md` (the prompt body, no frontmatter) runs as an
+assistant task; `index.sh` runs as a shell script with no LLM.
+
+```
+schedules/
+└── digest/
+    ├── config.json
+    └── index.md
+```
+
+```json
+{
+  "expression": "0 9 * * *",
+  "description": "Daily digest",
+  "timezone": "America/New_York"
+}
+```
+
+Config fields: `expression` (required; cron or RRULE, auto-detected or
+pinned via `expression_syntax`), `timezone`, `description`, `max_retries`,
+`retry_backoff_ms`, `quiet`, `inference_profile`, `timeout_ms`, `enabled`
+(defaults to true). Declared schedules are recurring only; there is no
+one-shot form.
+
+Fail-closed rules. A file sitting directly under `schedules/` is not a
+declaration and is reported as an error, so a stray `<name>.md` is never
+silently ignored. Ambiguity never resolves by precedence: a directory with
+zero or multiple entrypoints, or an unsupported entrypoint (anything but
+`index.md` / `index.sh`), is an error and that schedule does not load.
+Errors are per-schedule: one bad declaration never blocks siblings, and a
+declaration that breaks in an upgrade keeps its last-good schedule running
+while the error is surfaced as a notification.
+
+Lifecycle. The declaration directory is the source of truth: edits and
+upgrades update the schedule row in place, uninstalling or disabling the
+plugin pauses its schedules (runs and history are kept), and reinstalling
+re-links them. Users can enable/disable a declared schedule from the
+schedules UI; that override survives plugin upgrades. Rows are managed by
+the reconciler, so declared schedules cannot be edited or deleted
+imperatively: change the declaration instead.
+
+---
+
 ## Marketplace — whitelisting external plugins
 
 The catalog shown by `assistant plugins search` (and the web plugins tab) is
@@ -585,11 +642,18 @@ a `name`, an optional `owner`, and a `plugins` array.
 ```json
 {
   "name": "vellum-assistant",
-  "owner": { "name": "Vellum", "url": "https://github.com/vellum-ai/vellum-assistant" },
+  "owner": {
+    "name": "Vellum",
+    "url": "https://github.com/vellum-ai/vellum-assistant"
+  },
   "plugins": [
     {
       "name": "example-plugin",
-      "source": { "source": "github", "repo": "example-org/example-plugin", "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290" },
+      "source": {
+        "source": "github",
+        "repo": "example-org/example-plugin",
+        "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+      },
       "description": "Short summary shown in the catalog.",
       "category": "productivity",
       "homepage": "https://github.com/example-org/example-plugin",
@@ -670,7 +734,7 @@ External ecosystem plugins are often shaped for a different host (e.g. a Claude
 Code plugin keyed on a `.claude-plugin/plugin.json`), so installed verbatim
 they fail this loader's contract — a name that doesn't match the directory, no
 `@vellumai/plugin-api` peer dependency, no `hooks/`/`tools/`. A postinstall
-adapter is a small, curated transform we commit *here* to translate such a
+adapter is a small, curated transform we commit _here_ to translate such a
 clone into Vellum's shape.
 
 To adapt an external plugin, add a directory next to this README named for the

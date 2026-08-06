@@ -9,9 +9,9 @@ import { PhaseGroupedStepList } from "./phase-grouped-step-list";
  * the fields that matter for the case under test (title drives phase grouping;
  * status drives the section header icon).
  */
-function toolStep(overrides: Partial<
-  Extract<ToolCallCardStep, { kind: "tool" }>
-> = {}): ToolCallCardStep {
+function toolStep(
+  overrides: Partial<Extract<ToolCallCardStep, { kind: "tool" }>> = {},
+): ToolCallCardStep {
   return {
     kind: "tool",
     durationLabel: "2s",

@@ -150,7 +150,9 @@ export function reportSlowSync(
   elapsedMs: number,
   detail?: Record<string, unknown>,
 ): void {
-  if (elapsedMs < SLOW_SYNC_THRESHOLD_MS) return;
+  if (elapsedMs < SLOW_SYNC_THRESHOLD_MS) {
+    return;
+  }
   log.warn(
     { label, elapsedMs, ...detail },
     "Slow synchronous DB operation blocked the event loop",

@@ -13,7 +13,7 @@ const embedModule = import.meta.resolve("../persistence/embeddings/embed.js");
 const embeddingBackendModule = import.meta
   .resolve("../persistence/embeddings/embedding-backend.js");
 const graphSearchModule = import.meta
-  .resolve("../plugins/defaults/memory/graph/graph-search.js");
+  .resolve("../plugins/defaults/memory/v1/graph/graph-search.js");
 const graphStoreModule = import.meta
   .resolve("../plugins/defaults/memory/graph/store.js");
 const memoryV2SourceModule = import.meta

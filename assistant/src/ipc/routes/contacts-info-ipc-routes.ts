@@ -36,7 +36,9 @@ function toAssistantMetadata(
   species: string | null,
   metadataText: string | null,
 ): { species: string; metadata: Record<string, unknown> | null } | null {
-  if (contactType !== "assistant" || species == null) return null;
+  if (contactType !== "assistant" || species == null) {
+    return null;
+  }
   let metadata: Record<string, unknown> | null = null;
   if (metadataText) {
     try {
@@ -63,7 +65,9 @@ const ContactsInfoBatchParamsSchema = z.object({
  */
 export function handleContactsInfoBatch({ body = {} }: RouteHandlerArgs) {
   const { contactIds } = ContactsInfoBatchParamsSchema.parse(body);
-  if (contactIds.length === 0) return { infos: [] };
+  if (contactIds.length === 0) {
+    return { infos: [] };
+  }
 
   const db = getDb();
   const rows = db
@@ -107,10 +111,9 @@ const ChannelIdentityLookupParamsSchema = z
     type: z.string().optional(),
     address: z.string().optional(),
   })
-  .refine(
-    (v) => v.channelId != null || (v.type != null && v.address != null),
-    { message: "Provide channelId, or both type and address" },
-  );
+  .refine((v) => v.channelId != null || (v.type != null && v.address != null), {
+    message: "Provide channelId, or both type and address",
+  });
 
 const CHANNEL_IDENTITY_PROJECTION = {
   id: contactChannels.id,

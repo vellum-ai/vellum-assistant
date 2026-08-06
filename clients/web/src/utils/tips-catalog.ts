@@ -15,11 +15,6 @@ export interface TipGates {
   requiresElectron?: boolean;
   /** Client feature-flag store key (camelCase, e.g. "quickInput") that must be on. */
   requiresClientFlag?: string;
-  /**
-   * Assistant feature-flag store key (camelCase, e.g. "voiceMode") that must be
-   * on — resolved via useAssistantFeatureFlagStore by the consuming hook.
-   */
-  requiresAssistantFlag?: string;
   /** Requires the plugins surface — a daemon-version gate resolved by the consuming hook. */
   requiresPluginsSurface?: boolean;
 }
@@ -105,7 +100,6 @@ export const TIPS_CATALOG: readonly Tip[] = [
     eyebrow: "Voice",
     title: "Talk instead of type",
     body: "Voice mode is in the top right — just start speaking.",
-    gates: { requiresAssistantFlag: "voiceMode" },
   },
   {
     id: "computer-use",

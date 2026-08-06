@@ -219,8 +219,12 @@ export interface VerdictMember {
 export function verdictMemberFromVerdict(
   verdict: TrustVerdict,
 ): VerdictMember | null {
-  if (!verdict.contactId || !verdict.channelId) return null;
-  if (!verdict.status || !verdict.policy) return null;
+  if (!verdict.contactId || !verdict.channelId) {
+    return null;
+  }
+  if (!verdict.status || !verdict.policy) {
+    return null;
+  }
   if (!isChannelStatus(verdict.status) || !isChannelPolicy(verdict.policy)) {
     return null;
   }
@@ -246,7 +250,9 @@ function memberRecordFromVerdict(
   verdict: TrustVerdict,
 ): ActorTrustContext["memberRecord"] {
   const member = verdictMemberFromVerdict(verdict);
-  if (!member) return null;
+  if (!member) {
+    return null;
+  }
 
   const channel: ContactChannel = {
     id: member.channelId,

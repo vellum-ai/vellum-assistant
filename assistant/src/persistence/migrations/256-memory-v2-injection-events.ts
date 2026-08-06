@@ -48,7 +48,9 @@ export function migrateMemoryV2InjectionEvents(database: DrizzleDb): void {
       `SELECT name FROM sqlite_master WHERE type='table' AND name='memory_v2_activation_logs'`,
     )
     .get();
-  if (!logsTable) return;
+  if (!logsTable) {
+    return;
+  }
 
   // Re-run safety net independent of the checkpoint: if events already
   // exist, do not append duplicates. The step runner normally skips
@@ -56,21 +58,27 @@ export function migrateMemoryV2InjectionEvents(database: DrizzleDb): void {
   const existing = raw
     .query(`SELECT COUNT(*) as n FROM memory_v2_injection_events`)
     .get() as { n: number };
-  if (existing.n > 0) return;
+  if (existing.n > 0) {
+    return;
+  }
 
   const rows = raw
     .query(
       `SELECT concepts_json, created_at FROM memory_v2_activation_logs ORDER BY created_at ASC`,
     )
     .all() as Array<{ concepts_json: string; created_at: number }>;
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    return;
+  }
 
   const insert = raw.prepare(
     `INSERT INTO memory_v2_injection_events (slug, injected_at) VALUES (?, ?)`,
   );
   const replay = raw.transaction(
     (events: ReadonlyArray<{ slug: string; t: number }>) => {
-      for (const e of events) insert.run(e.slug, e.t);
+      for (const e of events) {
+        insert.run(e.slug, e.t);
+      }
     },
   );
 
@@ -87,16 +95,24 @@ export function migrateMemoryV2InjectionEvents(database: DrizzleDb): void {
       parseFailures += 1;
       continue;
     }
-    if (!Array.isArray(concepts)) continue;
+    if (!Array.isArray(concepts)) {
+      continue;
+    }
     for (const c of concepts) {
-      if (typeof c.slug !== "string") continue;
+      if (typeof c.slug !== "string") {
+        continue;
+      }
       // Carry-over entries were not router-selected this turn — exclude.
-      if (c.source !== "router") continue;
+      if (c.source !== "router") {
+        continue;
+      }
       buffer.push({ slug: c.slug, t: row.created_at });
     }
   }
 
-  if (buffer.length > 0) replay(buffer);
+  if (buffer.length > 0) {
+    replay(buffer);
+  }
   log.info(
     { inserted: buffer.length, rowsScanned: rows.length, parseFailures },
     `Backfilled ${buffer.length} injection events from ${rows.length} activation log rows`,

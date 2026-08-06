@@ -44,7 +44,9 @@ export const removeOauthAppSetupSkillsMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const skillsDir = join(workspaceDir, "skills");
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     // 1. Remove skill directories
     for (const name of DELETED_SKILLS) {

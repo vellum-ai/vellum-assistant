@@ -30,6 +30,8 @@ This ensures the exhaustive switch in `daemon-batch-transcriber.ts` produces a c
 
 The `services.stt.providers` map uses a sparse `z.record(z.string(), ...)` schema, so adding a new provider does **not** require a workspace migration to seed a `services.stt.providers.<id>` entry. Users only need to set `services.stt.provider` to the new ID and supply credentials.
 
+**Language handling.** `services.stt.language` is resolved centrally in `resolveStreamingTranscriber()` (and in `resolveBatchTranscriber()` for the daemon-batch boundary), so a new adapter inherits it for free: accept a `language` option in the adapter's constructor and forward it to the provider. If the provider auto-detects natively and has no language parameter (as Gemini and Whisper do), accept nothing and let the resolver's value be ignored; document that choice in the adapter, because "no language param" means auto-detect for some providers and _English_ for others (Deepgram), and that difference is an easy source of silent wrong-language transcription. A provider that supports both batch and streaming must forward the language on **both** paths, not just the streaming one.
+
 ## 4. Adapter wiring
 
 **File:** `src/stt/daemon-batch-transcriber.ts`
@@ -52,13 +54,14 @@ If the new provider **shares** an existing credential name (e.g. reuses `"openai
 
 All client-facing metadata is part of the daemon's provider catalog entry (`src/providers/speech-to-text/provider-catalog.ts`). When adding a new provider, include these fields in the catalog entry:
 
-| Field              | Description                                                               |
-| ------------------ | ------------------------------------------------------------------------- |
-| `displayName`      | Human-readable name shown in client settings UI.                          |
-| `subtitle`         | Short description displayed below the provider selector.                  |
-| `setupMode`        | `"api-key"` (inline key field) or `"cli"` (instructions-only).            |
-| `setupHint`        | Brief guidance shown during setup.                                        |
-| `credentialsGuide` | Object with `description`, `url`, and `linkLabel` for the key mgmt page.  |
+| Field               | Description                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `displayName`       | Human-readable name shown in client settings UI.                                                                                                                        |
+| `subtitle`          | Short description displayed below the provider selector.                                                                                                                |
+| `setupMode`         | `"api-key"` (inline key field) or `"cli"` (instructions-only).                                                                                                          |
+| `setupHint`         | Brief guidance shown during setup.                                                                                                                                      |
+| `languageSelection` | `"manual"` (provider takes a language parameter, clients show a picker) or `"auto"` (native detection, picker hidden). See the "Language handling" paragraph in step 3. |
+| `credentialsGuide`  | Object with `description`, `url`, and `linkLabel` for the key mgmt page.                                                                                                |
 
 Native clients fetch this metadata at launch via `GET /v1/stt/providers`. No separate client-side file updates are needed.
 

@@ -72,7 +72,10 @@ function markConversationProcessingFromStream(
   }
   useConversationStore
     .getState()
-    .markConversationProcessing(conversationId, cached?.latestAssistantMessageAt);
+    .markConversationProcessing(
+      conversationId,
+      cached?.latestAssistantMessageAt,
+    );
 }
 
 /**

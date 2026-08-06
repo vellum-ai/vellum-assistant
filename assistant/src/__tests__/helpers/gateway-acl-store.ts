@@ -46,7 +46,9 @@ export function setGatewayAclStatusByChannelId(
   status: string,
 ): void {
   const existing = rows.get(channelId);
-  if (existing) existing.status = status;
+  if (existing) {
+    existing.status = status;
+  }
 }
 
 /** Patch the status of every gateway ACL row of a channel type. */
@@ -55,7 +57,9 @@ export function setGatewayAclStatusByType(
   status: string,
 ): void {
   for (const row of rows.values()) {
-    if (row.channelType === channelType) row.status = status;
+    if (row.channelType === channelType) {
+      row.status = status;
+    }
   }
 }
 

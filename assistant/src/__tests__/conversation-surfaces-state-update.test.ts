@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
   restoreSurfaceStateEntry,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 /**
- * Build a minimal SurfaceConversationContext for testing.
+ * Build a minimal Conversation for testing.
  * Tracks calls to enqueueMessage and processMessage so tests can assert
  * whether an LLM turn was triggered.
  */
-function makeContext(opts?: {
-  sent?: ServerMessage[];
-}): SurfaceConversationContext & {
+function makeContext(opts?: { sent?: AssistantEvent[] }): Conversation & {
   enqueueCalls: Array<{ content: string; requestId: string }>;
   processCalls: Array<{ content: string; requestId?: string }>;
 } {
@@ -24,7 +24,7 @@ function makeContext(opts?: {
   const enqueueCalls: Array<{ content: string; requestId: string }> = [];
   const processCalls: Array<{ content: string; requestId?: string }> = [];
 
-  return {
+  return asConversation({
     conversationId: "test-session",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -54,14 +54,11 @@ function makeContext(opts?: {
     withSurface: createSurfaceMutex(),
     enqueueCalls,
     processCalls,
-  };
+  });
 }
 
 /** Register a dynamic_page surface in the context so state_update is accepted. */
-function registerDynamicPage(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-): void {
+function registerDynamicPage(ctx: Conversation, surfaceId: string): void {
   ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "dynamic_page",
@@ -244,7 +241,7 @@ describe("cleanup on dismiss", () => {
 
 describe("ui_update preserves client-owned keys the daemon schema omits", () => {
   test("a valid patch keeps unmodeled keys on the merged, sent, and stored data", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext({ sent });
     // A document_preview whose stored data carries `content`/`mimeType`
     // (read by the client renderer, not modeled by the daemon schema).
@@ -290,7 +287,7 @@ describe("ui_update preserves client-owned keys the daemon schema omits", () => 
 
 describe("ui_update on a restored unknown surface type", () => {
   test("forwards the merge opaquely instead of throwing on the schema registry", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext({ sent });
     // Restore preserves an unknown-but-non-empty surfaceType verbatim (a
     // newer/custom client-rendered surface). Indexing SURFACE_DATA_SCHEMAS with
@@ -360,7 +357,7 @@ describe("ui_update on a restored unknown surface type", () => {
 
 describe("ui_update normalizes modeled fields for known surface types", () => {
   test("a malformed dynamic_page html patch is stored as its schema-coerced string", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext({ sent });
     ctx.surfaceState.set("page-1", {
       surfaceType: "dynamic_page",
@@ -384,7 +381,7 @@ describe("ui_update normalizes modeled fields for known surface types", () => {
 
     const update = sent.find((m) => m.type === "ui_surface_update");
     expect(update).toBeDefined();
-    expect(typeof (update as { data: { html: unknown } }).data.html).toBe(
+    expect(typeof (update as { data: Record<string, unknown> }).data.html).toBe(
       "string",
     );
   });

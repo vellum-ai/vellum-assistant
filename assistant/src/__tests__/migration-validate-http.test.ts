@@ -45,7 +45,9 @@ const BLOCK_SIZE = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const remainder = data.length % BLOCK_SIZE;
-  if (remainder === 0) return data;
+  if (remainder === 0) {
+    return data;
+  }
   const padded = new Uint8Array(data.length + (BLOCK_SIZE - remainder));
   padded.set(data);
   return padded;
@@ -632,7 +634,7 @@ describe("integration: existing routes unaffected", () => {
   test("GET /v1/health still works (not intercepted by migration routes)", async () => {
     const { handleDetailedHealth } =
       await import("../runtime/routes/identity-routes.js");
-    const res = handleDetailedHealth();
+    const res = await handleDetailedHealth();
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(200);

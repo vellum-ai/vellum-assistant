@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { getEffectiveProfiles } from "../../../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../../../config/default-profile-catalog.js";
 import { loadConfig } from "../../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -21,11 +21,25 @@ import { RouteError } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import type { RouteHandlerArgs } from "../../../../runtime/routes/types.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
+import {
+  getEdgeIndex,
+  totalEdgeCount,
+  validateEdgeTargets,
+} from "../substrate/edge-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import {
+  getConceptsDir,
+  listPages,
+  readPage,
+  renderPageContent,
+} from "../substrate/page-store.js";
+import { seedV2SkillEntries } from "../substrate/skill-store.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 import {
   type ConceptFrequencyResponse,
   getConceptFrequencySummary,
-} from "../memory-v2-concept-frequency.js";
-import { getWorkspaceDir } from "../paths.js";
+} from "../v2/concept-frequency.js";
 import { runComparisonOverHistory } from "../v2/harness/compare.js";
 import type { Retriever } from "../v2/harness/retriever.js";
 import { createRouterRetriever } from "../v2/harness/router-retriever.js";
@@ -34,19 +48,6 @@ import { computeInjectionScores } from "../v2/injection-events.js";
 import { loadNowText } from "../v2/now-text.js";
 import { ROUTER_PROMPT } from "../v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../v2/router.js";
-import {
-  getEdgeIndex,
-  totalEdgeCount,
-  validateEdgeTargets,
-} from "../v3/substrate/edge-index.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
-import {
-  getConceptsDir,
-  listPages,
-  readPage,
-  renderPageContent,
-} from "../v3/substrate/page-store.js";
-import { seedV2SkillEntries } from "../v3/substrate/skill-store.js";
 
 const log = getLogger("memory-v2-routes");
 
@@ -133,7 +134,9 @@ async function handleValidate({
   MemoryV2ValidateParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
-  const maxPageChars = loadConfig().memory.v2.max_page_chars;
+  const maxPageChars = resolveSubstrateTuning(
+    loadConfig().memory,
+  ).max_page_chars;
 
   const slugs = await listPages(workspaceDir);
   const knownSlugs = new Set<string>();
@@ -143,7 +146,9 @@ async function handleValidate({
   for (const slug of slugs) {
     try {
       const page = await readPage(workspaceDir, slug);
-      if (!page) continue;
+      if (!page) {
+        continue;
+      }
       knownSlugs.add(slug);
       const chars = page.body.length;
       if (chars > maxPageChars) {
@@ -242,7 +247,9 @@ async function handleListConceptPages({
     slugs.map(async (slug) => {
       try {
         const page = await readPage(workspaceDir, slug);
-        if (!page) return null;
+        if (!page) {
+          return null;
+        }
         const stats = await stat(join(conceptsDir, `${slug}.md`));
         return {
           slug,
@@ -346,7 +353,9 @@ async function handleEmaScores({
     modifiedAt: entry.modifiedAt,
   }));
   entries.sort((a, b) => {
-    if (a.score !== b.score) return b.score - a.score;
+    if (a.score !== b.score) {
+      return b.score - a.score;
+    }
     return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
   });
   return { entries };
@@ -455,7 +464,9 @@ function applySimulateOverrides(
   live: AssistantConfig,
   overrides: z.infer<typeof SimulateRouterOverridesSchema> | undefined,
 ): AssistantConfig {
-  if (!overrides) return live;
+  if (!overrides) {
+    return live;
+  }
   const liveRouter = live.memory.v2.router;
   const mergedRouter = {
     ...liveRouter,
@@ -510,7 +521,10 @@ export async function handleSimulateRouter({
   // through (the resolver tolerates missing override-profile references by
   // design, but the playground wants the user to know they typo'd).
   if (profileOverride !== undefined) {
-    const profiles = getEffectiveProfiles(liveConfig.llm?.profiles);
+    const profiles = getEffectiveProfilesForProvider(
+      liveConfig.llm?.profiles,
+      liveConfig.llm?.defaultProvider ?? null,
+    );
     if (!Object.prototype.hasOwnProperty.call(profiles, profileOverride)) {
       const available = Object.keys(profiles).sort();
       const hint =

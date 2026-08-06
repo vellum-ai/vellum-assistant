@@ -72,7 +72,9 @@ const TRANSIENT_PHASES: ReadonlySet<ResolvedAssistantLifecycleState["kind"]> =
 export function pollIntervalFor(
   result: GetAssistantResult | undefined,
 ): number | false {
-  if (!result) return false;
+  if (!result) {
+    return false;
+  }
   const phase = resolveAssistantLifecycleState(result);
   return TRANSIENT_PHASES.has(phase.kind) ? POLL_INTERVAL_MS : false;
 }

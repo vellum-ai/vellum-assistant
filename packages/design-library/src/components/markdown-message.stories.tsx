@@ -129,6 +129,28 @@ export const Math: Story = {
   },
 };
 
+/**
+ * ChatGPT-style math delimiters: `\(…\)` inline and `\[…\]` display, including
+ * a display span typed mid-sentence and one inside a list item. Both render
+ * identically to the `$`-delimited equivalents in the Math story.
+ */
+export const ChatGptMathDelimiters: Story = {
+  args: {
+    content: [
+      "Mass and energy relate by \\(E = mc^2\\), so the total is:",
+      "",
+      "\\[",
+      "E_{\\text{total}} = \\sum_{i=1}^{n} m_i c^2",
+      "\\]",
+      "",
+      "Substituting \\[\\int_0^1 x^2 \\, dx = \\frac{1}{3}\\] mid-sentence still typesets in display mode.",
+      "",
+      "1. Compute \\[a^2 + b^2 = c^2\\]",
+      "2. Then take the square root",
+    ].join("\n"),
+  },
+};
+
 /** Currency and real equations coexisting in a single response. */
 export const CurrencyAndMath: Story = {
   args: {

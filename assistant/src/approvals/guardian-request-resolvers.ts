@@ -26,6 +26,7 @@ import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.
 import { findContactChannel } from "../contacts/contact-store.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { parseQuestionAnswerActionId } from "../notifications/guardian-question-mode.js";
 import {
   isNotificationSourceChannel,
   type NotificationSourceChannel,
@@ -34,6 +35,7 @@ import type {
   TrustedContactDecisionPayload,
   TrustedContactVerificationSentPayload,
 } from "../notifications/trusted-contact-payloads.js";
+import type { QuestionBatchSubmission } from "../permissions/question-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
@@ -48,6 +50,10 @@ import {
   resolveTrustBinding,
 } from "../runtime/introduction-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import {
+  readBatchMetadata,
+  resolvePendingQuestion,
+} from "../runtime/question-resolution.js";
 import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
 import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
@@ -409,11 +415,16 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 };
 
 /**
- * Resolves `pending_question` requests — the voice call question path.
+ * Resolves `pending_question` requests. Two variants share the kind,
+ * distinguished by provenance fields:
  *
- * Validates that voice-specific fields (callSessionId, pendingQuestionId)
- * are present and delivers the answer to the live call session. An
- * `answerCall` failure surfaces as `resolverFailed` — the committed decision
+ *  - Voice-call questions carry a `callSessionId` (+ `pendingQuestionId`);
+ *    the answer is delivered to the live call session via `answerCall`.
+ *  - `ask_question` prompts carry neither — the request id IS the pending
+ *    `question` interaction's requestId (mirroring `tool_approval` rows), and
+ *    the answer resolves that interaction so the parked tool call returns.
+ *
+ * Side-effect failures surface as `resolverFailed` — the committed decision
  * stands (no reopen).
  */
 const pendingQuestionResolver: GuardianRequestResolver = {
@@ -423,10 +434,7 @@ const pendingQuestionResolver: GuardianRequestResolver = {
     const { request, decision, actor: _actor } = ctx;
 
     if (!request.callSessionId) {
-      return {
-        ok: false,
-        reason: "pending_question request missing callSessionId",
-      };
+      return resolveAskQuestionInteraction(request, decision);
     }
 
     if (!request.pendingQuestionId) {
@@ -488,6 +496,100 @@ const pendingQuestionResolver: GuardianRequestResolver = {
 };
 
 /**
+ * Resolve an `ask_question` pending interaction from a guardian decision.
+ *
+ * The decision's `userText` carries either an answer-option token
+ * (`answer_<idx>` / `answer_skip`, from a tapped card button — see
+ * {@link parseQuestionAnswerActionId}) or the guardian's free-typed answer.
+ * A reject decision with no text is an explicit skip. Submission validation
+ * and the prompter hand-off go through the shared
+ * {@link resolvePendingQuestion}, the same core `/v1/question-response` uses,
+ * so an app-card answer and a channel answer resolve identically.
+ */
+async function resolveAskQuestionInteraction(
+  request: GuardianRequestWire,
+  decision: ResolverDecision,
+): Promise<ResolverResult> {
+  const interaction = pendingInteractions.get(request.id);
+  if (!interaction || interaction.kind !== "question") {
+    // The parked prompt is gone (answered elsewhere, timed out, or the daemon
+    // restarted). The committed decision stands; there is just nothing left to
+    // resume.
+    return { ok: false, reason: "no_pending_question_interaction" };
+  }
+
+  const { orderedIds, optionsById } = readBatchMetadata(interaction);
+  if (orderedIds.length !== 1) {
+    // Channel cards are only created for single-question batches (the
+    // promotion gate enforces it); a multi-question interaction cannot be
+    // answered by one decision.
+    return { ok: false, reason: "question_batch_not_single" };
+  }
+  const questionId = orderedIds[0]!;
+
+  let submission: QuestionBatchSubmission;
+  const answerSelection = decision.userText
+    ? parseQuestionAnswerActionId(decision.userText.trim())
+    : null;
+  if (answerSelection?.kind === "skip") {
+    submission = { questionId, kind: "skip" };
+  } else if (answerSelection?.kind === "option") {
+    const optionId = (optionsById[questionId] ?? [])[answerSelection.index];
+    if (!optionId) {
+      return { ok: false, reason: "question_option_index_out_of_range" };
+    }
+    submission = { questionId, kind: "option", optionId };
+  } else if (decision.userText && decision.userText.trim().length > 0) {
+    submission = {
+      questionId,
+      kind: "free_text",
+      text: decision.userText.trim(),
+    };
+  } else if (DENYING_ACTION_SET.has(decision.action)) {
+    submission = { questionId, kind: "skip" };
+  } else {
+    // Bare approval with no text (e.g. "CODE approve") — affirm without
+    // inventing content; the model reads the affirmation in context.
+    submission = { questionId, kind: "free_text", text: "Yes" };
+  }
+
+  const outcome = resolvePendingQuestion(request.id, {
+    kind: "submit",
+    submissions: [submission],
+  });
+  if (outcome.status !== "resolved") {
+    log.warn(
+      {
+        event: "resolver_ask_question_not_resolved",
+        requestId: request.id,
+        outcome: outcome.status,
+        ...(outcome.status === "invalid" ? { message: outcome.message } : {}),
+      },
+      "Ask-question resolver: pending interaction did not resolve",
+    );
+    return {
+      ok: false,
+      reason:
+        outcome.status === "invalid"
+          ? "question_submission_invalid"
+          : "no_pending_question_interaction",
+    };
+  }
+
+  log.info(
+    {
+      event: "resolver_ask_question_applied",
+      requestId: request.id,
+      action: decision.action,
+      submissionKind: submission.kind,
+      conversationId: outcome.conversationId,
+    },
+    "Ask-question resolver: pending interaction resolved",
+  );
+  return { ok: true, applied: true };
+}
+
+/**
  * The four introduction-card outcomes for an access request. The generic
  * decision pair maps onto them: `approve_once` → `verify_code` (handshake),
  * `reject` → `leave_unverified`.
@@ -511,6 +613,23 @@ const OUTCOME_BY_ACTION = {
   leave_unverified: "leave_unverified",
   block: "block",
 } as const satisfies Record<ApprovalAction, IntroductionOutcome>;
+
+/**
+ * The introduction outcome a decision action resolves to for an access request.
+ * The generic decision pair folds onto the card outcomes (`reject` →
+ * `leave_unverified`, `approve_once` → `verify_code`); the introduction actions
+ * map to themselves. Every outcome is itself an `ApprovalAction`, so a caller
+ * that must reflect the resolved *outcome* rather than the raw button — the
+ * resolved-card projection, so a `reject` that parked the contact at
+ * `unverified` reads as the neutral "Left unverified" and not "Denied" — can
+ * normalize through this. It does not apply the bot handshake→trust coercion,
+ * which does not affect the park/deny distinction the card cares about.
+ */
+export function introductionOutcomeForAction(
+  action: ApprovalAction,
+): ApprovalAction {
+  return OUTCOME_BY_ACTION[action];
+}
 
 /** Derived access-request decision facts shared by `prepare` and `resolve`. */
 interface AccessRequestDerivation {
@@ -641,9 +760,13 @@ async function deliverRequesterNotice(params: {
 }
 
 /**
- * Deliver the "denied" notice to the requester and emit the denial lifecycle
- * signals. Shared by the `leave_unverified` and `block` outcomes — both look
- * identical to the requester (the block is not revealed).
+ * Emit the guardian-facing denial lifecycle signal and, unless suppressed,
+ * deliver the "declined" notice to the requester. Both the `leave_unverified`
+ * and `block` outcomes call this for the lifecycle signal, but the requester
+ * notice is delivered only for `block` (in denied mode) — `leave_unverified`
+ * always passes `suppressRequesterNotice: true`, staying a silent park at
+ * `unverified`. The notice text is a plain decline that does not reveal whether
+ * the sender was blocked.
  */
 async function notifyRequesterOfDenial(params: {
   channel: NotificationSourceChannel;
@@ -684,10 +807,19 @@ async function notifyRequesterOfDenial(params: {
       assistantId,
       channelDeliveryContext,
       desktopDeliverUrl,
-      text: "Your access request has been denied.",
+      // Active-denial copy, deliberately distinct from the expiry notice
+      // ("…expired before it was reviewed") so a reviewed decline never reads
+      // as a request that simply timed out.
+      text: "Your access request was declined.",
     });
   }
 
+  // Exactly one signal per denial: the payload's `decision: "denied"`
+  // carries the verdict, and the pipeline can only dedupe within a single
+  // event stream — a second event name would materialize a second
+  // conversation for the same decision. The approve path holds the same
+  // one-signal invariant via `verification_sent` standing in for
+  // `guardian_decision`.
   if (channelDeliveryContext) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
@@ -701,20 +833,6 @@ async function notifyRequesterOfDenial(params: {
       },
       contextPayload: deniedPayload,
       dedupeKey: `trusted-contact:guardian-decision:${requestId}`,
-    });
-
-    void emitNotificationSignal({
-      sourceEventName: "ingress.trusted_contact.denied",
-      sourceChannel: channel,
-      sourceContextId: conversationId ?? "",
-      attentionHints: {
-        requiresAction: false,
-        urgency: "low",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      contextPayload: deniedPayload,
-      dedupeKey: `trusted-contact:denied:${requestId}`,
     });
   }
 }
@@ -937,7 +1055,12 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.sourceConversationId,
-        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
+        // Leave-unverified is a silent park: the sender stays an `unverified`
+        // contact and is never told (per docs/trusted-contact-access.md — they
+        // only learn if they message again). Unlike `block`, this notice is
+        // always suppressed, in both denied and admitted modes; the
+        // guardian-facing lifecycle signals still emit.
+        suppressRequesterNotice: true,
       });
 
       return {
@@ -1044,7 +1167,10 @@ const accessRequestResolver: GuardianRequestResolver = {
     const session = ctx.mintedSession;
     if (!session) {
       log.error(
-        { event: "resolver_access_request_missing_mint", requestId: request.id },
+        {
+          event: "resolver_access_request_missing_mint",
+          requestId: request.id,
+        },
         "Access request resolver: decide returned no mintedSession for a verify_code outcome",
       );
       return { ok: false, reason: "minted_session_missing" };

@@ -28,8 +28,8 @@ mock.module("../agent/image-optimize.js", () => ({
   // oversized (never undersized), so the min-dimension gate never matches
   // and the rejection-path upscale is never reached.
   isBelowMinDimension: () => false,
-  upscaleImageToMinimum: () => null,
-  optimizeImageForTransport: () => ({
+  upscaleImageToMinimum: async () => null,
+  optimizeImageForTransport: async () => ({
     data: SHRUNK_DATA,
     mediaType: "image/jpeg",
   }),
@@ -40,7 +40,7 @@ import {
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
 import { base64Source } from "../providers/media-resolve.js";
@@ -52,8 +52,8 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_embeddings");
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
+  getMemorySqlite()?.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -133,7 +133,7 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the nested block stays an image, rewritten to the downscaled payload
     expect(rewritten).toBe(1);
@@ -159,10 +159,10 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
       JSON.stringify([toolResultWithImage(oversizedPngBase64())]),
       { skipIndexing: true },
     );
-    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
+    expect(await persistUnsendableImageDowngrades(conv.id)).toBe(1);
 
     // WHEN the downgrade runs again
-    const secondRun = persistUnsendableImageDowngrades(conv.id);
+    const secondRun = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);

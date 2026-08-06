@@ -7,6 +7,7 @@ import {
   writeStoredThemePreference,
 } from "@/utils/theme-preferences";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { syncNativeLaunchScreenTheme } from "@/runtime/native-launch-screen";
 import { watchDeviceSetting } from "@/utils/device-settings";
 
 /**
@@ -40,6 +41,7 @@ export function useThemePreference() {
   const setThemePreference = (next: ThemePreference) => {
     setTheme(next);
     writeStoredThemePreference(next);
+    void syncNativeLaunchScreenTheme(next);
   };
 
   return { theme, setThemePreference } as const;

@@ -63,12 +63,22 @@ const MODIFIER_CODES = new Set([
 /** Resolve the non-modifier key code from a keyboard event, or `null`. */
 const mainKeyFromEvent = (event: KeyboardEvent): string | null => {
   const code = event.code;
-  if (MODIFIER_CODES.has(code)) return null;
+  if (MODIFIER_CODES.has(code)) {
+    return null;
+  }
 
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
-  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
-  if (/^Numpad[0-9]$/.test(code)) return `num${code.slice(6)}`;
-  if (/^F[0-9]{1,2}$/.test(code)) return code;
+  if (/^Key[A-Z]$/.test(code)) {
+    return code.slice(3);
+  }
+  if (/^Digit[0-9]$/.test(code)) {
+    return code.slice(5);
+  }
+  if (/^Numpad[0-9]$/.test(code)) {
+    return `num${code.slice(6)}`;
+  }
+  if (/^F[0-9]{1,2}$/.test(code)) {
+    return code;
+  }
 
   return CODE_TO_KEY[code] ?? null;
 };
@@ -81,13 +91,23 @@ const mainKeyFromEvent = (event: KeyboardEvent): string | null => {
  */
 export const eventToAccelerator = (event: KeyboardEvent): string | null => {
   const key = mainKeyFromEvent(event);
-  if (key === null) return null;
+  if (key === null) {
+    return null;
+  }
 
   const modifiers: string[] = [];
-  if (event.metaKey) modifiers.push("CmdOrCtrl");
-  if (event.ctrlKey) modifiers.push("Control");
-  if (event.altKey) modifiers.push("Alt");
-  if (event.shiftKey) modifiers.push("Shift");
+  if (event.metaKey) {
+    modifiers.push("CmdOrCtrl");
+  }
+  if (event.ctrlKey) {
+    modifiers.push("Control");
+  }
+  if (event.altKey) {
+    modifiers.push("Alt");
+  }
+  if (event.shiftKey) {
+    modifiers.push("Shift");
+  }
 
   return [...modifiers, key].join("+");
 };
@@ -105,7 +125,9 @@ export const findConflict = (
   excludeKey: string,
   accelerator: string,
 ): ResolvedHotkey | null => {
-  if (accelerator === "") return null;
+  if (accelerator === "") {
+    return null;
+  }
   return (
     catalog.find(
       (entry) => entry.key !== excludeKey && entry.accelerator === accelerator,

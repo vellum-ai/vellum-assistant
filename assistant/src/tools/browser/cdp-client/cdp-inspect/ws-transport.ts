@@ -226,7 +226,9 @@ export async function connectCdpWsTransport(
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       cleanupAbort();
       try {
@@ -238,14 +240,18 @@ export async function connectCdpWsTransport(
     }, connectTimeoutMs);
 
     const onOpen = () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       cleanupAbort();
       resolve();
     };
     const onError = (ev: unknown) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       cleanupAbort();
@@ -263,7 +269,9 @@ export async function connectCdpWsTransport(
       );
     };
     const onCloseBeforeOpen = () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       cleanupAbort();
@@ -275,7 +283,9 @@ export async function connectCdpWsTransport(
       );
     };
     const onCallerAbort = () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       cleanupAbort();
@@ -311,7 +321,9 @@ function createTransport(ws: WsLike): CdpWsTransport {
   let closed = false;
 
   const rejectAllPending = (code: CdpWsTransportErrorCode, message: string) => {
-    if (pending.size === 0) return;
+    if (pending.size === 0) {
+      return;
+    }
     // Snapshot entries so that caller `.catch()` handlers invoked
     // synchronously via `reject` cannot mutate the map we are iterating.
     const entries = Array.from(pending.entries());
@@ -325,7 +337,9 @@ function createTransport(ws: WsLike): CdpWsTransport {
   };
 
   const handleMessage = (ev: { data: unknown }) => {
-    if (disposed) return;
+    if (disposed) {
+      return;
+    }
     let raw: string;
     if (typeof ev.data === "string") {
       raw = ev.data;
@@ -345,7 +359,9 @@ function createTransport(ws: WsLike): CdpWsTransport {
     } catch {
       return;
     }
-    if (!frame || typeof frame !== "object") return;
+    if (!frame || typeof frame !== "object") {
+      return;
+    }
     const obj = frame as {
       id?: unknown;
       result?: unknown;
@@ -407,13 +423,17 @@ function createTransport(ws: WsLike): CdpWsTransport {
   };
 
   const handleClose = () => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     closed = true;
     rejectAllPending("closed", "websocket closed");
   };
 
   const handleError = (ev: unknown) => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     closed = true;
     // Best-effort close after an error so we don't leak a half-open
     // socket. Do not throw on already-closed sockets.
@@ -467,8 +487,12 @@ function createTransport(ws: WsLike): CdpWsTransport {
 
       const id = nextId++;
       const frame: Record<string, unknown> = { id, method };
-      if (params !== undefined) frame.params = params;
-      if (opts?.sessionId !== undefined) frame.sessionId = opts.sessionId;
+      if (params !== undefined) {
+        frame.params = params;
+      }
+      if (opts?.sessionId !== undefined) {
+        frame.sessionId = opts.sessionId;
+      }
 
       let serialized: string;
       try {
@@ -513,7 +537,9 @@ function createTransport(ws: WsLike): CdpWsTransport {
         if (signal) {
           const onAbort = () => {
             const entry = pending.get(id);
-            if (!entry) return;
+            if (!entry) {
+              return;
+            }
             pending.delete(id);
             entry.cleanupAbort?.();
             entry.reject(
@@ -558,7 +584,9 @@ function createTransport(ws: WsLike): CdpWsTransport {
     },
 
     dispose() {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
       // Reject pending requests BEFORE calling close() so that
       // callers observe the explicit "disposed" signal even if the

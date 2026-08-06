@@ -128,7 +128,9 @@ describe("isEmbeddingDimensionAvailable", () => {
     dim: number,
   ): Promise<ReturnType<typeof mock>> {
     const { backend } = await selectEmbeddingBackend(config);
-    if (!backend) throw new Error("expected a backend to be selected");
+    if (!backend) {
+      throw new Error("expected a backend to be selected");
+    }
     const embedMock = mock(async () => [new Array(dim).fill(0)]);
     (backend as { embed: typeof backend.embed }).embed =
       embedMock as unknown as typeof backend.embed;
@@ -153,7 +155,9 @@ describe("isEmbeddingDimensionAvailable", () => {
   test("returns false when the backend probe throws (unreachable)", async () => {
     const config = localConfigWithVectorSize(384);
     const { backend } = await selectEmbeddingBackend(config);
-    if (!backend) throw new Error("expected a backend to be selected");
+    if (!backend) {
+      throw new Error("expected a backend to be selected");
+    }
     (backend as { embed: typeof backend.embed }).embed = (async () => {
       throw new Error("backend unreachable");
     }) as unknown as typeof backend.embed;
@@ -209,7 +213,9 @@ describe("isEmbeddingDimensionAvailable", () => {
 
     // Stub the primary (local) → 384.
     const { backend: primary } = await selectEmbeddingBackend(config);
-    if (!primary) throw new Error("expected a primary backend");
+    if (!primary) {
+      throw new Error("expected a primary backend");
+    }
     (primary as { embed: typeof primary.embed }).embed = mock(async () => [
       new Array(384).fill(0),
     ]) as unknown as typeof primary.embed;
@@ -225,7 +231,9 @@ describe("isEmbeddingDimensionAvailable", () => {
         qdrant: { vectorSize: 3072 },
       },
     } as unknown as AssistantConfig);
-    if (!openai) throw new Error("expected an openai fallback backend");
+    if (!openai) {
+      throw new Error("expected an openai fallback backend");
+    }
     (openai as { embed: typeof openai.embed }).embed = mock(async () => [
       new Array(3072).fill(0),
     ]) as unknown as typeof openai.embed;

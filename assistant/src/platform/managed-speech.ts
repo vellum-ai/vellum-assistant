@@ -90,6 +90,14 @@ export async function managedSpeechTranscribe(input: {
   audio: Buffer;
   mimeType: string;
   source?: string;
+  /**
+   * Spoken language to decode: a BCP-47 code, or `"multi"` for nova-3
+   * code-switching. Omitted means the platform sends none, which Deepgram
+   * decodes as English rather than detecting the language. Older platform
+   * builds that predate the field ignore it, so sending one is safe before
+   * the platform side deploys.
+   */
+  language?: string;
   signal?: AbortSignal;
 }): Promise<ManagedSpeechResult<ManagedSpeechTranscription>> {
   const resolved = await resolveClient();
@@ -107,6 +115,7 @@ export async function managedSpeechTranscribe(input: {
         audioBase64: input.audio.toString("base64"),
         mimeType: input.mimeType,
         ...(input.source !== undefined ? { source: input.source } : {}),
+        ...(input.language ? { language: input.language } : {}),
       }),
       signal: input.signal,
     },

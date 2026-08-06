@@ -26,7 +26,9 @@ const MANIFEST_FILENAME = "avatar.json";
 /** Resolve a handler from the route registry by operationId. */
 function getHandler(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`${operationId} route not registered`);
+  if (!route) {
+    throw new Error(`${operationId} route not registered`);
+  }
   return route.handler as (
     args: RouteHandlerArgs,
   ) => unknown | Promise<unknown>;
@@ -35,7 +37,9 @@ function getHandler(operationId: string) {
 /** Resolve the GET /avatar/state handler from the route registry. */
 function getStateHandler() {
   const route = ROUTES.find((r) => r.operationId === "avatar_get_state");
-  if (!route) throw new Error("avatar_get_state route not registered");
+  if (!route) {
+    throw new Error("avatar_get_state route not registered");
+  }
   expect(route.endpoint).toBe("avatar/state");
   expect(route.method).toBe("GET");
   return route.handler as (
@@ -197,7 +201,9 @@ describe("avatar write/remove handlers", () => {
 
   const readManifestFile = (): ManifestShape | null => {
     const manifestPath = path(MANIFEST_FILENAME);
-    if (!existsSync(manifestPath)) return null;
+    if (!existsSync(manifestPath)) {
+      return null;
+    }
     return JSON.parse(readFileSync(manifestPath, "utf-8")) as ManifestShape;
   };
 

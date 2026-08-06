@@ -53,13 +53,19 @@ describe("ComposerDraftNotices", () => {
 
   test("shows the restored-draft notice for the active conversation", () => {
     useConversationStore.setState({ activeConversationId: "c1" });
-    useComposerStore.setState({ input: "draft", restoredDraftConversationId: "c1" });
+    useComposerStore.setState({
+      input: "draft",
+      restoredDraftConversationId: "c1",
+    });
     expect(renderNotices()).toContain("Draft restored");
   });
 
   test("hides the restored-draft notice when it belongs to another conversation", () => {
     useConversationStore.setState({ activeConversationId: "c2" });
-    useComposerStore.setState({ input: "draft", restoredDraftConversationId: "c1" });
+    useComposerStore.setState({
+      input: "draft",
+      restoredDraftConversationId: "c1",
+    });
     expect(renderNotices()).not.toContain("Draft restored");
   });
 

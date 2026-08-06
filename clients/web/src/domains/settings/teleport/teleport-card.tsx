@@ -16,10 +16,7 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Notice } from "@vellumai/design-library/components/notice";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-import {
-  destinationDescription,
-  destinationLabel,
-} from "./teleport-types";
+import { destinationDescription, destinationLabel } from "./teleport-types";
 import { useTeleport } from "./use-teleport";
 
 export function TeleportCard() {
@@ -28,7 +25,9 @@ export function TeleportCard() {
 
   // No eligible destination for this assistant — leave teleport hidden, matching
   // the Swift picker which renders nothing for out-of-scope assistants.
-  if (!destination) return null;
+  if (!destination) {
+    return null;
+  }
 
   return (
     <DetailCard

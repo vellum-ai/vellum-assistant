@@ -36,7 +36,9 @@ export function migrateInviteContactId(database: DrizzleDb): void {
   );
 
   // Step 3: Rebuild the table with NOT NULL on contact_id
-  if (col && col.notnull === 1) return; // already NOT NULL
+  if (col && col.notnull === 1) {
+    return;
+  } // already NOT NULL
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

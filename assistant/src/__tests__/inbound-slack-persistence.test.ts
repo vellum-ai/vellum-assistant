@@ -127,7 +127,9 @@ function lastPersistedMetadata(): Record<string, unknown> {
 function readPersistedSlackMeta(): SlackMessageMetadata | null {
   const metadata = lastPersistedMetadata();
   const raw = metadata.slackMeta;
-  if (raw === undefined) return null;
+  if (raw === undefined) {
+    return null;
+  }
   expect(typeof raw).toBe("string");
   return readSlackMetadata(raw as string);
 }

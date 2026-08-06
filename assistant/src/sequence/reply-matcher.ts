@@ -38,14 +38,18 @@ export function extractEmail(from: string): string | undefined {
   const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
     const emailSegment = [...segments].reverse().find((s) => s.includes("@"));
-    if (emailSegment) return emailSegment.trim().toLowerCase();
+    if (emailSegment) {
+      return emailSegment.trim().toLowerCase();
+    }
   }
   const stripped = from
     .replace(/<[^>]+>/g, "")
     .replace(/\(.*?\)/g, "")
     .trim()
     .toLowerCase();
-  if (stripped.includes("@")) return stripped;
+  if (stripped.includes("@")) {
+    return stripped;
+  }
   return undefined;
 }
 
@@ -68,14 +72,20 @@ export function checkForSequenceReplies(
 
   for (const payload of payloads) {
     const senderEmail = extractEmail(payload.from ?? "");
-    if (!senderEmail) continue;
+    if (!senderEmail) {
+      continue;
+    }
 
     const enrollments = findActiveEnrollmentsByEmail(senderEmail);
-    if (enrollments.length === 0) continue;
+    if (enrollments.length === 0) {
+      continue;
+    }
 
     for (const enrollment of enrollments) {
       const seq = getSequence(enrollment.sequenceId);
-      if (!seq || !seq.exitOnReply) continue;
+      if (!seq || !seq.exitOnReply) {
+        continue;
+      }
 
       // Only match when the enrollment has a conversation ID and it matches
       // the incoming payload's thread ID. Enrollments that haven't sent their
@@ -88,7 +98,9 @@ export function checkForSequenceReplies(
         enrollment.conversationId != null &&
         enrollment.conversationId === payload.threadId;
 
-      if (!conversationMatch) continue;
+      if (!conversationMatch) {
+        continue;
+      }
 
       recordEvent(
         enrollment.sequenceId,

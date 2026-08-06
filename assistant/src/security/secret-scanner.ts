@@ -12,7 +12,7 @@
 import { memoizePluginPatternDerivation } from "./plugin-secret-patterns.js";
 import { isAllowlisted } from "./secret-allowlist.js";
 import {
-  PREFIX_PATTERNS,
+  REDACTION_PREFIX_PATTERNS,
   type SecretPrefixPattern,
 } from "./secret-patterns.js";
 
@@ -71,9 +71,14 @@ function derivePluginScannerPattern(p: SecretPrefixPattern): SecretPattern {
   };
 }
 
-// Static patterns derived from the shared source of truth.
+// Static patterns derived from the shared source of truth. This scanner
+// redacts by replacing the matched span in place, so it uses the bounded
+// whole-block private-key matcher (via REDACTION_PREFIX_PATTERNS): the match
+// must cover header → body → footer or the key body would survive redaction.
+// The bound keeps it O(n) on large serialized strings; `detectSecretsInText`
+// (chat) keeps the unbounded whole-block matcher for full-key capture.
 const PREFIX_DERIVED: SecretPattern[] =
-  PREFIX_PATTERNS.map(deriveScannerPattern);
+  REDACTION_PREFIX_PATTERNS.map(deriveScannerPattern);
 
 // Scanner-only patterns that require surrounding context or are not
 // simple prefix matches — these stay defined here.
@@ -177,7 +182,9 @@ const SEQUENTIAL_UUID = /^01234567-/;
 // ---------------------------------------------------------------------------
 
 function redact(value: string): string {
-  if (value.length <= 8) return "***";
+  if (value.length <= 8) {
+    return "***";
+  }
   const visiblePrefix = Math.min(4, Math.floor(value.length * 0.15));
   const visibleSuffix = Math.min(4, Math.floor(value.length * 0.15));
   const masked = value.length - visiblePrefix - visibleSuffix;
@@ -198,7 +205,9 @@ function isPlaceholder(value: string): boolean {
   }
 
   for (const prefix of PLACEHOLDER_PREFIXES) {
-    if (lower.startsWith(prefix)) return true;
+    if (lower.startsWith(prefix)) {
+      return true;
+    }
   }
 
   // UUID-shaped values that are clearly fake
@@ -207,7 +216,9 @@ function isPlaceholder(value: string): boolean {
   }
 
   // All same character repeated
-  if (/^(.)\1+$/.test(value)) return true;
+  if (/^(.)\1+$/.test(value)) {
+    return true;
+  }
 
   // Contains obvious placeholder words — only when the word appears as the
   // dominant content, not incidentally (e.g. "db.example.com" in a URL should
@@ -273,15 +284,22 @@ export function scanText(text: string): SecretMatch[] {
       const startIndex = m.index + m[0].indexOf(value);
       const endIndex = startIndex + value.length;
 
-      if (isPlaceholder(value)) continue;
-      if (isAllowlisted(value)) continue;
+      if (isPlaceholder(value)) {
+        continue;
+      }
+      if (isAllowlisted(value)) {
+        continue;
+      }
 
       // Extra validation for AWS Secret Keys to avoid hex-string false positives
-      if (pattern.type === "AWS Secret Key" && !isLikelyAwsSecret(value))
+      if (pattern.type === "AWS Secret Key" && !isLikelyAwsSecret(value)) {
         continue;
+      }
 
       const key = `${startIndex}:${endIndex}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        continue;
+      }
       seen.add(key);
 
       matches.push({
@@ -331,7 +349,9 @@ export function redactSecretsWith(
   markerFor: (match: SecretMatch, rawValue: string) => string,
 ): string {
   const matches = scanText(text);
-  if (matches.length === 0) return text;
+  if (matches.length === 0) {
+    return text;
+  }
 
   let result = "";
   let lastIndex = 0;

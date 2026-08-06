@@ -40,6 +40,18 @@ import {
   startWorkerPidFileGuard,
 } from "../util/worker-process.js";
 import {
+  startDbIntegritySampler,
+  stopDbIntegritySampler,
+} from "./db-integrity-sample.js";
+import {
+  type FileDescriptorMonitorHandle,
+  startFileDescriptorMonitor,
+} from "./file-descriptors.js";
+import {
+  type PluginAutoUpdateHandle,
+  startPluginAutoUpdate,
+} from "./plugin-auto-update.js";
+import {
   type PluginSourceWatchHandle,
   startPluginSourceWatch,
 } from "./plugin-source-watch.js";
@@ -80,7 +92,9 @@ async function main(): Promise<void> {
   await rehydratePlatformCredentials();
 
   let sampler: ResourceSamplerHandle | null = null;
+  let fdMonitor: FileDescriptorMonitorHandle | null = null;
   let sourceWatch: PluginSourceWatchHandle | null = null;
+  let autoUpdate: PluginAutoUpdateHandle | null = null;
   let recovery: RecoveryHandle | null = null;
 
   let shuttingDown = false;
@@ -94,7 +108,10 @@ async function main(): Promise<void> {
     recovery?.stop();
     stopConfigSnapshotReporter();
     stopMemoryTierReporter();
+    stopDbIntegritySampler();
+    autoUpdate?.stop();
     sourceWatch?.stop();
+    fdMonitor?.stop();
     sampler?.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
     // is load-bearing for the opt-out contract: when share_analytics is
@@ -136,9 +153,16 @@ async function main(): Promise<void> {
   }
 
   sampler = startResourceSampler(config.monitoring);
+  // Descriptor exhaustion is per-process and slow-moving, so it polls on its
+  // own timer rather than riding the memory sampler's 250ms tick.
+  fdMonitor = startFileDescriptorMonitor(config.monitoring);
   sourceWatch = startPluginSourceWatch(
     config.monitoring.pluginSourceScanIntervalMs,
   );
+  // Unattended plugin upgrades, when the workspace opted in
+  // (`pluginUpdates.mode: "auto"`). The loop starts either way — the pass
+  // reads the mode, so flipping it takes effect without a restart.
+  autoUpdate = startPluginAutoUpdate();
   // Crash recovery runs here, off the daemon's boot path and event loop.
   recovery = startRecovery();
 
@@ -155,6 +179,10 @@ async function main(): Promise<void> {
   // Emit the coarse memory tier as a periodic per-assistant watchdog heartbeat.
   startMemoryTierReporter();
 
+  // Sample the database's structural integrity (at most daily) so the fleet's
+  // corruption prevalence is measurable.
+  startDbIntegritySampler();
+
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
     resetDb();
@@ -163,8 +191,11 @@ async function main(): Promise<void> {
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
     recovery?.stop();
+    autoUpdate?.stop();
     sourceWatch?.stop();
+    fdMonitor?.stop();
     sampler?.stop();
+    stopDbIntegritySampler();
     cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
@@ -172,16 +203,22 @@ async function main(): Promise<void> {
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in resource monitor process");
     recovery?.stop();
+    autoUpdate?.stop();
     sourceWatch?.stop();
+    fdMonitor?.stop();
     sampler?.stop();
+    stopDbIntegritySampler();
     cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
 
   process.on("exit", () => {
     recovery?.stop();
+    autoUpdate?.stop();
     sourceWatch?.stop();
+    fdMonitor?.stop();
     sampler?.stop();
+    stopDbIntegritySampler();
     cleanupWorkerPidFile(getMonitoringPidPath());
   });
 }

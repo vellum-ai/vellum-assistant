@@ -10,7 +10,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
@@ -85,7 +91,17 @@ mock.module("@/runtime/browser", () => ({
   openUrlFinishedListener: () => () => {},
 }));
 
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+} from "@/lib/billing/takeover-avatar-stash";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { AdjustPlanModal } from "./adjust-plan-modal";
 
 const CREDIT_TIERS: CreditTier[] = [
@@ -95,6 +111,7 @@ const CREDIT_TIERS: CreditTier[] = [
     credits_usd: 25,
     price_cents: 2500,
     lookup_key: "credits_25_lk",
+    legacy: false,
   },
   {
     tier: "credits_50",
@@ -102,6 +119,7 @@ const CREDIT_TIERS: CreditTier[] = [
     credits_usd: 50,
     price_cents: 5000,
     lookup_key: "credits_50_lk",
+    legacy: false,
   },
 ];
 
@@ -212,7 +230,11 @@ function renderModal(
   );
   const result = render(
     <QueryClientProvider client={client}>
-      <AdjustPlanModal open onClose={() => {}} onTierUpgraded={onTierUpgraded} />
+      <AdjustPlanModal
+        open
+        onClose={() => {}}
+        onTierUpgraded={onTierUpgraded}
+      />
     </QueryClientProvider>,
   );
   return { ...result, client };
@@ -222,7 +244,9 @@ function getDropdownTrigger(label: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${label}"]`,
   );
-  if (!trigger) throw new Error(`expected a ${label} dropdown trigger`);
+  if (!trigger) {
+    throw new Error(`expected a ${label} dropdown trigger`);
+  }
   return trigger;
 }
 
@@ -238,7 +262,9 @@ function clickOptionStartingWith(prefix: string): void {
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => o.textContent?.trim().startsWith(prefix));
-  if (!option) throw new Error(`expected option starting with "${prefix}"`);
+  if (!option) {
+    throw new Error(`expected option starting with "${prefix}"`);
+  }
   fireEvent.click(option);
 }
 
@@ -246,7 +272,9 @@ function clickOption(label: string): void {
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => o.textContent?.trim() === label);
-  if (!option) throw new Error(`expected option "${label}"`);
+  if (!option) {
+    throw new Error(`expected option "${label}"`);
+  }
   fireEvent.click(option);
 }
 
@@ -257,7 +285,15 @@ beforeEach(() => {
   changeMachineTierCall = null;
   changeStorageTierCall = null;
   openedUrl = null;
-  sessionStorage.clear();
+  // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
+  // leaves a prior test's intent readable.
+  clearCheckoutIntent();
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -277,7 +313,9 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
     await waitFor(() => {
-      if (!upgradeCall) throw new Error("upgrade not called");
+      if (!upgradeCall) {
+        throw new Error("upgrade not called");
+      }
     });
     expect((upgradeCall!.body as Record<string, unknown>).credit_tier).toBe(
       "credits_50",
@@ -293,7 +331,9 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
     await waitFor(() => {
-      if (!upgradeCall) throw new Error("upgrade not called");
+      if (!upgradeCall) {
+        throw new Error("upgrade not called");
+      }
     });
     expect(
       (upgradeCall!.body as Record<string, unknown>).credit_tier,
@@ -304,10 +344,24 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
 describe("AdjustPlanModal upgrade — checkout intent stash", () => {
   test("stashes the selected tiers before redirecting to Stripe checkout", async () => {
     upgradeResponse = { checkout_url: "https://checkout.example.com/session" };
-    const { getByTestId } = renderModal(
+    const { getByTestId, client } = renderModal(
       subscription("base", null),
       proPlansResponse(CREDIT_TIERS),
     );
+    // The live avatar key appends a `supportsManifest` boolean, and capture only
+    // stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [
+        { id: "a1", isLocal: false, isPlatformHosted: true, isPaired: false },
+      ],
+      assistantsHydrated: true,
+    });
+    client.setQueryData([...avatarQueryKey("a1"), true], {
+      components: BUNDLED_COMPONENTS,
+      traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
+      customImageUrl: null,
+    });
 
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
@@ -325,6 +379,9 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
       storageTier: "storage_10",
       creditTier: null,
     });
+    // The avatar snapshot rides along so the takeover can draw it on a cold
+    // return, before the live avatar query resolves.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("does not stash when the upgrade response has no checkout URL", async () => {
@@ -358,7 +415,9 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
@@ -377,7 +436,9 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
@@ -400,7 +461,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
@@ -420,7 +483,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
@@ -445,7 +510,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
@@ -473,7 +540,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     // Simulate a mid-modal refetch: re-seed by replacing the plans object so the
@@ -487,7 +556,10 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     const refetched = proPlansResponse(CREDIT_TIERS);
     refetched.plans[1]!.name = "Pro (refetched)";
     await act(async () => {
-      client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), refetched);
+      client.setQueryData(
+        organizationsBillingPlansRetrieveQueryKey(),
+        refetched,
+      );
       await new Promise((r) => setTimeout(r, 0));
     });
 
@@ -498,7 +570,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
     });
     expect(
       (changeMachineTierCall!.body as Record<string, unknown>).machine_tier,
@@ -521,7 +595,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     openCreditDropdown();
@@ -538,7 +614,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
@@ -563,7 +641,9 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     // The credit mutation fired (refresh path), but the resize flow must not.
     expect(upgraded).toBe(false);
@@ -589,10 +669,14 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
     });
     await waitFor(() => {
-      if (!upgraded) throw new Error("onTierUpgraded not called");
+      if (!upgraded) {
+        throw new Error("onTierUpgraded not called");
+      }
     });
     expect(changeCreditTierCall).toBeNull();
   });
@@ -608,8 +692,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo")) {
         return;
+      }
       throw new Error("base total not rendered yet");
     });
 
@@ -617,8 +702,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     clickOption("50 credits — $50/mo");
 
     await waitFor(() => {
-      if (getByTestId("modal-pro-price").textContent?.includes("$85/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$85/mo")) {
         return;
+      }
       throw new Error("total did not include the selected bundle");
     });
   });
@@ -632,8 +718,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo")) {
         return;
+      }
       throw new Error("current total not rendered yet");
     });
 
@@ -642,7 +729,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
 
     await waitFor(() => {
       const text = getByTestId("modal-pro-price").textContent ?? "";
-      if (text.includes("$60/mo") && text.includes("+$25/mo")) return;
+      if (text.includes("$60/mo") && text.includes("+$25/mo")) {
+        return;
+      }
       throw new Error("total/delta did not reflect the swapped bundle");
     });
   });
@@ -669,7 +758,9 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
 
     await waitFor(() => {
       const text = getByTestId("modal-pro-price").textContent ?? "";
-      if (text.includes("Currently") && text.includes("$59/mo")) return;
+      if (text.includes("Currently") && text.includes("$59/mo")) {
+        return;
+      }
       throw new Error("current total not rendered yet");
     });
 
@@ -678,7 +769,9 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
 
     // No tier picker and no "Update Plan" button render in this flow.
     expect(
-      document.querySelector('button[role="combobox"][aria-label="Machine tier"]'),
+      document.querySelector(
+        'button[role="combobox"][aria-label="Machine tier"]',
+      ),
     ).toBeNull();
     expect(queryByTestId("modal-change-tier-button")).toBeNull();
     expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
@@ -807,20 +900,28 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
       const btn = document.querySelector<HTMLButtonElement>(
         '[data-testid="confirm-downgrade-button"]',
       );
-      if (!btn) throw new Error("reconfirm not open");
+      if (!btn) {
+        throw new Error("reconfirm not open");
+      }
       fireEvent.click(btn);
     });
 
     // Both mutations should fire.
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
-      if (!changeStorageTierCall) throw new Error("storage change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
+      if (!changeStorageTierCall) {
+        throw new Error("storage change not called");
+      }
     });
 
     // The storage upgrade must trigger the resize flow even though the machine
     // change is a downgrade.
     await waitFor(() => {
-      if (!upgraded) throw new Error("onTierUpgraded not called");
+      if (!upgraded) {
+        throw new Error("onTierUpgraded not called");
+      }
     });
   });
 
@@ -845,13 +946,19 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
-      if (!changeCreditTierCall) throw new Error("credit change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
+      if (!changeCreditTierCall) {
+        throw new Error("credit change not called");
+      }
     });
 
     // Machine upgrade triggers resize flow.
     await waitFor(() => {
-      if (!upgraded) throw new Error("onTierUpgraded not called");
+      if (!upgraded) {
+        throw new Error("onTierUpgraded not called");
+      }
     });
   });
 });
@@ -901,5 +1008,261 @@ describe("AdjustPlanModal credit bundle — selector order", () => {
       credit.compareDocumentPosition(machine) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Current-plan identity: real package name and real tier rows
+// ---------------------------------------------------------------------------
+
+/**
+ * A catalog keyed by the real `MachineTierEnum` / `StorageTierEnum` values
+ * ('medium' | 'large' | 'xl', 'xs' | 's' | ...), unlike `proPlansResponse`'s
+ * older fictional keys. The current-plan rows label the machine off
+ * `MACHINE_TIER_LABEL`, which is keyed by the real enum, so these tests need a
+ * catalog a real subscription could actually point at.
+ */
+function realKeyedPlansResponse(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "base",
+        name: "Base",
+        base_price_cents: 0,
+        base_lookup_key: "base",
+        billing_interval: "month",
+        included_features: ["Pay-as-you-go credits"],
+      },
+      {
+        id: "pro",
+        name: "Pro",
+        base_price_cents: 1000,
+        base_lookup_key: "pro_base",
+        billing_interval: "month",
+        machine_tiers: [
+          {
+            tier: "medium",
+            label: "Medium",
+            price_cents: 3500,
+            lookup_key: "medium_lk",
+            cpu_limit: "2500m",
+            memory_gib: 5,
+            description: "Medium machine (2.5 vCPU, 5 GiB)",
+          },
+          {
+            tier: "large",
+            label: "Large",
+            price_cents: 6000,
+            lookup_key: "large_lk",
+            cpu_limit: "4",
+            memory_gib: 8,
+            description: "Large machine (4 vCPU, 8 GiB)",
+          },
+        ],
+        storage_tiers: [
+          {
+            tier: "xs",
+            label: "10 GiB",
+            price_cents: 500,
+            storage_gib: 10,
+            lookup_key: "xs_lk",
+            legacy: false,
+          },
+          {
+            tier: "s",
+            label: "30 GiB",
+            price_cents: 1000,
+            storage_gib: 30,
+            lookup_key: "s_lk",
+            legacy: false,
+          },
+        ],
+        included_features: [
+          "Pay-as-you-go and bundled credits",
+          "Configurable machine size",
+          "Configurable storage",
+          "Assistant email & subdomain",
+        ],
+        credit_tiers: CREDIT_TIERS,
+      },
+    ],
+  } as unknown as PlanListResponse;
+}
+
+/** A Pro sub on the `large` machine with 30 GiB storage and a $50 bundle. */
+const REAL_ONBOARDING: OnboardingData = {
+  max_machine_tier: "large",
+  selected_storage_tier: "s",
+  selected_storage_gib: 30,
+};
+
+function planNames(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-testid="modal-plan-name"]'),
+  ).map((n) => n.textContent?.trim() ?? "");
+}
+
+describe("AdjustPlanModal current plan: name and real tier rows", () => {
+  test("a clean-pinned sub reads its package name and its own tier rows", async () => {
+    renderModal(
+      subscription("pro", "credits_50", {
+        cancel_at_period_end: true,
+        package: { key: "super", name: "Super", version: 1, customized: false },
+      }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!planNames().includes("Super")) {
+        throw new Error("package name not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Large Machine");
+    expect(text).toContain("30 GB");
+    expect(text).toContain("50 credits/mo");
+    // The non-tier entitlement survives; the three tier-derived generic bullets
+    // are superseded by the subscriber's real values.
+    expect(text).toContain("Assistant email & subdomain");
+    expect(text).not.toContain("Configurable machine size");
+    expect(text).not.toContain("Configurable storage");
+    expect(text).not.toContain("Pay-as-you-go and bundled credits");
+  });
+
+  test("keeps the pay-as-you-go row for a sub holding no credit bundle", async () => {
+    // No bundle means no concrete credit row, so the catalog's pay-as-you-go
+    // entitlement has to survive; otherwise the card says nothing at all about
+    // credits for a plan that still has them.
+    renderModal(
+      subscription("pro", null, { cancel_at_period_end: true }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!(document.body.textContent ?? "").includes("Large Machine")) {
+        throw new Error("real rows not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Pay-as-you-go and bundled credits");
+    expect(text).not.toContain("Configurable machine size");
+    expect(text).not.toContain("Configurable storage");
+  });
+
+  test("carries through a non-tier entitlement the catalog adds", async () => {
+    // The real spec rows replace only the generic capability copy. Anything
+    // else the catalog lists is an entitlement no tier encodes, so it has to
+    // survive rather than be dropped by a client-side allowlist.
+    const plans = realKeyedPlansResponse();
+    const pro = (plans.plans as unknown as { included_features: string[] }[])[1];
+    pro.included_features = [...pro.included_features, "Priority support"];
+
+    renderModal(
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+      plans,
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      if (!text.includes("Large Machine")) {
+        throw new Error("real rows not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Priority support");
+    expect(text).toContain("Assistant email & subdomain");
+    expect(text).not.toContain("Configurable machine size");
+  });
+
+  test("a customized pin reads 'Custom' but still shows its real tier rows", async () => {
+    renderModal(
+      subscription("pro", "credits_50", {
+        cancel_at_period_end: true,
+        package: { key: "super", name: "Super", version: 1, customized: true },
+      }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!planNames().includes("Custom")) {
+        throw new Error("custom name not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Large Machine");
+    expect(text).toContain("30 GB");
+    expect(text).not.toContain("Super");
+  });
+
+  test("an unpinned legacy sub reads 'Custom'", async () => {
+    renderModal(
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!planNames().includes("Custom")) {
+        throw new Error("custom name not rendered yet");
+      }
+    });
+  });
+
+  test("a base user sees the Pro card as a generic offer, not as their plan", async () => {
+    renderModal(subscription("base", null), realKeyedPlansResponse());
+
+    await waitFor(() => {
+      if (!planNames().includes("Pro")) {
+        throw new Error("catalog name not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Configurable machine size");
+    expect(text).not.toContain("Large Machine");
+    // Never "Custom": a base user has no Pro package to describe.
+    expect(planNames()).not.toContain("Custom");
+  });
+
+  test("an errored onboarding read keeps generic copy instead of describing a paid sub as Small", async () => {
+    // The onboarding query is deliberately unseeded: it fires, the unmocked SDK
+    // fn rejects, and with retry:false it settles into an error. Every tier then
+    // reads null, so an `isLoading`-only gate would open and label this paying
+    // subscriber with the standard-small baseline.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+    );
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      realKeyedPlansResponse(),
+    );
+    const { findByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AdjustPlanModal open onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    await findByTestId("modal-pro-price-unavailable");
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("Small Machine");
+    expect(text).toContain("Configurable machine size");
   });
 });

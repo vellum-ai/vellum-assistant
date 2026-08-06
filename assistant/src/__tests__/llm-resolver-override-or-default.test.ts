@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.js";
 import {
+  composeCallSiteTweak,
   type ResolutionFallbackReason,
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
@@ -175,6 +176,146 @@ describe("fallback and completeness", () => {
     // default is overridden by the code-owned body.
     expect(resolved.model).not.toBe("gpt-5.4");
     expect(resolved.provider).toBe("anthropic");
+  });
+});
+
+describe("composeCallSiteTweak", () => {
+  // `CallSiteDefaultConfig` supports a shipped `model` (and the provider it
+  // implies). No entry sets one today, so these pin the invariant the merge
+  // depends on rather than waiting for the first entry that would break it.
+  test("a workspace entry owns selection: a shipped model/provider is dropped", () => {
+    const tweak = composeCallSiteTweak(
+      { model: "shipped-model", provider: "openai", effort: "low" },
+      { profile: "mine" },
+    );
+    expect("model" in tweak).toBe(false);
+    expect("provider" in tweak).toBe(false);
+    // The shipped tuning still layers in.
+    expect(tweak.effort).toBe("low");
+  });
+
+  test("with no workspace entry the shipped fragment applies whole", () => {
+    const tweak = composeCallSiteTweak(
+      { model: "shipped-model", provider: "openai", effort: "low" },
+      undefined,
+    );
+    expect(tweak.model).toBe("shipped-model");
+    expect(tweak.provider).toBe("openai");
+  });
+
+  test("a workspace provider/model still applies", () => {
+    const tweak = composeCallSiteTweak(
+      { model: "shipped-model", effort: "low" },
+      { provider: "anthropic", model: "chosen-model" },
+    );
+    expect(tweak.model).toBe("chosen-model");
+    expect(tweak.provider).toBe("anthropic");
+    expect(tweak.effort).toBe("low");
+  });
+
+  test("profile and logitBias never reach the fragment", () => {
+    const tweak = composeCallSiteTweak(
+      { effort: "low" },
+      { profile: "mine", logitBias: "suppress-cjk", maxTokens: 10 },
+    );
+    expect("profile" in tweak).toBe(false);
+    expect("logitBias" in tweak).toBe(false);
+    expect(tweak.maxTokens).toBe(10);
+  });
+});
+
+describe("shipped call-site tuning", () => {
+  // A workspace entry that only repoints the profile must not cost the call
+  // site the tuning it ships with. `recall` carries a full set: a token
+  // budget, effort, sampling, thinking, and cache posture.
+  test("a profile-only entry keeps the shipped tuning and takes the new model", () => {
+    const shipped = resolveCallSiteConfig(
+      "recall",
+      LLMSchema.parse({ profiles: { mine: completeCustom }, ...anthropicDp }),
+    );
+    const repointed = resolveCallSiteConfig(
+      "recall",
+      LLMSchema.parse({
+        profiles: { mine: completeCustom },
+        callSites: { recall: { profile: "mine" } },
+        ...anthropicDp,
+      }),
+    );
+
+    // The pin is what selects the model.
+    expect(repointed.model).toBe("gpt-5.5");
+    expect(repointed.model).not.toBe(shipped.model);
+
+    // Everything the call site ships with survives the repoint.
+    expect(repointed.maxTokens).toBe(4096);
+    expect(repointed.effort).toBe("low");
+    expect(repointed.temperature).toBe(0);
+    expect(repointed.disableCache).toBe(true);
+    expect(repointed.thinking.enabled).toBe(false);
+    expect(repointed.thinking.streamThinking).toBe(false);
+  });
+
+  test("a profile-only entry keeps a shipped nested budget", () => {
+    const resolved = resolveCallSiteConfig(
+      "memoryRouter",
+      LLMSchema.parse({
+        profiles: { mine: completeCustom },
+        callSites: { memoryRouter: { profile: "mine" } },
+        ...anthropicDp,
+      }),
+    );
+    expect(resolved.contextWindow.maxInputTokens).toBe(1000000);
+  });
+
+  test("an explicit workspace field beats the shipped one, field by field", () => {
+    const resolved = resolveCallSiteConfig(
+      "recall",
+      LLMSchema.parse({
+        profiles: { mine: completeCustom },
+        callSites: {
+          recall: { profile: "mine", maxTokens: 512, effort: "high" },
+        },
+        ...anthropicDp,
+      }),
+    );
+    // The two fields the entry names come from the entry.
+    expect(resolved.maxTokens).toBe(512);
+    expect(resolved.effort).toBe("high");
+    // The ones it does not name still come from the shipped tuning.
+    expect(resolved.temperature).toBe(0);
+    expect(resolved.disableCache).toBe(true);
+    expect(resolved.thinking.enabled).toBe(false);
+  });
+
+  test("a provider/model entry keeps the shipped tuning too", () => {
+    const resolved = resolveCallSiteConfig(
+      "recall",
+      LLMSchema.parse({
+        profiles: { mine: completeCustom },
+        callSites: {
+          recall: { provider: "openai", model: "gpt-5.5" },
+        },
+        ...anthropicDp,
+      }),
+    );
+    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.maxTokens).toBe(4096);
+    expect(resolved.effort).toBe("low");
+    expect(resolved.disableCache).toBe(true);
+  });
+
+  test("a call site with no shipped tuning is unaffected", () => {
+    const resolved = resolveCallSiteConfig(
+      "conversationSummarization",
+      LLMSchema.parse({
+        profiles: { mine: completeCustom },
+        callSites: { conversationSummarization: { profile: "mine" } },
+        ...anthropicDp,
+      }),
+    );
+    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.maxTokens).toBe(completeCustom.maxTokens);
+    expect(resolved.effort).toBe(completeCustom.effort);
   });
 });
 

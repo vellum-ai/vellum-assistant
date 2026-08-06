@@ -1,10 +1,9 @@
 /**
  * Tests for the trusted contact lifecycle fallback copy templates.
  *
- * Verifies that `ingress.trusted_contact.guardian_decision` and
- * `ingress.trusted_contact.denied` templates in copy-composer.ts render
- * display names when available and fall back to Slack <@ID> mention format
- * for raw user IDs on the Slack source channel.
+ * Verifies that the `ingress.trusted_contact.guardian_decision` template in
+ * copy-composer.ts renders display names when available and falls back to
+ * Slack <@ID> mention format for raw user IDs on the Slack source channel.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -36,35 +35,6 @@ function buildGuardianDecisionSignal(
     attentionHints: {
       requiresAction: false,
       urgency: "medium",
-      isAsyncBackground: false,
-      visibleInSourceNow: false,
-    },
-  };
-}
-
-function buildDeniedSignal(
-  payloadOverrides: Record<string, unknown> = {},
-  sourceChannel: "slack" | "telegram" | "vellum" = "slack",
-): NotificationSignal {
-  return {
-    signalId: "test-signal-denied",
-    createdAt: Date.now(),
-    sourceChannel,
-    sourceContextId: "test-ctx-2",
-    sourceEventName: "ingress.trusted_contact.denied",
-    contextPayload: {
-      sourceChannel,
-      requesterExternalUserId: "U07CLDQ4TB3",
-      requesterChatId: "D0AQ9C5PPPF",
-      decidedByExternalUserId: "U099H19C0KA",
-      requesterDisplayName: null,
-      decidedByDisplayName: null,
-      decision: "denied",
-      ...payloadOverrides,
-    },
-    attentionHints: {
-      requiresAction: false,
-      urgency: "low",
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },
@@ -250,103 +220,5 @@ describe("guardian_decision fallback copy", () => {
     expect(copy.body).toBe(
       "Someone's access request has been denied by a guardian.",
     );
-  });
-});
-
-// ── denied template ──────────────────────────────────────────────────────────
-
-describe("trusted_contact.denied fallback copy", () => {
-  test("uses display name when present", () => {
-    const signal = buildDeniedSignal({
-      requesterDisplayName: "Alice",
-    });
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    expect(copy.title).toBe("Trusted Contact Denied");
-    expect(copy.body).toBe(
-      "A trusted contact request from Alice has been denied.",
-    );
-  });
-
-  test("falls back to Slack <@ID> mention format on Slack when display name absent", () => {
-    const signal = buildDeniedSignal({
-      requesterDisplayName: null,
-      requesterExternalUserId: "U07CLDQ4TB3",
-      sourceChannel: "slack",
-    });
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    expect(copy.body).toBe(
-      "A trusted contact request from <@U07CLDQ4TB3> has been denied.",
-    );
-  });
-
-  test("uses raw user ID without Slack formatting on non-Slack channels", () => {
-    const signal = buildDeniedSignal(
-      {
-        requesterDisplayName: null,
-        requesterExternalUserId: "U07CLDQ4TB3",
-        sourceChannel: "telegram",
-      },
-      "telegram",
-    );
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    expect(copy.body).toBe(
-      "A trusted contact request from U07CLDQ4TB3 has been denied.",
-    );
-    expect(copy.body).not.toContain("<@");
-  });
-
-  test("falls back to 'Someone' when requester identity is absent", () => {
-    const signal = buildDeniedSignal({
-      requesterDisplayName: null,
-      requesterExternalUserId: null,
-    });
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    expect(copy.body).toBe(
-      "A trusted contact request from Someone has been denied.",
-    );
-  });
-
-  test("does not expose raw conversation IDs (requesterChatId) in output", () => {
-    const signal = buildDeniedSignal({
-      requesterDisplayName: null,
-      requesterExternalUserId: "U07CLDQ4TB3",
-      requesterChatId: "D0AQ9C5PPPF",
-    });
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    expect(copy.body).not.toContain("D0AQ9C5PPPF");
-  });
-
-  test("sanitizes control characters from display names", () => {
-    const signal = buildDeniedSignal({
-      requesterDisplayName: "Alice\x00\x07\nEvil",
-    });
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    expect(copy.body).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
-    expect(copy.body).toContain("Alice");
-  });
-
-  test("clamps excessively long display names", () => {
-    const longName = "A".repeat(200);
-    const signal = buildDeniedSignal({
-      requesterDisplayName: longName,
-    });
-    const result = composeFallbackCopy(signal, ["vellum"]);
-    const copy = result.vellum!;
-
-    // sanitizeIdentityField clamps to 120 chars + ellipsis
-    expect(copy.body.length).toBeLessThan(longName.length);
-    expect(copy.body).toContain("…");
   });
 });

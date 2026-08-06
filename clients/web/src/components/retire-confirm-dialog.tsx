@@ -29,8 +29,8 @@ function RetireConfirmDialog({
       message={
         <>
           This will permanently retire this assistant and all of its data. You
-          will need to go through the onboarding flow again to create a new
-          one. This action cannot be undone.
+          will need to go through the onboarding flow again to create a new one.
+          This action cannot be undone.
           {extraMessage}
         </>
       }

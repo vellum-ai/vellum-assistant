@@ -31,7 +31,13 @@ describe("handleUISurfaceShow", () => {
   it("increments assets refresh key for dynamic_page", () => {
     const ctx = makeCtx();
     handleUISurfaceShow(
-      { type: "ui_surface_show", conversationId: "c-1", surfaceId: "s-1", surfaceType: "dynamic_page", data: {} },
+      {
+        type: "ui_surface_show",
+        conversationId: "c-1",
+        surfaceId: "s-1",
+        surfaceType: "dynamic_page",
+        data: {},
+      },
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).toHaveBeenCalled();
@@ -41,7 +47,13 @@ describe("handleUISurfaceShow", () => {
   it("increments assets refresh key for document_preview", () => {
     const ctx = makeCtx();
     handleUISurfaceShow(
-      { type: "ui_surface_show", conversationId: "c-1", surfaceId: "s-1", surfaceType: "document_preview", data: {} },
+      {
+        type: "ui_surface_show",
+        conversationId: "c-1",
+        surfaceId: "s-1",
+        surfaceType: "document_preview",
+        data: {},
+      },
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).toHaveBeenCalled();
@@ -50,7 +62,13 @@ describe("handleUISurfaceShow", () => {
   it("does not increment assets refresh key for other surface types", () => {
     const ctx = makeCtx();
     handleUISurfaceShow(
-      { type: "ui_surface_show", conversationId: "c-1", surfaceId: "s-1", surfaceType: "form", data: {} },
+      {
+        type: "ui_surface_show",
+        conversationId: "c-1",
+        surfaceId: "s-1",
+        surfaceType: "form",
+        data: {},
+      },
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).not.toHaveBeenCalled();
@@ -61,7 +79,12 @@ describe("handleUISurfaceUpdate", () => {
   it("dispatches UI_SURFACE_UPDATE", () => {
     const ctx = makeCtx();
     handleUISurfaceUpdate(
-      { type: "ui_surface_update", conversationId: "c-1", surfaceId: "s-1", data: { key: "value" } },
+      {
+        type: "ui_surface_update",
+        conversationId: "c-1",
+        surfaceId: "s-1",
+        data: { key: "value" },
+      },
       ctx,
     );
     expect(ctx.turnActions.updateSurface).toHaveBeenCalled();
@@ -87,14 +110,17 @@ describe("handleUISurfaceComplete", () => {
       role: "assistant",
       ...textBody(""),
       timestamp: 1,
-      surfaces: [
-        { surfaceId: "s-1", surfaceType: "dynamic_page", data: {} },
-      ],
+      surfaces: [{ surfaceId: "s-1", surfaceType: "dynamic_page", data: {} }],
     };
     seedSnapshot([msg]);
     const ctx = makeCtx();
     handleUISurfaceComplete(
-      { type: "ui_surface_complete", conversationId: "c-1", surfaceId: "s-1", summary: "Done" },
+      {
+        type: "ui_surface_complete",
+        conversationId: "c-1",
+        surfaceId: "s-1",
+        summary: "Done",
+      },
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).toHaveBeenCalled();
@@ -107,14 +133,17 @@ describe("handleUISurfaceComplete", () => {
       role: "assistant",
       ...textBody(""),
       timestamp: 1,
-      surfaces: [
-        { surfaceId: "s-1", surfaceType: "form", data: {} },
-      ],
+      surfaces: [{ surfaceId: "s-1", surfaceType: "form", data: {} }],
     };
     seedSnapshot([msg]);
     const ctx = makeCtx();
     handleUISurfaceComplete(
-      { type: "ui_surface_complete", conversationId: "c-1", surfaceId: "s-1", summary: "Done" },
+      {
+        type: "ui_surface_complete",
+        conversationId: "c-1",
+        surfaceId: "s-1",
+        summary: "Done",
+      },
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).not.toHaveBeenCalled();

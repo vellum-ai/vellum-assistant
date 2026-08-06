@@ -113,7 +113,9 @@ export function useTeleport(): TeleportController {
   }, []);
 
   const execute = useCallback(async () => {
-    if (!source || !destination) return;
+    if (!source || !destination) {
+      return;
+    }
     originalRef.current = {
       id: source.assistantId,
       kind: classifyHosting(source.cloud) === "managed" ? "managed" : "local",
@@ -167,7 +169,9 @@ export function useTeleport(): TeleportController {
   const confirmAndSwitch = useCallback(() => {
     const target = targetRef.current;
     const original = originalRef.current;
-    if (!target) return;
+    if (!target) {
+      return;
+    }
 
     void (async () => {
       try {
@@ -193,7 +197,9 @@ export function useTeleport(): TeleportController {
         // The switch failed — keep the target around and surface the error
         // rather than leaving the UI stuck in the verifying phase.
         const message =
-          error instanceof Error ? error.message : "Failed to switch assistant.";
+          error instanceof Error
+            ? error.message
+            : "Failed to switch assistant.";
         setPhase({ kind: "failed", error: `Switch failed: ${message}` });
         captureError(error, { context: "teleport-confirm-switch" });
         return;
@@ -430,8 +436,12 @@ async function resolveLocalTargetRuntimeVersion(
   local: LockfileAssistant,
   createdFresh: boolean,
 ): Promise<string | undefined> {
-  if (local.resources?.runtimeVersion) return local.resources.runtimeVersion;
-  if (!createdFresh) return undefined;
+  if (local.resources?.runtimeVersion) {
+    return local.resources.runtimeVersion;
+  }
+  if (!createdFresh) {
+    return undefined;
+  }
   return (await getAppVersionInfo())?.version ?? undefined;
 }
 
@@ -453,9 +463,13 @@ async function cleanupFreshTarget(
 ): Promise<void> {
   if (target?.createdFresh) {
     const result = await retireAssistant(target.id);
-    if (!result.ok) captureError(new Error(result.error), { context });
+    if (!result.ok) {
+      captureError(new Error(result.error), { context });
+    }
   }
-  if (original) await setActiveLockfileAssistant(original.id);
+  if (original) {
+    await setActiveLockfileAssistant(original.id);
+  }
 }
 
 /**
@@ -476,11 +490,15 @@ async function resolveRuntimeVersion(
  */
 async function resolveOrganizationId(): Promise<string> {
   const store = useOrganizationStore.getState();
-  if (store.organizations.length === 0) await store.fetchOrganizations();
+  if (store.organizations.length === 0) {
+    await store.fetchOrganizations();
+  }
   const orgs = useOrganizationStore.getState().organizations;
 
   const connected = getActiveOrganizationIdForRequests();
-  if (connected && orgs.some((org) => org.id === connected)) return connected;
+  if (connected && orgs.some((org) => org.id === connected)) {
+    return connected;
+  }
 
   if (orgs.length === 0) {
     throw new TeleportError(
@@ -507,7 +525,9 @@ async function awaitAssistantProvisioned(assistantId: string): Promise<void> {
       path: { id: assistantId },
       throwOnError: false,
     });
-    if (response?.ok && data?.state === "active") return;
+    if (response?.ok && data?.state === "active") {
+      return;
+    }
     await sleep(POLL_INTERVAL_MS);
   }
   // Timed out — proceed anyway; the import will surface a hard error if the
@@ -524,7 +544,9 @@ async function awaitPlatformJob(jobId: string): Promise<void> {
     // job) — let it propagate and fail the teleport promptly rather than
     // swallowing it and grinding to the 60-minute timeout.
     const status = await pollJobStatus(jobId);
-    if (status.status === "complete") return;
+    if (status.status === "complete") {
+      return;
+    }
     if (status.status === "failed") {
       throw new TeleportError(
         "import_failed",
@@ -532,7 +554,10 @@ async function awaitPlatformJob(jobId: string): Promise<void> {
       );
     }
   }
-  throw new TeleportError("import_failed", "Import timed out after 60 minutes.");
+  throw new TeleportError(
+    "import_failed",
+    "Import timed out after 60 minutes.",
+  );
 }
 
 /** Poll a managed runtime-local export job until complete. */
@@ -544,7 +569,9 @@ async function awaitManagedExportJob(
   while (Date.now() - start < JOB_TIMEOUT_MS) {
     await sleep(POLL_INTERVAL_MS);
     const status = await pollManagedExportJob(managedId, jobId);
-    if (status === "complete") return;
+    if (status === "complete") {
+      return;
+    }
   }
   throw new TeleportError("export_timed_out", "Export timed out.");
 }

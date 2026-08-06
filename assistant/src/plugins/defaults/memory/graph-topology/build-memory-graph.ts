@@ -15,20 +15,17 @@
  * a call into `backend.getGraph()` — the contract and its route do not change.
  */
 
-import { isMemoryGraphSupported } from "../../../../config/memory-v3-gate.js";
+import { isV3TierActive } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getWorkspaceDir } from "../paths.js";
+import { getPageIndex, type PageIndexEntry } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { isSkillSlug } from "../substrate/skill-store.js";
 import {
   isCapabilitySlug,
   renderCapabilityContent,
 } from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
-import {
-  getPageIndex,
-  type PageIndexEntry,
-} from "../v3/substrate/page-index.js";
-import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
-import { isSkillSlug } from "../v3/substrate/skill-store.js";
 import type { Slug } from "../v3/types.js";
 import {
   buildPendingGraph,
@@ -235,7 +232,7 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
 export async function getMemoryGraph(
   config: AssistantConfig,
 ): Promise<MemoryGraph> {
-  if (!isMemoryGraphSupported(config)) {
+  if (!isV3TierActive(config)) {
     return { backend: null, supported: false, nodes: [], edges: [] };
   }
 
@@ -299,7 +296,7 @@ export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (!isMemoryGraphSupported(config) || !id) {
+  if (!isV3TierActive(config) || !id) {
     return { found: false };
   }
   // Pending buffer entries: resolve the id back to its buffer fact. `found:

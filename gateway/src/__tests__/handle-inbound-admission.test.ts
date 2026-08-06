@@ -63,11 +63,10 @@ mock.module("../feature-flag-resolver.js", () => ({
 
 await import("./test-preload.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
-const { AdmissionPolicyStore } = await import("../db/admission-policy-store.js");
-const {
-  initAdmissionPolicyCache,
-  resetAdmissionPolicyCache,
-} = await import("../risk/admission-policy-cache.js");
+const { AdmissionPolicyStore } =
+  await import("../db/admission-policy-store.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 
 let store: InstanceType<typeof AdmissionPolicyStore>;
@@ -75,7 +74,6 @@ let store: InstanceType<typeof AdmissionPolicyStore>;
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -93,7 +91,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
@@ -210,9 +207,7 @@ describe("handle-inbound admission policy", () => {
     );
 
     expect(result.forwarded).toBe(true);
-    expect(
-      runtimePayloads[0]!.sourceMetadata!.admissionPolicy,
-    ).toBeUndefined();
+    expect(runtimePayloads[0]!.sourceMetadata!.admissionPolicy).toBeUndefined();
   });
 
   test("phone `no_one` hard-denies (voice ingress wired, no longer exempt)", async () => {

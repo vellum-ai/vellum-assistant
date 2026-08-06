@@ -22,7 +22,9 @@
  * Reference: https://fetch.spec.whatwg.org/#concept-network-error
  */
 export function isTransientNetworkError(error: unknown): boolean {
-  if (!(error instanceof TypeError)) return false;
+  if (!(error instanceof TypeError)) {
+    return false;
+  }
 
   const msg = error.message;
 

@@ -15,7 +15,9 @@ export async function run(
 
   try {
     const enrollments = listEnrollments({ sequenceId, status });
-    if (enrollments.length === 0) return ok("No enrollments found.");
+    if (enrollments.length === 0) {
+      return ok("No enrollments found.");
+    }
 
     const lines = enrollments.map((e) => {
       const nextAt = e.nextStepAt

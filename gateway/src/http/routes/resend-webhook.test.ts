@@ -210,3 +210,57 @@ describe("resend-webhook API-key resolution", () => {
     expect(dedupCache.reserve(messageId)).toBe(false);
   });
 });
+
+// --- Payload validation ----------------------------------------------------
+
+/** Sign an arbitrary JSON body as a valid Svix-signed Resend webhook. */
+function signedRequest(bodyObj: unknown): Request {
+  const body = JSON.stringify(bodyObj);
+  const svixId = "msg_validation";
+  const svixTimestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = createHmac("sha256", SECRET_BYTES)
+    .update(`${svixId}.${svixTimestamp}.${body}`, "utf8")
+    .digest("base64");
+  return new Request("http://localhost:7830/webhooks/resend", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "svix-id": svixId,
+      "svix-timestamp": svixTimestamp,
+      "svix-signature": `v1,${signature}`,
+    },
+    body,
+  });
+}
+
+describe("resend-webhook payload validation", () => {
+  it("acknowledges a non-received event (delivery status, bounce) without forwarding", async () => {
+    const { handler } = createResendWebhookHandler(config, makeCaches());
+    const res = await handler(
+      signedRequest({ type: "email.delivered", data: { email_id: "e1" } }),
+    );
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+
+  it("drops an email.received event whose `to` is not an array, rather than forwarding a garbage recipient", async () => {
+    // A string `to` must be treated as malformed, not as a list: indexing it
+    // would forward `to[0]` — a single character — as the recipient address.
+    const { handler } = createResendWebhookHandler(config, makeCaches());
+    const res = await handler(
+      signedRequest({
+        type: "email.received",
+        created_at: "2026-04-03T01:00:00.000Z",
+        data: {
+          email_id: "email_x",
+          from: "alice@example.com",
+          to: "not-an-array",
+          subject: "Hello",
+          message_id: "<garbage-to@example.com>",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+});

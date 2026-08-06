@@ -3,9 +3,10 @@ import { existsSync } from "node:fs";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb } from "./db-connection.js";
+import { getDb, getSqliteFrom } from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
+import { PLANNER_OPTIMIZE_PRAGMA } from "./planner-statistics.js";
 import { migrationSteps } from "./steps.js";
 
 /**
@@ -100,6 +101,18 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     },
     "DB migration steps complete",
   );
+
+  // An index a migration creates has no sqlite_stat1 entry until something
+  // analyzes it, which SQLite calls out as a case to handle after a schema
+  // change. Only boots that applied a step pay for it, and optimize analyzes
+  // just the tables that need it.
+  if (applied.length > 0) {
+    try {
+      getSqliteFrom(database).exec(PLANNER_OPTIMIZE_PRAGMA);
+    } catch (err) {
+      log.warn({ err }, "Post-migration PRAGMA optimize failed (non-fatal)");
+    }
+  }
 
   if (failed.length > 0) {
     log.error(

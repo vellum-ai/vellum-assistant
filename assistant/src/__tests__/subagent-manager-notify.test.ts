@@ -29,7 +29,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -42,7 +42,7 @@ interface FakeManagedSubagent {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     loadFromDb?: () => Promise<void>;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
@@ -52,9 +52,16 @@ interface FakeManagedSubagent {
       estimatedCost: number;
     };
     subagentDeniedToolNames: Set<string>;
+    subagentToolStats: {
+      calls: number;
+      succeeded: number;
+      filesWritten: Set<string>;
+    };
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
+  /** Sticky marker that a follow-up turn was queued during the run. */
+  hadEnqueuedMessages?: boolean;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -62,6 +69,7 @@ interface ManagerInternals {
   subagents: Map<string, FakeManagedSubagent>;
   parentToChildren: Map<string, Set<string>>;
   runSubagent: (subagentId: string, objective: string) => Promise<void>;
+  releaseConversation: (managed: FakeManagedSubagent) => void;
   stopSweep: () => void;
 }
 
@@ -77,7 +85,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
 ): void {
   const fakeSession: FakeManagedSubagent["conversation"] = {
     abort: () => {},
@@ -86,6 +94,11 @@ function injectFakeSubagent(
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
     subagentDeniedToolNames: new Set<string>(),
+    subagentToolStats: {
+      calls: 0,
+      succeeded: 0,
+      filesWritten: new Set<string>(),
+    },
   };
 
   const internals = asInternals(manager);
@@ -137,8 +150,8 @@ describe("SubagentManager abort notification", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
 
     const result = manager.abort(subagentId, sendToClient);
 
@@ -160,8 +173,8 @@ describe("SubagentManager abort notification", () => {
     injectFakeSubagent(manager, subagentId, state, parentSender);
 
     // A different sender (simulating abort from a different thread's socket).
-    const abortingSender = ((_msg: ServerMessage) => {}) as (
-      msg: ServerMessage,
+    const abortingSender = ((_msg: AssistantEvent) => {}) as (
+      msg: AssistantEvent,
     ) => void;
 
     manager.abort(subagentId, abortingSender);
@@ -175,8 +188,8 @@ describe("SubagentManager abort notification", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
 
     // Pass the sender as parentSendToClient so the stored sender receives the status update.
     injectFakeSubagent(
@@ -359,6 +372,141 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
     asInternals(manager).stopSweep();
   });
 
+  test("a settled run's notification carries what it actually ran", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-stats";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {
+      const counters = managed.conversation!.subagentToolStats;
+      counters.calls += 2;
+      counters.succeeded += 2;
+      counters.filesWritten.add("/report.md");
+    };
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    expect(capturedNotifications[0].message).toContain(
+      "[stats: 2 tool calls, 2 succeeded, files written via file_write/file_edit: 1]",
+    );
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("a queued follow-up turn's tool calls reach the reported stats", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-queued-stats";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {
+      const counters = managed.conversation!.subagentToolStats;
+      counters.calls += 2;
+      counters.succeeded += 2;
+    };
+    // Guidance arrived while the run was processing: the conversation is
+    // retained past the run so it can drain that turn afterwards.
+    managed.hadEnqueuedMessages = true;
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    // The run's own harvest only ever sees its own calls.
+    expect(state.stats).toEqual({ calls: 2, succeeded: 2, filesWritten: 0 });
+    // Quoting it in a message that is never rewritten would under-report the
+    // queued turn permanently, so the deferred notification quotes nothing and
+    // sends the parent to subagent_read instead.
+    expect(capturedNotifications[0].message).toContain(
+      "Queued follow-up guidance is still being processed",
+    );
+    expect(capturedNotifications[0].message).not.toContain("[stats:");
+
+    // The queued turn now drains, into the same retained conversation.
+    const counters = managed.conversation!.subagentToolStats;
+    counters.calls += 3;
+    counters.succeeded += 2;
+    counters.filesWritten.add("/queued-turn.md");
+
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "counted",
+      stats: { calls: 5, succeeded: 4, filesWritten: 1 },
+    });
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("releasing the conversation freezes the settled counters", async () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-release-stats";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {
+      managed.conversation!.subagentToolStats.calls += 1;
+      managed.conversation!.subagentToolStats.succeeded += 1;
+    };
+    managed.hadEnqueuedMessages = true;
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    const counters = managed.conversation!.subagentToolStats;
+    counters.calls += 4;
+    counters.succeeded += 3;
+
+    // The sweep releases the retained conversation once the drain has had its
+    // window; the last reading is taken on the way out and stands afterwards.
+    asInternals(manager).releaseConversation(managed);
+
+    expect(managed.conversation).toBeNull();
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "counted",
+      stats: { calls: 5, succeeded: 4, filesWritten: 0 },
+    });
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("a run that never harvested reports nothing rather than a zero", () => {
+    const manager = new SubagentManager();
+    const subagentId = "sub-unharvested";
+    injectFakeSubagent(manager, subagentId, makeState(subagentId));
+
+    // Still running: its counters are mid-flight, and a zero read off them now
+    // would read as "this subagent used no tools".
+    expect(manager.currentToolStats(subagentId)).toEqual({
+      kind: "unmeasured",
+    });
+  });
+
+  test("an id the manager never held reports its counters unrecoverable", () => {
+    const manager = new SubagentManager();
+
+    // The counters exist nowhere but memory, so a caller holding a
+    // record-derived state for this id can never get them, and reporting zero
+    // calls would read as "this subagent did nothing".
+    expect(manager.currentToolStats("sub-not-in-manager")).toEqual({
+      kind: "unrecoverable",
+    });
+  });
+
   test("failed subagent does not notify if already aborted", async () => {
     clearCaptured();
     const manager = new SubagentManager();
@@ -386,7 +534,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 });
 
 describe("SubagentManager abortAllForParent", () => {
-  test("aborts all active children of a parent", () => {
+  test("aborts active children but keeps every child's state readable", () => {
     clearCaptured();
     const manager = new SubagentManager();
     injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
@@ -402,17 +550,76 @@ describe("SubagentManager abortAllForParent", () => {
     expect(count).toBe(2); // sub-1 and sub-2, not sub-3 (already completed)
     expect(capturedNotifications).toHaveLength(2);
 
-    // All children should be disposed — parent is going away.
-    expect(manager.getState("sub-1")).toBeUndefined();
-    expect(manager.getState("sub-2")).toBeUndefined();
-    expect(manager.getState("sub-3")).toBeUndefined();
-    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+    // The parent conversation lives on (stop/eviction/rebuild), so every
+    // child stays tracked: aborted ones as terminal metadata, and the
+    // completed one still readable via subagent_read.
+    expect(manager.getState("sub-1")?.status).toBe("aborted");
+    expect(manager.getState("sub-2")?.status).toBe("aborted");
+    expect(manager.getState("sub-3")?.status).toBe("completed");
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(3);
   });
 
   test("returns 0 for unknown parent", () => {
     const manager = new SubagentManager();
     const count = manager.abortAllForParent("nonexistent");
     expect(count).toBe(0);
+  });
+});
+
+describe("SubagentManager disposeAllForParent", () => {
+  test("aborts and removes all children — parent data is going away", () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
+    injectFakeSubagent(
+      manager,
+      "sub-2",
+      makeState("sub-2", { status: "completed" }),
+    );
+
+    const count = manager.disposeAllForParent("parent-sess-1", () => {});
+
+    expect(count).toBe(1); // only sub-1 was still in flight
+    expect(manager.getState("sub-1")).toBeUndefined();
+    expect(manager.getState("sub-2")).toBeUndefined();
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+  });
+
+  test("returns 0 for unknown parent", () => {
+    const manager = new SubagentManager();
+    const count = manager.disposeAllForParent("nonexistent");
+    expect(count).toBe(0);
+  });
+});
+
+describe("SubagentManager disposeAllForAllParents", () => {
+  test("removes retained children across every parent — clear-all semantics", () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    // Two parents; only one would appear in the in-memory conversation store
+    // during a clear-all — the other models an evicted parent whose terminal
+    // children are still retained.
+    injectFakeSubagent(manager, "sub-a", makeState("sub-a"));
+    injectFakeSubagent(
+      manager,
+      "sub-b",
+      makeState("sub-b", {
+        config: {
+          id: "sub-b",
+          parentConversationId: "parent-evicted",
+          label: "Evicted parent child",
+          objective: "Do something",
+        },
+        status: "completed",
+      }),
+    );
+
+    manager.disposeAllForAllParents();
+
+    expect(manager.getState("sub-a")).toBeUndefined();
+    expect(manager.getState("sub-b")).toBeUndefined();
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+    expect(manager.getChildrenOf("parent-evicted")).toHaveLength(0);
   });
 });
 

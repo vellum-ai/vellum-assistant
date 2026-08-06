@@ -22,7 +22,13 @@ import {
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 const ASSISTANT_ID = "asst_1";
 
@@ -40,7 +46,9 @@ let daemonConfigData: { services: Record<string, unknown> } = {
   services: { tts: { provider: "vellum" } },
 };
 let providersData: { providers: unknown[] } = {
-  providers: [{ id: "vellum", displayName: "Vellum", supportsVoiceSelection: true }],
+  providers: [
+    { id: "vellum", displayName: "Vellum", supportsVoiceSelection: true },
+  ],
 };
 let managedVoicesData: { voices: unknown[]; defaultModel: string | null } = {
   voices: [
@@ -81,22 +89,30 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 }));
 
 const configPatchCalls: { path?: unknown; body?: unknown }[] = [];
+// Held open, `patchGate` keeps every PATCH in flight so a second pick can be
+// made while the first is still going — the audition case.
+let patchGate: Promise<void> | null = null;
 mock.module("@/generated/daemon/sdk.gen", () => ({
-  configPatch: (opts: { path?: unknown; body?: unknown }) => {
+  configPatch: async (opts: { path?: unknown; body?: unknown }) => {
     configPatchCalls.push(opts);
-    return Promise.resolve({ response: { ok: true, status: 200 } });
+    if (patchGate) {
+      await patchGate;
+    }
+    return { response: { ok: true, status: 200 } };
   },
 }));
 
-const { VoiceList } = await import(
-  "@/components/speech/voice-list"
-);
+const { VoiceList } = await import("@/components/speech/voice-list");
 
 beforeAll(() => {
-  (window.HTMLMediaElement.prototype as unknown as { play: () => Promise<void> }).play =
-    () => Promise.resolve();
-  (window.HTMLMediaElement.prototype as unknown as { pause: () => void }).pause =
-    () => {};
+  (
+    window.HTMLMediaElement.prototype as unknown as {
+      play: () => Promise<void>;
+    }
+  ).play = () => Promise.resolve();
+  (
+    window.HTMLMediaElement.prototype as unknown as { pause: () => void }
+  ).pause = () => {};
 });
 
 function renderList(assistantId: string | null = ASSISTANT_ID) {
@@ -113,6 +129,7 @@ function renderList(assistantId: string | null = ASSISTANT_ID) {
 beforeEach(() => {
   orgReady = true;
   configPatchCalls.length = 0;
+  patchGate = null;
   daemonConfigData = { services: { tts: { provider: "vellum" } } };
   providersData = {
     providers: [
@@ -170,7 +187,9 @@ describe("VoiceList", () => {
     const zeus = screen
       .getAllByRole("option")
       .find((o) => o.textContent?.includes("Deep, trustworthy"));
-    if (!zeus) throw new Error("expected the Zeus option");
+    if (!zeus) {
+      throw new Error("expected the Zeus option");
+    }
     fireEvent.click(zeus);
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
@@ -180,13 +199,72 @@ describe("VoiceList", () => {
     });
   });
 
+  test("the pick is marked selected before its write lands", async () => {
+    let openGate = () => {};
+    patchGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    renderList();
+
+    const zeus = () =>
+      screen
+        .getAllByRole("option")
+        .find((o) => o.textContent?.includes("Deep, trustworthy"))!;
+    fireEvent.click(zeus());
+
+    // Still mid-write — the check has to follow the click, not the round trip.
+    await waitFor(() =>
+      expect(zeus().getAttribute("aria-selected")).toBe("true"),
+    );
+    expect(configPatchCalls.length).toBe(1);
+    openGate();
+  });
+
+  test("picks made during a write are serialized in click order", async () => {
+    let openGate = () => {};
+    patchGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    renderList();
+
+    const option = (text: string) =>
+      screen.getAllByRole("option").find((o) => o.textContent?.includes(text))!;
+    // Zeus, then straight back to Sarah while Zeus's write is still in flight.
+    fireEvent.click(option("Deep, trustworthy"));
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    fireEvent.click(option("Professional, reassuring"));
+
+    // The second write waits its turn rather than racing the first: config
+    // would otherwise settle on whichever landed last, not the last click.
+    expect(configPatchCalls.length).toBe(1);
+    openGate();
+    patchGate = null;
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(2));
+    expect(configPatchCalls.map((c) => c.body)).toEqual([
+      {
+        services: {
+          tts: { providers: { vellum: { model: "aura-2-zeus-en" } } },
+        },
+      },
+      {
+        services: {
+          tts: { providers: { vellum: { model: "EXAVITQu4vr4xnSDxMaL" } } },
+        },
+      },
+    ]);
+  });
+
   test("each row previews its own voice via the hosted sample", async () => {
     let played = "";
-    (window.HTMLMediaElement.prototype as unknown as { play: () => Promise<void> }).play =
-      function (this: HTMLAudioElement) {
-        played = this.src;
-        return Promise.resolve();
-      };
+    (
+      window.HTMLMediaElement.prototype as unknown as {
+        play: () => Promise<void>;
+      }
+    ).play = function (this: HTMLAudioElement) {
+      played = this.src;
+      return Promise.resolve();
+    };
     renderList();
 
     fireEvent.click(

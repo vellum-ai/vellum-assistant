@@ -16,7 +16,10 @@ afterEach(() => cleanup());
 
 type SetSearchParamsArgs = [unknown, unknown?];
 
-function baseProps(search: string, sendMessage: (content: string) => Promise<void>) {
+function baseProps(
+  search: string,
+  sendMessage: (content: string) => Promise<void>,
+) {
   return {
     assistantId: "assistant-1",
     activeConversationId: "conv-1",

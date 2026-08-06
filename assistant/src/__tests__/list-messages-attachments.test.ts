@@ -103,10 +103,14 @@ describe("handleListMessages attachments", () => {
       "user",
       JSON.stringify([{ type: "text", text: "check this image" }]),
     );
-    const stored = uploadAttachment("photo.png", "image/png", IMAGE_BASE64);
+    const stored = await uploadAttachment(
+      "photo.png",
+      "image/png",
+      IMAGE_BASE64,
+    );
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -124,14 +128,14 @@ describe("handleListMessages attachments", () => {
       "user",
       JSON.stringify([{ type: "text", text: "check this doc" }]),
     );
-    const stored = uploadAttachment(
+    const stored = await uploadAttachment(
       "report.pdf",
       "application/pdf",
       DOC_BASE64,
     );
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -150,10 +154,14 @@ describe("handleListMessages attachments", () => {
       "assistant",
       JSON.stringify([{ type: "text", text: "here is an image" }]),
     );
-    const stored = uploadAttachment("result.png", "image/png", IMAGE_BASE64);
+    const stored = await uploadAttachment(
+      "result.png",
+      "image/png",
+      IMAGE_BASE64,
+    );
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -172,8 +180,12 @@ describe("handleListMessages attachments", () => {
       "user",
       JSON.stringify([{ type: "text", text: "here are files" }]),
     );
-    const imgStored = uploadAttachment("photo.png", "image/png", IMAGE_BASE64);
-    const docStored = uploadAttachment(
+    const imgStored = await uploadAttachment(
+      "photo.png",
+      "image/png",
+      IMAGE_BASE64,
+    );
+    const docStored = await uploadAttachment(
       "doc.pdf",
       "application/pdf",
       DOC_BASE64,
@@ -181,7 +193,7 @@ describe("handleListMessages attachments", () => {
     linkAttachmentToMessage(msg.id, imgStored.id, 0);
     linkAttachmentToMessage(msg.id, docStored.id, 1);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     const attachments = body.messages[0].attachments!;
@@ -191,6 +203,101 @@ describe("handleListMessages attachments", () => {
     const docAtt = attachments.find((a) => a.mimeType === "application/pdf");
     expect(imgAtt!.data).toBe(IMAGE_BASE64);
     expect(docAtt!.data).toBeUndefined();
+  });
+
+  test("contentBlocks attachment blocks are metadata-only references", async () => {
+    // The flat `attachments` array is the sole payload carrier. An inline
+    // file-block ref places an `attachment` block in `contentBlocks`, but
+    // that block must reference the row by id without repeating its base64:
+    // duplicating it doubles every image in the response and in client
+    // memory.
+    const conv = createConversation();
+    const stored = await uploadAttachment(
+      "photo.png",
+      "image/png",
+      IMAGE_BASE64,
+    );
+    const msg = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "check this image" },
+        {
+          type: "file",
+          source: { type: "workspace_ref", attachmentId: stored.id },
+          filename: "photo.png",
+          media_type: "image/png",
+        },
+      ]),
+    );
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const response = await handleListMessages(createTestArgs(conv.id));
+    const body = response as {
+      messages: {
+        attachments?: AttachmentPayload[];
+        contentBlocks?: Array<{
+          type: string;
+          attachment?: {
+            id: string;
+            data?: string;
+            thumbnailData?: string;
+          };
+        }>;
+      }[];
+    };
+
+    expect(body.messages).toHaveLength(1);
+    const row = body.messages[0];
+
+    // Payload ships on the flat array.
+    expect(row.attachments).toHaveLength(1);
+    expect(row.attachments![0].data).toBe(IMAGE_BASE64);
+
+    // The inline block references the same row without the payload.
+    const blocks = (row.contentBlocks ?? []).filter(
+      (b) => b.type === "attachment",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].attachment!.id).toBe(stored.id);
+    expect(blocks[0].attachment!.data).toBeUndefined();
+    expect(blocks[0].attachment!.thumbnailData).toBeUndefined();
+  });
+
+  test("synthesized attachment blocks are metadata-only references", async () => {
+    // Directive attachments take the appendix path (no file-block ref), which
+    // must strip the payload the same way the inline path does.
+    const conv = createConversation();
+    const msg = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "" }]),
+    );
+    const stored = await uploadAttachment(
+      "output.png",
+      "image/png",
+      IMAGE_BASE64,
+    );
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const response = await handleListMessages(createTestArgs(conv.id));
+    const body = response as {
+      messages: {
+        attachments?: AttachmentPayload[];
+        contentBlocks?: Array<{
+          type: string;
+          attachment?: { id: string; data?: string };
+        }>;
+      }[];
+    };
+
+    const row = body.messages[0];
+    expect(row.attachments![0].data).toBe(IMAGE_BASE64);
+    const blocks = (row.contentBlocks ?? []).filter(
+      (b) => b.type === "attachment",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].attachment!.data).toBeUndefined();
   });
 
   test("attachment-only assistant message synthesizes contentBlocks", async () => {
@@ -207,10 +314,14 @@ describe("handleListMessages attachments", () => {
       "assistant",
       JSON.stringify([{ type: "text", text: "" }]),
     );
-    const stored = uploadAttachment("output.png", "image/png", IMAGE_BASE64);
+    const stored = await uploadAttachment(
+      "output.png",
+      "image/png",
+      IMAGE_BASE64,
+    );
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: {
         attachments?: AttachmentPayload[];
@@ -248,7 +359,7 @@ describe("handleListMessages HEIC display normalization", () => {
     const heicB64 = fakeHeifHeaderBytes().toString("base64");
     insertLegacyAttachmentRow(msg.id, "IMG_1.HEIC", "image/heic", heicB64);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     const attachments = body.messages[0].attachments!;
@@ -277,7 +388,7 @@ describe("handleListMessages HEIC display normalization", () => {
       "document",
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     const attachments = body.messages[0].attachments!;
@@ -307,7 +418,7 @@ describe("handleListMessages HEIC display normalization", () => {
           heic!.toString("base64"),
         );
 
-        const response = handleListMessages(createTestArgs(conv.id));
+        const response = await handleListMessages(createTestArgs(conv.id));
         const body = response as { messages: MessagePayload[] };
 
         const attachments = body.messages[0].attachments!;
@@ -341,7 +452,7 @@ describe("handleListMessages HEIC display normalization", () => {
           "document",
         );
 
-        const response = handleListMessages(createTestArgs(conv.id));
+        const response = await handleListMessages(createTestArgs(conv.id));
         const body = response as { messages: MessagePayload[] };
 
         const attachments = body.messages[0].attachments!;
@@ -368,7 +479,7 @@ describe("handleListMessages no_response filtering", () => {
       JSON.stringify([{ type: "text", text: "<no_response/>" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: { textSegments?: string[] }[];
     };
@@ -389,7 +500,7 @@ describe("handleListMessages no_response filtering", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: { textSegments?: string[] }[];
     };
@@ -417,7 +528,7 @@ describe("handleListMessages no_response filtering", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: {
         textSegments: string[];
@@ -440,7 +551,7 @@ describe("handleListMessages no_response filtering", () => {
       JSON.stringify([{ type: "text", text: "What does <no_response/> do?" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: { textSegments?: string[] }[];
     };
@@ -501,7 +612,7 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     await insertMessages(conv.id, 5);
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(5);
@@ -515,7 +626,7 @@ describe("handleListMessages pagination", () => {
     await insertMessages(conv.id, 5);
 
     const args = createPaginatedArgs(conv.id, { limit: "3" });
-    const response = handleListMessages(args);
+    const response = await handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     // Option A: without beforeTimestamp, all messages are returned regardless of limit
@@ -532,7 +643,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[7].createdAt),
       limit: "3",
     });
-    const response = handleListMessages(args);
+    const response = await handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(3);
@@ -553,7 +664,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[1].createdAt),
       limit: "10",
     });
-    const response = handleListMessages(args);
+    const response = await handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     const ids = body.messages.map((m) => m.id);
@@ -571,7 +682,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[4].createdAt + 1),
       limit: "10",
     });
-    const response = handleListMessages(args);
+    const response = await handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(5);
@@ -587,7 +698,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[4].createdAt + 1),
       limit: "3",
     });
-    const response = handleListMessages(args);
+    const response = await handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(3);
@@ -598,7 +709,7 @@ describe("handleListMessages pagination", () => {
 
   test("empty / nonexistent conversation → empty messages, no pagination metadata", async () => {
     const args = createPaginatedArgs("nonexistent-conv-id");
-    const response = handleListMessages(args);
+    const response = await handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toEqual([]);
@@ -611,7 +722,7 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     const args = createPaginatedArgs(conv.id, { limit: "abc" });
 
-    expect(() => handleListMessages(args)).toThrow(
+    await expect(handleListMessages(args)).rejects.toThrow(
       "limit must be a valid number",
     );
   });
@@ -620,7 +731,7 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     const args = createPaginatedArgs(conv.id, { beforeTimestamp: "abc" });
 
-    expect(() => handleListMessages(args)).toThrow(
+    await expect(handleListMessages(args)).rejects.toThrow(
       "beforeTimestamp must be a valid number",
     );
   });

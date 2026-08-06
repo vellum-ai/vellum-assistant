@@ -47,7 +47,9 @@ export function routeConnection(
 
   for (const id of credentialIds) {
     const tpls = templates.get(id);
-    if (!tpls) continue;
+    if (!tpls) {
+      continue;
+    }
 
     for (const tpl of tpls) {
       if (

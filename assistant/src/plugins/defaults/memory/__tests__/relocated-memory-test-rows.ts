@@ -86,6 +86,22 @@ export function seedRelocatedMemoryRow(
         )
         .run(conversationId, now);
       return;
+    case "memory_segments":
+      raw
+        .query(
+          `INSERT INTO memory_segments
+             (id, message_id, conversation_id, role, segment_index, text,
+              token_estimate, created_at, updated_at)
+           VALUES (?, ?, ?, 'user', 0, 'segment text', 3, ?, ?)`,
+        )
+        .run(
+          `${conversationId}-seg`,
+          `${conversationId}-msg`,
+          conversationId,
+          now,
+          now,
+        );
+      return;
     default:
       throw new Error(`unhandled relocated memory table ${table}`);
   }

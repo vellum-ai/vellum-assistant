@@ -16,7 +16,8 @@ interface ImportMetaEnv {
    * DSN-selection contract: the shared clients/web bundle resolves its Sentry
    * DSN per host — web → `VITE_SENTRY_DSN` (vellum-assistant-web), Electron →
    * `VITE_SENTRY_DSN_MACOS` (vellum-assistant-macos), iOS →
-   * `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios). The runtime selector
+   * `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios), Android →
+   * `VITE_SENTRY_DSN_ANDROID` (vellum-assistant-android). The runtime selector
    * (`resolveDsn` in `sentry-init.ts`) reads these per host.
    */
   readonly VITE_SENTRY_DSN?: string;
@@ -24,6 +25,8 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN_MACOS?: string;
   /** Sentry DSN for the iOS webview (vellum-assistant-ios). See DSN-selection contract above. */
   readonly VITE_SENTRY_DSN_IOS?: string;
+  /** Sentry DSN for the Android webview (vellum-assistant-android). See DSN-selection contract above. */
+  readonly VITE_SENTRY_DSN_ANDROID?: string;
   /** Sentry environment tag (e.g. "production", "staging"). */
   readonly VITE_SENTRY_ENVIRONMENT?: string;
   /**
@@ -48,6 +51,11 @@ interface ImportMetaEnv {
   /** When truthy ("1", "true", "yes"), disables platform connectivity in local mode. */
   readonly VITE_VELLUM_DISABLE_PLATFORM?: string;
   /**
+   * Live Google Play listing for ai.vellum.assistant. Android install
+   * promotion remains hidden when this is unset or invalid.
+   */
+  readonly VITE_ANDROID_PLAY_STORE_URL?: string;
+  /**
    * Override for the live-voice velay host (no scheme), e.g. `localhost:8501`
    * for a local `vel up` velay. When unset the host is derived at runtime from
    * the platform host (`velay.vellum.ai`, `velay-{env}.vellum.ai`). See
@@ -71,6 +79,10 @@ interface Window {
     disablePlatform?: boolean;
     mode?: string;
     platformUrl?: string;
+    /** Serving assistant's display name (remote-web ingress configs only). */
+    assistantName?: string;
+    /** Cloud web SPA base for this build's environment (remote-web ingress configs only). */
+    hubUrl?: string;
   };
   /**
    * SDK-defined override for the session-replay recorder script URL. Set before

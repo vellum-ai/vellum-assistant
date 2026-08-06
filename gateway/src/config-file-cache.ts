@@ -32,6 +32,36 @@ function normalizeRecord(raw: unknown): Record<string, string> | undefined {
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+/**
+ * Normalize a list-valued setting into an array of non-empty strings.
+ *
+ * Accepts either a JSON array or a comma-separated string, so a list reads the
+ * same whether it is authored as `["a", "b"]` or `"a,b"`. Returns undefined
+ * when the input is neither shape, or when nothing survives normalization.
+ *
+ * Non-string array entries are dropped rather than coerced. A snowflake
+ * authored as a bare JSON integer has already lost precision above 2^53 by the
+ * time it reaches this function (LUM-2939), so stringifying it resurrects a
+ * corrupted id that still looks well-formed. Dropping it keeps the failure
+ * loud instead of silently pointing at the wrong channel.
+ */
+function normalizeStringList(raw: unknown): string[] | undefined {
+  let entries: unknown[];
+  if (Array.isArray(raw)) {
+    entries = raw;
+  } else if (typeof raw === "string") {
+    entries = raw.split(",");
+  } else {
+    return undefined;
+  }
+
+  const result = entries
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  return result.length > 0 ? result : undefined;
+}
+
 export class ConfigFileCache {
   private ttlMs: number;
   private snapshot: Record<string, unknown> = {};
@@ -101,6 +131,29 @@ export class ConfigFileCache {
   ): Record<string, string> | undefined {
     const raw = this.getRaw(section, field, opts);
     return normalizeRecord(raw);
+  }
+
+  /**
+   * Read a list-valued setting as an array of strings, accepting either a JSON
+   * array or a comma-separated string.
+   *
+   * Both shapes are accepted because the ways a list gets authored produce
+   * different types. Hand-editing `config.json` yields an array, and
+   * `assistant config set --json` is the only safe way to write a snowflake id
+   * (a bare integer above 2^53 is truncated on the way in, LUM-2939), while a
+   * CSV setting is a plain string.
+   *
+   * This is the only getter that reads a list. {@link getString} returns
+   * undefined for an array, so an array-shaped list read through it collapses
+   * to nothing and a populated setting reads as unset. Route list settings
+   * here rather than adding another string-shaped parse.
+   */
+  getStringArray(
+    section: string,
+    field: string,
+    opts?: ReadOptions,
+  ): string[] | undefined {
+    return normalizeStringList(this.getRaw(section, field, opts));
   }
 
   /** Immediately re-read config.json, updating the cached snapshot. */

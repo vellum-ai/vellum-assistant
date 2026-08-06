@@ -102,8 +102,13 @@ export function synthesizeOverXaiTtsSocket(
   options: XaiTtsSocketOptions,
 ): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const { signal, onChunk, makeTimeoutError, makeStreamError, makeEmptyError } =
-      options;
+    const {
+      signal,
+      onChunk,
+      makeTimeoutError,
+      makeStreamError,
+      makeEmptyError,
+    } = options;
     const connectTimeoutMs =
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     const firstChunkTimeoutMs =
@@ -153,7 +158,9 @@ export function synthesizeOverXaiTtsSocket(
     };
 
     const settle = (fn: () => void) => {
-      if (settled) {return;}
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimers();
       signal?.removeEventListener("abort", onAbort);
@@ -177,7 +184,9 @@ export function synthesizeOverXaiTtsSocket(
      * counts as activity (mirrors `readChunkedBody`).
      */
     const armStallTimer = () => {
-      if (stallTimer !== null) {clearTimeout(stallTimer);}
+      if (stallTimer !== null) {
+        clearTimeout(stallTimer);
+      }
       const timeoutMs = receivedAnyFrame ? idleTimeoutMs : firstChunkTimeoutMs;
       stallTimer = setTimeout(() => {
         fail(makeTimeoutError(timeoutMs));
@@ -191,7 +200,9 @@ export function synthesizeOverXaiTtsSocket(
     signal?.addEventListener("abort", onAbort, { once: true });
 
     ws.addEventListener("open", () => {
-      if (settled) {return;}
+      if (settled) {
+        return;
+      }
       if (connectTimer !== null) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -206,7 +217,10 @@ export function synthesizeOverXaiTtsSocket(
             end -= 1;
           }
           ws.send(
-            JSON.stringify({ type: "text.delta", delta: text.slice(offset, end) }),
+            JSON.stringify({
+              type: "text.delta",
+              delta: text.slice(offset, end),
+            }),
           );
           offset = end;
         }
@@ -223,7 +237,9 @@ export function synthesizeOverXaiTtsSocket(
     });
 
     ws.addEventListener("message", (ev) => {
-      if (settled) {return;}
+      if (settled) {
+        return;
+      }
 
       receivedAnyFrame = true;
       armStallTimer();
@@ -231,7 +247,10 @@ export function synthesizeOverXaiTtsSocket(
       let raw: string;
       if (typeof ev.data === "string") {
         raw = ev.data;
-      } else if (ev.data instanceof ArrayBuffer || ArrayBuffer.isView(ev.data)) {
+      } else if (
+        ev.data instanceof ArrayBuffer ||
+        ArrayBuffer.isView(ev.data)
+      ) {
         raw = new TextDecoder().decode(ev.data);
       } else {
         return;
@@ -244,13 +263,19 @@ export function synthesizeOverXaiTtsSocket(
         log.debug("Dropped non-JSON xAI TTS frame");
         return;
       }
-      if (!frame || typeof frame !== "object") {return;}
+      if (!frame || typeof frame !== "object") {
+        return;
+      }
 
       switch (frame.type) {
         case "audio.delta": {
-          if (typeof frame.delta !== "string") {return;}
+          if (typeof frame.delta !== "string") {
+            return;
+          }
           const chunk = Buffer.from(frame.delta, "base64");
-          if (chunk.byteLength === 0) {return;}
+          if (chunk.byteLength === 0) {
+            return;
+          }
           chunks.push(chunk);
           try {
             onChunk?.(chunk);

@@ -44,7 +44,7 @@ mock.module("../../../../util/platform.js", () => ({
   getWorkspaceDir: () => "/tmp/test-workspace",
 }));
 
-mock.module("../jobs/embed-pkb-file.js", () => ({
+mock.module("../v1/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: () => {},
 }));
 

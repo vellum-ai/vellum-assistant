@@ -17,53 +17,135 @@
  *   void with the state-driven avatar at its center and the listening waves —
  *   what this look should become is an open design question.
  *
- * The room is a full-app takeover on every platform — `fixed inset-0`, modal,
- * covering the header and sidebar, with safe-area padding for notched iOS
- * shells. A voice session IS the room: there is no minimize and no way to
- * leave it while the session runs — ending the session (the ✕ control) is the
- * only way out.
+ * Two placement variants (see `chat-layout.tsx` for the mounts):
+ *
+ * - `"content"` (desktop): `absolute inset-0` inside the layout's `<main>`,
+ *   an inset panel that leaves the title bar and left sidenav visible AND
+ *   interactive, so the user can keep navigating; navigating away hands the
+ *   session off to the title-bar pill. Deliberately not `aria-modal`: the
+ *   surrounding chrome stays usable.
+ * - `"sheet"` (mobile): a `BottomSheet` that slides up and rests below the
+ *   thread header, the mobile counterpart of the inset panel. Radix portals it
+ *   out of the layout and positions it `fixed`, so it is told where the header
+ *   ends ({@link useChatHeaderBottom}) rather than inheriting that edge from
+ *   the DOM. Non-modal, so the header it rests below stays lit and usable,
+ *   which takes suppressing several of Radix's modal reflexes: see
+ *   {@link VoiceRoomSheet}. It portals into `RootLayout`'s `#viewport-overlays`
+ *   rather than the body, which is what keeps the surfaces the header opens
+ *   ON TOP of it: see {@link VoiceRoom}. Because the slide IS its entrance, the
+ *   look inside is painted rather than grown. See `voice-room-entrance.ts`.
+ * - `"fullscreen"`: `fixed inset-0` over the whole viewport, modal, with
+ *   safe-area padding for notched iOS shells. No longer mounted by the chat
+ *   layout; kept as the variant a surface with no chrome to sit under would
+ *   want, and the default.
+ *
+ * The look is laid out against the ROOM's box, not the window's. See
+ * {@link useRoomBox}. As a panel those are different rectangles, so the color
+ * look's field, its giant eyes, and the responding rings are all sized to the
+ * panel, and the entry origin (published in viewport space by the composer) is
+ * converted to room-local space before the entrance grows from it. The sheet
+ * reads no origin: it presents the look rather than growing it.
+ *
+ * The room is not exit-only. Minimizing (the corner chevron, Escape, or — on
+ * the sheet — pulling it down) dismisses the room while the session keeps
+ * running, handing the session to the composer's voice bar or the title-bar
+ * pill; ending the session (the control row's ✕) tears the whole call down.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
- * session, owned by the on-screen composer, main window. Any session end
- * (user exit, `failed`, conversation timeout, stop from elsewhere) flips that
- * predicate false and unmounts the room; a `failed` session surfaces through
- * the existing composer Notice / pill failure chip, never a dead room.
+ * session, owned by the on-screen composer, main window, not minimized. Any
+ * session end (user exit, `failed`, conversation timeout, stop from
+ * elsewhere) flips that predicate false and unmounts the room; a `failed`
+ * session surfaces through the existing composer Notice / pill failure chip,
+ * never a dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
- * push-to-talk control. Bottom-center carries the session controls in the
- * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
- * hands-free, a turn-scoped ■ stop. Exit is first-class: the persistent
- * ✕ control (always rendered, even while the avatar/assistant data is loading
- * or failed) and Escape both end the session — the room is modal with no
- * lesser dismissal, so the platform "leave" key maps to the only exit there
- * is. The key handler attaches only while the room is mounted.
+ * push-to-talk control. One centred row near the bottom carries what a caller
+ * does mid-call, left to right: mute the mic so it stops hearing you, mute the
+ * assistant so you stop hearing it, show it the camera, and end the session.
+ * The end control is a red ✕ — the same glyph the composer bar and the pill
+ * end a session with — toned destructively so it never reads as a third
+ * neutral toggle beside the two mutes.
+ *
+ * **The camera is a mode of this room, not a place the user goes.** Opening it
+ * swaps the look for a live viewfinder and adds a shutter above the control
+ * row; the transcript, the controls and the call are all untouched, and
+ * closing it reveals the look again. That is what lets it stay open across a
+ * run of photos ("what's this?" … "and this one?"), where the system camera,
+ * being modal and one-shot, would charge a full open/aim/expose cycle per
+ * question. Each photo lands in the conversation as its own user message the
+ * moment it is taken and runs no turn, so shutter-then-speak and
+ * speak-then-shutter behave the same and nothing races the sentence in
+ * progress. See `voice-camera.ts` for the capture rules (video-only
+ * `getUserMedia`, so the call's audio is never renegotiated) and
+ * `use-voice-room-camera.ts` for the send path, which is the composer's own
+ * attachment upload.
+ *
+ * **Leaving the room and ending the call are different acts, and the room says
+ * so in three places.** Minimizing is the light one — the session keeps running
+ * on the composer's voice bar or the title-bar pill — and it is what the corner
+ * chevron does, what Escape does (every variant; the key handler attaches only
+ * while the room is mounted), and what pulling the mobile sheet down does. All
+ * three are the same call to `minimizeVoiceRoom`. Ending is the heavy one, and
+ * it lives in one place only: the row's ✕. Nothing in the corner ends a
+ * call any more, which is what makes the corner safe to reach for.
  */
 
-import { useEffect, type CSSProperties } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Mic, MicOff, Square, X } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+  type MotionProps,
+} from "motion/react";
+import {
+  Camera,
+  CameraOff,
+  ChevronDown,
+  Mic,
+  MicOff,
+  SwitchCamera,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 
-import { Tooltip, cn } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  PortalContainerProvider,
+  Tooltip,
+  cn,
+} from "@vellumai/design-library";
 
 import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
-  liveVoiceStateLabel,
+  liveVoiceSurfaceLabel,
+  minimizeVoiceRoom,
   setLiveVoiceMuted,
-  stopLiveVoiceResponse,
+  setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
-
+import { useChatHeaderBottom } from "./use-chat-header-bottom";
+import { isVoiceCameraSupported } from "./voice-camera";
+import { useVoiceRoomCamera } from "./use-voice-room-camera";
+import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
 import {
@@ -74,11 +156,14 @@ import {
 } from "./voice-room-layout";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
+import {
+  resolveVoiceRoomChoreography,
+  sheetDragMinimizes,
+  voidAvatarMotion,
+} from "./voice-room-entrance";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
-import { VoiceRoomSettingsMenu } from "./voice-room-settings-menu";
 import { VoiceAvatar } from "./voice-avatar";
-import { VoiceListeningWaves } from "./voice-listening-waves";
-import { AVATAR_ENTER_SPRING } from "./voice-motion";
+import { VoiceMeshWaves } from "./voice-mesh-waves";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {
   VoiceRespondingRings,
@@ -91,6 +176,12 @@ import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 const AVATAR_SIZE = 220;
 
 /**
+ * Gap between a corner control and the room's edges. One constant so the
+ * top-right exit and the bottom control row sit on the same rhythm.
+ */
+const CORNER_GAP = "1.25rem";
+
+/**
  * Shared treatment for the room's top icon controls, toned to the active look
  * via the `--room-*` vars set on the root (white-on-dark for the void look,
  * tone-derived over an avatar color).
@@ -98,19 +189,239 @@ const AVATAR_SIZE = 220;
 const ROOM_CONTROL_CLASS =
   "flex size-12 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 
-/** Bottom-row circular session controls (mute / ■ stop), same toning. */
+/** The centred row's circular session controls, same toning. */
 const SESSION_CONTROL_CLASS =
   "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 const SESSION_CONTROL_NEUTRAL_CLASS =
   "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
 
-export function VoiceRoom() {
-  const visible = useIsVoiceRoomVisible();
+/**
+ * The red treatment worn by a control that is doing something to the call: the
+ * two mutes while engaged, and the end control always.
+ *
+ * Two variants because the room's background is the assistant's avatar color,
+ * which can be a light one (yellow). A single red picked against the dark look
+ * washes out over that; `isLight` swaps to the darker red the tone helper's
+ * foreground colors are chosen against.
+ */
+function destructiveControlClass(isLight: boolean | undefined): string {
+  return isLight
+    ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
+    : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30";
+}
 
-  return (
+/** Placement variant. See the module docstring. */
+export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
+
+/**
+ * The mobile sheet's tier inside the app shell's stacking context, overriding
+ * the primitive's own `z-50`.
+ *
+ * The room rests below the thread header and leaves it usable, so everything
+ * that header opens has to land in front of the room: the navigation drawer
+ * (`z-40` in `chat-layout.tsx`) and, above that, the search palette (`z-50` in
+ * `command-palette.tsx`, which also has to clear the drawer it opens over).
+ * `z-30` is the shared tier for mobile surfaces that sit under the header, the
+ * same one `mobile-app-overlay.tsx` and `mobile-document-overlay.tsx` use.
+ *
+ * This only orders the sheet against the app's own chrome. Menus and sheets
+ * opened FROM the header (the conversation actions menu, the notifications
+ * bell) portal to the body, outside the shell's stacking context, so they clear
+ * the room by construction.
+ */
+const SHEET_LAYER = "z-30";
+
+/**
+ * Marks a `role="dialog"` element as belonging to the room, so the global
+ * Escape handler can tell the room's own dialog apart from one layered over it.
+ * Carried by whichever element is the dialog for the variant: the room's box
+ * under `fullscreen` / `content`, the sheet's Radix content under `sheet`.
+ */
+const ROOM_DIALOG_ATTR = "data-voice-room";
+
+/**
+ * `BottomSheet.Content` with Motion attached, so `AnimatePresence` can play the
+ * sheet's exit on the element Radix positions. The primitive forwards its ref
+ * and spreads the rest onto Radix's content element, which is what
+ * `motion.create` needs. Created at module scope: rebuilding it per render
+ * would remount the sheet on every commit.
+ */
+const MotionBottomSheetContent = motion.create(BottomSheet.Content);
+
+/** `RootLayout`'s portal container, inside the app shell's isolation. */
+const OVERLAY_HOST_ID = "viewport-overlays";
+
+/**
+ * The element the mobile sheet portals into.
+ *
+ * `root-layout.tsx` wraps the whole app shell in `isolation: isolate`, so a
+ * sheet portaled to the body lands OUTSIDE that stacking context and paints
+ * above everything in it whatever z-index the app uses, including the two
+ * surfaces the header opens (the navigation drawer and the search palette).
+ * `#viewport-overlays` puts the room back inside the shell, where
+ * {@link SHEET_LAYER} orders it under both.
+ *
+ * Read synchronously on first render rather than only from an effect. The sheet
+ * mounts fresh whenever the layout crosses into mobile, and a live session can
+ * already be running at that moment (a desktop window narrowing mid-call): a
+ * null first value would open the room against the `document.body` fallback,
+ * reviving the stacking path this avoids, and then remount it into the host,
+ * restarting the slide-up. The effect covers the one case the synchronous read
+ * misses, the app's very first commit, where `RootLayout` mounts the container
+ * in the same pass. No session can be live that early, so the room never opens
+ * against the null.
+ */
+function useVoiceRoomPortalTarget(): HTMLElement | null {
+  const [target, setTarget] = useState<HTMLElement | null>(() =>
+    typeof document === "undefined"
+      ? null
+      : document.getElementById(OVERLAY_HOST_ID),
+  );
+
+  useEffect(() => {
+    if (target) {
+      return;
+    }
+    setTarget(document.getElementById(OVERLAY_HOST_ID));
+  }, [target]);
+
+  return target;
+}
+
+export function VoiceRoom({
+  variant = "fullscreen",
+}: {
+  /** Placement variant. Defaults to the fullscreen (mobile) mount. */
+  variant?: VoiceRoomVariant;
+}) {
+  const visible = useIsVoiceRoomVisible();
+  const overlayTarget = useVoiceRoomPortalTarget();
+
+  const room = (
     <AnimatePresence>
-      {visible ? <VoiceRoomOverlay key="voice-room" /> : null}
+      {visible ? <VoiceRoomOverlay key="voice-room" variant={variant} /> : null}
     </AnimatePresence>
+  );
+
+  return variant === "sheet" ? (
+    <PortalContainerProvider container={overlayTarget}>
+      {room}
+    </PortalContainerProvider>
+  ) : (
+    room
+  );
+}
+
+/**
+ * Sheet chrome for the mobile room.
+ *
+ * `open` is held true for as long as this renders: mounting is already gated by
+ * `AnimatePresence` above, so letting Radix drive the open state as well would
+ * unmount the content the instant the session ended and cut the room's exit
+ * animation short. Radix therefore owns the entrance (its `data-[state=open]`
+ * slide-up) and Motion owns the exit.
+ *
+ * Non-modal, which is the whole point of resting below the header rather than
+ * covering it: the thread header stays lit and usable, matching the desktop
+ * panel. That means suppressing three of Radix's modal reflexes, all of which
+ * would otherwise contradict the design:
+ *
+ * - the dimming overlay, which greys out the header the sheet deliberately
+ *   leaves showing. Radix drops this on its own once `modal` is false,
+ * - the focus trap and pointer blocking, which would leave that header looking
+ *   available while being inert,
+ * - dismiss-on-outside-interaction, which would collapse the room the moment
+ *   the user reached for the header they can now see.
+ *
+ * Escape is therefore left to the room's own handler, shared with the other
+ * variants, rather than Radix's, so one keypress is one minimize.
+ *
+ * The exit rides this element rather than the room's box inside it. Radix
+ * portals the content out of the layout and positions it `fixed`, so it is the
+ * outermost thing the sheet owns; sliding the room's box instead would travel
+ * the look downward inside a stationary sheet and expose the page behind it.
+ *
+ * **The drag also rides this element, for the same reason.** A sheet that
+ * slides up on its own should come back down under a finger, so the whole
+ * chrome follows a downward pull and then either minimizes or springs back per
+ * {@link sheetDragMinimizes}. It is pinned upward —
+ * `dragConstraints` of zero in both directions with elasticity only on the
+ * bottom — because there is nothing above the sheet to reveal: it already rests
+ * against the header, and letting it travel up would open a gap under it. The
+ * gesture is a *minimize*, never an end: pulling a live call off the screen
+ * must not hang it up.
+ */
+function VoiceRoomSheet({
+  headerBottom,
+  motionProps,
+  children,
+}: {
+  /** Where the sheet's top edge rests. See {@link useChatHeaderBottom}. */
+  headerBottom: number;
+  /** The slide-down exit. See `voice-room-entrance.ts`. */
+  motionProps: MotionProps;
+  children: ReactNode;
+}) {
+  return (
+    <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
+      <MotionBottomSheetContent
+        {...motionProps}
+        drag="y"
+        // A voice room is a tall surface with controls near its bottom edge;
+        // without the lock, the small vertical component of a horizontal
+        // reach across the row starts the sheet moving under the finger.
+        dragDirectionLock
+        // Zero in both directions: the sheet has no resting position other
+        // than "up". Downward travel is entirely `dragElastic`'s, which is
+        // what makes let-go spring back rather than leaving the room parked
+        // halfway down.
+        dragConstraints={{ top: 0, bottom: 0 }}
+        // Near-1:1 downward so the sheet tracks the finger, immovable upward.
+        dragElastic={{ top: 0, bottom: 0.9 }}
+        // The room is not a scroll view being flung; it should stop where the
+        // finger stops and then resolve, not coast.
+        dragMomentum={false}
+        onDragEnd={(_event, info) => {
+          if (sheetDragMinimizes(info.offset.y, info.velocity.y)) {
+            minimizeVoiceRoom();
+          }
+        }}
+        // The room is a surface in its own right: a full-bleed color fill and
+        // bands that must reach the sheet's rounded corners.
+        padded={false}
+        // Override the primitive's default height band. The room is not a
+        // menu sized to its rows; it fills everything between the header and
+        // the bottom edge.
+        className={cn(
+          "top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0",
+          SHEET_LAYER,
+        )}
+        // Marks the sheet as the room's own dialog. See {@link ROOM_DIALOG_ATTR}.
+        {...{ [ROOM_DIALOG_ATTR]: "" }}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
+        // Radix focuses the first focusable child on open, which here is the
+        // top-right minimize. That drew its focus ring and popped its tooltip
+        // over a room the user had only just opened, so the first thing the
+        // room said was how to leave it. Focus goes to the sheet itself
+        // instead (Radix gives the content `tabIndex={-1}`), which
+        // still announces the room and leaves Escape to the window handler
+        // above.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          if (event.currentTarget instanceof HTMLElement) {
+            event.currentTarget.focus();
+          }
+        }}
+        style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
+        aria-label="Voice session"
+        // The room narrates itself through its own live region; a description
+        // element would be a second, redundant announcement.
+        aria-describedby={undefined}
+      >
+        {children}
+      </MotionBottomSheetContent>
+    </BottomSheet.Root>
   );
 }
 
@@ -119,35 +430,58 @@ export function VoiceRoom() {
  * only exist while the room is actually visible and are torn down cleanly on
  * exit.
  */
-function VoiceRoomOverlay() {
+function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
-  const assistantId = useLiveVoiceStore.use.assistantId();
+  const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
-  // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
-  // the whole session); room sessions are hands-free except on the
-  // version-skew fallback against an older daemon.
-  const handsFree = useLiveVoiceStore.use.handsFree();
+  // Muting the assistant needs no hands-free gate: it silences the output
+  // rather than interrupting a turn, so there is no manual-session case where
+  // it would end the whole call.
+  const outputMuted = useLiveVoiceStore.use.outputMuted();
   // Viewport point the entrance grows from (the tapped voice button); null →
   // the color look falls back to its screen-center origin.
-  const entryOrigin = useLiveVoiceStore.use.entryOrigin();
+  const liveEntryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
+
+  // The room is one session, so freeze the avatar identity and the entry origin
+  // at mount. Ending the session calls the store `reset()` (assistantId /
+  // entryOrigin → null) while the room is still mounted for its exit animation;
+  // reading the live values there would flip the look to the "V" fallback
+  // mid-close and drop the shrink-to-origin target. The captured values hold for
+  // the room's whole lifetime (both are session-constant).
+  const [assistantId] = useState(liveAssistantId);
+  const [entryOrigin] = useState(liveEntryOrigin);
+
+  // The room's own rectangle. Everything in the look lays out against this, not
+  // the window. As an inset panel they differ (see the module docstring).
+  const { ref: roomRef, box } = useRoomBox();
+  // Where the mobile sheet's top edge rests: the header's bottom in viewport
+  // coordinates, since the sheet is `fixed`. Measured for every variant (hooks
+  // cannot be conditional) but only read by the sheet.
+  const headerBottom = useChatHeaderBottom();
+  // The entry origin is a viewport point; the look lays out in room-local
+  // space. Fullscreen's offset is zero, which makes this a no-op there.
+  const localEntryOrigin = toRoomLocal(entryOrigin, box);
 
   const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
   // The label + sr-only announcement must follow the same audio-aware mapping as
   // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
   // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
-  // the assistant is talking while it's actually silent (JARVIS-1279).
-  const labelState =
-    state === "speaking" && !assistantAudioActive ? "thinking" : state;
-  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
+  // the assistant is talking while it's actually silent (JARVIS-1279). Shared
+  // with the iOS Live Activity mirror, which shows this exact string.
+  const stateLabel = liveVoiceSurfaceLabel(
+    state,
+    reconnecting,
+    assistantAudioActive,
+  );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
-  // transcript is hidden; the captions toggle itself lives in the room's
-  // settings gear ({@link VoiceRoomSettingsMenu}).
+  // transcript is hidden. Nothing in the room toggles that any more: the
+  // preference is the Settings page's, read here.
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
 
@@ -158,15 +492,35 @@ function VoiceRoomOverlay() {
     useSupportsNoninteractiveVoiceTurns(assistantId);
   const connectSurface = useActiveConnectSurface(!voiceTurnsAreNoninteractive);
 
+  // The camera. Offered only when the device has one AND the session's
+  // assistant understands the `attach_image` frame. See
+  // `use-supports-voice-camera.ts` for why a photo that silently never
+  // arrives is worse than no camera control at all.
+  //
+  // The viewfinder is a layer of THIS room, not a surface of its own, which is
+  // the whole reason it can stay open across as many photos as the user wants:
+  // there is nowhere for the camera to send them and nowhere to come back
+  // from. Closing it returns to the look; the call never notices either way.
+  // And because the stream is owned by a hook inside the room, minimizing (or
+  // ending the call) unmounts this component and releases the camera without
+  // anything having to remember to.
+  const cameraSupported =
+    useSupportsVoiceCamera(assistantId) && isVoiceCameraSupported();
+  const viewfinderRef = useRef<HTMLVideoElement | null>(null);
+  const { camera, sending, photos, errorMessage, shutter, open, close } =
+    useVoiceRoomCamera(assistantId, viewfinderRef);
+  const cameraOpen = camera.open;
+
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
   // fallback look's listening waves (null for custom-image / "none" /
-  // still-loading avatars, where the waves keep their aurora fallback).
+  // still-loading avatars, where the waves keep their aurora fallback) — the
+  // same derivation the iOS Live Activity mirrors, so island and room agree.
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
   const tone = look ? toneForBg(look.bgHex) : null;
-  const accentHex = resolveWaveAccentHex(components, traits);
+  const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.
@@ -179,48 +533,109 @@ function VoiceRoomOverlay() {
     "--room-bubble-fg": tone?.bubbleFg ?? "#FFFFFF",
   } as CSSProperties;
 
-  // Global Escape, live only while the room is mounted: ends the session,
-  // same as the ✕ — the room is modal with no lesser dismissal, so the
-  // platform "leave" key maps to the only exit there is. It fires even when
-  // the composer textarea (or any other focused element) still holds focus as
-  // the room opens, so it is intentionally not guarded by the event target.
+  // Global Escape, live only while the room is mounted: minimizes the room,
+  // same as the − control — the platform "leave the overlay" key dismisses
+  // the surface without hanging up the call (✕ is the end-session control).
+  // It fires even when the composer textarea (or any other focused element)
+  // still holds focus as the room opens, so it is intentionally not guarded
+  // by the event target.
+  // Every variant, the sheet included: the sheet is non-modal, so it suppresses
+  // Radix's own Escape handling and leaves the key to this one handler. One
+  // keypress, one minimize, same behavior on every surface.
+  const sheet = variant === "sheet";
+  // How this surface comes and goes. The sheet already has an entrance, the
+  // slide up, so its look is presented rather than grown and the slide-down
+  // exit rides the sheet chrome. See `voice-room-entrance.ts`.
+  const choreography = resolveVoiceRoomChoreography(variant, reduce === true);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        endLiveVoiceSession();
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
       }
+      // A dialog layered over the room owns the key while it holds focus. The
+      // navigation drawer and the search palette both sit above the room and
+      // close themselves on Escape without stopping propagation, so an
+      // unconditional minimize here dismisses two surfaces at once: the drawer
+      // closes and the room vanishes behind it.
+      //
+      // Keyed on the focused dialog rather than the event target, which is what
+      // keeps the unguarded behavior the room needs: the key still reaches us
+      // when the composer textarea holds focus as the room opens, since that is
+      // inside no dialog at all. The room's own dialog carries
+      // {@link ROOM_DIALOG_ATTR} in every variant, including the sheet, whose
+      // Radix content is the dialog and takes focus on open.
+      const active = document.activeElement;
+      const owner =
+        active instanceof Element ? active.closest(`[role="dialog"]`) : null;
+      if (owner && !owner.hasAttribute(ROOM_DIALOG_ATTR)) {
+        return;
+      }
+      event.preventDefault();
+      minimizeVoiceRoom();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  return (
+  const fullscreen = variant === "fullscreen";
+
+  const body = (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
+      ref={roomRef}
+      className={cn(
+        "z-50 flex items-center justify-center overflow-hidden",
+        // z-50 orders the room's own box against the chat layout for the
+        // fullscreen and panel variants; under the sheet it is scoped to the
+        // sheet's stacking context, whose tier is {@link SHEET_LAYER}.
+        // `overflow-hidden` above is what clips the full-bleed color/wave
+        // layers to whatever radius the variant carries: the panel's corners on
+        // desktop, the sheet's top corners on mobile.
+        fullscreen && "fixed inset-0",
+        variant === "content" && "absolute inset-0 rounded-xl",
+        // The sheet's own box is the Radix content element, which is already
+        // positioned and rounded; the room fills it.
+        sheet && "absolute inset-0 rounded-t-[24px]",
+      )}
       // Theme tokens (the connect label, the ambient transcript) follow the
       // look: dark over the void and the dark avatar colors, light over the
       // light one (yellow).
       data-theme={tone?.isLight ? "light" : "dark"}
-      role="dialog"
-      aria-modal
-      aria-label="Voice session"
-      // The overlay covers `ChatLayoutHeader`, so it loses the header's
+      // The sheet's Radix content element is the dialog; a second `role` and
+      // label nested inside it would announce the room twice.
+      role={sheet ? undefined : "dialog"}
+      // Marks this box as the room's own dialog for the variants where it is
+      // one. See {@link ROOM_DIALOG_ATTR}; the sheet carries it on its content.
+      {...{ [ROOM_DIALOG_ATTR]: "" }}
+      // Only the fullscreen room is modal by its own declaration. The content
+      // variant deliberately leaves the header and sidenav usable, so claiming
+      // the rest of the app is inert would be a lie to assistive tech; the
+      // sheet gets real modality from Radix instead of asserting it here.
+      aria-modal={fullscreen || undefined}
+      aria-label={sheet ? undefined : "Voice session"}
+      // Fullscreen covers `ChatLayoutHeader`, so it loses the header's
       // safe-area protection — pad the centered avatar inside the
       // notch/home-indicator per docs/CAPACITOR.md. The background layers are
-      // `absolute inset-0` and stay full-bleed behind the padding.
+      // `absolute inset-0` and stay full-bleed behind the padding. The content
+      // variant sits inside the layout, which already handles its own insets.
       style={{
-        paddingTop: SAFE_AREA_TOP,
-        paddingBottom: SAFE_AREA_BOTTOM,
-        paddingLeft: SAFE_AREA_LEFT,
-        paddingRight: SAFE_AREA_RIGHT,
+        ...(fullscreen
+          ? {
+              paddingTop: SAFE_AREA_TOP,
+              paddingBottom: SAFE_AREA_BOTTOM,
+              paddingLeft: SAFE_AREA_LEFT,
+              paddingRight: SAFE_AREA_RIGHT,
+            }
+          : null),
         ...toneVars,
         ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
-      initial={reduce ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: reduce ? 0 : 0.4 }}
+      // On close the chrome and rectangular backgrounds fade, while the avatar
+      // shape itself shrinks back toward the entry origin — the color look's
+      // body + eyes and the void look's centered avatar each own that exit — so
+      // the room collapses into the avatar, not a shrinking rectangle. Under
+      // the sheet none of that applies: the chrome slides the whole room out in
+      // one piece, and this box holds still.
+      {...choreography.shell}
     >
       {/* The color look (body grow entrance + color fade + centered waves +
           centered eyes) is the entire cast; the void look expresses the
@@ -231,23 +646,31 @@ function VoiceRoomOverlay() {
           color + eyes. Both draw the waves only while `listening`, from live mic
           amplitude. */}
       {look ? (
-        <VoiceRoomColorLook
-          look={look}
-          visual={visual}
-          getAmplitude={getLiveVoiceInputAmplitude}
-          getResponseAmplitude={getLiveVoiceOutputAmplitude}
-          // While assistant captions are on, the transcript's lower zone already
-          // narrates the turn from the caption's own baseline, so the caption
-          // stands down rather than doubling it. The user-only caption pref
-          // leaves it up (a user pill alone doesn't name the assistant's state).
-          showStateCaption={!showAssistantTranscript}
-          entryOrigin={entryOrigin}
-        />
+        // Held back until the box is measured. That is one pre-paint commit, so the
+        // entrance still plays from the room's first painted frame, but it
+        // grows inside a real rectangle rather than a zero-sized one.
+        box ? (
+          <VoiceRoomColorLook
+            look={look}
+            visual={visual}
+            getAmplitude={getLiveVoiceInputAmplitude}
+            getResponseAmplitude={getLiveVoiceOutputAmplitude}
+            // While assistant captions are on, the transcript's lower zone
+            // already narrates the turn from the caption's own baseline, so the
+            // caption stands down rather than doubling it. The user-only caption
+            // pref leaves it up (a user pill alone doesn't name the assistant's
+            // state).
+            showStateCaption={!showAssistantTranscript}
+            entryOrigin={localEntryOrigin}
+            entrance={choreography.entrance}
+            viewport={box}
+          />
+        ) : null
       ) : (
         <>
           <VoiceRoomAmbientBackground />
           {visual === "listening" ? (
-            <VoiceListeningWaves
+            <VoiceMeshWaves
               getAmplitude={getLiveVoiceInputAmplitude}
               palette="accent"
               // Same top edge as the color look, above the centered avatar —
@@ -260,15 +683,60 @@ function VoiceRoomOverlay() {
               behind the eyes, here behind the centered avatar (both centered, so
               they emanate from the centerpiece the same way). Rendered before the
               avatar so it paints them behind it; rides the TTS-output amplitude. */}
-          {visual === "responding" ? (
-            <VoiceRespondingRings getAmplitude={getLiveVoiceOutputAmplitude} />
+          {visual === "responding" && box ? (
+            <VoiceRespondingRings
+              getAmplitude={getLiveVoiceOutputAmplitude}
+              viewport={box}
+            />
           ) : null}
           {/* Same state caption + gating as the color look (stands down while
               the assistant transcript is on), in the same shared lower zone —
               both looks name the beat from one baseline. */}
-          {!showAssistantTranscript ? <VoiceStateCaption visual={visual} /> : null}
+          {!showAssistantTranscript ? (
+            <VoiceStateCaption visual={visual} />
+          ) : null}
         </>
       )}
+
+      {/* The viewfinder, when the camera is open.
+
+          Full-bleed over the look rather than beside it: the room is one
+          surface at a time, and a camera squeezed into a corner of the avatar
+          would be too small to aim. The look keeps rendering underneath, so
+          closing the camera reveals it already in the right state rather than
+          replaying its entrance.
+
+          `z-[2]` puts it above every layer of both looks (the color field and
+          the void avatar sit at `z-0`, the giant eyes and the state caption at
+          `z-[1]`) while staying under the room's chrome at `z-10`, so the
+          transcript and the controls keep reading over the feed. Ordering it
+          by DOM position alone is not enough: the void look's centred avatar
+          renders after this and would paint straight over the viewfinder.
+
+          `object-cover` because the video track's aspect ratio is the camera's,
+          not the room's, and letterboxing a viewfinder makes it read as a photo
+          already taken. The front camera is mirrored, matching every other
+          selfie viewfinder on the platform; the rear one is not, because it
+          shows the world and a mirrored world is unusable for aiming.
+
+          Muted + playsInline + autoPlay is the combination WebKit requires to
+          play an inline stream without a user gesture per frame; `aria-hidden`
+          because a live camera feed has nothing to announce and the controls
+          below carry the accessible names. */}
+      {cameraOpen ? (
+        <video
+          ref={viewfinderRef}
+          data-testid="voice-room-viewfinder"
+          aria-hidden
+          autoPlay
+          muted
+          playsInline
+          className={cn(
+            "absolute inset-0 z-[2] size-full object-cover",
+            camera.facing === "user" && "-scale-x-100",
+          )}
+        />
+      ) : null}
 
       {/* Optional live transcript, rendered into the room's two text zones —
           the user's speech above the eyes, the assistant's below. Pref-gated
@@ -304,31 +772,62 @@ function VoiceRoomOverlay() {
         ) : null}
       </AnimatePresence>
 
-      {/* Room controls — captions toggle and the persistent exit. Rendered
-          above all room chrome; ✕ is never gated behind avatar readiness, so
-          ending works even mid-load / on failure. */}
+      {/* The sheet's grabber: the whole affordance for the pull-down, and the
+          only thing on the surface that says the room can be pulled at all.
+          A caption telling the user to swipe would be read by nobody; the bar
+          every sheet on the platform wears is the shape they already know.
+
+          Decorative, and deliberately not a hit target of its own: the drag
+          lives on the sheet chrome and so the ENTIRE room answers the gesture,
+          which is what makes it findable without aiming. Sheet only — the
+          desktop panel and the fullscreen room have no chrome to pull. */}
+      {sheet ? (
+        <div
+          aria-hidden
+          data-testid="voice-room-grabber"
+          className="pointer-events-none absolute left-1/2 top-2 z-10 h-1 w-9 -translate-x-1/2 rounded-full bg-[var(--room-fg-muted)] opacity-60"
+        />
+      ) : null}
+
+      {/* Top-right: minimize, alone.
+
+          The corner is where every other surface in the app puts "get this off
+          my screen", and that is now exactly what it does — the session keeps
+          running on the composer's voice bar or the title-bar pill. It used to
+          END the call, which put the most destructive act in the room at the
+          one spot muscle memory reaches for without looking; hanging up moved
+          into the control row below, where it sits among the other things you
+          do to a call and has to be aimed at.
+
+          Never gated behind avatar readiness, so the room can always be
+          dismissed even mid-load / on failure. Nothing else shares the corner:
+          the in-session settings gear was deleted because a cluster of small
+          chrome competed with the room's own cast for attention. Voice and
+          listening language are Settings' now. */}
       <div
-        // Absolute position is relative to the padding box, so the overlay's
-        // safe-area padding does not shift this — inset it from the notch /
-        // Dynamic Island directly, clamped to the desktop 1.25rem gap.
+        // An equal gap from both edges, so the control reads as sitting in the
+        // corner rather than floating near it.
+        //
+        // Only the fullscreen variant reaches the notch / Dynamic Island and
+        // has to clear it. The panel and the sheet both start below the app's
+        // own chrome, so clamping their top to the notch inset would push the
+        // control a further ~59px down on a notched phone while the right stays
+        // at the base gap: visibly lopsided, and measured against an edge the
+        // room does not have.
         style={{
-          top: `max(1.25rem, ${SAFE_AREA_TOP})`,
-          right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
+          top: fullscreen ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})` : CORNER_GAP,
+          right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})`,
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <VoiceRoomSettingsMenu
-          triggerClassName={ROOM_CONTROL_CLASS}
-          assistantId={assistantId}
-        />
-        <Tooltip content="End voice session (Esc)">
+        <Tooltip content="Minimize (session keeps going)">
           <button
             type="button"
-            onClick={endLiveVoiceSession}
-            aria-label="Exit voice session"
+            onClick={minimizeVoiceRoom}
+            aria-label="Minimize voice room"
             className={ROOM_CONTROL_CLASS}
           >
-            <X className="size-5" />
+            <ChevronDown className="size-5" />
           </button>
         </Tooltip>
       </div>
@@ -340,9 +839,7 @@ function VoiceRoomOverlay() {
       {!look ? (
         <motion.div
           className="relative z-0"
-          initial={reduce ? false : { scale: 0.8, y: 24, opacity: 0 }}
-          animate={{ scale: 1, y: 0, opacity: 1 }}
-          transition={reduce ? { duration: 0 } : AVATAR_ENTER_SPRING}
+          {...voidAvatarMotion(choreography.entrance)}
         >
           <VoiceAvatar
             assistantId={assistantId}
@@ -379,46 +876,171 @@ function VoiceRoomOverlay() {
         ) : null}
       </AnimatePresence>
 
-      {/* Bottom-right session controls, the call-app idiom: the mic mute
-          toggle always (an open mic demands an always-reachable mute), and —
-          while the assistant speaks in a hands-free session — a ■ that stops
-          the response without ending the session (web barge-in by just
-          talking is not reliable yet, so this is the room's only interrupt).
-          Anchored bottom-right (the mic sits in the corner, the transient stop
-          to its left) with an equal corner gap on both edges, matching the
-          top-right cluster's 1.25rem inset. */}
-      <div
-        className="absolute z-10 flex items-center gap-3"
-        style={{
-          bottom: `max(1.25rem, ${SAFE_AREA_BOTTOM})`,
-          right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
-        }}
-      >
-        <AnimatePresence>
-          {handsFree && state === "speaking" ? (
-            <motion.div
-              key="stop-response"
-              initial={reduce ? false : { opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: reduce ? 0 : 0.2 }}
+      {/* The session controls: one centred row near the bottom, reading
+          left to right as the three things a caller does mid-call.
+
+          - mute the mic, so the assistant stops hearing you,
+          - mute the assistant, so you stop hearing it. Its reply keeps running
+            underneath and the transcript keeps filling, so unmuting drops you
+            back in wherever it has reached,
+          - end the session.
+
+          The two mutes are a symmetric pair: one per direction of the
+          conversation, reading left to right as you and then it. The end
+          control closes the row, and it is the room's ONLY one, so there is
+          exactly one place a session can be ended from.
+
+          A red ✕, not a hang-up receiver. This is not truly a phone call —
+          it is a session you are in, the same one the composer's ✕ ends and
+          the same one the pill's ✕ ends — and a receiver glyph would be the
+          only place in the app that called it something else.
+
+          It wears the destructive tone unconditionally, rather than the
+          neutral one the mutes wear until engaged, precisely because the row
+          it joined is otherwise all reversible toggles: a third identical
+          circle beside them would collect the mis-tap that cannot be undone.
+          Every control here is persistent, so the row never changes shape
+          mid-call and none moves out from under a reaching finger. */}
+      {/* The shutter, and the camera's own failures.
+
+          A row of its own, above the session controls. The shutter is the big
+          target because it is the one thing the user does repeatedly while
+          holding a phone at arm's length pointed at something; the session
+          controls below stay their usual size, so the thing you press often
+          never sits flush against the thing that hangs up.
+
+          The row also carries the camera's failures, and so it renders when
+          there is a failure to report even though the viewfinder never came
+          up. A denied permission is precisely the case where it did not, and
+          nesting the message inside the open state left the camera button
+          appearing to do nothing at all.
+
+          The shutter does not close the camera. Taking a photo is a step in a
+          conversation ("what's this?" … "and this one?"), not the end of one,
+          and a viewfinder that dismissed itself per photo would make every
+          follow-up cost another open/aim/expose cycle, which is exactly the
+          system-camera behavior this surface exists to avoid. */}
+      {cameraOpen || errorMessage ? (
+        <div
+          data-testid="voice-room-camera-controls"
+          className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
+          style={{
+            bottom: `calc(5.5rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
+          }}
+        >
+          {errorMessage ? (
+            <p
+              role="status"
+              className="rounded-full bg-[var(--room-wash)] px-3 py-1 text-xs text-[var(--room-fg)]"
             >
-              <Tooltip content="Stop assistant response">
+              {errorMessage}
+            </p>
+          ) : null}
+          {/* What the shutter did.
+
+              A photo taken on a call goes somewhere the user cannot see: the
+              viewfinder does not change, the assistant may say nothing for
+              seconds, and the transcript is behind the room. Without this the
+              press is indistinguishable from a dead button, which is what
+              sends people pressing it again.
+
+              A strip of recent frames rather than a confirmation step, because
+              the question is "did that go?", which can only be answered after
+              the fact. A dialog before the send would interrupt the one action
+              this surface is built to repeat, and still would not answer it.
+              The shutter press is the consent.
+
+              Dimmed while in flight, struck through when it failed, plain when
+              the assistant has it. Aligned left so it never sits under the
+              shutter, and `aria-hidden` because the live region already
+              announces failures in words. */}
+          {photos.length > 0 ? (
+            <ul
+              aria-hidden
+              data-testid="voice-room-photo-strip"
+              className="flex items-center gap-2 self-start pl-6"
+            >
+              {photos.map((photo) => (
+                <li key={photo.id} className="relative">
+                  <img
+                    src={photo.previewUrl}
+                    alt=""
+                    data-testid="voice-room-photo"
+                    data-status={photo.status}
+                    className={cn(
+                      "size-11 rounded-lg border object-cover transition",
+                      "border-[var(--room-border)]",
+                      photo.status === "sending" && "opacity-50",
+                      photo.status === "failed" && "opacity-40 grayscale",
+                    )}
+                  />
+                  {photo.status === "failed" ? (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <X className="size-5 text-red-300" strokeWidth={3} />
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {/* The shutter is centred on the room, with flip parked off to the
+              side rather than sharing a row with it: a two-item row would put
+              the shutter off-centre, and the shutter is the target the user
+              reaches for without looking. */}
+          {cameraOpen ? (
+            <div className="relative flex w-full items-center justify-center">
+              <Tooltip content="Take a photo">
                 <button
                   type="button"
-                  onClick={stopLiveVoiceResponse}
-                  aria-label="Stop assistant response"
+                  onClick={() => void shutter()}
+                  disabled={sending}
+                  aria-label="Take a photo"
+                  data-testid="voice-room-shutter"
                   className={cn(
+                    "flex size-16 items-center justify-center rounded-full border-4 transition",
+                    "border-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
+                    // The inner disc shrinks while the photo uploads: the
+                    // shutter's own press animation doubling as the progress
+                    // signal, so nothing else has to appear over the viewfinder.
+                    sending ? "opacity-60" : "hover:bg-[var(--room-wash)]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "rounded-full bg-[var(--room-fg)] transition-all",
+                      sending ? "size-6" : "size-11",
+                    )}
+                  />
+                </button>
+              </Tooltip>
+
+              <Tooltip content="Flip camera">
+                <button
+                  type="button"
+                  onClick={() => void camera.flipCamera()}
+                  aria-label="Flip camera"
+                  className={cn(
+                    "absolute right-8",
                     SESSION_CONTROL_CLASS,
                     SESSION_CONTROL_NEUTRAL_CLASS,
                   )}
                 >
-                  <Square className="size-4" fill="currentColor" />
+                  <SwitchCamera className="size-5" />
                 </button>
               </Tooltip>
-            </motion.div>
+            </div>
           ) : null}
-        </AnimatePresence>
+        </div>
+      ) : null}
+
+      <div
+        data-testid="voice-room-controls"
+        className="absolute inset-x-0 z-10 flex items-center justify-center gap-4"
+        // The bottom edge IS the screen's on the sheet and fullscreen, so the
+        // home-indicator inset is real here in a way the top inset was not.
+        style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
+      >
         <Tooltip content={muted ? "Unmute microphone" : "Mute microphone"}>
           <button
             type="button"
@@ -428,13 +1050,88 @@ function VoiceRoomOverlay() {
             className={cn(
               SESSION_CONTROL_CLASS,
               muted
-                ? tone?.isLight
-                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
-                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                ? destructiveControlClass(tone?.isLight)
                 : SESSION_CONTROL_NEUTRAL_CLASS,
             )}
           >
             {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+          </button>
+        </Tooltip>
+
+        <Tooltip content={outputMuted ? "Unmute assistant" : "Mute assistant"}>
+          <button
+            type="button"
+            onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
+            aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+            aria-pressed={outputMuted}
+            className={cn(
+              SESSION_CONTROL_CLASS,
+              outputMuted
+                ? destructiveControlClass(tone?.isLight)
+                : SESSION_CONTROL_NEUTRAL_CLASS,
+            )}
+          >
+            {outputMuted ? (
+              <VolumeX className="size-5" />
+            ) : (
+              <Volume2 className="size-5" />
+            )}
+          </button>
+        </Tooltip>
+
+        {/* Show the assistant what you're looking at.
+
+            Sits with the mutes rather than in the corner because it is the
+            same kind of act: a thing you do TO the running call, reversible,
+            and not the one that ends it.
+
+            Neutral in both states, and the icon names the ACTION rather than
+            the state. That is the one place this row departs from the mutes beside
+            it. The mutes have to display state because muted-ness is
+            invisible; an open camera is the single most visible thing on the
+            screen, so a second indicator would be telling the user something
+            they are already looking at, and the red "engaged" treatment would
+            put a warning colour on a control that has done nothing alarming.
+
+            No pre-permission sheet stands between this tap and
+            `getUserMedia`, per docs/CAPACITOR.md § OS permission requests on
+            iOS: the button IS the pre-prompt, and pressing it raises the
+            system alert directly. Any explanatory step added here would have
+            to be undismissable to stay compliant, which for a control this
+            self-evident would be worse than nothing. */}
+        {cameraSupported ? (
+          <Tooltip content={cameraOpen ? "Close camera" : "Show the camera"}>
+            <button
+              type="button"
+              onClick={() => (cameraOpen ? close() : void open())}
+              aria-label={cameraOpen ? "Close camera" : "Show the camera"}
+              aria-pressed={cameraOpen}
+              data-testid="voice-room-camera-toggle"
+              className={cn(
+                SESSION_CONTROL_CLASS,
+                SESSION_CONTROL_NEUTRAL_CLASS,
+              )}
+            >
+              {cameraOpen ? (
+                <CameraOff className="size-5" />
+              ) : (
+                <Camera className="size-5" />
+              )}
+            </button>
+          </Tooltip>
+        ) : null}
+
+        <Tooltip content="End session">
+          <button
+            type="button"
+            onClick={endLiveVoiceSession}
+            aria-label="End voice session"
+            className={cn(
+              SESSION_CONTROL_CLASS,
+              destructiveControlClass(tone?.isLight),
+            )}
+          >
+            <X className="size-5" strokeWidth={2.5} />
           </button>
         </Tooltip>
       </div>
@@ -445,5 +1142,16 @@ function VoiceRoomOverlay() {
         {muted ? `Muted — ${stateLabel}` : stateLabel}
       </div>
     </motion.div>
+  );
+
+  return sheet && choreography.sheetChrome ? (
+    <VoiceRoomSheet
+      headerBottom={headerBottom}
+      motionProps={choreography.sheetChrome}
+    >
+      {body}
+    </VoiceRoomSheet>
+  ) : (
+    body
   );
 }

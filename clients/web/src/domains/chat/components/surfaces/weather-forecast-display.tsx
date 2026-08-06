@@ -20,7 +20,13 @@ import { cn } from "@/utils/misc";
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function WeatherIcon({ icon: iconStr, size = 20 }: { icon: string; size?: number }) {
+function WeatherIcon({
+  icon: iconStr,
+  size = 20,
+}: {
+  icon: string;
+  size?: number;
+}) {
   const { icon: Icon, className } = getWeatherIcon(iconStr);
   return <Icon width={size} height={size} className={className} />;
 }
@@ -74,20 +80,34 @@ function HeroSection({
   onToggle: (f: boolean) => void;
 }) {
   const locationName = data.location;
-  const currentTempStr = displayTemp(data.currentTemp, sourceIsFahrenheit, useFahrenheit);
-  const feelsLikeStr = displayTemp(data.feelsLike, sourceIsFahrenheit, useFahrenheit);
+  const currentTempStr = displayTemp(
+    data.currentTemp,
+    sourceIsFahrenheit,
+    useFahrenheit,
+  );
+  const feelsLikeStr = displayTemp(
+    data.feelsLike,
+    sourceIsFahrenheit,
+    useFahrenheit,
+  );
   const unitSymbol = useFahrenheit ? "F" : "C";
 
   // Today's H/L from the first forecast item
   const today = data.forecast?.[0];
-  const todayHighStr = today ? getDayHigh(today, sourceIsFahrenheit, useFahrenheit) : null;
-  const todayLowStr = today ? getDayLow(today, sourceIsFahrenheit, useFahrenheit) : null;
+  const todayHighStr = today
+    ? getDayHigh(today, sourceIsFahrenheit, useFahrenheit)
+    : null;
+  const todayLowStr = today
+    ? getDayLow(today, sourceIsFahrenheit, useFahrenheit)
+    : null;
 
   // Wind: display raw value with unit from payload (defaults to mph)
   let windStr: string | null = null;
   if (data.windSpeed !== undefined) {
     windStr = `${Math.round(data.windSpeed)} ${data.windUnit ?? "mph"}`;
-    if (data.windDirection) windStr = `${data.windDirection} ${windStr}`;
+    if (data.windDirection) {
+      windStr = `${data.windDirection} ${windStr}`;
+    }
   }
 
   return (
@@ -99,7 +119,7 @@ function HeroSection({
           </div>
           {currentTempStr !== null && (
             // typography: off-scale -- large hero temperature display matching macOS weather widget
-             
+
             <div className="mt-1 text-4xl font-light text-[var(--content-default)]">
               {currentTempStr}&deg;{unitSymbol}
             </div>
@@ -155,7 +175,11 @@ function HourlySection({
       <div className="flex gap-3 overflow-x-auto">
         {hourly.map((item, i) => {
           const isNow = item.time.toLowerCase() === "now";
-          const tempStr = getHourlyTemp(item, sourceIsFahrenheit, useFahrenheit);
+          const tempStr = getHourlyTemp(
+            item,
+            sourceIsFahrenheit,
+            useFahrenheit,
+          );
           return (
             <div
               key={item.id ?? i}
@@ -202,10 +226,17 @@ function DailySection({
     for (const item of forecast) {
       const low = item.lowC ?? item.low;
       const high = item.highC ?? item.high;
-      if (low !== undefined && low < min) min = low;
-      if (high !== undefined && high > max) max = high;
+      if (low !== undefined && low < min) {
+        min = low;
+      }
+      if (high !== undefined && high > max) {
+        max = high;
+      }
     }
-    return { globalMin: min === Infinity ? 0 : min, globalMax: max === -Infinity ? 100 : max };
+    return {
+      globalMin: min === Infinity ? 0 : min,
+      globalMax: max === -Infinity ? 100 : max,
+    };
   }, [forecast]);
 
   const range = globalMax - globalMin || 1;
@@ -232,12 +263,17 @@ function DailySection({
           // (which prefer lowC/highC when available).
           let dotPosition: number | null = null;
           if (isToday && currentTemp !== undefined) {
-            const barUsesCelsius = item.lowC !== undefined || item.highC !== undefined;
-            const normalizedTemp = barUsesCelsius && sourceIsFahrenheit
-              ? (currentTemp - 32) * 5 / 9
-              : currentTemp;
+            const barUsesCelsius =
+              item.lowC !== undefined || item.highC !== undefined;
+            const normalizedTemp =
+              barUsesCelsius && sourceIsFahrenheit
+                ? ((currentTemp - 32) * 5) / 9
+                : currentTemp;
             const clamped = Math.max(rawLow, Math.min(rawHigh, normalizedTemp));
-            const dotPct = rawHigh !== rawLow ? ((clamped - rawLow) / (rawHigh - rawLow)) * 100 : 50;
+            const dotPct =
+              rawHigh !== rawLow
+                ? ((clamped - rawLow) / (rawHigh - rawLow)) * 100
+                : 50;
             dotPosition = dotPct;
           }
 
@@ -309,11 +345,15 @@ export function WeatherForecastDisplay({
 }) {
   const data = useMemo(() => parseWeatherData(templateData), [templateData]);
 
-  const sourceIsFahrenheit = data?.unit?.toUpperCase() === "F" || data?.unit?.toLowerCase() === "fahrenheit";
+  const sourceIsFahrenheit =
+    data?.unit?.toUpperCase() === "F" ||
+    data?.unit?.toLowerCase() === "fahrenheit";
   const [userUnit, setUserUnit] = useState<boolean | null>(null);
   const useFahrenheit = userUnit ?? sourceIsFahrenheit;
 
-  if (!data || (data.currentTemp === undefined && !data.forecast?.length)) return fallback ?? null;
+  if (!data || (data.currentTemp === undefined && !data.forecast?.length)) {
+    return fallback ?? null;
+  }
 
   return (
     <div className="mt-3">

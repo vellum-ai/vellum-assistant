@@ -14,6 +14,7 @@ export type ScopeProfile =
   | "gateway_ingress_v1"
   | "gateway_service_v1"
   | "local_v1"
+  | "speech_relay_v1"
   | "ui_page_v1";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ export type Scope =
   | "admin.write"
   | "feature_flags.read"
   | "feature_flags.write"
+  | "speech.relay"
   | "local.all";
 
 // ---------------------------------------------------------------------------

@@ -277,7 +277,9 @@ export function useWorkflowCardData(runId: string): ToolCallCardData | null {
   }, [entry, assistantId, runId]);
 
   return useMemo(() => {
-    if (!entry) return null;
+    if (!entry) {
+      return null;
+    }
     return computeWorkflowCardData(entry);
   }, [entry]);
 }

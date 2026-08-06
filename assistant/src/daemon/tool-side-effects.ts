@@ -9,32 +9,36 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
-import { addAppConversationId, getApp } from "../apps/app-store.js";
+import { DOCUMENT_MUTATION_TOOL_NAMES } from "../api/constants/document-tools.js";
+import type { AssistantEvent } from "../api/index.js";
+import { getApp, linkAppToConversationLineage } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { invalidateEdgeIndex } from "../plugins/defaults/memory/v3/substrate/edge-index.js";
-import { invalidatePageIndex } from "../plugins/defaults/memory/v3/substrate/page-index.js";
-import { getConceptsDir } from "../plugins/defaults/memory/v3/substrate/page-store.js";
+import { invalidateEdgeIndex } from "../plugins/defaults/memory/substrate/edge-index.js";
+import { invalidatePageIndex } from "../plugins/defaults/memory/substrate/page-index.js";
+import { getConceptsDir } from "../plugins/defaults/memory/substrate/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishAppsChanged,
+  publishDocumentsChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
+import type { Conversation } from "./conversation.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { ServerMessage } from "./message-protocol.js";
-import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface SideEffectContext {
-  ctx: ToolSetupContext;
+  ctx: Conversation;
 }
 
 export type PostExecutionHook = (
@@ -57,7 +61,7 @@ export type PostExecutionHook = (
  * and would race with the executor's own output (LUM-1153).
  */
 function notifyAppChanged(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   appId: string,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
@@ -121,7 +125,7 @@ registerHook("app_create", (_name, _input, result, { ctx }) => {
     return;
   }
   try {
-    addAppConversationId(appId, ctx.conversationId);
+    linkAppToConversationLineage(appId, ctx.conversationId);
   } catch (err) {
     log.warn({ err, appId }, "Failed to track conversation ID on app_create");
   }
@@ -169,7 +173,7 @@ function registerAppSurfaceRefreshHook(toolName: string): void {
       return;
     }
     try {
-      addAppConversationId(appId, ctx.conversationId);
+      linkAppToConversationLineage(appId, ctx.conversationId);
     } catch (err) {
       log.warn({ err, appId }, `Failed to track conversation ID on ${name}`);
     }
@@ -179,9 +183,20 @@ function registerAppSurfaceRefreshHook(toolName: string): void {
 registerAppSurfaceRefreshHook("app_refresh");
 registerAppSurfaceRefreshHook("app_update");
 
+// The mutating document tools carry no list-level change signal of their own,
+// so the conversation assets pill and the Library keep serving a cached list
+// after an edit, and a deleted document lingers as a ghost row. `skill_execute`
+// calls reach the runner already unwrapped to the inner tool name, so the
+// bundled document-editor skill needs no separate registration.
+registerHook([...DOCUMENT_MUTATION_TOOL_NAMES], () => {
+  publishDocumentsChanged();
+});
+
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
-  if (!setting) return;
+  if (!setting) {
+    return;
+  }
 
   const SETTING_TO_KEY: Record<string, string> = {
     activation_key: "pttActivationKey",
@@ -191,7 +206,9 @@ registerHook("voice_config_update", (_name, input) => {
     fish_audio_reference_id: "fishAudioReferenceId",
   };
   const key = SETTING_TO_KEY[setting];
-  if (!key) return;
+  if (!key) {
+    return;
+  }
 
   // `ttsVoiceId` is an ElevenLabs concept on the desktop client. When the
   // active provider is managed (vellum) or anything else, the voice lives only
@@ -222,7 +239,7 @@ registerHook("voice_config_update", (_name, input) => {
     type: "client_settings_update",
     key,
     value: coerced,
-  } as unknown as ServerMessage);
+  } as unknown as AssistantEvent);
 });
 
 // Dispatch pending Slack DM delivery when a CLI verification command
@@ -231,8 +248,12 @@ registerHook("voice_config_update", (_name, input) => {
 // This hook runs in the unsandboxed daemon process and delivers the DM.
 registerHook("bash", async (_name, input, result) => {
   const command = (input.command ?? "") as string;
-  if (!command.includes("channel-verification-sessions")) return;
-  if (!result.content.includes("_pendingSlackDm")) return;
+  if (!command.includes("channel-verification-sessions")) {
+    return;
+  }
+  if (!result.content.includes("_pendingSlackDm")) {
+    return;
+  }
 
   type PendingDm = { userId: string; text: string; assistantId: string };
   type Parsed = { _pendingSlackDm?: PendingDm };
@@ -288,18 +309,24 @@ registerHook("bash", async (_name, input, result) => {
     // multi-object output (e.g. cancel + create chained with &&).
   }
   if (singleObject !== undefined) {
-    if ((await dispatch(singleObject)) !== null) return;
+    if ((await dispatch(singleObject)) !== null) {
+      return;
+    }
   }
   for (const line of result.content.split("\n")) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
+    if (!trimmed.startsWith("{")) {
+      continue;
+    }
     let parsed: Parsed;
     try {
       parsed = JSON.parse(trimmed) as Parsed;
     } catch {
       continue;
     }
-    if ((await dispatch(parsed)) === "delivered") return;
+    if ((await dispatch(parsed)) === "delivered") {
+      return;
+    }
   }
 });
 
@@ -311,7 +338,9 @@ function invalidateEdgeIndexIfConceptPage(
   input: Record<string, unknown>,
 ): void {
   const rawPath = input.path;
-  if (typeof rawPath !== "string" || rawPath.length === 0) return;
+  if (typeof rawPath !== "string" || rawPath.length === 0) {
+    return;
+  }
   const workspaceDir = getWorkspaceDir();
   const conceptsRoot = getConceptsDir(workspaceDir);
   const absPath = isAbsolute(rawPath)

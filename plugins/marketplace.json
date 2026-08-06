@@ -436,6 +436,19 @@
       "icon": "🧪"
     },
     {
+      "name": "ledger",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/ledger",
+        "ref": "7fc04fd77b20ad4b27ccd51be22c101274b370f6"
+      },
+      "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
+      "category": "developer",
+      "homepage": "https://github.com/simensgreen/ledger",
+      "license": "MIT",
+      "icon": "🗄️"
+    },
+    {
       "name": "virlo",
       "source": {
         "source": "github",
@@ -474,6 +487,18 @@
       "homepage": "https://github.com/vellum-ai/battleship",
       "license": "MIT",
       "icon": "⚓"
+    },
+    {
+      "name": "octolens",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/octolens",
+        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
+      },
+      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
+      "category": "growth",
+      "homepage": "https://github.com/vellum-ai/octolens",
+      "license": "MIT"
     }
   ]
 }

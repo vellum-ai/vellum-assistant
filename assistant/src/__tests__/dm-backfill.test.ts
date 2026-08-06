@@ -42,7 +42,9 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
     _account: string | undefined,
     botId: string,
   ) => {
-    if (botId === "B_ASSISTANT") return "U_BOT";
+    if (botId === "B_ASSISTANT") {
+      return "U_BOT";
+    }
     return null;
   },
 }));

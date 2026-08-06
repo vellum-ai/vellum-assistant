@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -28,7 +28,10 @@ function upsertMemoryItem(opts: {
   statement: string;
   importance: number;
 }): void {
-  const db = getDb();
+  const db = getMemoryDb();
+  if (!db) {
+    return;
+  }
   const now = Date.now();
   const content = `${opts.subject}\n${opts.statement}`;
 
@@ -141,7 +144,9 @@ export async function run(
     }
 
     for (const contact of result.contactObservations) {
-      if (!contact.name || !contact.toneNote) continue;
+      if (!contact.name || !contact.toneNote) {
+        continue;
+      }
       const subject = `${provider.id} relationship: ${contact.name}`;
       upsertMemoryItem({
         kind: "relationship",

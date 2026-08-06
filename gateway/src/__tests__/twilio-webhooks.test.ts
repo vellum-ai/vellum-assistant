@@ -133,8 +133,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
@@ -316,7 +314,19 @@ describe("Twilio voice webhook", () => {
     expect(calledUrl).toContain("/v1/internal/twilio/voice-webhook");
   });
 
-  test("rejects unmapped inbound call with TwiML Reject when unmappedPolicy is reject", async () => {
+  test("forwards an unmapped inbound call to the local assistant", async () => {
+    // No From and no To: previously rejected by the unmapped `reject` policy.
+    // Voice lines are intentionally open, so the call is now answered and the
+    // `phone` admission floor (exercised below) is the gate that can deny it.
+    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+    );
+
     const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const url = "http://localhost:7830/webhooks/twilio/voice";
     const params = { CallSid: "CA123" };
@@ -325,7 +335,10 @@ describe("Twilio voice webhook", () => {
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("<Reject");
+    expect(body).not.toContain("<Reject");
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toContain("/v1/internal/twilio/voice-webhook");
   });
 
   test("hard-denies inbound call with TwiML Reject when the phone admission policy is no_one", async () => {

@@ -41,7 +41,7 @@ If there are none, see [Configuring a New OAuth Application](CONFIGURING_APPLICA
 
 ## Choosing Scopes
 
-For managed mode, do not choose or display scopes yourself. Managed providers use the platform's configured scopes, and the chat surface handles the connection affordance.
+In managed mode, connections use the platform's default scopes unless you pass `data.requestedScopes` on the oauth_connect surface. When you do, it is a full replacement set: the platform uses exactly those scopes instead of the defaults, so include every scope the connection should keep, not just the new ones. The chat surface handles the connection affordance.
 
 For your-own mode, consider what the user is trying to accomplish and request only the scopes needed for that task. You can see what scopes are available for a provider with:
 
@@ -59,7 +59,7 @@ If the user later needs additional scopes for a different task in your-own mode,
 
 If the provider is in managed mode, use `ui_show` with `surface_type: "oauth_connect"`. This is the same managed connection path available through Settings, but presented in chat at the moment the task needs it.
 
-Use a short task-specific description, and let the client own the action label. Do not include scopes, raw OAuth URLs, or a custom connect button label in the surface.
+Use a short task-specific description, and let the client own the action label. Do not include raw OAuth URLs or a custom connect button label in the surface. If the task needs non-default scopes, pass them in the optional `data.requestedScopes` field (see [Choosing Scopes](#choosing-scopes) for the replacement-set semantics).
 
 ```json
 {
@@ -68,10 +68,16 @@ Use a short task-specific description, and let the client own the action label. 
   "data": {
     "providerKey": "google",
     "displayName": "Google",
-    "description": "Connect Gmail, Calendar, and Drive for this task."
+    "description": "Connect Gmail and Google Tasks for this task.",
+    "requestedScopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/tasks"
+    ]
   }
 }
 ```
+
+`requestedScopes` is optional; omit it to use the platform's default scopes.
 
 Wait for the user to complete or dismiss the surface before proceeding. If they connect, verify the connection before making requests. If they dismiss it, continue only if the task can proceed without that account.
 

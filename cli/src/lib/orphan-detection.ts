@@ -37,6 +37,41 @@ export function classifyProcess(command: string): string {
   return "unknown";
 }
 
+/**
+ * True when the command line is a deliberate long-running interactive CLI
+ * session (e.g. a live `vellum tunnel` in someone's terminal). Such sessions
+ * have no PID-file registration, so `vellum clean` would otherwise kill them
+ * mid-session. The command line may be "bun /path/to/bin/vellum tunnel ...",
+ * so match the subcommand right after the vellum binary/script path (allowing
+ * only the known global flags in between; see GLOBAL_FLAGS in cli/src/index.ts).
+ * Later argv tokens (e.g. "vellum hatch --name logs") must not match.
+ *
+ * `detectOrphanedProcesses` consults this before classification so that
+ * service-like substrings in later argv (e.g. `vellum exec -it --service
+ * vellum-gateway -- /bin/sh`) cannot re-flag a live session, while
+ * `classifyProcess` stays a pure display label for `vellum ps`.
+ *
+ * Also spared: bare `vellum` (no subcommand launches the implicit TUI client
+ * via tryLaunchClient) and `vellum wake --foreground` (stays attached with
+ * logs in the terminal).
+ */
+export function isInteractiveCliSession(command: string): boolean {
+  const vellumToken = /(?:^|\/)vellum(?:-cli)?(?:\s+--(?:no-color|plain))*/;
+  const interactiveSubcommand = new RegExp(
+    vellumToken.source +
+      String.raw`\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b`,
+  );
+  const implicitTuiClient = new RegExp(vellumToken.source + String.raw`\s*$`);
+  const foregroundWake = new RegExp(
+    vellumToken.source + String.raw`\s+wake\b(?:\s+\S+)*\s--foreground\b`,
+  );
+  return (
+    interactiveSubcommand.test(command) ||
+    implicitTuiClient.test(command) ||
+    foregroundWake.test(command)
+  );
+}
+
 export function parseRemotePs(output: string): RemoteProcess[] {
   return output
     .trim()
@@ -152,6 +187,11 @@ export async function detectOrphanedProcesses(
     for (const p of procs) {
       if (p.pid === ownPid || seenPids.has(p.pid)) continue;
       if (knownPids.has(p.pid)) continue;
+      // Live interactive sessions are spared before classification so that
+      // service substrings in their argv cannot mark them as orphans.
+      if (isInteractiveCliSession(p.command)) {
+        continue;
+      }
       const type = classifyProcess(p.command);
       if (type === "unknown") continue;
       results.push({ name: type, pid: p.pid, source: "process table" });

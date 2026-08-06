@@ -48,7 +48,9 @@ export const deprecateBackgroundConversationOverrideMigration: WorkspaceMigratio
       const overridePath = join(promptDir, OVERRIDE_FILENAME);
       const deprecatedPath = join(promptDir, DEPRECATED_FILENAME);
 
-      if (!existsSync(overridePath)) return;
+      if (!existsSync(overridePath)) {
+        return;
+      }
 
       if (existsSync(deprecatedPath)) {
         try {
@@ -87,8 +89,12 @@ export const deprecateBackgroundConversationOverrideMigration: WorkspaceMigratio
       const overridePath = join(promptDir, OVERRIDE_FILENAME);
       const deprecatedPath = join(promptDir, DEPRECATED_FILENAME);
 
-      if (!existsSync(deprecatedPath)) return;
-      if (existsSync(overridePath)) return;
+      if (!existsSync(deprecatedPath)) {
+        return;
+      }
+      if (existsSync(overridePath)) {
+        return;
+      }
 
       try {
         renameSync(deprecatedPath, overridePath);

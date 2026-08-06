@@ -108,10 +108,14 @@ async function startAudioPump(
     let sentChunks = 0;
     worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       const chunk = new Int16Array(event.data);
-      if (chunk.length === 0) return;
+      if (chunk.length === 0) {
+        return;
+      }
       pending.push(chunk);
       pendingSamples += chunk.length;
-      if (pendingSamples < PUSH_BATCH_SAMPLES) return;
+      if (pendingSamples < PUSH_BATCH_SAMPLES) {
+        return;
+      }
       const merged = new Int16Array(pendingSamples);
       let offset = 0;
       for (const part of pending) {
@@ -130,9 +134,7 @@ async function startAudioPump(
       push(merged.buffer);
     };
     source.connect(worklet);
-    console.info(
-      `dictation: audio pump started (context=${context.state})`,
-    );
+    console.info(`dictation: audio pump started (context=${context.state})`);
 
     return () => {
       worklet.port.onmessage = null;
@@ -174,7 +176,9 @@ export async function transcribeNativeAudioBlob(
     console.warn("dictation: blob decode for native transcribe failed", detail);
     return null;
   }
-  if (pcm.byteLength === 0) return null;
+  if (pcm.byteLength === 0) {
+    return null;
+  }
 
   let resolveText: ((text: string | null) => void) | null = null;
   const unsubscribe = dictation.onTranscribed((event) => {
@@ -219,7 +223,9 @@ async function decodeBlobTo16kMonoInt16(blob: Blob): Promise<ArrayBuffer> {
     const mixed = new Float32Array(length);
     for (let c = 0; c < channels; c++) {
       const data = audio.getChannelData(c);
-      for (let i = 0; i < length; i++) mixed[i]! += data[i]! / channels;
+      for (let i = 0; i < length; i++) {
+        mixed[i]! += data[i]! / channels;
+      }
     }
     mono = mixed;
   }
@@ -318,7 +324,9 @@ export async function startNativeDictationPartials(
 
   let stopPromise: Promise<string | null> | null = null;
   return () => {
-    if (stopPromise) return stopPromise;
+    if (stopPromise) {
+      return stopPromise;
+    }
     stopPump?.();
     // No more partials are wanted once stopping — drop that listener now
     // so a quick next session can't double-deliver into this one.

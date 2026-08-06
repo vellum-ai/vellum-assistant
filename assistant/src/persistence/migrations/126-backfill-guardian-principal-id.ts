@@ -91,7 +91,9 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_bindings'`,
     )
     .get();
-  if (!bindingsTableExists) return;
+  if (!bindingsTableExists) {
+    return;
+  }
 
   const requestsTableExists = raw
     .query(
@@ -105,7 +107,9 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
       `SELECT 1 FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
     )
     .get();
-  if (!bindingColExists) return;
+  if (!bindingColExists) {
+    return;
+  }
 
   try {
     raw.exec("BEGIN");

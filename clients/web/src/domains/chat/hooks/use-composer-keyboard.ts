@@ -44,10 +44,18 @@ export function useComposerKeyboard(
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const inputEl = inputRef.current;
-      if (!inputEl || inputEl.disabled || inputEl.readOnly) return;
-      if (document.activeElement === inputEl) return;
-      if (document.querySelector('[aria-modal="true"]')) return;
-      if (!shouldFocusComposerForTyping(event, document.activeElement)) return;
+      if (!inputEl || inputEl.disabled || inputEl.readOnly) {
+        return;
+      }
+      if (document.activeElement === inputEl) {
+        return;
+      }
+      if (document.querySelector('[aria-modal="true"]')) {
+        return;
+      }
+      if (!shouldFocusComposerForTyping(event, document.activeElement)) {
+        return;
+      }
 
       event.preventDefault();
       inputEl.focus();

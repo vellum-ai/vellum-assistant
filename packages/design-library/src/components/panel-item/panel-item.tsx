@@ -49,6 +49,15 @@ import { MarqueeText } from "./marquee-text";
  * provides the interactive state layer (hover, active, focus-ring,
  * aria-current, `group` modifier).
  *
+ * ### `shape`
+ *
+ * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
+ * - `"pill"`: a capsule that hugs its content and carries a resting
+ *   `--surface-lift` surface, for navigation chips that sit inline rather
+ *   than filling a column. Everything else (hover, active, badge, trailing
+ *   action, link/button semantics) is unchanged, which is the point: a pill
+ *   is a differently-shaped row, not a different component.
+ *
  * ### `activeVariant`
  *
  * Controls how the active (`aria-current="page"`) state is styled:
@@ -84,24 +93,32 @@ interface PanelItemProps {
    */
   badge?: ReactNode;
   /**
+   * Drops the badge's pill chrome (background, rounding, padding) at every
+   * state, leaving just its content, e.g. a plain status dot that shouldn't
+   * sit in a background box. Default `false`, matching {@link badge}'s
+   * usual count/label chip look.
+   */
+  badgeBare?: boolean;
+  /**
    * Trailing slot (commonly an ellipsis / more-options button). Hidden by
    * default; revealed on hover or focus-within, while a child menu is open
    * (`aria-expanded="true"` on the trigger), and always when `active`.
    *
    * On touch (coarse-pointer) devices the trailing action stays visible by
-   * default so users can reach it without hover. Set
-   * `hideTrailingActionOnTouch` when the caller provides its own touch
-   * affordance (long-press → bottom sheet, swipe-to-reveal, etc.) so the
-   * ellipsis doesn't duplicate the gesture.
+   * default, since there's no hover to reveal it. If the row already has
+   * its own touch affordance (long-press → bottom sheet, swipe-to-reveal,
+   * etc.), pass `undefined` here on touch rather than rendering a redundant
+   * ellipsis: an always-visible-but-inert trailing element still reserves
+   * layout space next to `badge`, which reads as broken.
    */
   trailingAction?: ReactNode;
   /**
-   * Suppress the touch-visible trailing action. Default `false` — the
-   * trailing action is shown on coarse-pointer devices. Set to `true` when
-   * the row has its own long-press or swipe-to-reveal gesture that makes
-   * the trailing ellipsis redundant on touch.
+   * Row geometry.
+   * - `"row"` fills its container at a 6px radius.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * @default "row"
    */
-  hideTrailingActionOnTouch?: boolean;
+  shape?: "row" | "pill";
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -163,6 +180,22 @@ const INTERACTIVE_CLASSES = [
   "cursor-pointer select-none",
 ].join(" ");
 
+/**
+ * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
+ * and carries a resting surface, so it reads as a chip sitting in a column
+ * rather than a row filling one. Radius, width, and surface only, so hover,
+ * active, and every slot behave exactly as they do on a row.
+ *
+ * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
+ * `width: auto` on one fills its containing block, so a pill would stretch to
+ * row width in every ordinary layout. `width: fit-content` shrink-wraps while
+ * leaving `display: flex` alone, which the row's internal layout depends on.
+ */
+const PILL_SHAPE_CLASSES = [
+  "w-fit rounded-full",
+  "bg-[var(--surface-lift)]",
+].join(" ");
+
 const ACTIVE_DEFAULT_CLASSES = [
   "aria-[current=page]:bg-[var(--surface-active)]",
   "aria-[current=page]:text-[var(--content-emphasised)]",
@@ -190,8 +223,7 @@ const ICON_ACTIVE_BRANDED =
 
 const LABEL_CLASSES = "min-w-0 flex-1 truncate";
 
-const EXPAND_CHEVRON_CLASSES =
-  "shrink-0 text-[var(--content-tertiary)]";
+const EXPAND_CHEVRON_CLASSES = "shrink-0 text-[var(--content-tertiary)]";
 
 const RIGHT_CLUSTER_CLASSES = "flex items-center gap-2 shrink-0";
 
@@ -205,6 +237,18 @@ const BADGE_BASE_CLASSES = [
   "group-aria-[current=page]:bg-transparent group-aria-[current=page]:rounded-none",
   "group-aria-[current=page]:px-0 group-aria-[current=page]:py-0",
 ].join(" ");
+
+/** {@link PanelItemProps.badgeBare}: layout only, no pill chrome at any state. */
+const BADGE_BARE_CLASSES = "inline-flex items-center justify-center shrink-0";
+
+/**
+ * 8px inset from the row's true right edge, for a bare badge with no
+ * `trailingAction` beside it (e.g. conversation-row's mobile status dot,
+ * once its ellipsis is gone). Only applied then: with a trailing action
+ * present, `RIGHT_CLUSTER_CLASSES`'s own `gap-2` already separates the two,
+ * and this would stack on top of it.
+ */
+const BADGE_BARE_ALONE_CLASSES = "mr-2";
 
 const TRAILING_ACTION_CLASSES = [
   "flex items-center shrink-0",
@@ -233,8 +277,9 @@ function PanelItem({
   label,
   expandChevron: ExpandChevron,
   badge,
+  badgeBare = false,
   trailingAction,
-  hideTrailingActionOnTouch = false,
+  shape = "row",
   active = false,
   activeVariant = "default",
   disabled = false,
@@ -256,11 +301,19 @@ function PanelItem({
     activeVariant === "branded" ? ICON_ACTIVE_BRANDED : ICON_ACTIVE_DEFAULT;
 
   const leadingIcon =
-    leadingSlot !== undefined
-      ? leadingSlot
-      : Icon
-        ? <Icon size={14} aria-hidden className={cn("max-md:size-4", LEADING_ICON_BASE_CLASSES, iconActiveClass)} />
-        : null;
+    leadingSlot !== undefined ? (
+      leadingSlot
+    ) : Icon ? (
+      <Icon
+        size={14}
+        aria-hidden
+        className={cn(
+          "max-md:size-4",
+          LEADING_ICON_BASE_CLASSES,
+          iconActiveClass,
+        )}
+      />
+    ) : null;
 
   const labelNode = marqueeOnHover ? (
     <MarqueeText>{label}</MarqueeText>
@@ -269,29 +322,24 @@ function PanelItem({
   );
 
   const expandChevronNode = ExpandChevron ? (
-    <ExpandChevron
-      size={12}
-      aria-hidden
-      className={EXPAND_CHEVRON_CLASSES}
-    />
+    <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
   const badgeNode =
-    badge != null ? <span className={BADGE_BASE_CLASSES}>{badge}</span> : null;
+    badge != null ? (
+      <span
+        className={cn(
+          badgeBare ? BADGE_BARE_CLASSES : BADGE_BASE_CLASSES,
+          badgeBare && !trailingAction && BADGE_BARE_ALONE_CLASSES,
+        )}
+      >
+        {badge}
+      </span>
+    ) : null;
 
   const trailingNode = trailingAction ? (
     <span
-      className={cn(
-        TRAILING_ACTION_CLASSES,
-        !hideTrailingActionOnTouch && "pointer-coarse:opacity-100",
-        // When the caller opts out of touch-visible trailing actions, also
-        // disable pointer events on coarse pointers so taps pass through to
-        // the row's own long-press / swipe handlers. Re-enable for the
-        // states where the action is still visible (active row, open menu,
-        // keyboard focus) so those interaction paths stay reachable.
-        hideTrailingActionOnTouch &&
-          "pointer-coarse:pointer-events-none pointer-coarse:has-[[aria-expanded=true]]:pointer-events-auto pointer-coarse:group-focus-within:pointer-events-auto pointer-coarse:group-aria-[current=page]:pointer-events-auto",
-      )}
+      className={cn(TRAILING_ACTION_CLASSES, "pointer-coarse:opacity-100")}
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();
         event.preventDefault();
@@ -316,12 +364,15 @@ function PanelItem({
   );
 
   const activeClasses =
-    activeVariant === "branded" ? ACTIVE_BRANDED_CLASSES : ACTIVE_DEFAULT_CLASSES;
+    activeVariant === "branded"
+      ? ACTIVE_BRANDED_CLASSES
+      : ACTIVE_DEFAULT_CLASSES;
   const isInteractive = asChild || !!href || !!onSelect;
   const rowClasses = cn(
     ROW_BASE_CLASSES,
     isInteractive && INTERACTIVE_CLASSES,
     activeClasses,
+    shape === "pill" && PILL_SHAPE_CLASSES,
     className,
   );
 
@@ -453,4 +504,3 @@ export {
   ACTIVE_DEFAULT_CLASSES,
   ACTIVE_BRANDED_CLASSES,
 };
-

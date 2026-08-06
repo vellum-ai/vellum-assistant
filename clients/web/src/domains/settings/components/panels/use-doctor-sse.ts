@@ -64,7 +64,10 @@ function doctorReconnectDelayMs(attempt: number): number {
   return Math.min(exponential, DOCTOR_SSE_RECONNECT_MAX_MS) + jitter;
 }
 
-function waitForDoctorReconnect(ms: number, signal: AbortSignal): Promise<void> {
+function waitForDoctorReconnect(
+  ms: number,
+  signal: AbortSignal,
+): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) {
       resolve();
@@ -156,306 +159,302 @@ async function refreshPersistedDoctorSession(
 export function useDoctorSSE() {
   const controllerRef = useRef<AbortController | null>(null);
 
-  const connectSSE = useCallback(
-    (assistantId: string, sessionId: string) => {
-      controllerRef.current?.abort();
-      const controller = new AbortController();
-      controllerRef.current = controller;
+  const connectSSE = useCallback((assistantId: string, sessionId: string) => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
 
-      let streamEndedTerminally = false;
+    let streamEndedTerminally = false;
 
-      const isCurrentStream = () => controllerRef.current === controller;
+    const isCurrentStream = () => controllerRef.current === controller;
 
-      const ctx: DoctorPanelContext = {
-        getEntries: () => useDoctorPanelStore.getState().entries,
-        updateEntries: (updater) =>
-          useDoctorPanelStore.getState().updateEntries(updater),
-        setThinking: (v) => useDoctorPanelStore.getState().setThinking(v),
-        setPendingApproval: (v) =>
-          useDoctorPanelStore.getState().setPendingApproval(v),
-        setPendingBackup: (v) =>
-          useDoctorPanelStore.getState().setPendingBackup(v),
-        setSessionStatus: (s) =>
-          useDoctorPanelStore.getState().setSessionStatus(s),
-        appendEntry: (entry) =>
-          useDoctorPanelStore.getState().appendEntry(entry),
-        nextId: () => useDoctorPanelStore.getState().nextId(),
-        getStreamingEntryId: () =>
-          useDoctorPanelStore.getState().streamingEntryId,
-        setStreamingEntryId: (id) =>
-          useDoctorPanelStore.getState().setStreamingEntryId(id),
-      };
+    const ctx: DoctorPanelContext = {
+      getEntries: () => useDoctorPanelStore.getState().entries,
+      updateEntries: (updater) =>
+        useDoctorPanelStore.getState().updateEntries(updater),
+      setThinking: (v) => useDoctorPanelStore.getState().setThinking(v),
+      setPendingApproval: (v) =>
+        useDoctorPanelStore.getState().setPendingApproval(v),
+      setPendingBackup: (v) =>
+        useDoctorPanelStore.getState().setPendingBackup(v),
+      setSessionStatus: (s) =>
+        useDoctorPanelStore.getState().setSessionStatus(s),
+      appendEntry: (entry) => useDoctorPanelStore.getState().appendEntry(entry),
+      nextId: () => useDoctorPanelStore.getState().nextId(),
+      getStreamingEntryId: () =>
+        useDoctorPanelStore.getState().streamingEntryId,
+      setStreamingEntryId: (id) =>
+        useDoctorPanelStore.getState().setStreamingEntryId(id),
+    };
 
-      const failStream = (content: string) => {
-        if (!isCurrentStream()) {
+    const failStream = (content: string) => {
+      if (!isCurrentStream()) {
+        return;
+      }
+      controllerRef.current = null;
+      const s = useDoctorPanelStore.getState();
+      s.setThinking(false);
+      s.setPendingApproval(false);
+      s.setPendingBackup(false);
+      s.setStreamingEntryId(null);
+      s.setSessionStatus("error");
+      s.appendEntry({ kind: "error", content });
+    };
+
+    function dispatchEvent(event: DoctorEvent): void {
+      if (!isCurrentStream()) {
+        return;
+      }
+
+      const sourceEventId = event.source_event_id;
+      if (isReplayableDoctorSourceEventId(sourceEventId)) {
+        const shouldApply = useDoctorPanelStore
+          .getState()
+          .recordReplayableSourceEventId(sourceEventId);
+        if (!shouldApply) {
           return;
-        }
-        controllerRef.current = null;
-        const s = useDoctorPanelStore.getState();
-        s.setThinking(false);
-        s.setPendingApproval(false);
-        s.setPendingBackup(false);
-        s.setStreamingEntryId(null);
-        s.setSessionStatus("error");
-        s.appendEntry({ kind: "error", content });
-      };
-
-      function dispatchEvent(event: DoctorEvent): void {
-        if (!isCurrentStream()) {
-          return;
-        }
-
-        const sourceEventId = event.source_event_id;
-        if (isReplayableDoctorSourceEventId(sourceEventId)) {
-          const shouldApply = useDoctorPanelStore
-            .getState()
-            .recordReplayableSourceEventId(sourceEventId);
-          if (!shouldApply) {
-            return;
-          }
-        }
-
-        switch (event.type) {
-          case "message_delta":
-            handleMessageDelta(ctx, event);
-            break;
-          case "message":
-            handleMessageComplete(ctx);
-            break;
-          case "tool_call":
-            handleToolCall(ctx, event);
-            break;
-          case "tool_result":
-            handleToolResult(ctx, event);
-            break;
-          case "approval_required":
-            handleApprovalRequired(ctx, event);
-            break;
-          case "backup_prompt":
-            handleBackupPrompt(ctx, event);
-            break;
-          case "feedback_prompt":
-            handleFeedbackPrompt(ctx, event);
-            break;
-          case "user_outcome_prompt":
-            handleUserOutcomePrompt(ctx);
-            break;
-          case "status":
-            if (handleStatus(ctx, event)) {
-              streamEndedTerminally = true;
-            }
-            break;
-          case "error":
-            handleError(ctx, event);
-            break;
         }
       }
 
-      (async () => {
-        let reconnectAttempt = 0;
-        let replayGapRefreshes = 0;
+      switch (event.type) {
+        case "message_delta":
+          handleMessageDelta(ctx, event);
+          break;
+        case "message":
+          handleMessageComplete(ctx);
+          break;
+        case "tool_call":
+          handleToolCall(ctx, event);
+          break;
+        case "tool_result":
+          handleToolResult(ctx, event);
+          break;
+        case "approval_required":
+          handleApprovalRequired(ctx, event);
+          break;
+        case "backup_prompt":
+          handleBackupPrompt(ctx, event);
+          break;
+        case "feedback_prompt":
+          handleFeedbackPrompt(ctx, event);
+          break;
+        case "user_outcome_prompt":
+          handleUserOutcomePrompt(ctx);
+          break;
+        case "status":
+          if (handleStatus(ctx, event)) {
+            streamEndedTerminally = true;
+          }
+          break;
+        case "error":
+          handleError(ctx, event);
+          break;
+      }
+    }
 
-        while (!controller.signal.aborted && isCurrentStream()) {
-          const attemptController = new AbortController();
-          const abortAttempt = () => {
-            attemptController.abort();
+    (async () => {
+      let reconnectAttempt = 0;
+      let replayGapRefreshes = 0;
+
+      while (!controller.signal.aborted && isCurrentStream()) {
+        const attemptController = new AbortController();
+        const abortAttempt = () => {
+          attemptController.abort();
+        };
+        controller.signal.addEventListener("abort", abortAttempt, {
+          once: true,
+        });
+
+        const watchdog = createStreamWatchdog({
+          idleTimeoutMs: DOCTOR_SSE_IDLE_TIMEOUT_MS,
+          assistantId,
+        });
+        watchdog.resetCounters();
+
+        let streamError: Error | null = null;
+        let sessionExpired = false;
+        let replayGap = false;
+        let failedStatus: number | null = null;
+        let receivedDataFrame = false;
+        let pendingSseEventId: string | null = null;
+
+        try {
+          const latestReplayableSourceEventId =
+            useDoctorPanelStore.getState().latestReplayableSourceEventId;
+
+          const headers: Record<string, string> = {
+            Accept: "text/event-stream, application/json",
+            ...getClientRegistrationHeaders(),
           };
-          controller.signal.addEventListener("abort", abortAttempt, {
-            once: true,
-          });
+          if (latestReplayableSourceEventId) {
+            headers["Last-Event-ID"] = latestReplayableSourceEventId;
+          }
 
-          const watchdog = createStreamWatchdog({
-            idleTimeoutMs: DOCTOR_SSE_IDLE_TIMEOUT_MS,
-            assistantId,
-          });
-          watchdog.resetCounters();
-
-          let streamError: Error | null = null;
-          let sessionExpired = false;
-          let replayGap = false;
-          let failedStatus: number | null = null;
-          let receivedDataFrame = false;
-          let pendingSseEventId: string | null = null;
-
-          try {
-            const latestReplayableSourceEventId =
-              useDoctorPanelStore.getState().latestReplayableSourceEventId;
-
-            const headers: Record<string, string> = {
-              Accept: "text/event-stream, application/json",
-              ...getClientRegistrationHeaders(),
-            };
-            if (latestReplayableSourceEventId) {
-              headers["Last-Event-ID"] = latestReplayableSourceEventId;
-            }
-
-            const { stream } = await assistantsDoctorSessionsEventsRetrieve({
-              path: { assistant_id: assistantId, session_id: sessionId },
-              headers,
-              signal: attemptController.signal,
-              sseMaxRetryAttempts: 0,
-              fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
-                const response = await globalThis.fetch(input, init);
-                if (!response.ok) {
-                  failedStatus = response.status;
-                  if (SESSION_EXPIRED_STATUSES.has(response.status)) {
-                    sessionExpired = true;
-                  }
-                  if (await readDoctorReplayGap(response)) {
-                    replayGap = true;
-                  }
+          const { stream } = await assistantsDoctorSessionsEventsRetrieve({
+            path: { assistant_id: assistantId, session_id: sessionId },
+            headers,
+            signal: attemptController.signal,
+            sseMaxRetryAttempts: 0,
+            fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+              const response = await globalThis.fetch(input, init);
+              if (!response.ok) {
+                failedStatus = response.status;
+                if (SESSION_EXPIRED_STATUSES.has(response.status)) {
+                  sessionExpired = true;
                 }
-                return response;
-              }) as typeof globalThis.fetch,
-              onSseEvent: (event) => {
-                const isData =
-                  typeof (event as { data?: unknown }).data !== "undefined";
-                if (isData) {
-                  receivedDataFrame = true;
-                  pendingSseEventId = getSseEventId(event);
+                if (await readDoctorReplayGap(response)) {
+                  replayGap = true;
                 }
-                watchdog.recordTraffic(isData);
-                if (!controller.signal.aborted && isCurrentStream()) {
-                  watchdog.arm(attemptController, reconnectAttempt);
-                }
-              },
-              onSseError: (error) => {
-                if (sessionExpired || replayGap) {
-                  return;
-                }
-                streamError = toError(error, "Doctor stream disconnected");
-              },
-            });
-
-            if (!isCurrentStream()) {
-              return;
-            }
-
-            watchdog.arm(attemptController, reconnectAttempt);
-
-            for await (const payload of stream) {
-              if (!isCurrentStream()) {
+              }
+              return response;
+            }) as typeof globalThis.fetch,
+            onSseEvent: (event) => {
+              const isData =
+                typeof (event as { data?: unknown }).data !== "undefined";
+              if (isData) {
+                receivedDataFrame = true;
+                pendingSseEventId = getSseEventId(event);
+              }
+              watchdog.recordTraffic(isData);
+              if (!controller.signal.aborted && isCurrentStream()) {
+                watchdog.arm(attemptController, reconnectAttempt);
+              }
+            },
+            onSseError: (error) => {
+              if (sessionExpired || replayGap) {
                 return;
               }
-
-              receivedDataFrame = true;
-              reconnectAttempt = 0;
-              watchdog.arm(attemptController, reconnectAttempt);
-
-              const sseEventId = pendingSseEventId;
-              pendingSseEventId = null;
-              const event = parseDoctorEvent(payload);
-              if (event) {
-                const eventWithSource =
-                  event.source_event_id || !sseEventId
-                    ? event
-                    : { ...event, source_event_id: sseEventId };
-                dispatchEvent(eventWithSource);
-              }
-            }
-          } catch (err) {
-            if (controller.signal.aborted) {
-              return;
-            }
-            const abortCause = watchdog.consumeLastAbortCause();
-            streamError =
-              abortCause === "watchdog"
-                ? toError(err, "Doctor stream stalled")
-                : toError(err, "Doctor stream connection failed");
-          } finally {
-            watchdog.clear();
-            controller.signal.removeEventListener("abort", abortAttempt);
-          }
+              streamError = toError(error, "Doctor stream disconnected");
+            },
+          });
 
           if (!isCurrentStream()) {
             return;
           }
 
-          if (streamEndedTerminally) {
-            return;
-          }
+          watchdog.arm(attemptController, reconnectAttempt);
 
-          if (replayGap) {
-            if (replayGapRefreshes >= 1) {
-              failStream(
-                "Doctor event history changed while reconnecting. Start a new session to continue.",
-              );
-              return;
-            }
-
-            replayGapRefreshes += 1;
-            let refreshed: "active" | "terminal" | null = null;
-            try {
-              refreshed = await refreshPersistedDoctorSession(
-                assistantId,
-                sessionId,
-              );
-            } catch (err) {
-              captureError(err, { context: "doctor_replay_gap_refresh" });
-            }
+          for await (const payload of stream) {
             if (!isCurrentStream()) {
               return;
             }
-            if (refreshed === "active") {
-              continue;
-            }
-            if (refreshed === "terminal") {
-              streamEndedTerminally = true;
-              return;
-            }
 
+            receivedDataFrame = true;
+            reconnectAttempt = 0;
+            watchdog.arm(attemptController, reconnectAttempt);
+
+            const sseEventId = pendingSseEventId;
+            pendingSseEventId = null;
+            const event = parseDoctorEvent(payload);
+            if (event) {
+              const eventWithSource =
+                event.source_event_id || !sseEventId
+                  ? event
+                  : { ...event, source_event_id: sseEventId };
+              dispatchEvent(eventWithSource);
+            }
+          }
+        } catch (err) {
+          if (controller.signal.aborted) {
+            return;
+          }
+          const abortCause = watchdog.consumeLastAbortCause();
+          streamError =
+            abortCause === "watchdog"
+              ? toError(err, "Doctor stream stalled")
+              : toError(err, "Doctor stream connection failed");
+        } finally {
+          watchdog.clear();
+          controller.signal.removeEventListener("abort", abortAttempt);
+        }
+
+        if (!isCurrentStream()) {
+          return;
+        }
+
+        if (streamEndedTerminally) {
+          return;
+        }
+
+        if (replayGap) {
+          if (replayGapRefreshes >= 1) {
             failStream(
               "Doctor event history changed while reconnecting. Start a new session to continue.",
             );
             return;
           }
 
-          if (sessionExpired) {
+          replayGapRefreshes += 1;
+          let refreshed: "active" | "terminal" | null = null;
+          try {
+            refreshed = await refreshPersistedDoctorSession(
+              assistantId,
+              sessionId,
+            );
+          } catch (err) {
+            captureError(err, { context: "doctor_replay_gap_refresh" });
+          }
+          if (!isCurrentStream()) {
+            return;
+          }
+          if (refreshed === "active") {
+            continue;
+          }
+          if (refreshed === "terminal") {
             streamEndedTerminally = true;
-            const s = useDoctorPanelStore.getState();
-            s.setThinking(false);
-            s.setStreamingEntryId(null);
-            s.setSessionStatus("completed");
-            s.setPendingApproval(false);
-            s.setPendingBackup(false);
-            s.appendEntry({
-              kind: "status",
-              content:
-                "Previous session expired. Start a new session to continue.",
-            });
             return;
           }
 
-          if (!streamError) {
-            streamError = new Error(
-              "Doctor event stream ended before the session completed.",
-            );
-          }
-
-          if (shouldResetDoctorSseReconnectBudget(receivedDataFrame)) {
-            reconnectAttempt = 0;
-          }
-
-          if (reconnectAttempt >= MAX_DOCTOR_SSE_RECONNECT_ATTEMPTS) {
-            captureError(streamError, { context: "doctor_sse_stream" });
-            failStream(
-              failedStatus
-                ? `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`
-                : "Event stream disconnected. Start a new session to continue.",
-            );
-            return;
-          }
-
-          await waitForDoctorReconnect(
-            doctorReconnectDelayMs(reconnectAttempt),
-            controller.signal,
+          failStream(
+            "Doctor event history changed while reconnecting. Start a new session to continue.",
           );
-          reconnectAttempt += 1;
+          return;
         }
-      })();
-    },
-    [],
-  );
+
+        if (sessionExpired) {
+          streamEndedTerminally = true;
+          const s = useDoctorPanelStore.getState();
+          s.setThinking(false);
+          s.setStreamingEntryId(null);
+          s.setSessionStatus("completed");
+          s.setPendingApproval(false);
+          s.setPendingBackup(false);
+          s.appendEntry({
+            kind: "status",
+            content:
+              "Previous session expired. Start a new session to continue.",
+          });
+          return;
+        }
+
+        if (!streamError) {
+          streamError = new Error(
+            "Doctor event stream ended before the session completed.",
+          );
+        }
+
+        if (shouldResetDoctorSseReconnectBudget(receivedDataFrame)) {
+          reconnectAttempt = 0;
+        }
+
+        if (reconnectAttempt >= MAX_DOCTOR_SSE_RECONNECT_ATTEMPTS) {
+          captureError(streamError, { context: "doctor_sse_stream" });
+          failStream(
+            failedStatus
+              ? `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`
+              : "Event stream disconnected. Start a new session to continue.",
+          );
+          return;
+        }
+
+        await waitForDoctorReconnect(
+          doctorReconnectDelayMs(reconnectAttempt),
+          controller.signal,
+        );
+        reconnectAttempt += 1;
+      }
+    })();
+  }, []);
 
   const abort = useCallback(() => {
     controllerRef.current?.abort();

@@ -1,14 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    CheckCircle,
-    CloudOff,
-    LayoutGrid,
-    Loader2,
-    Puzzle,
-    Sparkles,
-    TriangleAlert,
-    X,
-    Zap,
+  CheckCircle,
+  CloudOff,
+  LayoutGrid,
+  Loader2,
+  Puzzle,
+  Sparkles,
+  TriangleAlert,
+  X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
@@ -22,32 +22,32 @@ import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
 import { SkillsStateCard } from "@/domains/intelligence/components/skills/skills-state-card";
 import { FilterBar } from "@/domains/intelligence/components/superpowers/superpowers-filters";
 import {
-    PLUGIN_INSTALL_ERROR,
-    PLUGIN_REMOVE_ERROR,
-    PLUGIN_UPGRADE_ERROR,
-    pluginRemoveConfirmMessage,
-    pluginRiskyUpgradeConfirmLabel,
-    pluginRiskyUpgradeConfirmMessage,
+  PLUGIN_INSTALL_ERROR,
+  PLUGIN_REMOVE_ERROR,
+  PLUGIN_UPGRADE_ERROR,
+  pluginRemoveConfirmMessage,
+  pluginRiskyUpgradeConfirmLabel,
+  pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import type {
-    InstalledPlugin,
-    PluginCatalogMatch,
-    PluginFilter,
-    PluginListItem,
+  InstalledPlugin,
+  PluginCatalogMatch,
+  PluginFilter,
+  PluginListItem,
 } from "@/domains/intelligence/plugins/types";
 import {
-    SYSTEM_CATEGORY,
-    usePluginsList,
+  SYSTEM_CATEGORY,
+  usePluginsList,
 } from "@/domains/intelligence/plugins/use-plugins-list";
 import {
-    filterByStatus,
-    matchesQuery,
-    shortSha,
+  filterByStatus,
+  matchesQuery,
+  shortSha,
 } from "@/domains/intelligence/plugins/utils";
 import {
-    isInstalledSkill,
-    type SkillInfo,
+  isInstalledSkill,
+  type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import { useSkillActions } from "@/domains/intelligence/skills/use-skill-actions";
 import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
@@ -58,21 +58,21 @@ import {
 } from "@/domains/intelligence/superpowers/superpowers-url-state";
 import type { SuperpowerFilter } from "@/domains/intelligence/superpowers/types";
 import {
-    filterShowsPlugins,
-    filterShowsSkills,
-    pluginFilterFor,
-    skillParamsForFilter,
+  filterShowsPlugins,
+  filterShowsSkills,
+  pluginFilterFor,
+  skillParamsForFilter,
 } from "@/domains/intelligence/superpowers/utils";
 import {
-    hasLocalEdits,
-    type PluginDrift,
-    usePluginDrift,
+  hasLocalEdits,
+  type PluginDrift,
+  usePluginDrift,
 } from "@/domains/intelligence/use-plugin-drift";
 import {
-    skillsGetOptions,
-    usePluginsByNameDeleteMutation,
-    usePluginsByNameUpgradePostMutation,
-    usePluginsInstallPostMutation,
+  skillsGetOptions,
+  usePluginsByNameDeleteMutation,
+  usePluginsByNameUpgradePostMutation,
+  usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -91,13 +91,27 @@ const TIP_STORAGE_KEY = "vellum:superpowers:tipDismissed";
 
 /** One merged, sortable row — a skill or a plugin. */
 type SuperpowerRow =
-  | { type: "skill"; key: string; name: string; installed: boolean; skill: SkillInfo }
-  | { type: "plugin"; key: string; name: string; installed: boolean; item: PluginListItem };
+  | {
+      type: "skill";
+      key: string;
+      name: string;
+      installed: boolean;
+      skill: SkillInfo;
+    }
+  | {
+      type: "plugin";
+      key: string;
+      name: string;
+      installed: boolean;
+      item: PluginListItem;
+    };
 
 /** Installed first, then alphabetical by name — skills and plugins interleaved. */
 function sortRows(rows: SuperpowerRow[]): SuperpowerRow[] {
   return [...rows].sort((a, b) => {
-    if (a.installed !== b.installed) {return a.installed ? -1 : 1;}
+    if (a.installed !== b.installed) {
+      return a.installed ? -1 : 1;
+    }
     return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
   });
 }
@@ -172,7 +186,10 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   // The search input stays in local state for responsive typing; the settled
   // (debounced) value is reflected into `?q=` below and drives the query.
   const [searchValue, setSearchValue] = useState(q);
-  const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
+  const debouncedSearch = useDebouncedValue(
+    searchValue.trim(),
+    SEARCH_DEBOUNCE_MS,
+  );
   // Last `q` this component reconciled with the URL — distinguishes our own
   // writes (echoed back through `useSearchParams`) from external changes
   // (re-clicking the nav link, back/forward, in-app filtered links).
@@ -220,7 +237,8 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
     !pluginsSupported && filter === "plugins" ? "all" : filter;
 
   const showSkills = filterShowsSkills(effectiveFilter);
-  const pluginsInScope = pluginsSupported && filterShowsPlugins(effectiveFilter);
+  const pluginsInScope =
+    pluginsSupported && filterShowsPlugins(effectiveFilter);
   const pluginStatusFilter: PluginFilter = pluginFilterFor(effectiveFilter);
 
   // ---- Skills data --------------------------------------------------------
@@ -253,7 +271,13 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
         category: category ?? undefined,
       },
     }),
-    select: (data): { skills: SkillInfo[]; categoryCounts?: Record<string, number>; totalCount?: number } => ({
+    select: (
+      data,
+    ): {
+      skills: SkillInfo[];
+      categoryCounts?: Record<string, number>;
+      totalCount?: number;
+    } => ({
       skills: data.skills,
       categoryCounts: data.categoryCounts,
       totalCount: data.totalCount,
@@ -271,7 +295,13 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
         q: debouncedSearch || undefined,
       },
     }),
-    select: (data): { skills: SkillInfo[]; categoryCounts?: Record<string, number>; totalCount?: number } => ({
+    select: (
+      data,
+    ): {
+      skills: SkillInfo[];
+      categoryCounts?: Record<string, number>;
+      totalCount?: number;
+    } => ({
       skills: data.skills,
       categoryCounts: data.categoryCounts,
       totalCount: data.totalCount,
@@ -391,7 +421,9 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   );
 
   const confirmPluginRemove = useCallback(() => {
-    if (!pendingRemoval) {return;}
+    if (!pendingRemoval) {
+      return;
+    }
     removeMutation.mutate({
       path: { assistant_id: assistantId, name: pendingRemoval.name },
     });
@@ -409,7 +441,9 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   );
 
   const confirmPluginUpgrade = useCallback(() => {
-    if (!pendingUpgrade) {return;}
+    if (!pendingUpgrade) {
+      return;
+    }
     runUpgrade(pendingUpgrade.name);
     setPendingUpgrade(null);
   }, [pendingUpgrade, runUpgrade]);
@@ -448,24 +482,20 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   const rows = useMemo(
     () =>
       sortRows([
-        ...skills.map(
-          (skill): SuperpowerRow => ({
-            type: "skill",
-            key: `skill:${skill.id}`,
-            name: skill.name,
-            installed: isInstalledSkill(skill),
-            skill,
-          }),
-        ),
-        ...visiblePluginItems.map(
-          (item): SuperpowerRow => ({
-            type: "plugin",
-            key: `plugin:${item.name}`,
-            name: item.name,
-            installed: item.status === "installed",
-            item,
-          }),
-        ),
+        ...skills.map((skill): SuperpowerRow => ({
+          type: "skill",
+          key: `skill:${skill.id}`,
+          name: skill.name,
+          installed: isInstalledSkill(skill),
+          skill,
+        })),
+        ...visiblePluginItems.map((item): SuperpowerRow => ({
+          type: "plugin",
+          key: `plugin:${item.name}`,
+          name: item.name,
+          installed: item.status === "installed",
+          item,
+        })),
       ]),
     [skills, visiblePluginItems],
   );
@@ -565,7 +595,9 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
       ) : rows.length === 0 ? (
         // Don't flash an "empty" state for available plugins while the
         // catalog is still loading (installed rows already render above).
-        pluginsVisible && catalogLoading && pluginStatusFilter !== "installed" ? (
+        pluginsVisible &&
+        catalogLoading &&
+        pluginStatusFilter !== "installed" ? (
           <LoadingState />
         ) : (
           <EmptyState filter={effectiveFilter} category={category} />
@@ -640,7 +672,10 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
       {!isLoading && !allFailed && pluginsFailed ? (
         <DegradedNotice text="Plugins are temporarily unavailable. Skills are still listed below." />
       ) : null}
-      {pluginsVisible && catalogError && !pluginsListLoading && !pluginsFailed ? (
+      {pluginsVisible &&
+      catalogError &&
+      !pluginsListLoading &&
+      !pluginsFailed ? (
         <DegradedNotice text="Plugin catalog browsing is temporarily unavailable. Installed plugins are still listed below." />
       ) : null}
 
@@ -772,7 +807,9 @@ function useMergedPluginCounts(
         // An installed marketplace plugin also appears in the catalog; counting
         // it here would double it against the installed counts, so dedup against
         // the unfiltered installed names — it already counts under installed.
-        if (unfilteredInstalledNames.has(match.name)) {continue;}
+        if (unfilteredInstalledNames.has(match.name)) {
+          continue;
+        }
         const cat = match.category ?? SYSTEM_CATEGORY;
         counts[cat] = (counts[cat] ?? 0) + 1;
         catalogTotal += 1;

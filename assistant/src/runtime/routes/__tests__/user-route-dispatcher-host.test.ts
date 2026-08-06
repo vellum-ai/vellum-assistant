@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
 import { getWorkspaceRoutesDir } from "../../../util/platform.js";
-import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type { UserRouteContext } from "../user-route-dispatcher.js";
 
 // The dispatcher constructs the route host client inline and reads the enabled
 // flag from config, so both are mocked here (there is no injection seam).
@@ -22,6 +20,7 @@ interface InvokeCall {
 let hostEnabled = false;
 let invokeImpl: (call: InvokeCall) => Promise<RouteInvokeResponse>;
 const invokeCalls: InvokeCall[] = [];
+const ctorOptions: ({ invokeTimeoutMs?: number } | undefined)[] = [];
 
 class FakeTimeoutError extends Error {
   constructor(public readonly timeoutMs: number) {
@@ -35,6 +34,9 @@ mock.module("../../../routes/control.js", () => ({
 }));
 mock.module("../../../routes/route-host-client.js", () => ({
   RouteHostClient: class {
+    constructor(options?: { invokeTimeoutMs?: number }) {
+      ctorOptions.push(options);
+    }
     async invoke(params: RouteInvokeParams, body: Uint8Array | null) {
       const call = { params, body };
       invokeCalls.push(call);
@@ -47,15 +49,8 @@ mock.module("../../../routes/route-host-client.js", () => ({
 
 const { UserRouteDispatcher } = await import("../user-route-dispatcher.js");
 
-function context(): UserRouteContext {
-  return {
-    assistantEventHub: new AssistantEventHub(),
-    conversations: { postMessage: async () => ({ messageId: "m" }) },
-  };
-}
-
 function makeDispatcher() {
-  return new UserRouteDispatcher({ context: context() });
+  return new UserRouteDispatcher();
 }
 
 function writeHandler(name: string, content: string): void {
@@ -75,6 +70,7 @@ beforeEach(() => {
   hostEnabled = false;
   invokeImpl = async () => jsonResponse(200, { via: "host" });
   invokeCalls.length = 0;
+  ctorOptions.length = 0;
 });
 
 afterEach(() => {
@@ -178,6 +174,17 @@ describe("UserRouteDispatcher — route host delegation", () => {
       new Request("http://localhost/v1/x/down", { method: "GET" }),
     );
     expect(res.status).toBe(503);
+  });
+
+  test("drives the host client's timeout from the dispatcher's handler timeout", async () => {
+    // The in-process and route-host paths must share one per-request deadline,
+    // so the host client's hard-kill timeout is the dispatcher's, not the
+    // client's own default.
+    new UserRouteDispatcher();
+    expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(120_000);
+
+    new UserRouteDispatcher({ handlerTimeoutMs: 5_000 });
+    expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(5_000);
   });
 
   test("unknown route 404s without touching the host", async () => {

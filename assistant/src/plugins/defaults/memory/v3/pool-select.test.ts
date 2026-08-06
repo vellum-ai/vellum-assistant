@@ -33,7 +33,9 @@ let sendMessageImpl: (() => Promise<ProviderResponse>) | null = null;
 const mockProvider = {
   name: "mock-memory-v3-selector",
   async sendMessage(): Promise<ProviderResponse> {
-    if (!sendMessageImpl) throw new Error("sendMessageImpl not configured");
+    if (!sendMessageImpl) {
+      throw new Error("sendMessageImpl not configured");
+    }
     return sendMessageImpl();
   },
 } as unknown as Provider;

@@ -38,41 +38,41 @@ describe("MAX_FILE_SIZE_BYTES", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkFileSizeOnDisk", () => {
-  test("returns undefined for a file within the default limit", () => {
+  test("returns undefined for a file within the default limit", async () => {
     const dir = makeTempDir();
     const filePath = join(dir, "small.txt");
     writeFileSync(filePath, "hello");
 
-    expect(checkFileSizeOnDisk(filePath)).toBeUndefined();
+    expect(await checkFileSizeOnDisk(filePath)).toBeUndefined();
   });
 
-  test("returns error string for a file exceeding a custom limit", () => {
+  test("returns error string for a file exceeding a custom limit", async () => {
     const dir = makeTempDir();
     const filePath = join(dir, "big.txt");
     writeFileSync(filePath, "x".repeat(200));
 
-    const result = checkFileSizeOnDisk(filePath, 100);
+    const result = await checkFileSizeOnDisk(filePath, 100);
     expect(result).toBeDefined();
     expect(result).toContain("exceeds");
     expect(result).toContain("limit");
     expect(result).toContain(filePath);
   });
 
-  test("returns undefined for a file exactly at the custom limit", () => {
+  test("returns undefined for a file exactly at the custom limit", async () => {
     const dir = makeTempDir();
     const filePath = join(dir, "exact.txt");
     writeFileSync(filePath, "x".repeat(100));
 
-    expect(checkFileSizeOnDisk(filePath, 100)).toBeUndefined();
+    expect(await checkFileSizeOnDisk(filePath, 100)).toBeUndefined();
   });
 
-  test("uses default limit when none is provided", () => {
+  test("uses default limit when none is provided", async () => {
     const dir = makeTempDir();
     const filePath = join(dir, "tiny.txt");
     writeFileSync(filePath, "a");
 
     // Should not error since 1 byte is well under 100 MB
-    expect(checkFileSizeOnDisk(filePath)).toBeUndefined();
+    expect(await checkFileSizeOnDisk(filePath)).toBeUndefined();
   });
 });
 

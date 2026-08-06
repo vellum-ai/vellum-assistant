@@ -6,8 +6,8 @@
  */
 
 import { isPlainObject } from "../util/object.js";
+import type { Conversation } from "./conversation.js";
 import type { CardSurfaceData } from "./message-protocol.js";
-import type { ToolSetupContext } from "./tool-setup-types.js";
 
 interface DoordashStep {
   label: string;
@@ -102,7 +102,7 @@ function updateDoordashSteps(
 
 // ── Helpers for reading/writing the task_progress surface ─────────────
 
-function getStoredSteps(ctx: ToolSetupContext): DoordashStep[] | null {
+function getStoredSteps(ctx: Conversation): DoordashStep[] | null {
   const stored = ctx.surfaceState.get(SURFACE_ID);
   if (!stored || stored.surfaceType !== "card") {
     return null;
@@ -116,7 +116,7 @@ function getStoredSteps(ctx: ToolSetupContext): DoordashStep[] | null {
 }
 
 function pushStepsUpdate(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   updatedSteps: DoordashStep[],
 ): void {
   const stored = ctx.surfaceState.get(SURFACE_ID);
@@ -160,7 +160,7 @@ export function isDoordashCommand(
  * before the command runs.
  */
 export function markDoordashStepInProgress(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   input: Record<string, unknown>,
 ): void {
   const cmd = input.command as string | undefined;
@@ -190,7 +190,7 @@ export function markDoordashStepInProgress(
  * DoorDash CLI command, then update step statuses based on the result.
  */
 export function updateDoordashProgress(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   input: Record<string, unknown>,
   isError: boolean,
 ): void {

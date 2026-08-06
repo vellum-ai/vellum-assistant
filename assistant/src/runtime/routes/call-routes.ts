@@ -40,7 +40,9 @@ const idempotencyCache = new Map<string, IdempotencyEntry>();
 function pruneIdempotencyCache(): void {
   const now = Date.now();
   for (const [key, entry] of idempotencyCache) {
-    if (entry.expiresAt <= now) idempotencyCache.delete(key);
+    if (entry.expiresAt <= now) {
+      idempotencyCache.delete(key);
+    }
   }
 }
 

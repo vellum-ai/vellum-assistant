@@ -17,11 +17,20 @@ mock.module("../../assistant-event-hub.js", () => ({
 }));
 
 import { findConversation } from "../../../daemon/conversation-registry.js";
+import {
+  projectAssistantMessage,
+  recordConversationSeenSignal,
+} from "../../../persistence/conversation-attention-store.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import { createGroup } from "../../../persistence/group-crud.js";
 import { rawRun } from "../../../persistence/raw-query.js";
-import { conversations } from "../../../persistence/schema/index.js";
+import {
+  conversationAssistantAttentionState,
+  conversationAttentionEvents,
+  conversations,
+} from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
@@ -66,7 +75,9 @@ interface ListResponse {
 
 function findHandler(routes: RouteDefinition[], operationId: string) {
   const route = routes.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -232,5 +243,528 @@ describe("GET /v1/conversations — conversationType", () => {
     expect(() => invoke({ conversationType: "private" })).toThrow(
       BadRequestError,
     );
+  });
+});
+
+describe("GET /v1/conversations with groupId", () => {
+  function seedInGroup(title: string, groupId: string): string {
+    const conv = createConversation(title);
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      groupId,
+      conv.id,
+    );
+    return conv.id;
+  }
+
+  function seedPinned(title: string, displayOrder?: number): string {
+    const conv = createConversation(title);
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned', display_order = ? WHERE id = ?",
+      displayOrder ?? null,
+      conv.id,
+    );
+    return conv.id;
+  }
+
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("system:all returns only conversations in no group", async () => {
+    createConversation("ungrouped-1");
+    const group = createGroup("Car Chat");
+    seedInGroup("in-custom-group", group.id);
+    seedPinned("pinned-1");
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["ungrouped-1"]);
+  });
+
+  test("system:all matches rows whose group_id is NULL, not just the literal sentinel", async () => {
+    // `group_id` is only written when a conversation is filed somewhere, so
+    // almost every ungrouped row carries NULL. An equality-only predicate
+    // would return nothing at all here.
+    const conv = createConversation("never-filed");
+    rawRun(
+      "test:clearGroup",
+      "UPDATE conversations SET group_id = NULL WHERE id = ?",
+      conv.id,
+    );
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["never-filed"]);
+  });
+
+  test("system:pinned returns the Pinned section", async () => {
+    createConversation("ungrouped-1");
+    seedPinned("pinned-1");
+    seedPinned("pinned-2");
+
+    const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "pinned-1",
+      "pinned-2",
+    ]);
+  });
+
+  test("a custom group id returns only that group's members", async () => {
+    const carChat = createGroup("Car Chat");
+    const recipes = createGroup("Recipes");
+    seedInGroup("car-1", carChat.id);
+    seedInGroup("car-2", carChat.id);
+    seedInGroup("recipe-1", recipes.id);
+    createConversation("ungrouped-1");
+
+    const result = (await invoke({ groupId: carChat.id })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "car-1",
+      "car-2",
+    ]);
+  });
+
+  test("a group-scoped page is ordered by the user's arrangement", async () => {
+    // Pinned and custom groups are drag-reorderable, so display order wins
+    // over recency inside a group.
+    seedPinned("third", 2);
+    seedPinned("first", 0);
+    seedPinned("second", 1);
+
+    const result = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+  });
+
+  test("a group-scoped page has no pinned rows appended to it", async () => {
+    // Injection exists so a client reading Pinned out of the unfiltered list
+    // still sees it. A caller that asked for one group gets that group.
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+    seedPinned("pinned-1");
+
+    const result = (await invoke({ groupId: group.id })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["car-1"]);
+  });
+
+  test("system:all keeps surfaced background and scheduled rows", async () => {
+    // Surfacing writes only `surfaced_at`, so a promoted row keeps its
+    // `system:background` / `system:scheduled` group id while the standard
+    // listing renders it in Recents. A group filter that matched NULL and
+    // "system:all" alone would drop it from the section that is supposed to
+    // show it.
+    const background = createConversation({
+      title: "surfaced-background",
+      conversationType: "background",
+    });
+    const scheduled = createConversation({
+      title: "surfaced-scheduled",
+      conversationType: "scheduled",
+    });
+    // The routed group id is the part that matters: heartbeat, reminders and
+    // schedule-job runs are filed into these system buckets, and surfacing
+    // does not clear that. A row left with a NULL group id would pass a
+    // NULL-only predicate and prove nothing.
+    rawRun(
+      "test:routeToSystemBucket",
+      "UPDATE conversations SET group_id = 'system:background', surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      background.id,
+    );
+    rawRun(
+      "test:routeToSystemBucket",
+      "UPDATE conversations SET group_id = 'system:scheduled', surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      scheduled.id,
+    );
+    createConversation("plain-ungrouped");
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "plain-ungrouped",
+      "surfaced-background",
+      "surfaced-scheduled",
+    ]);
+  });
+
+  test("system:all still excludes background rows that were never surfaced", async () => {
+    const quiet = createConversation({
+      title: "quiet-background",
+      conversationType: "background",
+    });
+    rawRun(
+      "test:routeToSystemBucket",
+      "UPDATE conversations SET group_id = 'system:background' WHERE id = ?",
+      quiet.id,
+    );
+    createConversation("plain-ungrouped");
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "plain-ungrouped",
+    ]);
+  });
+
+  test("system:all and system:pinned partition the sections, never overlapping", async () => {
+    createConversation("ungrouped-1");
+    seedPinned("pinned-1");
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+
+    const ungrouped = (await invoke({ groupId: "system:all" })) as ListResponse;
+    const pinned = (await invoke({ groupId: "system:pinned" })) as ListResponse;
+    const custom = (await invoke({ groupId: group.id })) as ListResponse;
+
+    expect(ungrouped.conversations.map((c) => c.title)).toEqual([
+      "ungrouped-1",
+    ]);
+    expect(pinned.conversations.map((c) => c.title)).toEqual(["pinned-1"]);
+    expect(custom.conversations.map((c) => c.title)).toEqual(["car-1"]);
+  });
+
+  test("system buckets other than Pinned sort by recency, not stale display order", async () => {
+    // `display_order` persists through moves, so honouring it for
+    // system:background would order that section differently depending on
+    // whether it was fetched by conversationType or by groupId.
+    const older = createConversation({
+      title: "older",
+      conversationType: "background",
+    });
+    const newer = createConversation({
+      title: "newer",
+      conversationType: "background",
+    });
+    rawRun(
+      "test:staleOrder",
+      "UPDATE conversations SET surfaced_at = ?, display_order = 0, last_message_at = 1000 WHERE id = ?",
+      Date.now(),
+      older.id,
+    );
+    rawRun(
+      "test:staleOrder",
+      "UPDATE conversations SET surfaced_at = ?, display_order = 99, last_message_at = 2000 WHERE id = ?",
+      Date.now(),
+      newer.id,
+    );
+
+    const result = (await invoke({ groupId: "system:all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "newer",
+      "older",
+    ]);
+  });
+
+  test("hasMore reflects the group's own total, not the whole table", async () => {
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+    seedInGroup("car-2", group.id);
+    for (let i = 0; i < 5; i++) {
+      createConversation(`ungrouped-${i}`);
+    }
+
+    const result = (await invoke({
+      groupId: group.id,
+      limit: "2",
+    })) as ListResponse;
+
+    expect(result.conversations).toHaveLength(2);
+    expect(result.hasMore).toBe(false);
+  });
+
+  test("omitting groupId is unchanged: every group is spanned and pinned still injects", async () => {
+    const group = createGroup("Car Chat");
+    seedInGroup("car-1", group.id);
+    createConversation("ungrouped-1");
+    seedPinned("pinned-1");
+
+    const result = (await invoke()) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "car-1",
+      "pinned-1",
+      "ungrouped-1",
+    ]);
+  });
+});
+
+describe("GET /v1/conversations/unread-count", () => {
+  const unreadCountHandler = findHandler(
+    CONVERSATION_LIST_ROUTES,
+    "getUnreadConversationCount",
+  );
+
+  function invokeUnreadCount(): { count: number } {
+    return unreadCountHandler({}) as { count: number };
+  }
+
+  function seedUnseen(conversationId: string): void {
+    projectAssistantMessage({
+      conversationId,
+      messageId: `msg-${conversationId}`,
+      messageAt: Date.now(),
+    });
+  }
+
+  function markSeen(conversationId: string): void {
+    recordConversationSeenSignal({
+      conversationId,
+      sourceChannel: "vellum",
+      signalType: "macos_conversation_opened",
+      confidence: "explicit",
+      source: "test",
+    });
+  }
+
+  beforeEach(() => {
+    getDb().delete(conversationAttentionEvents).run();
+    getDb().delete(conversationAssistantAttentionState).run();
+    clearConversations();
+  });
+
+  test("counts only foreground conversations with an unseen latest assistant message", () => {
+    const unseen = createConversation("unseen-1");
+    seedUnseen(unseen.id);
+
+    // A conversation with no attention projection reads as seen.
+    createConversation("no-attention-row");
+
+    const seen = createConversation("seen-1");
+    seedUnseen(seen.id);
+    markSeen(seen.id);
+
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
+  });
+
+  test("marking seen removes the conversation from the count", () => {
+    const conv = createConversation("unseen-then-seen");
+    seedUnseen(conv.id);
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
+
+    markSeen(conv.id);
+    expect(invokeUnreadCount()).toEqual({ count: 0 });
+  });
+
+  test("archived conversations are excluded", () => {
+    const conv = createConversation("unseen-archived");
+    seedUnseen(conv.id);
+    rawRun(
+      "test:archiveConversation",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      conv.id,
+    );
+
+    expect(invokeUnreadCount()).toEqual({ count: 0 });
+  });
+
+  test("background and scheduled conversations count only when surfaced", () => {
+    const bg = createConversation({
+      title: "bg-1",
+      conversationType: "background",
+    });
+    seedUnseen(bg.id);
+    const sched = createConversation({
+      title: "sched-1",
+      conversationType: "scheduled",
+    });
+    seedUnseen(sched.id);
+    expect(invokeUnreadCount()).toEqual({ count: 0 });
+
+    // Surfacing promotes a row into the foreground listing, so it counts.
+    rawRun(
+      "test:surfaceConversation",
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      bg.id,
+    );
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
+  });
+
+  /**
+   * The daemon half of the unread-count contract.
+   *
+   * The web client answers the same question in TypeScript
+   * (`contributesToUnreadCount` in
+   * `clients/web/src/utils/conversation-predicates.ts`), and its
+   * `conversation-predicates.test.ts` asserts this same matrix against the
+   * predicate. The two definitions are maintained separately, so this matrix
+   * is the tripwire: a rule changed on one side without the other shows up as
+   * one of these scenarios disagreeing across the two suites.
+   *
+   * Keep the scenario names identical on both sides.
+   */
+  describe("unread-count contract (daemon half)", () => {
+    const scenarios: Array<{
+      name: string;
+      counts: boolean;
+      seed: (groupId: string) => string;
+    }> = [
+      {
+        name: "unseen foreground row",
+        counts: true,
+        seed: () => createConversation("unseen-foreground").id,
+      },
+      {
+        name: "seen foreground row",
+        counts: false,
+        seed: () => {
+          const conv = createConversation("seen-foreground");
+          seedUnseen(conv.id);
+          markSeen(conv.id);
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen archived row",
+        counts: false,
+        seed: () => {
+          const conv = createConversation("unseen-archived");
+          rawRun(
+            "test:archiveConversation",
+            "UPDATE conversations SET archived_at = ? WHERE id = ?",
+            Date.now(),
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen background row, not surfaced",
+        counts: false,
+        seed: () =>
+          createConversation({
+            title: "unseen-background",
+            conversationType: "background",
+          }).id,
+      },
+      {
+        name: "unseen scheduled row, not surfaced",
+        counts: false,
+        seed: () =>
+          createConversation({
+            title: "unseen-scheduled",
+            conversationType: "scheduled",
+          }).id,
+      },
+      {
+        name: "unseen background row, surfaced",
+        counts: true,
+        seed: () => {
+          const conv = createConversation({
+            title: "unseen-background-surfaced",
+            conversationType: "background",
+          });
+          rawRun(
+            "test:surfaceConversation",
+            "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+            Date.now(),
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen background row filed in a custom group, not surfaced",
+        counts: false,
+        seed: (groupId) => {
+          const conv = createConversation({
+            title: "unseen-background-in-group",
+            conversationType: "background",
+          });
+          rawRun(
+            "test:fileIntoGroup",
+            "UPDATE conversations SET group_id = ? WHERE id = ?",
+            groupId,
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+      {
+        name: "unseen standard row filed in a custom group",
+        counts: true,
+        seed: (groupId) => {
+          const conv = createConversation("unseen-standard-in-group");
+          rawRun(
+            "test:fileIntoGroup",
+            "UPDATE conversations SET group_id = ? WHERE id = ?",
+            groupId,
+            conv.id,
+          );
+          return conv.id;
+        },
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      test(`${scenario.name} ${scenario.counts ? "counts" : "does not count"}`, () => {
+        const group = createGroup("unread-contract-group");
+        const conversationId = scenario.seed(group.id);
+        // The "seen" scenario seeds and clears its own attention row.
+        if (scenario.name !== "seen foreground row") {
+          seedUnseen(conversationId);
+        }
+
+        expect(invokeUnreadCount()).toEqual({
+          count: scenario.counts ? 1 : 0,
+        });
+      });
+    }
+
+    test("the matrix totals across every scenario at once", () => {
+      const group = createGroup("unread-contract-group");
+      for (const scenario of scenarios) {
+        const conversationId = scenario.seed(group.id);
+        if (scenario.name !== "seen foreground row") {
+          seedUnseen(conversationId);
+        }
+      }
+      const expected = scenarios.filter((s) => s.counts).length;
+
+      expect(invokeUnreadCount()).toEqual({ count: expected });
+    });
+  });
+
+  test("background rows filed in a custom group stay excluded until surfaced", () => {
+    // Custom-group rows are visible in the standard listing regardless of
+    // type, but a non-surfaced background row must not count as unread
+    // (the client's unread predicate excludes it).
+    const group = createGroup("unread-count-test-group");
+
+    const bgInGroup = createConversation({
+      title: "bg-in-group",
+      conversationType: "background",
+    });
+    seedUnseen(bgInGroup.id);
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      group.id,
+      bgInGroup.id,
+    );
+
+    const standardInGroup = createConversation("standard-in-group");
+    seedUnseen(standardInGroup.id);
+    rawRun(
+      "test:fileIntoGroup",
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      group.id,
+      standardInGroup.id,
+    );
+
+    expect(invokeUnreadCount()).toEqual({ count: 1 });
   });
 });

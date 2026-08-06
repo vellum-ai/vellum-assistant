@@ -922,7 +922,9 @@ export async function streamCommitImport(
     // Every declared manifest path must have been seen in the tar stream.
     const missing: string[] = [];
     for (const path of expected.keys()) {
-      if (!seen.has(path)) missing.push(path);
+      if (!seen.has(path)) {
+        missing.push(path);
+      }
     }
     if (missing.length > 0) {
       throw new StreamingValidationError(
@@ -1496,17 +1498,23 @@ async function mergeCredentialMetadataIntoTemp(
   try {
     liveJson = await readFile(liveMetadataPath, "utf-8");
   } catch (err) {
-    if (!isENOENT(err)) throw err;
+    if (!isENOENT(err)) {
+      throw err;
+    }
   }
 
   let tempJson: string | null = null;
   try {
     tempJson = await readFile(tempMetadataPath, "utf-8");
   } catch (err) {
-    if (!isENOENT(err)) throw err;
+    if (!isENOENT(err)) {
+      throw err;
+    }
   }
 
-  if (liveJson == null && tempJson == null) return;
+  if (liveJson == null && tempJson == null) {
+    return;
+  }
 
   if (tempJson != null) {
     const merged = mergeMetadataPreservingVellum(tempJson, liveJson);
@@ -1612,12 +1620,16 @@ async function planCarryOverPreservedPaths(
     try {
       liveStat = await stat(livePath);
     } catch (err) {
-      if (isENOENT(err)) continue;
+      if (isENOENT(err)) {
+        continue;
+      }
       throw err;
     }
 
     if (!liveStat.isDirectory()) {
-      if (existsSync(tempPath)) continue;
+      if (existsSync(tempPath)) {
+        continue;
+      }
       plan.push({ liveChild: livePath, tempChild: tempPath });
       continue;
     }
@@ -1641,7 +1653,9 @@ async function planMergeLiveIntoTempDir(
   try {
     entries = await readdir(liveDir, { withFileTypes: true });
   } catch (err) {
-    if (isENOENT(err)) return;
+    if (isENOENT(err)) {
+      return;
+    }
     throw err;
   }
 
@@ -1659,7 +1673,9 @@ async function planMergeLiveIntoTempDir(
       continue;
     }
 
-    if (existsInTemp) continue;
+    if (existsInTemp) {
+      continue;
+    }
 
     // SQLite auxiliary files (WAL / SHM / journal) are only valid as a
     // pair with the exact `.db` they were written by. If the bundle
@@ -2076,7 +2092,9 @@ async function copyTreeSkippingTransient(
       },
     });
   } catch (err) {
-    if (!isCpUnsupportedFileType(err)) throw err;
+    if (!isCpUnsupportedFileType(err)) {
+      throw err;
+    }
     // Fall back to a manual walk that skips anything that isn't a file,
     // dir, or symlink. `fs.cp` on Node can still occasionally surface
     // ERR_FS_CP_SOCKET despite the filter (races where the socket
@@ -2091,7 +2109,9 @@ async function copyTreeSkippingTransient(
 }
 
 function isCpUnsupportedFileType(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
+  if (!err || typeof err !== "object") {
+    return false;
+  }
   const code = (err as { code?: string }).code;
   return (
     code === "ERR_FS_CP_SOCKET" ||
@@ -2172,7 +2192,9 @@ async function restoreFromBackupDir(
   try {
     backupEntries = await readdir(backupDir);
   } catch (err) {
-    if (isENOENT(err)) return { ok: true, failedCount: 0 };
+    if (isENOENT(err)) {
+      return { ok: true, failedCount: 0 };
+    }
     log.error(
       { err, backupDir },
       "Failed to read backup dir during restore; skipping backup restoration",
@@ -2194,7 +2216,9 @@ async function restoreFromBackupDir(
     // wholesale `rm(dst) + rename(src)` — that would destroy the carried
     // content that recovery has already put back. Merge instead.
     const hasProtectedDescendant = carriedLivePaths.some((carriedAbs) => {
-      if (carriedAbs === dstAbs) return false;
+      if (carriedAbs === dstAbs) {
+        return false;
+      }
       return carriedAbs.startsWith(dstAbs + sep);
     });
 
@@ -2267,7 +2291,9 @@ async function mergeBackupIntoLive(
   try {
     children = await readdir(src);
   } catch (err) {
-    if (isENOENT(err)) return;
+    if (isENOENT(err)) {
+      return;
+    }
     throw err;
   }
 
@@ -2281,7 +2307,9 @@ async function mergeBackupIntoLive(
       await stat(childDst);
       dstExists = true;
     } catch (err) {
-      if (!isENOENT(err)) throw err;
+      if (!isENOENT(err)) {
+        throw err;
+      }
     }
 
     if (!dstExists) {
@@ -2342,7 +2370,9 @@ function resolveInsideTempWorkspace(
   tempWorkspaceDir: string,
 ): string | null {
   const resolved = pathResolver.resolve(archivePath);
-  if (!resolved) return null;
+  if (!resolved) {
+    return null;
+  }
   return rebaseOntoTempWorkspace(resolved, realWorkspaceDir, tempWorkspaceDir);
 }
 
@@ -2357,9 +2387,13 @@ function rebaseOntoTempWorkspace(
 ): string | null {
   const resolved = resolve(diskPath);
   const root = resolve(realWorkspaceDir);
-  if (resolved === root) return resolve(tempWorkspaceDir);
+  if (resolved === root) {
+    return resolve(tempWorkspaceDir);
+  }
   const prefix = root + sep;
-  if (!resolved.startsWith(prefix)) return null;
+  if (!resolved.startsWith(prefix)) {
+    return null;
+  }
   return resolve(tempWorkspaceDir, resolved.slice(prefix.length));
 }
 
@@ -2607,7 +2641,9 @@ async function safelyDeleteMarker(markerPath: string): Promise<void> {
   try {
     await unlink(markerPath);
   } catch (err) {
-    if (isENOENT(err)) return;
+    if (isENOENT(err)) {
+      return;
+    }
     log.warn({ err, markerPath }, "Failed to delete import-recovery marker");
   }
 }
@@ -2651,7 +2687,9 @@ export async function recoverInterruptedImport(
   try {
     raw = await readFile(markerPath, "utf8");
   } catch (err) {
-    if (isENOENT(err)) return { ok: true, failedCount: 0 };
+    if (isENOENT(err)) {
+      return { ok: true, failedCount: 0 };
+    }
     log.warn({ err, markerPath }, "Unable to read import-recovery marker");
     return { ok: true, failedCount: 0 };
   }

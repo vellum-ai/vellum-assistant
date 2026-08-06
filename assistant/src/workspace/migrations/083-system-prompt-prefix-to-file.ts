@@ -61,7 +61,9 @@ export const systemPromptPrefixToFileMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let raw: string;
     try {
@@ -143,7 +145,9 @@ export const systemPromptPrefixToFileMigration: WorkspaceMigration = {
     const configPath = join(workspaceDir, "config.json");
     const prefixFile = join(workspaceDir, "prompts", "system", "00-prefix.md");
 
-    if (!existsSync(configPath) || !existsSync(prefixFile)) return;
+    if (!existsSync(configPath) || !existsSync(prefixFile)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
@@ -152,8 +156,9 @@ export const systemPromptPrefixToFileMigration: WorkspaceMigration = {
         parsed === null ||
         typeof parsed !== "object" ||
         Array.isArray(parsed)
-      )
+      ) {
         return;
+      }
       config = parsed as Record<string, unknown>;
     } catch {
       return;

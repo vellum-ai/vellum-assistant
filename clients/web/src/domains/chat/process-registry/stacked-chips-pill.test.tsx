@@ -154,7 +154,9 @@ describe("StackedChipsPill — interaction & aria", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: /active things/i }).getAttribute("aria-expanded"),
+      screen
+        .getByRole("button", { name: /active things/i })
+        .getAttribute("aria-expanded"),
     ).toBe("true");
   });
 });

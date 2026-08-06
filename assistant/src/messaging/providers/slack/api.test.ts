@@ -1,9 +1,31 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
 const BOT_TOKEN = "xoxb-test";
+const USER_TOKEN = "xoxp-test";
 
+/** Set false to simulate an install whose Slack setup stored no user token. */
+let userTokenStored = true;
+
+function secureKeyFor(account: string): string | undefined {
+  if (account.endsWith("/user_token")) {
+    return userTokenStored ? USER_TOKEN : undefined;
+  }
+  return BOT_TOKEN;
+}
+
+// `api.ts` resolves identity through `resolveSlackAuth`, whose import graph
+// (oauth/manual-token-connection.ts and siblings) reads several secure-keys
+// exports beyond the two this test overrides. Spread the real module so the
+// mock keeps every export those imports expect; the key accessors are the
+// only behavior under the test's control.
+const realSecureKeys = await import("../../../security/secure-keys.js");
 mock.module("../../../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => BOT_TOKEN,
+  ...realSecureKeys,
+  getSecureKeyAsync: async (account: string) => secureKeyFor(account),
+  getSecureKeyResultAsync: async (account: string) => ({
+    value: secureKeyFor(account),
+    unreachable: false,
+  }),
 }));
 
 const { appendSlackStream, getSlackConversationInfo, startSlackStream } =
@@ -51,6 +73,68 @@ describe("getSlackConversationInfo", () => {
     expect(capturedInit?.headers).toEqual({
       Authorization: `Bearer ${BOT_TOKEN}`,
     });
+  });
+
+  test("retries as the user when the bot cannot see the channel", async () => {
+    userTokenStored = true;
+    const authHeaders: string[] = [];
+    globalThis.fetch = mock(async (_input, init) => {
+      const auth = (init?.headers as Record<string, string>).Authorization;
+      authHeaders.push(auth);
+      if (auth === `Bearer ${BOT_TOKEN}`) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "channel_not_found" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ ok: true, channel: { id: "C9", name: "private" } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const info = await getSlackConversationInfo("C9");
+
+    expect(info).toEqual({ id: "C9", name: "private" });
+    expect(authHeaders).toEqual([
+      `Bearer ${BOT_TOKEN}`,
+      `Bearer ${USER_TOKEN}`,
+    ]);
+  });
+
+  test("does not retry as the user for non-visibility errors", async () => {
+    userTokenStored = true;
+    let calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ ok: false, error: "invalid_auth" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(getSlackConversationInfo("C9")).rejects.toThrow(
+      "Slack API error: invalid_auth",
+    );
+    expect(calls).toBe(1);
+  });
+
+  test("does not retry when no distinct user token is stored", async () => {
+    userTokenStored = false;
+    let calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ ok: false, error: "channel_not_found" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(getSlackConversationInfo("C9")).rejects.toThrow(
+      "Slack API error: channel_not_found",
+    );
+    expect(calls).toBe(1);
+    userTokenStored = true;
   });
 });
 

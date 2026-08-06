@@ -32,7 +32,7 @@ const recallCalls: Array<{
 }> = [];
 let recallContent = "agentic recall answer";
 
-mock.module("./jobs/embed-pkb-file.js", () => ({
+mock.module("./v1/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueueCalls.push(input);
     if (enqueueShouldThrow) {

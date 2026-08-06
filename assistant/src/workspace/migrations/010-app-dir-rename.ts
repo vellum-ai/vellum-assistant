@@ -48,7 +48,9 @@ function slugify(name: string): string {
 
 function generateUniqueDirName(name: string, usedNames: Set<string>): string {
   const base = slugify(name);
-  if (!usedNames.has(base)) return base;
+  if (!usedNames.has(base)) {
+    return base;
+  }
   let counter = 2;
   while (usedNames.has(`${base}-${counter}`)) {
     counter++;
@@ -78,13 +80,17 @@ export const appDirRenameMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const appsDir = join(workspaceDir, "data", "apps");
-    if (!existsSync(appsDir)) return;
+    if (!existsSync(appsDir)) {
+      return;
+    }
 
     const jsonFiles = readdirSync(appsDir)
       .filter((f) => f.endsWith(".json"))
       .sort();
 
-    if (jsonFiles.length === 0) return;
+    if (jsonFiles.length === 0) {
+      return;
+    }
 
     for (const jsonFile of jsonFiles) {
       const jsonPath = join(appsDir, jsonFile);
@@ -156,14 +162,18 @@ export const appDirRenameMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const appsDir = join(workspaceDir, "data", "apps");
-    if (!existsSync(appsDir)) return;
+    if (!existsSync(appsDir)) {
+      return;
+    }
 
     // Read all JSON files (sorted for deterministic ordering)
     const jsonFiles = readdirSync(appsDir)
       .filter((f) => f.endsWith(".json"))
       .sort();
 
-    if (jsonFiles.length === 0) return;
+    if (jsonFiles.length === 0) {
+      return;
+    }
 
     const usedNames = new Set<string>();
 
@@ -189,7 +199,9 @@ export const appDirRenameMigration: WorkspaceMigration = {
 
       const appId = parsed.id;
       const appName = parsed.name ?? "untitled";
-      if (!appId) continue;
+      if (!appId) {
+        continue;
+      }
 
       // Check if already migrated: has dirName AND filesystem matches
       if (parsed.dirName && isValidDirName(parsed.dirName)) {
@@ -213,7 +225,9 @@ export const appDirRenameMigration: WorkspaceMigration = {
 
       // No dirName yet -- generate one
       const dirName = generateUniqueDirName(appName, usedNames);
-      if (!isValidDirName(dirName)) continue; // safety check
+      if (!isValidDirName(dirName)) {
+        continue;
+      } // safety check
       usedNames.add(dirName);
       renameAppFiles(appsDir, jsonFile, appId, dirName, parsed, raw);
     }

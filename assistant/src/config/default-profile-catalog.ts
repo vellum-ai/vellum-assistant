@@ -1,5 +1,8 @@
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
-import { isModelInCatalog } from "../providers/model-catalog.js";
+import {
+  catalogMaxOutputTokens,
+  isModelInCatalog,
+} from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
@@ -8,33 +11,35 @@ import {
   DEFAULT_PROFILE_PROVIDERS,
   type DefaultProfileKey,
   type DefaultProfileProvider,
+  isDefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  DEFAULT_PROVIDER_CHOICES,
   type DefaultProviderConfig,
   type ProfileEntry,
 } from "./schemas/llm.js";
 
 /**
  * Code-defined catalog of the default inference profiles (`balanced`,
- * `quality-optimized`, `cost-optimized`, plus the flag-gated `os-beta`).
+ * `quality-optimized`, `cost-optimized`, `latency-optimized`, plus the
+ * flag-gated `os-beta`).
  *
  * The catalog is the single source of truth for default profile CONTENT,
  * structured as an intent × provider matrix: each default profile is an
  * intent, and each provider that can serve default profiles has a concrete
  * implementation of that intent (model, token budget, effort, thinking).
  * The `vellum` column is the platform-managed implementation; the other
- * columns are the BYOK implementations used to materialize the personal
- * `custom-*` profiles at hatch time.
+ * columns are the BYOK implementations resolved through `llm.defaultProvider`
+ * on off-platform installs.
  *
- * `seedInferenceProfiles` still materializes the `vellum` column into
- * workspace config on every boot, but runtime readers resolve profiles
- * through `getEffectiveProfiles`/`getEffectiveProfile` below, which serve
- * default bodies from this module and overlay only the workspace-owned
- * `label`/`status`/`topP` state. This keeps default profile content
- * updatable by shipping a release — no workspace migration.
+ * Nothing materializes default bodies into workspace config: runtime readers
+ * resolve profiles through `getEffectiveProfiles`/`getEffectiveProfile`
+ * below, which serve default bodies from this module and overlay only the
+ * workspace-owned `label`/`status`/`topP` state. This keeps default profile
+ * content updatable by shipping a release, with no workspace migration.
  */
 
 /**
@@ -52,6 +57,9 @@ export type DefaultProfileTemplate = Omit<
   provider: NonNullable<ProfileEntry["provider"]>;
 };
 
+/** One implementation of every default profile, keyed by profile key. */
+type ProfileImpls = Record<DefaultProfileKey, DefaultProfileTemplate>;
+
 /**
  * The `vellum` column: platform-managed implementations, stamped
  * `provider: "vellum"` — dispatch derives the upstream from the model.
@@ -60,59 +68,92 @@ export type DefaultProfileTemplate = Omit<
  * Overwritten in workspace config on every daemon boot so Vellum can push
  * model/config updates to customers in new releases.
  */
-const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
-  {
-    balanced: {
-      model: "accounts/fireworks/models/glm-5p2",
-      provider: "vellum",
-      source: "managed",
-      label: "Balanced",
-      description: "Good balance of quality, cost, and speed",
-      maxTokens: 32000,
-      effort: "high",
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+const VELLUM_PROFILE_IMPLS: ProfileImpls = {
+  balanced: {
+    model: "gpt-5.6-luna",
+    provider: "vellum",
+    source: "managed",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-    "quality-optimized": {
-      model: "claude-fable-5",
-      provider: "vellum",
-      source: "managed",
-      label: "Quality",
-      description: "High-quality results with the most capable model",
-      maxTokens: 32000,
-      effort: "high",
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+  },
+  "quality-optimized": {
+    model: "gpt-5.6-sol",
+    provider: "vellum",
+    source: "managed",
+    label: "Quality",
+    description: "High-quality results with the most capable model",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-    "cost-optimized": {
-      model: "accounts/fireworks/models/deepseek-v4-flash",
-      provider: "vellum",
-      source: "managed",
-      label: "Speed",
-      description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
-      maxTokens: 8192,
-      // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
-      // "medium" when the field is omitted, and effort-driven providers encode
-      // disabled thinking through this same knob (see
-      // DISABLED_THINKING_USES_EFFORT_PROVIDERS in providers/retry.ts).
-      effort: "none",
-      thinking: { enabled: false, streamThinking: false },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+  },
+  "cost-optimized": {
+    model: "accounts/fireworks/models/deepseek-v4-flash",
+    provider: "vellum",
+    source: "managed",
+    label: "Cost",
+    // Tier intent only - never name the concrete model here. Clients
+    // surface the live model beside the description, so a model name in
+    // this copy would go stale the moment the pin moves.
+    description: "Cheapest responses, for high-volume work",
+    maxTokens: 8192,
+    // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
+    // "medium" when the field is omitted, and effort-driven providers encode
+    // disabled thinking through this same knob (see
+    // DISABLED_THINKING_USES_EFFORT_PROVIDERS in providers/retry.ts).
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-  };
+  },
+  "latency-optimized": {
+    // The managed latency class, also what the live-voice front model runs on.
+    // Its leading tokens are the turn-taking verdict, so what this profile
+    // optimizes is the tail of time-to-first-token rather than the median: a
+    // verdict slower than `liveVoice.frontModel.endpointDecisionTimeoutMs`
+    // trips the speculative fail-open commit in live-voice-session.ts, which
+    // is audible dead air.
+    //
+    // Two constraints bind the model id. Its managed credentials must be
+    // provisioned in every environment, and it alone selects the upstream:
+    // `provider` below is the provider-agnostic managed sentinel, so
+    // `getManagedUpstream` resolves the real upstream from the model's catalog
+    // owner. Sharing `balanced`'s model is deliberate: the split is effort
+    // and thinking, and this model is the one live-voice TTFT drives validated.
+    model: "gpt-5.6-luna",
+    provider: "vellum",
+    source: "managed",
+    label: "Speed",
+    description: "Fastest responses, with reasoning turned off",
+    maxTokens: 8192,
+    // Explicit reasoning opt-out, matching `cost-optimized` above: this
+    // profile advertises reasoning as off, and OpenAI-compat APIs default
+    // reasoning to "medium" when the field is omitted, so the opt-out has to
+    // be stated rather than implied.
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    },
+  },
+};
 
 /**
  * The BYOK implementation of each default profile intent, shared by every
- * non-vellum provider column. The concrete model resolves per provider from
- * the `intent` via `resolveModelIntent` at materialization time. `provider`
- * is stamped per column (and overridden at hatch time with the user's
- * chosen provider).
+ * non-vellum provider. The concrete model resolves per provider from the
+ * `intent` via `resolveModelIntent` at materialization time (falling back to
+ * the provider's catalog `defaultModel` when it has no intent table).
+ * `provider` is stamped per column for the named matrix columns, and
+ * per-request for any other default-capable provider.
  */
 const BYOK_PROFILE_IMPLS: Record<
   DefaultProfileKey,
@@ -138,13 +179,26 @@ const BYOK_PROFILE_IMPLS: Record<
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
+  // On providers whose cheapest model is also their fastest (anthropic,
+  // ollama, fireworks) these two intents resolve the same model and the split
+  // is effort alone (see PROVIDER_MODEL_INTENTS).
   "cost-optimized": {
+    intent: "cost-optimized",
+    source: "user",
+    label: "Cost",
+    description: "Cheapest responses, for high-volume work",
+    maxTokens: 8192,
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
+  "latency-optimized": {
     intent: "latency-optimized",
     source: "user",
     label: "Speed",
-    description: "Fastest responses at lower cost",
+    description: "Fastest responses, with reasoning turned off",
     maxTokens: 8192,
-    effort: "low",
+    effort: "none",
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
@@ -175,9 +229,9 @@ export const PROFILE_IMPLS: Record<
 >;
 
 /**
- * Managed profiles, i.e. the `vellum` column keyed by profile name. Seeded
- * into workspace config on every daemon boot; platform overlays
- * (`preserveProfileNames`) take precedence when present.
+ * Managed profiles, i.e. the `vellum` column keyed by profile name. Keyed by
+ * the user-facing defaults only: an internal profile is code-resolved and
+ * never listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
@@ -185,16 +239,44 @@ export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   );
 
 /**
- * User profile templates, materialized as `custom-*` at hatch time for
- * off-platform installations. The `provider` field is a placeholder — it is
- * overridden at hatch time with the user's chosen provider and personal
- * connection name.
+ * The values BYOK hatch seeding wrote onto each `custom-*` copy, for the keys
+ * whose live template carries something else. The conversion pass recognizes
+ * an unedited copy by comparing it field-by-field against the frozen body, so
+ * every field here must describe what sits on disk, not what the profile
+ * resolves to today. A field the live template alone supplies makes every
+ * unedited copy read as user-edited and stop converting.
+ *
+ * `intent` selects the copy's model through `materializeProfile`, so it is the
+ * load-bearing pin. `label` is compared nowhere in the body, but
+ * `userOverlayState` reads it to tell a user rename from the hatch's own
+ * label, and a mismatch there carries a phantom rename onto the bare key.
+ */
+const HATCH_ERA_TEMPLATE_FIELDS: Partial<
+  Record<DefaultProfileKey, Partial<DefaultProfileTemplate>>
+> = {
+  "cost-optimized": {
+    intent: "latency-optimized",
+    label: "Speed",
+    description: "Fastest responses at lower cost",
+    effort: "low",
+  },
+};
+
+/**
+ * Frozen record of the `custom-*` profile bodies that pre-conversion BYOK
+ * hatches wrote to workspace config (the anthropic column; provider and
+ * connection were overridden per hatch). Consumed by the existing-install
+ * conversion pass as the reference for recognizing unedited copies, which
+ * are safe to remove in favor of the code-resolved defaults.
+ *
+ * The `latency-optimized` entry exists for shape only: hatch seeding writes no
+ * `custom-latency-optimized`, so no install holds one to recognize.
  */
 export const USER_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
     DEFAULT_PROFILE_KEYS.map((key) => [
       `custom-${key}`,
-      PROFILE_IMPLS[key].anthropic,
+      { ...PROFILE_IMPLS[key].anthropic, ...HATCH_ERA_TEMPLATE_FIELDS[key] },
     ]),
   );
 
@@ -216,6 +298,17 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
   contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   topP: 0.95,
 };
+
+/**
+ * Profiles whose body is code-owned outright: no workspace overlay, and no
+ * user-owned shadow. The shadow rule below lets a user replace a default they
+ * can select, but `latency-optimized` fronts every live-voice turn through
+ * `voiceFrontDecision`/`voiceFrontDoor`, where a model outside the latency
+ * envelope is audible dead air rather than a slow reply. A same-named
+ * workspace entry stays on disk and stays listed; it just never governs what
+ * this name resolves to.
+ */
+export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
 
 // All managed profiles, including the flag-gated os-beta, are invariant:
 // their MANAGED-SOURCE entries are read-only to user-facing writes except
@@ -301,6 +394,27 @@ for (const key of DEFAULT_PROFILE_KEYS) {
   }
 }
 
+// Provider choices without a named column materialize from the shared BYOK
+// templates; verify each one's resolved model lands in the catalog.
+for (const provider of DEFAULT_PROVIDER_CHOICES) {
+  if (isDefaultProfileProvider(provider)) {
+    continue;
+  }
+  for (const key of DEFAULT_PROFILE_KEYS) {
+    const { model } = materializeProfile(
+      { ...BYOK_PROFILE_IMPLS[key], provider },
+      provider,
+    );
+    if (model == null || !isModelInCatalog(provider, model)) {
+      throw new Error(
+        `Default provider choice "${provider}" cannot materialize "${key}": ` +
+          `resolved model "${model ?? ""}" is not in PROVIDER_CATALOG. ` +
+          `Update model-catalog.ts or model-intents.ts.`,
+      );
+    }
+  }
+}
+
 function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   const entries: Record<string, ProfileEntry> = {};
   for (const key of DEFAULT_PROFILE_KEYS) {
@@ -325,10 +439,9 @@ export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
 
 /**
  * The per-default-profile fields that remain workspace-owned state: the
- * exact whitelist `seedInferenceProfiles` preserves across reseeds (BYOK
- * label suffix, hatch-time/user disable, pre-existing topP overrides).
- * Carried by key-presence rather than truthiness so an explicit `null`
- * (cleared field) survives too.
+ * exact whitelist `seedInferenceProfiles` preserves across reseeds (user
+ * renames, user disables, topP overrides). Carried by key-presence rather
+ * than truthiness so an explicit `null` (cleared field) survives too.
  */
 const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
 
@@ -377,6 +490,9 @@ function resolveAgainstBody(
   if (body == null) {
     return workspace;
   }
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    return { ...body };
+  }
   if (workspace == null) {
     return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };
   }
@@ -394,18 +510,22 @@ function resolveAgainstBody(
 
 /**
  * Like `getEffectiveProfile`, but a default profile key's code-owned body
- * comes from the default provider's column of the intent × provider matrix
- * instead of always the `vellum` column. A `null` defaultProvider and every
- * non-matrix name fall back to `getEffectiveProfile`'s behavior.
+ * comes from the default provider's implementation of the intent × provider
+ * matrix instead of always the `vellum` column. A `null` defaultProvider and
+ * every non-matrix name fall back to `getEffectiveProfile`'s behavior.
  *
  * Non-obvious rules:
  *
  * - The `vellum` column stamps `provider: "vellum"` with no connection —
  *   dispatch derives the upstream from the model per-request.
- * - The resolved body carries `source: "managed"` regardless of column:
+ * - A default provider without a named matrix column materializes from the
+ *   shared `BYOK_PROFILE_IMPLS` templates, with `resolveModelIntent`
+ *   falling back to the provider's catalog `defaultModel`.
+ * - The resolved body carries `source: "managed"` regardless of provider:
  *   default profile content is code-owned whichever provider implements it.
- *   The BYOK templates' `source: "user"` is hatch-time state for
- *   materialized `custom-*` copies, not an ownership claim on the body.
+ *   The BYOK templates' `source: "user"` exists for the conversion pass's
+ *   frozen `custom-*` reference bodies (`USER_PROFILE_TEMPLATES`), not as
+ *   an ownership claim on the body.
  */
 export function resolveDefaultProfileForProvider(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -430,15 +550,39 @@ function defaultProfileBodyForProvider(
   if (defaultProvider == null || !isDefaultProfileKey(name)) {
     return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
-  const impl = PROFILE_IMPLS[name][defaultProvider.provider];
-  return {
+  const { provider } = defaultProvider;
+  const impl = isDefaultProfileProvider(provider)
+    ? PROFILE_IMPLS[name][provider]
+    : { ...BYOK_PROFILE_IMPLS[name], provider };
+  return clampMaxTokensToModelCap({
     ...materializeProfile(
       impl,
       impl.provider,
       resolveDefaultConnectionName(defaultProvider),
     ),
     source: "managed",
-  };
+  });
+}
+
+/**
+ * Clamp a code-owned default body's `maxTokens` to the resolved model's
+ * catalog `maxOutputTokens`. The shared BYOK templates request one token
+ * budget per intent, but the model a provider resolves can allow less
+ * (e.g. atlascloud caps output at 8192 while the balanced template asks for
+ * 16000), and an over-cap request is rejected upstream. The `vellum` column
+ * is exempt by construction: "vellum" is not a catalog provider, so the
+ * lookup misses and the hand-validated managed pins pass through untouched.
+ * User-authored profiles never reach this path.
+ */
+function clampMaxTokensToModelCap(body: ProfileEntry): ProfileEntry {
+  if (body.provider == null || body.model == null || body.maxTokens == null) {
+    return body;
+  }
+  const cap = catalogMaxOutputTokens(body.provider, body.model);
+  if (cap == null || body.maxTokens <= cap) {
+    return body;
+  }
+  return { ...body, maxTokens: cap };
 }
 
 /**

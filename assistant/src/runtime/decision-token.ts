@@ -91,7 +91,9 @@ export function decodeDecisionToken(
   token: string,
 ): DecisionTokenPayload | null {
   const dotIdx = token.indexOf(".");
-  if (dotIdx < 0) return null;
+  if (dotIdx < 0) {
+    return null;
+  }
 
   const encodedPayload = token.slice(0, dotIdx);
   try {

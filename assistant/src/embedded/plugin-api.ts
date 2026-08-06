@@ -12,7 +12,9 @@
  * symbol. The boot-time shim writer (`ensurePluginApiShim`) enumerates
  * {@link PLUGIN_API_EXPORTS} and generates a tiny ESM module at
  * `<workspaceDir>/node_modules/@vellumai/plugin-api/index.js` that
- * re-binds each runtime export from `globalThis`. User plugins that
+ * re-binds each runtime export from `globalThis` (falling back to a
+ * direct import of the plugin-api source in processes where no host
+ * installed the namespace). User plugins that
  * `import { ... } from "@vellumai/plugin-api"` walk up to that shim and
  * pick up the bindings.
  *

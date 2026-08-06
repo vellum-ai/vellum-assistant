@@ -25,11 +25,15 @@ interface SplitLeaf {
  * can skip files that are not well-formed leaves (we never rewrite those).
  */
 function splitFrontmatter(content: string): SplitLeaf | null {
-  if (!content.startsWith(FRONTMATTER_DELIMITER)) return null;
+  if (!content.startsWith(FRONTMATTER_DELIMITER)) {
+    return null;
+  }
   // Skip the opening fence and find the closing one at the start of a line.
   const afterOpen = content.slice(FRONTMATTER_DELIMITER.length);
   const closeMatch = afterOpen.match(/\r?\n---[ \t]*(?:\r?\n|$)/);
-  if (!closeMatch || closeMatch.index === undefined) return null;
+  if (!closeMatch || closeMatch.index === undefined) {
+    return null;
+  }
   const frontmatter = afterOpen.slice(0, closeMatch.index);
   const body = afterOpen.slice(closeMatch.index + closeMatch[0].length);
   return { frontmatter, body };
@@ -68,7 +72,9 @@ function collectLeafFiles(dir: string): string[] {
 function hasStableId(frontmatter: string): boolean {
   for (const line of frontmatter.split(/\r?\n/)) {
     const m = /^id:[ \t]*(.*)$/.exec(line);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     return m[1].trim().replace(/^["']|["']$/g, "").length > 0;
   }
   return false;
@@ -124,11 +130,15 @@ export const backfillLeafIdsMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const leavesDir = join(workspaceDir, LEAVES_REL);
-    if (!fs.existsSync(leavesDir)) return; // No v3 leaves yet — no-op.
+    if (!fs.existsSync(leavesDir)) {
+      return;
+    } // No v3 leaves yet — no-op.
 
     let rewritten = 0;
     for (const file of collectLeafFiles(leavesDir)) {
-      if (backfillLeaf(leavesDir, file)) rewritten += 1;
+      if (backfillLeaf(leavesDir, file)) {
+        rewritten += 1;
+      }
     }
     if (rewritten > 0) {
       log.info(

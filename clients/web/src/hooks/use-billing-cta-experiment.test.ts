@@ -18,7 +18,7 @@ beforeEach(() => {
   // an earlier test can't leak in.
   useClientFeatureFlagStore
     .getState()
-    .setStringFlags({ experimentBillingCta20260723: "control" });
+    .setStringFlags({ experimentBillingCta20260723: "control" }, null);
 });
 
 afterEach(() => {
@@ -46,7 +46,7 @@ describe("useBillingCtaExperimentArm", () => {
   test("reflects the arm set on the store", () => {
     useClientFeatureFlagStore
       .getState()
-      .setStringFlags({ experimentBillingCta20260723: "upgrade-cta" });
+      .setStringFlags({ experimentBillingCta20260723: "upgrade-cta" }, null);
     const { result } = renderHook(() => useBillingCtaExperimentArm());
     expect(result.current).toBe("upgrade-cta");
   });

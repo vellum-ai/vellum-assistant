@@ -76,6 +76,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   atlascloud: "Atlas Cloud",
   together: "Together AI",
   baseten: "Baseten",
+  poolside: "Poolside",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {
@@ -193,6 +194,9 @@ export function inferProviderFromModel(model: string): string | undefined {
   }
   if (model.startsWith("thinkingmachines/")) {
     return "baseten";
+  }
+  if (model.startsWith("poolside/")) {
+    return "poolside";
   }
   if (model.includes("/")) {
     return "openrouter";

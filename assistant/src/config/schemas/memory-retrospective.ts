@@ -2,6 +2,28 @@ import { z } from "zod";
 
 export const MemoryRetrospectiveConfigSchema = z
   .object({
+    // This kill switch exists only because conversation forking is expensive:
+    // a fork full-copies the source conversation (messages + attachments), so
+    // on a large conversation the retrospective's write burst can lock the
+    // SQLite table against other writers. Until forking is referential, an
+    // operator needs a way to stop retrospectives without turning off memory.
+    enabled: z
+      .boolean({ error: "memory.retrospective.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the memory-retrospective background pass runs. When false, no retrospective is enqueued by any trigger (interval, message count, pre-compaction, scheduled sweep), the scheduled sweep job stops being queued, and any row already queued completes as a no-op. The rest of the memory system (extraction, retrieval, embeddings, `<memory>` injection) is unaffected. Use `memory.enabled` to disable memory as a whole.",
+      ),
+
+    forkStrategy: z
+      .enum(["cloning", "reference"], {
+        error:
+          "memory.retrospective.forkStrategy must be 'cloning' or 'reference'",
+      })
+      .default("cloning")
+      .describe(
+        "How a retrospective's fork of the source conversation is materialized. `cloning` (default) full-copies the source conversation's messages and attachments into the fork. `reference` makes the fork referential: it holds only its own messages and reads the source's through `fork_parent_message_id`, so a fork costs a single row instead of a full copy of the conversation.",
+      ),
+
     timeThresholdMs: z
       .number({
         error: "memory.retrospective.timeThresholdMs must be a number",
@@ -39,6 +61,41 @@ export const MemoryRetrospectiveConfigSchema = z
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
       ),
 
+    requireUserActivity: z
+      .boolean({
+        error: "memory.retrospective.requireUserActivity must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "When true (default), a retrospective fires only when the unprocessed tail contains at least one user message carrying non-tool_result content. Tool results ride on user-role rows, so bare tool-result carriers do not count as user activity. Assistant-only stretches (proactive sends, broadcast recaps) are skipped with the cursor left in place, so the first retrospective after real user activity reviews the whole deferred stretch. Set false to run retrospectives over assistant-only activity as well.",
+      ),
+
+    sweepIntervalMs: z
+      .number({
+        error: "memory.retrospective.sweepIntervalMs must be a number",
+      })
+      .int("memory.retrospective.sweepIntervalMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepIntervalMs must be a positive integer",
+      )
+      .default(8 * 60 * 60 * 1000)
+      .describe(
+        "Cadence of the scheduled retrospective sweep, the timer-driven backstop that re-scans conversations for unprocessed messages the event-driven triggers missed (e.g. a turn that ended in a crash or IPC drop before the post-turn hooks ran). A conversation is only swept when its last retrospective attempt is at least this old, so the sweep never competes with the responsive interval/message_count triggers on active conversations.",
+      ),
+
+    sweepLookbackMs: z
+      .number({
+        error: "memory.retrospective.sweepLookbackMs must be a number",
+      })
+      .int("memory.retrospective.sweepLookbackMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepLookbackMs must be a positive integer",
+      )
+      .default(7 * 24 * 60 * 60 * 1000)
+      .describe(
+        "How far back the scheduled retrospective sweep looks for stalled work. The sweep backstops turns that ended abnormally (crash / IPC drop), and such turns are by definition recent — so only conversations whose last message falls inside this window are scanned, and the retrospective job re-applies the same window at execution time so a stale queued backlog is skipped instead of run. Conversations dormant beyond the window are outside the sweep's scope entirely: their unprocessed tails are ordinary end-of-conversation remainders, not stalled work. Values below twice memory.retrospective.sweepIntervalMs are clamped up to that floor — scheduler and queue delay stretch the gap between consecutive scans past the nominal cadence, so a window at or under one interval would leave a permanent blind span between passes.",
+      ),
+
     keepSupersededRuns: z
       .boolean({
         error: "memory.retrospective.keepSupersededRuns must be a boolean",
@@ -73,3 +130,6 @@ export const MemoryRetrospectiveConfigSchema = z
 export type MemoryRetrospectiveConfig = z.infer<
   typeof MemoryRetrospectiveConfigSchema
 >;
+
+/** How a retrospective materializes its fork of the source conversation. */
+export type MemoryForkStrategy = MemoryRetrospectiveConfig["forkStrategy"];

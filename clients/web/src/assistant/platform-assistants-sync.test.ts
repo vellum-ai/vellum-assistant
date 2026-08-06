@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { PlatformSessionStatus } from "@/stores/session-status";
 
 // Mode predicates that select whether the load runs.
-let mockIsLocalMode = false;
+let mockIsLocalClient = false;
 let mockIsRemoteGatewayMode = false;
 let mockIsGatewayAuthEnabled = false;
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => mockIsLocalMode,
+  isLocalClient: () => mockIsLocalClient,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
 }));
 
@@ -85,9 +85,8 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { reloadPlatformAssistants, setupPlatformAssistantsSync } = await import(
-  "@/assistant/platform-assistants-sync"
-);
+const { reloadPlatformAssistants, setupPlatformAssistantsSync } =
+  await import("@/assistant/platform-assistants-sync");
 
 /** Move the mocked auth store to `next` (keeping the user) and notify. */
 function transition(next: PlatformSessionStatus): void {
@@ -100,7 +99,7 @@ const tick = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
-  mockIsLocalMode = false;
+  mockIsLocalClient = false;
   mockIsRemoteGatewayMode = false;
   mockIsGatewayAuthEnabled = false;
   mockListAssistantsResult = { ok: true, status: 200, data: [] };
@@ -174,7 +173,7 @@ describe("setupPlatformAssistantsSync", () => {
 
 describe("reloadPlatformAssistants", () => {
   test("early-returns in local mode without touching the resolved store", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
 
     await reloadPlatformAssistants();
 
@@ -206,7 +205,12 @@ describe("reloadPlatformAssistants", () => {
 
   test("populates the resolved store from a successful listAssistants", async () => {
     const data = [
-      { id: "a1", name: "One", is_local: false, created: "2026-01-01T00:00:00Z" },
+      {
+        id: "a1",
+        name: "One",
+        is_local: false,
+        created: "2026-01-01T00:00:00Z",
+      },
     ];
     mockListAssistantsResult = { ok: true, status: 200, data };
     authState = { platformSession: "present", user: { id: "u1" } };

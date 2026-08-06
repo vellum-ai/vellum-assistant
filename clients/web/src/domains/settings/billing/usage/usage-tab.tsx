@@ -7,57 +7,60 @@ import { Dropdown } from "@vellumai/design-library";
 
 import { buildCallSiteMetadataMap } from "@/domains/settings/billing/usage/call-site-metadata";
 import {
-    UsageTrendChart,
-    UsageTrendSkeleton,
-    type UsageTrendChartLegendItem,
+  UsageTrendChart,
+  UsageTrendSkeleton,
+  type UsageTrendChartLegendItem,
 } from "@/domains/settings/billing/usage/usage-trend-chart";
-import { formatCost, formatTokens } from "@/domains/settings/billing/usage/format";
+import {
+  formatCost,
+  formatTokens,
+} from "@/domains/settings/billing/usage/format";
 import { decorateUsageBreakdownGroups } from "@/domains/settings/billing/usage/group-labels";
 import {
-    buildUsageBreakdownQuery,
-    buildUsageDailyQuery,
-    buildUsageSeriesQuery,
-    buildUsageTotalsQuery,
+  buildUsageBreakdownQuery,
+  buildUsageDailyQuery,
+  buildUsageSeriesQuery,
+  buildUsageTotalsQuery,
 } from "@/domains/settings/billing/usage/usage-api";
 import {
-    formatBreakdownTokens,
-    formatBreakdownTokensShort,
+  formatBreakdownTokens,
+  formatBreakdownTokensShort,
 } from "@/domains/settings/billing/usage/usage-breakdown-format";
 import {
-    decorateUsageSeriesGroups,
-    seriesFromDailyBuckets,
-    usageSeriesKeyForGroupValue,
+  decorateUsageSeriesGroups,
+  seriesFromDailyBuckets,
+  usageSeriesKeyForGroupValue,
 } from "@/domains/settings/billing/usage/usage-series";
 import {
-    buildUsageSearchParams,
-    FALLBACK_USAGE_GROUP_BY,
-    readUsageUrlState,
-    resolveEffectiveUsageGranularity,
-    resolveRangeWindow,
-    resolveUsageGranularity,
-    shouldFallbackUsageGroupBy,
-    shouldFetchUsageSeries,
-    shouldRetryUsageGroupQuery,
-    trendTitle,
-    USAGE_GROUP_BY_OPTIONS,
-    type UsageSearchParamsUpdate,
+  buildUsageSearchParams,
+  FALLBACK_USAGE_GROUP_BY,
+  readUsageUrlState,
+  resolveEffectiveUsageGranularity,
+  resolveRangeWindow,
+  resolveUsageGranularity,
+  shouldFallbackUsageGroupBy,
+  shouldFetchUsageSeries,
+  shouldRetryUsageGroupQuery,
+  trendTitle,
+  USAGE_GROUP_BY_OPTIONS,
+  type UsageSearchParamsUpdate,
 } from "@/domains/settings/billing/usage/usage-tab-state";
 import type {
-    UsageBreakdownResponse,
-    UsageGroupBreakdown,
-    UsageGroupBy,
-    UsageTimeRange,
-    UsageTotals,
+  UsageBreakdownResponse,
+  UsageGroupBreakdown,
+  UsageGroupBy,
+  UsageTimeRange,
+  UsageTotals,
 } from "@/domains/settings/billing/usage/usage-types";
 import { usageBreakdownGet } from "@/generated/daemon/sdk.gen";
 import {
-    configGetOptions,
-    configLlmCallsitesGetOptions,
-    usageBreakdownGetQueryKey,
-    usageDailyGetOptions,
-    usageSeriesGetOptions,
-    usageTotalsGetOptions,
-    schedulesGetQueryKey,
+  configGetOptions,
+  configLlmCallsitesGetOptions,
+  usageBreakdownGetQueryKey,
+  usageDailyGetOptions,
+  usageSeriesGetOptions,
+  usageTotalsGetOptions,
+  schedulesGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { PromptLaunchButton } from "@/components/prompt-launch-button";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -108,10 +111,9 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   const timezone = useEffectiveTimezone();
   const updateUsageSearchParams = useCallback(
     (update: UsageSearchParamsUpdate) => {
-      setSearchParams(
-        (prev) => buildUsageSearchParams(prev, update),
-        { replace: true },
-      );
+      setSearchParams((prev) => buildUsageSearchParams(prev, update), {
+        replace: true,
+      });
     },
     [setSearchParams],
   );
@@ -131,8 +133,6 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     queryFn: () => fetchSchedules(assistantId),
     staleTime: 10_000,
   });
-
-
 
   const handleRangeChange = useCallback(
     (nextRange: UsageTimeRange) => {
@@ -419,10 +419,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         </div>
       </Section>
 
-      <BreakdownSection
-        query={breakdownQuery}
-        groups={decoratedBreakdown}
-      />
+      <BreakdownSection query={breakdownQuery} groups={decoratedBreakdown} />
 
       <CostAssistantSection />
     </div>
@@ -642,13 +639,7 @@ function TotalsGrid({ totals }: { totals: UsageTotals }) {
   );
 }
 
-function SecondaryMetric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function SecondaryMetric({ label, value }: { label: string; value: string }) {
   return (
     <div
       className="flex flex-col gap-1 rounded-md px-3 py-2"
@@ -805,9 +796,7 @@ function ColumnToggle({
       onClick={onClick}
       className="rounded-full border px-2.5 py-1 text-label-medium-default"
       style={{
-        borderColor: active
-          ? "var(--content-secondary)"
-          : "var(--border-base)",
+        borderColor: active ? "var(--content-secondary)" : "var(--border-base)",
         background: active
           ? "color-mix(in srgb, var(--content-secondary) 15%, transparent)"
           : "transparent",
@@ -843,10 +832,7 @@ function BreakdownTable({
     );
   }
 
-  const totalCost = groups.reduce(
-    (sum, g) => sum + g.totalEstimatedCostUsd,
-    0,
-  );
+  const totalCost = groups.reduce((sum, g) => sum + g.totalEstimatedCostUsd, 0);
 
   return (
     <div className="overflow-hidden rounded-md">
@@ -902,9 +888,7 @@ function BreakdownTable({
               groupBy === "conversation" ? group.groupId : null;
             const costPct =
               totalCost > 0
-                ? Math.round(
-                    (group.totalEstimatedCostUsd / totalCost) * 100,
-                  )
+                ? Math.round((group.totalEstimatedCostUsd / totalCost) * 100)
                 : 0;
             return (
               <tr
@@ -1049,13 +1033,7 @@ function SkeletonBone({
   );
 }
 
-function EmptyState({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
+function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className="flex flex-col items-center gap-1 py-8 text-center">
       <span

@@ -1,7 +1,6 @@
 /**
- * Canonical display labels for the Stripe payment-method brand strings.
- * Centralized here so every auto-top-up payment-method display in
- * `AutoTopUpCard` agrees on capitalization.
+ * Canonical display labels for the raw Stripe payment-method brand strings,
+ * so the payment-method display renders `"Visa"` rather than `"visa"`.
  */
 const BRAND_LABELS: Record<string, string> = {
   visa: "Visa",
@@ -15,20 +14,4 @@ const BRAND_LABELS: Record<string, string> = {
 
 export function brandLabel(brand: string): string {
   return BRAND_LABELS[brand.toLowerCase()] ?? brand;
-}
-
-/**
- * Render the canonical "<brand> •••• <last4>" shape with safe fallbacks.
- * Used by `AutoTopUpCard.formatSavedPaymentMethodLine` (with "Charged to"
- * prefix).
- *
- * Fallback chain when brand is null: passes the literal `"card"` to
- * `brandLabel`, which falls through to the default branch (lowercase
- * `"card"` is not in `BRAND_LABELS`) and returns `"card"` verbatim.
- */
-export function formatBrandLast4(
-  brand: string | null,
-  last4: string | null,
-): string {
-  return `${brandLabel(brand ?? "card")} •••• ${last4 ?? "????"}`;
 }

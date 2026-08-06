@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   AssistantEventHub,
   broadcastMessage,
@@ -11,8 +11,11 @@ import {
   getReplayWindow,
 } from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { registerHubClient } from "./helpers/hub-clients.js";
 
-function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function makeEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   return {
     id: "evt_test",
     conversationId: "sess_1",
@@ -31,7 +34,7 @@ function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
 describe("AssistantEventHub — fanout", () => {
   test("delivers event to a single matching subscriber", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -75,8 +78,8 @@ describe("AssistantEventHub — fanout", () => {
 
   test("conversationId filter further restricts delivery", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -101,7 +104,7 @@ describe("AssistantEventHub — fanout", () => {
 
   test("subscriber without conversationId filter receives all conversations", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -159,7 +162,7 @@ describe("AssistantEventHub — fanout", () => {
 describe("AssistantEventHub — unsubscribe cleanup", () => {
   test("dispose stops event delivery", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     const s = hub.subscribe({
       type: "process",
@@ -234,8 +237,8 @@ describe("AssistantEventHub — unsubscribe cleanup", () => {
 
   test("disposing one subscription does not affect others", async () => {
     const hub = new AssistantEventHub();
-    const received1: AssistantEvent[] = [];
-    const received2: AssistantEvent[] = [];
+    const received1: AssistantEventEnvelope[] = [];
+    const received2: AssistantEventEnvelope[] = [];
 
     const s1 = hub.subscribe({
       type: "process",
@@ -341,7 +344,7 @@ describe("AssistantEventHub — exception isolation", () => {
 describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
   test("subscriber added during publish does not receive the in-flight event", async () => {
     const hub = new AssistantEventHub();
-    const lateReceived: AssistantEvent[] = [];
+    const lateReceived: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -363,7 +366,7 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
 
   test("subscriber that disposes itself mid-publish does not affect remaining subscribers", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     let s: ReturnType<typeof hub.subscribe>;
 
     // eslint-disable-next-line prefer-const
@@ -430,6 +433,53 @@ describe("AssistantEventHub — actorPrincipalId on ClientEntry", () => {
   test("getActorPrincipalIdForClient returns undefined for unknown clientId", () => {
     const hub = new AssistantEventHub();
     expect(hub.getActorPrincipalIdForClient("does-not-exist")).toBeUndefined();
+  });
+});
+
+// ── ClientEntry desktop presence ─────────────────────────────────────────────
+
+describe("AssistantEventHub client presence", () => {
+  test("records presence on a matching client", () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    expect(hub.setClientPresence("mac-1", "active")).toBe(true);
+
+    const presence = hub.getClientById("mac-1")!.presence!;
+    expect(presence.state).toBe("active");
+  });
+
+  test("reportedAt advances on every report", async () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    hub.setClientPresence("mac-1", "idle");
+    const first = hub.getClientById("mac-1")!.presence!;
+
+    await Bun.sleep(5);
+    hub.setClientPresence("mac-1", "idle");
+    const second = hub.getClientById("mac-1")!.presence!;
+
+    expect(second.reportedAt.getTime()).toBeGreaterThan(
+      first.reportedAt.getTime(),
+    );
+  });
+
+  test("returns false for an unknown clientId", () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    expect(hub.setClientPresence("does-not-exist", "active")).toBe(false);
+    expect(hub.getClientById("mac-1")?.presence).toBeUndefined();
+  });
+
+  test("a disposed client no longer accepts presence", () => {
+    const hub = new AssistantEventHub();
+    registerHubClient({ hub, clientId: "mac-1" });
+
+    expect(hub.disposeClient("mac-1")).toBe(1);
+    expect(hub.setClientPresence("mac-1", "active")).toBe(false);
+    expect(hub.getClientById("mac-1")).toBeUndefined();
   });
 });
 

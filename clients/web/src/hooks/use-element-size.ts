@@ -19,7 +19,9 @@ export interface StageSize {
 const FALLBACK: StageSize = { w: 1280, h: 800 };
 
 export function windowSize(): StageSize {
-  if (typeof window === "undefined") return FALLBACK;
+  if (typeof window === "undefined") {
+    return FALLBACK;
+  }
   return { w: window.innerWidth, h: window.innerHeight };
 }
 
@@ -41,7 +43,9 @@ export function useElementSize(): ElementSize {
   const [size, setSize] = useState<StageSize>(() => windowSize());
 
   useLayoutEffect(() => {
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const measure = () => {
       const rect = el.getBoundingClientRect();
       setSize({ w: rect.width, h: rect.height });

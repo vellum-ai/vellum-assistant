@@ -17,12 +17,16 @@ export const removeAnalyzeConversationConfigMigration: WorkspaceMigration = {
     "Remove llm.callSites.analyzeConversation and the analysis config block (analyze-conversation feature removed)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -49,7 +53,9 @@ export const removeAnalyzeConversationConfigMigration: WorkspaceMigration = {
       }
     }
 
-    if (!mutated) return;
+    if (!mutated) {
+      return;
+    }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },

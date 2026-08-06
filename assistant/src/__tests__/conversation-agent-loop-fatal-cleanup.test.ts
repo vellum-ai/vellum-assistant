@@ -17,9 +17,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // Short turn-boundary commit wait and no second-pass retitling keep the loop
@@ -134,7 +134,16 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: async () => {},
+    drainQueue: async (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
     buildCurrentSystemPrompt: () => "system prompt",
@@ -157,7 +166,7 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
   });
 
   test("clears the processing flag before the turn-boundary commit, so a commit that throws cannot latch it", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     // The turn-boundary commit throwing inside the `finally` is precisely the
     // ATL-1007 failure mode. Because the flag is cleared first, the throw can
     // no longer leave `processing_started_at` latched.
@@ -188,7 +197,7 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
   });
 
   test("clears the processing flag on a clean fatal failure (commit succeeds)", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const drainQueue = mock(async (_reason: unknown) => {});
     const commitTurnChanges = mock(async () => {});
     const ctx = makeCtx({
@@ -204,5 +213,35 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
     expect(ctx.isProcessing()).toBe(false);
     expect(ctx.abortController).toBeNull();
     expect(drainQueue).toHaveBeenCalledWith("loop_complete");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Turn-scoped view state
+//
+// The app the client has on screen rides in on a message's transport. Nothing
+// tells the daemon when the user closes it, so leaving the value on the
+// conversation would let a later turn with no fresh client transport (a
+// scheduled wake, a background follow-up) assert the user is looking at an app
+// they closed. This suite reuses the loop harness above because the clear
+// lives in the loop's per-turn teardown.
+// ---------------------------------------------------------------------------
+
+describe("runAgentLoopImpl per-turn view state", () => {
+  test("clears the reported visible app at turn end so a later turn cannot inherit it", async () => {
+    const events: AssistantEvent[] = [];
+    const ctx = makeCtx({
+      visibleAppId: "app-on-screen",
+      commitTurnChanges: mock(
+        async () => {},
+      ) as unknown as Context["commitTurnChanges"],
+    });
+
+    await runAgentLoopImpl(ctx, "background task", "msg-visible-app", (event) =>
+      events.push(event),
+    );
+
+    expect(ctx.visibleAppId).toBeUndefined();
+    expect(ctx.currentTurnVisibleAppId).toBeUndefined();
   });
 });

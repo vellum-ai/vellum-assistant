@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import type {
+  QuestionEntry,
   QuestionOption,
   QuestionRequestEvent,
 } from "../api/events/question-request.js";
@@ -9,6 +10,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import {
+  createGuardianRequestForQuestion,
+  settlePromotedQuestionRequest,
+} from "./question-guardian-request.js";
 
 const log = getLogger("question-prompter");
 
@@ -53,6 +58,18 @@ export interface QuestionPromptEntryResult {
 export interface QuestionPromptResult {
   entries: QuestionPromptEntryResult[];
   overall: "completed" | "closed" | "timed_out" | "aborted";
+}
+
+/**
+ * What {@link QuestionPrompter.prompt} returns: the resolution plus the
+ * identity of the prompt that produced it. `requestId` and `questions` are
+ * known only to the prompter (it mints the id and assigns the per-question
+ * ids), and the `ask_question` executor needs both to record the durable
+ * answered-question payload against the questions as they were asked.
+ */
+export interface QuestionPromptOutcome extends QuestionPromptResult {
+  requestId: string;
+  questions: QuestionEntry[];
 }
 
 export interface QuestionPromptParamsEntry {
@@ -118,7 +135,9 @@ export function buildBatchEntries(
   }
 
   const byId = new Map<string, QuestionBatchSubmission>();
-  for (const s of submissions) byId.set(s.questionId, s);
+  for (const s of submissions) {
+    byId.set(s.questionId, s);
+  }
 
   return orderedIds.map((id) => {
     const s = byId.get(id)!;
@@ -164,7 +183,7 @@ export interface QuestionBatchMetadata {
  * fires when a prompt is left open with no response and no follow-up message.
  */
 export class QuestionPrompter {
-  async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
+  async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
     const { conversationId, questions, toolUseId, signal } = params;
 
     if (questions.length === 0) {
@@ -189,8 +208,12 @@ export class QuestionPrompter {
       optionsById[e.id] = e.options.map((o) => o.id);
     }
 
+    const requestId = uuid();
+
     if (signal?.aborted) {
       return {
+        requestId,
+        questions: entries,
         entries: orderedIds.map((id) => ({
           questionId: id,
           decision: "aborted",
@@ -199,9 +222,7 @@ export class QuestionPrompter {
       };
     }
 
-    const requestId = uuid();
-
-    return new Promise<QuestionPromptResult>((resolve, reject) => {
+    const settled = new Promise<QuestionPromptResult>((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.questionResponseTimeoutSec * 1000;
 
       // Closure-scoped idempotency guard. Every resolution path (timeout,
@@ -215,7 +236,9 @@ export class QuestionPrompter {
       let settled = false;
       let onAbort: (() => void) | undefined;
       const finish = (fn: () => void): void => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         if (signal && onAbort) {
@@ -227,6 +250,13 @@ export class QuestionPrompter {
         // so this fallback only fires for timeout / abort / removeByConversation —
         // all cancellation-shaped outcomes.
         pendingInteractions.resolve(requestId, "cancelled");
+        // A promoted guardian-request row must not outlive the interaction:
+        // left pending (e.g. the app card answered, or the prompt timed out),
+        // it would still look decidable to the channel reply router and could
+        // swallow the guardian's next unrelated message. No-op for questions
+        // that never promoted, and a CAS-miss no-op when the pipeline itself
+        // decided the row.
+        settlePromotedQuestionRequest(requestId);
         fn();
       };
 
@@ -295,6 +325,15 @@ export class QuestionPrompter {
       };
 
       broadcastMessage(msg);
+
+      // Promote the question to a guardian request so channel answers (option
+      // taps, request-code replies, bare text) can resolve it through the
+      // guardian-request pipeline. Mirrors the confirmation prompter's
+      // promotion; the gating (guardian turn, card-capable channel,
+      // single-question batch) lives in the promotion module.
+      void createGuardianRequestForQuestion(msg, conversationId);
     });
+
+    return { ...(await settled), requestId, questions: entries };
   }
 }

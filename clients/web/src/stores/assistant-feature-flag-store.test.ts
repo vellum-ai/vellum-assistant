@@ -55,9 +55,7 @@ describe("useAssistantFeatureFlagStore", () => {
   });
 
   test("reverts an optimistic assistant flag update when the server rejects it", async () => {
-    let resolvePatch:
-      | ((value: { response: Response }) => void)
-      | undefined;
+    let resolvePatch: ((value: { response: Response }) => void) | undefined;
     patchMock.mockImplementation(
       (_request: unknown) =>
         new Promise((resolve) => {
@@ -100,14 +98,14 @@ describe("useAssistantFeatureFlagStore", () => {
   });
 
   test("is a no-op for an assistant flag when there is no assistant id", async () => {
-    store().setFlag("voiceMode", true, null);
+    store().setFlag("backwardReleases", true, null);
     await Promise.resolve();
 
     // No assistant id => nowhere to persist => true no-op. It must not apply an
     // optimistic value or fake a "confirmed" one: a local-only write is exactly
     // what masked the silent persistence failure (the toggle looked saved while
     // the gateway, and therefore the daemon, never received it).
-    expect(store().voiceMode).toBe(false);
+    expect(store().backwardReleases).toBe(false);
     expect(patchMock).not.toHaveBeenCalled();
     expect(toastErrorMock).not.toHaveBeenCalled();
   });

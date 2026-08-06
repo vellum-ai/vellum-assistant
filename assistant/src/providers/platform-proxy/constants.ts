@@ -51,6 +51,10 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     managed: true,
     proxyPath: "/v1/runtime-proxy/together",
   },
+  poolside: {
+    name: "poolside",
+    managed: false,
+  },
   openrouter: {
     name: "openrouter",
     managed: false,

@@ -18,7 +18,7 @@ const A2A_AGENT_CARD_PATH = "/.well-known/agent-card.json";
 
 // ── Agent card builder ──────────────────────────────────────────────
 
-interface AgentCard {
+export interface AgentCard {
   name: string;
   description: string;
   version: string;
@@ -42,18 +42,22 @@ interface AgentCard {
   }>;
 }
 
-function buildAgentCard(baseUrl: string, assistantName: string): AgentCard {
+/**
+ * The gateway serves agent-card discovery only. A2A message exchange runs over
+ * the authenticated invite flow, so no peer-callable protocol interface is
+ * exposed and the card advertises none: a peer reads zero interfaces and stops,
+ * rather than following a URL that matches no route and 404s.
+ *
+ * `route-schema-guard.test.ts` cross-checks every advertised interface URL
+ * against the gateway route table, so restoring an entry here requires
+ * registering the route that serves it.
+ */
+export function buildAgentCard(assistantName: string): AgentCard {
   return {
     name: assistantName,
-    description: `${assistantName} — a Vellum AI assistant`,
+    description: `${assistantName} - a Vellum AI assistant`,
     version: "1.0.0",
-    supported_interfaces: [
-      {
-        url: `${baseUrl}/a2a/message:send`,
-        protocol_binding: "JSONRPC",
-        protocol_version: "1.0",
-      },
-    ],
+    supported_interfaces: [],
     capabilities: {
       streaming: false,
       push_notifications: true,
@@ -99,6 +103,8 @@ export function createAgentCardHandler(configFile: ConfigFileCache) {
       );
     }
 
+    // An assistant with no public ingress URL cannot be reached for the invite
+    // flow the card feeds, so discovery is not yet ready.
     const publicBaseUrl =
       configFile.getString("ingress", "publicBaseUrl") ?? "";
     if (!publicBaseUrl) {
@@ -109,8 +115,7 @@ export function createAgentCardHandler(configFile: ConfigFileCache) {
       );
     }
 
-    const assistantName = readAssistantName();
-    const card = buildAgentCard(publicBaseUrl, assistantName);
+    const card = buildAgentCard(readAssistantName());
 
     return Response.json(card, {
       headers: { "Content-Type": "application/json" },

@@ -26,15 +26,43 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const groupSchema = z.object({
   id: z.string(),
   name: z.string(),
+  icon: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Client-chosen icon name; null when the group has none"),
   sortPosition: z.number(),
   isSystemGroup: z.boolean(),
 });
 
+/**
+ * Validate an `icon` field from a request body. Returns the normalized value:
+ * `undefined` = field absent (leave unchanged), `null` = clear the icon,
+ * string = set it. Icon names are client-defined identifiers, not free text.
+ */
+function parseIconField(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || value.length > 100) {
+    throw new BadRequestError(
+      "icon must be a string of at most 100 characters or null",
+    );
+  }
+  return value;
+}
+
 function serializeGroup(group: ReturnType<typeof getGroup>) {
-  if (!group) return null;
+  if (!group) {
+    return null;
+  }
   return {
     id: group.id,
     name: group.name,
+    icon: group.icon,
     sortPosition: group.sortPosition,
     isSystemGroup: group.isSystemGroup,
   };
@@ -54,8 +82,9 @@ function handleCreateGroup({ body = {}, headers }: RouteHandlerArgs) {
   if (!name || typeof name !== "string") {
     throw new BadRequestError("Missing or invalid name");
   }
+  const icon = parseIconField(body.icon);
   try {
-    const group = createGroup(name);
+    const group = createGroup(name, icon);
     publishConversationListChanged(
       "created",
       headers?.["x-vellum-client-id"]?.trim() || undefined,
@@ -89,6 +118,7 @@ function handleUpdateGroup({
   if (name !== undefined && typeof name !== "string") {
     throw new BadRequestError("name must be a string");
   }
+  const icon = parseIconField(body.icon);
   if (sortPosition !== undefined && typeof sortPosition !== "number") {
     throw new BadRequestError("sortPosition must be a number");
   }
@@ -103,7 +133,7 @@ function handleUpdateGroup({
   ) {
     throw new BadRequestError("Custom group sort_position must be >= 4");
   }
-  const updated = updateGroup(groupId, { name, sortPosition });
+  const updated = updateGroup(groupId, { name, icon, sortPosition });
   if (!updated) {
     throw new NotFoundError("Group not found");
   }
@@ -139,7 +169,9 @@ function handleReorderGroups({ body = {}, headers }: RouteHandlerArgs) {
   }
   for (const update of updates) {
     const group = getGroup(update.groupId);
-    if (!group) continue;
+    if (!group) {
+      continue;
+    }
     if (group.isSystemGroup) {
       throw new ForbiddenError(
         `Cannot reorder system group: ${update.groupId}`,
@@ -198,6 +230,11 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["groups"],
     requestBody: z.object({
       name: z.string().describe("Group name"),
+      icon: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Client-chosen icon name"),
     }),
     responseBody: groupSchema,
     additionalResponses: {
@@ -217,10 +254,15 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: handleUpdateGroup,
     summary: "Update group",
-    description: "Update a conversation group's name or sort position.",
+    description: "Update a conversation group's name, icon, or sort position.",
     tags: ["groups"],
     requestBody: z.object({
       name: z.string().optional(),
+      icon: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Client-chosen icon name; null clears it"),
       sortPosition: z.number().optional(),
     }),
     responseBody: groupSchema,

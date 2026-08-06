@@ -1,4 +1,3 @@
-
 import { forwardRef } from "react";
 
 import { cn } from "@/utils/misc";
@@ -6,12 +5,12 @@ import { cn } from "@/utils/misc";
 import { Button } from "@vellumai/design-library";
 
 /**
- * Suggestion-pill primitive used in the chat empty state. Wraps the `Button`
- * primitive (`variant="outlined"`, `fullWidth`) so interactive surface
- * tokens stay owned by `Button`. Overrides cover layout only — Button's
- * default `h-8` / `whitespace-nowrap` / `body-medium-default` are swapped
- * for a 56px-min, two-line-clamped, `body-medium-lighter` card via
- * tailwind-merge.
+ * Suggestion-pill primitive used in the chat empty state's bottom dock
+ * (Figma: New-App 7471-25035). Wraps the `Button` primitive
+ * (`variant="ghost"`, `fullWidth`) so interactive surface tokens stay
+ * owned by `Button`. Overrides cover layout only — Button's default
+ * `h-8` / `whitespace-nowrap` is swapped for a soft white rounded card
+ * via tailwind-merge.
  */
 export interface ConversationStarterChipProps {
   /** Suggestion text. Truncated to two lines via `line-clamp-2`. */
@@ -44,14 +43,19 @@ export const ConversationStarterChip = forwardRef<
       className={cn(
         // Override Button's fixed h-8 / single-line / default body size.
         "h-auto whitespace-normal",
-        // Slimmer + smaller text on mobile, full size on sm+.
-        "px-3 py-2 sm:px-4 sm:py-3 rounded-[10px]",
-        "text-body-small-default sm:text-body-medium-lighter text-center",
-        // Light fill, no border, secondary content text.
+        "min-h-[40px] sm:min-h-[44px]",
+        "px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px]",
+        // Theme body type in the secondary tone — reads like the app's
+        // buttons rather than heavy title text.
+        "text-body-small-lighter sm:text-body-medium-lighter text-center",
+        // Soft white card, no border (Figma 7471-25047).
         "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-secondary)]",
       )}
     >
-      <span className="line-clamp-2">{label}</span>
+      {/* leading-normal: the title-small token is line-height:1, and
+          line-clamp's overflow clipping would cut descenders (the "g" in
+          "morning") without real line height. */}
+      <span className="line-clamp-2 leading-normal">{label}</span>
     </Button>
   );
 });

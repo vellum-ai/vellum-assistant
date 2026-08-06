@@ -106,7 +106,7 @@ function printHelp(): void {
   console.log("  gateway  Gateway management commands");
   console.log("  hatch    Create a new assistant instance");
   console.log(
-    "  nginx-ingress  Manage the nginx proxy fronting the gateway for web access [beta]",
+    "  nginx-ingress  Manage the nginx edge that `vellum tunnel` fronts [beta]",
   );
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");

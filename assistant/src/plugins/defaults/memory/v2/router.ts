@@ -47,14 +47,14 @@ import {
   type ToolDefinition,
 } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
-import type { PageIndex } from "../v3/substrate/page-index.js";
+import type { PageIndex } from "../substrate/page-index.js";
 import {
   getPageIndex,
   partitionPageIndex,
   splitTier1,
   splitTier2,
-} from "../v3/substrate/page-index.js";
-import type { EverInjectedEntry } from "../v3/substrate/types.js";
+} from "../substrate/page-index.js";
+import type { EverInjectedEntry } from "../substrate/types.js";
 import { computeInjectionScores } from "./injection-events.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
 
@@ -285,8 +285,12 @@ export async function runRouter(
   // Tag each batch with its provenance string. Tier 3 batches carry their
   // bucket index so the inspector can attribute selections per-bucket.
   const taggedBatches: Array<{ source: RouterSource; index: PageIndex }> = [];
-  if (tier1) taggedBatches.push({ source: "tier1", index: tier1 });
-  if (tier2) taggedBatches.push({ source: "tier2", index: tier2 });
+  if (tier1) {
+    taggedBatches.push({ source: "tier1", index: tier1 });
+  }
+  if (tier2) {
+    taggedBatches.push({ source: "tier2", index: tier2 });
+  }
   tier3Batches.forEach((index, i) => {
     taggedBatches.push({ source: `tier3:${i}` as const, index });
   });
@@ -322,7 +326,9 @@ export async function runRouter(
     const result = batchResults[i];
     const source = taggedBatches[i].source;
     for (const slug of result.selectedSlugs) {
-      if (sourceBySlug.has(slug)) continue;
+      if (sourceBySlug.has(slug)) {
+        continue;
+      }
       sourceBySlug.set(slug, source);
       selectedSlugs.push(slug);
     }
@@ -354,7 +360,9 @@ export async function runRouter(
         "Router union across batches exceeded max_page_ids; truncating",
       );
       const dropped = selectedSlugs.splice(maxPageIds);
-      for (const slug of dropped) sourceBySlug.delete(slug);
+      for (const slug of dropped) {
+        sourceBySlug.delete(slug);
+      }
     }
   }
   return { selectedSlugs, sourceBySlug, failureReason: null };
@@ -402,7 +410,9 @@ async function runRouterBatch(
   const priorIds: number[] = [];
   for (const entry of priorEverInjected) {
     const local = batchIndex.bySlug.get(entry.slug);
-    if (local) priorIds.push(local.id);
+    if (local) {
+      priorIds.push(local.id);
+    }
   }
 
   // Trim the pairs down to the configured `<last_turn>` content budget,
@@ -513,7 +523,9 @@ async function runRouterBatch(
   const selectedSlugs: string[] = [];
   for (const id of finalIds) {
     const entry = batchIndex.byId.get(id);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
     selectedSlugs.push(entry.slug);
   }
 
@@ -542,7 +554,9 @@ export function applyHistoricalCharBudget(
   pairs: readonly RouterTurnPair[],
   maxChars: number | null,
 ): RouterTurnPair[] {
-  if (maxChars === null || maxChars <= 0) return [...pairs];
+  if (maxChars === null || maxChars <= 0) {
+    return [...pairs];
+  }
 
   type WalkedMsg = {
     role: "user" | "assistant";
@@ -566,7 +580,9 @@ export function applyHistoricalCharBudget(
   const included = new Map<number, { assistant: string; user: string }>();
   for (const msg of walked) {
     const remaining = maxChars - used;
-    if (remaining <= 0) break;
+    if (remaining <= 0) {
+      break;
+    }
     let textToInclude: string;
     let stop = false;
     if (msg.text.length <= remaining) {
@@ -577,17 +593,24 @@ export function applyHistoricalCharBudget(
       // connects to the next message (in chronological order) without
       // a syntactic seam. The marker counts toward the budget so the
       // emitted text never exceeds `maxChars` cumulatively.
-      if (remaining <= HISTORICAL_TRUNCATION_MARKER.length) break;
+      if (remaining <= HISTORICAL_TRUNCATION_MARKER.length) {
+        break;
+      }
       const keepChars = remaining - HISTORICAL_TRUNCATION_MARKER.length;
       textToInclude = HISTORICAL_TRUNCATION_MARKER + msg.text.slice(-keepChars);
       used = maxChars;
       stop = true;
     }
     const slot = included.get(msg.pairIdx) ?? { assistant: "", user: "" };
-    if (msg.role === "user") slot.user = textToInclude;
-    else slot.assistant = textToInclude;
+    if (msg.role === "user") {
+      slot.user = textToInclude;
+    } else {
+      slot.assistant = textToInclude;
+    }
     included.set(msg.pairIdx, slot);
-    if (stop) break;
+    if (stop) {
+      break;
+    }
   }
 
   const sortedIdxs = [...included.keys()].sort((a, b) => a - b);

@@ -177,7 +177,9 @@ Examples:
   const isExemptFromWorkspaceCheck = (command: Command): boolean => {
     let current: Command | null | undefined = command;
     while (current && current !== program) {
-      if (workspaceExemptCommands.has(current.name())) return true;
+      if (workspaceExemptCommands.has(current.name())) {
+        return true;
+      }
       current = current.parent;
     }
     return false;

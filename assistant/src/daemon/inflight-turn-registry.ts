@@ -44,12 +44,15 @@ export function unregisterInflightTurn(
  * The flushed-content seq ceiling for a conversation the daemon may be
  * streaming, or `undefined` when no turn is in flight for it.
  *
- * While a turn streams, the value is the highest seq whose content has been
- * flushed to durable rows (`EventHandlerState.lastPersistedContentSeq`), or `0`
- * when the turn has flushed no content yet. A caller recording a snapshot
- * anchor caps at this value so the anchor never claims content the live seq
- * counter has served but no flush has written; the `0` case is a monotonic
- * no-op in `recordConversationPersistedSeq`, leaving the existing anchor intact.
+ * While a turn streams, the value is the highest seq whose content a flush has
+ * committed to durable rows (`EventHandlerState.flushedContentSeq`), or `0`
+ * when the turn has flushed no content yet. It trails the turn's live emit
+ * position (`lastStreamedContentSeq`): a delta stamps the live seq the instant
+ * it is emitted, but the watermark rises only once that delta's flush commits,
+ * so an anchor capped here never claims a delta whose content the durable rows
+ * do not yet hold. A caller recording a snapshot anchor caps at this value; the
+ * `0` case is a monotonic no-op in `recordConversationPersistedSeq`, leaving the
+ * existing anchor intact.
  */
 export function getInflightFlushedContentSeq(
   conversationId: string,
@@ -58,5 +61,5 @@ export function getInflightFlushedContentSeq(
   if (state === undefined) {
     return undefined;
   }
-  return state.lastPersistedContentSeq ?? 0;
+  return state.flushedContentSeq ?? 0;
 }

@@ -5,10 +5,13 @@ import { useState } from "react";
 import { hatchAssistant, listAssistants } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
-import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import {
-    assistantsListOptions,
-    assistantsRetrieveOptions,
+  isLocalClient,
+  syncPlatformAssistantsToLockfile,
+} from "@/lib/local-mode";
+import {
+  assistantsListOptions,
+  assistantsRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -55,13 +58,14 @@ export function AssistantLifecyclePanel() {
         // newly hatched assistants stayed invisible to the tray until the next
         // session refresh. Best-effort and local-mode only; the hatch already
         // succeeded regardless of the sync outcome.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           try {
             const list = await listAssistants();
             if (list.ok) {
               await syncPlatformAssistantsToLockfile(
                 list.data,
-                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                useOrganizationStore.getState().currentOrganizationId ??
+                  undefined,
               );
             }
           } catch {
@@ -74,7 +78,7 @@ export function AssistantLifecyclePanel() {
         toast.success(
           result.status === 201
             ? "New assistant hatched successfully."
-            : "Returned your existing assistant — no new one was created.",
+            : "You already have an assistant. Nothing new was created.",
         );
         // Invalidate the panel's own queries by their real generated keys so
         // the info + list cards refresh (the previous `["assistants"]` key
@@ -255,9 +259,7 @@ function AssistantListCard({
                   <span className="truncate text-body-medium-default text-[var(--content-default)]">
                     {a.name || "Unnamed"}
                   </span>
-                  <Tag
-                    tone={a.status === "active" ? "positive" : "neutral"}
-                  >
+                  <Tag tone={a.status === "active" ? "positive" : "neutral"}>
                     {a.status}
                   </Tag>
                   {isActive && <Tag tone="warning">Current</Tag>}

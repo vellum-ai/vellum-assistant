@@ -18,7 +18,9 @@ export function downRenameVerificationSessionIdColumn(
   const hasOldColumn = columns.some(
     (c) => c.name === "guardian_verification_session_id",
   );
-  if (!hasNewColumn || hasOldColumn) return;
+  if (!hasNewColumn || hasOldColumn) {
+    return;
+  }
 
   raw.exec(
     /*sql*/ `ALTER TABLE call_sessions RENAME COLUMN verification_session_id TO guardian_verification_session_id`,
@@ -47,7 +49,9 @@ export function migrateRenameVerificationSessionIdColumn(
   const hasNewColumn = columns.some(
     (c) => c.name === "verification_session_id",
   );
-  if (!hasOldColumn || hasNewColumn) return;
+  if (!hasOldColumn || hasNewColumn) {
+    return;
+  }
 
   raw.exec(
     /*sql*/ `ALTER TABLE call_sessions RENAME COLUMN guardian_verification_session_id TO verification_session_id`,

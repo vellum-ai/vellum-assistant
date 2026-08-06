@@ -43,7 +43,9 @@ function useActiveIds(): string[] {
 function useCardSummary(id: string): CardSummary | null {
   const label = useSubagentStore((s) => s.byId[id]?.label);
   const data = useSubagentCardData(id);
-  if (data === null) return null;
+  if (data === null) {
+    return null;
+  }
   const title = label ?? data.currentStepTitle;
   const info =
     data.currentStepInfo && data.currentStepInfo !== label

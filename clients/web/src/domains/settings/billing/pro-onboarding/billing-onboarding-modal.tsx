@@ -1,13 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   clearCheckoutIntent,
-  readCheckoutIntent,
+  readPurchasedCheckoutIntent,
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -18,9 +25,18 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import { ProvisioningState, TAKEOVER_BACKGROUND } from "./provisioning-state";
+import {
+  ProvisioningState,
+  TAKEOVER_SURFACE,
+  TAKEOVER_SURFACE_VAR,
+} from "./provisioning-state";
+import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { TakeoverBackdrop } from "./takeover-backdrop";
+import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
+import type { CreditTierChange } from "./use-provisioning-credits";
+import { useTakeoverSurface } from "./use-takeover-surface";
 
 type WizardStep = "provisioning" | "domain" | "complete";
 
@@ -52,6 +68,28 @@ const EMPTY_DIMENSIONS: ProvisioningDimensions = {
   storageGib: null,
 };
 
+/**
+ * What an in-place plan change knows about the state it left behind. The
+ * platform applies the change before the takeover mounts, so every "current"
+ * value the takeover can read is already the post-change one; the caller
+ * captures these before it dispatches the change and hands them over.
+ */
+export interface ResizeTakeoverContext {
+  /** Machine and storage as they stood before the change was dispatched. */
+  fromSnapshot: ProvisioningDimensions;
+  /** The credit tiers the change moves between; null when it left them alone. */
+  credits: CreditTierChange | null;
+  /** Which way the change goes, which every surface here writes its copy to. */
+  direction: TakeoverDirection;
+  /**
+   * Whether the change can lower a resource ceiling, so the pod has to shrink
+   * before it is ready. Separate from `direction`, which is copy only: a
+   * per-dimension edit reads "change" whichever way its dimensions move, and one
+   * that only touches credits owes no provisioning at all.
+   */
+  canLowerResources: boolean;
+}
+
 export interface BillingOnboardingModalProps {
   open: boolean;
   onClose: () => void;
@@ -67,6 +105,13 @@ export interface BillingOnboardingModalProps {
    * step shows only when it is newly usable (entitled AND no domain yet).
    */
   mode?: "checkout" | "resize";
+  /**
+   * Resize mode only: what the change looked like before it was dispatched.
+   * Ignored in checkout mode, where the from-sides come from the pre-resize
+   * actuals snapshot and credits ride the stashed intent. A resize mount that
+   * omits it falls back to that same snapshot and renders no credits chip.
+   */
+  resizeContext?: ResizeTakeoverContext;
 }
 
 export function BillingOnboardingModal({
@@ -75,11 +120,11 @@ export function BillingOnboardingModal({
   dwellMs,
   phaseMinMs,
   mode = "checkout",
+  resizeContext,
 }: BillingOnboardingModalProps) {
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("provisioning");
-  const [finishedInBackground, setFinishedInBackground] = useState(false);
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [intent, setIntent] = useState<CheckoutIntent | null>(null);
@@ -91,15 +136,39 @@ export function BillingOnboardingModal({
   // hook's `openedAt`: only a domains response fetched at/after this instant is
   // trusted for routing. Null while closed.
   const [domainsOpenedAt, setDomainsOpenedAt] = useState<number | null>(null);
+  // Gates the "Continue in the background" exit behind a confirm that warns
+  // chatting stays unavailable until the upgrade finishes.
+  const [backgroundConfirmOpen, setBackgroundConfirmOpen] = useState(false);
+
+  // Only an in-place change can go anywhere but up, and only it threads a
+  // context; checkout and a context-less resize mount both read as an upgrade.
+  const direction = isResize ? resizeContext?.direction : undefined;
+  const copy = takeoverCopy(direction);
+  // For the same reason, only an in-place change can lower a ceiling. Checkout
+  // and a context-less resize mount only ever raise them.
+  const canLowerResources = isResize
+    ? resizeContext?.canLowerResources === true
+    : false;
 
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
-  // backgrounded resize still resolves while the user sets up their domain.
-  const provisioning = useProProvisioning({ open });
+  // backgrounded resize still resolves while the user sets up their domain. It
+  // takes the ceiling question because a change that can lower a ceiling meets
+  // its targets before anything moves, so it needs positive evidence of the
+  // restart before it may complete.
+  const provisioning = useProProvisioning({ open, canLowerResources });
+
+  // Whether this wizard has actually been opened, so the reset branch below can
+  // tell a close from the mount of an instance that is simply rendered closed
+  // (the billing page mounts two of these; only one opens). Its overlap with
+  // `domainsOpenedAt` is deliberate: tying the stash lifecycle to a
+  // domains-freshness fence would couple two unrelated concerns.
+  const hasOpenedRef = useRef(false);
 
   useEffect(() => {
     if (open) {
-      setIntent(isResize ? null : readCheckoutIntent());
+      hasOpenedRef.current = true;
+      setIntent(isResize ? null : readPurchasedCheckoutIntent());
       // Fence the domains freshness check to this open before any domains fetch
       // can land, so a pre-open cached list never reads as fresh.
       setDomainsOpenedAt((prev) => prev ?? Date.now());
@@ -110,10 +179,17 @@ export function BillingOnboardingModal({
     exitTimers.current.forEach(clearTimeout);
     exitTimers.current = [];
     setStep("provisioning");
-    setFinishedInBackground(false);
     setTakeoverExit("idle");
     setDisplayedPhase(null);
     setDomainsOpenedAt(null);
+    setBackgroundConfirmOpen(false);
+    if (hasOpenedRef.current) {
+      hasOpenedRef.current = false;
+      // On close, not at the complete step: the takeover's exit sheet still
+      // paints from this surface, so bumping the stash version mid-fade would
+      // slide an otherwise-empty avatar query's tint to bundled green.
+      clearTakeoverAvatarStash();
+    }
   }, [open, isResize]);
 
   useEffect(
@@ -124,7 +200,9 @@ export function BillingOnboardingModal({
   );
 
   useEffect(() => {
-    if (step === "complete") clearCheckoutIntent();
+    if (step === "complete") {
+      clearCheckoutIntent();
+    }
   }, [step]);
 
   // Domain/email/guardian registration must run while the assistant's machine
@@ -134,24 +212,49 @@ export function BillingOnboardingModal({
   // while that resize is in flight — including a stall, where the machine may
   // still be mid-restart.
   const machineBusy = isMachineBusy(provisioning.state);
-  const provisioningSettled = isSettled(provisioning.state);
 
-  // The lock and the close toast describe the screen the user is looking at, so
-  // they read the takeover's held phase rather than the live one. The steps
-  // after it keep tracking live provisioning: a resize backgrounded via the
-  // escape hatch has to unblock the domain step when it actually finishes.
+  // The lock describes the screen the user is looking at, so it reads the
+  // takeover's held phase rather than the live one. The domain step still keys
+  // its submit guard off live provisioning, so a resize that finishes after a
+  // genuine advance into that step unblocks it the moment it settles.
   const onScreenPhase = displayedPhase ?? provisioning.state;
-  const onScreenBusy = isMachineBusy(onScreenPhase);
   const onScreenSettled = isSettled(onScreenPhase);
 
-  const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
+  const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
+
+  // An in-place change lands before this mounts, so its actuals already read
+  // post-change and the captured snapshot is the only honest from-side.
+  // Checkout's resize fires after the mount, so its actuals snapshot genuinely
+  // predates the change.
+  //
+  // Each dimension resolves on its own: a capture taken while one of its own
+  // reads was still unsettled carries a null for that dimension alone, and
+  // pinning the whole from-side to that capture freezes it null for the life of
+  // the takeover. Falling back to the actuals degrades honestly,
+  // because for an in-place change those actuals already describe the
+  // post-change state, so the dimension reads from == to and drops out of the
+  // row entirely. A missing chip beats a chip stating a move that never
+  // happened.
+  const capturedFrom = isResize ? resizeContext?.fromSnapshot : undefined;
+  const actualsFrom = provisioning.actualsSnapshot;
+  const fromSnapshot: ProvisioningDimensions = {
+    machineSize: capturedFrom?.machineSize ?? actualsFrom?.machineSize ?? null,
+    storageGib: capturedFrom?.storageGib ?? actualsFrom?.storageGib ?? null,
+  };
+
+  // The takeover and the sheet that covers it on the way out paint from one
+  // surface: the tint published as a custom property, plus the same blurred
+  // backdrop a custom-image avatar shows — so the handoff can't cross-fade a
+  // colour or an image against a flat fill.
+  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
 
   // Resize-mode routing needs "is a domain already registered?", which
   // checkout mode never consults — DomainStep owns its own fetch there. The
-  // enabled gate keeps this query fully off in checkout mode and in fee-less
-  // resize flows (domainSetupAvailable false for Mighty-tier packages).
-  const domainAnswerNeeded = isResize && domainSetupAvailable === true;
+  // enabled gate keeps this query fully off in checkout mode and in resize
+  // flows with no domain step to offer — a fee-less Mighty-tier package, or no
+  // assistant to attach a domain to.
+  const domainAnswerNeeded = isResize && domainStepAvailable === true;
   const {
     domains,
     domainsError,
@@ -166,8 +269,8 @@ export function BillingOnboardingModal({
   // recently-cached list without a refetch. Force one refetch for this open the
   // moment the query is enabled, exactly as use-pro-provisioning invalidates the
   // subscription and onboarding queries on open; without it a fresh-enough cache
-  // never advances `domainsUpdatedAt` past the fence and routing can only fall
-  // through the escape hatch.
+  // never advances `domainsUpdatedAt` past the fence and routing strands,
+  // leaving the escape CTA (which closes the takeover) as the only way out.
   //
   // `assistantId` can CHANGE mid-open: `provisioning.assistantId` starts on the
   // active assistant and flips to the onboarding payload's primary once that
@@ -216,11 +319,12 @@ export function BillingOnboardingModal({
     domainsErrorUpdatedAt >= domainsOpenedAt;
   const domainsKnown =
     !domainsFetching && (domainsFreshData || domainsFreshError);
-  // Routing must never use a stale domain_setup_available: until the first
+  // Routing must never use a stale `domainStepAvailable`: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
-  // data. Both the celebration dwell and the escape hatch wait on this.
-  // Latched: once fresh data has landed, a later background refetch must not
-  // yank the escape hatch or restart the dwell.
+  // data. The celebration dwell and the DONE advance wait on this; the escape
+  // CTA does not — it gates only on the machine being busy and the escape
+  // window having elapsed. Latched: once fresh data has landed, a later
+  // background refetch must not restart the dwell or flip the routing decision.
   const [routingSettled, setRoutingSettled] = useState(false);
   const routingInputsSettled =
     onboardingSettled && (!domainAnswerNeeded || domainsKnown);
@@ -236,13 +340,13 @@ export function BillingOnboardingModal({
 
   const advanceFromProvisioning = useCallback(() => {
     // Checkout treats unknown availability optimistically (`undefined` → domain
-    // step); resize requires affirmative `domainSetupAvailable === true` AND no
+    // step); resize requires affirmative `domainStepAvailable === true` AND no
     // existing domain before it surfaces the newly-usable domain step.
     const next = isResize
-      ? domainSetupAvailable === true && !hasExistingDomain
+      ? domainStepAvailable === true && !hasExistingDomain
         ? "domain"
         : "complete"
-      : domainSetupAvailable === false
+      : domainStepAvailable === false
         ? "complete"
         : "domain";
     if (prefersReducedMotion()) {
@@ -260,20 +364,34 @@ export function BillingOnboardingModal({
         );
       }, TAKEOVER_COVER_MS),
     );
-  }, [domainSetupAvailable, isResize, hasExistingDomain]);
+  }, [domainStepAvailable, isResize, hasExistingDomain]);
 
+  // "Continue in the background" opens a confirm that warns chatting stays
+  // unavailable until the upgrade finishes, so the user chooses to keep waiting
+  // or to be handed back to the app while the machine is still restarting.
   const escapeProvisioning = useCallback(() => {
-    setFinishedInBackground(true);
-    advanceFromProvisioning();
-  }, [advanceFromProvisioning]);
+    setBackgroundConfirmOpen(true);
+  }, []);
 
-  // Stalled recovery re-calls the idempotent, org-wide ensure-provisioned
-  // reconcile — the same path the wizard fires on Pro confirmation. Its errors
-  // surface as-is; a server-side resize that is still running converges the
-  // actuals polling to DONE and replaces the stalled UI regardless.
-  const { stalledAction } = provisioning;
-  const stalledActionIfStalled =
-    provisioning.state === "STALLED" ? stalledAction : undefined;
+  // Confirming the exit kicks the idempotent ensure-provisioned reconcile, shows
+  // an error-aware toast, dismisses the confirm, and closes the takeover so the
+  // user is handed back to the app rather than parked on the email/All-set steps
+  // mid-provisioning.
+  const confirmBackgroundExit = useCallback(() => {
+    provisioning.kickProvisioning();
+    toast.info(
+      provisioning.kickError != null
+        ? copy.backgroundRetryToast
+        : copy.backgroundExitToast,
+    );
+    setBackgroundConfirmOpen(false);
+    onClose();
+  }, [provisioning, onClose, copy]);
+
+  // Cancelling keeps the user on the takeover, still waiting on the upgrade.
+  const cancelBackgroundExit = useCallback(() => {
+    setBackgroundConfirmOpen(false);
+  }, []);
 
   // The fetch-error variant of the provisioning step is a standard dismissible
   // card, not the locked full-bleed takeover — otherwise the light error UI is
@@ -282,27 +400,18 @@ export function BillingOnboardingModal({
     step === "provisioning" &&
     (provisioning.confirmError || provisioning.targetsError);
 
-  const handleClose = () => {
-    if (step === "provisioning" && !provisioningError && onScreenBusy) {
-      toast.info("Your upgrade continues in the background.");
-    }
-    onClose();
-  };
-
   // The live provisioning takeover is the user's first real touchpoint with the
   // flow; we lock it so an accidental backdrop click or Esc can't bail them out
-  // mid-provisioning. Sanctioned exits (escape hatch, stalled apply, timeout
+  // mid-provisioning. Sanctioned exits (the escape hatch and the timeout
   // actions) live inside the step content.
   const isTakeover = step === "provisioning" && !provisioningError;
 
   // Lock Esc/backdrop while provisioning is active. The takeover exposes no
-  // persistent close control, so two escape valves guarantee a hung routing
-  // refetch can't strand the user: terminal ready states unlock, and a busy
-  // state stuck past the escape grace with routing still hung unlocks to a plain
-  // background-dismiss (the in-content escape hatch needs routing to have settled).
-  const stuckAwaitingRouting =
-    onScreenBusy && provisioning.escapeEligible && !routingSettled;
-  const lockTakeover = isTakeover && !onScreenSettled && !stuckAwaitingRouting;
+  // persistent close control, but the in-content "Continue in the background"
+  // button is independent of routing freshness — it needs only the machine busy
+  // and the escape window elapsed — so a hung routing refetch can't strand the
+  // user. Only a terminal ready state unlocks the backdrop itself.
+  const lockTakeover = isTakeover && !onScreenSettled;
 
   // Full-bleed dark content that fills the viewport for the takeover.
   const provisioningContentClass =
@@ -322,74 +431,113 @@ export function BillingOnboardingModal({
       : "[animation:fadeIn_0.25s_ease-out_both]";
 
   return (
-    <Modal.Root
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) handleClose();
-      }}
-    >
-      <Modal.Content
-        size="md"
-        hideCloseButton
-        dismissOnOverlayClick={!lockTakeover}
-        onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
-        data-theme={isTakeover ? "dark" : undefined}
-        overlayClassName={overlayClass}
-        className={isTakeover ? provisioningContentClass : "overflow-hidden"}
+    <>
+      <Modal.Root
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) {
+            onClose();
+          }
+        }}
       >
-        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
-            takeover is the modal's opening step, so it mounts at full size
-            rather than growing into it — it gets a longer, softer entrance so
-            a full-bleed dark canvas doesn't just appear over the billing page. */}
-        <div
-          key={step}
-          className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${stepEntrance}`}
+        <Modal.Content
+          size="md"
+          // The final step is terminal — nothing is in flight to interrupt, so
+          // it gets the standard dismiss. Earlier steps keep exits in-content.
+          hideCloseButton={step !== "complete"}
+          dismissOnOverlayClick={!lockTakeover}
+          onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
+          onInteractOutside={
+            lockTakeover ? (e) => e.preventDefault() : undefined
+          }
+          data-theme={isTakeover ? "dark" : undefined}
+          overlayClassName={overlayClass}
+          className={isTakeover ? provisioningContentClass : "overflow-hidden"}
+          style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
         >
-          {renderStep()}
-        </div>
-        {takeoverExit !== "idle" && (
+          {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
+              takeover is the modal's opening step, so it mounts at full size
+              rather than growing into it — it gets a longer, softer entrance so
+              a full-bleed dark canvas doesn't just appear over the billing page. */}
           <div
-            aria-hidden
-            data-testid="takeover-exit-sheet"
-            className={
-              // `fixed` escapes the card's box once the modal has shrunk back,
-              // so the sheet still covers the viewport while it clears. Reversed
-              // fadeIn is the fade-out; no second keyframe needed.
-              `pointer-events-none fixed inset-0 z-50 ${
-                takeoverExit === "covering"
-                  ? "[animation:fadeIn_200ms_ease-in_both]"
-                  : "[animation:fadeIn_380ms_ease-out_both_reverse]"
-              }`
-            }
-            style={{ backgroundColor: TAKEOVER_BACKGROUND }}
-          />
-        )}
-      </Modal.Content>
-    </Modal.Root>
+            key={step}
+            className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${stepEntrance}`}
+          >
+            {renderStep()}
+          </div>
+          {takeoverExit !== "idle" && (
+            <div
+              aria-hidden
+              data-testid="takeover-exit-sheet"
+              className={
+                // `fixed` escapes the card's box once the modal has shrunk back,
+                // so the sheet still covers the viewport while it clears.
+                // Reversed fadeIn is the fade-out; no second keyframe needed.
+                `pointer-events-none fixed inset-0 z-50 ${
+                  takeoverExit === "covering"
+                    ? "[animation:fadeIn_200ms_ease-in_both]"
+                    : "[animation:fadeIn_380ms_ease-out_both_reverse]"
+                }`
+              }
+              style={{ backgroundColor: TAKEOVER_SURFACE }}
+            >
+              {/* A custom-image takeover's colour lives in this blurred image,
+                  not the ground fill, so the sheet reproduces it to match. The
+                  `TAKEOVER_SURFACE` fill shows through while it decodes. The
+                  sheet's own fade drives the reveal, so the backdrop doesn't
+                  re-fade over it. */}
+              {backdropImageUrl && (
+                <TakeoverBackdrop
+                  imageUrl={backdropImageUrl}
+                  animateIn={false}
+                />
+              )}
+            </div>
+          )}
+        </Modal.Content>
+      </Modal.Root>
+      {/* Stacks over the locked full-bleed takeover as its own Modal.Root; its
+          Escape/backdrop closes only this confirm, never the takeover behind. */}
+      <ConfirmDialog
+        // Gated on the live machine state too: a resize that settles while the
+        // confirm is open closes it declaratively, so its buttons can't act
+        // after the wizard has advanced past provisioning.
+        open={backgroundConfirmOpen && machineBusy}
+        title="Continue in the background?"
+        message={copy.backgroundConfirmMessage}
+        confirmLabel="Continue"
+        cancelLabel="Keep waiting"
+        onConfirm={confirmBackgroundExit}
+        onCancel={cancelBackgroundExit}
+      />
+    </>
   );
 
   function renderStep() {
     if (step === "provisioning") {
       if (provisioning.confirmError || provisioning.targetsError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
+        return (
+          <FetchErrorState onGoToBilling={onClose} direction={direction} />
+        );
       }
       return (
         <ProvisioningState
           state={provisioning.state}
+          direction={direction}
           softWaiting={provisioning.softWaiting}
           intent={intent}
+          creditsChange={isResize ? resizeContext?.credits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
-          fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
+          fromSnapshot={fromSnapshot}
+          machineFloor={provisioning.machineFloor}
+          landed={provisioning.landed}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
           assistantId={assistantId}
-          escapeAvailable={
-            machineBusy && routingSettled && provisioning.escapeEligible
-          }
+          escapeAvailable={machineBusy && provisioning.escapeEligible}
           onEscape={escapeProvisioning}
           onPhaseChange={setDisplayedPhase}
-          stalledAction={stalledAction}
+          kickError={provisioning.kickError}
           confirm={{
             onRetry: provisioning.retryConfirm,
             onGoToBilling: onClose,
@@ -404,19 +552,12 @@ export function BillingOnboardingModal({
       return (
         <DomainStep
           machineBusy={machineBusy}
-          stalledAction={stalledActionIfStalled}
           assistantId={assistantId}
           onExit={() => setStep("complete")}
         />
       );
     }
 
-    return (
-      <CompleteState
-        finishedInBackground={finishedInBackground && !provisioningSettled}
-        stalledAction={stalledActionIfStalled}
-        assistantId={assistantId}
-      />
-    );
+    return <CompleteState assistantId={assistantId} direction={direction} />;
   }
 }

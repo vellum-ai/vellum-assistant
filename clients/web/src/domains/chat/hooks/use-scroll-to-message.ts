@@ -34,7 +34,9 @@ export function useScrollToMessageParam(args: {
   const targetMessageId = searchParams.get(SCROLL_TO_MESSAGE_PARAM);
 
   useEffect(() => {
-    if (!targetMessageId) return;
+    if (!targetMessageId) {
+      return;
+    }
 
     let cancelled = false;
     let attempts = 0;
@@ -52,9 +54,12 @@ export function useScrollToMessageParam(args: {
     };
 
     const attempt = () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       attempts += 1;
-      const found = transcriptRef.current?.scrollToMessage(targetMessageId) ?? false;
+      const found =
+        transcriptRef.current?.scrollToMessage(targetMessageId) ?? false;
       if (found || attempts >= MAX_ATTEMPTS) {
         clearParam();
         return;
@@ -65,7 +70,9 @@ export function useScrollToMessageParam(args: {
     timer = setTimeout(attempt, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
     };
     // `conversationId` re-arms the jump when navigating between threads.
   }, [targetMessageId, conversationId, transcriptRef, setSearchParams]);

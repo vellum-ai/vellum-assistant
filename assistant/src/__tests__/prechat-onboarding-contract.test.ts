@@ -62,7 +62,9 @@ const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
  */
 function bootstrapBlock(result: string): string {
   const ritualIdx = result.indexOf("# First-Run Ritual");
-  if (ritualIdx < 0) return "";
+  if (ritualIdx < 0) {
+    return "";
+  }
   return result.slice(ritualIdx);
 }
 
@@ -84,7 +86,9 @@ describe("pre-chat onboarding contract", () => {
       "channels",
     ]) {
       const p = join(TEST_DIR, name);
-      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+      if (existsSync(p)) {
+        rmSync(p, { recursive: true, force: true });
+      }
     }
   });
 

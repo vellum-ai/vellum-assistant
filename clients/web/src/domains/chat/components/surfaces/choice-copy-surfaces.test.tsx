@@ -3,9 +3,19 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
+// Records the assistant id the surface threads through, so the router → surface
+// wiring for workspace file references is assertable without the real renderer.
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div>{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    assistantId,
+  }: {
+    content: string;
+    assistantId?: string | null;
+  }) => (
+    <div data-testid="markdown" data-assistant-id={assistantId ?? ""}>
+      {content}
+    </div>
   ),
 }));
 
@@ -22,6 +32,7 @@ import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-co
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type {
   ManagedOAuthConnectClient,
+  ManagedOAuthConnectOptions,
   ManagedOAuthConnectResult,
 } from "@/domains/chat/api/managed-oauth";
 import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
@@ -57,6 +68,23 @@ function makeSurface(overrides: Partial<Surface>): Surface {
     surfaceType: "choice",
     data: {},
     ...overrides,
+  };
+}
+
+function makeConnectedResult(
+  scopesGranted: string[],
+): ManagedOAuthConnectResult {
+  return {
+    status: "connected",
+    connection: {
+      id: "conn-1",
+      provider: "google",
+      status: "ACTIVE",
+      connected: true,
+      account_label: "user@example.com",
+      scopes_granted: scopesGranted,
+      expires_at: null,
+    } as OAuthConnection,
   };
 }
 
@@ -212,18 +240,7 @@ describe("OAuthConnectSurface", () => {
     const onAction = mock(() => {});
     const oauthClient: ManagedOAuthConnectClient = {
       fetchProvider: mock(async () => null),
-      connect: mock(async () => ({
-        status: "connected" as const,
-        connection: {
-          id: "conn-1",
-          provider: "google",
-          status: "ACTIVE",
-          connected: true,
-          account_label: "user@example.com",
-          scopes_granted: ["gmail.readonly"],
-          expires_at: null,
-        } as OAuthConnection,
-      })),
+      connect: mock(async () => makeConnectedResult(["gmail.readonly"])),
     };
 
     const { getByRole, queryByText, invalidateQueries } = renderWithQueryClient(
@@ -259,6 +276,7 @@ describe("OAuthConnectSurface", () => {
         assistantId: "assistant-1",
         providerKey: "google",
         providerLabel: "Google",
+        requestedScopes: ["gmail.readonly"],
       });
       expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
         status: "connected",
@@ -277,6 +295,75 @@ describe("OAuthConnectSurface", () => {
         queryKey: assistantsOauthConnectionsListQueryKey({
           path: { assistant_id: "assistant-1" },
         }),
+      });
+    });
+  });
+
+  test("omits requestedScopes when the surface data carries none", async () => {
+    const connect = mock(async (_options: ManagedOAuthConnectOptions) =>
+      makeConnectedResult([]),
+    );
+    const oauthClient: ManagedOAuthConnectClient = {
+      fetchProvider: mock(async () => null),
+      connect,
+    };
+
+    const { getByRole } = renderWithQueryClient(
+      <OAuthConnectSurface
+        surface={makeSurface({
+          surfaceType: "oauth_connect",
+          data: { providerKey: "google", displayName: "Google" },
+        })}
+        assistantId="assistant-1"
+        oauthClient={oauthClient}
+        onAction={mock(() => {})}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+    expect(connect.mock.calls[0]?.[0]?.requestedScopes).toBeUndefined();
+  });
+
+  test("reports scopesGranted from the resulting connection, not the request", async () => {
+    // The platform decides what was actually granted; the action payload must
+    // reflect the connection's scopes_granted so the model can verify the
+    // grant includes what it asked for.
+    const onAction = mock(() => {});
+    const oauthClient: ManagedOAuthConnectClient = {
+      fetchProvider: mock(async () => null),
+      connect: mock(async () =>
+        makeConnectedResult(["gmail.readonly", "tasks", "calendar"]),
+      ),
+    };
+
+    const { getByRole } = renderWithQueryClient(
+      <OAuthConnectSurface
+        surface={makeSurface({
+          surfaceType: "oauth_connect",
+          data: {
+            providerKey: "google",
+            displayName: "Google",
+            requestedScopes: ["tasks"],
+          },
+        })}
+        assistantId="assistant-1"
+        oauthClient={oauthClient}
+        onAction={onAction}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => {
+      expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
+        status: "connected",
+        providerKey: "google",
+        providerLabel: "Google",
+        connectionId: "conn-1",
+        accountLabel: "user@example.com",
+        scopesGranted: ["gmail.readonly", "tasks", "calendar"],
       });
     });
   });
@@ -315,18 +402,7 @@ describe("OAuthConnectSurface", () => {
 
     // The transcript re-render replaced this instance while OAuth was in flight.
     unmount();
-    resolveConnect({
-      status: "connected",
-      connection: {
-        id: "conn-1",
-        provider: "google",
-        status: "ACTIVE",
-        connected: true,
-        account_label: "user@example.com",
-        scopes_granted: [],
-        expires_at: null,
-      } as OAuthConnection,
-    });
+    resolveConnect(makeConnectedResult([]));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(onAction).not.toHaveBeenCalled();
@@ -462,6 +538,25 @@ describe("OAuthConnectSurface", () => {
 });
 
 describe("SurfaceRouter", () => {
+  test("threads the owning assistant id into the surface's markdown", () => {
+    const { getByTestId } = render(
+      <SurfaceRouter
+        surface={makeSurface({
+          data: {
+            description: "See [the report](vellum://workspace/report.pdf).",
+            options: [{ id: "inbox", title: "Clean up my inbox" }],
+          },
+        })}
+        onAction={() => {}}
+        assistantId="asst-owner"
+      />,
+    );
+
+    expect(getByTestId("markdown").getAttribute("data-assistant-id")).toBe(
+      "asst-owner",
+    );
+  });
+
   test("collapses completed choice surfaces into a completion chip", () => {
     const { queryByText, getByText } = render(
       <SurfaceRouter

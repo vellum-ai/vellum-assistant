@@ -23,8 +23,7 @@
  *
  * This module owns the routing policy in one place: the profile key, the
  * leg-specific prompt rules, the leading-token classifier, and the bridge
- * cap/fallback policy. The gate itself is the `voice-mode` flag, read by the
- * LiveVoiceSession that drives the routing.
+ * cap/fallback policy. LiveVoiceSession drives the routing.
  */
 
 import {
@@ -296,6 +295,6 @@ export function escalatedContinuationRule(spokenBridge?: string): string {
     'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that holding phrase —',
     'opening with another "Let me check", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
     "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
-    `Never output ${ESCALATE_VERDICT_TOKEN} or any other verdict token — you are the model that finishes the answer.`,
+    `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (The [-1] room-minimize marker from your call instructions is not a verdict token and stays allowed.)`,
   ].join(" ");
 }

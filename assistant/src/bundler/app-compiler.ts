@@ -71,8 +71,11 @@ function parseEsbuildStderr(stderr: string): {
         }
       }
 
-      if (errorMatch) errors.push(diag);
-      else warnings.push(diag);
+      if (errorMatch) {
+        errors.push(diag);
+      } else {
+        warnings.push(diag);
+      }
     }
   }
 
@@ -88,9 +91,15 @@ function decodeJsEscapes(raw: string): string {
   return raw.replace(
     /\\(?:x([0-9a-fA-F]{2})|u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|([nrtbfv0'"\\]))/g,
     (_, hex2, codePoint, hex4, std) => {
-      if (hex2) return String.fromCharCode(parseInt(hex2, 16));
-      if (codePoint) return String.fromCodePoint(parseInt(codePoint, 16));
-      if (hex4) return String.fromCharCode(parseInt(hex4, 16));
+      if (hex2) {
+        return String.fromCharCode(parseInt(hex2, 16));
+      }
+      if (codePoint) {
+        return String.fromCodePoint(parseInt(codePoint, 16));
+      }
+      if (hex4) {
+        return String.fromCharCode(parseInt(hex4, 16));
+      }
       const map: Record<string, string> = {
         n: "\n",
         r: "\r",
@@ -127,9 +136,13 @@ function stripJsComments(source: string): string {
         if (source[i] === "\\") {
           out += source[i++]; // backslash
         }
-        if (i < source.length) out += source[i++]; // char or escaped char
+        if (i < source.length) {
+          out += source[i++];
+        } // char or escaped char
       }
-      if (i < source.length) out += source[i++]; // closing quote
+      if (i < source.length) {
+        out += source[i++];
+      } // closing quote
       continue;
     }
 
@@ -184,7 +197,9 @@ async function validateImportPaths(
     const fileName = String(file);
     const isJs = /\.[jt]sx?$/.test(fileName);
     const isCss = /\.css$/.test(fileName);
-    if (!isJs && !isCss) continue;
+    if (!isJs && !isCss) {
+      continue;
+    }
 
     const filePath = join(srcDir, fileName);
     const content = await readFile(filePath, "utf-8");
@@ -206,7 +221,9 @@ async function validateImportPaths(
       const re =
         /(?:@import\s+(?:url\s*\(\s*)?|url\s*\(\s*)["']?([^"')\s;]+)["']?/g;
       for (const m of content.matchAll(re)) {
-        if (m[1]) specifiers.push({ specifier: m[1], index: m.index! });
+        if (m[1]) {
+          specifiers.push({ specifier: m[1], index: m.index! });
+        }
       }
     }
 
@@ -215,7 +232,9 @@ async function validateImportPaths(
       const decoded = isJs ? decodeJsEscapes(specifier) : specifier;
 
       // Only validate path-based imports (starting with . or /)
-      if (!decoded.startsWith(".") && !decoded.startsWith("/")) continue;
+      if (!decoded.startsWith(".") && !decoded.startsWith("/")) {
+        continue;
+      }
 
       const resolved = resolve(fileDir, decoded);
       if (
@@ -245,13 +264,19 @@ async function resolveAppImports(srcDir: string): Promise<void> {
 
   const files = await readdir(srcDir, { recursive: true });
   for (const file of files) {
-    if (!/\.[jt]sx?$/.test(String(file))) continue;
+    if (!/\.[jt]sx?$/.test(String(file))) {
+      continue;
+    }
     const content = await readFile(join(srcDir, String(file)), "utf-8");
     for (const match of content.matchAll(importRe)) {
       const specifier = match[1];
-      if (!isBareImport(specifier)) continue;
+      if (!isBareImport(specifier)) {
+        continue;
+      }
       const pkg = packageName(specifier);
-      if (seen.has(pkg)) continue;
+      if (seen.has(pkg)) {
+        continue;
+      }
       seen.add(pkg);
       const result = await resolvePackage(pkg);
       if (result === null) {
@@ -318,7 +343,9 @@ export function compileApp(appDir: string): Promise<CompileResult> {
     return current;
   }
 
-  if (slot.pending) return slot.pending;
+  if (slot.pending) {
+    return slot.pending;
+  }
 
   // A second distinct caller arrived while `current` is running. Queue a
   // follow-up that starts once `current` settles (success or failure) so
@@ -343,7 +370,9 @@ function slotCompileSettled(
   finished: Promise<CompileResult>,
 ): void {
   const slot = compileSlots.get(appDir);
-  if (!slot) return;
+  if (!slot) {
+    return;
+  }
 
   if (slot.current !== finished) {
     // finished is a rerun that hasn't been promoted yet, or a stale entry.

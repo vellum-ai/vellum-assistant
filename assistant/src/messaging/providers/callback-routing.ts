@@ -40,7 +40,9 @@ export function channelForCallback(
   } catch {
     pathname = callbackUrl.split("?", 1)[0];
   }
-  if (!pathname.startsWith(CALLBACK_PREFIX)) return undefined;
+  if (!pathname.startsWith(CALLBACK_PREFIX)) {
+    return undefined;
+  }
   const channel = pathname.slice(CALLBACK_PREFIX.length);
   return (DIRECT_DELIVERY_CHANNELS as readonly string[]).includes(channel)
     ? (channel as DirectDeliveryChannel)

@@ -23,7 +23,9 @@ export const backfillGoogleGmailSettingsScopeMigration: WorkspaceMigration = {
     "Backfill gmail.settings.basic scope for existing Google provider rows",
   run(workspaceDir: string): void {
     const dbPath = join(workspaceDir, "data", "db", "assistant.db");
-    if (!existsSync(dbPath)) return; // DB not created yet — nothing to backfill.
+    if (!existsSync(dbPath)) {
+      return;
+    } // DB not created yet — nothing to backfill.
 
     let db: Database;
     try {
@@ -47,7 +49,9 @@ export const backfillGoogleGmailSettingsScopeMigration: WorkspaceMigration = {
         return;
       }
 
-      if (!row) return; // No google provider row — seed will create it fresh.
+      if (!row) {
+        return;
+      } // No google provider row — seed will create it fresh.
 
       let scopes: string[];
       try {
@@ -57,7 +61,9 @@ export const backfillGoogleGmailSettingsScopeMigration: WorkspaceMigration = {
         scopes = [];
       }
 
-      if (scopes.includes(GMAIL_SETTINGS_BASIC_SCOPE)) return; // Already present.
+      if (scopes.includes(GMAIL_SETTINGS_BASIC_SCOPE)) {
+        return;
+      } // Already present.
 
       scopes.push(GMAIL_SETTINGS_BASIC_SCOPE);
 

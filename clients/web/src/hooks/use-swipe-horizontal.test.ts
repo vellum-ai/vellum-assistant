@@ -103,9 +103,11 @@ describe("useSwipeHorizontal", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 0, clientY: 100 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 0, clientY: 100 }],
+        ),
       ),
     );
 
@@ -135,9 +137,11 @@ describe("useSwipeHorizontal", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 100, clientY: 100 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 100, clientY: 100 }],
+        ),
       ),
     );
 
@@ -166,9 +170,11 @@ describe("useSwipeHorizontal", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 200, clientY: 100 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 200, clientY: 100 }],
+        ),
       ),
     );
 
@@ -198,9 +204,11 @@ describe("useSwipeHorizontal", () => {
     // Only moved 50px — below the 80px threshold.
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 50, clientY: 100 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 50, clientY: 100 }],
+        ),
       ),
     );
 
@@ -231,9 +239,11 @@ describe("useSwipeHorizontal", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 110, clientY: 300 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 110, clientY: 300 }],
+        ),
       ),
     );
 
@@ -266,9 +276,11 @@ describe("useSwipeHorizontal", () => {
 
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 100, clientY: 100 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 100, clientY: 100 }],
+        ),
       ),
     );
 
@@ -325,9 +337,7 @@ describe("useSwipeHorizontal", () => {
   });
 
   test("resets on touchcancel", () => {
-    const { result } = renderHook(() =>
-      useSwipeHorizontal({ enabled: true }),
-    );
+    const { result } = renderHook(() => useSwipeHorizontal({ enabled: true }));
 
     act(() =>
       result.current.onTouchStart(

@@ -1,7 +1,2 @@
 export type TerminalStatus =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "error"
-  | "closed";
+  "idle" | "connecting" | "connected" | "reconnecting" | "error" | "closed";

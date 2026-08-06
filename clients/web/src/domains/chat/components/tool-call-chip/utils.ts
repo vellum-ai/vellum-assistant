@@ -392,7 +392,11 @@ export function friendlyRunningLabel(
   // buildingStatus override for app tools — mirrors macOS ChatBubbleToolHelpers.swift
   if (buildingStatus) {
     const name = toolName.toLowerCase();
-    if (name === "app_create" || name === "app_refresh" || name === "app_update") {
+    if (
+      name === "app_create" ||
+      name === "app_refresh" ||
+      name === "app_update"
+    ) {
       return buildingStatus;
     }
   }
@@ -575,10 +579,18 @@ export function toolCategory(toolName: string): string {
   }
 
   // Prefix-based grouping
-  if (name.startsWith("browser_")) return "Browser";
-  if (name.startsWith("schedule_")) return "Scheduling";
-  if (name.startsWith("watcher_")) return "Watcher";
-  if (name.startsWith("memory_")) return "Memory";
+  if (name.startsWith("browser_")) {
+    return "Browser";
+  }
+  if (name.startsWith("schedule_")) {
+    return "Scheduling";
+  }
+  if (name.startsWith("watcher_")) {
+    return "Watcher";
+  }
+  if (name.startsWith("memory_")) {
+    return "Memory";
+  }
 
   return titleCaseToolName(toolName);
 }

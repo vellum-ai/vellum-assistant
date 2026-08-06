@@ -1,12 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
+import {
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_FALLBACK_SLACK_MS,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
 import { computeDrawerOffset, useEdgeSwipe } from "@/hooks/use-edge-swipe";
-
-/** Duration (ms) of the open / snap-closed animation the finger hands off to. */
-export const DRAWER_SLIDE_MS = 200;
-
-/** Slack (ms) added to the animation duration for the safety-fallback timer. */
-const ANIMATION_FALLBACK_SLACK_MS = 50;
 
 /** Clear the inline styles this hook owns, returning ownership to React. */
 function resetTransientStyles(el: HTMLElement): void {
@@ -69,17 +68,23 @@ export function useEdgeSwipeDrawer({
     const timers = timersRef.current;
     return () => {
       cancelledRef.current = true;
-      for (const id of timers) {clearTimeout(id);}
+      for (const id of timers) {
+        clearTimeout(id);
+      }
       timers.clear();
       const el = panelRef.current;
-      if (el) {resetTransientStyles(el);}
+      if (el) {
+        resetTransientStyles(el);
+      }
     };
   }, [panelRef]);
 
   const scheduleTimeout = (fn: () => void, ms: number) => {
     const id = setTimeout(() => {
       timersRef.current.delete(id);
-      if (!cancelledRef.current) {fn();}
+      if (!cancelledRef.current) {
+        fn();
+      }
     }, ms);
     timersRef.current.add(id);
   };
@@ -91,7 +96,9 @@ export function useEdgeSwipeDrawer({
     },
     onMove: (_dx, _threshold, x) => {
       const el = panelRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       // The panel's right edge tracks the finger's absolute position toward
       // fully open at translateX(0), so it stays under the finger wherever in
       // the activation band the swipe began.
@@ -105,14 +112,19 @@ export function useEdgeSwipeDrawer({
       if (el) {
         // Slide the remaining distance to fully open, then hand the resting
         // transform back to React (which renders `translateX(0)` while open).
-        el.style.transition = `transform ${DRAWER_SLIDE_MS}ms ease-out`;
+        el.style.transition = `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`;
         el.style.transform = "translateX(0)";
         const finish = () => {
           el.removeEventListener("transitionend", finish);
-          if (!cancelledRef.current) {resetTransientStyles(el);}
+          if (!cancelledRef.current) {
+            resetTransientStyles(el);
+          }
         };
         el.addEventListener("transitionend", finish, { once: true });
-        scheduleTimeout(finish, DRAWER_SLIDE_MS + ANIMATION_FALLBACK_SLACK_MS);
+        scheduleTimeout(
+          finish,
+          EDGE_SWIPE_SLIDE_MS + EDGE_SWIPE_FALLBACK_SLACK_MS,
+        );
       }
       callbacksRef.current.onOpen();
     },
@@ -123,18 +135,23 @@ export function useEdgeSwipeDrawer({
         return;
       }
       // Snap the peeked panel back off-screen, then let the caller unmount it.
-      el.style.transition = `transform ${DRAWER_SLIDE_MS}ms ease-out`;
+      el.style.transition = `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`;
       el.style.transform = "translateX(-100%)";
       let done = false;
       const finish = () => {
-        if (done || cancelledRef.current) {return;}
+        if (done || cancelledRef.current) {
+          return;
+        }
         done = true;
         el.removeEventListener("transitionend", finish);
         resetTransientStyles(el);
         callbacksRef.current.onSettle();
       };
       el.addEventListener("transitionend", finish, { once: true });
-      scheduleTimeout(finish, DRAWER_SLIDE_MS + ANIMATION_FALLBACK_SLACK_MS);
+      scheduleTimeout(
+        finish,
+        EDGE_SWIPE_SLIDE_MS + EDGE_SWIPE_FALLBACK_SLACK_MS,
+      );
     },
   });
 }

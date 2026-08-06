@@ -10,3 +10,13 @@ export {
   isAbstractIpcEnabled,
   isAbstractSocketPath,
 } from "./abstract-socket.js";
+export {
+  IpcFrameReader,
+  writeLegacyMessage,
+  writeMessage,
+  writeStreamChunk,
+  writeStreamEnd,
+  type IpcEnvelope,
+  type OnMessageCallback,
+  type StreamCallbacks,
+} from "./ipc-framing.js";

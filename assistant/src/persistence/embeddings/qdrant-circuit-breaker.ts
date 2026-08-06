@@ -29,7 +29,9 @@ export class QdrantCircuitOpenError extends Error {
 }
 
 function allows(): boolean {
-  if (breakerState === "closed") return true;
+  if (breakerState === "closed") {
+    return true;
+  }
   if (breakerState === "open") {
     if (Date.now() - openedAt >= COOLDOWN_MS) {
       breakerState = "half-open";
@@ -42,7 +44,9 @@ function allows(): boolean {
     return false;
   }
   // half-open: only allow through if no probe is already in flight
-  if (halfOpenProbeInFlight) return false;
+  if (halfOpenProbeInFlight) {
+    return false;
+  }
   halfOpenProbeInFlight = true;
   return true;
 }

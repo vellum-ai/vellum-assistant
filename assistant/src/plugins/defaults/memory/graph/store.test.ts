@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { getMemorySqlite } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
-import { resetTestTables } from "../../../../persistence/raw-query.js";
 import {
   applyDiff,
   countNodes,
@@ -65,11 +65,9 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  resetTestTables(
-    "memory_graph_triggers",
-    "memory_graph_edges",
-    "memory_graph_nodes",
-  );
+  // The graph cluster lives in the dedicated memory database now; reset it on
+  // that connection. Deleting nodes cascades to edges, triggers, and edits.
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
 });
 
 // ---------------------------------------------------------------------------

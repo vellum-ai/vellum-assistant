@@ -11,6 +11,8 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -54,7 +56,7 @@ import { endSection, markSection } from "../persistence/slow-sync-log.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
-import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/v2/activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
@@ -119,6 +121,7 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
+  type ConversationErrorAttribution,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
@@ -131,7 +134,6 @@ import {
 } from "./inflight-message-content.js";
 import type {
   CardSurfaceData,
-  ServerMessage,
   SurfaceAction,
   UiSurfaceShow,
 } from "./message-protocol.js";
@@ -224,6 +226,13 @@ export interface EventHandlerState {
    * path.
    */
   providerErrorCode: string | null;
+  /**
+   * Classified category of the most recent provider error
+   * (`classifyConversationError(...).errorCategory`). Stamped onto the
+   * synthetic error row's metadata alongside {@link providerErrorCode} when
+   * the loop persists the failure as an assistant message.
+   */
+  providerErrorCategory: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -326,6 +335,12 @@ export interface EventHandlerState {
    * tools (in handleToolResult) and native server tools (server_tool_complete).
    */
   readonly toolActivityMetadata: Map<string, ToolActivityMetadata>;
+  /**
+   * Answered `ask_question` records keyed by tool_use_id, captured when the
+   * result lands so the questions and the user's answers are persisted on the
+   * tool's content block and the answered card survives a history reopen.
+   */
+  readonly toolAnsweredQuestions: Map<string, AnsweredQuestion>;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
@@ -357,15 +372,24 @@ export interface EventHandlerState {
   currentThinkingTimestamps: { startedAt: number; completedAt: number }[];
   /**
    * `seq` of the most recent streamed content delta mirrored into
-   * `currentMessageContent`. Recorded as the conversation's persisted `seq`
-   * after each flush commits (the debounced partial flushes and the
-   * `message_complete` finalize), so the snapshot's advertised `seq` tracks
-   * exactly the streamed content the durable row holds. `undefined` until the
-   * first content delta of the in-flight message. Because every streamed
-   * content type rides the same mirror-and-flush path, this single field
-   * never claims content a flush has not yet written.
+   * `currentMessageContent`, stamped synchronously as the delta is emitted —
+   * before any flush writes it, so this runs ahead of the durable rows. Each
+   * flush snapshots it to learn how far the live stream has advanced; the
+   * committed watermark lives in `flushedContentSeq`. `undefined` until the
+   * first content delta of the in-flight message.
    */
-  lastPersistedContentSeq: number | undefined;
+  lastStreamedContentSeq: number | undefined;
+  /**
+   * Highest `seq` whose streamed content a flush has committed to durable rows
+   * for the in-flight turn. Raised (monotonic max) only after a partial flush
+   * or the `message_complete` finalize write commits — never at emit time —
+   * and never reset mid-turn, so it is a turn-level high-water mark that trails
+   * `lastStreamedContentSeq` by exactly the content not yet written. A caller
+   * anchoring a snapshot at this value (`inflight-turn-registry`) never
+   * advertises content the durable rows do not hold. `undefined` until the
+   * first flush of the turn commits.
+   */
+  flushedContentSeq: number | undefined;
   /**
    * Pre-compaction history buffered from `context_compacting` start events,
    * keyed by `compactionId`. The paired `compaction_completed` event no
@@ -479,6 +503,14 @@ export interface EventHandlerState {
    */
   readonly stagedRevealIdentities: Set<string>;
   /**
+   * `ui_show` tool calls whose streaming input has already been classified
+   * for a surface placeholder (see {@link handleInputJsonDelta}). Holds both
+   * outcomes, the ones that emitted `ui_surface_pending` and the ones whose
+   * prefix proved they are not a `visual`, so the scan runs once per call
+   * rather than on every delta.
+   */
+  readonly surfacePendingScannedToolUseIds: Set<string>;
+  /**
    * In-flight priming of {@link liveRevealGuardEntries}. The dispatcher
    * awaits this before processing a `text_delta` (and before the
    * end-of-message guard flush) so a fast reveal echo can never race the
@@ -502,7 +534,7 @@ export interface EventHandlerState {
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
   readonly ctx: Conversation;
-  readonly onEvent: (msg: ServerMessage) => void;
+  readonly onEvent: (msg: AssistantEvent) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
   /** Whether the conversation title is replaceable — controls firstAssistantText accumulation for title generation. */
@@ -531,6 +563,8 @@ export interface EventHandlerDeps {
    * degrades gracefully when it's absent.
    */
   readonly latencyTracker?: TurnLatencyTracker;
+  /** Best-effort resolved route metadata for provider error classification. */
+  readonly errorAttribution?: () => ConversationErrorAttribution;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -551,6 +585,7 @@ export function createEventHandlerState(): EventHandlerState {
     model: "",
     providerErrorUserMessage: null,
     providerErrorCode: null,
+    providerErrorCategory: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -574,6 +609,7 @@ export function createEventHandlerState(): EventHandlerState {
     toolConfirmationOutcomes: new Map(),
     toolRiskOutcomes: new Map(),
     toolActivityMetadata: new Map(),
+    toolAnsweredQuestions: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
@@ -583,7 +619,8 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     currentThinkingTimestamps: [],
-    lastPersistedContentSeq: undefined,
+    lastStreamedContentSeq: undefined,
+    flushedContentSeq: undefined,
     compactionStartMessages: new Map(),
     latencyCursor: 0,
     deferredFinalizeEffects: [],
@@ -596,6 +633,7 @@ export function createEventHandlerState(): EventHandlerState {
     candidateRemintAuthorities: [],
     forChatMintWatermark: currentForChatMintWatermark(),
     stagedRevealIdentities: new Set(),
+    surfacePendingScannedToolUseIds: new Set(),
     liveRevealGuardPriming: undefined,
   };
 }
@@ -618,7 +656,7 @@ export function createEventHandlerState(): EventHandlerState {
 async function chatRevealCandidates(
   state: EventHandlerState,
 ): Promise<readonly ResolvedRevealCandidate[] | undefined> {
-  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())) {
+  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal")) {
     return undefined;
   }
   return resolvedRevealCandidatesForState(state);
@@ -807,6 +845,12 @@ export function buildPersistedAssistantContent(
       display: surface.display,
       ...(surface.persistent ? { persistent: true } : {}),
       ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
+      // A surface answered before this write lands owns no persisted block for
+      // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+      ...(surface.completed ? { completed: true } : {}),
+      ...(surface.completionSummary
+        ? { completionSummary: surface.completionSummary }
+        : {}),
     } as unknown as ContentBlock);
   }
   return withSurfaces.map((block) => {
@@ -937,7 +981,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
   }
   state.currentMessageContent = [];
   state.currentThinkingTimestamps = [];
-  state.lastPersistedContentSeq = undefined;
+  state.lastStreamedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
   // If a previous LLM call (e.g. a retried/replaced stream) held back
   // sentinel-guarded text via `drainSentinelGuardedText`, the stale
@@ -1021,6 +1065,23 @@ async function persistLoopMessageContent(
   }
 }
 
+/**
+ * Raise the in-flight turn's flushed-content watermark once a flush or finalize
+ * write has committed `committedSeq`'s content to durable rows. Monotonic max: a
+ * slower flush can resolve after a newer delta already advanced the watermark,
+ * so it must never regress. Feeds `getInflightFlushedContentSeq`, which caps the
+ * worker → daemon persist hand-off's snapshot anchor at flushed content.
+ */
+function raiseFlushedContentWatermark(
+  state: EventHandlerState,
+  committedSeq: number,
+): void {
+  state.flushedContentSeq = Math.max(
+    state.flushedContentSeq ?? 0,
+    committedSeq,
+  );
+}
+
 /** Flush `state.currentMessageContent` to the persisted assistant row. */
 async function flushAccumulatedContent(
   state: EventHandlerState,
@@ -1044,9 +1105,9 @@ async function flushAccumulatedContent(
     persistRemintAuthorities(state, deps, revealCandidates),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
-  // arrive while the write is in flight bump `lastPersistedContentSeq`
+  // arrive while the write is in flight bump `lastStreamedContentSeq`
   // again, but they are not part of this write.
-  const flushedSeq = state.lastPersistedContentSeq;
+  const flushedSeq = state.lastStreamedContentSeq;
 
   // Partial flushes append to the in-flight delta file — a pure file
   // write; the row has held the `{ ref }` since it was reserved. Delta
@@ -1061,10 +1122,11 @@ async function flushAccumulatedContent(
         "partial_flush_assistant_content",
         deps.rlog,
       );
-  // Record only after the write commits, so the snapshot seq never
-  // claims content that is not yet durable.
+  // Record only after the write commits, so the snapshot seq never claims
+  // content that is not yet durable.
   if (persisted && flushedSeq != null) {
     recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
+    raiseFlushedContentWatermark(state, flushedSeq);
   }
 }
 
@@ -1141,6 +1203,25 @@ function schedulePartialFlush(
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
 const APP_TOOL_NAMES = new Set(["app_create"]);
+
+// ── Surface Placeholder Detection ────────────────────────────────────
+// A `visual` ui_show streams the longest tool input the model produces, and
+// nothing is on screen while it does: the ui_show chip is suppressed because
+// the surface renders in its place, and the surface only exists once the call
+// closes. Sniffing `surface_type` off the accumulated prefix lets the client
+// hold a placeholder for that gap. The input itself is never forwarded: the
+// fragment is large and the client has no use for a partial one.
+const UI_SHOW_TOOL_NAME = "ui_show";
+
+/**
+ * How much of the accumulated input the surface-type sniff reads. `ui_show`
+ * declares `surface_type` first, so a real one lands in the first few dozen
+ * characters; past this window the call is classified as "not a visual" and
+ * never re-scanned.
+ */
+const SURFACE_TYPE_SCAN_CHARS = 400;
+
+const VISUAL_SURFACE_TYPE_PATTERN = /"surface_type"\s*:\s*"visual"/;
 const MAX_TOKENS_CONTINUE_PROMPT =
   "Continue from where you stopped. Do not repeat content you've already sent.";
 const MAX_TOKENS_SURFACE_COMPLETION_SUMMARY = "Continue";
@@ -1410,7 +1491,7 @@ function handleTextDelta(
       // `getCurrentSeq()` here is that delta's seq -- the position the
       // mirrored content now reflects. A partial flush snapshots this to
       // record how far the durable rows track the live stream.
-      state.lastPersistedContentSeq = getCurrentSeq();
+      state.lastStreamedContentSeq = getCurrentSeq();
       schedulePartialFlush(state, deps);
     }
     if (deps.shouldGenerateTitle) {
@@ -1458,7 +1539,7 @@ function handleThinkingDelta(
   appendThinkingToCurrentMessage(state, event.thinking);
   // The hub stamps `seq` synchronously on the delta emitted above, so
   // `getCurrentSeq()` is that delta's position in the mirrored content.
-  state.lastPersistedContentSeq = getCurrentSeq();
+  state.lastStreamedContentSeq = getCurrentSeq();
   schedulePartialFlush(state, deps);
 }
 
@@ -1706,11 +1787,48 @@ function handleToolOutputChunk(
   });
 }
 
+/**
+ * Announce a still-streaming `ui_show` that is going to produce a `visual`
+ * surface, so the client can hold a placeholder for it.
+ *
+ * Runs at most once per tool call: the first delta whose prefix matches emits,
+ * and a call whose prefix grows past the scan window without matching is
+ * recorded as classified so later deltas cost nothing.
+ */
+function announcePendingVisualSurface(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "input_json_delta" }>,
+): void {
+  if (state.surfacePendingScannedToolUseIds.has(event.toolUseId)) {
+    return;
+  }
+  const prefix = event.accumulatedJson.slice(0, SURFACE_TYPE_SCAN_CHARS);
+  if (!VISUAL_SURFACE_TYPE_PATTERN.test(prefix)) {
+    if (event.accumulatedJson.length >= SURFACE_TYPE_SCAN_CHARS) {
+      state.surfacePendingScannedToolUseIds.add(event.toolUseId);
+    }
+    return;
+  }
+  state.surfacePendingScannedToolUseIds.add(event.toolUseId);
+  deps.onEvent({
+    type: "ui_surface_pending",
+    surfaceType: "visual",
+    conversationId: deps.ctx.conversationId,
+    toolUseId: event.toolUseId,
+    messageId: state.lastAssistantMessageId,
+  });
+}
+
 export function handleInputJsonDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
+  if (event.toolName === UI_SHOW_TOOL_NAME) {
+    announcePendingVisualSurface(state, deps, event);
+    return;
+  }
   // Only forward input deltas for app tools — the client only uses this
   // stream for app_create code previews. Non-app tools would send large
   // cumulative JSON on every delta with no benefit.
@@ -1901,7 +2019,7 @@ export async function finalizePendingToolResultRow(
   );
   const contentJson = JSON.stringify(
     conv != null
-      ? referenceMediaBlocksForPersist(
+      ? await referenceMediaBlocksForPersist(
           conversationId,
           conv.createdAt,
           rowId,
@@ -2173,6 +2291,20 @@ export async function handleToolResult(
     state.toolActivityMetadata.set(event.toolUseId, event.activityMetadata);
   }
 
+  // Capture the answered `ask_question` record and stamp it on the durable
+  // tool_use block right away. The end-of-turn annotation re-stamps it, but
+  // that only runs once every tool in the turn has finished: a user who
+  // switches conversations while a sibling tool is still running would
+  // otherwise reload into history that has lost their answer.
+  if (event.answeredQuestion) {
+    state.toolAnsweredQuestions.set(event.toolUseId, event.answeredQuestion);
+    recordAnsweredQuestionOnPersistedMessage(
+      state,
+      event.toolUseId,
+      event.answeredQuestion,
+    );
+  }
+
   const toolName = state.toolUseIdToName.get(event.toolUseId);
   if (toolName === "file_write" || toolName === "bash") {
     deps.ctx.markWorkspaceTopLevelDirty();
@@ -2256,6 +2388,7 @@ export async function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    answeredQuestion: event.answeredQuestion,
     errorCode: event.errorCode,
     completedAt,
   });
@@ -2276,18 +2409,23 @@ export async function handleToolResult(
 }
 
 /**
- * Stamp `_startedAt` onto the in-flight tool_use block in the persisted
- * assistant message the moment the tool begins. The block is already durable
- * (message_complete precedes tool events), so without this a `/messages`
- * snapshot fetched mid-tool would carry no start time and clients could not
- * render a running elapsed-time counter until the whole turn finished. The
- * full timing + risk annotation still happens in
- * `annotatePersistedAssistantMessage` once every tool in the turn completes.
+ * Stamp vellum-internal metadata onto an in-flight tool_use block in the
+ * persisted assistant message, ahead of the turn's end-of-turn annotation. The
+ * block is already durable (message_complete precedes tool events), so without
+ * an early stamp a `/messages` snapshot fetched mid-turn carries none of it and
+ * clients render a degraded row until every tool in the turn has finished.
+ *
+ * `apply` mutates the block record and returns false when the value is already
+ * stamped, which skips the write. The write itself is best-effort:
+ * `annotatePersistedAssistantMessage` re-stamps from the same state maps once
+ * the turn's tools complete, so a transient `SQLITE_BUSY` here must not abort
+ * the turn. `what` names the field for the failure log.
  */
-function recordToolStartOnPersistedMessage(
+function stampToolUseBlockEarly(
   state: EventHandlerState,
   toolUseId: string,
-  startedAt: number,
+  what: string,
+  apply: (block: Record<string, unknown>) => boolean,
 ): void {
   const messageId = state.lastAssistantMessageId;
   if (!messageId) {
@@ -2309,19 +2447,15 @@ function recordToolStartOnPersistedMessage(
     if (rec.id !== toolUseId) {
       continue;
     }
-    if (rec._startedAt === startedAt) {
+    if (!apply(rec)) {
       return;
     }
-    rec._startedAt = startedAt;
-    // Best-effort early stamp: `annotatePersistedAssistantMessage` re-stamps
-    // once every tool in the turn completes, so a transient `SQLITE_BUSY` here
-    // must not abort the turn — the end-of-turn write recovers it.
     try {
       updateMessageContent(messageId, JSON.stringify(content));
     } catch (err) {
       log.error(
         { err, messageId },
-        "stamping tool start time failed; end-of-turn annotation will recover",
+        `stamping ${what} failed; end-of-turn annotation will recover`,
       );
     }
     return;
@@ -2329,57 +2463,73 @@ function recordToolStartOnPersistedMessage(
 }
 
 /**
- * Stamp `_previewStartedAt` (the first-byte timestamp) onto the durable
- * tool_use block, mirroring `recordToolStartOnPersistedMessage`. Called from
- * `handleToolUse` rather than `handleToolUsePreviewStart`: the block only exists
- * once message_complete has written it, which happens after the preview event
- * but before the tool event. Without this a `/messages` snapshot fetched
- * mid-tool would lose the perceived-start anchor and clients would fall back to
- * execution start — hiding the input-streaming gap the user actually waited
- * through.
+ * Stamp `_startedAt` the moment the tool begins, so a mid-tool `/messages`
+ * snapshot can render a running elapsed-time counter.
+ */
+function recordToolStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  startedAt: number,
+): void {
+  stampToolUseBlockEarly(state, toolUseId, "tool start time", (rec) => {
+    if (rec._startedAt === startedAt) {
+      return false;
+    }
+    rec._startedAt = startedAt;
+    return true;
+  });
+}
+
+/**
+ * Stamp `_previewStartedAt` (the first-byte timestamp). Called from
+ * `handleToolUse` rather than `handleToolUsePreviewStart`: the block only
+ * exists once message_complete has written it, which happens after the preview
+ * event but before the tool event. Without it a mid-tool `/messages` snapshot
+ * loses the perceived-start anchor and clients fall back to execution start,
+ * hiding the input-streaming gap the user actually waited through.
  */
 function recordToolPreviewStartOnPersistedMessage(
   state: EventHandlerState,
   toolUseId: string,
   previewStartedAt: number,
 ): void {
-  const messageId = state.lastAssistantMessageId;
-  if (!messageId) {
-    return;
-  }
-
-  const row = getMessageById(messageId);
-  if (!row) {
-    return;
-  }
-
-  const content: ContentBlock[] = row.content;
-
-  for (const block of content) {
-    if (block.type !== "tool_use") {
-      continue;
-    }
-    const rec = block as unknown as Record<string, unknown>;
-    if (rec.id !== toolUseId) {
-      continue;
-    }
+  stampToolUseBlockEarly(state, toolUseId, "tool preview-start time", (rec) => {
     if (rec._previewStartedAt === previewStartedAt) {
-      return;
+      return false;
     }
     rec._previewStartedAt = previewStartedAt;
-    // Best-effort early stamp, mirroring `recordToolStartOnPersistedMessage`:
-    // `annotatePersistedAssistantMessage` re-stamps at end of turn, so a
-    // transient `SQLITE_BUSY` here must not abort the turn.
-    try {
-      updateMessageContent(messageId, JSON.stringify(content));
-    } catch (err) {
-      log.error(
-        { err, messageId },
-        "stamping tool preview-start time failed; end-of-turn annotation will recover",
-      );
+    return true;
+  });
+}
+
+/**
+ * Stamp `_answeredQuestion` the moment an `ask_question` prompt settles, so a
+ * user who leaves the conversation while a sibling tool is still running comes
+ * back to their answer rather than to a question that lost its response.
+ */
+function recordAnsweredQuestionOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  answeredQuestion: AnsweredQuestion,
+): void {
+  stampToolUseBlockEarly(state, toolUseId, "answered question", (rec) => {
+    // Narrow the persisted marker rather than casting it: the row is data read
+    // back from the database, so its shape is an assumption until checked. Any
+    // value that is not a record with a string `requestId` is treated as absent
+    // and overwritten, which is the safe direction for a dedup check.
+    const existing: unknown = rec._answeredQuestion;
+    const existingRequestId =
+      typeof existing === "object" &&
+      existing !== null &&
+      typeof (existing as { requestId?: unknown }).requestId === "string"
+        ? (existing as { requestId: string }).requestId
+        : undefined;
+    if (existingRequestId === answeredQuestion.requestId) {
+      return false;
     }
-    return;
-  }
+    rec._answeredQuestion = answeredQuestion;
+    return true;
+  });
 }
 
 /**
@@ -2479,6 +2629,11 @@ function annotatePersistedAssistantMessage(
         rec._activityMetadata = activity;
         modified = true;
       }
+      const answeredQuestion = state.toolAnsweredQuestions.get(id);
+      if (answeredQuestion) {
+        rec._answeredQuestion = answeredQuestion;
+        modified = true;
+      }
     }
   }
 
@@ -2504,6 +2659,12 @@ function annotatePersistedAssistantMessage(
         ...(surface.activationMoment
           ? { activationMoment: surface.activationMoment }
           : {}),
+        // A surface answered before this write lands owns no persisted block for
+        // `markSurfaceCompleted` to patch, so its completion rides the snapshot.
+        ...(surface.completed ? { completed: true } : {}),
+        ...(surface.completionSummary
+          ? { completionSummary: surface.completionSummary }
+          : {}),
       } as unknown as ContentBlock);
     }
     modified = true;
@@ -2527,9 +2688,7 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (classified.errorCategory === "provider_api_error") {
     log.error(
       {
@@ -2554,6 +2713,7 @@ function handleError(
   );
   state.providerErrorUserMessage = classified.userMessage;
   state.providerErrorCode = classified.code;
+  state.providerErrorCategory = classified.errorCategory;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }
@@ -2696,14 +2856,14 @@ export async function handleMessageComplete(
       messageId: state.lastAssistantMessageId,
     });
     // The hub stamps `seq` synchronously on the delta emitted above, so
-    // `getCurrentSeq()` is that delta's position — advance the persisted-seq
+    // `getCurrentSeq()` is that delta's position — advance the streamed-seq
     // mirror exactly like the normal text-delta path. The finalize below
     // records this value; without the advance it would record the PREVIOUS
     // emitted chunk's seq, so a `/messages` snapshot could contain this tail
     // while advertising a seq before the delta that carried it — and a
     // reconnecting client applying `seq > snapshot.seq` would append the
     // tail a second time.
-    state.lastPersistedContentSeq = getCurrentSeq();
+    state.lastStreamedContentSeq = getCurrentSeq();
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     }
@@ -2803,7 +2963,7 @@ export async function handleMessageComplete(
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +
   // tool_use blocks from `event.message`), and any drained tool-result rows
-  // are durable. `lastPersistedContentSeq` is the last streamed text/thinking
+  // are durable. `lastStreamedContentSeq` is the last streamed text/thinking
   // delta's seq -- the highest stamped content event this row reflects -- so
   // recording it is honest. A drained tool result was stamped earlier in the
   // turn, so this seq already covers it; a call that streams no content (a
@@ -2811,17 +2971,19 @@ export async function handleMessageComplete(
   // `recordConversationPersistedSeq` clamps monotonically, so a lower value
   // here never regresses the seq. Gate on `persisted` so a swallowed finalize
   // write never advances the seq past content that is not durable.
-  if (persisted && state.lastPersistedContentSeq != null) {
+  if (persisted && state.lastStreamedContentSeq != null) {
     recordConversationPersistedSeq(
       deps.ctx.conversationId,
-      state.lastPersistedContentSeq,
+      state.lastStreamedContentSeq,
     );
+    raiseFlushedContentWatermark(state, state.lastStreamedContentSeq);
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
-  // start with an empty running view.
+  // start with an empty running view. `flushedContentSeq` is a turn-level
+  // watermark and intentionally survives the reset.
   state.currentMessageContent = [];
   state.currentThinkingTimestamps = [];
-  state.lastPersistedContentSeq = undefined;
+  state.lastStreamedContentSeq = undefined;
 
   // ── Indexing + attention projection (deferred off the critical path) ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only — unlike
@@ -3036,9 +3198,7 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
     return;
   }
@@ -3058,6 +3218,16 @@ function handleProviderError(
       "Failed to persist provider-error LLM request log (non-fatal)",
     );
   }
+}
+
+function classifyAgentLoopError(
+  error: Error,
+  deps: EventHandlerDeps,
+): ReturnType<typeof classifyConversationError> {
+  return classifyConversationError(error, {
+    phase: "agent_loop",
+    ...deps.errorAttribution?.(),
+  });
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────
@@ -3279,7 +3449,7 @@ export async function dispatchAgentEvent(
       case "compaction_circuit_open":
       case "compaction_circuit_closed":
         // Circuit-breaker transitions are already in wire-contract shape
-        // (a subset of ServerMessage), so forward them to the client sink
+        // (a subset of AssistantEvent), so forward them to the client sink
         // unchanged. They drive the client's "auto-compaction paused"
         // banner.
         deps.onEvent(event);

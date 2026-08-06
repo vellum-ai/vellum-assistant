@@ -34,8 +34,9 @@ beforeEach(() => {
   savedEnv.IS_CONTAINERIZED = process.env.IS_CONTAINERIZED;
   // Clean up key files from previous tests so they don't leak between cases.
   const deprecatedDir = getDeprecatedDir();
-  if (existsSync(deprecatedDir))
+  if (existsSync(deprecatedDir)) {
     rmSync(deprecatedDir, { recursive: true, force: true });
+  }
 });
 
 afterEach(() => {

@@ -10,14 +10,15 @@
  * so the pill would misrepresent per-chat state — keep it hidden until the
  * active assistant is known to support it. Conservative on unknown.
  *
- * MIN_VERSION targets 0.11.0 — the manage-plugins surface (this in-chat pill
+ * MIN_VERSION targets 0.12.0. The manage-plugins surface (this in-chat pill
  * plus the new-chat plugin picker) ships in that release, so the gate holds
- * until the active assistant is on 0.11.0 or newer, keeping the pill hidden on
- * every older assistant until the surface lands.
+ * until the active assistant is on 0.12.0 or newer, keeping the pill hidden on
+ * every older assistant until the surface lands, including on 0.11.x, which
+ * cuts without it.
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.0";
+export const MIN_VERSION = "0.12.0";
 
 /**
  * Returns `true` when the active assistant exposes the standalone

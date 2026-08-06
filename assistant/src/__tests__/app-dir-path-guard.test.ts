@@ -78,9 +78,15 @@ describe("app directory path construction guard", () => {
       ),
     );
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (isMigrationFile(f)) return false;
-      if (ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (isMigrationFile(f)) {
+        return false;
+      }
+      if (ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 

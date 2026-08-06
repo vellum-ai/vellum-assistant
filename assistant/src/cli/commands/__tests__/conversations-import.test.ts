@@ -114,7 +114,9 @@ async function runCommand(args: string[]): Promise<{ exitCode: number }> {
     registerConversationsImportCommand(conversations);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   }
   const exitCode = process.exitCode ?? 0;
   process.exitCode = 0;

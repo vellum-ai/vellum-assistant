@@ -40,8 +40,13 @@ setDefaultTimeout(30_000);
 // claimed jobs without lane awareness and ran them through a single
 // workerConcurrency-sized pool — would pin its slots on the first claimed
 // slow jobs and force the fast jobs to queue behind a 200ms LLM call.
+// `memory.v2.enabled` is off so v1 is the active memory tier: the slow-lane
+// job here is `graph_consolidate`, whose handler completes v1 graph rows as
+// a no-op while concept-page memory is active — this test needs it to
+// genuinely run.
 // Everything else (including `memory.enabled: true`) is the schema default.
 setConfig("memory", {
+  v2: { enabled: false },
   jobs: {
     slowLlmConcurrency: 1,
     fastConcurrency: 5,
@@ -63,7 +68,7 @@ const completions: CompletionRecord[] = [];
 // job completes before any slow job — a single 200ms window is plenty.
 const SLOW_DELAY_MS = 200;
 
-mock.module("../plugins/defaults/memory/graph/consolidation.js", () => ({
+mock.module("../plugins/defaults/memory/v1/graph/consolidation.js", () => ({
   runConsolidation: async (
     scopeId: string,
   ): Promise<{
@@ -95,6 +100,9 @@ mock.module("../plugins/defaults/memory/v2/backfill-jobs.js", () => ({
     return 0;
   },
   memoryV2MigrateJob: async (): Promise<void> => {},
+}));
+
+mock.module("../plugins/defaults/memory/substrate/reembed-job.js", () => ({
   memoryV2ReembedJob: async (): Promise<void> => {},
 }));
 

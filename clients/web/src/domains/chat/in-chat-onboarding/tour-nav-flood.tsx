@@ -57,7 +57,13 @@ interface TourNavFloodProps {
  * covering the target row that floods with the avatar's color from the spot
  * the eyes surface (mirroring the assistant cluster's New Chat flood).
  */
-export function TourNavFlood({ rect, label, hex, eye, phase }: TourNavFloodProps) {
+export function TourNavFlood({
+  rect,
+  label,
+  hex,
+  eye,
+  phase,
+}: TourNavFloodProps) {
   const fg = hex ? contrastForeground(hex) : "var(--content-strong)";
   // Match the assistant cluster's resting eyes exactly: the per-style base
   // width grown by REST_SCALE, height following the shape's aspect ratio.

@@ -15,7 +15,8 @@ export const memoryHelp: CliCommandHelp = {
     "Manage memory items and maintain the assistant memory subsystem",
   helpText: `
 The 'nodes' subgroup provides content-based list, delete, and update over
-memory v2 graph nodes — address facts by text, not UUID (requires memory v2).
+memory graph nodes — address facts by text, not UUID (requires concept-page
+memory: memory.v3.live or memory.v2.enabled).
 
 The 'items' subgroup exposes full CRUD over individual memory items
 (remembered facts) — list, get, create, update, delete.
@@ -34,7 +35,8 @@ Examples:
   $ assistant memory items update 9f2c4f3a-3f1a-41e4-88e7-abc123 --statement "Prefers tea"
   $ assistant memory items delete 9f2c4f3a-3f1a-41e4-88e7-abc123
   $ assistant memory v2 validate
-  $ assistant memory v3 rebuild-index`,
+  $ assistant memory v3 rebuild-index
+  $ assistant memory ingest --dir .mv3/staging --dry-run`,
   subcommands: [
     {
       name: "nodes",
@@ -46,7 +48,8 @@ memory v2 subsystem. Unlike 'memory items', which addresses nodes by UUID, these
 commands address nodes by content text — matching the way an operator refers to
 a remembered fact without first looking up its ID.
 
-All subcommands require memory v2 to be enabled and the assistant to be running.
+All subcommands require concept-page memory (memory.v3.live or
+memory.v2.enabled) and the assistant to be running.
 
 Examples:
   $ assistant memory nodes stats
@@ -758,6 +761,59 @@ Example:
   $ assistant memory v3 eval-tally --verdicts .mv3/eval/verdicts.json --key .mv3/eval/key.json`,
         },
       ],
+    },
+    {
+      name: "ingest",
+      description:
+        "Batch-ingest staged concept pages directly into memory (bypasses the consolidation buffer)",
+      options: [
+        {
+          flags: "--dir <path>",
+          description:
+            "Directory of staged .md pages; slug = relative path minus .md, with forward slashes",
+        },
+        {
+          flags: "--file <path>",
+          description:
+            "JSON manifest file: an array of { slug, content } objects",
+        },
+        {
+          flags: "--dry-run",
+          description: "Validate and report without writing any pages",
+        },
+        {
+          flags: "--overwrite",
+          description:
+            "Rewrite pages whose slug already exists (default: skip them)",
+        },
+        {
+          flags: "--json",
+          description: "Machine-readable compact JSON summary output",
+        },
+      ],
+      helpText: `
+Input sources (pick exactly one):
+  --dir   Walks the directory recursively for .md files. Each file's slug is
+          its relative path minus the .md extension, with forward slashes
+          (people/alice.md becomes people/alice).
+  --file  Reads a JSON manifest: an array of { slug, content } objects where
+          content is the full page markdown (frontmatter + body).
+  stdin   With neither flag, the same JSON manifest is read from stdin when
+          it is piped (not a TTY).
+
+Behavior:
+  Writes fully-formed concept pages straight into memory/concepts/, bypassing
+  the consolidation buffer. Pages whose slug already exists are skipped unless
+  --overwrite is passed. Every page is validated and reported individually;
+  invalid pages set a non-zero exit code without blocking valid ones. Requests
+  are sent in batches of 200 pages. When the consolidation lock is held the
+  command fails and names the holder; retry after the current writer finishes.
+  Requires concept-page memory (memory.v3.live or memory.v2.enabled).
+
+Examples:
+  $ assistant memory ingest --dir .mv3/staging --dry-run
+  $ assistant memory ingest --dir .mv3/staging --overwrite
+  $ cat pages.json | assistant memory ingest --json`,
     },
     {
       name: "retrospective",

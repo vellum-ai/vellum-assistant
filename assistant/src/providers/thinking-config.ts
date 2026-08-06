@@ -28,7 +28,9 @@ function pickGeminiExtras(thinking: ThinkingConfigRecord): {
 export function normalizeThinkingConfigForWire(
   thinking: unknown,
 ): ThinkingConfigRecord | undefined {
-  if (!isRecord(thinking)) return undefined;
+  if (!isRecord(thinking)) {
+    return undefined;
+  }
 
   // Already in wire shape — preserve as-is so re-normalization is idempotent
   // and Gemini-only fields stay attached for the Gemini provider to read.
@@ -51,6 +53,10 @@ export function normalizeThinkingConfigForWire(
 
 export function isThinkingConfigDisabled(thinking: unknown): boolean {
   return normalizeThinkingConfigForWire(thinking)?.type === "disabled";
+}
+
+export function isThinkingConfigAdaptive(thinking: unknown): boolean {
+  return normalizeThinkingConfigForWire(thinking)?.type === "adaptive";
 }
 
 export function isThinkingConfigEnabled(thinking: unknown): boolean {

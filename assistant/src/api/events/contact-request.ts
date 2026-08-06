@@ -25,6 +25,7 @@ export const ContactRequestEventSchema = z.object({
   requestId: z.string(),
   channel: z.string().optional(),
   placeholder: z.string().optional(),
+  defaultValue: z.string().optional(),
   label: z.string().optional(),
   description: z.string().optional(),
   role: z.string().optional(),

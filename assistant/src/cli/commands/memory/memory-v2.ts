@@ -246,8 +246,12 @@ export function registerMemoryV2Command(memory: Command): void {
         flag: string,
         raw: string | undefined,
       ): number | null | undefined => {
-        if (raw === undefined) return undefined;
-        if (raw === "null") return null;
+        if (raw === undefined) {
+          return undefined;
+        }
+        if (raw === "null") {
+          return null;
+        }
         const parsed = Number(raw);
         if (!Number.isInteger(parsed) || parsed < 1) {
           log.error(
@@ -354,8 +358,12 @@ export function registerMemoryV2Command(memory: Command): void {
       }
       const sortedKeys = [...grouped.keys()].sort((a, b) => {
         const order = (s: string) => {
-          if (s === "tier1") return 0;
-          if (s === "tier2") return 1;
+          if (s === "tier1") {
+            return 0;
+          }
+          if (s === "tier2") {
+            return 1;
+          }
           if (s.startsWith("tier3:")) {
             return 2 + Number(s.slice("tier3:".length));
           }

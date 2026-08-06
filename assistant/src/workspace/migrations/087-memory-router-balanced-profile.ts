@@ -27,7 +27,9 @@ export const memoryRouterBalancedProfileMigration: WorkspaceMigration = {
   description:
     "Set callSites.memoryRouter to { profile: 'balanced' }, dropping the seeded model and contextWindow override",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -36,7 +38,9 @@ export const memoryRouterBalancedProfileMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -71,10 +75,16 @@ export const memoryRouterBalancedProfileMigration: WorkspaceMigration = {
 // of claude-sonnet-4-6 plus the 1M-token context window, and nothing else.
 function isSeededBy077(entry: Record<string, unknown>): boolean {
   const keys = Object.keys(entry);
-  if (keys.length !== 2) return false;
-  if (entry.model !== "claude-sonnet-4-6") return false;
+  if (keys.length !== 2) {
+    return false;
+  }
+  if (entry.model !== "claude-sonnet-4-6") {
+    return false;
+  }
   const contextWindow = readObject(entry.contextWindow);
-  if (contextWindow === null) return false;
+  if (contextWindow === null) {
+    return false;
+  }
   const cwKeys = Object.keys(contextWindow);
   return cwKeys.length === 1 && contextWindow.maxInputTokens === 1_000_000;
 }

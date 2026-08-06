@@ -20,7 +20,7 @@ export const NOW = 1700000000000;
 
 /** Numerical Recipes LCG — deterministic, seedable; no `Math.random`. */
 export function makeRng(seed: number): () => number {
-  let state = (seed >>> 0) || 1;
+  let state = seed >>> 0 || 1;
   return () => {
     state = (Math.imul(1664525, state) + 1013904223) >>> 0;
     return state / 0xffffffff;
@@ -37,9 +37,7 @@ export function makeRng(seed: number): () => number {
  * file calls this once with its own id generator so ids don't collide or couple
  * across suites.
  */
-export function createMakeEvent(
-  nextEventId: () => string,
-): (
+export function createMakeEvent(nextEventId: () => string): (
   overrides: Partial<SubagentTimelineEvent> & {
     type: SubagentTimelineEvent["type"];
   },
@@ -142,7 +140,10 @@ export function generateStream(
       if (lastWasText) {
         mutations.push({ kind: "coalesce", delta });
       } else {
-        mutations.push({ kind: "append", event: makeEvent({ type: "text", content: delta }, ts) });
+        mutations.push({
+          kind: "append",
+          event: makeEvent({ type: "text", content: delta }, ts),
+        });
         lastWasText = true;
       }
       continue;
@@ -157,20 +158,39 @@ export function generateStream(
       if (toolRoll < 0.2) {
         mutations.push({
           kind: "append",
-          event: makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: id, input: { query: `q${i}` } }, ts),
+          event: makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: id,
+              input: { query: `q${i}` },
+            },
+            ts,
+          ),
         });
         openTools.push({ id, toolName: "web_search" });
       } else if (toolRoll < 0.35) {
         // web_fetch has no follow-up — a thinking step, no open tracking.
         mutations.push({
           kind: "append",
-          event: makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: id, input: { url: `https://ex${i}.dev` } }, ts),
+          event: makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_fetch",
+              toolUseId: id,
+              input: { url: `https://ex${i}.dev` },
+            },
+            ts,
+          ),
         });
       } else {
         const toolName = toolRoll < 0.6 ? "bash" : "str_replace_editor";
         mutations.push({
           kind: "append",
-          event: makeEvent({ type: "tool_call", toolName, toolUseId: id, content: `cmd-${i}` }, ts),
+          event: makeEvent(
+            { type: "tool_call", toolName, toolUseId: id, content: `cmd-${i}` },
+            ts,
+          ),
         });
         openTools.push({ id, toolName });
       }
@@ -208,7 +228,17 @@ export function generateStream(
       mutations.push({
         kind: "append",
         event: errorEventsCarryToolMeta
-          ? makeEvent({ type: "error", toolName: open.toolName, toolUseId: open.id, isError: true, result: `err-${i}`, content: `err-${i}` }, ts)
+          ? makeEvent(
+              {
+                type: "error",
+                toolName: open.toolName,
+                toolUseId: open.id,
+                isError: true,
+                result: `err-${i}`,
+                content: `err-${i}`,
+              },
+              ts,
+            )
           : makeEvent({ type: "error", content: `err-${i}` }, ts),
       });
       continue;

@@ -41,9 +41,7 @@ describe("parseToolDefinitions", () => {
 
   test("parses Anthropic server tools with extras and no schema", () => {
     const tools = parseToolDefinitions({
-      tools: [
-        { type: "web_search_20250305", name: "web_search", max_uses: 8 },
-      ],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
     });
 
     expect(tools).toHaveLength(1);
@@ -135,6 +133,8 @@ describe("parseToolDefinitions", () => {
     expect(parseToolDefinitions("tools")).toBeNull();
     expect(parseToolDefinitions({ tools: "nope" })).toBeNull();
     expect(parseToolDefinitions({ tools: [] })).toBeNull();
-    expect(parseToolDefinitions({ tools: [{ description: "no name" }] })).toBeNull();
+    expect(
+      parseToolDefinitions({ tools: [{ description: "no name" }] }),
+    ).toBeNull();
   });
 });

@@ -52,6 +52,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
+  handleContextWindowUsage,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
@@ -59,6 +60,7 @@ import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
+  handleMessageRequeued,
   handleMessageRequestComplete,
 } from "@/domains/chat/utils/stream-handlers/queue-handlers";
 import {
@@ -253,6 +255,7 @@ export function useStreamEventHandler(
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
         shiftPendingQueuedMessageId: store.shiftPendingQueuedMessageId,
+        takePendingQueuedMessageId: store.takePendingQueuedMessageId,
         setRequestIdMapping: store.setRequestIdMapping,
         popRequestIdMapping: store.popRequestIdMapping,
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
@@ -321,6 +324,11 @@ export function useStreamEventHandler(
         case "ui_surface_show":
           handleUISurfaceShow(event, ctx);
           break;
+        // A ui_show whose input is still streaming announced the surface type
+        // it will produce. The placeholder marker folds onto the assistant row
+        // in the rolling-snapshot reducer; there is no turn state to move.
+        case "ui_surface_pending":
+          break;
         case "ui_surface_update":
           handleUISurfaceUpdate(event, ctx);
           break;
@@ -329,6 +337,11 @@ export function useStreamEventHandler(
           break;
         case "ui_surface_complete":
           handleUISurfaceComplete(event, ctx);
+          break;
+        // Surface undo result. The chat handler is a no-op — the undo is driven
+        // through the `surfaces/:id/undo` HTTP route and its response; the web
+        // does not render the broadcast result.
+        case "ui_surface_undo_result":
           break;
         case "tool_use_start":
           handleToolUseStart(event, ctx);
@@ -349,6 +362,9 @@ export function useStreamEventHandler(
           break;
         case "usage_update":
           handleUsageUpdate(event, ctx);
+          break;
+        case "context_window_usage":
+          handleContextWindowUsage(event, ctx);
           break;
         // Per-call usage deltas. The top-level chat surface reads running
         // totals from `usage_update`; per-call deltas are only consumed by
@@ -381,6 +397,9 @@ export function useStreamEventHandler(
           break;
         case "message_dequeued":
           handleMessageDequeued(event, ctx);
+          break;
+        case "message_requeued":
+          handleMessageRequeued(event, ctx);
           break;
         case "message_queued_deleted":
           handleMessageQueuedDeleted(event, ctx);
@@ -470,6 +489,43 @@ export function useStreamEventHandler(
         // (e.g. user-prompt-submit). No web UI renders them yet.
         case "hook_event":
           break;
+        // Conversation-scoped signals the web chat view does not render:
+        // streaming tool-input deltas, steer acks, authoritative confirmation
+        // state transitions, and inference-profile override changes.
+        case "tool_input_delta":
+        case "message_steered":
+        case "confirmation_state_changed":
+        case "conversation_inference_profile_updated":
+          break;
+        // Daemon status / model-catalog / compaction / schedule- and
+        // heartbeat-created signals. The web chat handler is a no-op — these are
+        // surfaced elsewhere or not rendered by the web today.
+        case "assistant_status":
+        case "model_info":
+        case "context_compacted":
+        case "schedule_conversation_created":
+        case "heartbeat_alert":
+        case "heartbeat_conversation_created":
+          break;
+        // Host-proxy instructions targeting the desktop client / chrome
+        // extension. The web chat handler is a no-op — host-proxy frames are
+        // delivered to their capability holder by the hub, not through the
+        // conversation stream.
+        case "host_bash_request":
+        case "host_bash_cancel":
+        case "host_cu_request":
+        case "host_cu_cancel":
+        case "host_ui_snapshot_request":
+        case "host_ui_snapshot_cancel":
+        case "host_app_control_request":
+        case "host_app_control_cancel":
+        case "host_browser_request":
+        case "host_browser_cancel":
+        case "host_file_request":
+        case "host_file_cancel":
+        case "host_transfer_request":
+        case "host_transfer_cancel":
+          break;
         // Service-group upgrade lifecycle broadcasts announcing a daemon
         // restart. The chat handler is a no-op; no web UI renders them yet.
         case "service_group_update_starting":
@@ -489,11 +545,22 @@ export function useStreamEventHandler(
         // surfaces refetch through their own query invalidation.
         case "skills_state_changed":
           break;
+        // App source-file change broadcast. The chat handler is a no-op; app
+        // surfaces re-read the app through their own refresh path.
+        case "app_files_changed":
+          break;
         // Settings/config broadcasts. The chat handler is a no-op — these target
         // the desktop client or are handled by config-sync consumers.
         case "client_settings_update":
         case "config_changed":
         case "sounds_config_updated":
+          break;
+        // Integration/platform lifecycle broadcasts. The web chat handler is a
+        // no-op — OAuth-connect completion and platform login/disconnect signals
+        // are consumed by the settings surfaces, not the conversation stream.
+        case "oauth_connect_result":
+        case "show_platform_login":
+        case "platform_disconnected":
           break;
         // Notification-created broadcasts and recording lifecycle
         // instructions. The web chat handler is a no-op for these — they target

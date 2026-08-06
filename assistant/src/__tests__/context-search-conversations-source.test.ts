@@ -409,10 +409,13 @@ describe("searchConversationSource (qdrant lexical index)", () => {
     );
 
     expect(result.evidence).toHaveLength(1);
+    // The mention is wrapped rather than mistaken for an existing
+    // envelope, and the tag it mentions is escaped so it cannot read as a
+    // second (differently-sourced) envelope inside the wrapper.
     expect(result.evidence[0]).toMatchObject({
       locator: `${conversation.id}#${message.id}`,
       excerpt:
-        '<external_content source="slack" origin="@alice">\nThe tagmentionrecalltoken text mentions <external_content but is raw Slack content.\n</external_content>',
+        '<external_content source="slack" origin="@alice">\nThe tagmentionrecalltoken text mentions &lt;external_content but is raw Slack content.\n</external_content>',
     });
   });
 

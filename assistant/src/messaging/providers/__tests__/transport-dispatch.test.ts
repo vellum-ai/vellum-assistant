@@ -58,7 +58,9 @@ function payload(
 
 beforeEach(() => {
   for (const group of [slack, telegram, whatsapp, a2a]) {
-    for (const spy of Object.values(group)) spy.mockClear();
+    for (const spy of Object.values(group)) {
+      spy.mockClear();
+    }
   }
 });
 

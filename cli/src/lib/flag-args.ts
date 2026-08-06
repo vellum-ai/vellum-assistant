@@ -1,4 +1,4 @@
-/** Only allow simple kebab-case keys (e.g. "voice-mode", "browser"). */
+/** Only allow simple kebab-case keys (e.g. "browser", "contacts"). */
 const ALLOWED_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
@@ -38,7 +38,7 @@ export function parseFeatureFlagArgs(args: string[]): {
 
       if (!ALLOWED_KEY_RE.test(key)) {
         console.error(
-          `Error: invalid flag key "${key}". Keys must be kebab-case (e.g. "voice-mode")`,
+          `Error: invalid flag key "${key}". Keys must be kebab-case (e.g. "browser")`,
         );
         process.exit(1);
       }

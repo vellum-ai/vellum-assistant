@@ -1,20 +1,31 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
-let broadcastedMessages: ServerMessage[] = [];
+let broadcastedMessages: AssistantEvent[] = [];
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 mock.module("../runtime/assistant-event-hub.js", () => ({
   ...realEventHub,
-  broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastedMessages.push(msg),
+}));
+
+// These surfaces are shown live and asserted through their client messages, so
+// history holds nothing. Stand in an empty store: the completion path reads
+// persisted `ui_surface` blocks, and this file's DB carries no schema, so the
+// real read would throw and be indistinguishable from a persistence failure.
+const realCrud = await import("../persistence/conversation-crud.js");
+mock.module("../persistence/conversation-crud.js", () => ({
+  ...realCrud,
+  getMessages: () => [],
 }));
 
 const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 interface ProcessMessageCall {
   content: string;
@@ -25,13 +36,13 @@ interface ProcessMessageCall {
   sourceActorPrincipalId?: string;
 }
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
+function makeContext(sent: AssistantEvent[] = []): Conversation & {
   processMessageCalls: ProcessMessageCall[];
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
-  return {
+  return asConversation({
     conversationId: "conv-1",
-    sendToClient: (msg: ServerMessage) => sent.push(msg),
+    sendToClient: (msg: AssistantEvent) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
@@ -58,7 +69,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
     },
     withSurface: createSurfaceMutex(),
     processMessageCalls,
-  };
+  });
 }
 
 describe("surface action delivery to assistant", () => {
@@ -67,7 +78,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("table action button click triggers processMessage with action content", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Step 1: Show a table surface with actions
@@ -128,7 +139,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("idle pending follow-up path threads submitter principal into processMessage", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -161,7 +172,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("idle history-restored path threads submitter principal into processMessage", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // History-restored surface: surfaceState exists, pendingSurfaceActions
@@ -191,7 +202,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("table action without selection data still triggers processMessage", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Show table surface
@@ -267,7 +278,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("action on history-restored surface (no pending) still processes", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Simulate a history-restored surface: surfaceState exists, but
@@ -295,7 +306,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("confirmation surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -331,7 +342,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("file_upload surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -370,7 +381,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("file_upload completion event does not include base64 file blobs", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -414,7 +425,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("choice surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -457,7 +468,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("oauth_connect surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -499,7 +510,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("table surface does NOT broadcast ui_surface_complete (not one-shot)", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {

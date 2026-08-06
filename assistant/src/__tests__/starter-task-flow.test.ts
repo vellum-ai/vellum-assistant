@@ -1,10 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage, SurfaceType } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => {
-    if (id !== "test-app") return null;
+    if (id !== "test-app") {
+      return null;
+    }
     return {
       id,
       name: "Test App",
@@ -13,20 +16,31 @@ mock.module("../apps/app-store.js", () => ({
     };
   },
   getAppPreview: () => null,
+  isDirectAppConversation: (app: { id: string }) => app.id === "test-app",
+  linkAppToConversationLineage: () => {},
+  listAppsByConversation: () => [
+    {
+      id: "inherited-app",
+      updatedAt: 2,
+      inheritedConversationIds: ["session-1"],
+    },
+    { id: "test-app", updatedAt: 1 },
+  ],
   updateApp: () => {
     throw new Error("updateApp should not be called in this test");
   },
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
-function makeContext(): SurfaceConversationContext {
-  return {
+function makeContext(): Conversation {
+  return asConversation({
     conversationId: "session-1",
     sendToClient: () => {},
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -44,7 +58,7 @@ function makeContext(): SurfaceConversationContext {
     getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
-  };
+  });
 }
 
 describe("starter task surface actions", () => {
@@ -116,7 +130,7 @@ describe("starter task surface actions", () => {
   });
 
   test("app_open registers dynamic_page surface as action-capable", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext();
     ctx.sendToClient = (msg) => sent.push(msg);
 
@@ -134,5 +148,15 @@ describe("starter task surface actions", () => {
       "dynamic_page",
     );
     expect(sent.some((msg) => msg.type === "ui_surface_show")).toBe(true);
+  });
+
+  test("app_open without app_id prefers a direct app over a newer inherited app", async () => {
+    const ctx = makeContext();
+
+    const result = await surfaceProxyResolver(ctx, "app_open", {});
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(String(result.content)) as { appId: string };
+    expect(parsed.appId).toBe("test-app");
   });
 });

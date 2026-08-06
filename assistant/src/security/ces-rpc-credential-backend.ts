@@ -48,7 +48,9 @@ export class CesRpcCredentialBackend implements CredentialBackend {
   }
 
   async set(account: string, value: string): Promise<boolean> {
-    if (!this.isAvailable()) return false;
+    if (!this.isAvailable()) {
+      return false;
+    }
     try {
       const result = await this.client.call(CesRpcMethod.SetCredential, {
         account,
@@ -62,7 +64,9 @@ export class CesRpcCredentialBackend implements CredentialBackend {
   }
 
   async delete(account: string): Promise<DeleteResult> {
-    if (!this.isAvailable()) return "error";
+    if (!this.isAvailable()) {
+      return "error";
+    }
     try {
       const result = await this.client.call(CesRpcMethod.DeleteCredential, {
         account,

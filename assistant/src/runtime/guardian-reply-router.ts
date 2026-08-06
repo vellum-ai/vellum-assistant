@@ -46,6 +46,8 @@ import {
   buildGuardianDisambiguationExample,
   buildGuardianDisambiguationLabel,
   buildGuardianInvalidActionReply,
+  parseQuestionAnswerActionId,
+  QUESTION_SKIP_ACTION_ID,
   resolveGuardianInstructionModeForRequest,
 } from "../notifications/guardian-question-mode.js";
 import { getLogger } from "../util/logger.js";
@@ -58,6 +60,7 @@ import type {
   ApprovalConversationContext,
   ApprovalConversationGenerator,
 } from "./http-types.js";
+import * as pendingInteractions from "./pending-interactions.js";
 import { parseReactionCallbackData } from "./routes/channel-route-shared.js";
 
 const log = getLogger("guardian-reply-router");
@@ -179,6 +182,38 @@ function parseCallbackAction(data: string): ParsedCallback | null {
     return null;
   }
   return { requestId, action };
+}
+
+/**
+ * Parse an `apr:<requestId>:<token>` callback whose token is an answer-option
+ * selection rather than an approval action. Same wire prefix as approval
+ * buttons — question cards are ordinary guardian-request cards — but the
+ * token is validated against the answer scheme by the caller, which also
+ * confirms the target request is answer-mode before applying anything.
+ */
+function parseAnswerCallback(
+  data: string,
+): { requestId: string; token: string } | null {
+  const parts = data.split(":");
+  if (parts.length !== 3 || parts[0] !== "apr") {
+    return null;
+  }
+  const [, requestId, token] = parts;
+  if (!requestId || !token) {
+    return null;
+  }
+  return { requestId, token };
+}
+
+/**
+ * Whether the parked `question` interaction behind an ask_question guardian
+ * request is still live. An answer path must not commit a decision against a
+ * request whose interaction is gone (answered on another surface, timed out,
+ * superseded) — there is nothing left to resolve, and the message/tap should
+ * take the stale path instead.
+ */
+function hasLiveQuestionInteraction(requestId: string): boolean {
+  return pendingInteractions.get(requestId)?.kind === "question";
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +427,40 @@ export async function routeGuardianReply(
         emissionContext,
       );
     }
+
+    // Answer-option tap on a question card: the action token is an answer
+    // selection (`answer_<idx>` / `answer_skip`), not an approval action, so
+    // `parseCallbackAction` rejects it above. Accept it only when the target
+    // request actually resolves to answer mode — an answer token aimed at an
+    // approval-mode request is never treated as a decision — and the parked
+    // interaction is still live, so a tap on a stale card (answered elsewhere,
+    // timed out) falls through to the stale-callback handling instead of
+    // committing a decision that can no longer resolve anything. The token
+    // rides as `userText`; the question resolver maps it to the selected
+    // option.
+    const answerTap = parseAnswerCallback(callbackData);
+    if (answerTap) {
+      const request = await getGuardianRequestOrNull(answerTap.requestId);
+      if (
+        request &&
+        resolveRequestInstructionMode(request) === "answer" &&
+        parseQuestionAnswerActionId(answerTap.token) &&
+        !request.callSessionId &&
+        hasLiveQuestionInteraction(request.id)
+      ) {
+        return applyDecision(
+          request.id,
+          answerTap.token === QUESTION_SKIP_ACTION_ID
+            ? "reject"
+            : "approve_once",
+          actor,
+          answerTap.token,
+          channelDeliveryContext,
+          emissionContext,
+        );
+      }
+      return notConsumed();
+    }
   }
 
   // ── 2. Request code parsing (6-char alphanumeric prefix) ──
@@ -541,6 +610,45 @@ export async function routeGuardianReply(
           skipApprovalInterception: true,
         };
       }
+    }
+  }
+
+  // ── 2.55. Bare-text answer to a single pending question ──
+  // When exactly one pending request is answer-mode (an ask_question), an
+  // unprefixed guardian reply IS the answer — "3pm works" must not require a
+  // request code, fall into approve/reject inference, or leak through to a
+  // normal agent turn (which would defer behind the parked question's
+  // processing lock and hang until the prompt timeout). Multiple pending
+  // requests keep the disambiguation flow below, which already prints
+  // per-mode reply examples.
+  //
+  // Deliberately narrow — this branch consumes ordinary prose, so it only
+  // fires when the message is unambiguously the answer:
+  //  - same conversation the question was asked in (`sourceConversationId`)
+  //    — under the identity-fallback scope a guardian's pending requests are
+  //    visible cross-chat, and prose typed in an unrelated chat must never
+  //    resolve a question elsewhere. Explicit codes/callbacks stay cross-chat.
+  //  - the parked interaction is still live — after an app-card answer or a
+  //    prompt timeout the request row can briefly outlive the interaction,
+  //    and matching it would swallow the message into a decision that can no
+  //    longer resolve anything. (Voice questions carry no such interaction
+  //    and keep their existing code/NL answer paths.)
+  if (messageText.length > 0 && pendingRequests.length === 1) {
+    const soleRequest = pendingRequests[0];
+    if (
+      resolveRequestInstructionMode(soleRequest) === "answer" &&
+      !soleRequest.callSessionId &&
+      soleRequest.sourceConversationId === conversationId &&
+      hasLiveQuestionInteraction(soleRequest.id)
+    ) {
+      return applyDecision(
+        soleRequest.id,
+        "approve_once",
+        actor,
+        messageText,
+        channelDeliveryContext,
+        emissionContext,
+      );
     }
   }
 

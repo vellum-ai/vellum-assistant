@@ -66,8 +66,17 @@ export function handleOpenConversation(
     return;
   }
   useViewerStore.getState().setMainView("chat");
-  useSubagentStore.getState().reset();
-  useWorkflowStore.getState().reset();
+  // Only wipe per-conversation process state on a genuine switch — a
+  // daemon-directed open of the conversation already in view must not kill
+  // the inline cards of still-running subagents (LUM-2875; the store only
+  // repopulates from live SSE events).
+  if (
+    event.conversationId !==
+    useConversationStore.getState().activeConversationId
+  ) {
+    useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
+  }
   useConversationStore.getState().setActiveConversationId(event.conversationId);
   ctx.router.push(routes.conversation(event.conversationId));
 }

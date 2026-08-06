@@ -24,8 +24,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { getIsContainerized } from "../config/env-registry.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { getSignalsDir } from "../util/platform.js";
 
 // ── Write side (daemon) ──────────────────────────────────────────────
@@ -42,7 +42,9 @@ const CACHE_TTL_MS = 10_000;
 function getSubscriberDirs(conversationId: string): string[] {
   const now = Date.now();
   const cached = subscriberCache.get(conversationId);
-  if (cached && now < cached.expiry) return cached.dirs;
+  if (cached && now < cached.expiry) {
+    return cached.dirs;
+  }
 
   const dir = eventsDir();
   if (!existsSync(dir)) {
@@ -85,12 +87,16 @@ let sequence = 0;
  */
 export function appendEventToStream(
   conversationId: string,
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
 ): void {
-  if (getIsContainerized()) return;
+  if (getIsContainerized()) {
+    return;
+  }
 
   const dirs = getSubscriberDirs(conversationId);
-  if (dirs.length === 0) return;
+  if (dirs.length === 0) {
+    return;
+  }
 
   const timestamp = `${Date.now()}-${String(sequence++).padStart(6, "0")}`;
   const payload = JSON.stringify(event);
@@ -120,7 +126,7 @@ export interface EventStreamWatcher {
 
 /**
  * Register as a subscriber for a conversation's event stream and
- * invoke `callback` for each new {@link AssistantEvent} written.
+ * invoke `callback` for each new {@link AssistantEventEnvelope} written.
  *
  * Creates a subscriber directory at
  * `signals/events/<conversationId>.<pid>/`. The daemon writes each
@@ -131,7 +137,7 @@ export interface EventStreamWatcher {
  */
 export function watchEventStream(
   conversationId: string,
-  callback: (event: AssistantEvent) => void,
+  callback: (event: AssistantEventEnvelope) => void,
 ): EventStreamWatcher {
   if (getIsContainerized()) {
     return { dispose() {} };
@@ -148,7 +154,9 @@ export function watchEventStream(
   let disposed = false;
 
   const readNewEvents = (): void => {
-    if (disposed) return;
+    if (disposed) {
+      return;
+    }
     let files: string[];
     try {
       files = readdirSync(subDir).sort();
@@ -156,11 +164,13 @@ export function watchEventStream(
       return;
     }
     for (const file of files) {
-      if (processedFiles.has(file)) continue;
+      if (processedFiles.has(file)) {
+        continue;
+      }
       processedFiles.add(file);
       try {
         const data = readFileSync(join(subDir, file), "utf-8");
-        const event = JSON.parse(data) as AssistantEvent;
+        const event = JSON.parse(data) as AssistantEventEnvelope;
         callback(event);
       } catch {
         // Skip unreadable or malformed event files.

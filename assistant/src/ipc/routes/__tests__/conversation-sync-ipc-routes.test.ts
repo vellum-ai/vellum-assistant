@@ -29,13 +29,13 @@ mock.module("../../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
+import type { AssistantEventEnvelope } from "../../../api/index.js";
 import type { EventHandlerState } from "../../../daemon/conversation-agent-loop-handlers.js";
 import { DB_MIGRATION_READINESS_EXEMPT_OPERATIONS } from "../../../daemon/daemon-readiness.js";
 import {
   registerInflightTurn,
   unregisterInflightTurn,
 } from "../../../daemon/inflight-turn-registry.js";
-import type { AssistantEvent } from "../../../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   stampAndBuffer,
@@ -50,7 +50,7 @@ function stampEvent(): void {
   stampAndBuffer({
     conversationId: "conv-x",
     message: { type: "assistant_text_delta", text: "x" },
-  } as unknown as AssistantEvent);
+  } as unknown as AssistantEventEnvelope);
 }
 
 describe("conversation-sync IPC route", () => {
@@ -81,10 +81,10 @@ describe("conversation-sync IPC route", () => {
     stampEvent();
     stampEvent(); // getCurrentSeq() === 3
 
-    // A daemon turn is streaming into conv-1 but has flushed content only
+    // A daemon turn is streaming into conv-1 but has committed a flush only
     // through seq 2 — the live counter (3) is ahead of the durable rows.
     const state = {
-      lastPersistedContentSeq: 2,
+      flushedContentSeq: 2,
     } as unknown as EventHandlerState;
     registerInflightTurn("conv-1", state);
     try {
@@ -102,13 +102,41 @@ describe("conversation-sync IPC route", () => {
     }
   });
 
+  test("holds the anchor at the committed flush watermark when the live streamed seq has raced ahead", () => {
+    stampEvent();
+    stampEvent();
+    stampEvent();
+    stampEvent(); // getCurrentSeq() === 4
+
+    // The exact P1 window: the turn emitted a delta at seq 4 (stamped onto the
+    // live streamed position the instant it was emitted) but that delta's flush
+    // has not committed — the durable rows hold only through seq 2. The persist
+    // notification must anchor at the committed watermark, never the live emit
+    // position, or the client discards the seq-4 delta as an already-covered
+    // replay and the streamed text vanishes.
+    const state = {
+      lastStreamedContentSeq: 4,
+      flushedContentSeq: 2,
+    } as unknown as EventHandlerState;
+    registerInflightTurn("conv-1", state);
+    try {
+      handleNotifyConversationPersisted({ body: { conversationId: "conv-1" } });
+
+      // Anchored at the durable watermark (2), NOT the un-flushed live seq (4).
+      expect(recordCalls).toEqual([["conv-1", 2]]);
+      expect(publishCalls).toEqual(["conv-1"]);
+    } finally {
+      unregisterInflightTurn("conv-1", state);
+    }
+  });
+
   test("records 0 (a raise-only no-op) when a streaming turn has flushed no content yet", () => {
     stampEvent(); // getCurrentSeq() === 1
 
-    // A turn is streaming but has not flushed any content, so its watermark is
+    // A turn is streaming but has committed no flush, so its watermark is
     // undefined; the ceiling is 0, capping the anchor below the un-flushed seq.
     const state = {
-      lastPersistedContentSeq: undefined,
+      flushedContentSeq: undefined,
     } as unknown as EventHandlerState;
     registerInflightTurn("conv-1", state);
     try {

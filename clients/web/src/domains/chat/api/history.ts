@@ -17,6 +17,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { readContentLength } from "@/utils/content-length";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
@@ -51,7 +52,9 @@ function parsePaginatedResponse(
   let lastAssistantMessageId: string | undefined;
   for (let i = 0; i < rows.length; i++) {
     const m = rows[i];
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     if (m.role === "assistant" && !m.subagentNotification) {
       lastAssistantMessageId = m.id;
     }
@@ -97,6 +100,7 @@ async function fetchPaginatedHistory(
   // lets the snapshot-anchor frontier be tagged accordingly (see
   // `use-conversation-history`), so the stale-frontier guard can clear it.
   const seqGeneration = getSeqGeneration();
+  const startedAt = performance.now();
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
@@ -104,11 +108,15 @@ async function fetchPaginatedHistory(
   });
 
   assertHasResponse(response, error, "Failed to fetch history");
+  const durationMs = Math.round(performance.now() - startedAt);
+  const bytes = readContentLength(response);
   if (!response.ok) {
     recordDiagnostic("history_page_fetch_error", {
       assistantId,
       query,
       status: response.status,
+      durationMs,
+      bytes,
     });
     const message = extractErrorMessage(
       error,
@@ -131,6 +139,8 @@ async function fetchPaginatedHistory(
     oldestMessageId: result.oldestMessageId,
     seq: result.seq ?? null,
     messages: summarizeDisplayMessages(result.messages),
+    durationMs,
+    bytes,
   });
   return result;
 }

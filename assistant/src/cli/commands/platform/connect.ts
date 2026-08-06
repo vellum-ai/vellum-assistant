@@ -13,11 +13,12 @@ export function registerPlatformConnectCommand(platform: Command): void {
         baseUrl?: string;
         showPlatformLogin?: boolean;
       }>("platform_connect", {});
-      if (!r.ok)
+      if (!r.ok) {
         return exitFromIpcResult(
           { ok: false, error: r.error, statusCode: r.statusCode },
           cmd,
         );
+      }
 
       writeOutput(cmd, { ok: true, ...r.result });
 

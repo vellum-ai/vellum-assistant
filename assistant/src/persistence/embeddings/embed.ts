@@ -31,16 +31,22 @@ export async function embedWithRetry(
       return await embedWithBackend(config, texts, opts);
     } catch (err) {
       lastError = err;
-      if (opts?.signal?.aborted || isAbortError(err)) throw err;
+      if (opts?.signal?.aborted || isAbortError(err)) {
+        throw err;
+      }
       const isTransient = isTransientEmbeddingError(err);
-      if (!isTransient || attempt === EMBED_MAX_RETRIES) throw err;
+      if (!isTransient || attempt === EMBED_MAX_RETRIES) {
+        throw err;
+      }
       const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
       log.warn(
         { err, attempt: attempt + 1, delayMs: Math.round(delay) },
         "Transient embedding failure, retrying",
       );
       await abortableSleep(delay, opts?.signal);
-      if (opts?.signal?.aborted) throw err;
+      if (opts?.signal?.aborted) {
+        throw err;
+      }
     }
   }
   throw lastError;
@@ -51,7 +57,9 @@ export async function embedWithRetry(
  * immediately rather than being retried.
  */
 export function isAbortError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+  if (!(err instanceof Error)) {
+    return false;
+  }
   return err.name === "AbortError" || err.name === "APIUserAbortError";
 }
 
@@ -69,14 +77,20 @@ export function isTransientEmbeddingError(err: unknown): boolean {
 function getErrorStatusCode(err: Error): unknown {
   if ("status" in err) {
     const status = (err as { status: unknown }).status;
-    if (status != null) return status;
+    if (status != null) {
+      return status;
+    }
   }
-  if ("statusCode" in err) return (err as { statusCode: unknown }).statusCode;
+  if ("statusCode" in err) {
+    return (err as { statusCode: unknown }).statusCode;
+  }
   return undefined;
 }
 
 function isHttpStatusError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+  if (!(err instanceof Error)) {
+    return false;
+  }
   const status = getErrorStatusCode(err);
   if (typeof status === "number") {
     return status === 429 || (status >= 500 && status < 600);

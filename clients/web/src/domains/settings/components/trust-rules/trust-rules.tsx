@@ -24,10 +24,7 @@ export function TrustRules() {
             which require your explicit permission.
           </p>
         </div>
-        <Button
-          variant="outlined"
-          onClick={() => setModalOpen(true)}
-        >
+        <Button variant="outlined" onClick={() => setModalOpen(true)}>
           Manage
         </Button>
       </div>
