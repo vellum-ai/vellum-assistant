@@ -7,79 +7,29 @@ import type { BundleScanData, BundleMetadata } from "./bundle-manager";
 // ---------------------------------------------------------------------------
 
 const showErrorBoxMock = mock((_title: string, _content: string) => undefined);
-const getPathMock = mock((_name: string) => "/fake/user-data");
-const getAppPathMock = mock(() => "/fake/app");
 const netFetchMock = mock(
   async (_url: string, _opts?: RequestInit) =>
     new Response(null, { status: 500 }),
 );
 
 mock.module("electron", () => ({
-  app: { getPath: getPathMock, getAppPath: getAppPathMock, isPackaged: true },
   dialog: { showErrorBox: showErrorBoxMock },
   net: { fetch: netFetchMock },
-  ipcMain: {
-    handle: mock(() => undefined),
-    on: mock(() => undefined),
-  },
-  BrowserWindow: class {},
 }));
 
-const getLockfileDataMock = mock(
-  (
-    _paths: string[],
-  ): { ok: true; data: unknown } | { ok: false; status: number } => ({
-    ok: false as const,
-    status: 500,
-  }),
+const resolveActiveGatewayMock = mock(
+  (): { assistantId: string; port: number } | null => null,
 );
-const resolveLockfilePathsMock = mock((_env: NodeJS.ProcessEnv) => [
-  "/fake/lockfile",
-]);
-const resolveConfigDirMock = mock((_env: NodeJS.ProcessEnv) => "/fake/config");
-const getGuardianAccessTokenMock = mock(async () => ({
-  ok: true as const,
-  accessToken: "fake-token",
-}));
+const acquireGatewayTokenMock = mock(
+  async (_assistantId: string) => "fake-token",
+);
 
-// Full `@vellumai/local-mode` surface so the real `./local-mode` (imported by
-// bundle-flow for resolveCliInvocation) links cleanly.
-mock.module("@vellumai/local-mode", () => ({
-  getLockfileData: getLockfileDataMock,
-  resolveLockfilePaths: resolveLockfilePathsMock,
-  resolveConfigDir: resolveConfigDirMock,
-  resolveEnvironmentName: mock((_env: NodeJS.ProcessEnv) => "production"),
-  isActiveAssistant: mock(() => true),
-  isPairedLockfileEntry: mock(() => false),
-  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR: "Paired credentials are host-only",
-  getGuardianAccessToken: getGuardianAccessTokenMock,
-  getPairedGuardianAccessToken: getGuardianAccessTokenMock,
-  replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
-  upsertRendererLockfileAssistant: mock(() => ({
-    ok: false,
-    error: "unused",
-  })),
-  unpairAssistant: mock(() => ({ ok: false, error: "unused" })),
-  connectImport: mock(() => ({ ok: false, status: 400, error: "unused" })),
-  runHatch: mock(async () => ({ ok: false, error: "unused" })),
-  runRetire: mock(async () => ({ ok: false, error: "unused" })),
-  runSleep: mock(async () => ({ ok: false, error: "unused" })),
-  runUpgrade: mock(async () => ({ ok: false, error: "unused" })),
-  runWake: mock(async () => ({ ok: false, error: "unused" })),
-  getLocalAssistantStatus: mock(async () => ({ ok: true, state: "sleeping" })),
-}));
-
-const ensureCliInstalledMock = mock(async () => undefined);
-
-mock.module("./cli-installer", () => ({
-  isCliInstalled: () => true,
-  getBundledBunPath: () => "/fake/bun",
-  getCliBinPath: () => "/fake/cli",
-  ensureCliInstalled: ensureCliInstalledMock,
-}));
-
-mock.module("./session-token-store", () => ({
-  getSessionToken: () => null,
+mock.module("./bundle-platform", () => ({
+  getBundlePlatform: () => ({
+    resolveActiveGateway: resolveActiveGatewayMock,
+    acquireGatewayToken: acquireGatewayTokenMock,
+    bundlesRoot: () => "/fake/user-data/bundles",
+  }),
 }));
 
 const openBundleConfirmationMock = mock(async (_data: BundleScanData) => true);
@@ -118,25 +68,7 @@ mock.module("./bundle-window", () => ({
   openBundleWindow: openBundleWindowMock,
 }));
 
-// Full `./app-config` surface so this mock — which leaks into co-run test
-// files via the global module registry — doesn't break sibling modules
-// (notably `./app-origin`, loaded via the real `./local-mode` → `./ipc`).
-mock.module("./app-config", () => ({
-  APP_PROTOCOL: "app",
-  APP_HOST: "vellum.ai",
-  VELLUMAPP_PROTOCOL: "vellumapp",
-  BUNDLES_DIR_NAME: "bundles",
-  RENDERER_BASE_PROD: "app://vellum.ai/assistant",
-  getDevRendererBase: () => "http://localhost:5173",
-  getRendererRootUrl: () => "app://vellum.ai/assistant",
-}));
-
-// resolveCliInvocation (via the real `./local-mode`) honors this override;
-// clear it so packaged-path assertions are deterministic.
-delete process.env.VELLUM_CLI_PATH;
-
-const { handleBundleFile, resolveActiveGateway, installBundleFlow } =
-  await import("./bundle-flow");
+const { handleBundleFile, installBundleFlow } = await import("./bundle-flow");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -157,36 +89,18 @@ const SAMPLE_SCAN: BundleScanData = {
   bundleSizeBytes: 1234,
 };
 
-const makeLockfileWithPort = (port: number) => ({
-  ok: true as const,
-  data: {
-    assistants: [
-      {
-        assistantId: "a1",
-        resources: { gatewayPort: port, daemonPort: port + 1 },
-      },
-    ],
-    activeAssistant: "a1",
-  },
-});
-
 beforeEach(() => {
   showErrorBoxMock.mockClear();
   netFetchMock.mockClear();
-  getLockfileDataMock.mockClear();
-  getGuardianAccessTokenMock.mockClear();
+  resolveActiveGatewayMock.mockClear();
+  acquireGatewayTokenMock.mockClear();
   openBundleConfirmationMock.mockClear();
   installBundleConfirmationMock.mockClear();
   unpackBundleMock.mockClear();
   openBundleWindowMock.mockClear();
-  ensureCliInstalledMock.mockClear();
-
-  getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
+  resolveActiveGatewayMock.mockReturnValue(null);
   openBundleConfirmationMock.mockResolvedValue(true);
-  getGuardianAccessTokenMock.mockResolvedValue({
-    ok: true as const,
-    accessToken: "fake-token",
-  });
+  acquireGatewayTokenMock.mockResolvedValue("fake-token");
   netFetchMock.mockResolvedValue(
     new Response(JSON.stringify(SAMPLE_SCAN), {
       status: 200,
@@ -205,58 +119,19 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  getLockfileDataMock.mockReset();
+  resolveActiveGatewayMock.mockReset();
   netFetchMock.mockReset();
   openBundleConfirmationMock.mockReset();
   unpackBundleMock.mockReset();
-  getGuardianAccessTokenMock.mockReset();
+  acquireGatewayTokenMock.mockReset();
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("resolveActiveGateway", () => {
-  test("returns null when lockfile read fails", () => {
-    getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
-    expect(resolveActiveGateway()).toBeNull();
-  });
-
-  test("returns null when no active assistant", () => {
-    getLockfileDataMock.mockReturnValue({
-      ok: true,
-      data: {
-        assistants: [{ assistantId: "a1", resources: { gatewayPort: 9000 } }],
-        activeAssistant: null,
-      },
-    });
-    expect(resolveActiveGateway()).toBeNull();
-  });
-
-  test("returns null when active assistant has no gateway port", () => {
-    getLockfileDataMock.mockReturnValue({
-      ok: true,
-      data: {
-        assistants: [{ assistantId: "a1" }],
-        activeAssistant: "a1",
-      },
-    });
-    expect(resolveActiveGateway()).toBeNull();
-  });
-
-  test("returns the active assistant gateway port", () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
-    expect(resolveActiveGateway()).toEqual({
-      assistantId: "a1",
-      port: 9000,
-    });
-  });
-});
-
 describe("handleBundleFile", () => {
-  test("shows error when daemon is unavailable", async () => {
-    getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
-
+  test("shows error when the assistant is unavailable", async () => {
     await handleBundleFile("/tmp/test.vellum");
 
     expect(showErrorBoxMock).toHaveBeenCalledTimes(1);
@@ -265,7 +140,7 @@ describe("handleBundleFile", () => {
   });
 
   test("shows error when scan fails", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+    resolveActiveGatewayMock.mockReturnValue({ assistantId: "a1", port: 9000 });
     netFetchMock.mockResolvedValue(new Response(null, { status: 500 }));
 
     await handleBundleFile("/tmp/test.vellum");
@@ -276,7 +151,7 @@ describe("handleBundleFile", () => {
   });
 
   test("shows error for blocked findings without opening confirmation", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+    resolveActiveGatewayMock.mockReturnValue({ assistantId: "a1", port: 9000 });
     const blockedScan: BundleScanData = {
       ...SAMPLE_SCAN,
       scanResult: {
@@ -303,7 +178,7 @@ describe("handleBundleFile", () => {
   });
 
   test("does not unpack when user cancels confirmation", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+    resolveActiveGatewayMock.mockReturnValue({ assistantId: "a1", port: 9000 });
     openBundleConfirmationMock.mockResolvedValue(false);
 
     await handleBundleFile("/tmp/test.vellum");
@@ -314,7 +189,7 @@ describe("handleBundleFile", () => {
   });
 
   test("shows error when unpack fails", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+    resolveActiveGatewayMock.mockReturnValue({ assistantId: "a1", port: 9000 });
     unpackBundleMock.mockRejectedValue(new Error("disk full"));
 
     await handleBundleFile("/tmp/test.vellum");
@@ -325,7 +200,7 @@ describe("handleBundleFile", () => {
   });
 
   test("sends auth token in scan request", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+    resolveActiveGatewayMock.mockReturnValue({ assistantId: "a1", port: 9000 });
 
     await handleBundleFile("/tmp/test.vellum");
 
@@ -335,16 +210,8 @@ describe("handleBundleFile", () => {
     expect(headers?.["Authorization"]).toBe("Bearer fake-token");
   });
 
-  test("refreshes the CLI locator via ensureCliInstalled even when already installed", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
-
-    await handleBundleFile("/tmp/test.vellum");
-
-    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
-  });
-
   test("success flow: scans, confirms, unpacks, opens window", async () => {
-    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+    resolveActiveGatewayMock.mockReturnValue({ assistantId: "a1", port: 9000 });
 
     await handleBundleFile("/tmp/test.vellum");
 

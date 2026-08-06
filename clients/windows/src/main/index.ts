@@ -9,6 +9,8 @@ import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 import { z } from "zod";
 
+import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
+
 import { APP_PROTOCOL } from "./app-config";
 import { installMainFeatures } from "./features";
 import { handle, handleSync } from "./ipc.client";
@@ -74,6 +76,16 @@ if (!app.requestSingleInstanceLock()) {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: APP_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+  {
+    scheme: VELLUMAPP_PROTOCOL,
     privileges: {
       standard: true,
       secure: true,

@@ -15,14 +15,18 @@ import {
 
 import { installAbout, openAboutWindow } from "./about";
 import { installAutoUpdate } from "./auto-update";
-import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
+import { APP_HOST, APP_PROTOCOL } from "./app-config";
+import {
+  BUNDLES_DIR_NAME,
+  VELLUMAPP_PROTOCOL,
+} from "@vellumai/electron-desktop/bundle-platform";
+import { registerVellumAppProtocol } from "@vellumai/electron-desktop/vellumapp-protocol";
 import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
-import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
   authorizePairedGatewayForwardPlan,
   executeGatewayForwardPlan,
@@ -41,7 +45,7 @@ import {
   hasPendingDeepLinks,
   installDeepLinks,
 } from "./deep-links";
-import { handleBundleFile, installBundleFlow } from "./bundle-flow";
+import { handleBundleFile, installMacBundleWorkflow } from "./bundles";
 import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
@@ -450,7 +454,7 @@ app
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
     );
-    installBundleFlow();
+    installMacBundleWorkflow();
     onFileOpen(handleBundleFile);
     installPermissionHandler();
     installCsp();

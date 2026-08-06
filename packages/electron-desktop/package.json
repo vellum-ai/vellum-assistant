@@ -6,17 +6,26 @@
   "type": "module",
   "exports": {
     "./app-origin": "./src/app-origin.ts",
+    "./bundle-confirmation": "./src/bundle-confirmation.ts",
+    "./bundle-flow": "./src/bundle-flow.ts",
+    "./bundle-manager": "./src/bundle-manager.ts",
+    "./bundle-platform": "./src/bundle-platform.ts",
+    "./bundle-window": "./src/bundle-window.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./devtools": "./src/devtools.ts",
     "./ipc": "./src/ipc.ts",
+    "./vellumapp-protocol": "./src/vellumapp-protocol.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/capability-registry.test.ts"
+    "test": "bun test src/capability-registry.test.ts",
+    "test:bundles": "bun test src/bundle-confirmation.test.ts && bun test src/bundle-flow.test.ts && bun test src/bundle-manager.test.ts && bun test src/bundle-window.test.ts && bun test src/vellumapp-protocol.test.ts"
   },
   "dependencies": {
-    "@vellumai/electron-utils": "workspace:*"
+    "@vellumai/electron-utils": "workspace:*",
+    "@vellumai/ipc-contract": "workspace:*",
+    "jszip": "3.10.1"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",
