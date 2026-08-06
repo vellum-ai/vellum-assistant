@@ -5,6 +5,10 @@ import {
   type IpcRendererEvent,
 } from "electron";
 
+import {
+  createFileOpenPreloadBridge,
+} from "@vellumai/electron-desktop/file-open-preload";
+
 import type {
   Lockfile,
   LockfileWriteResult,
@@ -90,6 +94,8 @@ const subscribeDictationEvent =
       ipcRenderer.off(channel, handler);
     };
   };
+
+const fileOpenBridge = createFileOpenPreloadBridge({ ipcRenderer, webUtils });
 
 const bridge: VellumBridge = {
   platform: "electron",
@@ -416,34 +422,8 @@ const bridge: VellumBridge = {
       };
     },
   },
-  fileOpen: {
-    drain: (): Promise<string[]> =>
-      ipcRenderer.invoke("vellum:fileOpen:drain") as Promise<string[]>,
-    onFile: (callback) => {
-      ipcRenderer.send("vellum:fileOpen:subscribe");
-      const handler = (_event: IpcRendererEvent, filePath: string) => {
-        callback(filePath);
-      };
-      ipcRenderer.on("vellum:fileOpen:event", handler);
-      return () => {
-        ipcRenderer.send("vellum:fileOpen:unsubscribe");
-        ipcRenderer.off("vellum:fileOpen:event", handler);
-      };
-    },
-  },
-  paths: {
-    // Synchronous — `webUtils.getPathForFile` runs entirely inside the
-    // preload's renderer context (no IPC hop), which is required because
-    // `File` objects can't be serialized across the renderer↔main boundary.
-    getPathForFile: (file: File): string | null => {
-      try {
-        const path = webUtils.getPathForFile(file);
-        return path ? path : null;
-      } catch {
-        return null;
-      }
-    },
-  },
+  fileOpen: fileOpenBridge.fileOpen,
+  paths: fileOpenBridge.paths,
   feedback: {
     diagnostics: () =>
       ipcRenderer.invoke("vellum:feedback:diagnostics") as Promise<

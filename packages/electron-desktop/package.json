@@ -8,6 +8,8 @@
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./devtools": "./src/devtools.ts",
+    "./file-open": "./src/file-open.ts",
+    "./file-open-preload": "./src/file-open-preload.ts",
     "./ipc": "./src/ipc.ts",
     "./windows": "./src/windows.ts"
   },
@@ -16,7 +18,8 @@
     "test": "bun test src/capability-registry.test.ts"
   },
   "dependencies": {
-    "@vellumai/electron-utils": "workspace:*"
+    "@vellumai/electron-utils": "workspace:*",
+    "@vellumai/ipc-contract": "workspace:*"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",

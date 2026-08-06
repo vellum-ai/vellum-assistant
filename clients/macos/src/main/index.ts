@@ -42,7 +42,12 @@ import {
   installDeepLinks,
 } from "./deep-links";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
-import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
+import {
+  handleFileOpenArgv,
+  hasPendingFiles,
+  installFileOpen,
+  onFileOpen,
+} from "./file-open.client";
 import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
@@ -565,14 +570,10 @@ app.on("second-instance", (_event, argv) => {
   // `open-url` never fires. Always check argv here so the buffered
   // / broadcast pipeline is platform-agnostic.
   const deepLink = extractDeepLinkFromArgv(argv);
-  if (deepLink) handleDeepLink(deepLink);
-  // Forward .vellum file paths from second-instance argv so the
-  // buffer/broadcast pipeline handles them identically to open-file.
-  for (const arg of argv) {
-    if (/\.vellum$/i.test(arg)) {
-      handleFileOpen(arg);
-    }
+  if (deepLink) {
+    handleDeepLink(deepLink);
   }
+  handleFileOpenArgv(argv);
 });
 
 app.on("web-contents-created", (_event, contents) => {
