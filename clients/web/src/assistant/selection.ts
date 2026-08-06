@@ -70,7 +70,7 @@ export function resolveSelectedAssistantId(
  * must agree with the lifecycle on which assistant is selected. Honors the
  * stored selection when the multi-platform-assistant flag is on, or when the
  * assistant-switcher flag is on (its chooser stores the same selection and
- * now runs on local clients and the platform hub alike).
+ * runs on local clients and the platform hub alike).
  * Gateway-auth mode and a missing org id return null, as does a closed gate:
  * callers apply their own fallback. The org id comes from the same derivation
  * the `Vellum-Organization-Id` header uses (the resolved selection, or the

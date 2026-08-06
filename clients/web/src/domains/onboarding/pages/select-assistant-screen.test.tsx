@@ -34,6 +34,7 @@ let isLocalClientValue = true;
 let assistantSwitcherValue = false;
 let flagsHydratedValue = true;
 let originsValue: RememberedOrigin[] = [];
+let originsHydratedValue = true;
 /** The origin url `isCurrentOrigin` reports as the serving deployment. */
 let currentOriginUrl: string | null = null;
 let activeAssistantIdValue: string | null = null;
@@ -125,7 +126,10 @@ mock.module("@/stores/client-feature-flag-store", () => ({
 
 mock.module("@/stores/remembered-origins-store", () => ({
   useRememberedOriginsStore: {
-    use: { origins: () => originsValue },
+    use: {
+      origins: () => originsValue,
+      hydrated: () => originsHydratedValue,
+    },
     getState: () => ({
       origins: originsValue,
       hydrate: hydrateOriginsMock,
@@ -371,6 +375,7 @@ beforeEach(() => {
   assistantSwitcherValue = false;
   flagsHydratedValue = true;
   originsValue = [];
+  originsHydratedValue = true;
   currentOriginUrl = null;
   hydrateOriginsMock.mockClear();
   removeOriginMock.mockClear();
@@ -981,6 +986,20 @@ describe("SelectAssistantScreen remembered origins", () => {
     await waitFor(() =>
       expect(connectPairedAssistantMock).toHaveBeenCalledWith(PAIRED_ID),
     );
+  });
+
+  test("auto-skip holds until the origins store hydrates when the flag is on", async () => {
+    assistantSwitcherValue = true;
+    originsHydratedValue = false;
+    originsValue = [];
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
   });
 });
 

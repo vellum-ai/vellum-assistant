@@ -106,6 +106,7 @@ export function SelectAssistantScreen() {
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const origins = useRememberedOriginsStore.use.origins();
+  const originsHydrated = useRememberedOriginsStore.use.hydrated();
   // Origin-UI gate: every remembered-origin surface renders only behind the
   // flag, in every mode, so the flag-off screen is pixel-identical to a
   // build without origin support.
@@ -439,7 +440,11 @@ export function SelectAssistantScreen() {
       return;
     }
     // Remembered origins are alternatives a sole assistant does not account
-    // for, so the chooser stays up whenever any exist.
+    // for, so the chooser stays up whenever any exist. Persisted entries
+    // publish only after hydration, so hold the skip until then.
+    if (assistantSwitcher && !originsHydrated) {
+      return;
+    }
     if (originEntries.length > 0) {
       return;
     }
@@ -466,6 +471,8 @@ export function SelectAssistantScreen() {
     deepLinkDrainSettled,
     localClient,
     originEntries.length,
+    assistantSwitcher,
+    originsHydrated,
   ]);
 
   const onContinue = () => {
