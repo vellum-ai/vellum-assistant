@@ -91,16 +91,30 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
    `get` is always live: it invalidates the cached snapshot and re-runs the
    remote checks, so it reflects the state now rather than before the save.
 
-   Find the `webhook_delivery` check in `remoteChecks`.
+   Find the `webhook_delivery` check in `remoteChecks`. It has **three**
+   outcomes, and the third is the one that matters:
 
-   - **`passed: true`** → delivering. Continue to Step 4.
+   - **`passed: true`, no `indeterminate`** → confirmed. Telegram is
+     registered at the address this assistant set. Continue to Step 4.
    - **`passed: false`** → the channel is not live. Its `message` already
      names the cause and the fix, including whether this deployment can set
      its own webhook URL, so relay it rather than diagnosing yourself.
+   - **`passed: true` with `indeterminate: true`** → nothing is broken, and
+     nothing is confirmed either. Telegram could not be reached, or no
+     registration was recorded to compare against. Do NOT report success.
+     Say plainly that setup is stored but delivery could not be confirmed
+     yet, relay the `message`, and offer to check again.
 
    Registration is asynchronous. If the first check reports no webhook
-   registered, wait a few seconds and run the command once more before
-   treating it as failed.
+   registered, or reports `indeterminate`, wait a few seconds and run the
+   command once more before treating that as the answer: the recorded
+   registration lands when reconciliation completes.
+
+⚠️ CRITICAL: **`passed: true` alone is not confirmation.** An unreachable
+Telegram API and a missing registration record both report `passed: true`,
+because neither found a fault, and both set `indeterminate`. Treating the
+boolean alone as proof is precisely how this flow used to tell users their
+channel was live when nothing had verified it.
 
 ⚠️ CRITICAL: **Do not report success on stored credentials alone.** Credentials
 existing is what you would expect the moment the wizard closes and says nothing
@@ -133,8 +147,12 @@ assistant config get telegram.botUsername
 Summarize:
 
 - Bot connected: @{botUsername}
-- Telegram confirmed delivering
+- Telegram delivery: {confirmed | stored, not yet confirmed}
 - Guardian identity: {verified | skipped}
+
+Use "confirmed" only for a `webhook_delivery` that passed without
+`indeterminate`. If it was indeterminate, say so in the summary rather than
+rounding it up, and tell the user they can ask you to check again.
 
 ⚠️ CRITICAL: Never post the summary with a literal `{botUsername}` placeholder. Read the config value first and substitute it.
 
@@ -143,7 +161,7 @@ Summarize:
 - [ ] `assistant credentials list --search telegram` was called and the existing-state branch named explicitly (Step 1).
 - [ ] `ui_show` returned success before any message claiming the wizard is open (Step 2).
 - [ ] The token was never requested in chat.
-- [ ] `assistant channels get telegram` reported `webhook_delivery` passing before any success was claimed (Step 3).
+- [ ] `assistant channels get telegram` reported `webhook_delivery` as `passed: true` **without** `indeterminate` before any delivery success was claimed (Step 3).
 - [ ] `setWebhook`, `setMyCommands`, `assistant webhooks register` and `getWebhookInfo` were not run by hand.
 - [ ] `guardian-verify-setup` was loaded and either completed or explicitly declined (Step 4).
 

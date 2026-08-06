@@ -8,9 +8,10 @@
  *
  * The classification lives in `checkTelegramWebhookHealth`, which already
  * handles error recency and the managed-versus-self-hosted recovery text.
- * These tests pin how the probe maps its verdicts, in particular that the two
- * no-evidence statuses pass: a probe that cannot see the answer must not
- * report a fault.
+ * These tests pin how the probe maps its verdicts across three outcomes, not
+ * two: verified pass, hard failure, and the no-evidence statuses that are
+ * neither. A probe that cannot see the answer must not report a fault, and
+ * must not be counted as proof either.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -90,19 +91,51 @@ describe("telegram remote probe (webhook delivery)", () => {
     expect(result.message).toBe(health.detail);
   });
 
-  test("passes when the check was skipped for want of preconditions", async () => {
-    // Nothing was checked, so there is no fault to report. Failing here would
-    // flag every install that has not configured Telegram at all.
-    health = { status: "skipped", detail: "no bot token stored" };
+  test("fails when Telegram holds a webhook this deployment did not register", async () => {
+    // The case last_error_date cannot see: on a quiet channel a stale tunnel
+    // address or another deployment's callback never produces a delivery
+    // error, so before the URL comparison this read as healthy.
+    health = {
+      status: "url_mismatch",
+      detail: "Telegram is registered at a different address",
+      registeredUrl: "https://stale.example/webhooks/telegram",
+      expectedUrl: "https://current.example/webhooks/telegram",
+    };
 
-    expect((await deliveryCheck()).passed).toBe(true);
+    const result = await deliveryCheck();
+    expect(result.passed).toBe(false);
+    expect(result.message).toBe(health.detail);
   });
 
-  test("passes when Telegram could not be reached", async () => {
-    // An unreachable API says nothing about whether the webhook is good.
-    // Failing here would turn a network blip into a broken-channel report.
-    health = { status: "unknown", detail: "could not reach Telegram" };
+  // The three indeterminate statuses. Each must satisfy BOTH halves: no fault
+  // reported (so a network blip does not paint a working channel broken), and
+  // not counted as evidence (so nothing can claim delivery from a check that
+  // never established it). Asserting only `passed` would let a regression that
+  // drops `indeterminate` through, which is exactly the false-success this
+  // contract exists to prevent.
+  const indeterminateCases = [
+    ["skipped", "no bot token stored"],
+    ["unknown", "could not reach Telegram"],
+    ["unverified", "no record of registering this webhook"],
+  ] as const;
 
-    expect((await deliveryCheck()).passed).toBe(true);
+  for (const [status, detail] of indeterminateCases) {
+    test(`${status} is indeterminate: no fault reported, but not proof of delivery`, async () => {
+      health = { status, detail };
+
+      const result = await deliveryCheck();
+      expect(result.passed).toBe(true);
+      expect(result.indeterminate).toBe(true);
+    });
+  }
+
+  test("a verified healthy result is not marked indeterminate", async () => {
+    // Sensitivity check for the cases above: if `indeterminate` were set
+    // unconditionally they would pass while proving nothing.
+    health = { status: "healthy", detail: "registered where we set it" };
+
+    const result = await deliveryCheck();
+    expect(result.passed).toBe(true);
+    expect(result.indeterminate).toBeFalsy();
   });
 });
