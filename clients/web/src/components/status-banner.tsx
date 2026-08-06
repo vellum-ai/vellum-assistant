@@ -887,8 +887,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  // Wake state is not keyed by assistant, so an in-flight wake started for a
+  // local assistant must not rewrite a paired entry's health to "starting".
   const effectiveLocalHealth =
     (isWakingLocalAssistant || isLocalWakeSettling) &&
+    !isPairedActiveAssistant &&
     canWakeLocalHealth(localHealth)
       ? "starting"
       : localHealth;

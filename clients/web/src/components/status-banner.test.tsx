@@ -937,6 +937,48 @@ describe("StatusBanner", () => {
       expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
     });
 
+    test("keeps can't-be-reached for a paired assistant while a local wake is in flight", async () => {
+      // Wake state is not keyed by assistant: a wake started for a local
+      // assistant must not rewrite an unreachable paired entry to "waking up".
+      localHealthMock = "sleeping";
+      assistantsMock = [
+        {
+          id: "assistant-123",
+          isLocal: true,
+          isPlatformHosted: false,
+          isPaired: false,
+        },
+        {
+          id: "assistant-paired",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+        },
+      ];
+      wakeLocalAssistantHostMock = mock(
+        () => new Promise<{ ok: true }>(() => {}),
+      );
+
+      const { rerender } = render(<StatusBanner />);
+      fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
+
+      await waitFor(() => {
+        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith(
+          "assistant-123",
+        );
+      });
+
+      activeAssistantIdMock = "assistant-paired";
+      localHealthMock = "unreachable";
+      rerender(<StatusBanner />);
+
+      expect(
+        screen.getByText("Your assistant can't be reached"),
+      ).toBeTruthy();
+      expect(screen.queryByText("Your assistant is waking up")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Wake up" })).toBeNull();
+    });
+
     test("keeps the asleep copy and wake action for a non-paired local assistant", () => {
       localHealthMock = "unreachable";
       assistantsMock = [
